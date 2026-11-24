@@ -136,7 +136,7 @@ def test_an_organization_approves_a_pulled_digest_and_can_revoke_it(
     client, digest, automated = _served(tmp_path, monkeypatch)
     with client:
         client.app.state.recall_watch.refresh("https://hub.example.org")  # type: ignore[attr-defined]
-        decide = "/api/packs/someone/visit-sorter/decide"
+        decide = "/api/agents/someone/visit-sorter/decide"
         assert client.post(decide, json=automated).json()["outcome"] == "HUMAN_REVIEW"
         state = client.get(
             "/api/registry-approvals", params={"pack_id": "someone/visit-sorter"}

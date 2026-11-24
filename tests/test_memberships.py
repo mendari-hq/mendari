@@ -478,7 +478,7 @@ def test_labeller_grants_label_only(members: TestClient, store: AuditStore) -> N
     headers = member(store, org="clinic-a", roles=["labeller"], sub="ada")
     principal = me(members, headers)["principal"]
     assert (principal["roles"], principal["permissions"]) == (["labeller"], ["label"])
-    for path in ("/api/audit", "/api/packs", "/api/review", "/api/notice"):
+    for path in ("/api/audit", "/api/agents", "/api/review", "/api/notice"):
         assert members.get(path, headers=headers).status_code == 403, path
     both = member(store, org="clinic-b", roles=["labeller", "viewer"], sub="bo")
     granted = set(me(members, both)["principal"]["permissions"])

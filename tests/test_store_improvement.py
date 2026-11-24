@@ -38,7 +38,7 @@ def _corrected(
     made = []
     for body, label in zip(BODIES, labels, strict=True):
         decided = world.client.post(
-            f"/api/packs/{INBOX}/decide",
+            f"/api/agents/{INBOX}/decide",
             json={"message": {"body": f"{body} ({org})"}},
             headers=reviewer,
         ).json()
@@ -66,7 +66,7 @@ def _draft(world: Store, headers: dict[str, str]) -> str:
 
 def _build(world: Store, headers: dict[str, str], digest: str, org: str = ORG_A) -> Any:
     return world.client.post(
-        f"/api/store/packs/{org}/inbox-router/improvement",
+        f"/api/store/agents/{org}/inbox-router/improvement",
         json={"version": digest},
         headers=headers,
     )

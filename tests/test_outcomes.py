@@ -37,7 +37,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 
 def decided(client: TestClient, pack: Pack, body: Any) -> str:
-    return str(client.post(f"/api/packs/{pack.id}/decide", json=body).json()["id"])
+    return str(client.post(f"/api/agents/{pack.id}/decide", json=body).json()["id"])
 
 
 @pytest.mark.parametrize(

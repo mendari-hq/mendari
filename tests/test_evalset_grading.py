@@ -707,7 +707,7 @@ def test_nothing_is_stored_and_api_evals_is_unchanged(
     set_id = world.frozen(3)
     admin = member(world.store, org=CLINIC, roles=["admin"], sub="admin")
     ran = world.client.post(
-        f"/api/packs/{world.pack.id}/evals", json={"dataset": "test", "limit": 2}, headers=admin
+        f"/api/agents/{world.pack.id}/evals", json={"dataset": "test", "limit": 2}, headers=admin
     )
     assert ran.status_code == 200
     listed = world.client.get("/api/evals", headers=admin).json()

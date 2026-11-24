@@ -76,7 +76,7 @@ def refused_everywhere(world: World, headers: dict[str, str] | None, status: int
 
 def test_a_first_publish_stays_invisible_until_a_reviewer_approves_it(world: World) -> None:
     world.published()
-    public = f"/registry/v1/packs/acme/inbox/{SHIPPED}"
+    public = f"/registry/v1/agents/acme/inbox/{SHIPPED}"
     assert world.http.get(public).status_code == 404
     assert world.http.get("/registry/v1/search").json() == []
     rita = reviewer(world)
@@ -118,7 +118,7 @@ def test_an_administrator_of_another_organization_is_not_a_reviewer(world: World
     assert me["permissions"] == [] and me["roles"] == []
     refused_everywhere(world, None, 401)
     assert world.registry.claims(status="pending")[0]["namespace"] == "acme"
-    assert world.http.get(f"/registry/v1/packs/acme/inbox/{SHIPPED}").status_code == 404
+    assert world.http.get(f"/registry/v1/agents/acme/inbox/{SHIPPED}").status_code == 404
 
 
 def test_the_reviewer_role_cannot_be_granted_outside_the_review_organization(
@@ -331,11 +331,11 @@ def test_approval_refusal_review_recall_and_deletion_are_chained_by_the_reviewer
     assert "example.org" not in json.dumps(world.events())
     assert world.registry.verify()["ok"] is True
     # What the acts did: served as verified and reviewed, then recalled, then gone.
-    served_now = world.http.get(f"/registry/v1/packs/acme/inbox/{SHIPPED}").json()
+    served_now = world.http.get(f"/registry/v1/agents/acme/inbox/{SHIPPED}").json()
     assert served_now["checked"]["publisher_type"] == "verified"
     assert served_now["checked"]["review"]["reviewer"] == who
     assert served_now["yank"]["signer"] == "registry" and served_now["deleted"]["reason"]
-    assert world.http.get(f"/registry/v1/packs/acme/inbox/{SHIPPED}/archive").status_code != 200
+    assert world.http.get(f"/registry/v1/agents/acme/inbox/{SHIPPED}/archive").status_code != 200
     # Once each: a second recall or deletion, and what does not exist.
     for path, body, _ in sent[4:]:
         assert world.http.post(path, json=body, headers=rita).status_code == 409

@@ -547,7 +547,7 @@ def test_the_api_compares_with_the_providers_the_server_runs(
     tmp_path: Path, inbox_pack: Pack
 ) -> None:
     client = TestClient(create_app(db_path=tmp_path / "a.db", providers=SCREENED))
-    decided = client.post(f"/api/packs/{inbox_pack.id}/decide", json=message(ROUTINE)).json()
+    decided = client.post(f"/api/agents/{inbox_pack.id}/decide", json=message(ROUTINE)).json()
     assert decided["outcome"] == "AUTO"
     report = client.get("/api/monitoring", params={"pack_id": inbox_pack.id}).json()
     assert report["last_7_days"]["decisions"] == 1 and report["pack"]["id"] == inbox_pack.id

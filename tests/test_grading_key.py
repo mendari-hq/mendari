@@ -120,7 +120,7 @@ def test_an_administrator_lists_and_revokes_it_but_never_rotates_or_mints_one(
     for body in ({"name": "g", "role": "grading"}, {"name": "l", "role": "labeller"}):
         assert client.post("/api/auth/keys", json=body, headers=admin).status_code == 422
     assert client.get("/api/audit", headers=bearer).status_code == 403  # it reads nothing
-    assert client.get("/api/packs", headers=bearer).status_code == 403
+    assert client.get("/api/agents", headers=bearer).status_code == 403
     health = client.get("/api/health", headers=bearer).json()
     assert set(health) == {"status", "version", "sign_in"}  # it may not read: three fields
     assert client.delete(f"/api/auth/keys/{key['id']}", headers=admin).status_code == 204

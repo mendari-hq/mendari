@@ -319,7 +319,7 @@ def test_a_shadow_in_the_cache_is_listed_and_the_reference_pack_is_served(tmp_pa
         assert (served.origin, served.digest) == ("maintained", reference.digest), ref
     client = TestClient(create_app(db_path=tmp_path / "s.db", packs_paths=paths))
     assert str(root.resolve()) in client.get("/api/health").json()["invalid"]
-    detail = client.get(f"/api/packs/{reference.id}").json()
+    detail = client.get(f"/api/agents/{reference.id}").json()
     assert (detail["digest"], detail["origin"]) == (reference.digest, "maintained")
 
 
@@ -562,9 +562,9 @@ def test_discover_lists_a_refused_registry_pack_and_serves_the_others(tmp_path: 
     assert ("mendari/referral-router", "9.9.9") not in served
     client = TestClient(create_app(db_path=tmp_path / "e.db", packs_paths=paths))
     assert str(referral.resolve()) in client.get("/api/health").json()["invalid"]
-    detail = client.get("/api/packs/mendari/referral-router").json()
+    detail = client.get("/api/agents/mendari/referral-router").json()
     assert detail["manifest"]["version"] == shipped
-    detail = client.get("/api/packs/mendari/patient-inbox-router").json()
+    detail = client.get("/api/agents/mendari/patient-inbox-router").json()
     assert detail["manifest"]["version"] == "9.9.9"
 
 

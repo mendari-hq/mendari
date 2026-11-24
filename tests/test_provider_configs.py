@@ -321,7 +321,7 @@ def test_an_owned_packs_unread_key_warns_and_it_still_serves(
     health = client.get("/api/health").json()
     assert health["pack_warnings"] == {PACK_ID: list(owned.warnings)}
     assert PACK_ID not in str(health["invalid"])
-    decided = client.post(f"/api/packs/{PACK_ID}/decide", json=BILL)
+    decided = client.post(f"/api/agents/{PACK_ID}/decide", json=BILL)
     assert decided.status_code == 200, decided.text
     assert decided.json()["recommendation"] == "billing"
     clean_app = create_app(db_path=tmp_path / "c.db", packs_paths=[SearchPath(PACKS, "maintained")])

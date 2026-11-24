@@ -340,7 +340,7 @@ def test_a_referral_under_a_site_code_is_decided_through_the_site_code_map(
     )
     with TestClient(create_app(db_path=tmp_path / "served.db")) as app:
         answer = app.post(
-            "/api/packs/mendari/referral-router/fhir/decide",
+            "/api/agents/mendari/referral-router/fhir/decide",
             json={
                 "resourceType": "Bundle",
                 "type": "collection",

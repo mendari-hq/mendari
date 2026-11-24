@@ -73,7 +73,7 @@ def test_guard_section_is_validated() -> None:
 def test_the_guard_endpoint_is_audited(db_target: str) -> None:
     app = create_app(db_path=db_target, packs_paths=[MINI.parent])
     client = TestClient(app)
-    url = "/api/packs/mendari-test/guard-mini/guard"
+    url = "/api/agents/mendari-test/guard-mini/guard"
     blocked = client.post(url, json=OVERDOSE).json()
     assert blocked["status"] == "blocked" and blocked["reply"] is None
     assert blocked["fallback"].startswith("Do not send the draft")
@@ -84,5 +84,5 @@ def test_the_guard_endpoint_is_audited(db_target: str) -> None:
     assert held["decision"]["outcome"] == held["outcome"]
     audited = {r["id"] for r in client.get("/api/audit?limit=10").json()}
     assert {blocked["decision_id"], held["decision_id"]} <= audited
-    no_guard = client.post("/api/packs/mendari-test/trial-mini/guard", json={})
+    no_guard = client.post("/api/agents/mendari-test/trial-mini/guard", json={})
     assert no_guard.status_code == 400

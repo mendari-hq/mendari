@@ -22,7 +22,7 @@ from tests.conftest import Registry
 from tests.test_hub_client import Hub, copy_pack, hub  # noqa: F401 - the live registry fixture
 
 REFERRAL = resolve_pack("mendari/referral-router")
-PATH = f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"
+PATH = f"/v1/agents/{REFERRAL.id}/{REFERRAL.version}"
 REGISTRY_KEY = base64.b64encode(os.urandom(32)).decode()
 
 
@@ -59,7 +59,7 @@ def test_a_yanked_version_leaves_latest_and_search_and_is_still_served_by_versio
     assert answer.status_code == 201, answer.text
     assert answer.json()["yank"] == record
     assert registry.client.get("/v1/search").json() == []
-    pack = registry.client.get(f"/v1/packs/{REFERRAL.id}").json()
+    pack = registry.client.get(f"/v1/agents/{REFERRAL.id}").json()
     assert pack["latest"] is None and pack["versions"] == []
     assert pack["recalled"] == [{"version": REFERRAL.version, "yank": record, "deleted": None}]
     assert registry.client.get("/v1/namespaces/mendari").json()["packs"] == []
@@ -82,7 +82,7 @@ def test_a_newer_version_stays_latest_when_an_older_one_is_yanked(
 
     assert registry.publish(_at_version(tmp_path / "a", INBOX, "9.9.8")).status_code == 201
     assert registry.publish(_at_version(tmp_path / "b", INBOX, "9.9.9")).status_code == 201
-    path = f"/v1/packs/{INBOX.id}/9.9.9"
+    path = f"/v1/agents/{INBOX.id}/9.9.9"
     meta = registry.client.get(path).json()
     record = yank.sign(
         pack=INBOX.id, version="9.9.9", digest=meta["digest"],
@@ -94,7 +94,7 @@ def test_a_newer_version_stays_latest_when_an_older_one_is_yanked(
         registry.client.post(f"{path}/yank", json={"record": record}, headers=headers).status_code
         == 201
     )
-    pack = registry.client.get(f"/v1/packs/{INBOX.id}").json()
+    pack = registry.client.get(f"/v1/agents/{INBOX.id}").json()
     assert pack["latest"]["version"] == "9.9.8" and pack["versions"] == ["9.9.8"]
     assert [item["version"] for item in registry.client.get("/v1/search").json()] == ["9.9.8"]
 

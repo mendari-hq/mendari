@@ -533,7 +533,7 @@ def test_every_record_an_export_writes_says_it_was_exported(
     said = capsys.readouterr().out
     assert "a site's cases" in said and "outside the agent's folder" in said
     served = TestClient(create_app(db_path=db)).get(
-        "/api/packs/mendari/patient-inbox-router/feedback/export", params={"source": source}
+        "/api/agents/mendari/patient-inbox-router/feedback/export", params={"source": source}
     )
     assert served.status_code == 200
     for written in (out.read_bytes(), served.content):
@@ -714,7 +714,7 @@ def test_a_registry_refuses_one_a_client_sent_without_looking(
         without_the_check.setattr(archive, "refuse_site_cases", lambda files: None)
         data = archive.build(pack, registry.key)
         by_a_stranger = archive.build(pack, stranger)
-    path = f"/v1/packs/mendari/patient-inbox-router/{VERSION}"
+    path = f"/v1/agents/mendari/patient-inbox-router/{VERSION}"
     publisher = {"authorization": f"Bearer {registry.token}"}
 
     answer = registry.client.put(path, content=data, headers=publisher)

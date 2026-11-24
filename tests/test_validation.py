@@ -130,7 +130,7 @@ def test_a_valid_publish_is_stored_as_before(
     pack = load_pack(root)
     data = archive.build(pack, registry.key)
     published = registry.client.put(
-        "/v1/packs/mendari/patient-inbox-router/9.9.9",
+        "/v1/agents/mendari/patient-inbox-router/9.9.9",
         content=data,
         headers={"authorization": f"Bearer {registry.token}"},
     )

@@ -89,7 +89,7 @@ def test_every_link_on_the_landing_goes_somewhere(client: TestClient) -> None:
 
 def test_open_mode_links_every_packs_decision_card(client: TestClient) -> None:
     text = client.get("/docs").text
-    packs = client.get("/api/packs").json()
+    packs = client.get("/api/agents").json()
     assert packs
     for pack in packs:
         assert f'href="/?agent={pack["id"]}#card"' in text, pack["id"]

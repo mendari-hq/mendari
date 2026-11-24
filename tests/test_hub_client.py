@@ -239,7 +239,7 @@ def test_a_pulled_packs_uploaded_figures_are_not_shown_where_it_is_served(
     assert "The registry shows no figure it did not compute itself" in card
     assert "## Provider comparison" not in card and "## Provider comparison" in card_of(pack)
     with TestClient(create_app(db_path=tmp_path / "a.db")) as engine:
-        detail = engine.get("/api/packs/site-a/inbox").json()
+        detail = engine.get("/api/agents/site-a/inbox").json()
     assert detail["origin"] == "hub"
     assert detail["benchmark"] is None and detail["leaderboard"] is None
     assert detail["card_markdown"] == card
@@ -266,7 +266,7 @@ def test_a_pulled_packs_uploaded_benchmark_is_never_compared_or_monitored_agains
     assert pulled.origin == "hub" and benchmark(pulled) is not None  # it carries one
     run = {"dataset": "red_flags", "limit": 20}
     with TestClient(create_app(db_path=tmp_path / "a.db")) as engine:
-        answer = engine.post("/api/packs/site-a/inbox/evals", json=run).json()
+        answer = engine.post("/api/agents/site-a/inbox/evals", json=run).json()
         monitored = engine.get("/api/monitoring", params={"pack_id": "site-a/inbox"}).json()
     capsys.readouterr()  # the server's security log
     assert answer["comparison"] == not_compared(FROM_REGISTRY)
@@ -623,7 +623,7 @@ def _hub_site(hub: Hub, capsys: pytest.CaptureFixture[str]) -> str:
 
 def _reports(hub: Hub) -> list[dict[str, object]]:
     with httpx.Client() as http:
-        answer = http.get(f"{hub.url}/v1/packs/mendari/referral-router/reports").json()
+        answer = http.get(f"{hub.url}/v1/agents/mendari/referral-router/reports").json()
     return list(answer["reports"])
 
 
@@ -651,7 +651,7 @@ def test_eval_share_out_writes_exactly_what_is_sent_and_sends_nothing(
     (served,) = _reports(hub)
     with httpx.Client() as http:
         record = http.get(
-            f"{hub.url}/v1/packs/mendari/referral-router/reports/{served['id']}"
+            f"{hub.url}/v1/agents/mendari/referral-router/reports/{served['id']}"
         ).json()["record"]
     assert record == written  # exactly the bytes it wrote
     assert served["site"] == site and served["verified"] is True

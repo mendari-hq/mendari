@@ -414,7 +414,7 @@ def test_the_api_takes_x12_codes_from_the_request_else_the_settings_and_never_fi
         "order": _order("mri", "FX101"),
         "place_of_service": "22",
     }
-    path = f"/api/packs/{PA}/pas"
+    path = f"/api/agents/{PA}/pas"
     refused = client.post(path, json=body)
     assert refused.status_code == 422
     for name in ("request_type", "certification_type", "service_type"):
@@ -441,8 +441,8 @@ def test_the_api_takes_x12_codes_from_the_request_else_the_settings_and_never_fi
 def test_a_pack_says_which_decisions_make_a_pas_request(tmp_path: Path) -> None:
     """The dashboard offers to build the request only where the route can build one."""
     client = TestClient(create_app(db_path=tmp_path / "x.db"))
-    assert client.get(f"/api/packs/{PA}").json()["pas_ready"] == pas.READY
-    assert client.get("/api/packs/mendari/patient-inbox-router").json()["pas_ready"] is None
+    assert client.get(f"/api/agents/{PA}").json()["pas_ready"] == pas.READY
+    assert client.get("/api/agents/mendari/patient-inbox-router").json()["pas_ready"] is None
 
 
 @pytest.mark.usefixtures("no_site_settings")
@@ -529,7 +529,7 @@ def test_the_api_builds_submits_and_chains_the_answer(
         "service_type": "62",
         "place_of_service": "22",
     }
-    path = f"/api/packs/{PA}/pas"
+    path = f"/api/agents/{PA}/pas"
     built = client.post(path, json=body).json()
     assert built["submitted"] is None and not submitted
     # The decision went to a person (no model in the notes screen): it is sent once one confirms.
@@ -587,7 +587,7 @@ def test_an_outcome_reported_later_never_stands_in_for_the_reviewer(
         "place_of_service": "22",
         "submit": True,
     }
-    refused = client.post(f"/api/packs/{PA}/pas", json=body)
+    refused = client.post(f"/api/agents/{PA}/pas", json=body)
     assert refused.status_code == 422 and "reviewer confirms" in refused.text
 
 
@@ -823,7 +823,7 @@ def test_the_api_attaches_the_completed_response_and_sends_it_once_a_reviewer_co
         "service_type": "62",
         "place_of_service": "22",
     }
-    path = f"/api/packs/{PA}/pas"
+    path = f"/api/agents/{PA}/pas"
 
     built = client.post(path, json=body | {"questionnaire_response": response})
     assert built.status_code == 200, built.text

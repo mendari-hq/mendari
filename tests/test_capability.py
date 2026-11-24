@@ -198,7 +198,7 @@ def test_with_sign_in_on_the_statement_names_no_pack(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """It needs no credential, so with sign-in on it does not say which packs run here (that is
-    for signed-in callers, as /api/packs and /api/health are): two servers with other packs but
+    for signed-in callers, as /api/agents and /api/health are): two servers with other packs but
     the same operations give the same statement, apart from when its version went live here."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")

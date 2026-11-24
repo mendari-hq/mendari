@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from mendari.server.app import create_app
 
-INBOX = "/api/packs/mendari/patient-inbox-router"
+INBOX = "/api/agents/mendari/patient-inbox-router"
 BUNDLE = (Path(__file__).parent / "fixtures" / "us-core" / "inbox.json").read_text()
 
 

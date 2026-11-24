@@ -16,7 +16,7 @@ from mendari.evals import evaluate, leaderboard, resolve_dataset
 from mendari.server.app import create_app
 from tests.conftest import INBOX_DIR
 
-PACK = "/api/packs/mendari/patient-inbox-router"
+PACK = "/api/agents/mendari/patient-inbox-router"
 
 
 def report(pack: Pack, dataset: str, **providers: str) -> dict[str, Any]:

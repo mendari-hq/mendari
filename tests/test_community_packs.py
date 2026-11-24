@@ -295,7 +295,7 @@ def test_a_pulled_copy_at_the_reference_version_is_served_on_the_maintained_engi
     pulled = resolve_pack(f"mendari/referral-router@{reference.version}", paths)
     assert (pulled.origin, pulled.bounded, pulled.digest) == ("hub", False, reference.digest)
     client = TestClient(create_app(db_path=tmp_path / "h.db", packs_paths=paths))
-    detail = client.get("/api/packs/mendari/referral-router").json()
+    detail = client.get("/api/agents/mendari/referral-router").json()
     assert detail["manifest"]["version"] == reference.version
 
 
@@ -319,9 +319,9 @@ def test_a_newer_pulled_version_is_served_on_the_community_engine(tmp_path: Path
     assert (referral.origin, referral.bounded) == ("maintained", False)
     assert referral.version == load_pack(PACKS / "referral-router").version
     client = TestClient(create_app(db_path=tmp_path / "h.db", packs_paths=paths))
-    detail = client.get("/api/packs/mendari/patient-inbox-router").json()
+    detail = client.get("/api/agents/mendari/patient-inbox-router").json()
     assert detail["manifest"]["version"] == "9.9.9"
-    detail = client.get("/api/packs/mendari/referral-router").json()
+    detail = client.get("/api/agents/mendari/referral-router").json()
     assert detail["manifest"]["version"] == referral.version
 
 
@@ -396,7 +396,7 @@ def test_the_server_reports_both_claims_of_a_community_id_and_serves_the_first(
     )
     health = client.get("/api/health").json()
     assert set(health["invalid"]) == {str(first), str(later.resolve())}
-    detail = client.get(f"/api/packs/{SORTER_ID}").json()
+    detail = client.get(f"/api/agents/{SORTER_ID}").json()
     assert detail["manifest"]["version"] == "0.1.0"
 
 
@@ -418,9 +418,9 @@ def test_an_invalid_community_pack_is_listed_and_every_other_pack_decides(
     assert set(health["invalid"]) == {str(broken.resolve()), str((base / "unreadable").resolve())}
     for pack_dir in sorted(PACKS.iterdir()):
         case = yaml.safe_load((pack_dir / "tests" / "cases.yaml").read_text())[0]
-        response = client.post(f"/api/packs/mendari/{pack_dir.name}/decide", json=case["input"])
+        response = client.post(f"/api/agents/mendari/{pack_dir.name}/decide", json=case["input"])
         assert response.status_code == 200, (pack_dir.name, response.text)
-    response = client.post(f"/api/packs/{SORTER_ID}/decide", json=BILL)
+    response = client.post(f"/api/agents/{SORTER_ID}/decide", json=BILL)
     assert response.status_code == 200, response.text
     assert response.json()["recommendation"] == "billing"
 
@@ -635,13 +635,13 @@ def labelled(tmp_path: Path) -> TestClient:
 
 
 def test_the_api_names_every_packs_origin_by_where_it_was_found(labelled: TestClient) -> None:
-    listed = {pack["id"]: pack for pack in labelled.get("/api/packs").json()}
+    listed = {pack["id"]: pack for pack in labelled.get("/api/agents").json()}
     assert {listed[pack_id]["origin"] for pack_id in SHIPPED} == {"maintained"}
     assert {listed[pack_id]["origin_label"] for pack_id in SHIPPED} == {"Maintained by Mendari"}
     for pack_id in (SORTER_ID, "community/inbox-copy"):
         assert listed[pack_id]["origin"] == "community"
         assert listed[pack_id]["origin_label"] == COMMUNITY_LABEL
-    detail = labelled.get(f"/api/packs/{SORTER_ID}").json()
+    detail = labelled.get(f"/api/agents/{SORTER_ID}").json()
     assert detail["origin"] == "community" and detail["origin_label"] == COMMUNITY_LABEL
     assert f"| Source | {COMMUNITY_LABEL} |" in detail["card_markdown"]
 
@@ -812,9 +812,9 @@ def test_a_community_packs_dtr_questionnaire_is_labelled(tmp_path: Path) -> None
 def test_the_eval_endpoint_runs_a_community_pack_remotely_only_where_named(
     tmp_path: Path, labelled: TestClient
 ) -> None:
-    """Before, POST /api/packs/<community>/evals with `providers` ran any variant: up to 200
+    """Before, POST /api/agents/<community>/evals with `providers` ran any variant: up to 200
     paid calls per request, which the deployment never chose for the pack."""
-    url = "/api/packs/community/inbox-copy/evals"
+    url = "/api/agents/community/inbox-copy/evals"
     remote = labelled.post(url, json={"dataset": "red_flags", "providers": {"router": "llm"}})
     assert remote.status_code == 400
     assert "runs a remote variant only where the deployment names it" in remote.json()["detail"]
@@ -823,7 +823,7 @@ def test_the_eval_endpoint_runs_a_community_pack_remotely_only_where_named(
     assert local.json()["providers"]["router"]["variant"] == "rules"
     # A maintained pack's evaluation takes any variant, as before (here, a local one).
     shipped = labelled.post(
-        f"/api/packs/{INBOX_ID}/evals",
+        f"/api/agents/{INBOX_ID}/evals",
         json={"dataset": "red_flags", "providers": {"router": "rules"}},
     )
     assert shipped.status_code == 200

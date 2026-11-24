@@ -30,7 +30,7 @@ def app(tmp_path: Path) -> TestClient:
 
 
 def decide(app: TestClient) -> dict[str, Any]:
-    response = app.post(f"/api/packs/{TRIAL}/decide", json=CASE["input"])
+    response = app.post(f"/api/agents/{TRIAL}/decide", json=CASE["input"])
     assert response.status_code == 200, response.text
     decision: dict[str, Any] = response.json()
     return decision

@@ -49,6 +49,6 @@ def test_site_evidence_never_enters_the_hidden_set_rank(registry: Registry, tmp_
     for org in ("north-health", "south-clinic"):
         site = verified_site(registry, tmp_path, org=org)
         assert share_signed(registry, site, shared_benchmark()).status_code == 201
-    evidence = registry.client.get("/v1/packs/mendari/referral-router/site-evidence").json()
+    evidence = registry.client.get("/v1/agents/mendari/referral-router/site-evidence").json()
     assert evidence["groups"][0]["sites"] == 2
     assert page_script.page(store) == before

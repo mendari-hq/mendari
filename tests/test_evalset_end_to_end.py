@@ -275,7 +275,7 @@ def test_a_hidden_set_from_creation_to_retirement_through_the_cli_and_http(
     evalsets_are_on(world.client, curator)
     decided = world.call(
         "POST",
-        f"/api/packs/{INBOX}/decide",
+        f"/api/agents/{INBOX}/decide",
         reviewer,
         json={"message": {"body": "Can I get a refill of my lisinopril?", "channel": "portal"}},
     )

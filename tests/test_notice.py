@@ -76,10 +76,10 @@ def test_cds_hooks_carry_it(router: Decision) -> None:
 
 
 def test_every_decide_answer_carries_it(open_client: TestClient) -> None:
-    decided = open_client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL)).json()
+    decided = open_client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL)).json()
     assert decided["notice"] == notices.notice() and decided["outcome"]
-    draft = open_client.get("/api/packs/mendari/ai-guard/examples").json()[0]["input"]
-    checked = open_client.post("/api/packs/mendari/ai-guard/guard", json=draft).json()
+    draft = open_client.get("/api/agents/mendari/ai-guard/examples").json()[0]["input"]
+    checked = open_client.post("/api/agents/mendari/ai-guard/guard", json=draft).json()
     assert checked["notice"] == notices.notice() and checked["status"]
 
 
@@ -115,14 +115,14 @@ def test_a_signed_in_person_acknowledges_before_deciding(
     asked = client.get("/api/notice", headers=reviewer).json()
     assert asked["required"] is True and asked["acknowledged"] is False
     assert asked["text"] == notices.NOTICE and asked["acknowledgement"] == notices.ACKNOWLEDGEMENT
-    refused = client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL), headers=reviewer)
+    refused = client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL), headers=reviewer)
     assert refused.status_code == 403 and refused.json()["error"] == "NoticeNotAcknowledged"
     assert refused.headers["Mendari-Notice-Required"] == notices.VERSION
     assert "WWW-Authenticate" not in refused.headers  # not a sign-in challenge
     # Every route that takes data in from a person: deciding, reviewing, feedback.
     for path in (
-        f"/api/packs/{INBOX}/fhir/decide",
-        f"/api/packs/{INBOX}/guard",
+        f"/api/agents/{INBOX}/fhir/decide",
+        f"/api/agents/{INBOX}/guard",
         "/api/review/any",
         "/api/audit/any/feedback",
     ):
@@ -132,7 +132,7 @@ def test_a_signed_in_person_acknowledges_before_deciding(
         done = client.post("/api/notice/acknowledge", headers=reviewer).json()
         assert done["acknowledged"] is True
     assert client.get("/api/notice", headers=reviewer).json()["acknowledged"] is True
-    decided = client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL), headers=reviewer)
+    decided = client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL), headers=reviewer)
     assert decided.status_code == 200, decided.text
 
     events = _events(store)
@@ -159,7 +159,7 @@ def test_a_new_notice_version_asks_again(
     client.post("/api/notice/acknowledge", headers=reviewer)
     monkeypatch.setattr(notices, "VERSION", "2")
     assert client.get("/api/notice", headers=reviewer).json()["acknowledged"] is False
-    refused = client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL), headers=reviewer)
+    refused = client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL), headers=reviewer)
     assert refused.status_code == 403
 
 
@@ -188,7 +188,7 @@ def test_keys_are_never_asked(signed_in_app: tuple[TestClient, AuditStore]) -> N
     client, store = signed_in_app
     key = store.create_api_key(name="svc", role="service", org="default", created_by="t")["key"]
     machine = {"authorization": f"Bearer {key}"}
-    decided = client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL), headers=machine)
+    decided = client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL), headers=machine)
     assert decided.status_code == 200
 
 
@@ -196,7 +196,7 @@ def test_open_mode_is_never_asked(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "required")
     client = TestClient(create_app(db_path=tmp_path / "o.db"))  # no sign-in: a local sandbox
     assert client.get("/api/notice").json()["required"] is False
-    assert client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL)).status_code == 200
+    assert client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL)).status_code == 200
 
 
 def test_a_bad_setting_fails_at_startup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

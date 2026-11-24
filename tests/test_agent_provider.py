@@ -754,7 +754,7 @@ def test_a_server_with_sign_in_never_automates_on_canned_answers(
     from tests.conftest import DASHBOARD
 
     monkeypatch.delenv(ENDPOINT_ENV, raising=False)
-    route = "/api/packs/mendari/portal-message-agent/decide"
+    route = "/api/agents/mendari/portal-message-agent/decide"
     agents = [ROOT / "agents"]
     open_mode = TestClient(create_app(db_path=tmp_path / "open.db", packs_paths=agents))
     assert open_mode.post(route, json=REFILL).json()["outcome"] == "AUTO"

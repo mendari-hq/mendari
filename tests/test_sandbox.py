@@ -38,7 +38,7 @@ from tests.support.sandbox import (
 DATASETS = example_datasets_dir() or Path("datasets")
 
 FHIR = "http://fhir.test/fhir"
-DECIDE = "http://engine.test/api/packs/mendari/patient-inbox-router/fhir/decide"
+DECIDE = "http://engine.test/api/agents/mendari/patient-inbox-router/fhir/decide"
 
 
 class StaleFhir:

@@ -49,7 +49,7 @@ def _promote(
 
 def _decide(world: Store, pack_id: str, org: str = ORG_A) -> Any:
     return world.client.post(
-        f"/api/packs/{pack_id}/decide", json=MESSAGE, headers=world.as_(org, "reviewer")
+        f"/api/agents/{pack_id}/decide", json=MESSAGE, headers=world.as_(org, "reviewer")
     )
 
 
@@ -125,7 +125,7 @@ def test_a_promotion_names_reports_of_this_digest_and_this_organization(
 def test_every_risk_level_needs_a_promotion(world: Store) -> None:
     digest = _copy(world)
     assert _decide(world, f"{ORG_A}/inbox-router").status_code == 404
-    listed = world.client.get("/api/packs", headers=world.as_(ORG_A, "viewer")).json()
+    listed = world.client.get("/api/agents", headers=world.as_(ORG_A, "viewer")).json()
     assert f"{ORG_A}/inbox-router" not in {p["id"] for p in listed}
     _promote(world, digest, [_report(world, digest)])
     assert _decide(world, f"{ORG_A}/inbox-router").status_code == 200
@@ -156,9 +156,9 @@ def test_a_promoted_version_is_served_to_its_organization_and_to_no_other(world:
     assert decided.status_code == 200, decided.text
     assert decided.json()["pack"]["digest"] == digest
     assert decided.json()["promotion"] == promotion
-    mine = world.client.get("/api/packs", headers=world.as_(ORG_A, "viewer")).json()
+    mine = world.client.get("/api/agents", headers=world.as_(ORG_A, "viewer")).json()
     assert pack_id in {p["id"] for p in mine}
-    theirs = world.client.get("/api/packs", headers=world.as_(ORG_B, "viewer")).json()
+    theirs = world.client.get("/api/agents", headers=world.as_(ORG_B, "viewer")).json()
     assert pack_id not in {p["id"] for p in theirs}
     assert _decide(world, pack_id, org=ORG_B).status_code == 404
     key = world.client.post(
@@ -166,7 +166,9 @@ def test_a_promoted_version_is_served_to_its_organization_and_to_no_other(world:
     ).json()["key"]
     machine = {"authorization": f"Bearer {key}"}
     assert (
-        world.client.post(f"/api/packs/{pack_id}/decide", json=MESSAGE, headers=machine).status_code
+        world.client.post(
+            f"/api/agents/{pack_id}/decide", json=MESSAGE, headers=machine
+        ).status_code
         == 404
     )
     discovered = world.client.get("/cds-services", headers=machine).json()
@@ -321,7 +323,7 @@ def test_what_the_security_review_found_is_closed(world: Store) -> None:
         db.all("DELETE FROM store_files")
     packs._cache.clear()
     time.sleep(5.1)  # past the per-organization cache
-    listed = world.client.get("/api/packs", headers=world.as_(ORG_A, "viewer"))
+    listed = world.client.get("/api/agents", headers=world.as_(ORG_A, "viewer"))
     assert listed.status_code == 200
     ids = {p["id"] for p in listed.json()}
     assert resolve_pack(INBOX).id in ids and f"{ORG_A}/inbox-router" not in ids

@@ -39,7 +39,7 @@ from tests.conftest import SCREENED, message
 ROOT = Path(__file__).parents[1]
 SECRET = "s3cret-" + "x" * 40
 HOOK = "https://hooks.example.org/services/T000/B000/WebhookSecretToken"
-DECIDE = "/api/packs/mendari/patient-inbox-router/decide"
+DECIDE = "/api/agents/mendari/patient-inbox-router/decide"
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 
 

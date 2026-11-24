@@ -12,9 +12,9 @@ from mendari import notices
 from mendari.server.app import create_app
 from tests.conftest import LOCAL_DATASET
 
-INBOX_URL = "/api/packs/mendari/patient-inbox-router"
+INBOX_URL = "/api/agents/mendari/patient-inbox-router"
 INBOX_ID = "mendari/patient-inbox-router"
-REFERRAL_URL = "/api/packs/mendari/referral-router"
+REFERRAL_URL = "/api/agents/mendari/referral-router"
 REFERRAL_ID = "mendari/referral-router"
 
 pytestmark = pytest.mark.core

@@ -226,7 +226,7 @@ def test_a_ticket_with_no_result_is_listed_as_unreported_and_an_expired_one_stay
     assert published.operator.ticket(expired["id"])["status"] == "expired"
     monkeypatch.setattr(sites, "TICKET_DAYS", 30)
     assert _post(published, _request(site)).status_code == 201  # an expired one is not live
-    listed = published.client.get(f"/v1/packs/{REFERRAL.id}/tickets").json()["tickets"]
+    listed = published.client.get(f"/v1/agents/{REFERRAL.id}/tickets").json()["tickets"]
     (group,) = listed
     assert group["site"] == site.id and group["site_name"] == "north-health (synthetic)"
     assert (group["reported"], group["unreported"], group["withdrawn"]) == (0, 2, 0)
@@ -358,7 +358,7 @@ def test_a_closed_sites_unreported_tickets_stay_listed(published: Registry, tmp_
     site = _site(published, tmp_path)
     assert _post(published, _request(site)).status_code == 201
     published.operator.close_site(site.id, org=None, by="o", reason="merged")
-    (group,) = published.client.get(f"/v1/packs/{REFERRAL.id}/tickets").json()["tickets"]
+    (group,) = published.client.get(f"/v1/agents/{REFERRAL.id}/tickets").json()["tickets"]
     assert (group["site"], group["site_status"], group["unreported"]) == (site.id, "closed", 1)
 
 
@@ -367,13 +367,13 @@ def test_the_tickets_of_a_pack_nobody_may_read_are_a_404(
 ) -> None:
     site = _site(published, tmp_path)
     assert _post(published, _request(site)).status_code == 201
-    assert published.client.get("/v1/packs/mendari/no-such-pack/tickets").status_code == 404
+    assert published.client.get("/v1/agents/mendari/no-such-pack/tickets").status_code == 404
     with published.operator._db.session(exclusive=True) as db:  # its claim pending, planted
         db.all(
             "INSERT INTO hub_claims (namespace, org, claimed_by, created_at, status) "
             "VALUES ('mendari', 'mendari', 'u', '2026-01-01T00:00:00+00:00', 'pending')"
         )
-    hidden = published.client.get(f"/v1/packs/{REFERRAL.id}/tickets")
+    hidden = published.client.get(f"/v1/agents/{REFERRAL.id}/tickets")
     assert hidden.status_code == 404 and site.id not in hidden.text
 
 

@@ -46,7 +46,7 @@ from tests.test_spec_03 import ICD, PATIENT, SITE, mini
 
 PACKS = INBOX_DIR.parent  # the reference packs
 PACK_ID = "mendari-test/prescreen-mini"
-DECIDE = f"/api/packs/{PACK_ID}/fhir/decide"
+DECIDE = f"/api/agents/{PACK_ID}/fhir/decide"
 SERVICE = "/cds-services/mendari-test.prescreen-mini"
 LOINC = "http://loinc.org"
 SITE_CODE = "SITE-T2D-4471"  # a site's own code for type 2 diabetes (fictional)
@@ -151,7 +151,7 @@ def test_unset_means_every_decision_as_before(tmp_path: Path) -> None:
         )
         assert own.outcome is Outcome.AUTO and own.recommendation == "candidate"
         assert site.answers["t2d_diagnosis"].label == "unknown"
-        plain = app.post("/api/packs/mendari/patient-inbox-router/decide", json={
+        plain = app.post("/api/agents/mendari/patient-inbox-router/decide", json={
             "message": {"body": "Please call me about my bill."}
         }).json()  # fmt: skip
         assert plain["site_codes"] is None
@@ -406,9 +406,9 @@ def test_each_decision_records_the_maps_version_and_digest_for_its_organization(
         referral = json.loads(
             (Path(__file__).parent / "fixtures" / "us-core" / "referral.json").read_text()
         )
-        answer = app.post("/api/packs/mendari/referral-router/fhir/decide", json=referral).json()
+        answer = app.post("/api/agents/mendari/referral-router/fhir/decide", json=referral).json()
         assert answer["decision"]["site_codes"] == stamp  # it reads no code set: the map in force
-        plain = app.post("/api/packs/mendari/patient-inbox-router/decide", json={
+        plain = app.post("/api/agents/mendari/patient-inbox-router/decide", json={
             "message": {"body": "Please call me about my bill."}
         }).json()  # fmt: skip
         assert plain["site_codes"] is None

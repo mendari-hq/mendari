@@ -67,9 +67,9 @@ def test_the_line_follows_provenance_and_nothing_else(inbox_pack: Pack) -> None:
 
 def test_the_api_says_it(tmp_path: Path) -> None:
     client = TestClient(create_app(db_path=tmp_path / "s.db"))
-    listed = client.get("/api/packs").json()
+    listed = client.get("/api/agents").json()
     assert listed and {p["status_label"] for p in listed} == {SYNTHETIC_EXAMPLE}
-    detail = client.get("/api/packs/mendari/patient-inbox-router").json()
+    detail = client.get("/api/agents/mendari/patient-inbox-router").json()
     assert detail["status_label"] == SYNTHETIC_EXAMPLE
 
 

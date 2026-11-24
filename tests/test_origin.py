@@ -361,7 +361,7 @@ def test_a_link_to_the_review_queue_from_another_site_is_refused_and_nothing_is_
     )
     reviewer = signed_in(chain, role="reviewer")
     decided = client.post(
-        f"/api/packs/{inbox_pack.id}/decide",
+        f"/api/agents/{inbox_pack.id}/decide",
         json=message("Crushing chest pain since this morning"),
         headers=reviewer,
     )

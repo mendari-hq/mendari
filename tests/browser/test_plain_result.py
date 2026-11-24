@@ -32,7 +32,7 @@ def decide(page: Page, pack_id: str) -> None:
 def codes(live_server: str, pack_id: str) -> set[str]:
     """The pack's codes that never pass for words: its question keys, and every label written
     with an underscore (`front_desk`, `age_18_75`)."""
-    manifest = httpx.get(f"{live_server}/api/packs/{pack_id}").json()["manifest"]
+    manifest = httpx.get(f"{live_server}/api/agents/{pack_id}").json()["manifest"]
     found = set(manifest["questions"])
     for question in manifest["questions"].values():
         found |= {label for label in question.get("labels") or [] if "_" in label}

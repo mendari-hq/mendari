@@ -26,7 +26,7 @@ from mendari.hub import site_evidence
 from tests.conftest import INBOX_DIR, Registry, share_signed, site_ticket, verified_site
 
 REFERRAL = resolve_pack("mendari/referral-router")
-EVIDENCE = f"/v1/packs/{REFERRAL.id}/site-evidence"
+EVIDENCE = f"/v1/agents/{REFERRAL.id}/site-evidence"
 
 
 @lru_cache(maxsize=8)
@@ -133,7 +133,7 @@ def test_two_digests_or_two_configurations_are_never_pooled(
     assert published.publish(newer).status_code == 201
     _share(published, tmp_path, "east", counts(200, inbox))
     _share(published, tmp_path, "west", counts(200, newer))
-    answer = published.client.get(f"/v1/packs/{inbox.id}/site-evidence").json()
+    answer = published.client.get(f"/v1/agents/{inbox.id}/site-evidence").json()
     assert sorted(g["digest"] for g in answer["groups"]) == sorted([inbox.digest, newer.digest])
     assert all(g["sites"] == 1 for g in answer["groups"])
     assert all(
@@ -191,7 +191,7 @@ def test_unreported_tickets_and_superseded_reports_are_counted_beside_the_figure
     report = counts(300)
     site = verified_site(published, tmp_path, org="north")
     assert share_signed(published, site, report).status_code == 201
-    first = published.client.get(f"/v1/packs/{REFERRAL.id}/reports").json()["reports"][0]
+    first = published.client.get(f"/v1/agents/{REFERRAL.id}/reports").json()["reports"][0]
     corrected = site_ticket(published, site, report, supersedes=first["id"])
     assert share_signed(published, site, report, corrected).status_code == 201
     site_ticket(published, site, report, commitment=site.commitment(b"never reported"))
@@ -280,4 +280,4 @@ def test_no_rate_in_the_answer_came_from_a_site(published: Registry, tmp_path: P
 
 
 def test_site_evidence_of_a_pack_nobody_may_read_is_a_404(published: Registry) -> None:
-    assert published.client.get("/v1/packs/mendari/no-such/site-evidence").status_code == 404
+    assert published.client.get("/v1/agents/mendari/no-such/site-evidence").status_code == 404

@@ -34,7 +34,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from mendari.errors import ScopeError
-from mendari.server import paths
 
 DECIDE = "https://mendari.co/fhir/scope/decide"
 OUTCOME = "https://mendari.co/fhir/scope/outcome"
@@ -200,8 +199,7 @@ def _resource(name: str, *, lenient: bool = False) -> tuple[set[tuple[str, str]]
 # -- the scope each route needs ----------------------------------------------------------------
 # (method, path pattern, scope) -> first match wins. A FHIR pattern names the type in a group
 # and the scope is a letter; Mendari's own are URIs. Every other route is out of reach of a
-# scoped principal (public ones aside: they need no credential at all). Each pattern names a
-# route's current path; a renamed route's former path is read as its current one (`needed`).
+# scoped principal (public ones aside: they need no credential at all).
 
 _ROUTE_SCOPES: list[tuple[str, re.Pattern[str], str]] = [
     (method, re.compile(pattern), scope)
@@ -224,11 +222,9 @@ _ROUTE_SCOPES: list[tuple[str, re.Pattern[str], str]] = [
 
 
 def needed(method: str, path: str) -> str | None:
-    """The scope a request needs, or None: no scope reaches it. A renamed route's former path
-    needs the scope its current one does (`paths.current`)."""
+    """The scope a request needs, or None: no scope reaches it."""
     if method == "HEAD":
         method = "GET"
-    path = paths.current(path)
     for rule_method, pattern, scope in _ROUTE_SCOPES:
         found = pattern.match(path) if rule_method == method else None
         if found is None:

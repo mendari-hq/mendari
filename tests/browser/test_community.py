@@ -123,7 +123,7 @@ def test_the_labels_fit_a_phone(site: Page) -> None:
 def test_the_review_queue_audit_and_monitoring_label_a_community_pack(site: Page) -> None:
     """Where a person confirms a recommendation, the queue says the pack is not clinically
     reviewed: before, only the overview, card and Try it did."""
-    response = site.request.post(f"/api/packs/{SORTER}/decide", data={"message": "My bill?"})
+    response = site.request.post(f"/api/agents/{SORTER}/decide", data={"message": "My bill?"})
     assert response.ok, response.text()
     _open(site, SORTER, "review")
     expect(site.locator("main .community-notice")).to_contain_text(LABEL)

@@ -155,7 +155,7 @@ def test_feedback_naming_another_organizations_packs_or_callers_decision_answers
     (card,) = hooked(client, 1, **mine)
     (their_card,) = hooked(client, 1, **theirs)
     inbox = client.post(
-        "/api/packs/mendari/patient-inbox-router/decide",
+        "/api/agents/mendari/patient-inbox-router/decide",
         json={"message": {"body": "Can I get a refill?", "channel": "portal"}},
         headers=mine,
     ).json()["id"]
@@ -187,8 +187,8 @@ def test_feedback_naming_another_organizations_packs_or_callers_decision_answers
     )
     # A pack with no hook makes no card, so its own decisions take no card feedback either.
     guard = client.post(
-        "/api/packs/mendari/ai-guard/guard",
-        json=client.get("/api/packs/mendari/ai-guard/examples", headers=mine).json()[0]["input"],
+        "/api/agents/mendari/ai-guard/guard",
+        json=client.get("/api/agents/mendari/ai-guard/examples", headers=mine).json()[0]["input"],
         headers=mine,
     ).json()["decision_id"]
     unhooked = "/cds-services/mendari.ai-guard/feedback"

@@ -297,9 +297,9 @@ def test_the_rest_of_open_mode_is_unchanged(
     assert all(CDS_PATH.match(path) for _, path in refused)
     reasons = [reason for _, reason in refusals(capsys.readouterr().out)]
     assert reasons.count("open_mode_remote") == 3
-    assert remote.get("/api/packs").status_code == 200
+    assert remote.get("/api/agents").status_code == 200
     decided = remote.post(
-        "/api/packs/mendari/patient-inbox-router/decide",
+        "/api/agents/mendari/patient-inbox-router/decide",
         json={"message": {"body": "Can I get a refill?", "channel": "portal"}},
     )
     assert decided.status_code == 200, decided.text

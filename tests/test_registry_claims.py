@@ -30,10 +30,10 @@ REFERRAL = resolve_pack("mendari/referral-router")
 # Every read of a namespace and a pack in it, by path.
 READS = (
     "/v1/namespaces/{ns}",
-    "/v1/packs/{ns}/inbox",
-    "/v1/packs/{ns}/inbox/reports",
-    "/v1/packs/{ns}/inbox/{version}",
-    "/v1/packs/{ns}/inbox/{version}/archive",
+    "/v1/agents/{ns}/inbox",
+    "/v1/agents/{ns}/inbox/reports",
+    "/v1/agents/{ns}/inbox/{version}",
+    "/v1/agents/{ns}/inbox/{version}/archive",
 )
 
 
@@ -99,7 +99,7 @@ class Claimed:
 
     def recall(self) -> dict[str, Any]:
         """The publisher recalls its own version, signed with the namespace's key."""
-        path = f"/v1/packs/{self.name}/inbox/{SHIPPED}"
+        path = f"/v1/agents/{self.name}/inbox/{SHIPPED}"
         meta = self.registry.client.get(path, headers=_bearer(self.token)).json()
         record = yank.sign(
             pack=f"{self.name}/inbox", version=SHIPPED, digest=meta["digest"],
@@ -244,7 +244,7 @@ def test_a_first_publish_is_invisible_to_search_pull_the_namespace_the_recall_li
             hidden = registry.client.get(path.format(ns="acme", version=SHIPPED), headers=who)
             assert hidden.status_code == 404, path
         shared = registry.client.post(
-            f"/v1/packs/acme/inbox/{SHIPPED}/reports",
+            f"/v1/agents/acme/inbox/{SHIPPED}/reports",
             json={"site": "Site A", "report": report},
             headers=who,
         )
@@ -296,7 +296,7 @@ def test_a_pending_namespace_answers_as_one_that_does_not_exist(
     report = shared_benchmark()
     shared = [
         registry.client.post(
-            f"/v1/packs/{name}/inbox/{SHIPPED}/reports",
+            f"/v1/agents/{name}/inbox/{SHIPPED}/reports",
             json={"site": "Site A", "report": report},
             headers=_bearer(registry.token),
         )
@@ -326,7 +326,7 @@ def test_its_own_token_reads_its_pending_version(
     namespace = registry.client.get("/v1/namespaces/acme", headers=own).json()
     assert namespace["listed"] is False and namespace["packs"] == ["acme/inbox"]
     assert namespace["claim"]["status"] == "pending" and namespace["claim"]["org"] == "acme"
-    version = registry.client.get(f"/v1/packs/acme/inbox/{SHIPPED}", headers=own).json()
+    version = registry.client.get(f"/v1/agents/acme/inbox/{SHIPPED}", headers=own).json()
     assert version["listed"] is False and version["digest"] == published["digest"]
     assert [p["id"] for p in registry.client.get("/v1/search", headers=own).json()] == [
         "acme/inbox"
@@ -379,7 +379,7 @@ def test_approved_it_is_listed_and_pulls(
         "acme/inbox",
         "acme/triage",
     ]
-    assert registry.client.get("/v1/packs/acme/inbox").json()["latest"]["version"] == "9.9.9"
+    assert registry.client.get("/v1/agents/acme/inbox").json()["latest"]["version"] == "9.9.9"
     listed = [
         json.loads(e["payload"])["listed"]
         for e in _events(db_target)
@@ -397,7 +397,7 @@ def test_a_refused_namespace_never_lists_and_its_archive_is_kept(
 ) -> None:
     published = claimed.publish()
     data = registry.client.get(
-        f"/v1/packs/acme/inbox/{SHIPPED}/archive", headers=_bearer(claimed.token)
+        f"/v1/agents/acme/inbox/{SHIPPED}/archive", headers=_bearer(claimed.token)
     ).content
     refused = _decide(db_target, approve=False, note="not who it says it is")
     assert (refused["status"], refused["note"]) == ("refused", "not who it says it is")
@@ -513,7 +513,7 @@ def test_the_operators_commands_claim_approve_refuse_and_list(
     approved = json.loads(capsys.readouterr().out)
     assert (approved["status"], approved["note"]) == ("approved", "the first publish")
     assert approved["decided_by"].startswith("command line (")
-    assert registry.client.get(f"/v1/packs/acme/inbox/{SHIPPED}").status_code == 200
+    assert registry.client.get(f"/v1/agents/acme/inbox/{SHIPPED}").status_code == 200
     assert main(["registry", "refuse", *decide, "lookalike", "--reason", "a lookalike"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "refused"
     last = _events(db_target)[-1]
@@ -546,7 +546,7 @@ def test_a_namespace_from_before_claims_stays_listed(
     from before has no claims table: read as it is it verifies and serves; opened by a registry
     it gains the table, and its chain is as it was."""
     assert registry.publish().status_code == 201
-    path = f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"
+    path = f"/v1/agents/{REFERRAL.id}/{REFERRAL.version}"
     version = registry.client.get(path).json()
     assert version["listed"] is True
     namespace = registry.client.get("/v1/namespaces/mendari").json()

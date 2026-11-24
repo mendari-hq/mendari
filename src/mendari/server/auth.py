@@ -153,7 +153,7 @@ from mendari.errors import (
     OrganizationChanged,
     ScopeError,
 )
-from mendari.server import paths, presets, scopes, security_log, sessions
+from mendari.server import presets, scopes, security_log, sessions
 from mendari.server.scopes import Grant
 from mendari.standards import oidc, smart
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers, origin_of
@@ -279,10 +279,7 @@ REGISTRY_PEOPLE = r"^/api/registry/(namespaces|tokens|sites)(/|$)"  # sites: LP-
 # Its reviewers' routes (LP-19e): the queue, and the acts on any namespace a reviewer makes.
 REGISTRY_REVIEW = r"^/api/registry/review(/|$)"
 _REGISTRY_ONLY = frozenset({REGISTRY_MOUNT, REGISTRY_PEOPLE, REGISTRY_REVIEW})
-# (method, path pattern) -> permission, first match wins; unlisted routes need "admin". Each
-# pattern names a route's current path: a renamed route's former path (`/api/packs/...`) is read
-# as its current one before any rule is tried (`permission_for`, `server/paths.py`), so no rule
-# here names it and the two spellings never differ.
+# (method, path pattern) -> permission, first match wins; unlisted routes need "admin".
 _RULES: list[tuple[str, re.Pattern[str], str]] = [
     (method, re.compile(pattern), permission)
     for method, pattern, permission in [
@@ -792,11 +789,8 @@ async def read_body(request: Request, limit: int) -> bytes | None:
 def permission_for(method: str, path: str, *, registry: bool = True) -> str:
     """The permission a route needs. HEAD needs what GET needs: the static files (and any route
     that serves both) answer it as GET, and the rules name GET. `registry=False` (the registry
-    is not mounted here): without the registry's rules. A renamed route's former path needs
-    what its current one does: the path is read as it is called now (`paths.current`) before
-    any rule is tried."""
+    is not mounted here): without the registry's rules."""
     method = "GET" if method == "HEAD" else method
-    path = paths.current(path)
     for rule_method, pattern, permission in _RULES:
         if not registry and pattern.pattern in _REGISTRY_ONLY:
             continue

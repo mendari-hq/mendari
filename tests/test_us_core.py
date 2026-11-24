@@ -233,7 +233,7 @@ def test_the_server_reports_the_mode_and_returns_the_issues(tmp_path: Path) -> N
     client = TestClient(create_app(db_path=tmp_path / "a.db", fhir_validation="warn"))
     assert client.get("/api/health").json()["fhir_validation"] == "warn"
     response = client.post(
-        f"/api/packs/{REFERRAL}/fhir/decide", json=referral_bundle(conforming=False)
+        f"/api/agents/{REFERRAL}/fhir/decide", json=referral_bundle(conforming=False)
     )
     assert response.status_code == 200
     issues = response.json()["decision"]["input_issues"]

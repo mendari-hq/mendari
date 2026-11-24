@@ -130,9 +130,9 @@ def test_without_the_switch_nothing_is_mounted_and_packs_are_served_as_before(
         assert not [r for r in routes.routes if getattr(r, "path", "").startswith("/api/store")]
         with encrypted_store(db_target) as db:
             author = member(db, org=ORG_A, roles=["pack_author", "viewer"], sub="ada")
-        assert client.get("/api/store/packs", headers=author).status_code == 404
+        assert client.get("/api/store/agents", headers=author).status_code == 404
         assert "store" not in client.get("/api/auth/me", headers=author).json()
-        packs = client.get("/api/packs", headers=author).json()
+        packs = client.get("/api/agents", headers=author).json()
         assert {p["id"] for p in packs} == {p.id for p in map(resolve_pack, _ids(packs))}
         with encrypted_store(db_target) as db, db._db.session(exclusive=False) as session:
             assert session.one("SELECT COUNT(*) AS n FROM store_versions")["n"] == 0
@@ -173,7 +173,7 @@ def test_an_author_uploads_a_signed_archive_and_it_is_a_draft(world: Store) -> N
     assert body["valid"] and body["checks"]["hidden"] == "checked"
     me = world.client.get("/api/auth/me", headers=world.as_(ORG_A, "pack_author")).json()
     assert me["store"] is True
-    listed = world.client.get("/api/store/packs", headers=world.as_(ORG_A, "pack_author")).json()
+    listed = world.client.get("/api/store/agents", headers=world.as_(ORG_A, "pack_author")).json()
     assert listed[0]["pack_id"] == f"{ORG_A}/inbox-router"
     read = world.client.get(
         f"/api/store/versions/{body['digest']}", headers=world.as_(ORG_A, "pack_author")
@@ -248,7 +248,7 @@ def test_an_upload_containing_a_hidden_set_case_is_quarantined(
     answer = upload(world, root)
     _held_answer_says_nothing_more(world, answer, set_id, case_id)
     assert set_id not in caplog.text and case_id not in caplog.text
-    listed = world.client.get("/api/store/packs", headers=world.as_(ORG_A, "pack_author"))
+    listed = world.client.get("/api/store/agents", headers=world.as_(ORG_A, "pack_author"))
     assert set_id not in listed.text and "held for the operator's review" in listed.text
     assert world.db.verify()["ok"]
 
@@ -307,7 +307,7 @@ def test_the_operators_report_names_the_set_and_case_and_no_route_does(
             "held_at": held[0]["held_at"],
         }
     ]
-    for route in ("/api/store/packs", f"/api/store/versions/{digest}"):
+    for route in ("/api/store/agents", f"/api/store/versions/{digest}"):
         answer = world.client.get(route, headers=world.as_(ORG_A, "pack_author"))
         assert set_id not in answer.text and case_id not in answer.text
     assert (
@@ -334,10 +334,10 @@ def test_three_held_uploads_stop_an_organizations_uploads(world: Store) -> None:
 def test_a_draft_in_organization_a_is_invisible_to_organization_b(world: Store) -> None:
     digest = upload(world, pack_dir(world.tmp)).json()["digest"]
     other = world.as_(ORG_B, "pack_author")
-    assert world.client.get("/api/store/packs", headers=other).json() == []
+    assert world.client.get("/api/store/agents", headers=other).json() == []
     for method, path, body in (
         ("GET", f"/api/store/versions/{digest}", None),
-        ("GET", f"/api/store/packs/{ORG_A}/inbox-router", None),
+        ("GET", f"/api/store/agents/{ORG_A}/inbox-router", None),
         ("POST", f"/api/store/versions/{digest}/tests", None),
         ("POST", f"/api/store/versions/{digest}/edits", {"files": [{"path": "x", "content": ""}]}),
         ("DELETE", f"/api/store/versions/{digest}", None),
@@ -466,7 +466,7 @@ def test_a_key_a_client_and_an_ehr_launch_never_author(world: Store) -> None:
         "/api/auth/keys", json={"role": "service", "name": "x"}, headers=world.as_(ORG_A, "admin")
     ).json()["key"]
     machine = {"authorization": f"Bearer {key}"}
-    assert world.client.get("/api/store/packs", headers=machine).status_code == 403
+    assert world.client.get("/api/store/agents", headers=machine).status_code == 403
     assert (
         world.client.post("/api/store/versions", content=b"x", headers=machine).status_code == 403
     )
@@ -508,7 +508,7 @@ def test_a_held_or_withdrawn_version_is_never_tested_edited_or_served(world: Sto
         ):
             answer = world.client.request(method, path, json=body, headers=author)
             assert answer.status_code == 409, (digest, method, path, answer.text)
-    served = world.client.get("/api/packs", headers=world.as_(ORG_A, "viewer")).json()
+    served = world.client.get("/api/agents", headers=world.as_(ORG_A, "viewer")).json()
     assert not any(p["id"].startswith(f"{ORG_A}/") for p in served)
 
 

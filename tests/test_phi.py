@@ -135,7 +135,7 @@ def test_the_server_reports_the_mode_and_reads_through_the_policy(
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     assert client.get("/api/health").json()["phi_mode"] == "encrypt"
-    decided = client.post(f"/api/packs/{inbox_pack.id}/decide", json=message(SECRET_WORDS)).json()
+    decided = client.post(f"/api/agents/{inbox_pack.id}/decide", json=message(SECRET_WORDS)).json()
     record = client.get(f"/api/audit/{decided['id']}").json()
     assert record["record"]["input"] is None and record["input_restricted"] is True
     # without sign-in there is no one to log the read against, so the input stays sealed
@@ -163,7 +163,7 @@ def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
         "viewer": {"authorization": f"Bearer {viewer['key']}"},
     }
     urgent = message("Crushing chest pain, " + SECRET_WORDS)  # waits for review
-    path = f"/api/packs/{inbox_pack.id}/decide"
+    path = f"/api/agents/{inbox_pack.id}/decide"
     decided = client.post(path, json=urgent, headers=keys["reviewer"]).json()
     client.post(
         f"/api/audit/{decided['id']}/feedback", json={"rating": "up"}, headers=keys["reviewer"]

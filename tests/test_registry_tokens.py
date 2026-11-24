@@ -391,7 +391,7 @@ def test_a_token_from_before_owned_tokens_is_refused_and_the_chain_still_verifie
     assert _verify(db_target)["ok"]
     assert _register_key(registry, legacy) == 403
     assert registry.publish(token=legacy, version="9.9.9").status_code == 403
-    path = f"/v1/packs/mendari/referral-router/{resolve_pack('mendari/referral-router').version}"
+    path = f"/v1/agents/mendari/referral-router/{resolve_pack('mendari/referral-router').version}"
     bearer = {"authorization": f"Bearer {legacy}"}
     assert registry.client.post(f"{path}/yank", json={}, headers=bearer).status_code == 403
     report = shared_benchmark()
@@ -413,8 +413,8 @@ RETIRED = [
     ("POST", "/v1/namespaces", {"name": "x"}),
     ("PATCH", "/v1/namespaces/mendari", {"publisher_type": "verified"}),
     ("POST", "/v1/namespaces/mendari/tokens", None),
-    ("POST", "/v1/packs/mendari/referral-router/{version}/review", {"risk_level": 0}),
-    ("POST", "/v1/packs/mendari/referral-router/{version}/delete", {"reason": "x"}),
+    ("POST", "/v1/agents/mendari/referral-router/{version}/review", {"risk_level": 0}),
+    ("POST", "/v1/agents/mendari/referral-router/{version}/delete", {"reason": "x"}),
 ]
 
 
@@ -459,7 +459,7 @@ def test_no_shared_secret_publishes_creates_reviews_or_deletes(
         assert _register_key(registry, old) == 403
         assert registry.publish(token=old, version="9.9.9").status_code == 403
         recall = {"reason": "a safety notice", "severity": "critical"}
-        yank_path = f"/v1/packs/mendari/referral-router/{referral.version}/yank"
+        yank_path = f"/v1/agents/mendari/referral-router/{referral.version}/yank"
         assert client.post(yank_path, json=recall, headers=bearer).status_code == 403
         store.claim("acme", org="acme", by="user:3f9a")
         assert client.get("/v1/namespaces/acme", headers=bearer).status_code == 404

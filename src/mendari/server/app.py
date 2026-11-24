@@ -120,7 +120,7 @@ from mendari.providers import jev, llm, provider_allow_list, slots_without_model
 from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
 from mendari.providers.agent import AgentProvider, Connection
 from mendari.providers.credentials import key_source
-from mendari.server import api_docs, landing, paths, security_log, sessions, system
+from mendari.server import api_docs, landing, security_log, sessions, system
 from mendari.server.auth import (
     OPEN,
     Auth,
@@ -215,10 +215,9 @@ _FHIR_ROUTE = re.compile(r"^/(fhir/|api/agents/[^/]+/[^/]+/fhir/)")
 
 
 def fhir_route(path: str) -> bool:
-    """Whether `path` is a FHIR route: under `/fhir/`, or an agent's `fhir/decide`, by its
-    current path or the one it had before (`server/paths.py`). FHIR routes take and answer FHIR
-    R4 JSON only, and answer an error with an OperationOutcome."""
-    return _FHIR_ROUTE.match(paths.current(path)) is not None
+    """Whether `path` is a FHIR route: under `/fhir/`, or an agent's `fhir/decide`. FHIR routes
+    take and answer FHIR R4 JSON only, and answer an error with an OperationOutcome."""
+    return _FHIR_ROUTE.match(path) is not None
 
 
 _ISSUE_TYPE = {
@@ -1948,8 +1947,7 @@ def create_app(
         """The models this deployment's Jev account can use. `503` when Jev is not set up here."""
         return {"models": jev.list_models()}
 
-    @paths.route(
-        app.get,
+    @app.get(
         "/api/agents",
         tags=["Agents"],
         summary="List agents",
@@ -1962,8 +1960,7 @@ def create_app(
         never automates)."""
         return [_summary(pack) for pack in sorted(served_here().values(), key=lambda p: p.id)]
 
-    @paths.route(
-        app.get,
+    @app.get(
         "/api/agents/{namespace}/{name}",
         tags=["Agents"],
         summary="Get an agent",
@@ -2005,8 +2002,7 @@ def create_app(
             **declared_actions(pack, vouched=decision.vouched()),
         }
 
-    @paths.route(
-        app.get,
+    @app.get(
         "/api/agents/{namespace}/{name}/datasets",
         tags=["Agents"],
         summary="List an agent's datasets",
@@ -2019,8 +2015,7 @@ def create_app(
         names = [*pack.manifest.evaluation.datasets, *local_datasets(pack)]
         return [{"name": n, "n": len(dataset_for(pack, n).records)} for n in names]
 
-    @paths.route(
-        app.get,
+    @app.get(
         "/api/agents/{namespace}/{name}/examples",
         tags=["Agents"],
         summary="Example inputs",
@@ -2085,8 +2080,7 @@ def create_app(
         header = (request.headers.get("x-mendari-shadow") or "").strip().lower()
         return header in {"1", "true", "yes", "on"}
 
-    @paths.route(
-        app.post,
+    @app.post(
         "/api/agents/{namespace}/{name}/decide",
         tags=["Decisions"],
         summary="Make a decision",
@@ -2120,8 +2114,7 @@ def create_app(
         written = {"outputs": dict(decided.outputs)} if decided.outputs else {}
         return {**decided.to_dict(), **written, **NOTICE}
 
-    @paths.route(
-        app.post,
+    @app.post(
         "/api/agents/{namespace}/{name}/guard",
         tags=["Decisions"],
         summary="Check an LLM's draft reply",
@@ -2133,8 +2126,7 @@ def create_app(
         result = guard.check(decision_for(f"{namespace}/{name}"), payload)
         return {**result.to_dict(), "decision": result.decision.to_dict(), **NOTICE}
 
-    @paths.route(
-        app.post,
+    @app.post(
         "/api/agents/{namespace}/{name}/fhir/decide",
         tags=["FHIR and CDS Hooks"],
         summary="Make a decision from FHIR",
@@ -2204,8 +2196,7 @@ def create_app(
         found = decision_for(pack_id).authorize_action(body.decision_id, body.name, body.arguments)
         return {**found, **NOTICE}
 
-    @paths.route(
-        app.get,
+    @app.get(
         "/api/agents/{namespace}/{name}/validation-brief",
         tags=["Evaluation and monitoring"],
         summary="Executive validation & readiness brief",
@@ -2592,8 +2583,7 @@ def create_app(
 
     # -- evaluation --------------------------------------------------------------------------
 
-    @paths.route(
-        app.post,
+    @app.post(
         "/api/agents/{namespace}/{name}/evals",
         tags=["Evaluation and monitoring"],
         summary="Run an evaluation",
@@ -3229,8 +3219,7 @@ def create_app(
         logged_reads(request, ratings, id_key="decision_id")
         return ratings
 
-    @paths.route(
-        app.get,
+    @app.get(
         "/api/agents/{namespace}/{name}/feedback/export",
         tags=["Review and feedback"],
         summary="Export feedback as a dataset",
@@ -3437,8 +3426,7 @@ def create_app(
         recorded = store.record_card_feedback(pack.id, service_id, items)
         return {"recorded": len(recorded)}
 
-    @paths.route(
-        app.post,
+    @app.post(
         "/api/agents/{namespace}/{name}/pas",
         tags=["FHIR and CDS Hooks"],
         summary="Da Vinci PAS request",
@@ -4756,12 +4744,11 @@ def _counted(made: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:
-    """(method, path) of every route the app serves, a renamed route once, at its current
-    path: the path it had before answers the same and is listed nowhere (`server/paths.py`)."""
+    """(method, path) of every route the app serves."""
     return [
         (method, route.path)
         for route in app.routes
-        if isinstance(route, APIRoute) and not paths.is_former(route.path)
+        if isinstance(route, APIRoute)
         for method in route.methods or ()
     ]
 

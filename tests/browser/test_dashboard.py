@@ -203,7 +203,7 @@ def test_a_fhir_decision_shows_what_it_read_in_its_record(axe_page: Page, live_s
     from tests.browser.test_accessibility import violations  # it imports this module
     from tests.test_fhir import BUNDLE
 
-    made = httpx.post(f"{live_server}/api/packs/{INBOX}/fhir/decide", json=BUNDLE, timeout=30)
+    made = httpx.post(f"{live_server}/api/agents/{INBOX}/fhir/decide", json=BUNDLE, timeout=30)
     assert made.status_code == 200, made.text
     decision = made.json()["decision"]["id"]
     axe_page.goto(f"/?agent={INBOX}#audit/{decision}")  # as the card writes it
@@ -240,7 +240,7 @@ def test_a_list_of_several_resource_types_shows_a_row_per_source(
         "type": "collection",
         "entry": [{"resource": r} for r in _record()],
     }
-    made = httpx.post(f"{live_server}/api/packs/{TRIAL}/fhir/decide", json=record, timeout=30)
+    made = httpx.post(f"{live_server}/api/agents/{TRIAL}/fhir/decide", json=record, timeout=30)
     assert made.status_code == 200, made.text
     axe_page.goto(f"/?agent={TRIAL}#audit/{made.json()['decision']['id']}")
     table = axe_page.locator(".drawer section.coverage table")
@@ -1068,7 +1068,7 @@ REFILL = "Hi, I need a refill on my lisinopril. I have about three pills left."
 
 def decide_inbox(base: str, body: str) -> dict[str, Any]:
     response = httpx.post(
-        f"{base}/api/packs/{INBOX}/decide", json={"message": {"body": body}}, timeout=30
+        f"{base}/api/agents/{INBOX}/decide", json={"message": {"body": body}}, timeout=30
     )
     return dict(response.json())
 
@@ -1215,7 +1215,7 @@ def test_a_wrong_rating_takes_the_right_answer_and_can_be_changed(
 
 def test_the_feedback_page_leads_with_the_cases_to_act_on(page: Page, live_server: str) -> None:
     decision = decide_inbox(live_server, REFILL)
-    labels = httpx.get(f"{live_server}/api/packs/{INBOX}").json()["labels"]
+    labels = httpx.get(f"{live_server}/api/agents/{INBOX}").json()["labels"]
     other = next(label for label in labels if label != decision["recommendation"])
     expected = {"question": "destination", "label": other}
     httpx.post(
@@ -1523,7 +1523,7 @@ def test_the_form_carries_every_example_unchanged(
 ) -> None:
     """Each behaviour-test example goes into the form generated from the pack's input schema and
     comes out as the same record: the form never adds, drops or retypes a value."""
-    examples = httpx.get(f"{live_server}/api/packs/{pack_id}/examples").json()
+    examples = httpx.get(f"{live_server}/api/agents/{pack_id}/examples").json()
     open_pack(page, pack_id, "try")
     expect(page.locator("#record-form [data-path]").first).to_be_visible()  # the form by default
     for index, example in enumerate(examples):
@@ -1669,7 +1669,7 @@ def test_configurations_are_named_once(page: Page) -> None:
 
 def test_a_record_drawer_is_titled_in_words(page: Page, live_server: str) -> None:
     decision = httpx.post(
-        f"{live_server}/api/packs/{INBOX}/decide",
+        f"{live_server}/api/agents/{INBOX}/decide",
         json={"message": {"body": "Crushing chest pain and my left arm is numb"}},
     ).json()
     page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")

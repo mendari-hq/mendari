@@ -95,7 +95,7 @@ def decide(site: Site, headers: dict[str, str], pack_id: str) -> dict[str, objec
     with httpx.Client(base_url=site.base, headers={**headers, **OWN}) as client:
         client.post("/api/notice/acknowledge", json={})
         answer = client.post(
-            f"/api/packs/{pack_id}/decide", json={"message": {"body": "Refill please"}}
+            f"/api/agents/{pack_id}/decide", json={"message": {"body": "Refill please"}}
         )
     assert answer.status_code == 200, answer.text
     return dict(answer.json())
@@ -143,7 +143,9 @@ def test_copy_edit_test_compare_and_promote_in_a_second_organization(site: Site)
     a = person(site, sub="ana", email="ana@example.org", org=CLINIC_A, roles=["reviewer"])
     assert decide(site, a, INBOX)["pack"]["digest"] == resolve_pack(INBOX).digest  # type: ignore[index]
     with httpx.Client(base_url=site.base, headers={**a, **OWN}) as client:
-        assert client.post(f"/api/packs/{CLINIC_B}/inbox-router/decide", json={}).status_code == 404
+        assert (
+            client.post(f"/api/agents/{CLINIC_B}/inbox-router/decide", json={}).status_code == 404
+        )
 
 
 def test_the_author_sees_no_promote_control_and_why(site: Site) -> None:

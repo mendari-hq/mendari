@@ -145,7 +145,7 @@ def test_a_behaviour_test_of_the_wrong_shape_is_named_never_a_500(
     decide = reference.json()["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
     assert "patient-inbox-router" in examples
-    assert client.get(f"/api/packs/{REFERRAL}/examples").status_code == 422
+    assert client.get(f"/api/agents/{REFERRAL}/examples").status_code == 422
 
 
 def test_one_packs_tests_can_never_fail_the_api_reference(
@@ -209,7 +209,7 @@ def test_a_yaml_value_json_cannot_hold_is_refused_at_load_with_its_place(
     column: int,
     reason: str,
 ) -> None:
-    """A manifest name with a lone surrogate made GET /api/packs answer 500, so the list of every
+    """A manifest name with a lone surrogate made GET /api/agents answer 500, so the list of every
     pack failed; a variant's `!!binary` extra and a rule's surrogate name made the pack's detail
     and decisions 500. `mendari validate` said ok. Refused at load, by file and place."""
     outside = tmp_path / "outside"
@@ -221,7 +221,7 @@ def test_a_yaml_value_json_cannot_hold_is_refused_at_load_with_its_place(
     assert raised.value.problems == [problem]
     assert problem in _no_traceback(capsys, "validate", str(pack))
     client = _client(tmp_path, outside)
-    listed = client.get("/api/packs")
+    listed = client.get("/api/agents")
     assert listed.status_code == 200
     assert REFERRAL not in [p["id"] for p in listed.json()] and len(listed.json()) >= 5
     assert problem in client.get("/api/health").json()["invalid"][str(pack.resolve())]
@@ -311,8 +311,8 @@ def test_a_json_value_json_cannot_send_is_refused_at_load(
     assert problem.startswith(f"{relative}: not JSON, it holds ") and what in problem
     assert problem in _no_traceback(capsys, "validate", str(pack))
     client = _client(tmp_path, outside)
-    assert client.get("/api/packs").status_code == 200
-    assert client.get(f"/api/packs/{REFERRAL}").status_code == 404
+    assert client.get("/api/agents").status_code == 200
+    assert client.get(f"/api/agents/{REFERRAL}").status_code == 404
 
 
 # -- provider files: malformed, of the wrong shape, unreadable (finding 3) ----------------------
@@ -395,7 +395,7 @@ def test_a_malformed_model_file_is_named_never_a_traceback(
     assert problem in _no_traceback(capsys, "validate", str(pack))
     assert problem in _no_traceback(capsys, "test", str(pack))
     client = _client(tmp_path, outside)
-    detail = client.get(f"/api/packs/{REFERRAL}")
+    detail = client.get(f"/api/agents/{REFERRAL}")
     assert detail.status_code == 422 and problem in detail.text
 
 
@@ -430,7 +430,7 @@ def test_an_unreadable_file_while_hashing_is_named(
             load_pack(pack)
         assert raised.value.problems == ["logic/notes.txt: cannot be read (PermissionError)"]
         assert "logic/notes.txt: cannot be read" in _no_traceback(capsys, "validate", str(pack))
-        assert _client(tmp_path, outside).get("/api/packs").status_code == 200
+        assert _client(tmp_path, outside).get("/api/agents").status_code == 200
     finally:
         locked.chmod(0o644)
 
@@ -471,7 +471,7 @@ def test_a_file_edited_in_place_after_the_load_is_refused_not_used(tmp_path: Pat
     case = yaml.safe_load((REFERRAL_DIR / "tests" / "cases.yaml").read_text())[0]
 
     def decided() -> Any:
-        response = client.post(f"/api/packs/{REFERRAL}/decide", json=case["input"])
+        response = client.post(f"/api/agents/{REFERRAL}/decide", json=case["input"])
         assert response.status_code == 200, response.text
         body = response.json()
         return body["outcome"], body["answers"], body["pack"]["digest"]
@@ -481,7 +481,7 @@ def test_a_file_edited_in_place_after_the_load_is_refused_not_used(tmp_path: Pat
     rebuilt = Decision(load_pack(pack_dir)).decide(case["input"]).to_dict()
     assert (rebuilt["outcome"], rebuilt["answers"]) != before[:2]  # the edit would matter
     assert decided() == before  # and is not used
-    unedited = client.post("/api/packs/mendari/referral-router/decide", json=case["input"])
+    unedited = client.post("/api/agents/mendari/referral-router/decide", json=case["input"])
     assert unedited.status_code == 200
 
 
@@ -613,7 +613,7 @@ def test_a_malformed_attestation_is_absent_with_its_problem_noted(
     outside = tmp_path / "outside"
     pack = _outsider(outside, edit, REFERRAL_DIR)
     client = _client(tmp_path, outside)
-    detail = client.get(f"/api/packs/{REFERRAL}")
+    detail = client.get(f"/api/agents/{REFERRAL}")
     assert detail.status_code == 200, detail.text
     assert detail.json()[absent] is None
     assert f"evals/{absent}.json is not shown: " in detail.json()["card_markdown"]
@@ -633,7 +633,7 @@ def test_a_changelog_that_is_not_utf8_is_a_422_never_a_500(
 
     pack = _outsider(outside, edit, REFERRAL_DIR)
     client = _client(tmp_path, outside)
-    detail = client.get(f"/api/packs/{REFERRAL}")
+    detail = client.get(f"/api/agents/{REFERRAL}")
     assert detail.status_code == 422 and "CHANGELOG.md: not UTF-8 text" in detail.text
     assert "CHANGELOG.md: not UTF-8 text" in _no_traceback(capsys, "card", str(pack))
 
@@ -669,7 +669,7 @@ def test_a_bad_dataset_line_is_named_by_file_and_line(
     with pytest.raises(MendariError, match=f"{number}: "):
         load_dataset(pack / "data" / "test.jsonl")
     client = _client(tmp_path, outside)
-    datasets = client.get(f"/api/packs/{REFERRAL}/datasets")
+    datasets = client.get(f"/api/agents/{REFERRAL}/datasets")
     assert datasets.status_code in (400, 422) and where in datasets.text
     err = _no_traceback(capsys, "eval", str(pack), "--dataset", "test", "--baseline", "none")
     assert where in err
