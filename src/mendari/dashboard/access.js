@@ -9,7 +9,7 @@
 // labelling screen instead, labelling.js). Reached only through `state.noAccess` (router.js).
 
 import { views } from "./router.js";
-import { api, emptyState, esc, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
+import { api, emptyState, esc, roleName, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
 
 // core/accounts.py ORG_ID; the hyphen escaped, as a `pattern` (the `v` flag) needs it in a class.
 const ORG_ID = "[a-z0-9][a-z0-9\\-]{1,62}";
@@ -86,7 +86,7 @@ function choose(main, who) {
   const checked = state.memberships.some((m) => m.org === last) ? last : state.memberships[0]?.org;
   const options = state.memberships.map((m) => `<label class="org-choice">
       <input type="radio" name="org" value="${esc(m.org)}"${m.org === checked ? " checked" : ""}>
-      <span><b>${esc(m.name)}</b> <span class="muted">${esc(m.org)} · ${esc(m.roles.join(", ") || "no role")}</span></span>
+      <span><b>${esc(m.name)}</b> <span class="muted">${esc(m.org)} · ${esc(m.roles.map(roleName).join(", ") || "no role")}</span></span>
     </label>`).join("");
   main.innerHTML = `<h1>Choose an organization</h1>${who}
     <form class="panel" id="choose-form">

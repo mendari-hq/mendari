@@ -102,7 +102,7 @@ def member_of(
 
 def test_a_person_of_no_organization_sees_the_access_page_and_nothing_else(page: Page) -> None:
     asked = member_of(page, [], None, [])
-    page.goto(f"/?pack={INBOX}#review")  # whatever the address says
+    page.goto(f"/?agent={INBOX}#review")  # whatever the address says
     expect(page.locator("main h1")).to_have_text("You don't have access yet")
     expect(page.locator("main")).to_contain_text("Signed in as kim@clinic.example.org")
     expect(page.locator("#signed-in-name")).to_have_text("Nurse Kim · no organization")
@@ -111,7 +111,7 @@ def test_a_person_of_no_organization_sees_the_access_page_and_nothing_else(page:
     expect(page.locator(".org-picker")).to_be_hidden()
     paths = {path for _, path, _ in asked}
     assert paths <= {"/api/health", "/api/smart/session", "/api/auth/me"}, paths
-    page.goto(f"/?pack={INBOX}#access")
+    page.goto(f"/?agent={INBOX}#access")
     expect(page.locator("main h1")).to_have_text("You don't have access yet")
 
 
@@ -156,6 +156,31 @@ def test_roles_that_grant_nothing_are_said(page: Page) -> None:
     expect(page.locator("#org-form")).to_be_hidden()  # nowhere else to go
 
 
+def test_a_role_is_named_never_shown_by_its_key(page: Page) -> None:
+    """The list of a person's organizations names each role as the Access view does: whoever
+    writes agents is an "Agent author", whatever the role's key is on the wire."""
+    held = [
+        {**CLINICS[0], "roles": ["pack_author"]},
+        {**CLINICS[1], "roles": ["governance", "pack_author"]},
+    ]
+    member_of(page, held, None, [])
+    page.goto("/")
+    expect(page.locator("main h1")).to_have_text("Choose an organization")
+    choices = page.locator(".org-choice")
+    expect(choices.first).to_contain_text("default · Agent author")
+    expect(choices.last).to_contain_text("clinic-b · Governance, Agent author")
+    expect(page.locator("main")).not_to_contain_text("pack_author")
+
+
+def test_the_bar_names_the_roles_of_who_is_signed_in(page: Page) -> None:
+    held = [{**CLINICS[1], "roles": ["reviewer", "pack_author"]}]
+    member_of(page, held, "clinic-b", ["reviewer", "pack_author"])
+    open_pack(page, INBOX)
+    expect(page.locator("#signed-in-name")).to_have_text(
+        "Nurse Kim · Clinic B · Reviewer, Agent author"
+    )
+
+
 def test_a_member_who_only_labels_is_told_so_and_the_page_asks_for_nothing_else(
     page: Page,
 ) -> None:
@@ -193,7 +218,7 @@ def test_someone_in_several_organizations_switches_between_them(page: Page) -> N
     asked = member_of(page, CLINICS, "default", ["reviewer"])
     open_pack(page, INBOX)
     expect(page.locator("#signed-in-name")).to_have_text(
-        "Nurse Kim · reviewer"
+        "Nurse Kim · Reviewer"
     )  # the list names it
     picker = page.locator("#org-select")
     expect(picker).to_be_visible()
@@ -218,7 +243,7 @@ def test_a_refused_switch_says_why_and_keeps_the_organization(page: Page) -> Non
     page.get_by_role("button", name="Switch").click()
     expect(page.locator("#toast")).to_have_text(refused["detail"])
     expect(page.locator("#org-select")).to_have_value("default")
-    expect(page.locator("#signed-in-name")).to_have_text("Nurse Kim · reviewer")
+    expect(page.locator("#signed-in-name")).to_have_text("Nurse Kim · Reviewer")
 
 
 def test_switching_sends_a_held_override_first_in_the_organization_it_was_made_in(
@@ -266,11 +291,11 @@ def pins(page: Page) -> list[tuple[str, str, str | None]]:
 
 def decide_and_download(page: Page) -> None:
     """A decision (a POST), then the wrong cases' download, as the person would."""
-    page.goto(f"/?pack={INBOX}#try")
+    page.goto(f"/?agent={INBOX}#try")
     page.get_by_role("button", name="Chest pain").click()
     page.locator("#decide").click()
     expect(page.locator("#result")).to_contain_text("nurse")
-    page.goto(f"/?pack={INBOX}#feedback")
+    page.goto(f"/?agent={INBOX}#feedback")
     with page.expect_download() as saved:
         page.locator("#feedback-export").click()
     assert saved.value.suggested_filename == "patient-inbox-router-feedback-down.jsonl"
@@ -291,7 +316,7 @@ def test_claims_mode_sends_no_organization(page: Page) -> None:
     seen = pins(page)
     signed_in_as(page, "reviewer")
     open_pack(page, INBOX)
-    expect(page.locator("#signed-in-name")).to_have_text("Nurse Kim · reviewer")
+    expect(page.locator("#signed-in-name")).to_have_text("Nurse Kim · Reviewer")
     expect(page.locator(".org-picker")).to_be_hidden()
     decide_and_download(page)
     assert {"GET", "POST"} <= {method for method, _, _ in seen}
@@ -303,14 +328,14 @@ def test_a_download_for_an_organization_changed_since_is_refused_and_said(page: 
     open_pack(page, INBOX)
     moved = {"error": "OrganizationChanged", "detail": "this window shows another organization"}
     page.route("**/feedback/export*", lambda route: route.fulfill(status=409, json=moved))
-    page.goto(f"/?pack={INBOX}#feedback")
+    page.goto(f"/?agent={INBOX}#feedback")
     page.locator("#feedback-export").click()
     expect(page.locator("#org-changed")).to_be_visible()
 
 
 def test_who_is_signed_in_must_be_known_to_show_anything(page: Page) -> None:
     page.route("**/api/auth/me", lambda route: route.fulfill(status=503, json={"detail": "down"}))
-    page.goto(f"/?pack={INBOX}#overview")
+    page.goto(f"/?agent={INBOX}#overview")
     expect(page.locator("main")).to_contain_text("Could not reach the Mendari API")
     expect(page.locator("#pack-select option")).to_have_count(0)
 
@@ -350,7 +375,7 @@ def test_nothing_shifts_while_a_member_of_several_loads(page: Page, width: int) 
     page.set_viewport_size({"width": width, "height": 900})
     page.add_init_script(LAYOUT_SHIFT)
     member_of(page, CLINICS, "default", ["reviewer"])
-    page.goto(f"/?pack={INBOX}#overview")
+    page.goto(f"/?agent={INBOX}#overview")
     expect(page.locator(".stats-primary")).to_be_visible()
     page.wait_for_timeout(300)
     assert page.evaluate("window.__cls") < 0.1
@@ -363,7 +388,7 @@ def test_access_that_ended_mid_session_says_so(page: Page) -> None:
     expect(banner).to_be_hidden()
     ended = {"error": "NoOrganization", "detail": "you have no organization here"}
     page.route("**/api/review?*", lambda route: route.fulfill(status=403, json=ended))
-    page.goto(f"/?pack={INBOX}#review")
+    page.goto(f"/?agent={INBOX}#review")
     expect(banner).to_be_visible()
     expect(banner).to_contain_text("Your access to this organization ended.")
     expect(page.locator("#announce-alert")).to_have_text("Your access to this organization ended.")
@@ -374,7 +399,7 @@ def test_a_window_on_an_organization_changed_since_says_so(page: Page) -> None:
     open_pack(page, INBOX)
     moved = {"error": "OrganizationChanged", "detail": "this window shows another organization"}
     page.route("**/api/review?*", lambda route: route.fulfill(status=409, json=moved))
-    page.goto(f"/?pack={INBOX}#review")
+    page.goto(f"/?agent={INBOX}#review")
     banner = page.locator("#org-changed")
     expect(banner).to_be_visible()
     expect(banner.get_by_role("button", name="Reload it")).to_be_visible()

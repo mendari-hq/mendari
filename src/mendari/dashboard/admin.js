@@ -1268,6 +1268,8 @@ const SUBJECT_TEXT = {
   key: "API key", client: "Client", governance: "Automation approval", registry_approval: "Registry approval",
   hold: "Automation hold", eval: "Evaluation report", org: "Organization", membership: "Member",
   invitation: "Invitation", access: "Request to join", evalset: "Hidden evaluation set",
+  pack_version: "Agent store version", store_key: "Agent store author key",
+  store_dataset: "Agent store dataset", store_job: "Agent store evaluation job",
 };
 
 // Who acted: the first of these a payload has, or a kind's own (standards/audit_fhir.py _ACTORS).

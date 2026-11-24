@@ -388,7 +388,7 @@ def _cards(cards: Mapping[str, CardLink] | None) -> str:
         )
     community = f' <span class="badge origin-community">{escape(COMMUNITY_LABEL)}</span>'
     links = "".join(
-        f'<li><a href="/?pack={escape(quote(pack_id, safe="/"))}#card">{escape(link.name)}</a> '
+        f'<li><a href="/?agent={escape(quote(pack_id, safe="/"))}#card">{escape(link.name)}</a> '
         f"<code>{escape(pack_id)}</code>{community if link.community else ''}</li>"
         for pack_id, link in sorted(cards.items())
     )

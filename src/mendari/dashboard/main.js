@@ -23,7 +23,7 @@ import { onHashChange, render, route, views } from "./router.js";
 import { setupSettings } from "./settings.js";
 import { skeleton } from "./skeleton.js";
 import { setupTheme } from "./theme.js";
-import { $, api, DEFAULT_TIMEZONE, esc, focusHeading, loadPack, shortFormatFor, state, storageGet, storageSet, timeFormatFor, watchEdges } from "./ui.js";
+import { $, api, DEFAULT_TIMEZONE, esc, focusHeading, loadPack, roleName, shortFormatFor, state, storageGet, storageSet, timeFormatFor, watchEdges } from "./ui.js";
 
 async function boot() {
   setupTheme();
@@ -143,15 +143,20 @@ async function boot() {
   render();
 }
 
-// The pack travels in the address ("?pack=mendari/portal-message-agent#review"), so a shared or
-// bookmarked link opens the pack it was copied from, and a record link opens over that pack's
-// list. Without one, the pack last chosen here. Hash links keep the query, so no link builds it.
-const packInAddress = () => new URLSearchParams(location.search).get("pack");
+// The agent travels in the address ("?agent=mendari/portal-message-agent#review"), so a shared or
+// bookmarked link opens the agent it was copied from, and a record link opens over that agent's
+// list. Without one, the agent last chosen here. Hash links keep the query, so no link builds it.
+// The address said "?pack=" before: a link made then (a bookmark, a CDS card, an EHR launch) is
+// still read, and the address is written as "?agent=" from there on.
+function packInAddress() {
+  const query = new URLSearchParams(location.search);
+  return query.get("agent") ?? query.get("pack");
+}
 
 function switchPack(packId) {
   $("#pack-select").value = packId;
   storageSet("oh.pack", packId);
-  history.replaceState(history.state, "", `?pack=${encodeURIComponent(packId).replaceAll("%2F", "/")}${location.hash}`);
+  history.replaceState(history.state, "", `?agent=${encodeURIComponent(packId).replaceAll("%2F", "/")}${location.hash}`);
   return loadPack(packId);
 }
 
@@ -177,13 +182,14 @@ function showSignedIn(me) {
   const box = $("#signed-in");
   box.hidden = !me?.signed_in;
   if (!me?.signed_in) return;
-  const { name, roles, org } = me.principal;
+  const { name, org } = me.principal;
+  const roles = me.principal.roles.map(roleName).join(", "); // by their names, never their keys
   const held = state.memberships.find((m) => m.org === org);
-  let shown = `${name} · ${roles.join(", ")}`;
+  let shown = `${name} · ${roles}`;
   if (state.accounts === "memberships" && me.principal.kind === "user") {
     // The organization, unless the switcher shows it (several): the bar stays on one line.
     const named = state.memberships.length > 1 ? null : held?.name ?? org;
-    shown = org === null ? `${name} · no organization` : [name, named, roles.join(", ")].filter(Boolean).join(" · ");
+    shown = org === null ? `${name} · no organization` : [name, named, roles].filter(Boolean).join(" · ");
   }
   $("#signed-in-name").textContent = shown;
   $("#signed-in-name").title = `The audit trail records you as ${me.principal.actor}`;

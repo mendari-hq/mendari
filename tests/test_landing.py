@@ -92,7 +92,7 @@ def test_open_mode_links_every_packs_decision_card(client: TestClient) -> None:
     packs = client.get("/api/packs").json()
     assert packs
     for pack in packs:
-        assert f'href="/?pack={pack["id"]}#card"' in text, pack["id"]
+        assert f'href="/?agent={pack["id"]}#card"' in text, pack["id"]
 
 
 def test_with_sign_in_on_the_landing_is_public_and_tells_nothing_of_the_deployment(
@@ -113,7 +113,7 @@ def test_with_sign_in_on_the_landing_is_public_and_tells_nothing_of_the_deployme
     assert every.text == one.text == with_jev.text
     assert html.escape(json.dumps(landing.PRINTED, indent=2, ensure_ascii=False)) in every.text
     assert "Sign-in is on here" in every.text and 'href="/auth/login"' in every.text
-    assert "/?pack=" not in every.text and 'href="/#card"' in every.text
+    assert "/?agent=" not in every.text and 'href="/#card"' in every.text
     assert "Backend Services (signed client assertions" in every.text  # off here
 
 

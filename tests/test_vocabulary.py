@@ -159,13 +159,7 @@ class Surface:
 
 # Texts that say the old word on purpose: (surface, the whole text) -> why. An entry that no
 # surface holds any more fails the test, so the list never outlives its reasons.
-ALLOWED: dict[tuple[str, str], str] = {
-    (
-        "the Python product's messages",
-        '<li><a href="/?pack={}#card">{}</a> <code>{}</code>{}</li>',
-    ): "a link from the docs landing into the dashboard, whose address reads `?pack=`: the "
-    "dashboard's scripts own that name, and the front ends' step renames it with them",
-}
+ALLOWED: dict[tuple[str, str], str] = {}
 
 
 # The API descriptions --------------------------------------------------------------------------

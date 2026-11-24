@@ -530,7 +530,7 @@ def test_creating_rotating_and_replacing_wait_for_the_notice(page: Page) -> None
     acknowledging = page.get_by_role("button", name="I understand: synthetic data only")
 
     open_pack(page, INBOX)
-    page.goto(f"/?pack={INBOX}#admin/keys")
+    page.goto(f"/?agent={INBOX}#admin/keys")
     page.fill("#key-name", "ehr")
     page.get_by_role("button", name="Create key").click()
     acknowledging.click()

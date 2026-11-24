@@ -105,7 +105,7 @@ def test_a_community_pack_is_labelled_wherever_it_shows_and_readably(
 
 def test_the_docs_landing_labels_the_community_pack(site: Page) -> None:
     site.goto("/docs")
-    item = site.locator(".docs-cards li", has=site.locator(f'a[href="/?pack={SORTER}#card"]'))
+    item = site.locator(".docs-cards li", has=site.locator(f'a[href="/?agent={SORTER}#card"]'))
     expect(item.locator(".badge.origin-community")).to_have_text(LABEL)
     expect(site.locator(".docs-cards .badge.origin-community")).to_have_count(2)
 
