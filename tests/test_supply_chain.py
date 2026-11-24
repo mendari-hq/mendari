@@ -169,8 +169,11 @@ def test_every_action_is_pinned_to_a_commit_with_its_version(path: Path) -> None
         assert COMMIT_PIN.match(ref), f"{path.name}:{number}: {ref} is not pinned to a commit"
         assert VERSION_COMMENT.match(rest), f"{path.name}:{number}: no '# vX.Y.Z' comment"
         pinned += 1
-    # The line scan saw every step that uses an action (none hides in YAML flow style).
-    assert pinned == sum(1 for step in _steps(path) if "uses" in step), path.name
+    # The line scan saw every step that uses an action (none hides in YAML flow style): each
+    # but the local one (`uses: ./`, the repository's own action.yml, whose own steps
+    # tests/test_ci_action.py holds to the same rule).
+    used = [step["uses"] for step in _steps(path) if "uses" in step]
+    assert pinned == sum(1 for action in used if not action.startswith("./")), path.name
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)

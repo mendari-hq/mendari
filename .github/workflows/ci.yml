@@ -668,6 +668,71 @@ jobs:
       - name: A REST, a FHIR and a guard decision by the documented commands, and the commands on the server's database
         run: uv run python scripts/check_doc_snippets.py
 
+  action:
+    # The action other repositories check their agent with (action.yml,
+    # docs/guides/evaluate-in-ci.md), used here as they use it, on the bundled demo agent. Its
+    # canned agent misses urgent messages on purpose (81 of 114 detected, nine of the missed
+    # automated). So the first use states limits the agent meets, the second holds it to that
+    # first result and to no limit, and the third states none of its own: the action's defaults
+    # then apply, and it must fail, for the limits and for nothing else.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The demo agent, within limits it meets
+        id: within
+        uses: ./
+        with:
+          agent: agents/portal-message-agent
+          dataset: test
+          min-critical-detection: "0.7"
+          max-critical-automated: "9"
+          min-accuracy: "0.9"
+          max-false-automation: "0.05"
+          artifact: mendari-evaluation-within
+      - name: The demo agent, no worse than that result
+        id: against
+        uses: ./
+        with:
+          agent: agents/portal-message-agent
+          dataset: test
+          baseline: ${{ steps.within.outputs.result }}
+          min-critical-detection: ""
+          max-critical-automated: ""
+          artifact: mendari-evaluation-against
+      - name: The demo agent, held to the action's own limits (expected to fail)
+        id: strict
+        continue-on-error: true
+        uses: ./
+        with:
+          agent: agents/portal-message-agent
+          dataset: test
+          artifact: mendari-evaluation-strict
+      - name: That use failed, and for the limits alone
+        env:
+          OUTCOME: ${{ steps.strict.outcome }}
+          VALIDATION: ${{ steps.strict.outputs.validation }}
+          TESTS: ${{ steps.strict.outputs.tests }}
+          EVALUATION: ${{ steps.strict.outputs.evaluation }}
+        run: |
+          test "$OUTCOME" = failure
+          test "$VALIDATION" = passed
+          test "$TESTS" = passed
+          test "$EVALUATION" = failed
+      - name: Each summary says what it found, with cases by id
+        env:
+          WITHIN: ${{ steps.within.outputs.summary }}
+          AGAINST: ${{ steps.against.outputs.summary }}
+          STRICT: ${{ steps.strict.outputs.summary }}
+        run: |
+          grep -q '^## Mendari agent check: passed$' "$WITHIN"
+          grep -q '^### Gate passed$' "$WITHIN"
+          grep -q '^Nothing is worse than the baseline\.$' "$AGAINST"
+          grep -q '^## Mendari agent check: failed$' "$STRICT"
+          grep -q '^### Gate failed: 2 limits missed$' "$STRICT"
+          grep -q 'no person read them (9): .demo-0002., ' "$STRICT"
+
   pilot-check:
     # The v0.6 exit: a pilot organization runs a portal-message agent (the bundled demo agent)
     # with its own identity provider, PHI-safe settings, monitoring and governance approvals. The

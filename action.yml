@@ -1,0 +1,273 @@
+# SPDX-License-Identifier: Apache-2.0
+# Mendari's check of an agent, for the agent's own repository (docs/guides/evaluate-in-ci.md):
+#
+#   - uses: actions/checkout@<commit>
+#   - uses: mendari-hq/mendari@<a release's tag>
+#     with:
+#       agent: .
+#       dataset: examples
+#
+# It installs Mendari from this action's own checkout into an environment of its own (the job's
+# Python and packages are left alone), then validates the agent, runs its behaviour tests and
+# evaluates it on a labelled dataset. The job's summary gets the counts with their intervals, the
+# mix of outcomes and each critical label, with cases named by id and never by their text; the
+# result file is uploaded as an artifact; and the job fails when the manifest is not valid, a
+# behaviour test fails, a stated limit is missed or the evaluation is worse than a baseline.
+#
+# It needs no secret and no permission beyond reading the repository, so it is safe on a pull
+# request from a fork. Each action it uses is pinned to a commit, and every input reaches a
+# script through the environment, never pasted into it. tests/test_ci_action.py holds both.
+name: Mendari agent check
+description: >-
+  Validate, test and evaluate a healthcare AI agent with Mendari on every change, and fail the
+  job when it misses a limit or is worse than a baseline.
+author: Mendari contributors
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  agent:
+    description: The agent's directory, where its agent.yaml is, relative to the workspace.
+    default: "."
+  dataset:
+    description: >-
+      The labelled dataset to evaluate on: one the agent declares (a name under
+      `evaluation.datasets` in agent.yaml), or the path of a JSONL file, from the workspace.
+    default: examples
+  provider:
+    description: >-
+      Provider variants to use in place of the agent's defaults, as SLOT=VARIANT (`reader=rules`).
+      Separate several with spaces or new lines.
+    default: ""
+  min-critical-detection:
+    description: >-
+      The least share (0 to 1) of each critical label's cases the agent must detect. Empty: no
+      limit.
+    default: "0.9"
+  max-critical-automated:
+    description: >-
+      The most cases of each critical label that may be automated, with no person reading them.
+      Empty: no limit.
+    default: "0"
+  min-accuracy:
+    description: >-
+      The least accuracy (0 to 1) on the agent's primary question. Empty: no limit.
+    default: ""
+  max-false-automation:
+    description: >-
+      The most of the automated cases (a share, 0 to 1) that may have a wrong recommendation.
+      Empty: no limit.
+    default: ""
+  baseline:
+    description: >-
+      The path, from the workspace, of an earlier result of this agent on the same dataset (the
+      result file this action uploads, or `mendari eval --out`). The evaluation fails when it is
+      worse: a critical label detected less often, more of its cases automated, or accuracy or
+      false automation worse by more than the agent's `evaluation.degradation_tolerance`. Empty:
+      nothing is compared.
+    default: ""
+  python-version:
+    description: The Python that runs Mendari (3.11 or later).
+    default: "3.12"
+  artifact:
+    description: >-
+      The name of the artifact that holds the result file, its ledger and the summary. Give
+      each use in one workflow run its own name. Empty: nothing is uploaded.
+    default: mendari-evaluation
+
+outputs:
+  validation:
+    description: "`passed` or `failed`: whether the agent's manifest and files are valid."
+    value: ${{ steps.check.outputs.validation }}
+  tests:
+    description: "`passed`, `failed`, or `skipped` when validation failed: the behaviour tests."
+    value: ${{ steps.check.outputs.tests }}
+  evaluation:
+    description: >-
+      `passed`; `failed` when a limit is missed or the result is worse than the baseline; `error`
+      when the evaluation could not run; `skipped` when validation failed.
+    value: ${{ steps.check.outputs.evaluation }}
+  result:
+    description: The path of the evaluation's result file (JSON; counts, never cases).
+    value: ${{ steps.check.outputs.result }}
+  summary:
+    description: The path of the summary, as Markdown.
+    value: ${{ steps.check.outputs.summary }}
+  mendari:
+    description: The path of the `mendari` command this action installed, for later steps.
+    value: ${{ steps.install.outputs.mendari }}
+
+runs:
+  using: composite
+  steps:
+    - name: Where this action's checkout is
+      # Read first, so no later step depends on what the variable holds once another action
+      # (setup-uv, below) has run inside this one.
+      id: here
+      shell: bash
+      run: echo "path=$GITHUB_ACTION_PATH" >> "$GITHUB_OUTPUT"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      with:
+        version: "0.13.6"
+        enable-cache: false
+
+    - name: Install Mendari from this action's checkout, its dependencies as locked
+      id: install
+      shell: bash
+      env:
+        ACTION_PATH: ${{ steps.here.outputs.path }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: |
+        set -euo pipefail
+        work="$(mktemp -d "${RUNNER_TEMP:-/tmp}/mendari.XXXXXX")"
+        uv venv --quiet --python "$PYTHON_VERSION" "$work/venv"
+        # The dependencies are the ones uv.lock pins, each checked against its hash; then
+        # Mendari itself, built from this checkout (so this works before a release to PyPI).
+        uv export --quiet --project "$ACTION_PATH" --frozen --no-dev --no-emit-project \
+          --format requirements-txt --output-file "$work/requirements.txt"
+        uv pip install --quiet --python "$work/venv" --require-hashes -r "$work/requirements.txt"
+        uv pip install --quiet --python "$work/venv" --no-deps "$ACTION_PATH"
+        bin="$work/venv/bin"
+        [ -d "$bin" ] || bin="$work/venv/Scripts"
+        "$bin/mendari" --version
+        echo "mendari=$bin/mendari" >> "$GITHUB_OUTPUT"
+        echo "work=$work" >> "$GITHUB_OUTPUT"
+
+    - name: Validate, test and evaluate the agent
+      id: check
+      shell: bash
+      env:
+        MENDARI: ${{ steps.install.outputs.mendari }}
+        WORK: ${{ steps.install.outputs.work }}
+        AGENT: ${{ inputs.agent }}
+        DATASET: ${{ inputs.dataset }}
+        PROVIDER: ${{ inputs.provider }}
+        MIN_CRITICAL_DETECTION: ${{ inputs.min-critical-detection }}
+        MAX_CRITICAL_AUTOMATED: ${{ inputs.max-critical-automated }}
+        MIN_ACCURACY: ${{ inputs.min-accuracy }}
+        MAX_FALSE_AUTOMATION: ${{ inputs.max-false-automation }}
+        BASELINE: ${{ inputs.baseline }}
+      run: |
+        # Every check runs and is recorded, whatever the one before it found: the summary and
+        # the artifact are written first, and the last step fails the job. So a command that
+        # fails does not end this script (`set +e`); its status is read instead.
+        set +e -uo pipefail
+        out="$WORK/evaluation"
+        logs="$WORK/logs"
+        mkdir -p "$out" "$logs"
+        validation=failed
+        tests=skipped
+        evaluation=skipped
+
+        dir="$(cd -- "$AGENT" 2>/dev/null && pwd)" || dir=""
+        validate=("$MENDARI" validate "$dir")
+        behaviour=("$MENDARI" test "$dir")
+        evaluate=("$MENDARI" eval "$dir" --dataset "$DATASET" --baseline none
+          --out "$out/result.json" --markdown)
+        set -f  # the input's words as they are: none is a file name pattern
+        for setting in $PROVIDER; do
+          behaviour+=(--provider "$setting")
+          evaluate+=(--provider "$setting")
+        done
+        set +f
+        [ -z "$MIN_CRITICAL_DETECTION" ] || evaluate+=(--min-critical-detection "$MIN_CRITICAL_DETECTION")
+        [ -z "$MAX_CRITICAL_AUTOMATED" ] || evaluate+=(--max-critical-automated "$MAX_CRITICAL_AUTOMATED")
+        [ -z "$MIN_ACCURACY" ] || evaluate+=(--min-accuracy "$MIN_ACCURACY")
+        [ -z "$MAX_FALSE_AUTOMATION" ] || evaluate+=(--max-false-automation "$MAX_FALSE_AUTOMATION")
+        [ -z "$BASELINE" ] || evaluate+=(--no-worse-than "$BASELINE")
+
+        if [ -z "$dir" ]; then
+          echo "error: the \`agent\` input names no directory in the workspace" | tee "$logs/validate.log"
+        else
+          echo "::group::mendari validate"
+          "${validate[@]}" 2>&1 | tee "$logs/validate.log"
+          [ "${PIPESTATUS[0]}" -ne 0 ] || validation=passed
+          echo "::endgroup::"
+        fi
+        if [ "$validation" = passed ]; then
+          echo "::group::mendari test"
+          "${behaviour[@]}" 2>&1 | tee "$logs/test.log"
+          if [ "${PIPESTATUS[0]}" -eq 0 ]; then tests=passed; else tests=failed; fi
+          echo "::endgroup::"
+          echo "::group::mendari eval"
+          "${evaluate[@]}" > "$logs/evaluation.md" 2> "$logs/evaluation.err"
+          case $? in
+            0) evaluation=passed ;;
+            2) evaluation=failed ;;  # a limit missed, or worse than the baseline
+            *) evaluation=error ;;
+          esac
+          cat "$logs/evaluation.md" "$logs/evaluation.err"
+          echo "::endgroup::"
+        fi
+
+        # The summary: what each check found, then the evaluation as Mendari renders it. What a
+        # command printed goes in as an indented block, which renders nothing it holds.
+        verdict=passed
+        if [ "$validation" != passed ] || [ "$tests" != passed ] || [ "$evaluation" != passed ]; then
+          verdict=failed
+        fi
+        {
+          echo "## Mendari agent check: $verdict"
+          echo
+          echo "Validation: **$validation**. Behaviour tests: **$tests**. Evaluation: **$evaluation**."
+          echo
+          sed 's/^/    /' "$logs/validate.log"
+          if [ -f "$logs/test.log" ]; then  # the tests that failed, and the count of all
+            grep -Ev '^(PASS |$)' "$logs/test.log" | sed 's/^/    /'
+          fi
+          echo
+          if [ -s "$logs/evaluation.md" ]; then
+            cat "$logs/evaluation.md"
+          elif [ -s "$logs/evaluation.err" ]; then
+            sed 's/^/    /' "$logs/evaluation.err"
+          fi
+        } > "$out/summary.md"
+        if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        {
+          echo "validation=$validation"
+          echo "tests=$tests"
+          echo "evaluation=$evaluation"
+          echo "directory=$out"
+          echo "summary=$out/summary.md"
+          if [ -f "$out/result.json" ]; then echo "result=$out/result.json"; fi
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Upload the evaluation's result
+      if: inputs.artifact != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+      with:
+        name: ${{ inputs.artifact }}
+        path: ${{ steps.check.outputs.directory }}
+        if-no-files-found: ignore
+
+    - name: Fail the job when a check failed
+      shell: bash
+      env:
+        VALIDATION: ${{ steps.check.outputs.validation }}
+        TESTS: ${{ steps.check.outputs.tests }}
+        EVALUATION: ${{ steps.check.outputs.evaluation }}
+      run: |
+        failed=0
+        if [ "$VALIDATION" != passed ]; then
+          echo "::error title=Mendari::The agent is not valid: the job's summary and log say why. The agent input names the directory that holds agent.yaml."
+          failed=1
+        fi
+        if [ "$TESTS" = failed ]; then
+          echo "::error title=Mendari::The behaviour tests failed: the job's summary names each, or says why they could not run."
+          failed=1
+        fi
+        if [ "$EVALUATION" = failed ]; then
+          echo "::error title=Mendari::The evaluation misses a stated limit or is worse than the baseline: the job's summary says which."
+          failed=1
+        fi
+        if [ "$EVALUATION" = error ]; then
+          echo "::error title=Mendari::The evaluation could not run: the job's summary and log say why."
+          failed=1
+        fi
+        exit "$failed"
