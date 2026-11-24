@@ -1077,6 +1077,8 @@ def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Pa
     shutil.copytree(DEMO_AGENT_DIR, folder)
     manifest = yaml.safe_load((folder / "agent.yaml").read_text())
     del manifest["actions"]
+    # What it writes goes with its agent variant: only an agent writes (spec 0.4).
+    del manifest["outputs"], manifest["rubrics"], manifest["evaluation"]["grades"]
     manifest["providers"]["reader"]["use"] = "rules"
     del manifest["providers"]["reader"]["variants"]["agent"]
     (folder / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))

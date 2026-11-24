@@ -1526,9 +1526,10 @@ def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_nex
     demo: Pack,
     demo_run: tuple[Any, list[Any]],
 ) -> None:
-    """The demo is one story: five numbered sections, then its closing. The closing, after the
-    evaluation and the probe: the evaluation's verdict, the operating point (the block's own
-    summary, then what to do), then the commands. Short, and in that order."""
+    """The demo is one story: six numbered sections, then its closing. The closing, after the
+    evaluation, the probe and what the agent wrote: the evaluation's verdict, the operating
+    point (the block's own summary, then what to do), then the commands. Short, and in that
+    order."""
     run_demo()
     out = capsys.readouterr().out
     before, heading, closing = out.partition("\n== What next ")
@@ -1540,6 +1541,7 @@ def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_nex
         "3. The review queue and the audit trail",
         "4. Before going live: evaluate the agent",
         "5. Find the failures nobody wrote down",
+        "6. What the agent wrote",
         "What next",
     ]
     assert "in other words; see section 4." in before  # the evaluation, where it is caught
