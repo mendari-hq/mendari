@@ -25,7 +25,7 @@ from typing import Literal
 from mendari.core import input_schema
 from mendari.core.decision import Decision, _schema_rule, _where
 from mendari.core.origin import bounded_reader, shape_problem
-from mendari.core.pack import Pack, manifest_template_problems
+from mendari.core.pack import MANIFEST, Pack, manifest_template_problems
 from mendari.core.patterns import OutOfTime, time_budget
 from mendari.errors import MendariError, PackValidationError
 
@@ -94,7 +94,7 @@ def _collect(pack: Pack, *, raising: bool) -> list[Problem]:
                     raise
                 where = f"providers.{slot}.variants.{variant}"
                 problem = f"{where}: {_said(error)}"
-                return [Problem("provider", pack.manifest_file, where, problem)]
+                return [Problem("provider", MANIFEST, where, problem)]
     if pack.manifest.inputs.fhir:
         from mendari.standards.fhir import FhirAdapter
 
@@ -130,9 +130,9 @@ def _said(error: Exception) -> str:
 
 def _manifest_problem(pack: Pack, kind: Kind, text: str) -> Problem:
     # Each starts with the manifest key it is about (`providers.x.variants.y: …`,
-    # `cds_hooks.card.summary …`), in the manifest as the pack names it (`Pack.manifest_file`).
+    # `cds_hooks.card.summary …`).
     head = text.split(None, 1)[0] if text.strip() else ""
-    return Problem(kind, pack.manifest_file, head.rstrip(":"), text)
+    return Problem(kind, MANIFEST, head.rstrip(":"), text)
 
 
 def input_problems(pack: Pack) -> list[Problem]:

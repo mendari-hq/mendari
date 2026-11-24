@@ -88,7 +88,7 @@ jobs:
         if: matrix.python == '3.12'
         run: |
           failed=0
-          for manifest in community-agents/*/agent.yaml community-agents/*/pack.yaml; do
+          for manifest in community-agents/*/agent.yaml; do
             [ -f "$manifest" ] || continue
             uv run mendari test "$(dirname "$manifest")" || failed=1
           done

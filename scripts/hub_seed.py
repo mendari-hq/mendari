@@ -31,7 +31,7 @@ from pathlib import Path
 
 import yaml
 
-from mendari.core.pack import load_pack
+from mendari.core.pack import MANIFEST, load_pack
 from mendari.core.registry import discover, resolve_pack
 from mendari.errors import HubError
 from mendari.hub import archive
@@ -99,7 +99,7 @@ def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
     with tempfile.TemporaryDirectory() as scratch:
         root = Path(scratch) / "hostile"
         shutil.copytree(inbox.root, root)
-        manifest_file = root / inbox.manifest_file
+        manifest_file = root / MANIFEST
         manifest = yaml.safe_load(manifest_file.read_text(encoding="utf-8"))
         manifest["id"], manifest["version"] = HOSTILE_ID, "1.0.0"
         manifest["name"] = "Hostile Text Example"

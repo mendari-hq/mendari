@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack
+from mendari.core.pack import MANIFEST, Pack
 from mendari.core.pack_store import DRAFT, HELD, PackStore, PhiRejected, StoreError
 from mendari.errors import HubError, MendariError
 from mendari.server import security_log
@@ -405,9 +405,7 @@ def add_store_routes(
             path.relative_to(source.root).as_posix(): path.read_bytes()
             for path in pack_files(source.root)
         }
-        # The manifest under the name the served agent has it (`Pack.manifest_file`).
-        manifest = source.manifest_file
-        files[manifest] = _renamed(files[manifest], f"{org}/{body.name}")
+        files[MANIFEST] = _renamed(files[MANIFEST], f"{org}/{body.name}")
         copied = {"id": source.id, "version": source.version, "digest": source.digest}
         return admitted(request, org, by, files, source="copy", copied_from=copied)
 
@@ -440,7 +438,7 @@ def add_store_routes(
             except UnicodeDecodeError:
                 raise HTTPException(422, f"{edited.path}: not a text file") from None
             files[edited.path] = edited.content.encode("utf-8")
-        if _trained_paths(files.get(pack.manifest_file, b"")) != trained:
+        if _trained_paths(files.get(MANIFEST, b"")) != trained:
             raise HTTPException(422, "an edit does not change which files are trained")
         return admitted(request, org, by, files, source="edit", parent=digest)
 

@@ -6,10 +6,9 @@ characters it holds.
     uv run python scripts/changed_packs.py BASE_SHA | while IFS= read -r -d '' dir; do ...; done
 
 Under `agents/`, a changed file belongs to the nearest folder above it that holds a manifest
-(`agent.yaml`, or `pack.yaml`, the name it had before: `mendari.core.pack.MANIFEST_NAMES`; an
-agent can sit up to four levels deep, as the registry finds it). A file under no agent, such as
-one left over from a removed agent, is reported as its top folder, `agents/<name>`, which then
-has no manifest: the workflow says it was removed.
+(`agent.yaml`; an agent can sit up to four levels deep, as the registry finds it). A file under
+no agent, such as one left over from a removed agent, is reported as its top folder,
+`agents/<name>`, which then has no manifest: the workflow says it was removed.
 
 Under `community-agents/`, an agent is exactly one folder, `community-agents/<name>`, whatever its
 files (a manifest deeper is the agent's mistake, which `mendari community-check` reports).

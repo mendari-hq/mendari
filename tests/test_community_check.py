@@ -1404,59 +1404,7 @@ def test_phi_is_looked_for_in_the_files_the_manifest_names(new_pack: Path) -> No
     assert "123-45-6789" not in kinds
 
 
-# -- the manifest's two names (`agent.yaml`, and `pack.yaml` before) ------------------------------
-
-
-def _rename_manifest(pack: Path, name: str) -> None:
-    """The folder's manifest under `name`, its benchmark and card made again (the digest hashes
-    file names, so the rename is a change to what the agent decides with)."""
-    current = manifest_name(pack)
-    assert current is not None and current != name
-    (pack / current).rename(pack / name)
-    regenerate(pack)
-
-
-@pytest.mark.parametrize(
-    "before, after", [("pack.yaml", "agent.yaml"), ("agent.yaml", "pack.yaml")]
-)
-def test_a_regression_cannot_hide_behind_a_renamed_manifest(
-    new_pack: Path, repo: Path, before: str, after: str
-) -> None:
-    """The base's benchmark, tolerance and version are read from the base's manifest under
-    whichever name the base has it. Read under the change's name alone, a change that renamed
-    the manifest looked like a new agent: nothing to regress against, no version to raise."""
-    if manifest_name(new_pack) != before:
-        _rename_manifest(new_pack, before)
-        commit(repo, f"the manifest as {before}")
-    git(repo, "branch", "-f", "main")  # the base holds the agent under `before`
-    _rename_manifest(new_pack, after)
-    assert has(run(new_pack), "hygiene", "the base has 0.1.0, this change 0.1.0")  # no bump yet
-    rules = new_pack / "logic" / "rules.yaml"
-    rules.write_text(rules.read_text().replace("refill|renew|", ""))  # misses some refills
-    edit_manifest(new_pack, lambda m: m["evaluation"].update(degradation_tolerance=0.05))
-    edit_manifest(new_pack, lambda m: m.update(version="0.2.0"))
-    changelog = new_pack / "CHANGELOG.md"
-    changelog.write_text(
-        changelog.read_text().replace("## 0.1.0", "## 0.2.0\n\n- Fewer rules.\n\n## 0.1.0")
-    )
-    regenerate(new_pack)
-    report = run(new_pack)
-    assert has(report, "evaluation", "regression against the base (tolerance 3%, from the base)")
-    assert has(report, "evaluation", "request accuracy fell")
-    assert report.metrics is not None and "A new pack" not in report.metrics
-    assert not has(report, "hygiene", "its version goes up")
-
-
-def test_both_names_in_a_community_folder_fail_the_check(new_pack: Path) -> None:
-    shutil.copy(new_pack / "agent.yaml", new_pack / "pack.yaml")
-    report = run(new_pack, base=None)
-    assert not report.passed
-    assert has(report, "correctness", "agent.yaml and pack.yaml are both here")
-
-
-def test_a_nested_manifest_of_either_name_fails(new_pack: Path) -> None:
-    for name in ("agent.yaml", "pack.yaml"):
-        (new_pack / "extra").mkdir(exist_ok=True)
-        (new_pack / "extra" / name).write_text("id: community/extra\n")
-        assert has(run(new_pack, base=None), "scope", f"remove extra/{name}")
-        (new_pack / "extra" / name).unlink()
+def test_a_nested_manifest_fails(new_pack: Path) -> None:
+    (new_pack / "extra").mkdir()
+    (new_pack / "extra" / "agent.yaml").write_text("id: community/extra\n")
+    assert has(run(new_pack, base=None), "scope", "remove extra/agent.yaml")

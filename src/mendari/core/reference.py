@@ -49,7 +49,7 @@ def reference_packs() -> Mapping[str, tuple[ReferencePack, ...]]:
     """The packs of the installed release by id (each directory of `bundled_dir()` holding a
     manifest, one level deep), with their versions and digests; computed once per process.
     The id and version are read from the manifest alone, not by loading the pack. A directory
-    that cannot be hashed, that holds the manifest under both its names, or whose manifest
+    that cannot be hashed, that holds two spellings of the manifest's name, or whose manifest
     names no id or version, is left out, never raised: it is no reference."""
     root = bundled_dir()
     if root is None:

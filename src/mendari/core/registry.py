@@ -119,10 +119,9 @@ def _inside(path: Path, directory: Path) -> bool:
 
 def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
     """Every pack on the search path (or `paths`; a plain path's origin is `origin_of` it),
-    and why each other manifest found (`agent.yaml`, or `pack.yaml`, the name it had before:
-    `core/pack.py` `manifest_name`) is not served, by directory. A pack never stops a
-    discovery: whatever its content raises, it is listed by its directory and the others are
-    found."""
+    and why each other manifest found (`agent.yaml`) is not served, by directory. A pack never
+    stops a discovery: whatever its content raises, it is listed by its directory and the
+    others are found."""
     bases = [
         entry if isinstance(entry, SearchPath) else SearchPath(entry, origin_of(entry))
         for entry in (paths if paths is not None else search_paths())

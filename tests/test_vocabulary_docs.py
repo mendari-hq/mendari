@@ -128,10 +128,6 @@ _ARCHIVE = (
     "a signed archive holds an agent's files under `pack/` (`hub/archive.py`): the format's "
     "own name, which signatures cover, renamed with the stored formats (wave 6)"
 )
-_EITHER_NAME = (
-    "a workflow finds an agent's manifest by either name: one named `pack.yaml`, as it was "
-    "before, still loads (`core/pack.py` `manifest_name`), so CI must not take it for removed"
-)
 # A text left alone in the files a pattern names (`*`: any of them): (files, text) -> why.
 ALLOWED: dict[tuple[str, str], str] = {
     ("docs/spec/agent-manifest-0.2.md", "A manifest named `pack.yaml`"): "the spec's one "
@@ -163,8 +159,6 @@ ALLOWED: dict[tuple[str, str], str] = {
         "/smart/launch?pack=<agent id>",
     ): "the launch route's query parameter is `pack` (`server/smart_routes.py`): a name on the "
     "wire, which an EHR's registered launch address may hold, renamed with the wire names",
-    (".github/workflows/agents.yml", '"$dir/pack.yaml"'): _EITHER_NAME,
-    (".github/workflows/ci.yml", "community-agents/*/pack.yaml"): _EITHER_NAME,
 }
 
 
