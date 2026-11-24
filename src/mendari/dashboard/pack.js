@@ -284,3 +284,67 @@ export function labelTone(question, label, answers) {
   const effect = derive?.from.includes(question) ? memberEffect(derive, question, label, answers) : null;
   return effect ? labelTone(state.detail.primary, effect, answers) : "";
 }
+
+// -- proposed actions (spec 0.4) -------------------------------------------------------------------
+// What an agent asked to have done, and what may be done with each: released (the caller may run
+// it), held (it waits for the decision's reviewer), blocked or denied. Mendari runs none.
+const DISPOSITION_TEXT = { released: "Released", held: "Held", blocked: "Blocked", denied: "Denied" };
+const DISPOSITION_TONE = { released: "s-ok", held: "s-warning", blocked: "s-degraded", denied: "s-degraded" };
+const ACTION_REASON = {
+  with_decision: "its effect needs only a decision that is not blocked",
+  automated: "released with the automated decision",
+  confirmed: "the reviewer confirmed the decision",
+  awaiting_review: "waits for this decision's reviewer",
+  undeclared: "the agent's manifest declares no such action",
+  invalid_arguments: "its arguments do not match its schema",
+  composite_member: "proposed by a member of a composite, which is not taken",
+  agent_changed: "another version of the agent made this decision",
+  decision_blocked: "the decision is blocked",
+  no_recommendation: "there is no recommendation for a reviewer to confirm",
+  no_reviewer: "it needs a person, and this decision was not sent to one",
+  not_automated: "the agent may not automate now",
+  earlier_refusal: "an earlier action on this decision was refused",
+  review_closed: "asked for after the review was resolved",
+  overridden: "the reviewer overrode the recommendation",
+  reviewer_denied: "the reviewer refused it",
+};
+const ARGUMENTS_STATUS = {
+  sealed: "Arguments kept sealed: reviewers and administrators can read them, and each read is logged.",
+  erased: "Arguments erased.",
+  missing: "Arguments missing: verify the chain with --notes.",
+  not_kept: "Arguments not kept: only their hash is.",
+};
+
+export const effectBadge = (effect) => (effect
+  ? `<span class="chip" title="effect: ${esc(effect)}">${esc(effect)}</span>`
+  : `<span class="chip" title="the agent's manifest declares no such action">undeclared</span>`);
+
+export const dispositionBadge = (disposition) =>
+  `<span class="badge ${DISPOSITION_TONE[disposition] ?? "s-degraded"}" title="${esc(disposition)}">${esc(DISPOSITION_TEXT[disposition] ?? disposition)}</span>`;
+
+export const actionReason = (reason) => ACTION_REASON[reason] ?? reason;
+
+// An action by the name its manifest declares; an undeclared one has none the chain keeps, and
+// the name the agent gave it is shown only with its arguments, to whoever may read them.
+export const actionName = (action) => (action.name
+  ? named(readable(action.name), action.name)
+  : `An action the agent did not declare${action.proposed_name ? ` (<code>${esc(action.proposed_name)}</code>)` : ""}`);
+
+function actionArguments(action) {
+  if (action.arguments_status !== "open") return `<p class="muted">${esc(ARGUMENTS_STATUS[action.arguments_status] ?? "Arguments not shown.")}</p>`;
+  const given = Object.entries(action.arguments ?? {});
+  if (!given.length) return `<p class="muted">No arguments.</p>`;
+  return `<dl class="facts">${given.map(([key, value]) =>
+    `<dt>${esc(key)}</dt><dd class="break-anywhere">${esc(typeof value === "string" ? value : JSON.stringify(value))}</dd>`).join("")}</dl>`;
+}
+
+// `choose`: a reviewer picks which held actions confirming releases (each starts checked).
+export function actionsList(actions, { choose = false } = {}) {
+  if (!actions?.length) return "";
+  return `<ul class="actions-list" aria-label="Proposed actions">${actions.map((action) => `<li data-action="${esc(action.id)}" data-disposition="${esc(action.disposition)}">
+    <div class="row"><b>${actionName(action)}</b> ${effectBadge(action.effect)} ${dispositionBadge(action.disposition)}
+      <span class="muted">${esc(actionReason(action.reason))}</span></div>
+    ${actionArguments(action)}
+    ${choose && action.disposition === "held" ? `<label><input type="checkbox" data-release="${esc(action.id)}" checked> Release when I confirm</label>` : ""}
+  </li>`).join("")}</ul>`;
+}

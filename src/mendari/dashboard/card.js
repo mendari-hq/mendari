@@ -2,7 +2,7 @@
 // Decision Card: the pack as a document, sections linked as routes ("#card/policy").
 
 import { cardConnection } from "./connection.js";
-import { communityNotice, holdsFor, isCommunity, originBadge, providerWords, rowLabels, statusNotice } from "./pack.js";
+import { communityNotice, effectBadge, holdsFor, isCommunity, originBadge, providerWords, rowLabels, statusNotice } from "./pack.js";
 import { render, views } from "./router.js";
 import { $, actionDialog, api, copyText, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError, whileBusy } from "./ui.js";
 
@@ -94,6 +94,7 @@ const CARD_SECTIONS = [
   ["use", "Intended use"],
   ["questions", "Questions"],
   ["policy", "Policy"],
+  ["actions", "Actions"],
   ["approval", "Automation approval"],
   ["deployments", "Deployments"],
   ["providers", "Providers"],
@@ -128,7 +129,7 @@ views.card = async (main, params) => {
     <p class="prose lead">${esc(m.summary)}</p>
     ${communityNotice(d)}
     ${statusNotice(d)}
-    <nav class="toc" aria-label="On this page">${CARD_SECTIONS.map(([key, title]) => `<a href="#card/${key}">${esc(title)}</a>`).join("")}</nav>
+    <nav class="toc" aria-label="On this page">${CARD_SECTIONS.filter(([key]) => key !== "actions" || d.actions?.length).map(([key, title]) => `<a href="#card/${key}">${esc(title)}</a>`).join("")}</nav>
 
     <section class="card-section" id="card-facts" aria-labelledby="card-facts-title">
       <h2 id="card-facts-title">At a glance</h2>
@@ -175,6 +176,21 @@ views.card = async (main, params) => {
         ${Object.entries(p.automation_requires ?? {}).map(([slot, variants]) => `<li>Automated only while <code>${esc(slot)}</code> is ${variants.map((v) => `<code>${esc(v)}</code>`).join(" or ")}; otherwise a person reviews.</li>`).join("")}</ul>
       <div class="callout neutral"><b>When it can't decide:</b> ${esc(p.fallback)}</div>
     </section>
+
+    ${d.actions?.length ? `<section class="card-section" id="card-actions" aria-labelledby="card-actions-title">
+      <h2 id="card-actions-title">Actions</h2>
+      <p class="prose muted">What the agent may ask to have done, besides answer. Mendari authorizes each action and runs none:
+        the caller runs an action only when it was released, and every proposal and its release or denial is in the audit trail.
+        An action the agent proposes that is not listed here is blocked, and its decision goes to a person.</p>
+      <div class="panel table-wrap"><table>
+        <thead><tr><th scope="col">Action</th><th scope="col">Does</th><th scope="col">Effect</th><th scope="col">Released</th><th scope="col">Arguments</th></tr></thead>
+        <tbody>${d.actions.map((a) => `<tr><td><code>${esc(a.name)}</code></td>
+          <td>${esc(a.description)}</td>
+          <td>${effectBadge(a.effect)}</td>
+          <td>${esc(a.released)}</td>
+          <td>${a.arguments === null ? `<span class="muted">not checked</span>` : a.arguments.map((key) => `<code>${esc(key)}</code>`).join(", ") || `<span class="muted">none taken</span>`}</td></tr>`).join("")}</tbody>
+      </table></div>
+    </section>` : ""}
 
     <section class="card-section" id="card-approval" aria-labelledby="card-approval-title">
       <h2 id="card-approval-title">Automation approval</h2>

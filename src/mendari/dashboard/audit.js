@@ -4,7 +4,7 @@
 
 import { closeDrawer, showDrawer, updateDrawer } from "./drawer.js";
 import { feedbackControls, myRating } from "./feedback.js";
-import { answerChart, communityNotice, criteriaTable, derivedPrimary, inputView, labelName, statusNotice } from "./pack.js";
+import { actionName, actionReason, actionsList, answerChart, communityNotice, criteriaTable, derivedPrimary, dispositionBadge, effectBadge, inputView, labelName, statusNotice } from "./pack.js";
 import { route, views, wire } from "./router.js";
 import { drawerSkeleton } from "./skeleton.js";
 import { tableHtml } from "./table.js";
@@ -24,6 +24,8 @@ const EVENT_TEXT = {
   "pas.submitted": "Sent for prior authorization",
   "note.erased": "Note erased",
   "card.feedback": "Card feedback from the EHR",
+  "action.proposed": "Action proposed",
+  "action.resolved": "Action released or denied by review",
 };
 
 // A note is kept apart from the chain and shown only to those who may read inputs.
@@ -272,6 +274,9 @@ async function openRecord(id) {
       <p class="muted">Each answer's probabilities and provider, as the engine gave them${r.latency_ms !== undefined ? `; ${num(r.latency_ms, 2)} ms` : ""}.</p>
       ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a, r.answers)).join("")}
       ${may("review") ? `<h3>Was this right?</h3>${feedbackControls(r, myRating(found.events))}` : ""}
+      ${found.actions?.length ? `<h3>Actions</h3>
+        <p class="muted">What the agent asked to have done. Mendari authorizes each and runs none.</p>
+        ${actionsList(found.actions)}` : ""}
       <h3>Events</h3>${timeline(found.events)}
       ${eraseLink(id)}
       <details><summary>Full record (JSON)</summary><pre class="json">${esc(JSON.stringify(r, null, 2))}</pre></details>`,
@@ -394,8 +399,27 @@ function coveragePanel(id, coverage, declared) {
 // An event's note, when it has one: its text for those who may read it, else what became of it.
 function noteLine(e) {
   if (!e.note_status) return "";
-  if (e.note_status === "open") return `<p class="event-note"><b>Note:</b> ${esc(e.note)}</p>`;
-  return `<p class="event-note muted">${esc(NOTE_STATUS[e.note_status] ?? "Note")}</p>`;
+  // A proposed action's note is its arguments, kept apart from the chain as inputs are.
+  const what = e.event === "action.proposed" ? "Arguments" : "Note";
+  if (e.note_status === "open") return `<p class="event-note"><b>${what}:</b> ${esc(what === "Note" ? e.note : keptArguments(e.note))}</p>`;
+  return `<p class="event-note muted">${esc((NOTE_STATUS[e.note_status] ?? "Note").replace(/^Note/, what))}</p>`;
+}
+
+// A proposed action's kept note is `{name, arguments}`: the arguments, as JSON.
+function keptArguments(note) {
+  try {
+    return JSON.stringify(JSON.parse(note).arguments ?? {});
+  } catch {
+    return note;
+  }
+}
+
+// An action event in a line: which action, its effect, and what may be done with it.
+function actionLine(e) {
+  if (!e.event.startsWith("action.")) return "";
+  const p = e.payload;
+  return `<p class="event-note">${actionName(p)} ${effectBadge(p.effect)} ${dispositionBadge(p.disposition)}
+    <span class="muted">${esc(actionReason(p.reason))}${p.reviewer ? ` · ${esc(p.reviewer)}` : ""}</span></p>`;
 }
 
 // The hash chain as an ordered list: what happened, when, and each event's hash.
@@ -404,7 +428,7 @@ function timeline(events) {
     <div class="row"><b>${esc(EVENT_TEXT[e.event] ?? e.event)}</b>
       <span class="muted"><time datetime="${esc(e.created_at)}">${esc(time(e.created_at))}</time></span>
       <span class="grow"></span><span class="mono muted" title="hash ${esc(e.hash)}">#${e.seq} · ${esc(e.hash.slice(0, 12))}…</span></div>
-    ${noteLine(e)}
+    ${actionLine(e)}${noteLine(e)}
     <details><summary>Payload</summary><pre class="json">${esc(JSON.stringify(e.payload, null, 2))}</pre></details>
   </li>`).join("")}</ol>`;
 }
