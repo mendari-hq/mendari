@@ -8,6 +8,10 @@ responses (its `mock_file`) and misses urgent messages that are worded as a pati
 them: the evaluation is there to catch exactly that, and the demo says what it found. Its
 verdict is the evaluation's operating point (`evals/operating_point.py`): whether these cases
 support any automation threshold that keeps the urgent messages no person reads to `TARGETS`.
+
+It ends by probing the agent (`evals/probe.py`): some of the same cases, each rewritten in ways
+that keep its meaning, to find the failures no one wrote a case for. The probe's own report says
+whose answers it read: the fixture's, on this machine, and not an agent's.
 """
 
 from __future__ import annotations
@@ -16,12 +20,14 @@ from typing import Any
 
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
-from mendari.evals import evaluate, operating_point, resolve_dataset
+from mendari.evals import evaluate, operating_point, probe, probe_report, resolve_dataset
 from mendari.evals.operating_point import NONE_CERTIFIED, RECOMMENDED, SUPPORTED, Targets
 from mendari.evals.render import shown
 from mendari.evals.result import counted
 
 PACK_ID = "mendari/portal-message-agent"
+PROBED = 40  # cases the probe rewrites, each in six ways
+FINDINGS_SHOWN = 3
 SAMPLES = (
     "Can you send a refill of my metformin to the pharmacy?",
     "I need to reschedule my appointment to Friday.",
@@ -114,6 +120,18 @@ def _run(store: AuditStore) -> None:
     missed = sum(c["n"] - c["detected"] for c in decisions["critical"])
     automated = sum(c["auto_missed"] for c in decisions["critical"])
     print(f"\nVerdict: {_verdict(point, missed, automated)}")
+
+    _section("4. Find the failures nobody wrote down")
+    planned = probe.plan(Decision(pack), probe.source(pack, test.name), probe.Options(limit=PROBED))
+    found = probe.run(planned)
+    # The probe's own report, from its second line: the agent is named above.
+    print("\n".join(probe_report.text(found.report, shown=FINDINGS_SHOWN).splitlines()[1:]))
+    print(
+        "\nEach variant is a case of the test set with its text changed and its meaning kept. "
+        "The answers are the fixture's, and so are these failures: an agent of your own fails "
+        "in its own ways, which `mendari probe my-agent` finds the same way, and "
+        "`mendari probe my-agent --write` keeps each one as a test for `mendari test`."
+    )
     print(f"\n{NEXT}")
 
 

@@ -203,7 +203,21 @@ def test_writing_twice_writes_nothing_twice(
     held = (agent / PROBE_TESTS).read_bytes()
     code, out, _ = ran(capsys, agent, "--transform", "typos", "--write")
     assert code == 0 and (agent / PROBE_TESTS).read_bytes() == held
-    assert out.splitlines()[-1] == "Nothing new to write: 3 of these failures are tests already."
+    assert out.splitlines()[-1] == "Nothing new to write: 3 failures are tests already."
+    # One failure is said as one.
+    assert probe_report.kept_lines((), (), 1, {}, "my-agent") == [
+        "Nothing new to write: 1 failure is a test already."
+    ]
+    assert probe_report.kept_lines(("probe-a",), ("probe-b", "probe-c"), 1, {"site": 2}, "x") == [
+        f"Wrote 1 test to {PROBE_TESTS}: `mendari test` fails on it until the agent is fixed.",
+        f"2 tests wait in {PROBE_UNCONFIRMED}: a model changed what they expect, so they do not "
+        "run. Read each one's text and its `expect` there, then `mendari probe x --confirm "
+        "probe-b --confirm probe-c`.",
+        "1 failure more is a test already.",
+        "Not written: 2 failures of a site's own cases, whose text stays where it is marked as "
+        "a site's.",
+        "The agent's files changed, and its digest with them: it is another version now.",
+    ]
 
 
 def test_with_json_what_was_written_is_said_on_stderr(
@@ -368,6 +382,31 @@ def test_the_bundled_demo_agent_is_probed_as_canned_answers(
     assert lines[0].endswith(" (mendari/portal-message-agent), reader=agent")
     assert "none of them a call to an agent: its answers are canned" in lines[2]
     assert lines[-1].startswith("Verdict (canned answers): not ready. ")
+
+
+def test_the_demo_probes_its_agent_and_says_whose_answers_those_are(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`mendari demo` ends by probing the demo agent, and is plain about what that shows: its
+    answers are a fixture's, read on this machine, and so are the failures."""
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
+    assert main(["demo"]) == 0
+    out = capsys.readouterr().out
+    before, _, section = out.partition("\n== 4. Find the failures nobody wrote down ")
+    assert "== 3. Before going live: evaluate the agent " in before and section
+    lines = section.splitlines()[1:]
+    assert lines[0].startswith("40 of the ") and "seed 0. Text changed: message.body." in lines[0]
+    assert lines[1].startswith("280 decisions, none of them a call to an agent: its answers are ")
+    assert lines[1].endswith("set MENDARI_AGENT_URL and probe again.")
+    assert "transformation  tried  changed  critical lost  automated" in lines
+    (verdict,) = [line for line in lines if line.startswith("Verdict")]
+    assert verdict.startswith("Verdict (canned answers): not ready. ")
+    assert verdict.endswith("These are canned answers: set MENDARI_AGENT_URL and probe your agent.")
+    assert "Findings, worst first (3 of " in section
+    after = section.partition(verdict)[2]
+    assert "mendari probe my-agent --write" in after  # how each failure becomes a test
+    # The section names cases by id only: none of the messages section 1 printed is in it.
+    assert "chest" not in section and "refill my" not in section
 
 
 def test_probe_is_on_the_first_help_screen_under_build_and_check(

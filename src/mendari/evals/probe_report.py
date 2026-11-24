@@ -106,11 +106,11 @@ def kept_lines(
             f"{'it does' if one else 'they do'} not run. Read {whose} text and its `expect` "
             f"there, then `mendari probe {agent} {confirm}`."
         )
+    are = "is a test" if already == 1 else "are tests"
     if not added and not waiting:
-        there = f": {already} of these failures are tests already" if already else ""
+        there = f": {_count(already, 'failure')} {are} already" if already else ""
         lines.append(f"Nothing new to write{there}.")
     elif already:
-        are = "is a test" if already == 1 else "are tests"
         lines.append(f"{_count(already, 'failure')} more {are} already.")
     site, unheld = left_out.get("site", 0), left_out.get("no_expectation", 0)
     if site:
@@ -133,9 +133,10 @@ def kept_lines(
 # -- the report, as text ---------------------------------------------------------------------------
 
 
-def text(report: Mapping[str, Any]) -> str:
+def text(report: Mapping[str, Any], *, shown: int = MAX_SHOWN) -> str:
     """The report as the command line prints it: what was probed and what it cost, a line per
-    transformation, what was left out, the worst findings, and the verdict last."""
+    transformation, what was left out, the worst findings (at most `shown`), and the verdict
+    last."""
     if report["nothing"] is not None:
         return "\n".join([_agent(report), "", report["verdict"]])
     lines = [_agent(report), _cases(report, "Text changed"), _calls(report)]
@@ -146,14 +147,14 @@ def text(report: Mapping[str, Any]) -> str:
     lines += _left_out(report)
     findings = report["findings"]
     if findings:
-        shown = findings[:MAX_SHOWN]
+        listed = findings[:shown]
         some = str(len(findings))
-        if len(shown) < len(findings):
-            some = f"{len(shown)} of {len(findings)}; --json lists them all"
+        if len(listed) < len(findings):
+            some = f"{len(listed)} of {len(findings)}; --json lists them all"
         lines += ["", f"Findings, worst first ({some})"]
         rows = [
             (found["harm"].replace("_", " "), found["case"], found["transformation"], _said(found))
-            for found in shown
+            for found in listed
         ]
         lines += [f"  {row}" for row in _aligned(rows)]
     return "\n".join([*lines, "", report["verdict"]])
