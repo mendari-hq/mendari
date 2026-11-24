@@ -64,15 +64,15 @@ Give one target or both, and the confidence you want:
 
 ```bash
 mendari eval my-clinic/my-agent --dataset reviewed-cases.jsonl \
-  --max-critical-miss 1% --max-false-automation 2% --confidence-level 95%
+  --target-critical-miss 1% --target-false-automation 2% --target-confidence 95%
 ```
 
 | Option | Meaning |
 |---|---|
-| `--max-critical-miss SHARE` | The most critical cases that may be automated, as a share: `1%` or `0.01`. |
-| `--critical-miss-of` | What that share is of: `critical`, each critical label's cases (the default), or `all`, all cases. |
-| `--max-false-automation SHARE` | The most cases that may be automated with a wrong answer, as a share of the labelled cases. |
-| `--confidence-level LEVEL` | The confidence everything is stated with. The default is `95%`. |
+| `--target-critical-miss SHARE` | The most critical cases that may be automated, as a share: `1%` or `0.01`. |
+| `--target-critical-miss-of` | What that share is of: `critical`, each critical label's cases (the default), or `all`, all cases. |
+| `--target-false-automation SHARE` | The most cases that may be automated with a wrong answer, as a share of the labelled cases. |
+| `--target-confidence LEVEL` | The confidence everything is stated with. The default is `95%`. |
 
 The report then recommends the lowest threshold, the one that automates the most, at which
 every target is met with that confidence:
@@ -233,7 +233,7 @@ most often. Before an agent decides anything alone at your site:
 3. Evaluate on that set with your own targets:
 
    ```bash
-   mendari eval my-clinic/my-agent --dataset reviewed-cases.jsonl --max-critical-miss 1%
+   mendari eval my-clinic/my-agent --dataset reviewed-cases.jsonl --target-critical-miss 1%
    ```
 
 4. Set the threshold the report supports. If it supports none, the report says how many cases

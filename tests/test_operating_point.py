@@ -1328,8 +1328,9 @@ def test_mendari_eval_prints_the_operating_point(capsys: pytest.CaptureFixture[s
         "cases (at\n    most 2.7%); false automation 9 of 600 labelled cases (at most 2.7%).\n"
     )
     assert " ".join(section.split()).endswith(
-        "No target was given. Add --max-critical-miss or --max-false-automation (for example "
-        "--max-critical-miss 1%) for the lowest automation threshold these cases support."
+        "No target was given. Add --target-critical-miss or --target-false-automation (for "
+        "example --target-critical-miss 1%) for the lowest automation threshold these cases "
+        "support."
     )
     assert max(map(len, section.splitlines())) <= 100
     # The same counts as the report's own rows, two lines up.
@@ -1339,7 +1340,7 @@ def test_mendari_eval_prints_the_operating_point(capsys: pytest.CaptureFixture[s
 
 def test_mendari_eval_takes_the_targets_and_the_level(capsys: pytest.CaptureFixture[str]) -> None:
     agent = ("eval", str(DEMO_AGENT_DIR), "--dataset", "test", "--baseline", "none")
-    code, out, _ = run_cli(capsys, *agent, "--max-critical-miss", "1%")
+    code, out, _ = run_cli(capsys, *agent, "--target-critical-miss", "1%")
     assert code == 0  # advice: the exit code is the evaluation's
     said = " ".join(out.split("\n\nOperating point\n")[1].split())
     assert said.startswith(
@@ -1356,8 +1357,8 @@ def test_mendari_eval_takes_the_targets_and_the_level(capsys: pytest.CaptureFixt
         capsys,
         *agent,
         "--json",
-        *("--max-critical-miss", "0.2", "--critical-miss-of", "all"),
-        *("--max-false-automation", "5%", "--confidence-level", "90%"),
+        *("--target-critical-miss", "0.2", "--target-critical-miss-of", "all"),
+        *("--target-false-automation", "5%", "--target-confidence", "90%"),
     )
     block = json.loads(out)["run"]["operating_point"]
     assert code == 0 and block["status"] == op.SUPPORTED
@@ -1372,11 +1373,20 @@ def test_mendari_eval_takes_the_targets_and_the_level(capsys: pytest.CaptureFixt
 @pytest.mark.parametrize(
     ("options", "said"),
     [
-        (["--max-critical-miss", "1"], "--max-critical-miss: a share is above 0 and below 100%"),
-        (["--max-false-automation", "two"], "--max-false-automation: a share is written 1% or"),
-        (["--max-false-automation", "0.00000001"], "--max-false-automation: a target is a share"),
-        (["--confidence-level", "30%"], "--confidence-level: the confidence level is from 50%"),
-        (["--confidence-level", "95"], "--confidence-level: a share is above 0 and below 100%"),
+        (
+            ["--target-critical-miss", "1"],
+            "--target-critical-miss: a share is above 0 and below 100%",
+        ),
+        (
+            ["--target-false-automation", "two"],
+            "--target-false-automation: a share is written 1% or",
+        ),
+        (
+            ["--target-false-automation", "0.00000001"],
+            "--target-false-automation: a target is a share",
+        ),
+        (["--target-confidence", "30%"], "--target-confidence: the confidence level is from 50%"),
+        (["--target-confidence", "95"], "--target-confidence: a share is above 0 and below 100%"),
     ],
 )
 def test_an_option_that_is_not_a_share_is_one_line_that_names_it(
@@ -1397,7 +1407,7 @@ def test_nothing_edits_the_manifest(tmp_path: Path, capsys: pytest.CaptureFixtur
     code, out, _ = run_cli(
         capsys,
         *("eval", str(root), "--dataset", str(dataset.path), "--baseline", "none"),
-        *("--max-critical-miss", "2%", "--out", str(out_file)),
+        *("--target-critical-miss", "2%", "--out", str(out_file)),
     )
     assert code == 0
     assert "`auto: 0.93` (now 0.90). Nothing changes it for you." in " ".join(out.split())
@@ -1596,18 +1606,18 @@ def test_the_guide_names_the_options_the_command_takes() -> None:
 
     text = GUIDE.read_text(encoding="utf-8")
     assert set(re.findall(r"`(--[a-z-]+)", text)) == {
-        "--max-critical-miss",
-        "--critical-miss-of",
-        "--max-false-automation",
-        "--confidence-level",
+        "--target-critical-miss",
+        "--target-critical-miss-of",
+        "--target-false-automation",
+        "--target-confidence",
     }
     parsed = build_parser().parse_args(
         [
-            *("eval", "an-agent", "--dataset", "d", "--max-critical-miss", "1%"),
-            *("--critical-miss-of", "all", "--max-false-automation", "2%"),
-            *("--confidence-level", "95%"),
+            *("eval", "an-agent", "--dataset", "d", "--target-critical-miss", "1%"),
+            *("--target-critical-miss-of", "all", "--target-false-automation", "2%"),
+            *("--target-confidence", "95%"),
         ]
     )
-    assert (parsed.max_critical_miss, parsed.critical_miss_of) == ("1%", "all")
-    assert (parsed.max_false_automation, parsed.confidence_level) == ("2%", "95%")
+    assert (parsed.target_critical_miss, parsed.target_critical_miss_of) == ("1%", "all")
+    assert (parsed.target_false_automation, parsed.target_confidence) == ("2%", "95%")
     assert not re.search(r"\bpacks?\b", text, re.IGNORECASE)  # one vocabulary: an agent

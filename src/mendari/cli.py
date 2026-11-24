@@ -313,16 +313,16 @@ def cmd_eval(args: argparse.Namespace) -> int:
 
 
 def _targets(args: argparse.Namespace) -> Any:
-    """What a recommended automation threshold must keep to (`--max-critical-miss`,
-    `--max-false-automation`, stated with `--confidence-level`): each a share, refused in one
-    line that names its option when it is not one. Read before the run."""
+    """What a recommended automation threshold must keep to (`--target-critical-miss`,
+    `--target-false-automation`, stated with `--target-confidence`): each a share, refused in
+    one line that names its option when it is not one. Read before the run."""
     from mendari.evals.operating_point import Targets, share
 
-    given: dict[str, Any] = {"critical_miss_of": args.critical_miss_of}
+    given: dict[str, Any] = {"critical_miss_of": args.target_critical_miss_of}
     for name, option in (
-        ("critical_miss", "--max-critical-miss"),
-        ("false_automation", "--max-false-automation"),
-        ("confidence", "--confidence-level"),
+        ("critical_miss", "--target-critical-miss"),
+        ("false_automation", "--target-false-automation"),
+        ("confidence", "--target-confidence"),
     ):
         typed = getattr(args, option.removeprefix("--").replace("-", "_"))
         if typed is None:
@@ -340,8 +340,9 @@ def _no_target(targets: Any) -> list[str]:
     if targets.given:
         return []
     return [
-        "No target was given. Add --max-critical-miss or --max-false-automation (for example "
-        "--max-critical-miss 1%) for the lowest automation threshold these cases support."
+        "No target was given. Add --target-critical-miss or --target-false-automation (for "
+        "example --target-critical-miss 1%) for the lowest automation threshold these cases "
+        "support."
     ]
 
 
@@ -3986,28 +3987,30 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=f"exit {EXIT_DEGRADED} when local validation detects degradation",
     )
+    # Targets for the automation threshold the report recommends (its operating point,
+    # docs/guides/choosing-a-threshold.md). A target is advice: it never fails the run.
     evaluate.add_argument(
-        "--max-critical-miss",
+        "--target-critical-miss",
         metavar="SHARE",
         help="recommend the lowest automation threshold at which the critical cases that are "
         "automated, so no person sees them, are at most this share (1%% or 0.01) of each "
         "critical label's cases",
     )
     evaluate.add_argument(
-        "--critical-miss-of",
+        "--target-critical-miss-of",
         choices=("critical", "all"),
         default="critical",
-        help="what --max-critical-miss is a share of: each critical label's cases (the default) "
-        "or all cases",
+        help="what --target-critical-miss is a share of: each critical label's cases (the "
+        "default) or all cases",
     )
     evaluate.add_argument(
-        "--max-false-automation",
+        "--target-false-automation",
         metavar="SHARE",
         help="recommend the lowest automation threshold at which the cases automated with a "
         "wrong answer are at most this share (2%% or 0.02) of the labelled cases",
     )
     evaluate.add_argument(
-        "--confidence-level",
+        "--target-confidence",
         metavar="LEVEL",
         help="the confidence the recommendation and each bound are stated with (default 95%%)",
     )
