@@ -166,6 +166,9 @@ class Deployment:
     statement_day: str | None = None  # the day of the newest signed checkpoint statement
     alerts: Alerts = field(default_factory=Alerts)
     registry: Registry = field(default_factory=Registry)
+    # Organizations' agent stores are served (`MENDARI_AGENT_STORE=on`, memberships mode): what
+    # an agent found in the registry is added to from the console.
+    agent_store: bool = True
     any_decision: bool = False
     demo_only: bool = False
     recalls: Sequence[Mapping[str, str]] = ()
@@ -969,7 +972,9 @@ def _registry(d: Deployment) -> SystemCheck:
             label,
             "not_set",
             "No agent registry is set, so no agent can be found and adopted from here.",
-            "Set MENDARI_REGISTRY_URL to the registry's https address and restart.",
+            "Set MENDARI_REGISTRY_URL to the registry's https address in the deployment's "
+            "settings and restart. On a one-machine install, run ./mendari-site install again "
+            "and give the address when it asks: nothing else changes.",
         )
     if failing:
         return _check(
@@ -991,13 +996,26 @@ def _registry(d: Deployment) -> SystemCheck:
             "Check that this server can reach it over https, then reload.",
             at=registry.checked_at,
         )
+    if registry.origin is not None and not d.agent_store:
+        return _check(
+            "registry",
+            CONNECTIONS,
+            label,
+            "attention",
+            f"The registry {registry.origin} answers, so agents can be found in the Agents "
+            "view, but none can be added: your organization's agent store is off.",
+            "Set MENDARI_AGENT_STORE=on in the deployment's settings and restart. It needs "
+            "people managed in the console (MENDARI_ACCOUNTS=memberships).",
+            at=registry.checked_at,
+        )
     if registry.origin is not None:
         return _check(
             "registry",
             CONNECTIONS,
             label,
             "ok",
-            f"The registry {registry.origin} answers: agents can be found and adopted from it.",
+            f"The registry {registry.origin} answers: agents can be found and added in the "
+            "Agents view.",
             at=registry.checked_at,
         )
     return _check(

@@ -416,7 +416,19 @@ CASES: list[Case] = [
     ),
     ("ehr", {"health": health(cds_clients=["epic", "cerner"])}, "ok", "2 calling with their own"),
     # The registry.
-    ("registry", {}, "ok", "https://registry.example.org answers"),
+    ("registry", {}, "ok", "agents can be found and added in the Agents view"),
+    # Named and answering, but nothing can be added: the agent store is off.
+    ("registry", {"agent_store": False}, "attention", "your organization's agent store is off"),
+    # A registry that does not answer is said first: the store's switch is the next step.
+    (
+        "registry",
+        {
+            "agent_store": False,
+            "registry": Registry("https://registry.example.org", False, ago(minutes=1)),
+        },
+        "attention",
+        "did not answer",
+    ),
     ("registry", {"registry": Registry()}, "not_set", "No agent registry is set"),
     (
         "registry",

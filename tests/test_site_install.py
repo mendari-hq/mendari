@@ -130,6 +130,11 @@ def test_the_settings_are_the_safe_defaults(tmp_path: Path) -> None:
     assert values["MENDARI_RATE_LIMITS"] == "on"
     assert values["MENDARI_TIMEZONE"] == "Europe/Paris"
     assert values["MENDARI_REGISTRY_COUNTERSIGNATURE"] == "required"
+    # What adopting an agent from the console needs: the organization's agent store is on, and
+    # the registry is the one the installer was told (none, until it is).
+    assert values["MENDARI_AGENT_STORE"] == "on" and values["MENDARI_REGISTRY_URL"] == ""
+    told = run(tmp_path / "told", {**ANSWERS, "REGISTRY_URL": "https://registry.example.org/"})
+    assert told.values["MENDARI_REGISTRY_URL"] == "https://registry.example.org"
     assert values["MENDARI_ALERT_WEBHOOK"] == WEBHOOK
     # Nothing leaves the network until the site lists it: a list that names no origin, and
     # an empty FHIR allow-list.
@@ -382,6 +387,8 @@ def test_at_a_terminal_each_answer_is_asked_once_with_what_is_there_as_its_defau
         "St Mary's Hospital\n",
         "perhaps\n",  # refused, and asked again
         "yes\n",
+        "http://registry.stmarys.example\n",  # refused, and asked again
+        "https://registry.stmarys.example/\n",
     ]
     hidden: list[str] = []
     secret = [CLIENT_SECRET]
@@ -400,17 +407,31 @@ def test_at_a_terminal_each_answer_is_asked_once_with_what_is_there_as_its_defau
     assert "never served over plain http" in asked and "answer yes or no" in asked
     for prompt, _ in install.QUESTIONS.values():
         assert prompt in asked or prompt in hidden[0], prompt
+    # The one thing it may leave for later, asked last: the registry agents are adopted from.
+    assert install.LATER["REGISTRY_URL"][0] in asked and "registry's address is https" in asked
+    assert first.values["MENDARI_REGISTRY_URL"] == "https://registry.stmarys.example"
     written = settings_file(tmp_path)
 
     # Again: Enter alone keeps each answer; the secret's default is never shown; patient data
     # mode is not asked a second time.
     out = io.StringIO()
     hidden.clear()
-    monkeypatch.setattr(install.sys, "stdin", io.StringIO("\n" * 5))
+    monkeypatch.setattr(install.sys, "stdin", io.StringIO("\n" * 6))
     secret[0] = ""  # Enter alone
     run(tmp_path, {}, console=install.Console(interactive=True, out=out))
     assert settings_file(tmp_path) == written
     assert f"[{PUBLIC}]" in out.getvalue() and "[kept as it is]" in hidden[0]
+    assert "[https://registry.stmarys.example]" in out.getvalue()
+    # "none" takes the registry away again; Enter alone, on an install that has none, leaves it.
+    for typed_last, expected in (("none\n", ""), ("\n", "")):
+        monkeypatch.setattr(install.sys, "stdin", io.StringIO("\n" * 5 + typed_last))
+        again = run(tmp_path, {}, console=install.Console(interactive=True, out=io.StringIO()))
+        assert again.values["MENDARI_REGISTRY_URL"] == expected
+    monkeypatch.setattr(
+        install.sys, "stdin", io.StringIO("\n" * 5 + "https://registry.stmarys.example\n")
+    )
+    run(tmp_path, {}, console=install.Console(interactive=True, out=io.StringIO()))
+    assert settings_file(tmp_path) == written
     assert CLIENT_SECRET not in out.getvalue() + hidden[0]
     assert install.QUESTIONS["PATIENT_DATA"][0] not in out.getvalue()
     # No terminal and no answers: stopped, never a guess.

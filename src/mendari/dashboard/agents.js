@@ -5,7 +5,8 @@
 //   connected to (connection.js); then the agents that were added and are not in use yet, each
 //   with its next step and who takes it. The actions are the agent store's own (store.js):
 //   evaluate, start serving (promote), stop serving, withdraw.
-// - Agent Hub (#agents/hub): the deployment's registry, searched; an agent's listing
+// - Find agents (#agents/hub): the deployment's agent registry (the Agent Hub, or a site's
+//   own: the System view's "Agent registry" check names the same one), searched; an agent's listing
 //   (#agents/hub/<namespace>/<name>): what the registry checked, apart from what the publisher
 //   claims, its recalls, whether evaluations are published, its Decision Card as text; and adding
 //   a version to the organization, which the server verifies first (server/hub_routes.py).
@@ -29,7 +30,7 @@ const when = (value) => (Number.isNaN(Date.parse(value)) ? String(value ?? "") :
 
 const TABS = [
   { key: "ours", label: "Our agents", href: "#agents" },
-  { key: "hub", label: "Agent Hub", href: "#agents/hub" },
+  { key: "hub", label: "Find agents", href: "#agents/hub" },
 ];
 
 views.agents = async (main, params = []) => {
@@ -37,7 +38,7 @@ views.agents = async (main, params = []) => {
   if (first === "hub" && namespace && name) return showListing(main, `${namespace}/${name}`);
   const current = first === "hub" ? TABS[1] : TABS[0];
   main.innerHTML = `<h1>Agents</h1>
-    <p class="prose lead">The agents ${esc(orgName())} uses, and the Agent Hub to find more. Adding an agent never lets it act on
+    <p class="prose lead">The agents ${esc(orgName())} uses, and the agent registry to find more in. Adding an agent never lets it act on
       its own: someone else starts serving it, and your organization approves it before it decides anything alone.</p>
     <nav class="segmented tabs" aria-label="Agents views">${TABS
       .map((t) => `<a href="${t.href}" data-tab="${t.key}"${t === current ? ' aria-current="page"' : ""}>${esc(t.label)}</a>`)
@@ -183,7 +184,7 @@ function servedHtml(ctx) {
   }).join("");
   return `<h2 id="agents-served">In use</h2>
     <p class="muted">The agents that answer requests made in ${esc(orgName())}.</p>
-    ${cards || emptyState({ icon: "package", title: "No agent is in use", text: "Find one on the Agent Hub tab.", level: 3 })}`;
+    ${cards || emptyState({ icon: "package", title: "No agent is in use", text: "Find one in the agent registry, under Find agents.", level: 3 })}`;
 }
 
 // The versions of the organization's store that are not served: what an author sees of them, and
@@ -226,7 +227,7 @@ function waitingHtml(ctx) {
   const versions = waiting(ctx);
   if (!versions.length) {
     return `<h2 id="agents-waiting">Added, not in use yet</h2>
-      <p class="muted">Nothing is waiting. An agent added from the Agent Hub shows here until someone starts serving it.</p>`;
+      <p class="muted">Nothing is waiting. An agent added from the registry shows here until someone starts serving it.</p>`;
   }
   const cards = versions.map((v, index) => {
     const name = `${v.pack_id} ${v.version}`;
@@ -278,8 +279,8 @@ function waitingHtml(ctx) {
 }
 
 function findMore(ctx) {
-  const where = ctx.hub.registry ? `<span class="break-anywhere">${esc(ctx.hub.registry)}</span>` : "the Agent Hub";
-  return `<p class="mt-4"><a class="button" href="#agents/hub">${icon("search")} Find an agent on ${where}</a></p>`;
+  const where = ctx.hub.registry ? `on <span class="break-anywhere">${esc(ctx.hub.registry)}</span>` : "in the agent registry";
+  return `<p class="mt-4"><a class="button" href="#agents/hub">${icon("search")} Find an agent ${where}</a></p>`;
 }
 
 async function evaluate(digest, name) {
@@ -372,10 +373,10 @@ function withdraw(digest, name) {
   });
 }
 
-// -- the Agent Hub -------------------------------------------------------------------------------
+// -- the agent registry --------------------------------------------------------------------------
 
 const ADD_REASON = {
-  no_registry: "No registry is set up on this deployment, so there is nothing to search. Whoever runs it names one (MENDARI_REGISTRY_URL).",
+  no_registry: "No agent registry is set on this deployment, so there is nothing to search. Whoever runs it names one (MENDARI_REGISTRY_URL); the System view's Agent registry check says how.",
   no_store: "You can read what the registry lists here. Adding an agent from this page is off on this deployment: it needs the agent store (MENDARI_AGENT_STORE=on, with people managed as memberships). Whoever runs it turns that on.",
 };
 
@@ -401,12 +402,12 @@ function installedWords(installed) {
 async function showHub(body) {
   const hub = await api("/api/hub");
   if (!hub.registry) {
-    body.innerHTML = emptyState({ icon: "search", title: "No registry is set up here", text: esc(ADD_REASON.no_registry), level: 2 });
+    body.innerHTML = emptyState({ icon: "search", title: "No agent registry is set", text: esc(ADD_REASON.no_registry), level: 2 });
     return;
   }
   const blocked = cannotAdd(hub);
   body.innerHTML = `<form class="row hub-search" id="hub-search" role="search" novalidate>
-      <label class="sr-only" for="hub-q">Search the Agent Hub</label>
+      <label class="sr-only" for="hub-q">Search the agent registry</label>
       <input id="hub-q" name="q" type="search" maxlength="200" autocomplete="off" placeholder="Search by name, purpose or question" class="grow">
       <button type="submit" class="primary">${icon("search")} Search</button>
     </form>
@@ -472,7 +473,7 @@ function reviewWords(review, declared) {
 }
 
 async function showListing(main, packId) {
-  main.innerHTML = `<p><a href="#agents/hub">← Agent Hub</a></p><h1>${esc(packId)}</h1><section id="agents-body" aria-busy="true"><p class="muted">Reading the registry…</p></section>`;
+  main.innerHTML = `<p><a href="#agents/hub">← Find agents</a></p><h1>${esc(packId)}</h1><section id="agents-body" aria-busy="true"><p class="muted">Reading the registry…</p></section>`;
   const body = $("#agents-body");
   let hub;
   let found;

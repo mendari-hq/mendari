@@ -3995,6 +3995,7 @@ def create_app(
                 delivered=sent["delivered"],
             ),
             registry=registry_probe.state(),
+            agent_store=kept_store is not None,
             any_decision=store.any_decision(),
             demo_only=set(served_here()) == {DEMO_AGENT},
             recalls=[

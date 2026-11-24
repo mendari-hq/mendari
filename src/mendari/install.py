@@ -10,7 +10,8 @@ server's message, before anything starts.
 
 - `settings`: ask the few things only the site can answer (its public address, its identity
   provider's issuer, client id and secret, the first administrator's sign-in address, what the
-  organization is called, whether each case's input is kept), generate everything else (every
+  organization is called, whether each case's input is kept) and one it may leave for later
+  (the agent registry it adopts agents from), generate everything else (every
   secret from the system's random source, `secrets`), build the server once on an empty
   in-memory database with the result (`starts`), and only then write `.env` (mode 0600, whole
   or not at all). Without a certificate in `tls/` it stops, unless a self-signed one was asked
@@ -87,7 +88,8 @@ ANSWERS = (
     "ORGANIZATION",
     "PATIENT_DATA",
 )
-# What an answers file may also set; none of it is asked.
+# What an answers file may also set. None of it is asked, but the registry's address, which a
+# terminal is asked once and may leave for later (`LATER`).
 OPTIONAL = (
     "TIMEZONE",
     "SELF_SIGNED",
@@ -150,6 +152,7 @@ MANAGED = (
     "MENDARI_FHIR_ALLOWED_SERVERS",
     "MENDARI_REGISTRY_URL",
     "MENDARI_REGISTRY_COUNTERSIGNATURE",
+    "MENDARI_AGENT_STORE",
     "MENDARI_CACHE_DIR",
     "MENDARI_CONFIG_DIR",
 )
@@ -209,19 +212,24 @@ SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("MENDARI_TIMEZONE", "MENDARI_RATE_LIMITS", "MENDARI_ENVIRONMENT"),
     ),
     (
-        "What may leave your network: nothing, until you list it. A model or agent service is\n"
-        "# called only at an origin listed in the first, and a FHIR server is read only when\n"
+        "What may leave your network: nothing, until it is allowed. A model or agent service\n"
+        "# is called only at an origin listed in the first, and a FHIR server is read only when\n"
         "# listed in the second (comma-separated origins, like https://agents.example.org). As\n"
         '# installed neither lists any: the lone comma says "none" (left empty, the first would\n'
-        '# say "no list", and any https address could be called).',
+        '# say "no list", and any https address could be called). An administrator can allow\n'
+        "# the service of one agent at a public address from the console, when connecting it\n"
+        "# (recorded in the audit trail); a service on your own network is listed here.",
         ("MENDARI_PROVIDER_ALLOWED_ORIGINS", "MENDARI_FHIR_ALLOWED_SERVERS"),
     ),
     (
-        "The agent registry agents are adopted from (its https address), and where what is\n"
-        "# pulled from it is kept. A pull is refused unless the registry counter-signed it.",
+        "Adopting agents from the console. The agent registry they are found in (its https\n"
+        "# address; empty: none yet, and `mendari-site install` asks for it again), refused\n"
+        "# unless the registry counter-signed what it lists; your organization's agent store,\n"
+        "# where the versions it adds are kept; and where the engine keeps the registry's keys.",
         (
             "MENDARI_REGISTRY_URL",
             "MENDARI_REGISTRY_COUNTERSIGNATURE",
+            "MENDARI_AGENT_STORE",
             "MENDARI_CACHE_DIR",
             "MENDARI_CONFIG_DIR",
         ),
@@ -513,6 +521,28 @@ QUESTIONS: dict[str, tuple[str, str]] = {
 }
 
 
+# What a terminal is asked after the questions above and may leave for later: Enter alone.
+# An answers file gives it by its name (`OPTIONAL`), or not at all.
+LATER: dict[str, tuple[str, str]] = {
+    "REGISTRY_URL": (
+        "The agent registry to adopt agents from (Enter to leave it for later)",
+        "Its https address: the Agent Hub's, or a registry of your own. Without one the "
+        "console has nothing to search; run this again to give it, and the System view says "
+        "so until then. Type none to have none.",
+    ),
+}
+
+
+def _registry(text: str) -> str:
+    """A registry's address as the server takes it, or why not; nothing for none."""
+    from mendari.core.https_only import is_https_or_local
+
+    value = text.strip().rstrip("/")
+    if value and not is_https_or_local(value):
+        raise Refused("the registry's address is https, without a user or a password in it")
+    return value
+
+
 def _existing_answers(settings: Mapping[str, str]) -> dict[str, str]:
     """The answers a settings file already holds, as the questions' defaults."""
     found = {
@@ -597,6 +627,25 @@ def gather(
                 console.say(f"  {refused}")
                 continue
             answers[name] = typed.strip()
+            break
+    for name, (prompt, about) in LATER.items():
+        # Asked of a person at a terminal only: an answers file names it or leaves it out.
+        if given or not console.interactive:
+            continue
+        console.say()
+        console.say(about)
+        while True:
+            typed = console.ask(prompt, answers.get(name, ""))
+            if typed.strip().lower() == "none":
+                answers.pop(name, None)
+                break
+            try:
+                value = _registry(typed)
+            except Refused as refused:
+                console.say(f"  {refused}")
+                continue
+            if value:
+                answers[name] = value
             break
     return answers
 
@@ -773,7 +822,6 @@ def _outbound(values: Mapping[str, str]) -> None:
     """The two addresses an answer may give that the server only checks when it uses them: the
     alert webhook and the registry. Refused here, by the server's own rules."""
     from mendari.alerts import check_webhook
-    from mendari.core.https_only import is_https_or_local
 
     webhook = values.get("MENDARI_ALERT_WEBHOOK", "")
     if webhook:
@@ -781,9 +829,7 @@ def _outbound(values: Mapping[str, str]) -> None:
             check_webhook(webhook)
         except MendariError as error:
             raise Refused(str(error)) from None
-    registry = values.get("MENDARI_REGISTRY_URL", "")
-    if registry and not is_https_or_local(registry):
-        raise Refused("the registry's address is https, without a user or a password in it")
+    _registry(values.get("MENDARI_REGISTRY_URL", ""))
 
 
 def reachable(issuer: str) -> bool:
@@ -896,6 +942,8 @@ def settings(
         "MENDARI_REGISTRY_URL": answers.get("REGISTRY_URL", "").rstrip("/"),
         "MENDARI_REGISTRY_COUNTERSIGNATURE": existing.get("MENDARI_REGISTRY_COUNTERSIGNATURE")
         or "required",
+        # Your organization's agent store: what adding an agent from the console keeps it in.
+        "MENDARI_AGENT_STORE": existing.get("MENDARI_AGENT_STORE") or "on",
         "MENDARI_CACHE_DIR": existing.get("MENDARI_CACHE_DIR") or STATE_CACHE,
         "MENDARI_CONFIG_DIR": existing.get("MENDARI_CONFIG_DIR") or STATE_CONFIG,
     }
@@ -956,6 +1004,13 @@ def summary(directory: Path, console: Console, *, shown: str | None = None) -> N
         )
     )
     say(f"  Time zone            {values.get('MENDARI_TIMEZONE', '')}")
+    say(
+        "  Agent registry       "
+        + (
+            values.get("MENDARI_REGISTRY_URL")
+            or "none yet: run `mendari-site install` again to name the one you adopt agents from"
+        )
+    )
     say()
     say("  What was made")
     say(f"    {where}/{SETTINGS}   every setting, readable by its owner only. It holds the")
@@ -977,7 +1032,8 @@ def summary(directory: Path, console: Console, *, shown: str | None = None) -> N
     say("      Copy them off this machine: a backup on the same disk does not survive the disk.")
     say()
     say("  Next: open the address, sign in as the first administrator, and follow")
-    say('  "Finish setting up". The System view shows what is ready and what is not.')
+    say('  "Finish setting up", which ends at adopting an agent in the Agents view. The System')
+    say("  view shows what is ready and what is not.")
 
 
 def set_image(directory: Path, image: str | None, *, back: bool = False) -> tuple[str, str]:

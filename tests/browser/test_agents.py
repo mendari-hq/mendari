@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """The Agents view in the console (`dashboard/agents.js`): the agents an organization uses, and
-the Agent Hub to find and add more.
+the agent registry to find and add more from.
 
 An author finds an agent in the deployment's registry, reads its listing (what the registry
 checked apart from what the publisher claims, its Decision Card as text), and adds a version,
@@ -145,10 +145,10 @@ def test_an_agent_is_found_added_evaluated_and_served_by_someone_else(world: Ado
     expect(card).to_contain_text("community publisher")
     expect(card).to_contain_text("Risk 0 (declared)")
     expect(card).to_contain_text("Synthetic example. Not clinically reviewed.")
-    author.get_by_label("Search the Agent Hub").fill("zq-nothing-like-it")
+    author.get_by_label("Search the agent registry").fill("zq-nothing-like-it")
     author.get_by_role("button", name="Search").click()
     expect(author.locator("#hub-results")).to_contain_text("No agent matches")
-    author.get_by_label("Search the Agent Hub").fill("portal")
+    author.get_by_label("Search the agent registry").fill("portal")
     author.keyboard.press("Enter")
     author.locator(f'article[data-hub="{ACME}"] h3 a').click()
 
@@ -382,7 +382,7 @@ def test_the_view_works_from_the_keyboard_and_on_a_phone(world: Adopting) -> Non
     author = world.window("aria", "pack_author", "viewer", viewport=PHONE)
     agents(author, "hub")
     assert author.evaluate("document.documentElement.scrollWidth") <= PHONE["width"]
-    search = author.get_by_label("Search the Agent Hub")
+    search = author.get_by_label("Search the agent registry")
     search.focus()
     author.keyboard.type("portal")
     author.keyboard.press("Enter")
@@ -420,8 +420,8 @@ def test_without_a_registry_the_hub_says_so_and_our_agents_lists_what_is_served(
     expect(page.locator("#agents-body")).not_to_have_attribute("aria-busy", "true")
     expect(page.locator("article[data-agent]")).not_to_have_count(0)
     expect(page.locator("#agents-waiting")).to_have_count(0)  # no agent store here
-    page.get_by_role("link", name="Agent Hub", exact=True).click()
-    expect(page.locator("#agents-body")).to_contain_text("No registry is set up here")
+    page.get_by_role("link", name="Find agents", exact=True).click()
+    expect(page.locator("#agents-body")).to_contain_text("No agent registry is set")
     expect(page.locator("#agents-body")).to_contain_text("MENDARI_REGISTRY_URL")
     assert violations(page) == []
 
