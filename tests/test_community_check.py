@@ -1205,8 +1205,8 @@ def test_the_ci_script_passes_a_pull_request_without_community_packs(
     commit(repo)
     summary = tmp_path / "summary.md"
     assert _script().run(repo, "HEAD~1", owner=False, summary=summary) == 0
-    assert "no community pack changes" in capsys.readouterr().out
-    assert summary.read_text() == "No community pack changes.\n"
+    assert "no community agent changes" in capsys.readouterr().out
+    assert summary.read_text() == "No community agent changes.\n"
 
 
 def test_a_removed_pack_needs_its_tombstone(
@@ -1234,7 +1234,7 @@ def test_a_removed_pack_needs_its_tombstone(
     # Only the owner removes a pack: before, anyone's pull request could, with a tombstone.
     capsys.readouterr()
     assert script.run(pull_request, "main", owner=False) == 1
-    assert "only the repository's owner removes a community pack" in capsys.readouterr().out
+    assert "only the repository's owner removes a community agent" in capsys.readouterr().out
 
 
 def test_the_owner_is_the_pull_requests_author_from_this_repository() -> None:
@@ -1330,7 +1330,7 @@ def test_an_organization_as_the_repositorys_owner_decides_nothing(
     assert check("--actor", "Junebugg1214", *this, *into) == 0
     for actor in ("mendari-hq", "attacker"):
         assert check("--actor", actor, *this, *into) == 1
-        assert "only the repository's owner removes a community pack" in capsys.readouterr().out
+        assert "only the repository's owner removes a community agent" in capsys.readouterr().out
     # Into a branch other than the default, whose CODEOWNERS anyone who may push writes.
     other = ["--base-ref", "release", "--default-branch", "main"]
     assert check("--actor", "Junebugg1214", *this, *other) == 1
@@ -1361,7 +1361,7 @@ def test_a_pack_added_as_a_git_submodule_fails(
         assert _script().run(pull_request, "main", owner=owner) == 1
         out = capsys.readouterr().out
         assert "holds a git submodule (community-agents/evil)" in out
-        assert "no community pack changes" not in out
+        assert "no community agent changes" not in out
     assert pr_scope_problems([".gitmodules", "community-agents/evil"], owner=False)
 
 

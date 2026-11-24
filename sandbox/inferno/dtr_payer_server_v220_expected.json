@@ -237,7 +237,7 @@
       "requirements": [
         "hl7.fhir.us.davinci-dtr_2.2.0@spec-54"
       ],
-      "reason": "Mendari fills the QuestionnaireResponse on the server from the pack's decision (DTR allows that), and its questionnaires carry no CQL or initial expressions for the EHR to run. The pack's criteria come from its decision logic, which is not written as EHR-side CQL: a design gap, not a bug."
+      "reason": "Mendari fills the QuestionnaireResponse on the server from the agent's decision (DTR allows that), and its questionnaires carry no CQL or initial expressions for the EHR to run. The agent's criteria come from its decision logic, which is not written as EHR-side CQL: a design gap, not a bug."
     },
     {
       "id": "dtr_payer_server_v220-dtr_payer_server_v220_questionnaire_operations-dtr_payer_v220_questionnaire_design-dtr_v220_payer_cql_library_validation",

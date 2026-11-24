@@ -21,7 +21,7 @@ from mendari.evals.gate import gate, markdown  # noqa: E402
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("pack", help="the pack's directory")
+    parser.add_argument("pack", metavar="agent", help="the agent's directory")
     parser.add_argument("--report", required=True, type=Path, help="this change's evaluation")
     parser.add_argument("--main", type=Path, help="the benchmark published on main")
     args = parser.parse_args()

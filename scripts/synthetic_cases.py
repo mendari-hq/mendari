@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Turn a YAML file of case templates into a JSON Lines dataset, so a pack author makes
+"""Turn a YAML file of case templates into a JSON Lines dataset, so an agent's author makes
 synthetic data without writing Python (docs/guides/contributing-an-agent.md).
 
     uv run python scripts/synthetic_cases.py community-agents/<name>/data/cases.yaml \\
@@ -33,7 +33,7 @@ from typing import Any
 
 import yaml
 
-MAX_CASES = 5000  # a pack is at most 2 MB, data included
+MAX_CASES = 5000  # an agent is at most 2 MB, data included
 
 
 class TemplateError(ValueError):

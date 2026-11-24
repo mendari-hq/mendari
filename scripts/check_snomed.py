@@ -83,7 +83,7 @@ NOT_CONCEPT_IDS: dict[str, str] = {}
 # The modules that name SNOMED CT's url or OID, by their path in the package, and why.
 NAMES_THE_SYSTEM = {
     "mendari/core/spec.py": "the licensed-code-system check, which names SNOMED CT's url and OID "
-    "to refuse a pack that carries them undeclared",
+    "to refuse an agent that carries them undeclared",
     "mendari/standards/us_core.py": "US Core's rule us-core-4, which asks for SNOMED CT in an "
     "Observation's coded value",
     "mendari/standards/record_fhir.py": "reads a site's own condition codes (neither ICD-10-CM "

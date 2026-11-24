@@ -45,7 +45,7 @@ data:
   # JEV_API_URL: https://...
   # JEV_MODEL: jev-1.13.0
   # MENDARI_JEV_DAILY_LIMIT: "2000"
-  # The pack registry under this engine (off unless set; docs/operations/registry.md): served at
+  # The agent registry under this engine (off unless set; docs/operations/registry.md): served at
   # /registry/v1/... on this database. MENDARI_REGISTRY_SIGNING_KEY goes in mendari-secrets.
   # MENDARI_REGISTRY: "on"
   # MENDARI_REGISTRY_REVIEW_ORG: registry-review
@@ -76,7 +76,7 @@ spec:
             - configMapRef: {name: mendari-config}
             - secretRef: {name: mendari-secrets}
           # Readiness reads the database (at most once every 5 s per pod, waited for about
-          # 3.5 s) and the packs: a pod whose database does not answer leaves the Service until
+          # 3.5 s) and the agents: a pod whose database does not answer leaves the Service until
           # it does. With sign-in on, liveness does no database work, so a database outage
           # never restarts the pods.
           readinessProbe:

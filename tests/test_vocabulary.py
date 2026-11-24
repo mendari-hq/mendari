@@ -4,18 +4,22 @@ agent, and "pack" or "Decision Pack" is never written where a person reads or ty
 
 **One rule** (`offences`): no whole word "pack" or "packs", in any letter case, and no "Decision
 Pack" however it is joined. It is applied to every surface in `SURFACES`, each a name and a
-function that yields `(where, text)` pairs. A later step holds its own surface to the rule (the
-docs, the README, a front end) by adding one entry to that list.
+function that yields `(where, text)` pairs: the Python product's own words, and what the
+repository's scripts print. The docs and the front ends are held to the same rule by tests of
+their own, which import it (`tests/test_vocabulary_docs.py`,
+`tests/test_vocabulary_frontends.py`).
 
 **What the rule leaves alone**, each said here with its reason and nowhere else:
 
-- `WIRE_NAMES`: names on the wire and in stored records (a JSON key, a query parameter, a FHIR
-  operation's parameter). Decisions, audit events, registry records and signatures hold them, so
-  renaming them is its own versioned change (the plan's wave 6). A wire name may be a
-  parameter's or a property's name in the API description, and prose may name it as code
-  (`` `pack` ``) or as a JSON key (`"pack":`).
+- `WIRE_NAMES`: the names on the wire and in stored records that an API description types (a
+  JSON key, a query parameter, a FHIR operation's parameter). Decisions, audit events, registry
+  records and signatures hold them, so renaming them is its own versioned change (the plan's
+  wave 6). A wire name may be a parameter's or a property's name in the API description, and
+  prose may name it as code (`` `pack` ``) or as a JSON key (`"pack":`). A key that joins the
+  old word to another (`pack_version`, `pack_author`) is no word to the rule, and needs no entry
+  until an API description types it.
 - `KEPT_NAMES`: identifiers that hold the old word and are not words: canonical URLs that stored
-  FHIR resources carry.
+  FHIR resources carry, where a person still reads them.
 - `KEPT_SCHEMAS`: Python classes whose names an API description shows as its schemas' names
   (none now: the one there was is listed under a title, `server/api_docs.py` `titled`).
 - `ALLOWED`: the few texts that name something from before on purpose.
@@ -48,22 +52,15 @@ from tests.conftest import DEMO_AGENT_DIR, ROOT, encrypt_mode, encrypted_store, 
 _WORD = re.compile(r"\bpacks?\b", re.IGNORECASE)
 # "Decision Pack" however it is joined: DecisionPack, decision_pack, decision-packs.
 _JOINED = re.compile(r"decision[\s_-]*packs?(?![a-z])", re.IGNORECASE)
-# Names of requests, answers and stored records: never renamed here (module docstring). The
-# first eight are the plan's; `packs` is a key of the registry's and the engine's answers (a
-# namespace's ids, a count in health).
-WIRE_NAMES = frozenset(
-    {
-        "pack",
-        "pack_id",
-        "pack_version",
-        "pack_digest",
-        "pack_name",
-        "pack_author",
-        "pack_unavailable",
-        "pack_warnings",
-        "packs",
-    }
-)
+# Names of requests, answers and stored records that an API description types: never renamed
+# here (module docstring), each with what it is. `SHOWN`, below, says which description types
+# which, and a name none types any more fails there.
+WIRE_NAMES = {
+    "pack": "the agent a record is about: a FHIR `$decide` parameter, a key of signed records",
+    "pack_id": "an agent's id: a query parameter callers send, a key of decisions and events",
+    "pack_digest": "an agent version's digest: what an approval or a hold names, a decision's key",
+    "packs": "the agents an answer lists: a namespace's ids, a launch's agents, health's count",
+}
 # How prose names a wire name without breaking the rule: as code (`` `pack` ``), as a JSON key
 # (`"pack":`), or as the field a message is about, at its start (`pack.digest: it is not ...`,
 # `report.pack: ...`, the form of every "field: what is wrong with it" message).
@@ -77,9 +74,10 @@ _AS_CODE = re.compile(
 # Identifiers, not words: canonical URLs that decisions' stored FHIR resources carry (a Task's
 # tag, an AuditEvent's agent, a coding's system) and other systems hold.
 KEPT_NAMES = {
-    "CodeSystem/decision-pack": "the CodeSystem of agent versions, by its canonical URL",
-    "NamingSystem/decision-pack": "the identifier system of agent ids, by its canonical URL",
-    "mendari.co/packs": "the canonical URLs of an agent's FHIR terminology, schema and library",
+    "CodeSystem/decision-pack": "the CodeSystem of agent versions, by its canonical URL: the "
+    "API description gives it as the `_tag` a Task search takes",
+    "mendari.co/packs": "the canonical URLs of an agent's FHIR terminology, schema and library: "
+    "the docs give a community agent's, which it must publish under",
 }
 _KEPT = re.compile("|".join(re.escape(name) for name in KEPT_NAMES))
 
@@ -159,7 +157,13 @@ class Surface:
 
 # Texts that say the old word on purpose: (surface, the whole text) -> why. An entry that no
 # surface holds any more fails the test, so the list never outlives its reasons.
-ALLOWED: dict[tuple[str, str], str] = {}
+ALLOWED: dict[tuple[str, str], str] = {
+    (
+        "the scripts' messages",
+        "^The questionnaire 'https://mendari\\.co/packs/[^']+' could not be resolved",
+    ): "a pattern, not a message: it matches what the HL7 validator says of a questionnaire's "
+    "canonical URL (a kept name, `mendari.co/packs`, with its dot escaped as a pattern must)",
+}
 
 
 # The API descriptions --------------------------------------------------------------------------
@@ -339,6 +343,17 @@ def _product_words(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
             yield f"{path.relative_to(ROOT)}:{line}", text
 
 
+def _script_words(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[str, str]]:
+    """What the repository's scripts say: a job's log and its summary on a pull request (the
+    community check's "No community agent changes."), the page a results store is rendered as,
+    an option's help."""
+    scripts = sorted((ROOT / "scripts").glob("*.py"))
+    assert len(scripts) > 30
+    for path in scripts:
+        for line, text in prose_literals(path.read_text(encoding="utf-8")):
+            yield f"{path.relative_to(ROOT)}:{line}", text
+
+
 def test_prose_literals_are_found_and_docstrings_and_names_are_not() -> None:
     source = '''
 """A module's docstring about a pack."""
@@ -433,6 +448,7 @@ def _package_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterat
 SURFACES = [
     *(_api_surface(name) for name in API_DOCUMENTS),
     Surface("the Python product's messages", _product_words),
+    Surface("the scripts' messages", _script_words),
     Surface("what `mendari new` scaffolds", _scaffolds),
     Surface("the bundled agent's files", _bundled_agent),
     Surface("a Decision Card, as rendered", _decision_cards),
@@ -463,7 +479,35 @@ def test_every_allowed_text_is_still_there_and_still_needs_allowing(
         held = [said for _, said in by_surface[name].texts(tmp_path / name[:8], monkeypatch)]
         assert text in held, f"{name}: no longer says {text[:80]!r}: take it off the list"
         assert offences(text), f"{name}: {text[:80]!r} breaks no rule: take it off the list"
-    assert all(reason.strip() for reason in KEPT_NAMES.values())
+
+
+def test_every_kept_name_is_still_written_where_the_rule_is_held(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The list never outlives its reasons: each kept name is still written where a person reads
+    it and the rule would stop it, in a file the docs' test reads (it holds the same rule) or
+    on one of this file's surfaces. One written nowhere any more is taken off the list."""
+    from tests.test_vocabulary_docs import NOT_READ as docs_not_read  # it imports this module
+    from tests.test_vocabulary_docs import files as docs_files
+
+    for name, reason in KEPT_NAMES.items():
+        assert reason.strip() and offences_without_kept(name), name
+    read = [name for name in docs_files() if name not in docs_not_read]
+    written = "\n".join((ROOT / name).read_text(encoding="utf-8") for name in read)
+    missing = {name for name in KEPT_NAMES if name not in written}
+    for surface in SURFACES:  # only as far as it takes to find each
+        if not missing:
+            break
+        texts = surface.texts(tmp_path / surface.name[:8], monkeypatch)
+        said = "\n".join(text for _, text in texts)
+        missing -= {name for name in missing if name in said}
+    assert not missing, f"written nowhere any more: take off the list: {sorted(missing)}"
+
+
+def offences_without_kept(text: str) -> list[str]:
+    """What `text` breaks of the rule when no kept name is taken out of it: a kept name that
+    breaks nothing by itself needs no keeping."""
+    return [found.group(0) for pattern in (_WORD, _JOINED) for found in pattern.finditer(text)]
 
 
 # A schema's name in an API description is its Python class's, and classes are not renamed here
@@ -528,7 +572,7 @@ def test_a_class_named_for_the_old_word_is_listed_under_its_title(
     assert api_docs.titled({"paths": {}}) == {"paths": {}}
 
 
-# The wire names each API description types (the others are keys of answers it leaves untyped).
+# The wire names each API description types.
 SHOWN = {
     "the engine's API description, as a release starts": {"pack_id", "pack_digest"},
     "the engine's API description, everything on": {"pack", "pack_id", "pack_digest", "packs"},
@@ -543,6 +587,13 @@ def test_an_api_description_still_types_its_wire_names(
     """Not vacuous, and nothing renamed by accident: the wire names an API description types are
     still there under their names, and `pack_id` is still the query parameter callers send."""
     names = list(api_names(API_DOCUMENTS[document](tmp_path, monkeypatch)))
-    assert {name for _, name in names} & WIRE_NAMES == SHOWN[document]
+    assert {name for _, name in names} & WIRE_NAMES.keys() == SHOWN[document]
     parameters = {name for where, name in names if where.endswith("/parameters")}
-    assert parameters & WIRE_NAMES == SHOWN[document] & {"pack_id"}
+    assert parameters & WIRE_NAMES.keys() == SHOWN[document] & {"pack_id"}
+
+
+def test_every_wire_name_is_still_typed_by_an_api_description() -> None:
+    """The list never outlives its reasons: each wire name is one an API description types
+    (`SHOWN`, which the test above holds to the descriptions themselves), with what it is."""
+    assert set().union(*SHOWN.values()) == set(WIRE_NAMES)
+    assert all(reason.strip() for reason in WIRE_NAMES.values())

@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """One vocabulary in what a reader reads (tasks/todo.md, "Plan: the engineering to A+"): the
 README, every page and file of the docs site, its navigation and theme, the community files, the
-changelog and the READMEs beside the code say agent, never pack.
+changelog and the READMEs beside the code say agent, never pack. So does what GitHub shows a
+contributor (the issue forms, the pull request templates, and each workflow, whose name, jobs
+and steps are a pull request's checks), and what an operator copies and edits: the deploy
+templates and the sandbox's compose files, whose comments are their instructions.
 
 **The rule** is `tests/test_vocabulary.py`'s `offences` (no whole word "pack" or "packs", no
 "Decision Pack" however it is joined; a wire name written as code, and a canonical URL that
@@ -19,6 +22,7 @@ from __future__ import annotations
 
 import re
 from fnmatch import fnmatchcase
+from pathlib import Path
 
 import pytest
 
@@ -36,24 +40,35 @@ _FILES = (
     "CODE_OF_CONDUCT.md",
     "mkdocs.yml",
     "hub/README.md",
+    "docker-compose.yml",  # the sandbox, as an operator starts it
+    "deploy/onprem/.env.example",  # a template whose name starts with a dot: named here
+    "community-agents/MAINTAINERS.yaml",
 )
-_TEXT = {".md", ".yml", ".yaml", ".json", ".html", ".css", ".js", ".txt"}
+# Read whole: the docs site and its theme, what GitHub shows a contributor, the deploy templates.
+_FOLDERS = ("docs", "docs_theme", ".github", "deploy")
+# Each README beside the code, at any depth; `examples/` one level down only (a starter's own
+# virtual environment, made as its README says, holds other projects' READMEs).
+_READMES = ("agents", "community-agents", "sandbox", "web")
+_TEXT = {".md", ".yml", ".yaml", ".json", ".html", ".css", ".js", ".txt", ".conf", ".example", ""}
 
 
 def files() -> list[str]:
     """Every file a reader reads, as paths from the repository's root: the files above, all of
-    `docs/` and `docs_theme/`, and each README of `deploy/`, `examples/` and `agents/`."""
-    found = {ROOT / name for name in _FILES}
-    for folder in ("docs", "docs_theme"):
+    `_FOLDERS`, each README of `_READMES` and of `examples/`, and the sandbox's compose files
+    and the conformance runs' expected results (each result's reason is written for a person).
+    A file whose name starts with a dot is one only where `_FILES` names it."""
+    found: set[Path] = set()
+    for folder in _FOLDERS:
         found |= {path for path in (ROOT / folder).rglob("*") if path.is_file()}
-    found |= set((ROOT / "deploy").rglob("README.md"))
+    for folder in _READMES:
+        found |= {path for path in (ROOT / folder).rglob("README*") if path.is_file()}
     found |= set((ROOT / "examples").glob("*/README.md"))
-    found |= {path for path in (ROOT / "agents").rglob("README*") if path.is_file()}
-    names = sorted(path.relative_to(ROOT).as_posix() for path in found)
-    names = [name for name in names if not name.rsplit("/", 1)[-1].startswith(".")]
+    found |= {p for p in (ROOT / "sandbox").rglob("*") if p.suffix in (".yml", ".json")}
+    names = {path.relative_to(ROOT).as_posix() for path in found}
+    names = {name for name in names if not name.rsplit("/", 1)[-1].startswith(".")} | set(_FILES)
     for name in names:
         assert (ROOT / name).suffix in _TEXT, f"{name}: not a text file this test reads"
-    return names
+    return sorted(names)
 
 
 # -- the rule, and the names it cannot see --------------------------------------------------------
@@ -101,6 +116,10 @@ _ARCHIVE = (
     "a signed archive holds an agent's files under `pack/` (`hub/archive.py`): the format's "
     "own name, which signatures cover, renamed with the stored formats (wave 6)"
 )
+_EITHER_NAME = (
+    "a workflow finds an agent's manifest by either name: one named `pack.yaml`, as it was "
+    "before, still loads (`core/pack.py` `manifest_name`), so CI must not take it for removed"
+)
 # A text left alone in the files a pattern names (`*`: any of them): (files, text) -> why.
 ALLOWED: dict[tuple[str, str], str] = {
     ("docs/spec/agent-manifest-0.2.md", "A manifest named `pack.yaml`"): "the spec's one "
@@ -132,6 +151,8 @@ ALLOWED: dict[tuple[str, str], str] = {
         "/smart/launch?pack=<agent id>",
     ): "the launch route's query parameter is `pack` (`server/smart_routes.py`): a name on the "
     "wire, which an EHR's registered launch address may hold, renamed with the wire names",
+    (".github/workflows/agents.yml", '"$dir/pack.yaml"'): _EITHER_NAME,
+    (".github/workflows/ci.yml", "community-agents/*/pack.yaml"): _EITHER_NAME,
 }
 
 
@@ -150,20 +171,22 @@ def _allowed(name: str) -> list[str]:
     return [text for (pattern, text) in ALLOWED if fnmatchcase(name, pattern)]
 
 
-def found_in(name: str, text: str) -> list[str]:
+def found_in(name: str, text: str, *, without: str | None = None) -> list[str]:
     """`file:line: what, in which line` for each line of `text`, the file called `name`, that
-    is not the one vocabulary once what is left alone is taken out; and the same for `name`."""
+    is not the one vocabulary once what is left alone is taken out; and the same for `name`.
+    `without`: an allowed text to hold as if it were not allowed (is it still needed?)."""
     lines = text.split("\n")
     skipped: set[int] = set()
     for file, first, before in PARTS:
         if file == name:
             skipped.update(_part(lines, first, before))
     found = [f"{name}: {', '.join(problems(name))!r} in the file's name"] if problems(name) else []
+    left_alone = [allowed for allowed in _allowed(name) if allowed != without]
     for index, line in enumerate(lines):
         if index in skipped:
             continue
         kept = line
-        for allowed in _allowed(name):
+        for allowed in left_alone:
             kept = kept.replace(allowed, " ")
         said = problems(kept)
         if said:
@@ -180,7 +203,7 @@ def _read(name: str) -> str:
 
 def test_the_files_are_found() -> None:
     names = files()
-    assert len(names) > 50
+    assert len(names) > 90
     for expected in (
         "README.md",
         "mkdocs.yml",
@@ -189,10 +212,23 @@ def test_the_files_are_found() -> None:
         "docs/decisions/ADR-0001-questions-as-the-core-abstraction.md",
         "docs_theme/main.html",
         "deploy/vercel/README.md",
+        "deploy/kubernetes/mendari.yaml",
+        "deploy/onprem/.env.example",
         "examples/http-agent/README.md",
+        "community-agents/README.md",
+        "sandbox/inferno/README.md",
+        "sandbox/fixtures.compose.yml",
+        "web/README.md",
+        ".github/CODEOWNERS",
+        ".github/pull_request_template.md",
+        ".github/PULL_REQUEST_TEMPLATE/agent.md",
+        ".github/ISSUE_TEMPLATE/propose-agent.yml",
+        ".github/workflows/agents.yml",
+        ".github/workflows/ci.yml",
     ):
         assert expected in names, expected
     assert set(NOT_READ) <= set(names)
+    assert not [name for name in names if "node_modules" in name or "/.venv" in name]
 
 
 @pytest.mark.parametrize("name", [name for name in files() if name not in NOT_READ])
@@ -217,6 +253,7 @@ def test_what_is_held_and_what_is_left_alone() -> None:
     ]
     spec, sentence = "docs/spec/agent-manifest-0.2.md", "A manifest named `pack.yaml`, the old name"
     assert not found_in(spec, sentence)
+    assert len(found_in(spec, sentence, without="A manifest named `pack.yaml`")) == 1  # needed
     assert len(found_in("docs/index.md", sentence)) == 1  # the same sentence, on another page
     assert len(found_in(spec, sentence + ", and a second `pack.yaml`.")) == 1
     log = f"Intro: a pack.\n{_THIS_CHANGE} here.\n  `--pack` is read.\n{_HISTORY}\n- Packs.\n"
@@ -225,8 +262,11 @@ def test_what_is_held_and_what_is_left_alone() -> None:
 
 def test_every_exception_is_still_needed() -> None:
     """No list outlives its reasons: each file not read, each part and each allowed text is
-    still there, and without it the rule (or a former name) would be broken."""
-    names = files()
+    still there, and without it the rule (or a former name) would be broken. An allowed text
+    is needed where a file it names, read as the others are (outside the parts left alone),
+    breaks the rule once the text is no longer let through: one that is only written where
+    nothing is held any more, such as the changelog's entry for this change, is not."""
+    read = {name: _read(name) for name in files() if name not in NOT_READ}
     for name, reason in NOT_READ.items():
         assert reason.strip() and any(problems(line) for line in _read(name).split("\n")), name
     for (name, first, before), reason in PARTS.items():
@@ -235,5 +275,10 @@ def test_every_exception_is_still_needed() -> None:
         assert reason.strip() and any(problems(line) for line in part), (name, first)
     for (pattern, text), reason in ALLOWED.items():
         assert reason.strip() and problems(text), f"{text!r} breaks nothing: take it off the list"
-        holding = [name for name in names if fnmatchcase(name, pattern) and text in _read(name)]
-        assert holding, f"{pattern}: no file says {text!r} any more: take it off the list"
+        needing = [
+            name
+            for name, content in read.items()
+            if fnmatchcase(name, pattern) and text in content
+            if found_in(name, content, without=text)
+        ]
+        assert needing, f"{pattern}: no file needs {text!r} let through: take it off the list"

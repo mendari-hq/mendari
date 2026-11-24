@@ -34,7 +34,7 @@ x-inferno-environment: &inferno-environment
 
 services:
   engine:
-    # Mendari in open mode (no sign-in), PHI mode `off`, serving the prior-authorization pack
+    # Mendari in open mode (no sign-in), PHI mode `off`, serving the prior-authorization agent
     # alone: the decisions it makes here are on the synthetic orders the inputs script sends.
     build:
       context: ../..
