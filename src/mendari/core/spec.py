@@ -9,7 +9,9 @@ Spec 0.3 changes the FHIR mapping (docs/spec/agent-manifest-0.3.md), which
 `standards/fhir.py` reads and checks, and adds two card keys (§5: `refused` and
 `cds_hooks.card.also_show`); its manifest is otherwise a 0.2 manifest. Spec 0.4 adds `actions`
 (docs/spec/agent-manifest-0.4.md): what an agent may ask to have done besides answer, each with
-an effect; what an effect needs before it is released is the runtime's (`core/policy.py`).
+an effect; what an effect needs before it is released is the runtime's (`core/policy.py`). It
+also adds written output: `outputs` (what an agent writes), `rubrics` (how a clinician and a
+model judge grade it) and `evaluation.grades` (clinicians' grades in a file).
 """
 
 from __future__ import annotations
@@ -44,6 +46,24 @@ MAX_ACTION_PROPERTIES = 32
 MAX_ACTION_ENUM = 100
 MAX_ACTION_ENUM_CHARS = 200
 MAX_ACTIONS_CHARS = 32_000  # the declared actions as one request sends them, as JSON
+
+# Written output (spec 0.4 sections 16 to 19): the texts an agent writes and the rubrics they
+# are graded against.
+MAX_OUTPUTS = 8
+MAX_OUTPUT_CHARS = 8_000  # one written text; a response stays under the agent contract's bytes
+DEFAULT_OUTPUT_CHARS = 4_000
+MAX_OUTPUT_DESCRIPTION = 500
+MAX_RUBRICS = 8
+MAX_CRITERIA = 16  # one judge call grades an output: as many questions as one call takes
+MAX_LEVELS = 7
+MAX_CONTEXT_FIELDS = 32
+# A model's name, as `providers/llm.py` `MODEL_PATTERN` (which imports this module).
+JUDGE_MODEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+# The engine's floors for believing a judge (`evals/written.py` holds the rule): its weighted
+# kappa with clinicians, and for a must-not-fail criterion the share of clinician-found failures
+# it found too, each by its lower bound. A manifest may raise one, never lower it.
+AGREEMENT_FLOOR = 0.60
+MUST_PASS_RECALL_FLOOR = 0.80
 
 
 def at_least(version: str, wanted: str) -> bool:
@@ -622,6 +642,14 @@ class CriticalLabel(_Strict):
     label: str
 
 
+class RubricGrades(_Strict):
+    """Clinicians' grades of a rubric in a file of the agent (`mendari.written-grades/1`): the
+    dataset whose outputs they graded, and the file."""
+
+    dataset: str
+    file: str = Field(min_length=1, max_length=500)
+
+
 class Evaluation(_Strict):
     datasets: dict[str, str] = {}
     benchmark: str | None = None
@@ -629,6 +657,8 @@ class Evaluation(_Strict):
     critical: list[CriticalLabel] = []
     subgroups: list[str] = []
     degradation_tolerance: float = Field(default=0.03, gt=0.0, lt=1.0)
+    # Clinicians' grades of written output, by rubric (spec 0.4 section 19).
+    grades: dict[str, RubricGrades] = {}
 
 
 class AuditConfig(_Strict):
@@ -791,6 +821,140 @@ class ActionSpec(_Strict):
         return declared
 
 
+_FIELD = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}(?:\.[A-Za-z0-9_][A-Za-z0-9_-]{0,63}){0,7}\Z")
+
+
+class WrittenOutput(_Strict):
+    """A text an agent writes (spec 0.4 section 16): a draft reply, a summary, a note. It comes
+    from the agent behind `slot`, in its response, or it is already in the input at `input` (a
+    dotted field, as the guard's `draft`). Exactly one of the two. `description` is what the
+    agent is asked for and what a grader is told the text is."""
+
+    description: str = Field(min_length=1, max_length=MAX_OUTPUT_DESCRIPTION)
+    slot: str | None = None
+    input: str | None = None
+    max_chars: int = Field(default=DEFAULT_OUTPUT_CHARS, ge=1, le=MAX_OUTPUT_CHARS)
+
+    @model_validator(mode="after")
+    def _one_source(self) -> WrittenOutput:
+        if not self.description.strip():
+            raise ValueError("an output needs a description a person can read")
+        if (self.slot is None) == (self.input is None):
+            raise ValueError("an output names exactly one of `slot` and `input`")
+        if self.input is not None and not _FIELD.match(self.input):
+            raise ValueError("`input` is a dotted field of the input, such as `draft`")
+        return self
+
+    @property
+    def source(self) -> str:
+        """Where the text comes from, as reports say it: `slot:<slot>` or `input:<field>`."""
+        return f"slot:{self.slot}" if self.slot is not None else f"input:{self.input}"
+
+    def request(self, name: str) -> dict[str, Any]:
+        """The output as a request to the agent declares it (spec 0.4 section 17)."""
+        return {"name": name, "description": self.description, "max_chars": self.max_chars}
+
+
+class RubricCriterion(Question):
+    """One criterion of a rubric (spec 0.4 section 18): a `boolean` or a `score` question, read
+    by the clinician and by the judge in the same words. On a yes/no criterion `yes` passes: it
+    is worded so that yes is good. A `score` criterion names `pass_from`, the lowest level that
+    passes; its scores are distinct, and a higher score is better. `must_pass` marks a criterion
+    that must not fail: a judge is believed on it only when it finds the failures clinicians
+    find."""
+
+    must_pass: bool = False
+    pass_from: str | None = None
+
+    @model_validator(mode="after")
+    def _scale(self) -> RubricCriterion:
+        if self.type == "choice":
+            raise ValueError("a criterion is `boolean` or `score`, never `choice`")
+        if self.derive is not None:
+            raise ValueError("a criterion is graded, never derived")
+        if self.type == "boolean":
+            if self.pass_from is not None:
+                raise ValueError("a yes/no criterion takes no `pass_from`: `yes` passes")
+            return self
+        levels = self.levels or {}
+        if not 2 <= len(levels) <= MAX_LEVELS:
+            raise ValueError(f"a score criterion has 2 to {MAX_LEVELS} levels")
+        if len({level.score for level in levels.values()}) != len(levels):
+            raise ValueError("a score criterion's levels have distinct scores")
+        if self.pass_from is None or self.pass_from not in levels:
+            raise ValueError("a score criterion names `pass_from`, the lowest level that passes")
+        return self
+
+    def scale(self) -> list[tuple[str, float]]:
+        """The levels with their scores, lowest first; `no` 0 and `yes` 1 on a yes/no."""
+        if self.type == "boolean":
+            return [("no", 0.0), ("yes", 1.0)]
+        levels = self.levels or {}
+        return sorted(((label, level.score) for label, level in levels.items()), key=_by_score)
+
+    def passing(self) -> str:
+        """The lowest level that passes."""
+        return "yes" if self.type == "boolean" else str(self.pass_from)
+
+    def passes(self, level: str) -> bool:
+        """Whether a grade of `level` passes; a level the criterion does not have never does."""
+        scores = dict(self.scale())
+        return level in scores and scores[level] >= scores[self.passing()]
+
+
+def _by_score(level: tuple[str, float]) -> float:
+    return level[1]
+
+
+class JudgeConfig(_Strict):
+    """The model judge of a rubric (spec 0.4 section 18.2): the model settings an `llm` variant
+    takes, and a fixture of canned grades for when no judge model is set. The endpoint, the
+    credentials and the default model are the deployment's."""
+
+    model: str | None = Field(default=None, pattern=JUDGE_MODEL_PATTERN)
+    timeout_ms: int = Field(default=30_000, ge=1000, le=120_000)
+    max_tokens: int = Field(default=4096, ge=64, le=32_000)
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    reasoning_effort: Literal["none", "low", "medium", "high"] | None = None
+    mock_file: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class RubricFloors(_Strict):
+    """A rubric's own floors: each may raise the engine's (`AGREEMENT_FLOOR`,
+    `MUST_PASS_RECALL_FLOOR`), never lower it."""
+
+    agreement: float | None = Field(default=None, ge=0.0, lt=1.0)
+    must_pass_recall: float | None = Field(default=None, ge=0.0, lt=1.0)
+
+
+class Rubric(_Strict):
+    """How one written output is graded (spec 0.4 section 18): its criteria, the input fields a
+    grader reads beside the text (none unless named: minimum necessary), the judge and the
+    floors."""
+
+    output: str
+    context_fields: list[str] = Field(default=[], max_length=MAX_CONTEXT_FIELDS)
+    criteria: dict[str, RubricCriterion] = Field(min_length=1, max_length=MAX_CRITERIA)
+    judge: JudgeConfig = JudgeConfig()
+    floors: RubricFloors = RubricFloors()
+
+    @field_validator("context_fields")
+    @classmethod
+    def _fields(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("`context_fields` names a field more than once")
+        if not all(_FIELD.match(field) for field in value):
+            raise ValueError("`context_fields` are dotted fields of the input")
+        return value
+
+    def agreement_floor(self) -> float:
+        return AGREEMENT_FLOOR if self.floors.agreement is None else self.floors.agreement
+
+    def must_pass_recall_floor(self) -> float:
+        own = self.floors.must_pass_recall
+        return MUST_PASS_RECALL_FLOOR if own is None else own
+
+
 # The most characters a CDS Hooks card's summary has: CDS Hooks 2.0 says under 140 (Inferno's CRD
 # kit fails a summary of 140), checked at load for every text a pack's summary can give
 # (`card_summary_problems`).
@@ -939,6 +1103,10 @@ class PackManifest(_Strict):
     # What the agent may ask to have done besides answer (spec 0.4), by name, in the manifest's
     # order. Empty: none, as for every agent before 0.4.
     actions: dict[str, ActionSpec] = {}
+    # What the agent writes, and how it is graded (spec 0.4): empty for an agent that only
+    # answers, as every agent before 0.4.
+    outputs: dict[str, WrittenOutput] = {}
+    rubrics: dict[str, Rubric] = {}
 
     @field_validator("id")
     @classmethod
@@ -1152,6 +1320,77 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
     ):
         problems.append("evaluation.benchmark_dataset must name one of evaluation.datasets")
     problems.extend(action_problems(m))
+    problems.extend(written_problems(m))
+    return problems
+
+
+def _named(kind: str, name: str) -> str | None:
+    """Why `name` is no key of an output, a rubric or a criterion, or None."""
+    if _KEY.match(name) and len(name) <= MAX_ACTION_NAME_CHARS:
+        return None
+    return (
+        f"{kind} {name[:40]!r} must match {_KEY.pattern}, at most {MAX_ACTION_NAME_CHARS} "
+        "characters"
+    )
+
+
+def written_problems(m: PackManifest) -> list[str]:
+    """What spec 0.4 holds `outputs`, `rubrics` and `evaluation.grades` to beyond their own
+    shapes: the names, how many, what each refers to, the floors and the spec version. An empty
+    mapping is the default a dumped manifest carries: it counts as left out."""
+    sections = (
+        ("outputs", m.outputs),
+        ("rubrics", m.rubrics),
+        ("evaluation.grades", m.evaluation.grades),
+    )
+    used = [key for key, value in sections if value]
+    if not used:
+        return []
+    problems = []
+    if not at_least(m.spec_version, "0.4"):
+        problems.append(f"{used} use spec 0.4 features; set spec_version: '0.4'")
+    if len(m.outputs) > MAX_OUTPUTS:
+        problems.append(f"an agent declares at most {MAX_OUTPUTS} outputs")
+    if len(m.rubrics) > MAX_RUBRICS:
+        problems.append(f"an agent declares at most {MAX_RUBRICS} rubrics")
+    for name, output in m.outputs.items():
+        if problem := _named("output name", name):
+            problems.append(problem)
+        if output.slot is None:
+            continue
+        slot = m.providers.get(output.slot)
+        if slot is None:
+            problems.append(f"outputs.{name[:40]}.slot names unknown slot {output.slot[:40]!r}")
+        elif not any(variant.type == "agent" for variant in slot.variants.values()):
+            problems.append(
+                f"outputs.{name[:40]}.slot: slot {output.slot!r} has no variant of type `agent`; "
+                "only an agent writes an output (a composite's member does not count)"
+            )
+    for name, rubric in m.rubrics.items():
+        if problem := _named("rubric name", name):
+            problems.append(problem)
+        if rubric.output not in m.outputs:
+            problems.append(
+                f"rubrics.{name[:40]}.output {rubric.output[:40]!r} is not a declared output"
+            )
+        for key in rubric.criteria:
+            if problem := _named(f"rubrics.{name[:40]}: criterion key", key):
+                problems.append(problem)
+        floors = (("agreement", AGREEMENT_FLOOR), ("must_pass_recall", MUST_PASS_RECALL_FLOOR))
+        for floor, lowest in floors:
+            own = getattr(rubric.floors, floor)
+            if own is not None and own < lowest:
+                problems.append(
+                    f"rubrics.{name[:40]}.floors.{floor} is below the engine's {lowest}: a "
+                    "manifest may raise a floor, never lower it"
+                )
+    for name, grades in m.evaluation.grades.items():
+        if name not in m.rubrics:
+            problems.append(f"evaluation.grades.{name[:40]} is not a declared rubric")
+        if grades.dataset not in m.evaluation.datasets:
+            problems.append(
+                f"evaluation.grades.{name[:40]}.dataset must name one of evaluation.datasets"
+            )
     return problems
 
 

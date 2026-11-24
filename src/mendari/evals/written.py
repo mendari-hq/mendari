@@ -9,13 +9,21 @@ from __future__ import annotations
 
 import math
 
+from mendari.core.spec import AGREEMENT_FLOOR, MUST_PASS_RECALL_FLOOR
 from mendari.evals import stats
 
-# The judge's weighted kappa with clinicians: its interval's lower bound is at least this.
-AGREEMENT_FLOOR = 0.60
-# A must-not-fail criterion: of the outputs a clinician failed, the share the judge failed too;
-# its exact lower bound is at least this.
-MUST_PASS_RECALL_FLOOR = 0.80
+__all__ = [
+    "AGREEMENT_FLOOR",
+    "MIN_EACH_SIDE",
+    "MIN_PAIRED",
+    "MUST_PASS_RECALL_FLOOR",
+    "min_failures",
+]
+
+# `AGREEMENT_FLOOR`: the judge's weighted kappa with clinicians; its interval's lower bound is
+# at least this. `MUST_PASS_RECALL_FLOOR`: on a must-not-fail criterion, of the outputs a
+# clinician failed, the share the judge failed too; its exact lower bound is at least this.
+# Both are the manifest's to raise, so they are declared where the manifest is read.
 # Fewer outputs graded by both than this is insufficient evidence, whatever the agreement.
 MIN_PAIRED = 50
 # So is fewer clinician verdicts than this on either side of the pass line.
