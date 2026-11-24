@@ -134,9 +134,9 @@ Three things to know when you read it:
 - **HTI-1 is leaving the regulation.** A final rule published on 28 October 2026
   ([91 FR 67916](https://www.federalregister.gov/documents/2026/10/28/2026-21943/health-data-technology-and-interoperability-onc-deregulatory-actions-to-unleash-prosperity)),
   effective 28 December 2026, removes the source attributes and intervention risk management
-  from the certification criterion. The rule was a duty of developers of certified health IT,
-  never of a hospital or of an agent's publisher. The packet keeps the list as a checklist of
-  what such a description holds, and says so.
+  from the certification criterion. The criterion is addressed to developers of certified
+  health IT. The packet keeps the list as a checklist of what such a description holds, says
+  that the list is leaving the regulation, and takes no position on what it requires of anyone.
 - **Most of the Joint Commission and CHAI guidance is about your organization.** It asks what
   the organization does, so many of its lines are in the second table of Appendix A.
 

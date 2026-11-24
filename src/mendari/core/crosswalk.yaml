@@ -34,8 +34,8 @@ frameworks:
     publisher: Coalition for Health AI (CHAI)
     edition: Draft release; template v0.1 (November 2024), schema v0.2 (October 2025)
     applies_to: >-
-      A voluntary template that the developer of a health AI solution fills in. A site can ask a
-      publisher for one.
+      A template, in draft, that describes an AI solution in a health use case: its developer
+      fills it in. A site can ask a publisher for one.
     status: confirmed
     sources:
       - id: template
@@ -124,10 +124,11 @@ frameworks:
     edition: >-
       45 CFR 170.315(b)(11)(iv)(B), as the eCFR gave it up to date on 20 November 2026
     applies_to: >-
-      A certification criterion for developers of certified health IT, about the predictive
-      interventions they supply with their Health IT Module. It places no duty on a hospital,
-      on an agent's publisher or on this software. The packet uses the list as a checklist of
-      what such a description holds.
+      A certification criterion for health IT under the ONC Health IT Certification Program:
+      what a certified Health IT Module must support, and what its developer does for the
+      predictive interventions it supplies. It is addressed to developers of certified health
+      IT. The packet uses its list as a checklist of what such a description holds, and takes
+      no position on what the criterion requires of anyone.
     status: confirmed
     sources:
       - id: ecfr
@@ -147,9 +148,8 @@ frameworks:
           The list is leaving the regulation. A final rule published on 28 October 2026
           (91 FR 67916), effective 28 December 2026, removes paragraphs (b)(11)(iv) through
           (vi): the source attributes, access to them and their modification, and
-          intervention risk management. On the day checked they were still in the eCFR. After
-          that date the list is a description of what the rule used to ask, not a requirement
-          on anyone.
+          intervention risk management. On the day checked they were still in the eCFR. From
+          that date the list is what the criterion used to ask for.
         status: confirmed
       - text: >-
           The rule has a second, shorter list of 13 source attributes for evidence-based
@@ -397,9 +397,9 @@ frameworks:
     publisher: Joint Commission and Coalition for Health AI (CHAI)
     edition: Released 17 September 2025; the copy read is dated 10 November 2025
     applies_to: >-
-      Voluntary guidance for healthcare organizations on how they deploy and use AI tools. It
-      is about what the organization does, not about how a tool is built: most of what it asks
-      for is the site's own to state.
+      Guidance for healthcare organizations on how they deploy and use AI tools, which calls
+      itself an initial, high-level document. It is about what the organization does, not
+      about how a tool is built: most of what it asks for is the site's own to state.
     status: confirmed
     sources:
       - id: guidance
