@@ -181,11 +181,20 @@ class Simulated:
     """An agent's service whose answers a test knows: each case names itself by a token in its
     message, and the service answers it from a table. Its confidence in `request` is
     over-stated by `temperature`: an answer it gives with confidence c is right as often as c
-    scaled by that temperature says. `flaky` of its wrong answers change between runs."""
+    scaled by that temperature says. `flaky` of its wrong answers change between runs (the
+    second of every three), and `flaky_right` of its right ones."""
 
-    def __init__(self, temperature: float = 2.5, *, flaky: float = 0.0, version: str = VERSION):
+    def __init__(
+        self,
+        temperature: float = 2.5,
+        *,
+        flaky: float = 0.0,
+        flaky_right: float = 0.0,
+        version: str = VERSION,
+    ):
         self.temperature = temperature
         self.flaky = flaky
+        self.flaky_right = flaky_right
         self.version = version
         self.table: dict[str, tuple[str, float, str, bool]] = {}
         self.asked: dict[str, int] = {}
@@ -200,7 +209,11 @@ class Simulated:
             confidence = rng.choice([0.99, 0.97, 0.95, 0.9, 0.8, 0.7])
             right = rng.random() < right_probability(confidence, self.temperature)
             truth = said if right else rng.choice([label for label in LABELS if label != said])
-            self.table[token] = (said, confidence, truth, not right and rng.random() < self.flaky)
+            if right:
+                changes = self.flaky_right > 0 and rng.random() < self.flaky_right
+            else:
+                changes = rng.random() < self.flaky
+            self.table[token] = (said, confidence, truth, changes)
             lines.append(
                 {
                     "id": token,

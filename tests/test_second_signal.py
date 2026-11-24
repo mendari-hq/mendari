@@ -30,10 +30,13 @@ from mendari.evals import operating_point as op
 from mendari.evals.harness import build_evaluation, evaluation, load_dataset
 from mendari.providers import PROVIDER_CONFIG_MODELS, PROVIDER_TYPES, build_provider
 from mendari.providers.agent import CANNED, ENDPOINT_ENV
-from mendari.providers.check import CheckConfig, CheckProvider
+from mendari.providers.agent_calibration import MIN_CASES, changed_reason
+from mendari.providers.check import CheckConfig, CheckProvider, disagree_reason
 from mendari.providers.composite import CompositeProvider
+from mendari.providers.repeat import CANNED_NOTE as REPEAT_CANNED
+from mendari.providers.repeat import agreed_reason
 from mendari.providers.signals import Cap, Checked, Signals, deciding_questions
-from tests.conftest import INBOX_DIR
+from tests.conftest import INBOX_DIR, ROOT
 from tests.support.confidence_agents import (
     REFILL,
     VERSION,
@@ -904,3 +907,40 @@ def test_signals_merge_each_cap_once() -> None:
     assert both.reasons(("check",)) == ("a and b disagree on request",)
     assert both.reported == {"request": {"refill": 0.9}}
     assert not Signals() and Signals().merge(one) is one and one.merge(Signals()) is one
+
+
+# -- the record, the spec and the guide ------------------------------------------------------------
+
+
+def test_the_record_the_spec_and_the_guide_say_what_the_engine_says() -> None:
+    """The reasons a reader is told to expect are the ones the engine writes, the floor of a
+    fit is the one the fitter holds to, and the record is decided."""
+    docs = ROOT / "docs"
+    record = (
+        docs / "decisions" / "ADR-0022-a-checked-confidence-and-a-second-signal.md"
+    ).read_text(encoding="utf-8")
+    spec = (docs / "spec" / "agent-manifest-0.4-second-signal.md").read_text(encoding="utf-8")
+    guide = (docs / "guides" / "calibration-and-a-second-signal.md").read_text(encoding="utf-8")
+    assert record.startswith(
+        "# ADR-0022: A confidence that was checked, and a second signal that only lowers "
+        "automation\n\n## Status\nAccepted\n\nDecided by the maintainer on 2026-11-24, before "
+        "the repository was public, so no comment period ran; open to revision when it is.\n"
+    )
+    template = changed_reason("X", "Y")
+    assert template in record and template in spec
+    assert changed_reason("2.1.0", "2.2.0") + PERSON_DECIDES in guide
+    said = disagree_reason("agent", "second", "request", "refill", "appointment")
+    assert said + PERSON_DECIDES in guide
+    assert disagree_reason("<first>", "<second>", "<question>", "<label>", "<label>") in spec
+    assert (
+        agreed_reason(2, 3, "request", [])
+        .replace("2 of 3", "A of N")
+        .replace("request", "<question>")
+        in spec
+    )
+    assert REPEAT_CANNED in spec
+    assert f"fewer than {MIN_CASES} labelled cases" in spec
+    assert f"at least {MIN_CASES} labelled cases" in record
+    assert f"needs {MIN_CASES} labelled cases" in guide
+    for page in (record, spec, guide):
+        assert 'spec_version: "0.4"' in page
