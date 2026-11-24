@@ -208,7 +208,6 @@ def apply_policy(
             limits,
             canned,
         )
-    outcome = _action_cap(outcome, actions, reasons)
     if canned is not None and not any(reason.startswith(canned) for reason in reasons):
         reasons.append(canned_reason(canned))  # already not AUTO: the reason only
     site_reason = f"site code translated ({', '.join(translated)}): a person decides"
@@ -219,6 +218,7 @@ def apply_policy(
     for limit in limits:
         if not any(reason.startswith(f"{limit}: a person decides") for reason in reasons):
             reasons.append(f"{limit}: a person decides")  # likewise: no outcome changes
+    outcome = _action_cap(outcome, actions, reasons)  # after every other cap: reasons only added
     if outcome is Outcome.ABSTAIN:
         recommendation = None
     return PolicyResult(outcome, recommendation, priority, tuple(reasons), rule_name)
