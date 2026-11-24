@@ -339,7 +339,7 @@ def test_help_is_the_commands_to_start_with(capsys: pytest.CaptureFixture[str]) 
     for group in GROUPS:
         assert (f"\n\n{group.heading}\n  " in text) == bool(group.first), group.heading
     lines = text.splitlines()
-    assert len(lines) <= 25 and max(map(len, lines)) <= 78  # one screen, no line wrapped
+    assert len(lines) <= 26 and max(map(len, lines)) <= 78  # one screen, no line wrapped
     assert lines[-1] == "`mendari help all` (also `mendari --help-all`) lists every command."
     assert helped(capsys, "-h") == text
     assert main(["help"]) == 0

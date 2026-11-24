@@ -37,6 +37,11 @@ from mendari.settings import (
 
 EXIT_DEGRADED = 2
 EXIT_NOT_KEPT = 3  # `mendari improve`: no candidate was better and no less safe
+# `mendari probe`: what `--fail-on` exits with, and how many cases it probes unless told
+# (`evals/probe_report.py` EXIT_FOUND and `evals/probe.py` DEFAULT_LIMIT, which a test holds to
+# these: the parser is built without importing either).
+EXIT_FOUND = 2
+PROBE_CASES = 50
 
 
 def _decision(args: argparse.Namespace, **kwargs: Any) -> Decision:
@@ -154,6 +159,77 @@ def cmd_test(args: argparse.Namespace) -> int:
     failed = sum(not o.passed for o in outcomes)
     print(f"\n{len(outcomes) - failed} passed, {failed} failed")
     return 1 if failed else 0
+
+
+def cmd_probe(args: argparse.Namespace) -> int:
+    """`mendari probe`: change the text of an agent's own cases in ways that keep its meaning,
+    decide each variant as the original is decided, and report what the change made worse
+    (`evals/probe.py`): ids, names and counts, never a case's text. `--write` keeps each
+    failure as a behaviour test in the agent (`evals/probe_tests.py`), and `--confirm` keeps
+    one that waited for a person. The exit code is 0 unless `--fail-on` names what was found."""
+    from mendari.evals import probe, probe_report, probe_tests
+    from mendari.evals.improve import kept_in_the_pack
+    from mendari.evals.probe_model import Writer
+    from mendari.evals.probe_variants import by_a_model, translation
+
+    decision = _decision(args, origin_cap=False)  # the agent's own policy, as its tests say
+    agent = decision.pack
+    said = sys.stderr if args.json else sys.stdout  # with --json the report alone is on stdout
+    if args.confirm:
+        for name in probe_tests.confirm(agent, args.confirm):
+            where = probe_tests.PROBE_TESTS
+            print(f"Confirmed {name}: `mendari test` runs it now ({where}).", file=said)
+        return 0
+    if args.write and (problem := probe_tests.not_writable(agent)) is not None:
+        raise MendariError(f"--write: {problem}")  # before the run, not after it
+    if args.variants_out and kept_in_the_pack(agent, args.variants_out):
+        raise MendariError(
+            "--variants-out: that file would be in the agent's own folder, where every file is "
+            "part of the agent: keep the variants outside it"
+        )
+    given = probe.load_variants(args.variants_from, agent.manifest) if args.variants_from else []
+    names = [name for listed in args.transform or [] for name in listed.split(",") if name]
+    names += [translation(language) for language in args.language or []]
+    if not names and not given:
+        names = list(probe.Options().transformations)  # every offline one
+    by_model = any(by_a_model(name) is not None for name in names)
+    if args.model and not by_model:
+        raise MendariError(
+            "--model writes paraphrase, negation and translate variants: name one with "
+            "--transform or --language"
+        )
+    options = probe.Options(
+        transformations=tuple(dict.fromkeys(names)),
+        seed=args.seed,
+        limit=args.limit,
+        variants=args.variants,
+        fields=tuple(args.field) if args.field else None,
+        workers=args.workers,
+    )
+    cases = probe.source(agent, args.dataset, tests=args.from_tests)
+    writer = Writer(args.model) if by_model else None
+    planned = probe.plan(decision, cases, options, given=given, writer=writer)
+    if args.dry_run:
+        summary = planned.summary()
+        print(json.dumps(summary, indent=2) if args.json else probe_report.planned(summary))
+        return 0
+    found = probe.run(planned)
+    report = json.dumps(found.report, indent=2)
+    for path, content in (
+        (args.out, report + "\n"),
+        (args.variants_out, probe.dump_variants(found.variants)),
+    ):
+        if path:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text(content, encoding="utf-8")
+    print(report if args.json else probe_report.text(found.report))
+    if args.write:
+        kept = probe.keep(agent, found.findings)
+        for line in probe_report.kept_lines(
+            kept.added, kept.waiting, kept.already, kept.left_out, args.pack
+        ):
+            print(line, file=said)
+    return probe_report.exit_code(found.report, args.fail_on)
 
 
 def cmd_decide(args: argparse.Namespace) -> int:
@@ -3826,6 +3902,15 @@ def _monitored_days(text: str) -> int:
     return days
 
 
+def _case_limit(text: str) -> int | None:
+    """`mendari probe --limit`: how many cases, 1 or more, or `all` (None)."""
+    if text == "all":
+        return None
+    if not text.isdigit() or int(text) < 1:
+        raise argparse.ArgumentTypeError("1 case or more, or `all`")
+    return int(text)
+
+
 def _iso_date(text: str) -> str:
     """A date as YYYY-MM-DD, checked before any work starts (argparse names the flag)."""
     try:
@@ -3904,7 +3989,7 @@ GROUPS = (
     Group("Start", ("demo", "new"), ("help",)),
     Group(
         "Build and check",
-        ("validate", "test", "eval", "compare"),
+        ("validate", "test", "eval", "probe", "compare"),
         ("card", "schema", "community-check"),
     ),
     Group("Run", ("decide", "serve"), ("list", "mcp")),
@@ -4039,6 +4124,113 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pack_command("validate", cmd_validate, "validate an agent and build every provider variant")
     pack_command("test", cmd_test, "run the agent's behaviour tests", providers=True)
+
+    probing = pack_command(
+        "probe",
+        cmd_probe,
+        "find failures by rewriting its cases; keep them as tests",
+        providers=True,
+    )
+    probing.description = (
+        "Changes the text of the agent's own cases in ways that keep their meaning, decides "
+        "each variant as the original is decided, and reports the answers that changed: a "
+        "critical answer lost, or a variant that would be automated while wrong or critical, "
+        "first. The report holds ids and counts, never a case's text. Offline by default; a "
+        "model writes paraphrases, translations and denials only when asked."
+    )
+    probing.add_argument(
+        "--dataset",
+        help="the labelled cases to change: one of the agent's datasets, by name, or a JSONL "
+        "path (default: its benchmark dataset, else its first, else its behaviour tests)",
+    )
+    probing.add_argument(
+        "--from-tests",
+        action="store_true",
+        help="change the agent's own behaviour tests instead of a dataset",
+    )
+    probing.add_argument(
+        "--transform",
+        action="append",
+        metavar="NAME[,NAME]",
+        help="what to change (repeatable). Offline, the default: typos, case, punctuation, "
+        "whitespace, additions, injection. Written by a model: paraphrase, negation, "
+        "translate:<language>",
+    )
+    probing.add_argument(
+        "--language",
+        action="append",
+        metavar="LANGUAGE",
+        help="also translate into this language with a model, as es or 'haitian creole' "
+        "(repeatable): the same as --transform translate:<language>",
+    )
+    probing.add_argument(
+        "--model",
+        help="the model that writes paraphrase, negation and translate variants, asked as an "
+        "llm variant is (default: $LLM_MODEL; it is sent the cases' text and nothing else)",
+    )
+    probing.add_argument(
+        "--variants-from",
+        metavar="FILE",
+        help="also try the variants of this JSON Lines file: ones you wrote, or ones "
+        "--variants-out kept (alone, when no --transform is named)",
+    )
+    probing.add_argument(
+        "--variants-out",
+        metavar="FILE",
+        help="write every variant tried to FILE, outside the agent: to read, or to try again "
+        "with --variants-from",
+    )
+    probing.add_argument(
+        "--field",
+        action="append",
+        metavar="FIELD",
+        help="a text field to change, as message.body (repeatable; default: the text the "
+        "agent reads)",
+    )
+    probing.add_argument(
+        "--limit",
+        type=_case_limit,
+        default=PROBE_CASES,
+        metavar="N",
+        help=f"probe at most N cases, or `all` (default {PROBE_CASES})",
+    )
+    probing.add_argument(
+        "--variants",
+        type=int,
+        default=1,
+        metavar="N",
+        help="variants of each case by each transformation (default 1)",
+    )
+    probing.add_argument("--seed", type=int, default=0, help="the seed (default 0)")
+    probing.add_argument(
+        "--workers", type=int, help="parallel decisions (default: 8 for a remote agent, else 1)"
+    )
+    probing.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="say what would run and how many calls it would make; decide and call nothing",
+    )
+    probing.add_argument(
+        "--write",
+        action="store_true",
+        help="keep each failure in the agent as a behaviour test `mendari test` runs "
+        "(tests/probe.yaml), once",
+    )
+    probing.add_argument(
+        "--confirm",
+        action="append",
+        metavar="ID",
+        help="keep a test that waits in tests/probe-unconfirmed.yaml, once you have read what "
+        "it expects (repeatable; probes nothing)",
+    )
+    probing.add_argument(
+        "--fail-on",
+        choices=("critical", "any"),
+        help=f"exit {EXIT_FOUND} on a critical finding (a critical answer lost, or a variant "
+        "automated while wrong or critical), or on any answer that changed",
+    )
+    probing.add_argument("--json", action="store_true", help="print the JSON report")
+    probing.add_argument("--out", help="also write the JSON report here")
 
     decide = pack_command("decide", cmd_decide, "run one decision", providers=True)
     decide.add_argument("--input", help="JSON input file ('-' for stdin)")
