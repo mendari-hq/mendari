@@ -321,8 +321,17 @@ CHAINED: dict[Route, tuple[str, ...]] = {
 CHAINED_READS: dict[Route, tuple[str, ...]] = {
     (ENGINE, "GET", "/api/internal/retention"): ("input.purged", "note.erased", "retention.purged"),
     # Memberships mode: the person recorded, what waited for their verified address bound (and
-    # their open request to join that organization, if any, closed).
-    (ENGINE, "GET", "/auth/callback"): ("user.recorded", "membership.bound", "access.handled"),
+    # their open request to join that organization, if any, closed); and, once, a fresh
+    # install's first administrator (MENDARI_BOOTSTRAP_ADMIN): the organization's record and
+    # their administrator's membership, or their roles when they held another.
+    (ENGINE, "GET", "/auth/callback"): (
+        "user.recorded",
+        "membership.bound",
+        "access.handled",
+        "organization.created",
+        "membership.created",
+        "membership.roles_changed",
+    ),
     (ENGINE, "GET", "/api/audit/{decision_id}"): ("input.read",),  # encrypt mode, a reader
     (ENGINE, "GET", "/api/review"): ("input.read",),
     (ENGINE, "GET", "/api/feedback"): ("input.read",),
@@ -364,6 +373,25 @@ NOT_CHAINED: dict[Route, str] = {
     (ENGINE, "POST", "/api/connections/{namespace}/{name}/check"): (
         "a read: sends one synthetic example to the agent's service and says what came back; "
         "stores nothing (security log: admin.connection.checked)"
+    ),
+    # The System view's actions (the deployment's operators): none changes what an organization
+    # owns. What they leave is outside the chain, as the alerts sent are.
+    (ENGINE, "POST", "/api/system/audit/verify"): (
+        "a read of the whole chain: when it ran and how it ended are kept outside it "
+        "(`system_runs`), and a chain that does not verify is alerted (security log: "
+        "system.audit.verified, audit.chain.broken)"
+    ),
+    (ENGINE, "POST", "/api/system/alerts/test"): (
+        "one test alert to the operator's webhook, recorded with the alerts sent "
+        "(`alert_deliveries`, outside the chain; security log: system.alert.tested)"
+    ),
+    (ENGINE, "POST", "/api/system/ehr-check"): (
+        "a read of an EHR's public configuration and keys: nothing changes but when it was "
+        "last checked (`system_runs`; security log: system.ehr.checked)"
+    ),
+    (ENGINE, "POST", "/api/internal/backup"): (
+        "a backup reported by the schedule that made it: when it ran and whether it worked "
+        "(`system_runs`, outside the chain; security log: backup.reported)"
     ),
 }
 # Writes with no chained event yet, each with the prompt that chains it (tasks/todo.md, LP-03).

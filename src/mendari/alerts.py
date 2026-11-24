@@ -241,18 +241,39 @@ def send(
     return Delivery(id=delivery, attempts=tried, status=status, error=error)
 
 
-def send_test(settings: AlertSettings, *, timeout: float = 10.0) -> Delivery:
+def send_test(
+    settings: AlertSettings,
+    *,
+    timeout: float = 10.0,
+    store: AuditStore | None = None,
+    line: str = TEST_LINE,
+) -> Delivery:
     """One test alert (TEST_EVENT, no alerts in it) in the settings' format, signed with their
-    secret, tried once and recorded nowhere (`mendari alerts test`)."""
-    return send(
+    secret, tried once. Recorded nowhere from the command line (`mendari alerts test`). Given a
+    store (the System view's test, `POST /api/system/alerts/test`), it is recorded as delivered
+    or, when the webhook did not take it, as failed: never pending, so no later run sends a
+    test again."""
+    sent = send(
         settings,
         event=TEST_EVENT,
         org=None,
         alerts=[],
-        lines=[TEST_LINE],
+        lines=[line],
         attempts=1,
         timeout=timeout,
+        store=store,
     )
+    if store is not None and not sent.delivered:
+        store.update_alert(
+            sent.id,
+            status="failed",
+            attempts=sent.attempts,
+            updated_at=datetime.now(UTC).isoformat(),
+            next_attempt_at=None,
+            last_status=sent.status,
+            last_error=sent.error,
+        )
+    return sent
 
 
 def retry_due(

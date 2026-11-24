@@ -25,7 +25,9 @@ deployment's registry (a search, a listing: each is a request this server sends 
 count against `label` too, as a check of an agent's connection does. An EHR launch's decisions
 count against its `ehr` principal, like anyone's. An administrator's writes (keys, clients,
 people, and a hidden set's draws and assignments, LP-11k) have no class: a person's pace,
-chained, as every write.
+chained, as every write. A registry reviewer's acts, and an operator's actions
+(`/api/system/...`: verifying the whole chain, a test alert, a check of an EHR's servers), count
+against `label` too: a person's pace.
 
 **A daily cap per principal** (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set, sign-in only:
 `DailyCap`) counts the decisions each principal asks for, per local day (one per request that
@@ -368,6 +370,11 @@ class Limiter:
         if permission == "registry_review" and method != "GET":
             # A registry reviewer's acts (LP-19e): each a chained event, for good, so counted
             # per person at a person's pace, as a labeller's are.
+            return "label"
+        if permission == "operate" and method != "GET":
+            # An operator's actions (`server/system_routes.py`): each reads the whole chain or
+            # calls out (the alert webhook, an EHR's own servers), so counted per person at a
+            # person's pace too. Reading the checks is not limited.
             return "label"
         return None
 

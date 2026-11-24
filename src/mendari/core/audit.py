@@ -131,6 +131,17 @@ _APPEND_BATCH = 500
 # it, the command line's and a claims-mode server's included, names in each event the
 # organization of the row it is about (`_bound`), and `verify` checks that name against the row.
 ORG_BOUND = "org_bound"
+# The first administrator (`AuditStore.first_administrator`). A database on which the
+# first-administrator setting was honoured is marked (`FIRST_ADMIN`, a `settings` row holding the
+# membership it made, never removed): from then on the setting gives nothing here, whatever it
+# names. The membership it makes is chained as made by `FIRST_ADMIN_BY`, no person's id.
+FIRST_ADMIN = "first_admin"
+FIRST_ADMIN_BY = "first-administrator setting"
+# What the operator's checks read of the work a schedule or an operator does (`system_runs`,
+# outside the chain, as `alert_deliveries` is): each job's last run, when, and how it ended.
+# `detail` is a fixed code, never a message or a count of anyone's data.
+RUN_JOBS = ("retention", "checkpoint", "monitor", "backup", "audit.verify", "ehr.check")
+RUN_OUTCOMES = ("ok", "failed")
 # What a CDS Hooks card's feedback chains (LP-23f, `record_card_feedback`).
 CARD_FEEDBACK = "card.feedback"
 # Each kind of event by what it is about. On a decision: the kinds the FHIR export reads
@@ -595,6 +606,12 @@ CREATE TABLE IF NOT EXISTS checkpoint_statements (
     day         TEXT PRIMARY KEY,
     seq         BIGINT NOT NULL,
     statement   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS system_runs (
+    job      TEXT PRIMARY KEY,
+    ran_at   TEXT NOT NULL,
+    outcome  TEXT NOT NULL,
+    detail   TEXT
 );
 CREATE TABLE IF NOT EXISTS evalset_sets (
     id            TEXT PRIMARY KEY,
@@ -2098,6 +2115,72 @@ class AuditStore(RateBuckets):
         with self._db.session(exclusive=False) as db:
             return db.all(
                 "SELECT * FROM alert_deliveries ORDER BY created_at DESC LIMIT ?", (limit,)
+            )
+
+    def last_alerts(self) -> dict[str, dict[str, Any] | None]:
+        """For the operator's checks: the newest alert sent (`last`) and the newest one the
+        webhook took (`delivered`), each as its event, status, when it was last tried, the
+        webhook's HTTP status and the fixed error code. Never a body, a URL or a secret. None
+        for none, and in a database from before alerts were recorded (read-only)."""
+        columns = "event, status, updated_at, last_status, last_error"
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("alert_deliveries"):
+                return {"last": None, "delivered": None}
+            last = db.one(
+                f"SELECT {columns} FROM alert_deliveries ORDER BY updated_at DESC LIMIT 1"
+            )
+            delivered = db.one(
+                f"SELECT {columns} FROM alert_deliveries WHERE status = 'delivered' "
+                "ORDER BY updated_at DESC LIMIT 1"
+            )
+        return {"last": last, "delivered": delivered}
+
+    # -- the operator's checks (`server/system.py`): outside the chain, times and codes only ----
+
+    def record_run(self, job: str, outcome: str, detail: str | None = None) -> dict[str, Any]:
+        """Record that `job` (one of `RUN_JOBS`) just ran and how it ended (`RUN_OUTCOMES`),
+        over its last run: the operator's checks show each job's last run, never a history
+        (what must last is in the chain: a purge's summary, a checkpoint). `detail` is a fixed
+        code (a verification's reason, a job's step), at most 64 characters."""
+        if job not in RUN_JOBS:
+            raise ValueError(f"no job named {job!r} (one of {', '.join(RUN_JOBS)})")
+        if outcome not in RUN_OUTCOMES:
+            raise ValueError(f"a run ends {' or '.join(RUN_OUTCOMES)}")
+        if detail is not None and not re.fullmatch(r"[a-z0-9_.:-]{1,64}", detail):
+            raise ValueError("a run's detail is a code: lower-case letters, digits, _ . : -")
+        run = {"job": job, "ran_at": _now(), "outcome": outcome, "detail": detail}
+        with self._db.session(exclusive=False) as db:
+            db.all(
+                "INSERT INTO system_runs (job, ran_at, outcome, detail) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (job) DO UPDATE SET ran_at = excluded.ran_at, "
+                "outcome = excluded.outcome, detail = excluded.detail",
+                tuple(run.values()),
+            )
+        return run
+
+    def runs(self) -> dict[str, dict[str, Any]]:
+        """Each job's last recorded run, by job (`record_run`); none in a database from before
+        runs were recorded (read-only)."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("system_runs"):
+                return {}
+            rows = db.all("SELECT job, ran_at, outcome, detail FROM system_runs")
+        return {str(row["job"]): dict(row) for row in rows}
+
+    def any_decision(self) -> bool:
+        """Whether this deployment has ever made a decision, for any organization: what tells a
+        fresh install from one in use (the operator's checks). One indexed read, no count."""
+        with self._db.session(exclusive=False) as db:
+            return db.one("SELECT id FROM decisions LIMIT 1") is not None
+
+    def last_checkpoint(self) -> dict[str, Any] | None:
+        """The newest recorded checkpoint (`record_checkpoint`): its event's place, its hash and
+        when it was recorded; None without one, and in a database from before them."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("audit_checkpoints"):
+                return None
+            return db.one(
+                "SELECT seq, hash, created_at FROM audit_checkpoints ORDER BY seq DESC LIMIT 1"
             )
 
     def consume_principal(self, principal: str, *, daily_limit: int, cost: int = 1) -> int | None:
@@ -5073,6 +5156,80 @@ class AuditStore(RateBuckets):
                     db, org=org, roles=[accounts.ADMIN], created_by=created_by, email=address
                 )
         return done
+
+    def first_admin(self) -> str | None:
+        """The membership the first-administrator setting made on this database (`FIRST_ADMIN`),
+        or None while it has made none. Once it has, the setting is ignored here."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("settings"):
+                return None
+            row = db.one("SELECT value FROM settings WHERE name = ?", (FIRST_ADMIN,))
+        return None if row is None else str(row["value"])
+
+    def first_administrator(
+        self, *, issuer: str, subject: str, email: str, name: str | None, org: str, org_name: str
+    ) -> dict[str, Any] | None:
+        """Make the person signing in now (`issuer` and `subject`; `email` the address their
+        identity provider verified at this sign-in) the first administrator of `org`, as the
+        first-administrator setting asks (`server/auth.py`, which checked that `email` is the
+        setting's): `org`'s record when it has none (`organization.created`), theirs when they
+        have none (`user.recorded`), and an administrator's membership (`membership.created`,
+        or `membership.roles_changed` on one they hold already), each chained as made by
+        `FIRST_ADMIN_BY`. The database is marked in the same transaction (`FIRST_ADMIN`).
+
+        Once, and for an organization nobody administers yet: None, with nothing written, when
+        this database is marked already or `org` has an administrator who signed in. An
+        organization never loses its last one (`_keep_an_admin`), so the setting can never give
+        a second administrator, even on a database restored from before its mark."""
+        user_id = accounts.person_id(issuer, subject)
+        address = accounts.normalise_email(email)
+        accounts.check_org_id(org)
+        with self._db.session(exclusive=True) as db:
+            if db.one("SELECT value FROM settings WHERE name = ?", (FIRST_ADMIN,)) is not None:
+                return None
+            held = db.all(
+                "SELECT id, user_id, roles FROM memberships WHERE org = ? AND removed_at IS NULL "
+                "AND user_id IS NOT NULL",
+                (org,),
+            )
+            if any(accounts.ADMIN in json.loads(row["roles"]) for row in held):
+                return None
+            new_org = db.one("SELECT id FROM organizations WHERE id = ?", (org,)) is None
+            if new_org:
+                self._insert_organization(db, org=org, name=org_name, created_by=FIRST_ADMIN_BY)
+            if db.one("SELECT id FROM users WHERE id = ?", (user_id,)) is None:
+                self._insert_user(
+                    db,
+                    user_id=user_id,
+                    issuer=issuer,
+                    subject=subject,
+                    email=address,
+                    name=name,
+                    signed_in=_now(),
+                )
+            theirs = next((row for row in held if row["user_id"] == user_id), None)
+            if theirs is None:
+                made = self._insert_membership(
+                    db, org=org, roles=[accounts.ADMIN], created_by=FIRST_ADMIN_BY, user_id=user_id
+                )
+                membership_id = str(made["id"])
+            else:  # a member already, of another role: an administrator from now on
+                membership_id = str(theirs["id"])
+                previous = json.loads(theirs["roles"])
+                chosen = accounts.check_roles([*previous, accounts.ADMIN])
+                db.all(
+                    "UPDATE memberships SET roles = ? WHERE id = ?",
+                    (json.dumps(chosen), membership_id),
+                )
+                self._append(
+                    db,
+                    f"membership:{membership_id}",
+                    "membership.roles_changed",
+                    {"id": membership_id, "org": org, "roles": chosen, "previous": previous,
+                     "changed_by": FIRST_ADMIN_BY},
+                )  # fmt: skip
+            _mark(db, FIRST_ADMIN, membership_id)
+        return {"org": org, "membership": membership_id, "organization_created": new_org}
 
     def organizations_in_use(self) -> list[dict[str, Any]]:
         """The preflight before memberships mode (`mendari access check`): each organization

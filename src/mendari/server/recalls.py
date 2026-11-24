@@ -242,6 +242,21 @@ class RecallWatch:
             return UNSIGNED
         return None
 
+    def recalled(self, pack: Pack) -> str | None:
+        """Why its registry recalled this served version (`recalled (<severity>)` or `deleted`),
+        as the last read listed it, or None: for the operator's banner (`server/system.py`),
+        which names a recall and not the other reasons an agent from a registry is held (a
+        registry not read yet, a missing counter-signature). Starts a read when one is due, as a
+        decision does."""
+        if pack.origin != "hub":
+            return None
+        registry = pack.pulled.get("registry")
+        if not isinstance(registry, str) or registry not in self.registries:
+            return None
+        self._due(registry)
+        with self._lock:
+            return self.registries[registry].recalled.get((pack.id, pack.version))
+
     def status(self) -> dict[str, Any]:
         """For health: each registry's last read's age in seconds and how many it recalls."""
         now = self._clock()

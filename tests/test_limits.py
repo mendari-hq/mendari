@@ -601,6 +601,11 @@ EXPECTED_CLASSES = {
     # A check of an agent's connection sends one request to its service (ADR-0021): counted per
     # person at a person's pace, as the console's reads of the deployment's registry are.
     ("POST", "/api/connections/{namespace}/{name}/check"): "label",
+    # An operator's actions (the System view): each reads the whole chain or calls out, so they
+    # are counted per person at a person's pace, as a labeller's are. Reading the checks is not.
+    ("POST", "/api/system/audit/verify"): "label",
+    ("POST", "/api/system/alerts/test"): "label",
+    ("POST", "/api/system/ehr-check"): "label",
 }
 # A renamed route at the path it had before (`server/paths.py`) counts against the class the
 # route counts against now: one bucket for both, so the former path is no second allowance.

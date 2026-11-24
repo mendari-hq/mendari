@@ -399,6 +399,8 @@ PUBLIC = {
     ("GET", "/api/internal/retention"),
     ("GET", "/api/internal/monitor"),
     ("GET", "/api/internal/checkpoint"),
+    # A backup reported by the schedule that made it: the same secret, checked there.
+    ("POST", "/api/internal/backup"),
     # The signed daily checkpoint (LP-21k): a hash and a day, published.
     ("GET", "/api/audit/checkpoint"),
 }
@@ -461,6 +463,20 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     assert permission_for("GET", "/api/usage") == "admin"  # what the organization spent
     assert permission_for("GET", "/api/audit/administrative/export/fhir") == "admin"
     assert permission_for("GET", "/api/audit/d1") == "read"
+    # The deployment's readiness and its operator's actions: `operate`, for every method and
+    # path under theirs, before the catch-all read.
+    system = {(m, p) for m, p in routes if p.startswith("/api/system")}
+    assert system == {
+        ("GET", "/api/system/checks"),
+        ("POST", "/api/system/audit/verify"),
+        ("POST", "/api/system/alerts/test"),
+        ("POST", "/api/system/ehr-check"),
+    }
+    assert {permission_for(m, p) for m, p in system} == {"operate"}
+    for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"):
+        for path in ("/api/system", "/api/system/", "/api/system/x/y"):
+            assert permission_for(method, path) == "operate", (method, path)
+    assert permission_for("GET", "/api/systems") == "read"  # another path: not theirs
     # A person's accountability: no machine role has these (ROLE_PERMISSIONS below).
     assert permission_for("POST", "/api/review/d1") == "review"
     assert permission_for("POST", "/api/audit/d1/feedback") == "review"
@@ -606,6 +622,9 @@ ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as
         "keys",
         "curate",
         "promote",
+        # The deployment's readiness and its operator's actions: here every administrator's
+        # (claims mode, no operator organization named; tests/test_operators.py has the rest).
+        "operate",
     },
     # Hidden evaluation sets (LP-11): a labeller labels (a person, memberships mode only); a
     # grading key grades (the operator's, never a person's).
@@ -616,7 +635,7 @@ ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as
     # An organization's pack store (LP-20f): its authors, people only.
     "pack_author": {"author"},
 }
-PEOPLE_ONLY = {"keys", "curate", "label", "registry_review", "author", "promote"}
+PEOPLE_ONLY = {"keys", "curate", "label", "registry_review", "author", "promote", "operate"}
 # Every route a scoped key (or token) may reach, and the one scope that reaches it. Everything
 # else that is not public is a 403 for a scoped principal, whatever its role.
 ROUTE_SCOPE = {

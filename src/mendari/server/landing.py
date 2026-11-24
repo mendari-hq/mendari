@@ -82,6 +82,7 @@ _ORDER = (
     "approve",
     "evaluate",
     "admin",
+    "operate",
     "keys",
     "curate",
     "label",
@@ -97,6 +98,9 @@ _WHO = {
     "launch_decide": "an EHR launch from an EHR registered here to decide",
     "discover": "every role, and a key or token scoped to decide (the lists of the agents it may "
     "decide with): never an EHR launch",
+    "operate": "an administrator, signed in as a person, of the organization that operates this "
+    "deployment (the one MENDARI_OPERATOR_ORG names; in claims mode without it, any "
+    "administrator): never a key, a token or an administrator of another organization",
     "curate": "an administrator of the organization (memberships mode), signed in as a person: "
     "never a key, a token or a labeller",
     "label": "a person holding the labeller role (memberships mode), signed in: never a key or "

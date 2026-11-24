@@ -93,11 +93,25 @@ server is open, as before (production sits behind Vercel Authentication). When c
 | service (machines) | read, decide, record outcomes |
 | governance | read, approve automation |
 | admin | the rest: evaluations, exports; people only: keys, members, invitations, `curate` |
+| admin of the organization that operates the deployment (people only) | also `operate` |
 | labeller (people, memberships mode) | `label`: labelling hidden evaluation sets |
 | registry_reviewer (people, memberships mode, the review organization only) | `registry_review` |
 | a grading key (the operator's, not a role a person holds) | `grade`, and nothing else |
 
 An administrator holds neither `label` nor `grade` (hidden evaluation sets, LP-11).
+
+**Operating the deployment** (`operate`: its readiness checks and its operator's actions,
+`/api/system/...`, and the deployment's own views) is an administrator's, signed in as a person,
+of the organization `MENDARI_OPERATOR_ORG` names (`settings.operator_org`). In memberships mode
+nobody holds it without that setting, and never an administrator of another organization; in
+claims mode every administrator does unless it is set, and then only that organization's; open
+mode holds it as it holds everything.
+
+**A fresh install's first administrator** (`MENDARI_BOOTSTRAP_ADMIN`, memberships mode): the
+first person who signs in with that address, verified by the identity provider, is made an
+administrator of the operator organization (else `default`), whose record is made with it; the
+database is marked in the same transaction and the setting gives nothing there again
+(`AuditStore.first_administrator`).
 | an EHR launch (`ehr`, not a role) | `launch`; registered to decide, also `launch_decide` |
 | a CDS client's token (`cds`, not a role) | `discover` and `decide`, on `/cds-services` only |
 | any person, memberships mode | `person`: choose one, ask to join, accept an invitation |
@@ -177,6 +191,9 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "keys",
             "curate",
             "promote",
+            # The deployment's readiness and its operator's actions: an administrator's of the
+            # organization that operates it, people only (`OPERATOR_ONLY`, `Principal.operator`).
+            "operate",
         }
     ),
     # Hidden evaluation sets (LP-11, ADR-0011). `labeller` is a reserved role a membership holds
@@ -194,7 +211,12 @@ PERMISSIONS: dict[str, frozenset[str]] = {
 # Permissions only a person who signed in holds, whatever a key's (or a token's) role says:
 # managing keys, clients, members and invitations; managing hidden evaluation sets (`curate`)
 # and labelling their cases (`label`); reviewing the pack registry (`registry_review`).
-PEOPLE_ONLY = frozenset({"keys", "curate", "label", "registry_review", "author", "promote"})
+PEOPLE_ONLY = frozenset(
+    {"keys", "curate", "label", "registry_review", "author", "promote", "operate"}
+)
+# What only the deployment's operators hold: an administrator's role grants it where
+# `Principal.operator` says so (the organization `MENDARI_OPERATOR_ORG` names), and nowhere else.
+OPERATOR_ONLY = frozenset({"operate"})
 # What only a grading key holds (LP-11): reading a hidden set to grade against it. No person,
 # administrator, other key, token or EHR launch ever holds it (the mirror of EHR_ONLY).
 GRADING_ONLY = frozenset({"grade"})
@@ -296,6 +318,9 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("GET", r"^/api/audit/checkpoint$", "public"),
         # The scheduled monitor (LP-21f): the same secret, checked there.
         ("GET", r"^/api/internal/monitor$", "public"),
+        # A backup reported by the schedule that made it (the one-install template's nightly
+        # dump): the same secret, checked there.
+        ("POST", r"^/api/internal/backup$", "public"),
         ("GET", r"^/api/notice$", "read"),
         ("GET", r"^/api/holds$", "read"),
         ("POST", r"^/api/holds$", "approve"),
@@ -367,6 +392,10 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # Promotion (LP-20h): `governance` and `admin`, people only; before the authors' rule.
         ("*", r"^/api/store/promotions(/|$)", "promote"),
         ("*", r"^/api/store(/|$)", "author"),
+        # The deployment's readiness checks and its operator's actions (`server/system_routes.py`):
+        # the administrators of the organization that operates it, people only. Every method and
+        # path under it, before the reads below: its checks say how the deployment is set up.
+        ("*", r"^/api/system(/|$)", "operate"),
         # The whole chain, read or exported, and an organization's administrative events (its
         # keys, clients, people, approvals and holds): administrators only.
         ("GET", r"^/api/audit/(verify|export/fhir|administrative(/export/fhir)?)$", "admin"),
@@ -488,6 +517,9 @@ class Principal:
     grant: Grant | None = None  # a credential's scopes; None: the role's permissions, unnarrowed
     expires_at: str | None = None  # a key's or an access token's expiry
     level: str | None = None  # an EHR launch's registered level (`view` or `decide`); no role
+    # Whether this person acts for the organization that operates the deployment
+    # (`Auth.operates`): only then does an administrator's role grant `operate`.
+    operator: bool = False
 
     def may(self, permission: str) -> bool:
         if self.kind == "open":
@@ -498,7 +530,8 @@ class Principal:
         """What the roles grant; for a key (or a token), never a people-only permission. An EHR
         launch has its level's permissions only, and nobody else ever has those; a grading key
         has `grade` only, and nobody else ever has that; a CDS client has `discover` and
-        `decide` and nothing else. Open mode never holds `NEVER_OPEN`."""
+        `decide` and nothing else. Open mode never holds `NEVER_OPEN`. `operate` is an
+        administrator's only where they operate the deployment (`operator`)."""
         if self.kind == "ehr":
             return EHR_LEVELS.get(self.level or "", frozenset())
         if self.kind == CDS:
@@ -507,6 +540,8 @@ class Principal:
             return GRADING_ONLY
         granted = frozenset().union(*(PERMISSIONS.get(role, frozenset()) for role in self.roles))
         granted -= EHR_ONLY | GRADING_ONLY
+        if not self.operator:
+            granted -= OPERATOR_ONLY
         if self.kind == "open":
             return granted - NEVER_OPEN
         return granted if self.kind == "user" else granted - PEOPLE_ONLY
@@ -554,7 +589,12 @@ class Launch:
 
 
 OPEN = Principal(
-    kind="open", name="open mode", roles=frozenset({"admin"}), id="open", actor="open mode"
+    kind="open",
+    name="open mode",
+    roles=frozenset({"admin"}),
+    id="open",
+    actor="open mode",
+    operator=True,  # open mode holds everything but `NEVER_OPEN`
 )
 
 
@@ -921,6 +961,9 @@ class Auth:
         registry: bool = False,
         review_org: str | None = None,
         pack_store: bool = False,
+        operator_org: str | None = None,
+        first_admin: str | None = None,
+        first_admin_org_name: str | None = None,
     ):
         self.settings = settings
         self.registry = registry  # the pack registry is mounted here (`MENDARI_REGISTRY=on`)
@@ -943,6 +986,17 @@ class Auth:
         # Memberships mode (ADR-0008): people's organizations and roles from records.
         self.memberships = settings is not None and settings.accounts == "memberships"
         self._recorded: set[str] = set()  # organizations seen with a record (never deleted)
+        # The organization whose administrators operate the deployment (`MENDARI_OPERATOR_ORG`);
+        # None: in memberships mode nobody does through the web, in claims mode every
+        # administrator (`operates`).
+        self.operator_org = operator_org
+        # A fresh install's first administrator (`MENDARI_BOOTSTRAP_ADMIN`, memberships mode):
+        # the verified address that is given an administrator's membership of the operator
+        # organization (else `default`) at its first sign-in, once (`first_administrator`).
+        self.first_admin = first_admin if self.memberships else None
+        self.first_admin_org = operator_org or DEFAULT_ORG
+        self.first_admin_org_name = first_admin_org_name or "This site"
+        self._first_admin_settled = False  # made, or found not to be made here: asked once
 
     @property
     def enabled(self) -> bool:
@@ -969,6 +1023,47 @@ class Auth:
         if self.enabled:
             raise AuthError("sign in first, or send an API key", 401, challenge=challenge())
         return OPEN
+
+    def operates(self, org: str | None) -> bool:
+        """Whether a person acting for `org` acts for the organization that operates the
+        deployment: the one `MENDARI_OPERATOR_ORG` names. Without it, nobody in memberships
+        mode (the deployment's views stay its operator's command line's, ADR-0008) and
+        everybody in claims mode (one deployment, one set of administrators, as before). What
+        it grants is an administrator's (`Principal.role_permissions`)."""
+        if self.operator_org is None:
+            return not self.memberships
+        return org is not None and org == self.operator_org
+
+    def first_administrator(
+        self, *, issuer: str, subject: str, address: str | None, name: str, person: str
+    ) -> None:
+        """Memberships mode's sign-in, for the address the first-administrator setting names
+        (`MENDARI_BOOTSTRAP_ADMIN`), verified by the identity provider now: an administrator's
+        membership of the operator organization (else `default`), once. The store decides
+        whether this database still takes it (its mark, and whether the organization has an
+        administrator already), under the chain's lock; whatever it says is final for this
+        process, so every other sign-in costs no read."""
+        if self.first_admin is None or self._first_admin_settled:
+            return
+        if address is None or address != self.first_admin:
+            return
+        made = self.store.first_administrator(
+            issuer=issuer,
+            subject=subject,
+            email=address,
+            name=name,
+            org=self.first_admin_org,
+            org_name=self.first_admin_org_name,
+        )
+        self._first_admin_settled = True
+        if made is None:
+            security_log.event(
+                "auth.first_admin.ignored", outcome="refused", reason="used", actor=person
+            )
+            return
+        security_log.event(
+            "auth.first_admin.granted", actor=person, org=made["org"], ids=[made["membership"]]
+        )
 
     def recorded(self, org: str) -> bool:
         """Memberships mode: whether `org` has a record. Credentials of an organization without
@@ -1096,6 +1191,7 @@ class Auth:
             org=session["org"],
             id=person,
             actor=str(session.get("actor") or f"{issuer}|{session['sub']}"),
+            operator=self.operates(session["org"]),
         )
 
     def _member(self, request: Request) -> Principal | None:
@@ -1134,6 +1230,7 @@ class Auth:
             org=org,
             id=person,
             actor=str(session.get("actor") or f"{issuer}|{subject}"),
+            operator=self.operates(org),
         )
 
     def _bearer(self, headers: list[str]) -> Principal:
@@ -1277,6 +1374,14 @@ class Auth:
                     403,
                     challenge=refused,
                 )
+            if permission in OPERATOR_ONLY and principal.kind == "user":
+                _refused_permission(principal, "operators_only")
+                raise AuthError(
+                    "only an administrator of the organization that operates this deployment "
+                    "may do this",
+                    403,
+                    challenge=refused,
+                )
             if permission in GRADING_ONLY and not principal.is_grading_key:
                 _refused_permission(principal, "grading_only")
                 raise AuthError(
@@ -1379,7 +1484,8 @@ def _within_scope(principal: Principal, method: str, path: str) -> None:
 
 def _refused_permission(principal: Principal, reason: str) -> None:
     """A security log line for a principal refused a route: the permission it lacks, or
-    `people_only`, `ehr_only`, `grading_only`, `out_of_scope`, `no_organization` (memberships
+    `people_only`, `ehr_only`, `grading_only`, `operators_only` (an administrator who does not
+    operate the deployment), `out_of_scope`, `no_organization` (memberships
     mode: a person of none), `org_changed` (a window on another organization than the one
     chosen since), `not_a_member` (choosing an organization one holds no membership of),
     `cds_only` (a CDS client off `/cds-services`) or `open_mode_remote` (open mode's
@@ -1568,7 +1674,10 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         person is recorded only when a membership waits for their verified address, they hold
         one, or they were recorded before (anyone else who signs in leaves no record); what
         waits is bound; with exactly one membership it is selected. Never refused for having
-        none, never placed in `default`: they act for no organization until they choose one."""
+        none, never placed in `default`: they act for no organization until they choose one.
+        The one exception is written down by the operator: the address the first-administrator
+        setting names is given an administrator's membership, once
+        (`Auth.first_administrator`)."""
         email = claims.get("email")
         address = None
         if claims.get("email_verified") is True and isinstance(email, str):
@@ -1586,6 +1695,14 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
                 )
             if waiting and address is not None:
                 store.bind_pending(person, address)
+            # A fresh install's first administrator, once (`MENDARI_BOOTSTRAP_ADMIN`).
+            auth.first_administrator(
+                issuer=options.issuer,
+                subject=claims["sub"],
+                address=address,
+                name=name,
+                person=person,
+            )
             held = store.member_of(person)
             chosen = store.membership_in_force(person, held[0]["org"]) if len(held) == 1 else None
         session, expires_at = sessions.begin(

@@ -49,7 +49,7 @@ from mendari.core.evalset_keys import EvalsetKeys, evalset_keys
 from mendari.core.evalsets import EvalsetStore
 from mendari.core.registry import resolve_pack
 from mendari.providers import reach
-from mendari.server import presets, smart_routes
+from mendari.server import presets, smart_check, smart_routes
 from mendari.server.api_docs import FHIR_EXAMPLE
 from mendari.server.app import create_app
 from mendari.server.auth import person_id
@@ -145,6 +145,9 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
     "the deployment's. Not called: tests/test_signed_checkpoint.py",
     ("GET", "/api/audit/checkpoint"): "the signed checkpoint, the deployment's: a hash and a "
     "day, no organization's data. Not called: tests/test_signed_checkpoint.py",
+    ("POST", "/api/internal/backup"): "the operator's schedule (CRON_SECRET) reporting a backup "
+    "of the whole database: when it ran and whether it worked. Not called: "
+    "tests/test_system_routes.py",
     ("GET", "/auth/login"): "sign-in: a redirect. Not called: tests/test_auth.py",
     ("GET", "/auth/callback"): "sign-in: a redirect and a cookie. Not called: tests/test_auth.py",
     ("POST", "/auth/logout"): "signing out. Not called: tests/test_auth.py",
@@ -563,6 +566,11 @@ def world(
     )
     monkeypatch.setattr(
         smart_routes, "FhirClient", functools.partial(FhirClient, transport=transport)
+    )
+    # The System view's EHR check asks an EHR's own servers: here it answers from nothing but
+    # the base it was given, so no test reaches a network.
+    monkeypatch.setattr(
+        smart_check, "check", lambda base: [smart_check.Finding("ok", "registration key", base)]
     )
     from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -1723,6 +1731,22 @@ def served(world: World, x: Org) -> None:
         "/api/deployments",
         expect=200 if world.accounts == "claims" else 404,
     )
+    # The deployment's operators' routes (the System view). In claims mode every administrator
+    # operates it: its readiness holds nothing of the other organization, and the EHR check
+    # refuses the other's EHR as it refuses an unknown one. In memberships mode nobody does
+    # until MENDARI_OPERATOR_ORG names their organization, which this world does not set
+    # (tests/test_operators.py and tests/test_system_routes.py have that).
+    operates = world.accounts == "claims"
+    theirs = world.other(x).name
+    system: list[tuple[Route, dict[str, Any], int]] = [
+        (("GET", "/api/system/checks"), {}, 200),
+        (("POST", "/api/system/audit/verify"), {}, 200),
+        (("POST", "/api/system/alerts/test"), {}, 409),  # no alert webhook is set here
+        (("POST", "/api/system/ehr-check"), {"json": {"base": issuer_of(theirs)}}, 404),
+        (("POST", "/api/system/ehr-check"), {"json": {"base": issuer_of(x.name)}}, 200),
+    ]
+    for route, options, answered in system:
+        world.call(x, admin, route, route[1], expect=answered if operates else 403, **options)
     assert x.launch is not None
     pinned = {"x-mendari-launch": x.launch_id}
     world.call(x, x.launch, ("GET", "/api/smart/session"), "/api/smart/session", expect=200)

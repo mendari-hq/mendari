@@ -225,6 +225,58 @@ def registry_url() -> str | None:
     return raw
 
 
+def operator_org() -> str | None:
+    """The organization whose administrators operate this deployment ($MENDARI_OPERATOR_ORG;
+    unset: none is named). Its administrators, signed in as people, hold `operate`: the
+    deployment's readiness checks and its operator's actions (`/api/system/...`), and the
+    deployment's own views (the whole chain's verification, the deployment records). In
+    memberships mode nobody holds it through the web without this setting, as before; in claims
+    mode every administrator does unless it is set, and then only that organization's. A
+    single-hospital install names its one organization (`default`). An id no organization could
+    have fails at startup."""
+    from mendari.core.accounts import is_org_id
+
+    raw = os.environ.get("MENDARI_OPERATOR_ORG", "").strip()
+    if not raw:
+        return None
+    if not is_org_id(raw):
+        raise MendariError(
+            "MENDARI_OPERATOR_ORG must be an organization's id: lower-case letters, digits and "
+            "hyphens"
+        )
+    return raw
+
+
+def bootstrap_admin() -> str | None:
+    """The sign-in address of a fresh install's first administrator ($MENDARI_BOOTSTRAP_ADMIN;
+    unset: none). Memberships mode honours it once: the first person who signs in with that
+    address, verified by the identity provider, becomes an administrator of the operator
+    organization (`operator_org`, else `default`), whose record is made if it has none; the
+    database is then marked and the setting ignored from there on (`AuditStore.
+    first_administrator`). Not an e-mail address: the server does not start."""
+    from mendari.core.accounts import normalise_email
+
+    raw = os.environ.get("MENDARI_BOOTSTRAP_ADMIN", "").strip()
+    if not raw:
+        return None
+    try:
+        return normalise_email(raw)
+    except ValueError as error:
+        raise MendariError(f"MENDARI_BOOTSTRAP_ADMIN: {error}") from None
+
+
+def bootstrap_org_name() -> str | None:
+    """What the first administrator's organization is called when the first-administrator
+    setting makes its record ($MENDARI_BOOTSTRAP_ORG_NAME, 1 to 200 characters; unset: the
+    server names it after its public address). Read with `bootstrap_admin`, and used once."""
+    raw = " ".join(os.environ.get("MENDARI_BOOTSTRAP_ORG_NAME", "").split())
+    if not raw:
+        return None
+    if len(raw) > 200:
+        raise MendariError("MENDARI_BOOTSTRAP_ORG_NAME is at most 200 characters")
+    return raw
+
+
 def database_target() -> str:
     """The hosted server's database (`mendari.server.vercel`): $DATABASE_URL, required on
     Vercel; elsewhere `var/mendari.db`."""

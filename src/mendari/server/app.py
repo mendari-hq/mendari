@@ -120,7 +120,7 @@ from mendari.providers import jev, llm, provider_allow_list, slots_without_model
 from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
 from mendari.providers.agent import AgentProvider, Connection
 from mendari.providers.credentials import key_source
-from mendari.server import api_docs, landing, paths, security_log, sessions
+from mendari.server import api_docs, landing, paths, security_log, sessions, system
 from mendari.server.auth import (
     OPEN,
     Auth,
@@ -151,6 +151,7 @@ from mendari.server.origin import OriginCheck, trusted_origins
 from mendari.server.readiness import Readiness, packs_state
 from mendari.server.recalls import RecallWatch
 from mendari.server.smart_routes import add_smart_routes, error_page
+from mendari.server.system_routes import add_system_routes, scheduled_run
 from mendari.settings import FhirValidation, applies_to, providers_for
 from mendari.standards import (
     audit_fhir,
@@ -934,6 +935,19 @@ def create_app(
     # Whether organizations set their agents' connections in the console (ADR-0021): on unless
     # MENDARI_AGENT_CONNECTIONS=off.
     connections_on = connections_enabled()  # likewise
+    # The organization whose administrators operate the deployment (`MENDARI_OPERATOR_ORG`), and
+    # a fresh install's first administrator (`MENDARI_BOOTSTRAP_ADMIN`): a malformed one fails
+    # here, and so does a first administrator where no membership could be given.
+    operator_org = settings.operator_org()  # likewise
+    first_admin = settings.bootstrap_admin()  # likewise
+    first_admin_org_name = settings.bootstrap_org_name()  # likewise
+    if first_admin is not None and (sign_in is None or sign_in.accounts != "memberships"):
+        raise MendariError(
+            "MENDARI_BOOTSTRAP_ADMIN names a first administrator, which needs memberships mode "
+            "(MENDARI_ACCOUNTS=memberships, with sign-in on): in claims mode your identity "
+            "provider's roles say who administers. Turn memberships mode on, or take the "
+            "setting out."
+        )
     registry_app: FastAPI | None = None  # mounted with the routes, below
     registry_headers: Mapping[str, str] | None = None  # the mounted registry's own
     cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled jobs' credential
@@ -1058,7 +1072,24 @@ def create_app(
         registry=registry_on,
         review_org=review_org,
         pack_store=store_on,
+        operator_org=operator_org,
+        first_admin=first_admin,
+        # Its record's name when the setting makes it: as given, else the public address's host.
+        first_admin_org_name=first_admin_org_name
+        or (urlsplit(sign_in.public_url).hostname if sign_in and sign_in.public_url else None),
     )
+    if first_admin is not None:
+        if store.first_admin() is not None:
+            phi_logger.info(
+                "MENDARI_BOOTSTRAP_ADMIN is ignored: this database's first administrator was made "
+                "at their first sign-in, once. The setting can be taken out."
+            )
+        elif operator_org is None:
+            phi_logger.warning(
+                "MENDARI_BOOTSTRAP_ADMIN is set without MENDARI_OPERATOR_ORG: the first "
+                "administrator will administer `default`, and nobody will see the deployment's "
+                "checks in the console"
+            )
     cds_origins = frozenset() if cds is None else cds.origins  # what CORS serves (LP-23c)
     origins = OriginCheck(
         open_mode=not auth.enabled, trusted=trusted, cds_origins=cds_origins, registry=registry_on
@@ -1618,47 +1649,34 @@ def create_app(
             return last
         return {key: value for key, value in last.items() if key not in ("inputs", "notes")}
 
-    @app.get(
-        "/api/health",
-        tags=["Service"],
-        summary="Deployment health and settings",
-    )
-    def health(request: Request) -> dict[str, Any]:
-        """Public, for load balancers: `status`, `version` and `sign_in`, and nothing else
-        without a credential (no database work either). A principal that may `read` (everyone
-        in open mode) also gets the deployment's settings: agents (and how many come from
-        where), storage, the FHIR validation mode, the FHIR and provider allow-lists, PHI mode,
-        the input hash's kind and key id, which provider answers each agent's questions, today's
-        remote calls (in memberships mode the operator's, `mendari usage`, as the last purge's
-        counts are), the rate limits (where the caller's address is read, and the address seen
-        on this request), the session policy, the organization's daily quotas with what it used
-        today, whether SMART Backend Services is on (`backend_services`: its token endpoint,
-        or null), the registered CDS clients of the caller's organization (`cds_clients`: their
-        ids, or null when none is registered), the site code map of the caller's organization
-        (`site_codes`: its version and SHA-256, or null), what its EHRs do not offer
-        (`ehr_declarations`: by FHIR base, each declaration's version, SHA-256, who attested it,
-        its reference and the types, or null when nothing is declared), and the id of the key
-        that signs the daily checkpoint (`checkpoint_key`, or null).
+    def runs_deployment(request: Request) -> bool:
+        """Whether the caller sees the deployment's own views (the whole chain's verification,
+        the deployment records), beyond what each route's permission asks. In open mode, and
+        in claims mode without an operator organization, everyone the route lets in, as before.
+        Otherwise only who operates the deployment: in memberships mode an administrator,
+        signed in as a person, of the organization `MENDARI_OPERATOR_ORG` names (`operate`;
+        nobody, without the setting), and in claims mode with the setting, that organization's
+        callers."""
+        principal = auth.acting(request)
+        if principal.kind == "open":
+            return True
+        if auth.memberships:
+            return principal.may("operate")
+        return auth.operates(principal.org)
 
-        The agents' state (which provider each runs, the settings skipped, an agent that could not
-        be built, the problems an owned agent loads with, `pack_warnings`) is
-        computed at start-up: health builds no agent and records no deployment (a signed-in
-        caller's session may still be refreshed, as on any route).
-        """
-        public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
-        principal = auth.principal(request)  # no credential: no lookup
-        if principal is None or principal.org is None or not principal.may("read"):
-            return public  # a person of no organization (memberships mode) too
-        if principal.grant is not None:
-            return public  # a scoped key or token reaches only the routes its scope names
+    def health_details(request: Request, principal: Principal, org: str) -> dict[str, Any]:
+        """What `/api/health` adds for a principal that may read: the deployment's settings
+        as start-up read them, and its organization's own figures. The operator's checks
+        (`/api/system/checks`, `server/system.py`) are worked out from this same answer, so
+        the two never disagree. `org` is the organization the caller acts for, which its
+        callers checked it has."""
         return {
-            **public,
             # The pack registry is served here (MENDARI_REGISTRY=on, LP-19d): only then.
             **({"registry": True} if registry_on else {}),
             # The organization's pack store (LP-20f): how many of its versions wait for the
             # operator's review, for its administrators; only with the store on.
             **(
-                {"store": {"held": app.state.pack_store.held_count(principal.org)}}
+                {"store": {"held": app.state.pack_store.held_count(org)}}
                 if store_on and principal.may("admin")
                 else {}
             ),
@@ -1693,28 +1711,24 @@ def create_app(
             "smart_ehrs": [
                 {"base": ehr.base, "org": ehr.org, "level": ehr.level}
                 for ehr in sorted(ehrs.values(), key=lambda ehr: ehr.base)
-                if principal.kind == "open" or ehr.org == principal.org
+                if principal.kind == "open" or ehr.org == org
             ],
             # The CDS clients whose own tokens are verified here (MENDARI_CDS_CLIENTS), by id,
             # the caller's organization's only (every one in open mode); None: none registered.
             "cds_clients": (
-                None
-                if cds is None
-                else cds.ids(None if principal.kind == "open" else principal.org)
+                None if cds is None else cds.ids(None if principal.kind == "open" else org)
             ),
             # The caller's organization's site code map (MENDARI_SITE_CODES, LP-23i): the version
             # and SHA-256 its FHIR decisions record; None: no code is translated for it.
             "site_codes": (
                 None
-                if site_maps is None or (found_map := site_maps.for_org(principal.org)) is None
+                if site_maps is None or (found_map := site_maps.for_org(org)) is None
                 else found_map.stamp()
             ),
             # What the caller's organization's EHRs do not offer (MENDARI_EHR_DECLARATIONS), by
             # FHIR base: each declaration's version, SHA-256, who attested it and where, and the
             # types; None: nothing is declared here.
-            "ehr_declarations": (
-                None if declarations is None else declarations.for_org(principal.org)
-            ),
+            "ehr_declarations": (None if declarations is None else declarations.for_org(org)),
             "phi_mode": phi.mode,
             # Under `encrypt`, the ids of the PHI keys (never a key): the one that seals, and
             # those it only opens with (MENDARI_PHI_READ_KEYS, during a rotation).
@@ -1760,7 +1774,7 @@ def create_app(
             },
             "rate_limits": limiter.describe(request),
             # Automation holds in force for the caller's organization (and the deployment's).
-            "holds": len(store.holds(principal.org)),
+            "holds": len(store.holds(org)),
             # The notice people acknowledge before taking data in (mendari.notices).
             "notice": {"version": notices.VERSION, "acknowledgement": acknowledgement},
             # Browser sessions: ended after this long without a request, and at most after.
@@ -1783,10 +1797,45 @@ def create_app(
             "org_quotas": {
                 "daily_limits": org_limits,
                 "used_today": store.org_usage(
-                    principal.org if principal.kind != "open" else tenancy.DEFAULT_ORG
+                    org if principal.kind != "open" else tenancy.DEFAULT_ORG
                 ),
             },
         }
+
+    @app.get(
+        "/api/health",
+        tags=["Service"],
+        summary="Deployment health and settings",
+    )
+    def health(request: Request) -> dict[str, Any]:
+        """Public, for load balancers: `status`, `version` and `sign_in`, and nothing else
+        without a credential (no database work either). A principal that may `read` (everyone
+        in open mode) also gets the deployment's settings: agents (and how many come from
+        where), storage, the FHIR validation mode, the FHIR and provider allow-lists, PHI mode,
+        the input hash's kind and key id, which provider answers each agent's questions, today's
+        remote calls (in memberships mode the operator's, `mendari usage`, as the last purge's
+        counts are), the rate limits (where the caller's address is read, and the address seen
+        on this request), the session policy, the organization's daily quotas with what it used
+        today, whether SMART Backend Services is on (`backend_services`: its token endpoint,
+        or null), the registered CDS clients of the caller's organization (`cds_clients`: their
+        ids, or null when none is registered), the site code map of the caller's organization
+        (`site_codes`: its version and SHA-256, or null), what its EHRs do not offer
+        (`ehr_declarations`: by FHIR base, each declaration's version, SHA-256, who attested it,
+        its reference and the types, or null when nothing is declared), and the id of the key
+        that signs the daily checkpoint (`checkpoint_key`, or null).
+
+        The agents' state (which provider each runs, the settings skipped, an agent that could not
+        be built, the problems an owned agent loads with, `pack_warnings`) is
+        computed at start-up: health builds no agent and records no deployment (a signed-in
+        caller's session may still be refreshed, as on any route).
+        """
+        public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
+        principal = auth.principal(request)  # no credential: no lookup
+        if principal is None or principal.org is None or not principal.may("read"):
+            return public  # a person of no organization (memberships mode) too
+        if principal.grant is not None:
+            return public  # a scoped key or token reaches only the routes its scope names
+        return {**public, **health_details(request, principal, principal.org)}
 
     @app.get(
         "/api/health/ready",
@@ -2210,10 +2259,14 @@ def create_app(
         tags=["Evaluation and monitoring"],
         summary="List deployments",
     )
-    def deployments(pack_id: AgentFilter = None, limit: int = 50) -> list[dict[str, Any]]:
+    def deployments(
+        request: Request, pack_id: AgentFilter = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
         """Which agent version runs where, with which providers, since when (newest first). In
-        memberships mode the deployment's records are the operator's: `404` (ADR-0008)."""
-        if auth.memberships:
+        memberships mode the deployment's records are the operator's (ADR-0008): they answer to
+        an administrator of the organization that operates the deployment
+        (`MENDARI_OPERATOR_ORG`), and are a `404` for everyone else."""
+        if not runs_deployment(request):
             raise HTTPException(404, "the deployment's records are its operator's")
         if pack_id is not None:
             decision_for(pack_or_404(pack_id).id)  # this server's own row is recorded first
@@ -2608,11 +2661,14 @@ def create_app(
         tags=["Audit"],
         summary="Verify the audit chain",
     )
-    def verify() -> dict[str, Any]:
+    def verify(request: Request) -> dict[str, Any]:
         """Recompute the hash chain over every event; `ok: false` means the trail was altered.
-        In memberships mode the whole chain is the operator's, verified from the command line
-        (`mendari audit verify`): `404` here (ADR-0008)."""
-        if auth.memberships:
+        In memberships mode the whole chain is the operator's (ADR-0008): it answers to an
+        administrator of the organization that operates the deployment
+        (`MENDARI_OPERATOR_ORG`), and is a `404` for everyone else, who verify it from the
+        command line (`mendari audit verify`). `POST /api/system/audit/verify` does the same
+        and keeps when it was done."""
+        if not runs_deployment(request):
             raise HTTPException(404, OPERATORS_CHAIN)
         return store.verify()
 
@@ -2809,6 +2865,41 @@ def create_app(
             security_log.event(f"{job}.refused", outcome="refused", reason="secret")
             raise HTTPException(401, "this route is for a scheduled job")
 
+    def chain_broken(held: bool, reason: str) -> None:
+        """The audit chain does not verify (`held` False), or it holds and the day's stored
+        checkpoint statement is not one this deployment's key signed (`held` True): the
+        security log's line (`audit.chain.broken`, with the fixed `reason`) and one alert to
+        MENDARI_ALERT_WEBHOOK (`audit.broken`, recorded), the operator's, with no position or
+        count. From the scheduled checkpoint, and from an operator's own verification
+        (`POST /api/system/audit/verify`)."""
+        security_log.event("audit.chain.broken", outcome="error", reason=reason)
+        webhook = alerts
+        if webhook is not None:
+            try:
+                check_webhook(webhook.webhook)
+            except MendariError:
+                monitor_logger.warning("the alert webhook is not usable: no alert is posted")
+                webhook = None
+        if webhook is None:
+            return
+        message = (
+            "the day's stored checkpoint statement is not one this deployment's key signed for "
+            "today: someone with the database changed it; follow the incident runbook"
+            if held
+            else "the audit chain does not verify from its last checkpoint: run "
+            "`mendari audit verify` and follow the incident runbook"
+        )
+        deliver(
+            webhook,
+            event="audit.broken",
+            org=None,
+            alerts=[{"severity": "critical", "kind": "audit_broken", "message": message}],
+            lines=[f"[critical] audit_broken: {message}"],
+            attempts=3,
+            timeout=10,
+            store=store,
+        )
+
     # The newest signed statement, reused on one instance for CHECKPOINT_SECONDS (the route that
     # publishes it is public); the scheduled checkpoint clears it when it signs.
     published: dict[str, Any] = {"at": -math.inf, "statement": None}
@@ -2831,35 +2922,11 @@ def create_app(
             published["at"] = -math.inf  # read anew on this instance
         if status["ok"] and refused is None:
             security_log.event("audit.checkpoint", outcome="ok")
+            scheduled_run(store, "checkpoint", ok=True, detail="since_checkpoint")
         else:
             reason = "statement" if status["ok"] else str(status.get("reason", "chain"))
-            security_log.event("audit.chain.broken", outcome="error", reason=reason)
-            webhook = alerts
-            if webhook is not None:
-                try:
-                    check_webhook(webhook.webhook)
-                except MendariError:
-                    monitor_logger.warning("the alert webhook is not usable: no alert is posted")
-                    webhook = None
-            if webhook is not None:
-                message = (
-                    "the audit chain does not verify from its last checkpoint: run "
-                    "`mendari audit verify` and follow the incident runbook"
-                    if not status["ok"]
-                    else "the day's stored checkpoint statement is not one this deployment's key "
-                    "signed for today: someone with the database changed it; follow the "
-                    "incident runbook"
-                )
-                deliver(
-                    webhook,
-                    event="audit.broken",
-                    org=None,
-                    alerts=[{"severity": "critical", "kind": "audit_broken", "message": message}],
-                    lines=[f"[critical] audit_broken: {message}"],
-                    attempts=3,
-                    timeout=10,
-                    store=store,
-                )
+            chain_broken(bool(status["ok"]), reason)
+            scheduled_run(store, "checkpoint", ok=False, detail=reason)
         return {
             "ok": status["ok"] and refused is None,
             "recorded": status["recorded"] is not None,
@@ -2873,9 +2940,26 @@ def create_app(
         chains a summary (`retention.purged`). Only with `Authorization: Bearer $CRON_SECRET`;
         without CRON_SECRET set it is not found."""
         require_cron(request, "retention")
-        summary = store.purge(retention_days, source="schedule")
+        try:
+            summary = store.purge(retention_days, source="schedule")
+        except Exception:
+            scheduled_run(store, "retention", ok=False, detail="error")
+            raise
         security_log.event("retention.purged", count=summary["inputs"] + summary["notes"])
+        scheduled_run(store, "retention", ok=True)
         return summary
+
+    @app.post("/api/internal/backup", include_in_schema=False)
+    def backup_reported(request: Request, outcome: Literal["ok", "failed"]) -> dict[str, Any]:
+        """A backup of the database, reported by the schedule that made it (the one-install
+        template's nightly dump, `deploy/site`): when it ran and whether the backup file could
+        be read back, kept for the operator's checks (`system_runs`, outside the chain). The
+        engine makes no backup itself and learns nothing else about one. `Authorization:
+        Bearer $CRON_SECRET` only, as the purge; `outcome` is `ok` or `failed`."""
+        require_cron(request, "backup")
+        scheduled_run(store, "backup", ok=outcome == "ok")
+        security_log.event("backup.reported", outcome="ok" if outcome == "ok" else "error")
+        return {"recorded": True}
 
     @app.get("/api/internal/monitor", include_in_schema=False)
     def scheduled_monitor(request: Request) -> dict[str, Any]:
@@ -2889,6 +2973,16 @@ def create_app(
         and an alert names them. The answer holds counts only. `Authorization: Bearer
         $CRON_SECRET` only, as the purge."""
         require_cron(request, "monitor")
+        try:
+            answered = monitor_each_organization()
+        except Exception:
+            scheduled_run(store, "monitor", ok=False, detail="error")
+            raise
+        scheduled_run(store, "monitor", ok=True)
+        return answered
+
+    def monitor_each_organization() -> dict[str, Any]:
+        """What the scheduled monitor does (`scheduled_monitor`), and its answer."""
         started = time.monotonic()
         webhook = alerts
         if webhook is not None:
@@ -3841,6 +3935,84 @@ def create_app(
         lifetime=session_lifetime,
         site_codes=site_maps,
         declarations=declarations,
+    )
+
+    # The System routes (`server/system_routes.py`): the deployment's readiness as checks, and
+    # its operator's actions. Mounted in every mode: `operate` says who reaches them.
+    registry_probe = system.RegistryProbe(os.environ.get("MENDARI_REGISTRY_URL"))
+    first_admin_used = [False]  # once the database is marked, it stays marked: read until then
+
+    def system_deployment(request: Request, principal: Principal) -> system.Deployment:
+        """What the checks read (`server/system.py`), for this request: signed-in health's own
+        answer and readiness's, then what only an operator is shown (each job's last run, the
+        last checkpoint, the last alerts, who administers the operator organization)."""
+        named, administrators = None, None
+        if auth.memberships and operator_org is not None:
+            record = store.organization(operator_org)
+            named = None if record is None else str(record["name"])
+            administrators = sum(
+                accounts.ADMIN in member["roles"] and member["user_id"] is not None
+                for member in store.memberships(org=operator_org)
+            )
+        if first_admin is not None and not first_admin_used[0]:
+            first_admin_used[0] = store.first_admin() is not None
+        signed_day = None
+        if checkpoint_signer is not None:
+            statement = store.latest_statement()
+            own = key_id(checkpoint_signer.public_key())
+            if statement is not None and statement.get("key_id") == own:
+                signed_day = str(statement.get("date"))
+        runs = store.runs()
+        sent = store.last_alerts()
+        public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
+        return system.Deployment(
+            health={**public, **health_details(request, principal, org_of(principal))},
+            ready=readiness.answer().body,
+            now=datetime.now(UTC),
+            accounts="open"
+            if not auth.enabled
+            else "memberships"
+            if auth.memberships
+            else "claims",
+            operator_org=operator_org,
+            operator_org_name=named,
+            administrators=administrators,
+            first_admin=(
+                "unset" if first_admin is None else "used" if first_admin_used[0] else "waiting"
+            ),
+            public_url=(sign_in.public_url if sign_in is not None else None)
+            or os.environ.get("MENDARI_PUBLIC_URL", "").strip()
+            or None,
+            forwarded=bool(request.headers.get("x-forwarded-for")),
+            scheduled=bool(cron_secret),
+            runs=runs,
+            checkpoint=store.last_checkpoint(),
+            statement_day=signed_day,
+            alerts=system.Alerts(
+                webhook=alerts is not None,
+                signed=alerts is not None and alerts.secret is not None,
+                last=sent["last"],
+                delivered=sent["delivered"],
+            ),
+            registry=registry_probe.state(),
+            any_decision=store.any_decision(),
+            demo_only=set(served_here()) == {DEMO_AGENT},
+            recalls=[
+                {"agent": pack.id, "version": pack.version, "reason": why}
+                for pack in packs.values()
+                if (why := recall_watch.recalled(pack)) is not None
+            ],
+            ehr_checked=runs.get("ehr.check"),
+        )
+
+    add_system_routes(
+        app,
+        auth,
+        store,
+        deployment=system_deployment,
+        alerts=alerts,
+        ehrs=ehrs,
+        chain_broken=chain_broken,
     )
 
     @app.get("/", include_in_schema=False)
