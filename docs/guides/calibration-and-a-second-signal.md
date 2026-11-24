@@ -53,7 +53,7 @@ What it is not:
 
 ## A worked example
 
-A synthetic agent that routes portal messages (`mendari new --agent`), behind a service that
+A synthetic agent that routes portal messages (as `mendari new` writes one), behind a service that
 over-states its confidence. It has two labelled sets: `calibration` (400 cases) to fit on and
 `test` (600 cases) to report on. Every figure below is the tool's own output.
 

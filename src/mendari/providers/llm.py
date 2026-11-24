@@ -586,6 +586,8 @@ def fit_calibration(
     provider.preflight()
     uncalibrated = copy.copy(provider)
     uncalibrated.temperatures = {}
+    # One call a record, whatever the variant's `repeat`: a fit is of single answers.
+    uncalibrated.settings = provider.settings.model_copy(update={"repeat": None})
 
     def ask(record: dict[str, Any]) -> ProviderOutput | str:
         try:

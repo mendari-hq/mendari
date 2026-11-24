@@ -2,7 +2,7 @@
 """Small agents built in a temporary directory, with a live agent service that a test scripts
 (tests of calibration, repeated runs and the two-model check: ADR-0022).
 
-The agent is what `mendari new --agent` writes (the questions `request` and `urgent_symptoms`,
+The agent is what `mendari new` writes (the questions `request` and `urgent_symptoms`,
 answered by the slot `reader`), never the bundled demo agent. Its service is a function a test
 gives: `serve` points `MENDARI_AGENT_URL` at a made-up address and stands the function where the
 provider's HTTP call is, so the provider's own code, its budget, its meter and its deadline all
@@ -37,7 +37,7 @@ Respond = Callable[[dict[str, Any]], Any]
 def scaffold(tmp_path: Path, name: str = "agent", edit: Any = None) -> Path:
     """A new agent in `tmp_path`, on spec 0.4, with `edit` applied to its manifest."""
     root = tmp_path / name
-    assert main(["new", str(root), "--agent", "--id", f"clinic/{name}"]) == 0
+    assert main(["new", str(root), "--id", f"clinic/{name}"]) == 0
 
     def to_spec_04(manifest: dict[str, Any]) -> None:
         manifest["spec_version"] = "0.4"
