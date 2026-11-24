@@ -35,7 +35,7 @@ from mendari.evals.probe import Options, Probed
 from mendari.evals.validation import problems, validate
 from mendari.providers.agent import AgentProvider
 from tests.conftest import DEMO_AGENT_DIR
-from tests.probe_agents import CASES, MANIFEST, TESTS, build_agent, write_rules
+from tests.probe_agents import CASES, MANIFEST, TESTS, build_agent, message_fields, write_rules
 
 
 @pytest.fixture(autouse=True)
@@ -260,12 +260,12 @@ def test_with_no_fields_named_the_text_is_the_schemas_free_strings(tmp_path: Pat
     string the input schema leaves free. One it holds to a list of values, a format or the shape
     a pattern gives is a code or a date, and never changed."""
     root = build_agent(tmp_path / "agent")
-    schema = json.loads((root / "schemas" / "input.schema.json").read_text())
-    properties = schema["properties"]["message"]["properties"]
-    properties["subject"] = {"type": "string"}
-    properties["sender"] = {"$ref": "#/$defs/code"}
-    schema["$defs"] = {"code": {"type": "string", "pattern": "^[a-z]+-[0-9]+$"}}
-    (root / "schemas" / "input.schema.json").write_text(json.dumps(schema))
+    message_fields(
+        root,
+        {"code": {"type": "string", "pattern": "^[a-z]+-[0-9]+$"}},
+        subject={"type": "string"},
+        sender={"$ref": "#/$defs/code"},
+    )
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["providers"]["reader"] = {
         "answers": ["request", "urgent"],
@@ -309,12 +309,12 @@ def test_a_pattern_that_any_text_meets_does_not_make_a_text_a_code(tmp_path: Pat
     text hold something (`\\S`) or stay on one line. The first is never changed; the others are
     text like any other, and a variant their pattern refuses is left out when it is built."""
     root = agent_variant(build_agent(tmp_path / "agent"), CANNED_BY_KEYWORD)
-    schema = json.loads((root / "schemas" / "input.schema.json").read_text())
-    properties = schema["properties"]["message"]["properties"]
-    properties["body"]["pattern"] = r"\S"
-    properties["subject"] = {"type": "string", "pattern": "^[^\\n]*$"}
-    properties["language"] = {"type": "string", "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$"}
-    (root / "schemas" / "input.schema.json").write_text(json.dumps(schema))
+    message_fields(
+        root,
+        body={"pattern": r"\S"},
+        subject={"type": "string", "pattern": "^[^\\n]*$"},
+        language={"type": "string", "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$"},
+    )
     message = {
         "body": "Bad chest pain now",
         "subject": "A question for the nurse",
@@ -342,9 +342,7 @@ def test_the_patterns_of_an_agent_from_a_registry_are_asked_on_the_engine_it_run
     not own has its patterns run on the engine that never backtracks (`Pack.bounded`): the probe
     asks them there too, and never on `re`, which a pattern can stall."""
     root = build_agent(tmp_path / "agent")
-    schema = json.loads((root / "schemas" / "input.schema.json").read_text())
-    schema["properties"]["message"]["properties"]["body"]["pattern"] = r"\S"
-    (root / "schemas" / "input.schema.json").write_text(json.dumps(schema))
+    message_fields(root, body={"pattern": r"\S"})
     pack = load_pack(root, origin="hub")
     assert pack.bounded
     asked: list[bool] = []
@@ -366,9 +364,7 @@ def test_a_variant_the_input_schema_refuses_is_never_decided(
     """The schema takes a body of thirty characters at most: every case fits, and none does
     with an instruction added to it. Those variants are counted, with why, and never sent."""
     root = agent_variant(build_agent(tmp_path / "agent"), CANNED_BY_KEYWORD)
-    schema = json.loads((root / "schemas" / "input.schema.json").read_text())
-    schema["properties"]["message"]["properties"]["body"]["maxLength"] = 30
-    (root / "schemas" / "input.schema.json").write_text(json.dumps(schema))
+    message_fields(root, body={"maxLength": 30})
     sent = live_agent(monkeypatch, by_keyword)
     pack = load_pack(root)
     planned = probe.plan(
@@ -503,6 +499,67 @@ def test_a_message_given_twice_is_probed_once(tmp_path: Path) -> None:
     # What a case is known by is a hash of that text, never the text.
     keys = {variant.case.key for variant in found.variants}
     assert len(keys) == 5 and all(re.fullmatch(r"[0-9a-f]{64}", key) for key in keys)
+
+
+def test_two_records_a_provider_may_answer_differently_are_two_cases(tmp_path: Path) -> None:
+    """Structured criteria read fields of the input they do not list as text. With such a
+    provider answering, the same message on another channel may be decided otherwise: it is
+    another case, and probed too. The text changed is still what the rules read: the criteria
+    read none, and nothing reads the subject."""
+    message = {"body": "Bad chest pain now", "channel": "phone", "subject": "A question"}
+    again = {
+        "id": "symptom-by-phone",
+        "input": {"message": message},
+        "labels": {"request": "other", "urgent": "yes"},
+    }
+    by_phone = {
+        "type": "boolean",
+        "instructions": "Did the message come by phone?",
+        "criteria": {"yes": "By phone.", "no": "Another way."},
+    }
+    channel = {
+        "answers": ["by_phone"],
+        "use": "criteria",
+        "variants": {"criteria": {"type": "criteria", "config": "logic/channel.yaml"}},
+    }
+    manifest = {
+        "questions": {**MANIFEST["questions"], "by_phone": by_phone},
+        "providers": {**MANIFEST["providers"], "channel": channel},
+    }
+    root = build_agent(tmp_path / "agent", cases=[*CASES, again], manifest=manifest)
+    message_fields(root, subject={"type": "string"})
+    check = {"value": {"field": "message.channel", "in": ["phone"], "then": "yes"}}
+    write_yaml(
+        root,
+        "logic/channel.yaml",
+        {"questions": {"by_phone": {"checks": [check], "default": "no"}}},
+    )
+
+    found = probed(root, "typos")
+    assert found.report["fields"] == ["message.body"]
+    assert found.report["cases"]["in_source"] == 6 and found.report["cases"]["distinct"] == 6
+    assert sorted(variant.case.id for variant in found.variants) == sorted(
+        [*(case["id"] for case in CASES), "symptom-by-phone"]
+    )
+
+
+def test_naming_the_text_to_change_does_not_change_what_a_case_is(tmp_path: Path) -> None:
+    """`fields` names the text to change. A case is still what the agent reads of it: two
+    messages under one subject are two cases, each known by the hash it has in any probe."""
+    cases = [
+        {**case, "input": {"message": {**case["input"]["message"], "subject": "A question"}}}
+        for case in CASES
+    ]
+    root = build_agent(tmp_path / "agent", cases=cases)
+    message_fields(root, subject={"type": "string"})
+
+    as_read = probed(root, "case")
+    by_subject = probed(root, "case", fields=("message.subject",))
+    assert by_subject.report["fields"] == ["message.subject"]
+    assert by_subject.report["cases"]["distinct"] == len(CASES)
+    assert {variant.case.key for variant in by_subject.variants} == {
+        variant.case.key for variant in as_read.variants
+    }
 
 
 # -- what counts as a failure, and how bad ---------------------------------------------------------

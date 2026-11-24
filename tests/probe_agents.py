@@ -203,6 +203,20 @@ def build_agent(
     return root
 
 
+def message_fields(root: Path, defs: dict[str, Any] | None = None, **fields: Any) -> None:
+    """Change the `message` of the agent's input schema: each field's schema keys are added to
+    the ones it has (`body={"maxLength": 30}`), or make a new field (`subject={"type":
+    "string"}`). `defs` are the schema's `$defs`, for a field that refers to one."""
+    path = root / "schemas" / "input.schema.json"
+    schema = json.loads(path.read_text(encoding="utf-8"))
+    held = schema["properties"]["message"]["properties"]
+    for name, keys in fields.items():
+        held[name] = {**held.get(name, {}), **keys}
+    if defs is not None:
+        schema["$defs"] = defs
+    path.write_text(json.dumps(schema), encoding="utf-8")
+
+
 def write_rules(root: Path, *, robust: bool) -> None:
     """The agent's rules, as fixing it rewrites them."""
     (root / "logic" / "rules.yaml").write_text(

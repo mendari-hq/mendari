@@ -24,11 +24,11 @@ evaluation's to report, once, not the probe's once per variant.
   that changes it).
 - `changed`: an answer changed, to no worse (the original was wrong already).
 
-**Cost**: a case is what the agent reads of it, so the same text given twice is probed once;
-`Options.limit` and `Options.variants` bound the calls, and `plan` says how many there will be
-before any is made (`Plan.summary`). Answers an agent reads from its mock file are canned: they
-cost no call, the report says they are canned, and where they cannot differ from one input to
-another nothing is decided at all (`Plan.nothing`).
+**Cost**: a case is what the agent reads of it (`probe_cases.identity_fields`), so the same
+given twice is probed once; `Options.limit` and `Options.variants` bound the calls, and `plan`
+says how many there will be before any is made (`Plan.summary`). Answers an agent reads from
+its mock file are canned: they cost no call, the report says they are canned, and where they
+cannot differ from one input to another nothing is decided at all (`Plan.nothing`).
 
 The report (`probe_report.FORMAT`) holds ids, names of transformations, questions and labels,
 and counts: never a case's text. The text of a variant goes only into the agent's own tests

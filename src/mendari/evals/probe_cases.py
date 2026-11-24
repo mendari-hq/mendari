@@ -2,26 +2,28 @@
 """The cases `mendari probe` changes, and where their text is.
 
 **Which cases.** A labelled dataset (one of the agent's, or a JSON Lines file), or the agent's
-own behaviour tests (`source`). A case is what the agent reads of it: two records with the same
-text in the fields the agent reads are one case (`distinct_cases`), probed once. A small probe
-takes cases with a critical label and cases without in turn, in an order the seed gives
-(`in_turn`), so it reaches both the answers a miss is costly on and the cases a wrong answer
-would automate.
+own behaviour tests (`source`). A case is what the agent reads of it (`identity_fields`): two
+records that are the same in every field the running providers say they read are one case
+(`distinct_cases`), probed once. Where a provider is sent the whole input, or reads fields it
+does not list (structured criteria, CQL), a case is the whole input: two records it may decide
+differently are never one. A small probe takes cases with a critical label and cases without
+in turn, in an order the seed gives (`in_turn`), so it reaches both the answers a miss is costly
+on and the cases a wrong answer would automate.
 
-**Which text.** The fields the running providers say they read (`read_fields`: an agent's, a
-model's or Jev's `state_fields`; the `text_fields` of rules, a trained classifier or a dosing
-table), or, when one of them is sent the whole input, every string in it. Of those, a string the
-input schema holds to a list of values or a format (`enum`, `const`, `format`), or to a
-`pattern` that gives it a shape, is a code, a date or an id, not text, and is never changed
+**Which text.** The fields the running providers say they read text in (`read_fields`: an
+agent's, a model's or Jev's `state_fields`; the `text_fields` of rules, a trained classifier or a
+dosing table), or, when one of them is sent the whole input, every string in it. Of those, a
+string the input schema holds to a list of values or a format (`enum`, `const`, `format`), or to
+a `pattern` that gives it a shape, is a code, a date or an id, not text, and is never changed
 (`text_places`). A pattern that ordinary text meets (`\\S`: not blank; one line only) gives no
 shape: the field is text, and a variant its pattern refuses is left out when it is built.
-Fields the caller names take the place of all that.
+Fields the caller names take the place of all that, and say nothing of what a case is.
 """
 
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -37,6 +39,8 @@ from mendari.evals.probe_transforms import Stream
 from mendari.providers import Provider
 from mendari.providers.agent import AgentProvider
 from mendari.providers.base import select_fields
+from mendari.providers.cql import CqlProvider
+from mendari.providers.criteria import CriteriaProvider
 from mendari.providers.dosing import DosingProvider
 from mendari.providers.jev import JevProvider
 from mendari.providers.llm import LlmProvider
@@ -69,7 +73,7 @@ class Source:
 @dataclass(frozen=True)
 class Case:
     """An original case the probe decides: a record, the hash of what the agent reads of it
-    (its identity: the same text given twice is one case), and where its text is."""
+    (its identity, `identity_fields`: the same given twice is one case), and where its text is."""
 
     id: str
     source: str
@@ -154,11 +158,13 @@ def is_critical(labels: Mapping[str, str], manifest: PackManifest) -> bool:
 def distinct_cases(
     decision: Decision, cases: Source, fields: Sequence[str] | None
 ) -> tuple[dict[str, Case], dict[str, Case], int]:
-    """The source's cases, one for each text the agent reads: by key (the first record with a
-    text stands for the others), by the id of every record a case stands for, and how many
-    records the agent refuses as written (there is nothing to compare a variant of one with).
-    `fields`: the text fields the caller named, or None for those the agent reads."""
+    """The source's cases, one for each input the agent reads as another (`identity_fields`): by
+    key (the first record with a text stands for the others), by the id of every record a case
+    stands for, and how many records the agent refuses as written (there is nothing to compare
+    a variant of one with). `fields`: the text fields the caller named, or None for those the
+    agent reads; they say which text is changed, never what a case is."""
     read = fields if fields is not None else read_fields(decision)
+    known = identity_fields(decision)
     schema = decision.pack.input_schema
     by_key: dict[str, Case] = {}
     by_id: dict[str, Case] = {}
@@ -167,7 +173,7 @@ def distinct_cases(
         if decision.validate(record.input):
             refused += 1
             continue
-        state = record.input if read is None else select_fields(record.input, list(read))
+        state = record.input if known is None else select_fields(record.input, list(known))
         key = hashlib.sha256(canonical_input(state).encode("ascii")).hexdigest()
         places = text_places(
             record.input,
@@ -211,24 +217,51 @@ def leaves(decision: Decision) -> Iterator[Provider]:
         yield from provider.leaves()
 
 
+# Providers that answer from the input's coded data, dates and numbers: they read no free text,
+# and do not list the fields they read.
+_STRUCTURED = (CriteriaProvider, CqlProvider)
+
+
 def read_fields(decision: Decision) -> tuple[str, ...] | None:
-    """The input fields the running providers say they read, or None when one of them is sent
-    the whole input, or none names a field."""
-    named: list[str] = []
-    for leaf in leaves(decision):
-        if isinstance(leaf, AgentProvider | LlmProvider | JevProvider):
-            if leaf.settings.state_fields is None:
-                return None
-            named += leaf.settings.state_fields
-        elif isinstance(leaf, RulesProvider):
-            named += leaf.rules.text_fields
-            for rules in leaf.rules.questions.values():
-                named += rules.text_fields or []
-        elif isinstance(leaf, NaiveBayesProvider):
-            named += leaf.text_fields
-        elif isinstance(leaf, DosingProvider):
-            named += leaf.table.text_fields
-    return tuple(dict.fromkeys(named)) or None
+    """The input fields the running providers say they read text in, or None when one of them
+    is sent the whole input, or none names a field. A provider of structured data reads none."""
+    return _together(_named(leaf) for leaf in leaves(decision) if not isinstance(leaf, _STRUCTURED))
+
+
+def identity_fields(decision: Decision) -> tuple[str, ...] | None:
+    """The input fields a decision depends on, which make a case what it is (`Case.key`), or
+    None for the whole input: what the running providers say they read, when every one of them
+    says. An input its schema takes is read by a decision through its providers alone."""
+    return _together(_named(leaf) for leaf in leaves(decision))
+
+
+def _named(leaf: Provider) -> list[str] | None:
+    """The input fields a provider says it reads, or None: it is sent the whole input, or does
+    not say (structured criteria, CQL, a provider type this module does not know)."""
+    if isinstance(leaf, AgentProvider | LlmProvider | JevProvider):
+        fields = leaf.settings.state_fields
+        return None if fields is None else list(fields)
+    if isinstance(leaf, RulesProvider):
+        named = list(leaf.rules.text_fields)
+        for rules in leaf.rules.questions.values():
+            named += rules.text_fields or []
+        return named
+    if isinstance(leaf, NaiveBayesProvider):
+        return list(leaf.text_fields)
+    if isinstance(leaf, DosingProvider):
+        return list(leaf.table.text_fields)
+    return None
+
+
+def _together(named: Iterable[list[str] | None]) -> tuple[str, ...] | None:
+    """The fields several providers name, each once, or None when one of them names none (the
+    whole input), or there is none at all."""
+    fields: list[str] = []
+    for found in named:
+        if found is None:
+            return None
+        fields += found
+    return tuple(dict.fromkeys(fields)) or None
 
 
 def shown(place: Place) -> str:
