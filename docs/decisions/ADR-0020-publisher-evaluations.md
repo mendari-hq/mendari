@@ -2,7 +2,8 @@
 
 ## Status
 Accepted (2026-11-22, the owner's go for the north star in `tasks/todo.md`: "all evals are
-published, including how they work best").
+published, including how they work best"). Amended 2026-11-24, below: the evaluation page may
+say which configuration did best, only when one clearly did.
 
 ## Context
 The Agent Hub shows only what the registry checked

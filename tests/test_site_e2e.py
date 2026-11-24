@@ -308,6 +308,45 @@ def test_the_one_machine_install_end_to_end(site: Install) -> None:
     assert "No secret was generated" in second.stdout
     assert site.settings() == settings
 
+    # 5b. Adopting an agent needs no file after the install: the organization's agent store is
+    # on, the System view says how to name a registry (none was given here: the stack has no
+    # way out), and the administrator, as the deployment's operator, allows one agent's service
+    # at a public address the deployment's list does not name. Never an address inside.
+    adopting = site.sign_in(ADA)
+    adopting.post("/api/notice/acknowledge")
+    assert (values["MENDARI_AGENT_STORE"], values["MENDARI_REGISTRY_URL"]) == ("on", "")
+    assert adopting.get("/api/hub").json() == {
+        "registry": None,
+        "add": {"available": False, "reason": "no_registry"},
+    }
+    [registry] = [
+        check
+        for check in adopting.get("/api/system/checks").json()["checks"]
+        if check["key"] == "registry"
+    ]
+    assert registry["state"] == "not_set" and "./mendari-site install" in registry["action"]
+    [mine] = [member for member in adopting.get("/api/auth/members").json() if member["you"]]
+    given = adopting.put(
+        f"/api/auth/members/{mine['id']}/roles", json={"roles": ["admin", "pack_author"]}
+    )
+    assert given.status_code == 200, given.text
+    held = adopting.get("/api/store/agents")
+    assert held.status_code == 200 and held.json() == []  # the store answers its author
+    connection = f"/api/connections/{DEMO}"
+    as_installed = adopting.get(connection).json()
+    assert as_installed["allowed_origins"] == [] and as_installed["may_allow_origin"] is True
+    public = {"endpoint": "https://1.1.1.1/decide"}  # an address by its number: nothing is called
+    assert adopting.put(connection, json=public).status_code == 422
+    for inside in ("https://10.0.0.5/decide", "https://172.31.88.10/decide", "https://postgres/x"):
+        kept_out = adopting.put(connection, json={"endpoint": inside, "allow_origin": True})
+        assert kept_out.status_code == 422, (inside, kept_out.text)
+    allowed = adopting.put(connection, json={**public, "allow_origin": True})
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["connection"]["origin_allowed_by"] == ADA[1]
+    recorded = [item["event"] for item in adopting.get("/api/audit/administrative").json()["items"]]
+    assert "agent_connection.origin_allowed" in recorded and "agent_connection.set" in recorded
+    assert adopting.delete(connection).status_code == 204  # the demo agent answers as before
+
     # 6. Backup, then restore: the same audit trail head.
     operator = site.sign_in(ADA)
     operator.post("/api/notice/acknowledge")

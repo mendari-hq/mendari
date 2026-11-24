@@ -1,13 +1,18 @@
 # ADR-0021: An agent's connection, set in the console by its organization
 
 ## Status
-Proposed (2026-11-24, with the change that builds it, from the owner's brief for a web console
-in place of the command line: "an administrator of the organization sets, per agent, the
-endpoint and bearer token of the service that answers for it"). The brief fixed what must hold:
-https only, the provider allow-list honoured, internal addresses refused, a write-only token
-sealed at rest and refused where there is no key, every change chained, each organization its
-own, one resolution order, a switch to turn it off. The choices this record adds to that are
-marked **(chosen here)**; it stays Proposed until the owner confirms them.
+Accepted (2026-11-24, with the change that builds it).
+Decided by the maintainer on 2026-11-24, before the repository was public, so no comment period ran; open to revision when it is.
+
+It came from the owner's brief for a web console in place of the command line: "an
+administrator of the organization sets, per agent, the endpoint and bearer token of the service
+that answers for it". The brief fixed what must hold: https only, the provider allow-list
+honoured, internal addresses refused, a write-only token sealed at rest and refused where there
+is no key, every change chained, each organization its own, one resolution order, a switch to
+turn it off. The choices this record adds to that are marked **(chosen here)**. One was added
+when the pieces of the release were put together, and is marked **(added at acceptance)**: an
+operator of the deployment may allow, for one agent, an address the deployment's list does not
+name (point 5). Who an operator is: [ADR-0022](ADR-0022-the-first-administrator-and-the-operator-organization.md).
 
 ## Context
 An agent's `agent` variant asks an HTTP service outside Mendari for its answers
@@ -79,6 +84,29 @@ trust boundary, and each of these is a way it can go wrong:
      it is refused. The list is the operator's statement of what the server may call, so a
      listed origin may be on the site's own network, and it is called as the deployment's own
      endpoints are.
+   - **With the list set and the origin not on it, an operator of the deployment may allow
+     that origin for that agent in their organization** (**added at acceptance**). An operator
+     is an administrator of the organization that operates the deployment, signed in as a
+     person (`operate`, [ADR-0022](ADR-0022-the-first-administrator-and-the-operator-organization.md)):
+     never an API key or a client, never open mode, and never an administrator of another
+     organization. They ask for it when they set the connection (`allow_origin`); it is
+     kept on the connection's row with who allowed it and when, and chained
+     (`agent_connection.origin_allowed`: the agent, the origin, who) before the connection's
+     own event. An origin allowed this way is held to the rule of a deployment with no list,
+     below: **the public internet only**, checked when it is set and again by the client at
+     every connection. So an operator's word in the console reaches a public service and
+     nothing else; this machine and the site's own network are reached only through the
+     list, which is a file on the machine. What was allowed holds for that origin alone, for
+     whoever changes the connection afterwards: a connection moved to another origin, or
+     cleared, has lost it, and once the list names the origin the list speaks for it. Anyone
+     who is not an operator stays bound by the list: `allow_origin` from them is refused
+     whole (`403`), and without it the list's refusal stands.
+
+     Why: the one-machine install starts with a list that names no origin, so that nothing
+     leaves the hospital's network until someone decides it may. Without this, connecting the
+     first adopted agent meant editing a file on the server and restarting it, which is the
+     terminal this record set out to remove. The people this trusts are the ones who already
+     hold the file.
    - **Without a list, the public internet only** (**chosen here**, `providers/reach.py`). The
      host is not this machine, a single-label name, or a number that is not a plain IP address
      (`127.1`, `0x7f.0.0.1`, which resolvers read as addresses and not all the same way), and
@@ -102,9 +130,10 @@ trust boundary, and each of these is a way it can go wrong:
    goes only to the endpoint it was set with: an organization's to its connection,
    `MENDARI_AGENT_TOKEN` to `MENDARI_AGENT_URL`, none to a manifest's.
 7. **Every change is chained**, in the organization's administrative events:
-   `agent_connection.set` (the agent, the endpoint's origin, whether it carries a token, who)
-   and `agent_connection.cleared`. Never the token, nor the endpoint's path. A cleared
-   connection's row is kept, emptied, because its events name it.
+   `agent_connection.set` (the agent, the endpoint's origin, whether it carries a token, who),
+   `agent_connection.cleared`, and `agent_connection.origin_allowed` when an operator allows
+   an origin the list does not name (point 5). Never the token, nor the endpoint's path. A
+   cleared connection's row is kept, emptied, because its events name it.
 8. **A check that sends no patient data.** "Check connection" sends the agent's first behaviour
    test, a synthetic example published with the agent, to the service a decision would call
    now, and says what came back in fixed words with the time it took and the model and version
@@ -131,9 +160,18 @@ trust boundary, and each of these is a way it can go wrong:
   origin the operator listed. That is their organization's decision; it is on the chain with
   the origin, who and when, and an operator who wants a tighter boundary sets the allow-list
   or the switch.
-- Without an allow-list, a service on the hospital's own network cannot be connected from the
-  console: the operator lists its origin first. That is one line of configuration, once, and
-  it is the operator saying what the server may reach inside.
+- A service on the hospital's own network cannot be connected from the console alone, with a
+  list or without one: whoever runs the deployment lists its origin first. That is one line of
+  configuration, once, and it is the operator saying what the server may reach inside.
+- On the one-machine install, whose list names no origin, an administrator connects an agent's
+  public service without touching the machine: they are the deployment's operators, and the
+  console asks them to allow the address, by name, for that agent. The audit chain then holds
+  who widened what the server may call, for which agent, and when. The list in the settings
+  file is unchanged by it and still says what is allowed for every agent.
+- On a deployment shared by several organizations, only the operating organization's own
+  connections can be allowed this way: every route acts for the organization the person is
+  signed in to. Another organization's administrator asks whoever runs the deployment to list
+  the origin, as before.
 - Evaluations run through the connection too, so an evaluation of a connected agent calls its
   service and counts against the organization's quota for remote calls.
 - The reason a canned answer gives on a decision still names `MENDARI_AGENT_URL`. It is a
@@ -154,6 +192,16 @@ trust boundary, and each of these is a way it can go wrong:
 - **A permission a machine's credential can hold**: a leaked key or client could then send an
   organization's cases elsewhere. `keys` is already the permission for what only signed-in
   administrators do with credentials.
+- **Let an operator add an origin to the deployment's list from the console.** The list would
+  then stop being what the settings file says, for every agent and every organization, and an
+  origin added there may be on the site's own network. Allowing one origin for one agent, to
+  public addresses only, changes nothing the file is the word for.
+- **Let every administrator allow an origin for their own organization.** On a shared server
+  that makes the operator's list advisory: any organization's administrator could send the
+  server to any public address. Only whoever runs the server widens what it may call.
+- **Install with no list at all**, so that any public address can be connected. Then nothing
+  records that someone decided a given service may be called, and a model or agent endpoint
+  set by mistake in the deployment's own settings is called without a word.
 - **Name the endpoint in the agent's manifest**: a manifest is content, the same for every
   organization that runs it, and an agent the deployment does not own may not name one
   (ADR-0009).
