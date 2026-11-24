@@ -39,14 +39,22 @@ run on the full suite (SQLite and Postgres), merged when CI is green, then check
 | `--pack`, `--pack-dir`, the positional `pack` | `--agent`, `--agent-dir`, `agent` | hidden aliases |
 | `MENDARI_PACKS_PATH`, `MENDARI_PACKS`, `MENDARI_PACK_STORE`, `MENDARI_COMMUNITY_PACKS` | `MENDARI_AGENTS_PATH`, `MENDARI_AGENTS`, `MENDARI_AGENT_STORE`, `MENDARI_COMMUNITY_AGENTS` | read when the new one is unset |
 | `community-packs/`, `tests/fixtures/reference-packs/` | `community-agents/`, `tests/fixtures/reference-agents/` | gone |
+| an archive named `.ohpack` | `.mendari` | still read |
+| the registry cache's folder `packs/` | `agents/` | still read |
+| the console's `?pack=` and `#store/packs`; the Hub's `/packs/<namespace>/<name>` | `?agent=`, `#store/agents`; `/agents/<namespace>/<name>` | still open (the Hub's redirects) |
+| the image's `--build-arg PACK` | `AGENT` | gone |
+| workflow `packs`, its check `pack-check`, the template `pack.md` | `agents`, `agent-check`, `agent.md` | gone (branch protection names the check) |
 | "Decision Card" | unchanged | |
 
 Not renamed in this plan, and why: the JSON keys of stored, hashed or signed records (`pack`,
 `pack_id`, `pack_version`, `pack_digest` in decisions, audit events, registry records and signed
 results), the database's columns and the Python identifiers. Renaming them rewrites records the
 audit chain and the signatures cover, so it is its own versioned change (wave 6, the owner's go).
-A test (`tests/test_vocabulary.py`) holds the line: no "pack" in the CLI's help, the API docs'
-prose and paths, the docs, the README or the front ends, outside an explicit list of those names.
+Nor the `pack` parameter of `/smart/launch`, which an EHR's registered launch may hold, nor the
+paths the Hub asks the registry at (`/v1/packs/...` for one release, `hub/lib/registry.ts`).
+Tests hold the line (`tests/test_vocabulary.py` and its three companions: the command line, the
+docs, the front ends): no "pack" in the CLI's help, the API docs' prose and paths, the docs, the
+README or the front ends, outside an explicit list of those names.
 
 - [ ] **Wave 1. No Decision Packs, one vocabulary.** (a) Names and words in the Python product:
   the table above, every help text, message and API description, the short `mendari --help` with

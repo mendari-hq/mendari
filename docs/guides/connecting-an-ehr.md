@@ -406,7 +406,8 @@ agent (`--agent`; the demo agent unless given):
 It prints what each call answered, and exits 1 on any answer other than `200`, a hook answer
 that is not CDS Hooks' (a `cards` list, each with a summary, an indicator and a source), or a
 card saying part of the record could not be read. Every hook answers `200`, so a read of the
-FHIR server that failed (`could not read conditions: http_status`, say) shows only there. To run
+FHIR server that failed (for an agent that reads a patient's conditions, `could not read
+conditions: http_status`) shows only there. To run
 it against your own engine, register the entry it prints, put its origin and the FHIR server's
 on `MENDARI_FHIR_ALLOWED_SERVERS`, and give the engine's `MENDARI_PUBLIC_URL` as `--audience`.
 Each run makes a new key, and an engine fetches a client's keys again at most once a minute, so
