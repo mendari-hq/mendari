@@ -214,10 +214,13 @@ class Grade:
 
 @dataclass(frozen=True)
 class Grades:
-    """Clinicians' grades and the rubric wording they were given under (`rubric_sha256`)."""
+    """Clinicians' grades and the rubric wording they were given under (`rubric_sha256`).
+    `simulated`: the graders are no clinicians (a demonstration's, made by a script); the report
+    says so wherever it is shown."""
 
     rubric: str
     grades: tuple[Grade, ...]
+    simulated: bool = False
 
 
 # -- the ledger ----------------------------------------------------------------------------------
@@ -538,13 +541,19 @@ def run(
 # -- clinicians' grades in a file ------------------------------------------------------------------
 
 
-def grades_header(manifest: PackManifest, rubric_name: str, dataset: Any) -> dict[str, Any]:
-    """Line 1 of a grades file for `rubric_name` over `dataset` (a `harness.Dataset`)."""
-    return {
+def grades_header(
+    manifest: PackManifest, rubric_name: str, dataset: Any, *, simulated: bool = False
+) -> dict[str, Any]:
+    """Line 1 of a grades file for `rubric_name` over `dataset` (a `harness.Dataset`).
+    `simulated`: its graders are no clinicians, which the file then says in its first line."""
+    header: dict[str, Any] = {
         "format": GRADES_FORMAT,
         "rubric": {"name": rubric_name, "sha256": rubric_sha256(manifest, rubric_name)},
         "dataset": {"name": dataset.name, "sha256": dataset.sha256},
     }
+    if simulated:
+        header["simulated"] = True
+    return header
 
 
 def load_grades(
@@ -553,9 +562,11 @@ def load_grades(
     """A grades file (`mendari.written-grades/1`): its header and its grades. Line 1 names the
     rubric (name and `rubric_sha256`) and the dataset (name and sha256); every other line is one
     grader's grades of one item, `{"item", "grader", "grades": {<criterion>: <level>}}`, at most
-    one line an item and grader. With `scales` (each criterion's levels), every line answers
-    exactly those criteria, each with one of its levels. A problem names the file and the line,
-    never a value: a grader's id or a level may be anything a file holds."""
+    one line an item and grader. Line 1 may also hold `"simulated": true`: the graders are no
+    clinicians, and every report made from the file says so. With `scales` (each criterion's
+    levels), every line answers exactly those criteria, each with one of its levels. A problem
+    names the file and the line, never a value: a grader's id or a level may be anything a file
+    holds."""
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -573,7 +584,8 @@ def load_grades(
     rubric, dataset = header.get("rubric"), header.get("dataset")
     if (
         header.get("format") != GRADES_FORMAT
-        or set(header) != {"format", "rubric", "dataset"}
+        or not {"format", "rubric", "dataset"} <= set(header) <= {*_GRADES_HEADER, "simulated"}
+        or not isinstance(header.get("simulated", False), bool)
         or not isinstance(rubric, dict)
         or not isinstance(dataset, dict)
         or not all(isinstance(rubric.get(key), str) for key in ("name", "sha256"))
@@ -603,7 +615,10 @@ def load_grades(
             if problem is not None:
                 raise MendariError(f"{at}: {problem}")
         grades.append(Grade(item, grader, dict(values)))
-    return header, Grades(rubric["sha256"], tuple(grades))
+    return header, Grades(rubric["sha256"], tuple(grades), bool(header.get("simulated", False)))
+
+
+_GRADES_HEADER = ("format", "rubric", "dataset")
 
 
 def _grade_problem(values: Mapping[str, str], scales: Mapping[str, Sequence[str]]) -> str | None:
@@ -744,6 +759,8 @@ def report(
             "stale_grades": stale,
         },
         "graders": dict(sorted(graders.items())),
+        # The graders are no clinicians (a demonstration's grades file says so of itself).
+        "simulated_graders": bool(grades is not None and grades.simulated),
         "criteria": {
             key: _criterion(key, scale, with_output, by_item, floors, seed, resamples)
             for key, scale in rubric["criteria"].items()

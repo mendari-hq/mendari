@@ -644,6 +644,11 @@ def _counted_text(found: Mapping[str, Any]) -> str:
 
 # What a report made from canned grades says wherever it is shown.
 DEMONSTRATION = "demonstration only: canned grades, nothing may be concluded from them"
+# And one whose grades file says its graders are simulated.
+SIMULATED = (
+    "the graders are SIMULATED, not clinicians: where this report says clinicians, read "
+    "simulated graders, and conclude nothing from it"
+)
 _LISTED = 8  # the cases a terminal names under each heading
 
 
@@ -684,6 +689,8 @@ def written_report_text(report: Mapping[str, Any], ids: Mapping[str, Any] | None
     if report["graders"]:
         graders = ", ".join(f"{grader} {count}" for grader, count in report["graders"].items())
         lines.append(f"  graders: {graders}")
+    if report.get("simulated_graders"):
+        lines.append(f"  {SIMULATED}")
     lines.append(
         f"  floors: kappa's lower bound at least {floors['agreement']}; on a must-not-fail "
         f"criterion, the failures the judge finds at least {floors['must_pass_recall']} by their "

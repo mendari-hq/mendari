@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """`mendari demo`: the bundled demo agent end to end, offline, on synthetic data, in seconds.
 
-One story, in five numbered sections and an ending:
+One story, in six numbered sections and an ending:
 
 1. It routes a few patient portal messages through the agent under its policy.
 2. It shows what the agent asked to do with them (spec 0.4): the demo agent declares two
@@ -15,6 +15,12 @@ One story, in five numbered sections and an ending:
 5. It probes the agent (`evals/probe.py`): some of the same cases, each rewritten in ways that
    keep its meaning, to find the failures no one wrote a case for. The probe's own report says
    whose answers it read: the fixture's, on this machine, and not an agent's.
+6. It grades what the agent wrote (`evals/written.py`): the demo agent also writes the
+   acknowledgement its `send_acknowledgement` action would send. A canned judge grades all 300
+   acknowledgements of its `written` set against the agent's rubric, simulated graders graded
+   160 of them, and the report says per criterion whether the judge agrees with them enough to
+   be believed about the rest. Where it does not, the judge's figure is withheld. The section
+   says plainly that the graders are simulated and the grades canned.
 
 It ends with what next: the evaluation's verdict; its operating point
 (`evals/operating_point.py`), which says whether these cases support any automation threshold
@@ -34,12 +40,14 @@ from mendari.core.decision import Decision, DecisionResult
 from mendari.core.pack import Pack
 from mendari.core.reference import bundled_dir
 from mendari.core.registry import SearchPath, resolve_pack
-from mendari.evals import evaluate, probe, probe_report, resolve_dataset
+from mendari.evals import evaluate, probe, probe_report, resolve_dataset, written
 from mendari.evals.operating_point import NONE_CERTIFIED, RECOMMENDED, SUPPORTED, Targets
 from mendari.evals.render import shown
 from mendari.evals.result import counted
 
 PACK_ID = "mendari/portal-message-agent"
+RUBRIC = "acknowledgement_quality"  # the demo agent's rubric for what it writes
+WRITTEN_SET = "written"  # the set it writes for, and whose simulated grades it carries
 PROBED = 40  # cases the probe rewrites, each in six ways
 FINDINGS_SHOWN = 3
 SAMPLES = (
@@ -160,6 +168,9 @@ def _run(store: AuditStore) -> None:
     # The probe's own report, from its second line: the agent is named above.
     print("\n".join(probe_report.text(found.report, shown=FINDINGS_SHOWN).splitlines()[1:]))
 
+    _section("6. What the agent wrote")
+    _written(pack)
+
     _section("What next")
     point = report["run"]["operating_point"]
     for line in (
@@ -200,6 +211,58 @@ def _actions(agent: Decision, store: AuditStore, decided: Sequence[DecisionResul
     _line(after["disposition"], after["name"], after["effect"], "the reviewer confirmed it")
     asked = agent.authorize_action(automated.id, *UNDECLARED)
     _line(asked["disposition"], "an action the agent never declared", None, "asked for message 1")
+
+
+def _written(pack: Any) -> None:
+    """The agent's written output, graded: per criterion, how far the canned judge agrees with
+    the simulated graders, the gate's state, and the judge's share for the ungraded outputs
+    only where that state is validated."""
+    from mendari.providers.judge import Judge
+
+    manifest = pack.manifest
+    rubric = manifest.rubrics[RUBRIC]
+    dataset = resolve_dataset(pack, WRITTEN_SET)
+    judge = Judge(pack, RUBRIC, mode="canned")  # offline, whatever model this machine has set
+    run = written.run(Decision(pack, origin_cap=False), dataset, RUBRIC, judge=judge)
+    declared = manifest.evaluation.grades[RUBRIC]
+    scales = {key: [level for level, _ in c.scale()] for key, c in rubric.criteria.items()}
+    _, grades = written.load_grades(
+        pack.read_bytes(declared.file), where=declared.file, scales=scales
+    )
+    found = written.report(run.ledger, grades)
+    cases = found["cases"]
+    for line in (
+        f"The agent also writes the {rubric.output} its send_acknowledgement action would send. "
+        f"A judge grades each one against the agent's rubric ({RUBRIC}), in the words a "
+        "clinician reads, and is believed only as far as it agrees with clinicians.",
+        f"Here {len(found['graders'])} SIMULATED graders (made by a script, no clinician) graded "
+        f"{cases['graded']} of the {cases['with_output']} synthetic texts, {cases['graded_twice']} "
+        "of them twice, and the judge's grades are canned. A demonstration: conclude nothing "
+        "from these figures.",
+    ):
+        print(textwrap.fill(line, _WIDTH, break_on_hyphens=False))
+    for key, measured in found["criteria"].items():
+        state = measured["validation"]["state"]
+        kappa = measured["judge_agreement"]["kappa"]
+        interval = kappa.get("interval") or {}
+        if kappa["estimate"] is None:
+            agreed = "kappa not estimable"
+        elif interval.get("status") != "ok":
+            agreed = f"kappa {kappa['estimate']:.2f}, its interval not estimable"
+        else:
+            agreed = (
+                f"kappa {kappa['estimate']:.2f} ({interval['low']:.2f} to {interval['high']:.2f})"
+            )
+        if measured["judged"] is not None:
+            rest = f"judged, of the ungraded: {shown(measured['judged']['passing'])} pass"
+        else:
+            rest = "judged share withheld"
+        name = key + (" (must not fail)" if measured["must_pass"] else "")
+        print(f"{name:<32} judge {state:<22} {agreed}; {rest}")
+    print(
+        "Below its floors a judge's figure is withheld, never shown with a caveat. The full report:"
+    )
+    print(f"  mendari written eval {PACK_ID} --rubric {RUBRIC} --dataset {WRITTEN_SET}")
 
 
 def _line(disposition: str, name: str, effect: Any, why: str) -> None:

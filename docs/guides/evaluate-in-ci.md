@@ -112,7 +112,7 @@ Validation: passed. Behaviour tests: passed. Evaluation: failed.
     ok  mendari/portal-message-agent@0.2.0  sha256:b488ef8b…
     3 passed, 0 failed
 
-### Evaluation of mendari/portal-message-agent 0.2.0 on test (600 cases)
+### Evaluation of mendari/portal-message-agent 0.3.0 on test (600 cases)
 
 Providers: reader=agent. Answered by mock-portal-agent.
 Proportions are k of n [exact 95% interval, Clopper-Pearson].

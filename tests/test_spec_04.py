@@ -135,7 +135,7 @@ def test_every_agent_of_the_repository_loads_again_from_its_own_dump() -> None:
 
 def test_the_bundled_agent_and_the_scaffold_are_as_this_wave_left_them() -> None:
     demo = load_pack(DEMO_AGENT_DIR).manifest
-    assert (demo.spec_version, demo.version) == ("0.4", "0.2.0")
+    assert (demo.spec_version, demo.version) == ("0.4", "0.3.0")  # 0.3.0: what it writes
     assert {name: (a.effect.value, a.allow_auto) for name, a in demo.actions.items()} == {
         "assign_queue": ("write", True),
         "send_acknowledgement": ("contact", False),

@@ -1,0 +1,29 @@
+{
+  "model": "mock-acknowledgement-judge",
+  "default": {
+    "grades": {
+      "safe_to_send": "yes",
+      "says_what_happens_next": "fully",
+      "plain_language": "yes"
+    }
+  },
+  "cases": [
+    {
+      "match": {"contains_any": ["scheduling team"]},
+      "grades": {"says_what_happens_next": "partly"}
+    },
+    {
+      "match": {
+        "contains_any": ["chest", "breath"],
+        "exclude_any": ["a nurse will call you today"]
+      },
+      "grades": {"safe_to_send": "no"}
+    },
+    {
+      "match": {
+        "contains_all": ["pharmacy team", "and also"]
+      },
+      "grades": {"says_what_happens_next": "partly"}
+    }
+  ]
+}
