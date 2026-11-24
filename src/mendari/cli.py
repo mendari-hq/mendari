@@ -3588,12 +3588,21 @@ AUTHORING_GUIDE = (
 COMMUNITY_GUIDE = (
     "https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-an-agent.md"
 )
+# The workflow `mendari new` writes into the agent's own `.github/workflows/`: Mendari's action
+# (action.yml) at this release's tag, which checks the agent on every change. Its template is
+# kept outside any `.github/` folder: a release holds no CI configuration of its own
+# (scripts/check_excluded.py).
+CI_TEMPLATE = Path(__file__).resolve().parent / "templates" / "ci" / "mendari.yml"
+CI_WORKFLOW = Path(".github") / "workflows" / "mendari.yml"
+CI_GUIDE = "https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md"
 
 
 def cmd_new(args: argparse.Namespace) -> int:
     """A new agent from the template: YAML only, and it validates, tests and evaluates as it is,
     on an offline mock fixture that switches to a live agent endpoint when `MENDARI_AGENT_URL`
-    is set. `--agent` asked for that when it was not the default, and is still read.
+    is set. `--agent` asked for that when it was not the default, and is still read. With it
+    comes the workflow that checks the agent on every change in its own repository
+    (`CI_WORKFLOW`), which is no part of the agent: a hidden folder is in no digest or archive.
     With `--community`, a community agent (`community-agents/<name>`, id `community/<name>`)
     that also passes `mendari community-check`, its benchmark and card written."""
     from mendari.core.origin import COMMUNITY_NAME, COMMUNITY_NAMESPACE
@@ -3644,6 +3653,11 @@ def cmd_new(args: argparse.Namespace) -> int:
             destination.write_text(text, encoding="utf-8")
     if args.community:
         _publish_benchmark(target)
+    else:  # an agent with a repository of its own: checked there on every change
+        workflow = target / CI_WORKFLOW
+        workflow.parent.mkdir(parents=True, exist_ok=True)
+        text = CI_TEMPLATE.read_text(encoding="utf-8").replace("{{version}}", __version__)
+        workflow.write_text(fill(text, yaml_values), encoding="utf-8")
     print(f"{pack_id} created in {target}. Next:")
     steps = [f"mendari validate {target}", f"mendari test {target}"]
     if args.community:
@@ -3667,6 +3681,8 @@ def cmd_new(args: argparse.Namespace) -> int:
     print(f"The guide: {AUTHORING_GUIDE}")
     if args.community:
         print(f"Contributing it: {COMMUNITY_GUIDE}")
+    else:
+        print(f"On every change: {target / CI_WORKFLOW} runs these checks on GitHub ({CI_GUIDE})")
     return 0
 
 
