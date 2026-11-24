@@ -126,7 +126,7 @@ _GUARD = re.compile(r"^/api/agents/[^/]+/[^/]+/guard$")
 # aggregate read about an agent, made for a meeting and not for polling).
 _EXPORTS = re.compile(
     r"^/api/(audit/(administrative/)?export/fhir"
-    r"|agents/[^/]+/[^/]+/(feedback/export|governance-packet))$"
+    r"|agents/[^/]+/[^/]+/(feedback/export|committee-packet))$"
 )
 
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The committee packet (mendari.governance-packet/1): everything a hospital's AI governance
+"""The committee packet (mendari.committee-packet/1): everything a hospital's AI governance
 committee reads about one agent, at one version, as this deployment sees it.
 
 The evidence a committee needs sits in five places (the Decision Card, the publisher's
@@ -52,7 +52,7 @@ from mendari.errors import MendariError
 from mendari.evals import figures, monitoring
 from mendari.evals.result import normalize
 
-FORMAT = "mendari.governance-packet/1"
+FORMAT = "mendari.committee-packet/1"
 DEFAULT_DAYS = 90
 MAX_EVALUATIONS = 5  # of an organization's saved evaluations, the newest: a packet is read
 MIN_DAYS, MAX_DAYS = monitoring.MIN_DAYS, monitoring.MAX_DAYS
@@ -1601,7 +1601,8 @@ def _html_evaluation(found: Mapping[str, Any]) -> str:
         ("Configuration it ran on", configuration or "not recorded"),
         ("Right answers", _e(_figure(found["accuracy"]))),
         ("Automated, and right", _e(_figure(found["automated_correct"]))),
-        ("Automated, and wrong", _e(_figure(found["false_automation"]))),
+        # Under the names the evaluation report and the guides give the two risks.
+        ("False automation (automated, and wrong)", _e(_figure(found["false_automation"]))),
         ("Changed by a reviewer, expected", _e(_figure(found["expected_override"]))),
     ]
     rows += [
@@ -1610,7 +1611,11 @@ def _html_evaluation(found: Mapping[str, Any]) -> str:
     out = _facts(rows)
     if found["critical"]:
         out += "<h3>Critical cases</h3>" + _table(
-            ["Answer that must not be missed", "Detected", "Automated in error"],
+            [
+                "Answer that must not be missed",
+                "Detected",
+                "Critical misses (automated, so no person read them)",
+            ],
             [
                 [
                     f"{_code(item['question'])} = {_code(item['label'])}"

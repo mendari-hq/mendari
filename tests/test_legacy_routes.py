@@ -185,7 +185,7 @@ def _routes(app: Any) -> dict[RouteKey, Route]:
 
 # Routes added under a renamed prefix after the rename: each is served at its one path, and
 # nothing answers where a former spelling of it would be.
-ADDED_SINCE: set[RouteKey] = {("GET", "/api/agents/{namespace}/{name}/governance-packet")}
+ADDED_SINCE: set[RouteKey] = {("GET", "/api/agents/{namespace}/{name}/committee-packet")}
 
 
 def _held_to_one_handler(app: Any, renamed: dict[RouteKey, RouteKey]) -> None:

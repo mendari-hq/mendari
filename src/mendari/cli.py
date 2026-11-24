@@ -5578,14 +5578,28 @@ def build_parser() -> argparse.ArgumentParser:
         "packet",
         cmd_packet,
         "the committee packet: what a governance committee reads about one agent, as one page "
-        "to print (what is known, what nobody has stated, and a crosswalk to four frameworks)",
+        "to print",
+    )
+    packet_cmd.description = (
+        "The committee packet of one agent, at the version this deployment serves: what it is "
+        "and who made it, its risk level and what the runtime enforces, how a person stays in "
+        "the loop, the publisher's evidence and this site's, monitoring, change control, data "
+        "handling and approvals; then what nobody has stated, and a crosswalk to four published "
+        "frameworks. It is read from the server's database, which is opened read-only and may "
+        "be read with the server down. It holds counts, ids and dates, never a case's text, and "
+        "it is a reading aid: not signed, and not a certification."
     )
     packet_cmd.add_argument(
-        "--db", default="var/mendari.db", help="SQLite path or postgresql:// URL"
+        "--db",
+        default="var/mendari.db",
+        help="the server's database: a SQLite path or a postgresql:// URL (default var/mendari.db)",
     )
     packet_cmd.add_argument("--org", help="one organization (default: every organization together)")
     packet_cmd.add_argument(
-        "--days", type=_monitored_days, default=90, help="14 to 180 (default 90)"
+        "--days",
+        type=_monitored_days,
+        default=90,
+        help="the days its counts cover, 14 to 180 (default 90)",
     )
     packet_cmd.add_argument("--out", metavar="FILE", help="write it here (default: print it)")
     packet_cmd.add_argument("--json", action="store_true", help="the packet as JSON, not as a page")

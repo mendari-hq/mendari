@@ -42,7 +42,7 @@ from tests.conftest import (
 
 AGENT_ID = "mendari/portal-message-agent"
 AGENT = f"/api/agents/{AGENT_ID}"
-PACKET = f"{AGENT}/governance-packet"
+PACKET = f"{AGENT}/committee-packet"
 SECTIONS = [
     "identity",
     "intended_use",
@@ -112,7 +112,7 @@ def test_the_demo_agents_packet_has_every_section_in_order_and_fits_its_schema(
     assert answer.status_code == 200, answer.text
     built = answer.json()
     assert packet.problems(built) == []
-    assert built["format"] == "mendari.governance-packet/1"
+    assert built["format"] == "mendari.committee-packet/1"
     assert [s["key"] for s in built["sections"]] == SECTIONS == [key for key, _ in packet.SECTIONS]
     assert [s["number"] for s in built["sections"]] == list(range(1, 12))
     assert built["agent"]["id"] == AGENT_ID and built["agent"]["digest"] == demo().digest

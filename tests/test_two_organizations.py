@@ -1485,8 +1485,8 @@ def reads(world: World, x: Org) -> dict[str, str]:
         # differential holds each of them to its own organization at once.
         (
             viewer,
-            ("GET", "/api/agents/{namespace}/{name}/governance-packet"),
-            f"/api/agents/{INBOX}/governance-packet",
+            ("GET", "/api/agents/{namespace}/{name}/committee-packet"),
+            f"/api/agents/{INBOX}/committee-packet",
             {},
         ),
         (viewer, ("GET", "/api/feedback"), "/api/feedback", {}),

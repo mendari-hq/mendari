@@ -439,7 +439,7 @@ function wireCommandCenter(main, brief, detail) {
     });
     section.querySelector("#packet-download")?.addEventListener("click", (event) =>
       whileBusy(event.currentTarget, "Building…", () =>
-        download(`${packPath()}/governance-packet?format=html`, `${fileSlug(state.packId)}-committee-packet.html`)));
+        download(`${packPath()}/committee-packet?format=html`, `${fileSlug(state.packId)}-committee-packet.html`)));
     section.querySelector("#brief-copy")?.addEventListener("click", () => {
       const mins = Number(storageGet("oh.roi.mins", "3.5")) || 3.5;
       const hours = ((brief.roi.weekly_auto_cases_projected * mins) / 60).toFixed(1);

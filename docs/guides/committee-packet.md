@@ -51,7 +51,7 @@ trail), or the software (what the engine enforces).
 
 ```bash
 curl -sS -H "Authorization: Bearer $MENDARI_KEY" \
-  "https://mendari.example.org/api/agents/mendari/portal-message-agent/governance-packet?format=html" \
+  "https://mendari.example.org/api/agents/mendari/portal-message-agent/committee-packet?format=html" \
   -o committee-packet.html
 ```
 

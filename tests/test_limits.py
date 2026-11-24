@@ -594,7 +594,7 @@ EXPECTED_CLASSES = {
     ("GET", "/api/audit/administrative/export/fhir"): "export",
     ("GET", "/api/agents/{namespace}/{name}/feedback/export"): "export",
     # The committee packet: every aggregate read about an agent in one document, made to keep.
-    ("GET", "/api/agents/{namespace}/{name}/governance-packet"): "export",
+    ("GET", "/api/agents/{namespace}/{name}/committee-packet"): "export",
     # With the evaluation-set keys, in both account modes: a grading run is an evaluation
     # (LP-11l), counted per grading key.
     ("POST", "/api/evalsets/{set_id}/runs"): "evaluate",

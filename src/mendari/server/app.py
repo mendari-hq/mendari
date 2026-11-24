@@ -2049,12 +2049,12 @@ def create_app(
         return brief
 
     @app.get(
-        "/api/agents/{namespace}/{name}/governance-packet",
+        "/api/agents/{namespace}/{name}/committee-packet",
         tags=["Governance"],
         summary="Committee packet",
-        name="agent_governance_packet",
+        name="agent_committee_packet",
     )
-    def governance_packet(
+    def committee_packet(
         request: Request,
         namespace: str,
         name: str,
@@ -2062,7 +2062,7 @@ def create_app(
         format: Literal["json", "html"] = "json",
     ) -> Any:
         """Everything an AI governance committee reads about one agent, at the version served
-        here, as your organization sees it (`mendari.governance-packet/1`): what it is and who
+        here, as your organization sees it (`mendari.committee-packet/1`): what it is and who
         made it; its intended use and what it must not be used for; its risk level and what the
         runtime enforces; how a person stays in the loop; the publisher's evidence; your
         organization's own decisions, shadow pilot, overrides and the validation brief's gates;
