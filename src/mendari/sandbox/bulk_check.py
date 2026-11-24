@@ -2,10 +2,12 @@
 """The Bulk exit check on the sandbox: export -> dataset -> evaluation, compared with evaluating
 the same cases from the dataset file.
 
-The sandbox seeds the first cases of the pack's local-site example dataset (moved to today), so an
-export of the sandbox, labelled from that same file, must evaluate exactly like those cases read
-straight from it: the same decisions, the same metrics per question, the same misclassified cases.
-This is the roadmap's v0.4 exit: "Bulk export -> mendari eval works end to end".
+The sandbox is seeded from an agent's labelled cases (`mendari sandbox seed`), each Patient
+carrying its case id. So an export of the sandbox, labelled from that same dataset, must
+evaluate exactly like those cases read straight from it: the same decisions, the same metrics
+per question, the same misclassified cases. The export asks for the resource types the agent's
+FHIR mapping reads. This is the roadmap's v0.4 exit: "Bulk export -> mendari eval works end to
+end".
 """
 
 from __future__ import annotations
@@ -16,48 +18,54 @@ from pathlib import Path
 from typing import Any
 
 from mendari.core.decision import Decision
+from mendari.core.pack import Pack
 from mendari.errors import MendariError
 from mendari.evals.harness import evaluate, load_dataset
 from mendari.evals.ledger import case_hash
-from mendari.sandbox import example_datasets_dir
-from mendari.sandbox.fhir_records import CASE_SYSTEM
+from mendari.sandbox.code_systems import CASE_SYSTEM
+from mendari.sandbox.fhir_workflow import labelled_cases
 from mendari.standards import bulk
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import GuardedHttp
 
-_EXAMPLES = {"mendari/referral-router": "referral-local-site-example.jsonl"}
-_TYPES = {
-    "mendari/referral-router": [
-        "Patient",
-        "ServiceRequest",
-        "DocumentReference",
-        "DiagnosticReport",
-        "Observation",
-    ],
-}
 COMPARED = ("decisions", "questions", "misclassified")
 
 
-def run(fhir: str, pack_id: str) -> dict[str, Any]:
-    if pack_id not in _EXAMPLES:
-        raise MendariError(f"the bulk check runs for {sorted(_EXAMPLES)}, not {pack_id}")
-    datasets = example_datasets_dir()
-    if datasets is None:
-        raise MendariError("the example datasets are not installed")
-    labels_path = datasets / _EXAMPLES[pack_id]
-    decision = Decision.from_hub(pack_id)
+def export_types(adapter: FhirAdapter) -> list[str]:
+    """The resource types an export for the agent asks for: the Patient, what the agent's FHIR
+    mapping focuses on, and every type its fields and lists read."""
+    mapping = adapter.mapping
+    listed = [kind for spec in mapping.lists.values() for kind in spec.sources()]
+    return list(dict.fromkeys(["Patient", mapping.focus, *mapping.resources, *listed]))
+
+
+def run(fhir: str, agent: Pack, dataset: str | None = None) -> dict[str, Any]:
+    """Export the sandbox, build the agent's dataset from it with the labels of `dataset` (one
+    of the agent's datasets or a JSONL file; default: its benchmark dataset, which `mendari
+    sandbox seed` loads), and compare its evaluation with the same cases read from the file."""
+    if agent.manifest.inputs.fhir is None:
+        raise MendariError(
+            f"{agent.id} has no FHIR mapping (`inputs.fhir`): a Bulk export becomes its cases "
+            "through one"
+        )
+    labels_path = labelled_cases(agent, dataset).path
+    decision = Decision(agent)
+    adapter = FhirAdapter.for_pack(agent)
     with tempfile.TemporaryDirectory() as scratch:
         folder = Path(scratch)
         with GuardedHttp() as http:
-            manifest = bulk.export(fhir, folder / "export", http=http, types=_TYPES[pack_id])
+            manifest = bulk.export(fhir, folder / "export", http=http, types=export_types(adapter))
         resources = list(bulk.read_ndjson(folder / "export"))
         labels = bulk.load_labels(labels_path)
-        adapter = FhirAdapter.for_pack(decision.pack)
         records, skipped = bulk.dataset(adapter, resources, labels, key_system=CASE_SYSTEM)
         if not records:
-            raise MendariError(f"the export holds no labelled {pack_id} cases ({skipped})")
+            raise MendariError(f"the export holds no labelled {agent.id} cases ({skipped})")
         exported = {r["id"] for r in records}
         direct = [r for r in load_dataset(labels_path).records if r["id"] in exported]
+        # In the file's order, whatever order the server exported them in: a metric summed
+        # over the cases (and its resampled interval) is the same only in the same order.
+        position = {r["id"]: n for n, r in enumerate(direct)}
+        records.sort(key=lambda r: position[r["id"]])
         write_jsonl(folder / "bulk.jsonl", records)
         write_jsonl(folder / "direct.jsonl", direct)
         exported_set = load_dataset(folder / "bulk.jsonl")

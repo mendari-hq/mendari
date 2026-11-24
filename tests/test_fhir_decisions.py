@@ -22,9 +22,9 @@ from mendari.core.pack import load_pack
 from mendari.core.spec import Outcome
 from mendari.errors import FhirError
 from mendari.evals.harness import load_dataset
-from mendari.sandbox.fhir_records import prior_auth_entries, trial_entries
 from mendari.standards import fhir_structure, us_core
 from mendari.standards.fhir import FhirAdapter
+from tests.support.fhir_records import prior_auth_entries, trial_entries
 
 ROOT = Path(__file__).resolve().parents[1]
 

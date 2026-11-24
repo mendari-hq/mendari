@@ -9,25 +9,30 @@ from typing import Any
 import httpx
 import pytest
 
+from mendari.cli import main
 from mendari.core import clock
 from mendari.core.decision import Decision
+from mendari.core.pack import load_pack
 from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
 from mendari.evals.harness import load_dataset
-from mendari.sandbox import example_datasets_dir, fhir_workflow, synthetic_inbox
-from mendari.sandbox.fhir_records import inbox_entries, referral_entries
-from mendari.sandbox.fhir_workflow import (
+from mendari.sandbox import DEMO_AGENT, example_datasets_dir, fhir_workflow, synthetic_inbox
+from mendari.sandbox.code_systems import CASE_SYSTEM
+from mendari.sandbox.fhir_records import message_entries
+from mendari.sandbox.fhir_workflow import _process_batch
+from mendari.standards import us_core
+from mendari.standards.fhir import FhirAdapter
+from tests.conftest import DEMO_AGENT_DIR
+from tests.support.fhir_records import referral_entries
+from tests.support.sandbox import (
     EHR_PROFILE,
     INBOX,
     PRIOR_AUTH,
     REFERRAL,
     TRIAL,
-    _process_batch,
+    seed,
     seed_bundle,
-    to_resources,
 )
-from mendari.standards import us_core
-from mendari.standards.fhir import FhirAdapter
 
 DATASETS = example_datasets_dir() or Path("datasets")
 
@@ -88,7 +93,7 @@ def test_worker_processes_each_message_once_despite_stale_searches() -> None:
 
 def test_seed_resources_are_tagged_and_linked() -> None:
     record = synthetic_inbox.local_site(n=1)[0]
-    entries = to_resources(record)
+    entries = message_entries(record)
     patient, communication = (entry["resource"] for entry in entries)
     assert patient["meta"]["tag"][0]["code"] == "synthetic"
     assert communication["subject"]["reference"] == entries[0]["fullUrl"]
@@ -118,7 +123,7 @@ def referral_case(record: dict[str, Any]) -> dict[str, Any]:
 def test_every_seeded_resource_conforms_to_us_core() -> None:
     """The HL7 validator checks a sample in CI (scripts/sandbox_fhir_sample.py)."""
     inbox = synthetic_inbox.local_site(n=20)
-    assert us_core.validate([e["resource"] for r in inbox for e in inbox_entries(r)]) == []
+    assert us_core.validate([e["resource"] for r in inbox for e in message_entries(r)]) == []
     for record in REFERRAL_CASES:
         assert us_core.validate(referral_case(record)) == [], record["id"]
 
@@ -216,18 +221,19 @@ def test_seeding_twice_is_a_no_op_even_with_hapis_search_cache(
 
     monkeypatch.setattr(fhir_workflow.httpx, "get", get)
     monkeypatch.setattr(fhir_workflow.httpx, "post", post)
-    assert fhir_workflow.seed("http://fhir.test/fhir", count=3, pack_id=REFERRAL) == 3
-    assert fhir_workflow.seed("http://fhir.test/fhir", count=3, pack_id=REFERRAL) == 0
+    assert seed("http://fhir.test/fhir", count=3, pack_id=REFERRAL) == 3
+    assert seed("http://fhir.test/fhir", count=3, pack_id=REFERRAL) == 0
     assert len(posted) == 1
 
 
 def test_the_trial_and_prior_auth_packs_and_the_ehr_profile_seed_too(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`seed` takes the trial and prior-authorization packs' cases, and the vendor-shaped EHR
-    profile (LP-23e). A pack already seeded is found by its first case's Patient, so the
-    prior-authorization pack's tagged ServiceRequests never pass for the referral router's; the
-    profile's PUTs are sent every time, and replace what an earlier seed of it made."""
+    """The fixtures' `seed` (tests/support/sandbox.py) takes the trial and prior-authorization
+    packs' cases, and the vendor-shaped EHR profile (LP-23e). A pack already seeded is found by
+    its first case's Patient (the product's `post_once`), so the prior-authorization pack's
+    tagged ServiceRequests never pass for the referral router's; the profile's PUTs are sent
+    every time, and replace what an earlier seed of it made."""
     posted: list[dict[str, Any]] = []
 
     def get(url: str, **kwargs: Any) -> httpx.Response:
@@ -252,14 +258,116 @@ def test_the_trial_and_prior_auth_packs_and_the_ehr_profile_seed_too(
     monkeypatch.setattr(fhir_workflow.httpx, "get", get)
     monkeypatch.setattr(fhir_workflow.httpx, "post", post)
     fhir = "http://fhir.test/fhir"
-    assert fhir_workflow.seed(fhir, count=3, pack_id=PRIOR_AUTH) == 3  # ServiceRequests
-    assert fhir_workflow.seed(fhir, count=3, pack_id=REFERRAL) == 3  # not taken for the above
-    assert fhir_workflow.seed(fhir, count=2, pack_id=TRIAL) == 2  # Patients
+    assert seed(fhir, count=3, pack_id=PRIOR_AUTH) == 3  # ServiceRequests
+    assert seed(fhir, count=3, pack_id=REFERRAL) == 3  # not taken for the above
+    assert seed(fhir, count=2, pack_id=TRIAL) == 2  # Patients
     for pack_id in (PRIOR_AUTH, REFERRAL, TRIAL):
-        assert fhir_workflow.seed(fhir, count=3, pack_id=pack_id) == 0, pack_id
+        assert seed(fhir, count=3, pack_id=pack_id) == 0, pack_id
     assert len(posted) == 3
     for _ in range(2):
-        assert fhir_workflow.seed(fhir, count=0, pack_id=EHR_PROFILE) == 15  # its Patients
+        assert seed(fhir, count=0, pack_id=EHR_PROFILE) == 15  # its Patients
     assert posted[-1] == posted[-2] and len(posted) == 5
     assert {e["request"]["method"] for e in posted[-1]["entry"]} == {"PUT"}
     assert seed_bundle(TRIAL, 0)["entry"] == []
+
+
+# -- the product's sandbox: the bundled demo agent ----------------------------------------------
+
+
+def _case_ids(bundle: dict[str, Any]) -> list[str]:
+    """The case id each Patient of a seed bundle carries, in order."""
+    return [
+        next(i["value"] for i in e["resource"]["identifier"] if i["system"] == CASE_SYSTEM)
+        for e in bundle["entry"]
+        if e["resource"]["resourceType"] == "Patient"
+    ]
+
+
+def _bodies(bundle: dict[str, Any]) -> list[str]:
+    return [
+        e["resource"]["payload"][0]["contentString"]
+        for e in bundle["entry"]
+        if e["resource"]["resourceType"] == "Communication"
+    ]
+
+
+def test_the_sandbox_seeds_the_demo_agents_messages() -> None:
+    """`mendari sandbox seed` loads the bundled demo agent's cases unless told otherwise: its
+    benchmark set, a reproducible mix that always holds urgent messages, each a Patient carrying
+    the case id and a Communication that reads back, through the agent's own mapping, as the
+    case's input. Every resource conforms to US Core."""
+    demo = load_pack(DEMO_AGENT_DIR)
+    assert demo.id == DEMO_AGENT
+    cases = {r["id"]: r for r in fhir_workflow.labelled_cases(demo).records}
+    assert len(cases) == 600  # its benchmark dataset, `test`
+    bundle = fhir_workflow.seed_bundle(demo, 20)
+    assert us_core.validate([e["resource"] for e in bundle["entry"]]) == []
+    seeded = _case_ids(bundle)
+    assert len(seeded) == len(_bodies(bundle)) == 20 and len(bundle["entry"]) == 40
+    assert seeded == _case_ids(fhir_workflow.seed_bundle(demo, 20))  # the same mix every time
+    urgent = [case for case in seeded if cases[case]["labels"]["urgent_symptoms"] == "yes"]
+    assert len(urgent) == 2  # one in ten of the count, and never none
+    adapter = FhirAdapter.for_pack(demo)
+    for position, case in enumerate(seeded):
+        pair = bundle["entry"][2 * position : 2 * position + 2]
+        read = adapter.to_input(adapter.index({"resourceType": "Bundle", "entry": pair}))
+        assert read == cases[case]["input"], case
+    assert fhir_workflow.seed_bundle(demo, 0)["entry"] == []
+    one = fhir_workflow.seed_bundle(demo, 1)
+    assert cases[_case_ids(one)[0]]["labels"]["urgent_symptoms"] == "yes"
+
+
+def test_seed_takes_another_message_agent_and_dataset_and_refuses_other_cases() -> None:
+    """Another message agent is named (`--agent`), and its cases (`--dataset`: one of its own,
+    or a file). Cases that are not messages are refused, saying what a message is."""
+    inbox = resolve_pack(INBOX)
+    local = str(DATASETS / "local-site-example.jsonl")
+    assert _case_ids(fhir_workflow.seed_bundle(inbox, 10, local)) == _case_ids(
+        seed_bundle(INBOX, 10)
+    )
+    own = fhir_workflow.labelled_cases(inbox, "red_flags").records
+    named = fhir_workflow.seed_bundle(inbox, 4, "red_flags")
+    assert len(_bodies(named)) == 4
+    assert set(_bodies(named)) <= {record["input"]["message"]["body"] for record in own}
+    with pytest.raises(MendariError, match="seeds portal messages, and mendari/referral-router's"):
+        fhir_workflow.seed_bundle(resolve_pack(REFERRAL), 3)
+    with pytest.raises(MendariError, match="neither a file nor an agent dataset"):
+        fhir_workflow.seed_bundle(inbox, 3, "no-such-dataset")
+
+
+def test_the_cli_seeds_and_works_the_demo_agent_by_default(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`mendari sandbox seed` and `worker` name no agent by default: the bundled demo agent. An
+    agent given as a folder is asked for under its own id."""
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
+    posted: list[dict[str, Any]] = []
+
+    def get(url: str, **kwargs: Any) -> httpx.Response:
+        return httpx.Response(200, json={"total": 0})
+
+    def post(url: str, **kwargs: Any) -> httpx.Response:
+        posted.append(kwargs["json"])
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(fhir_workflow.httpx, "get", get)
+    monkeypatch.setattr(fhir_workflow.httpx, "post", post)
+    assert main(["sandbox", "seed", "--fhir", FHIR, "--count", "5"]) == 0
+    assert capsys.readouterr().out == f"seeded 5 synthetic messages of {DEMO_AGENT} into {FHIR}\n"
+    assert len(_bodies(posted[0])) == 5
+    worked: list[tuple[str, str]] = []
+
+    def batch(client: httpx.Client, fhir: str, decide_url: str) -> int:
+        worked.append((fhir, decide_url))
+        return 0
+
+    monkeypatch.setattr(fhir_workflow, "_process_batch", batch)
+    worker = ["sandbox", "worker", "--fhir", FHIR, "--once", "--engine"]
+    assert main([*worker, "http://engine.test"]) == 0
+    assert main([*worker, "http://e.test", "--agent", str(resolve_pack(INBOX).root)]) == 0
+    assert main([*worker, "http://e.test", "--agent", "my-clinic/not-on-this-machine"]) == 0
+    assert worked == [
+        (FHIR, f"http://engine.test/api/agents/{DEMO_AGENT}/fhir/decide"),
+        (FHIR, f"http://e.test/api/agents/{INBOX}/fhir/decide"),
+        (FHIR, "http://e.test/api/agents/my-clinic/not-on-this-machine/fhir/decide"),
+    ]

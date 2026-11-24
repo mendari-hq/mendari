@@ -231,7 +231,8 @@ smart-launcher-2 in `ci.yml`'s `sandbox-e2e`, and at a site against its EHR.
 ### Bulk Data: Inferno as the export's server (`bulk-client`)
 
 Inferno serves the export and passes it on to this project's HAPI (`FHIR_REFERENCE_SERVER`,
-seeded with synthetic referral patients). The driver makes an EC P-384 key for the run: its
+seeded with the bundled demo agent's synthetic patients and their portal messages). The driver
+makes an EC P-384 key for the run: its
 public half registers the client (`smart_jwk_set`), its private half reaches `mendari bulk
 export` in the engine through the environment only. The export signs in with SMART Backend
 Services, polls (Inferno asks for 120 s between polls, so a run takes two minutes or more),
@@ -295,7 +296,7 @@ docker compose -f $F down --volumes
 # Bulk Data
 docker compose -f $F --profile bulk up -d --wait engine fhir nginx
 docker compose -f $F --profile bulk exec -T engine mendari sandbox seed \
-  --fhir http://fhir:8080/fhir --pack mendari/referral-router --count 10 --wait 300
+  --fhir http://fhir:8080/fhir --count 10 --wait 300
 uv run python scripts/inferno_scripted_inputs.py bulk --out var/inferno/bulk_data_v200_client_inputs.json
 uv run python scripts/inferno_session.py bulk_data_v200_client \
   --inputs var/inferno/bulk_data_v200_client_inputs.json \

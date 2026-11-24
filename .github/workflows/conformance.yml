@@ -209,11 +209,11 @@ jobs:
         run: >-
           docker compose -f sandbox/inferno/scripted/docker-compose.yml --profile bulk
           up -d --wait engine fhir nginx
-      - name: Synthetic patients in HAPI, for the export
+      - name: Synthetic patients in HAPI, for the export (the bundled demo agent's messages)
         run: >-
           docker compose -f sandbox/inferno/scripted/docker-compose.yml --profile bulk
           exec -T engine mendari sandbox seed --fhir http://fhir:8080/fhir
-          --pack mendari/referral-router --count 10 --wait 300
+          --count 10 --wait 300
       - name: The suite's inputs (a patient-level export)
         run: >-
           uv run python scripts/inferno_scripted_inputs.py bulk

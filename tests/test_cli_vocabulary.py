@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """The command line speaks one vocabulary: what Mendari governs is an agent, and "pack" is never
 read or typed. No usage, help, message or error says it. The names people typed before
-(`--pack`, `--pack-dir`, `mendari pack`, `mendari new --agent`) are still read, and shown
-nowhere. And `mendari --help` is short: the commands to start with, under what each is for,
+(`--pack`, `mendari pack`, `mendari new --agent`) are still read, and shown nowhere. And
+`mendari --help` is short: the commands to start with, under what each is for,
 with every command behind `mendari help all`."""
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import pytest
 
 from mendari import cli, load_pack
 from mendari.cli import GROUPS, build_parser, main, overview
+from mendari.sandbox import DEMO_AGENT
 
 # The old names rest on how argparse reads a command line, which changes between Python
 # versions; CI runs only the core tests on every version it supports.
@@ -27,14 +28,16 @@ pytestmark = pytest.mark.core
 # dash, a dot or an underscore joins it to another (`--pack-dir`, `pack.yaml`, `PACK_DIR`), which
 # a plain word boundary would let through. `.ohpack`, the archive's extension, is not that word.
 OLD_WORD = re.compile(r"(?<![a-z])packs?(?![a-z])", re.IGNORECASE)
-AGENT = "mendari/referral-router"  # a choice wherever an option takes only some agents
+AGENT = "my-clinic/an-agent"  # any agent: no option takes only some
 # Every command with an option that names an agent, and the least it takes beside it.
 AGENT_OPTIONS = {
     "audit export": [],
     "automation hold": ["--all-orgs", "--reason", "a drill"],
     "sandbox seed": ["--fhir", "http://fhir.test"],
     "sandbox worker": ["--fhir", "http://fhir.test", "--engine", "http://engine.test"],
+    "sandbox cds-client": ["--fhir", "http://fhir.test", "--engine", "http://engine.test"],
     "sandbox smart-launch": ["--engine", "http://engine.test"],
+    "sandbox pilot-check": ["--engine", "http://engine.test"],
     "sandbox omop-check": ["--dataset", "cases.jsonl"],
     "sandbox bulk-check": ["--fhir", "http://fhir.test"],
     "omop dataset": ["--db", "cdm.db", "--out", "cases.jsonl"],
@@ -49,11 +52,10 @@ AGENT_OPTIONS = {
 # In the command line's source, the strings that are names, not words: keys of stored and
 # signed records, what the commands read an argument as, the options' names before, folders.
 NAMES = {
-    *("pack", "packs", "pack_id", "pack_digest", "pack_dir"),
-    *("--pack", "--pack-dir"),
+    *("pack", "packs", "pack_id", "pack_digest"),
+    "--pack",
     *("new_pack", "community_pack", "agent_pack"),
 }
-FIXTURE_AGENTS = "tests/fixtures/reference-packs/"  # `mendari sandbox generate`'s defaults
 
 
 def parsers(
@@ -143,11 +145,7 @@ def test_no_message_says_pack() -> None:
         and id(node) not in docstrings
     ]
     assert cli.EVERY_COMMAND in strings and "no agents match" in strings  # it reads them all
-    said = [
-        text
-        for text in strings
-        if OLD_WORD.search(text) and text not in NAMES and not text.startswith(FIXTURE_AGENTS)
-    ]
+    said = [text for text in strings if OLD_WORD.search(text) and text not in NAMES]
     assert said == []
 
 
@@ -197,11 +195,33 @@ def test_every_option_that_names_an_agent_is_still_read_as_pack() -> None:
         assert root.parse_args([*argv, f"--pack={AGENT}"]) == now, command
 
 
-def test_the_agents_folder_is_still_read_as_pack_dir() -> None:
+def test_a_sandbox_command_names_the_demo_agent_or_asks_for_one(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The sandbox runs on the agent a release bundles: a command that takes a message agent
+    names it by default and says so; the one that needs another kind of agent asks for it, and
+    says which kind."""
     parse = build_parser().parse_args
-    now = parse(["sandbox", "generate", "--agent-dir", "an-agent"])
-    assert now.pack_dir == "an-agent"
-    assert parse(["sandbox", "generate", "--pack-dir", "an-agent"]) == now
+    for command, rest in AGENT_OPTIONS.items():
+        if not command.startswith("sandbox ") or command == "sandbox omop-check":
+            continue
+        assert parse([*command.split(), *rest]).pack == DEMO_AGENT, command
+        said = " ".join(helped(capsys, *command.split(), "--help").split())
+        assert "(default: the bundled demo agent)" in said, command
+    assert parse(["sandbox", "omop-check", "--dataset", "cases.jsonl"]).pack is None
+    asked = " ".join(helped(capsys, "sandbox", "omop-check", "--help").split())
+    assert "required: an agent that reads a patient's record" in asked
+    assert main(["sandbox", "omop-check", "--dataset", "cases.jsonl"]) == 1
+    assert capsys.readouterr().err.startswith(
+        "error: omop-check needs --agent: an agent that reads a patient's record"
+    )
+    # No command of the sandbox, or any other, names an agent the product does not bundle.
+    former = re.compile(
+        r"inbox-router|ai-guard|trial-prescreener|prior-auth-preflight|referral-router"
+    )
+    assert not [
+        command for command, parser in parsers(build_parser()) if former.search(shown(parser))
+    ]
 
 
 def test_a_name_typed_before_is_read_whole_and_shown_nowhere(

@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari.sandbox import ehr_profile
+from tests.support import ehr_profile
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "inferno_scripted_inputs.py"

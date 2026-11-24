@@ -19,7 +19,7 @@ from mendari import Decision, Outcome, Pack, __version__, load_pack
 from mendari.core.registry import discover
 from mendari.core.spec import Priority
 from mendari.errors import MendariError
-from mendari.sandbox.fhir_records import CHANNELS
+from mendari.sandbox.code_systems import CHANNELS
 from mendari.standards import audit_fhir, davinci, terminology
 from mendari.standards.fhir import (
     DISPLAY_LIMIT,
@@ -50,12 +50,15 @@ PINNED = {
         "CodeSystem/card-override-reasons": "289761ea34d8c87a",
         "CodeSystem/sandbox": "8a63d292423bdf66",
         "CodeSystem/message-channel": "0c3b329c01cfcc58",
-        # Added in LP-14, a new url (no earlier content): the prior-auth pack's fictional codes.
-        "CodeSystem/fictional-procedures": "b3c2e5361a6b9ea7",
-        # Added in LP-14's SNOMED CT swap, new urls too: the trial prescreener's and the referral
-        # router's fictional codes.
-        "CodeSystem/fictional-conditions": "2f0ec1f007434d56",
-        "CodeSystem/fictional-referrals": "491fe1f31f0f3df5",
+        # Added in LP-14, a new url (no earlier content): the fictional procedure codes of the
+        # synthetic prior-authorization data.
+        # Moved in wave 1 (the trim), before 0.1.0's release, with the two below: each
+        # description says what its codes are for, and names no agent the product shipped.
+        "CodeSystem/fictional-procedures": "e7e87798938500ce",
+        # Added in LP-14's SNOMED CT swap, new urls too: the fictional condition codes of a
+        # synthetic local site's records, and the fictional referral code.
+        "CodeSystem/fictional-conditions": "0de390a631fd2d78",
+        "CodeSystem/fictional-referrals": "2deb518897c0c86e",
         # Added in LP-23e, new urls (no earlier content): the vendor-shaped EHR profile's site
         # diagnoses and order types.
         "CodeSystem/fictional-site-diagnoses": "9049440f2ca39e04",

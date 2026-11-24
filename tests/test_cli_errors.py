@@ -18,6 +18,9 @@ from mendari.cli import build_parser, main
 
 DEAD = "http://127.0.0.1:9"  # nothing listens: refused at once
 DIGEST = "sha256:" + "0" * 64
+# The bundled demo agent on the search path, as in a release (here the test fixtures stand
+# where the bundled agents are): a sandbox command that names no agent runs on it.
+DEMO = {"MENDARI_AGENTS_PATH": str(Path(__file__).resolve().parents[1] / "agents")}
 
 
 def commands(parser: argparse.ArgumentParser, path: tuple[str, ...] = ()) -> Iterator[str]:
@@ -54,7 +57,6 @@ def places(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         "not_db": str(not_a_database),
         "file": str(a_file),
         "out": str(tmp_path / "out.jsonl"),
-        "agent_dir": str(tmp_path / "generated-agent"),
     }
 
 
@@ -112,19 +114,18 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "access revoke all": (["--org", "a", "--reason", "leak", "--db", "{not_db}"], {}),
     "access end-sessions": (["--kind", "people", "--reason", "drill", "--db", "{not_db}"], {}),
     "feedback export": (["mendari/ai-guard", "--out", "{out}", "--db", "{missing_db}"], {}),
-    "sandbox generate": (
-        ["--kind", "inbox", "--agent-dir", "{agent_dir}", "--local-out", "{file}/x.jsonl"],
-        {},
-    ),
-    "sandbox seed": (["--fhir", DEAD, "--wait", "1"], {}),
+    "sandbox seed": (["--fhir", DEAD, "--wait", "1"], DEMO),
     "sandbox worker": (["--fhir", DEAD, "--engine", DEAD, "--once"], {}),
-    "sandbox cds-client": (["--engine", DEAD, "--fhir", DEAD, "--listen", "127.0.0.1:0"], {}),
-    "sandbox smart-launch": (["--engine", DEAD, "--launcher", DEAD, "--fhir", DEAD], {}),
-    "sandbox pilot-check": (["--engine", DEAD], {}),
+    "sandbox cds-client": (["--engine", DEAD, "--fhir", DEAD, "--listen", "127.0.0.1:0"], DEMO),
+    "sandbox smart-launch": (["--engine", DEAD, "--launcher", DEAD, "--fhir", DEAD], DEMO),
+    "sandbox pilot-check": (["--engine", DEAD], DEMO),
     "sandbox payer": (["--port", "0"], {}),
     "sandbox omop": (["--dataset", "{missing}", "--db", "{out}"], {}),
-    "sandbox omop-check": (["--dataset", "{missing}"], {}),
-    "sandbox bulk-check": (["--fhir", DEAD], {}),
+    "sandbox omop-check": (
+        ["--dataset", "{missing}", "--agent", "mendari/clinical-trial-prescreener"],
+        {},
+    ),
+    "sandbox bulk-check": (["--fhir", DEAD], DEMO),
     "pas build": (
         [
             *("--decision", "d-1", "--db", "{missing_db}", "--out", "{out}"),

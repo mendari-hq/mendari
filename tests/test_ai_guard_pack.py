@@ -10,10 +10,10 @@ from pathlib import Path
 import pytest
 
 from mendari import Decision, GovernanceOverride
-from mendari.cli import main
 from mendari.core.policy import Outcome
 from mendari.guard import check
 from mendari.sandbox import synthetic_guard
+from tests.support import fixture_data
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard"
@@ -82,10 +82,10 @@ def test_the_local_site_differs_the_way_the_card_says() -> None:
     assert emergencies / len(local) > public_emergencies / len(public)
 
 
-def test_sandbox_generate_writes_the_guard_data(tmp_path: Path) -> None:
+def test_the_generator_writes_the_guard_data(tmp_path: Path) -> None:
     local = tmp_path / "local.jsonl"
-    argv = ["sandbox", "generate", "--kind", "guard", "--pack-dir", str(tmp_path / "pack")]
-    assert main([*argv, "--local-out", str(local)]) == 0
+    argv = ["--kind", "guard", "--agent-dir", str(tmp_path / "pack")]
+    assert fixture_data.main([*argv, "--local-out", str(local)]) == 0
     test = (tmp_path / "pack" / "data" / "test.jsonl").read_text().splitlines()
     assert len(test) == 600 and json.loads(test[0])["id"] == "guard-0300"
     assert len(local.read_text().splitlines()) == 300

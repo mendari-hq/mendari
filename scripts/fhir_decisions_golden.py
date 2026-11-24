@@ -2,8 +2,9 @@
 """Write tests/fixtures/fhir/decisions-golden.json: how each pack with a FHIR mapping decides
 each of its synthetic FHIR cases, on the day the golden pins (LP-23a).
 
-The cases are each pack's local-site example (`datasets/`), turned into FHIR by the sandbox's
-builders (`mendari.sandbox.fhir_records`) for that day, and decided through the pack's FHIR
+The cases are each pack's local-site example (`tests/fixtures/datasets/`), turned into FHIR by
+the sandbox's builders (`mendari.sandbox.fhir_records` for a portal message,
+`tests/support/fhir_records.py` for the others) for that day, and decided through the pack's FHIR
 mapping (`Decision.decide_fhir`) with the pack's own local providers and no store. For each case
 the golden holds the outcome, the recommendation, the priority, each answer's label and the
 input hash; a case the FHIR path refuses holds its refusal instead. With no store the hash is
@@ -27,18 +28,21 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from mendari.core import clock
-from mendari.core.decision import Decision
-from mendari.errors import FhirError
-from mendari.evals.harness import load_dataset
-from mendari.sandbox.fhir_records import (
-    inbox_entries,
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))  # tests.support: the fixture agents' builders
+
+from tests.support.fhir_records import (  # noqa: E402
     prior_auth_entries,
     referral_entries,
     trial_entries,
 )
 
-ROOT = Path(__file__).resolve().parent.parent
+from mendari.core import clock  # noqa: E402
+from mendari.core.decision import Decision  # noqa: E402
+from mendari.errors import FhirError  # noqa: E402
+from mendari.evals.harness import load_dataset  # noqa: E402
+from mendari.sandbox.fhir_records import message_entries  # noqa: E402
+
 PACKS = ROOT / "tests" / "fixtures" / "reference-packs"  # the fixture packs the golden pins
 GOLDEN = ROOT / "tests" / "fixtures" / "fhir" / "decisions-golden.json"
 FORMAT = "mendari.fhir-decisions-golden/1"
@@ -52,7 +56,7 @@ CASES: dict[str, tuple[str, str, Build]] = {
     "mendari/patient-inbox-router": (
         "patient-inbox-router",
         "local-site-example.jsonl",
-        lambda record: inbox_entries(record, now=NOON),
+        lambda record: message_entries(record, now=NOON),
     ),
     "mendari/referral-router": (
         "referral-router",

@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
-"""A vendor-shaped synthetic EHR profile (LP-23e): patients for the three reference packs with a
+"""A vendor-shaped synthetic EHR profile (LP-23e): patients for the three fixture agents with a
 standard CDS hook (the Clinical Trial Prescreener's `patient-view`, the Prior Authorization
 Preflight's and the Referral Router's `order-sign`), as FHIR R4 in the shapes an EHR's FHIR API
 returns. The shapes follow Epic's and Oracle Health's public FHIR documentation; no vendor's
 data is in it, and every patient is synthetic.
 
-Each patient is one case of a pack's local-site example (`datasets/`, the same cases every time,
-`PACKS`), built as US Core resources by `fhir_records` for the day asked (so its dates sit where
-the case's do), then reshaped:
+Each patient is one case of an agent's local-site example (`tests/fixtures/datasets/`, the same
+cases every time, `PACKS`), built as US Core resources by `fhir_records` for the day asked (so
+its dates sit where the case's do), then reshaped:
 
 - **Notes are links.** A DocumentReference's attachment holds only `url`, `Binary/<id>`, and the
   Binary holds the text: as text/plain, text/html or text/rtf, one kind a case in turn. RTF is
-  there to be unreadable: a pack is never to read it as text. Two cases of the trial and
-  prior-authorization packs have no note.
+  there to be unreadable: an agent is never to read it as text. Two cases of the trial and
+  prior-authorization agents have no note.
 - **Several codings.** A Condition carries the site's own diagnosis code (`SITE_DIAGNOSES`, a
   fictional system) and ICD-10-CM; a fictional condition code of the trial's local site becomes
   its ICD-10-CM code. A referral's category carries the site's order type (`SITE_ORDER_TYPES`)
@@ -25,9 +25,9 @@ the case's do), then reshaped:
   order is written before it is taken: a mapping that read the start from `authoredOn` instead
   of `boundsPeriod.start` (LP-23g's rule) would read other dates than the case's.
 - **The payer by reference.** `Coverage.payor` is a reference to an Organization that holds the
-  site's identifier for the payer (`PAYERS`), not the pack's payer label, and `subscriberId` is
+  site's identifier for the payer (`PAYERS`), not the agent's payer label, and `subscriberId` is
   the site's member id for the patient (`M-` and its record number), not the case's id.
-- **The profile's own ids.** Every resource has an id of the profile (`ehr-<pack>-<n>`), so the
+- **The profile's own ids.** Every resource has an id of the profile (`ehr-<agent>-<n>`), so the
   transaction (`bundle`) PUTs them under those ids, a FHIR server holds them there, and a CDS
   client names them. Patients carry the site's medical record number, and no resource carries
   a synthetic case id or the sandbox tag, as an EHR's would not: the sandbox's tagged
@@ -35,9 +35,13 @@ the case's do), then reshaped:
 - No SNOMED CT anywhere: the codes are ICD-10-CM, LOINC, RxNorm, ICD-10-PCS (the payer codes
   the prior-authorization orders carry) and fictional systems named as such.
 
-What each pack cannot read in these shapes yet is pinned in tests/test_ehr_profile.py; LP-23k
-took entries off it when the shipped packs moved to spec 0.3 (an RTF note and the site's own
-payer id are left).
+What each agent cannot read in these shapes yet is pinned in tests/test_ehr_profile.py; LP-23k
+took entries off it when the agents moved to spec 0.3 (an RTF note and the site's own payer id
+are left).
+
+It is test support, outside the product: the product's sandbox runs on the bundled demo agent,
+which reads a portal message. `tests/support/sandbox.py` seeds the profile and calls the
+agents' hooks on it (CI's `sandbox-e2e`).
 """
 
 from __future__ import annotations
@@ -54,42 +58,29 @@ from typing import Any
 
 from mendari.errors import MendariError
 from mendari.sandbox import example_datasets_dir
-from mendari.sandbox.fhir_records import (
+from mendari.sandbox.code_systems import (
     REFERRAL,
-    US_CORE,
-    prior_auth_entries,
-    referral_entries,
-    trial_entries,
+    SITE_DIAGNOSES,
+    SITE_DIAGNOSIS_SYSTEM,
+    SITE_ORDER_TYPE_SYSTEM,
+    SITE_ORDER_TYPES,
 )
+from mendari.sandbox.fhir_records import US_CORE
 from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM, ICD, LOCAL
 from mendari.standards.record_fhir import ICD10, RXNORM
+from tests.support.fhir_records import prior_auth_entries, referral_entries, trial_entries
 
 TRIAL = "mendari/clinical-trial-prescreener"
 PRIOR_AUTH = "mendari/prior-auth-preflight"
 REFERRAL_PACK = "mendari/referral-router"
 # The fictional EHR the profile is shaped as: its resources' fullUrls are under this base.
 BASE = "https://ehr.example.org/fhir"
-# The site's own systems, fictional: two code systems (published to the HL7 validator with the
-# sandbox's others, `terminology.sandbox_resources`) and three identifier systems.
-SITE_DIAGNOSIS_SYSTEM = "https://mendari.co/fhir/CodeSystem/fictional-site-diagnoses"
-SITE_ORDER_TYPE_SYSTEM = "https://mendari.co/fhir/CodeSystem/fictional-site-order-types"
+# The site's own identifier systems, fictional. Its two code systems, and each ICD-10-CM code's
+# site diagnosis code, are the sandbox's (`mendari.sandbox.code_systems`), published to the HL7
+# validator with the sandbox's others (`terminology.sandbox_resources`).
 SITE_MRN = "https://mendari.co/fhir/sid/fictional-site-mrn"
 SITE_PAYER_IDS = "https://mendari.co/fhir/sid/fictional-site-payers"
 SITE_PROVIDER_IDS = "https://mendari.co/fhir/sid/fictional-site-providers"
-# Each ICD-10-CM code the profile's Conditions carry -> the site's own diagnosis code for it, and
-# its display (the case's own words for the condition).
-SITE_DIAGNOSES = {
-    "E11.9": ("D1001", "Type 2 diabetes mellitus"),
-    "I10": ("D1002", "Essential hypertension"),
-    "I21.4": ("D1003", "Myocardial infarction"),
-    "J45.909": ("D1004", "Asthma"),
-    "M51.26": ("D1005", "Lumbar disc displacement"),
-    "M54.16": ("D1006", "Radiculopathy, lumbar region"),
-    "G47.33": ("D1007", "Obstructive sleep apnea"),
-    "E78.5": ("D1008", "Hyperlipidemia"),
-    "R06.83": ("D1009", "Snoring"),
-}
-SITE_ORDER_TYPES = {"OT20": "Outpatient referral"}
 REFERRAL_ORDER_TYPE = {
     "system": SITE_ORDER_TYPE_SYSTEM,
     "code": "OT20",
@@ -102,7 +93,7 @@ RXNORM_CODES = {
     "Glucophage 500 mg tablet": ("6809", "metformin"),
     "insulin glargine 100 units/mL": ("274783", "insulin glargine"),
 }
-# The prior-authorization cases' payers (the pack's labels) -> the site's identifier for each
+# The prior-authorization cases' payers (the agent's labels) -> the site's identifier for each
 # and the Organization's name.
 PAYERS = {
     "acme": ("SP100", "Acme Health (synthetic payer)"),

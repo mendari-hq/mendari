@@ -27,7 +27,7 @@ import yaml
 from mendari.core.pack import load_pack
 from mendari.core.spec import LICENSED_CODE_SYSTEMS, licensed_systems
 from mendari.sandbox import synthetic_prior_auth, synthetic_trial
-from mendari.sandbox.fhir_records import REFERRAL, REFERRAL_SYSTEM, REFERRALS
+from mendari.sandbox.code_systems import REFERRAL, REFERRAL_SYSTEM, REFERRALS
 from mendari.sandbox.synthetic_prior_auth import PROCEDURE_SYSTEM as FICTIONAL_PROCEDURES
 from mendari.sandbox.synthetic_prior_auth import PROCEDURES
 from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM, CONDITIONS

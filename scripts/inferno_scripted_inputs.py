@@ -5,7 +5,8 @@
 
 - `crd` (`crd_server_v221`, Inferno as the EHR's CDS client against `engine-signin`): discovery
   with authentication; the prior-authorization pack's `order-sign` for the vendor-shaped EHR
-  profile's prior-authorization patients (`sandbox/ehr_profile.py`), each as an EHR sends it
+  profile's prior-authorization patients (`tests/support/ehr_profile.py`), each as an EHR
+  sends it
   (the context and the FHIR server, no prefetch, so the engine reads the record from the Mock
   EHR: `mock_ehr_bundle`, those patients and what they refer to); and the specific coverage
   answers of group 4: one patient's order with Inferno's FHIR server failing (Technical Issues),
@@ -35,10 +36,14 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from mendari.core.registry import resolve_pack
-from mendari.sandbox import ehr_profile
-from mendari.sandbox.cds_client import hook_request
-from mendari.standards.cds_hooks import service_id
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))  # tests.support: the vendor-shaped EHR profile
+
+from tests.support import ehr_profile  # noqa: E402
+from tests.support.sandbox import hook_request  # noqa: E402
+
+from mendari.core.registry import resolve_pack  # noqa: E402
+from mendari.standards.cds_hooks import service_id  # noqa: E402
 
 CRD_SUITE = "crd_server_v221"
 SMART_SUITE = "smart_client_stu2_2"

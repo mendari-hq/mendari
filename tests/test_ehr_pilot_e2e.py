@@ -7,7 +7,7 @@ card, takes the clinician's feedback on that card, and `mendari audit verify` pr
    client: keys by one pinned `jwks_uri` on the allow-list, ES384, `jku` in each token's header;
 2. discovery and two `order-sign` hooks over HTTP (`TestClient`), each call with a new token
    addressed to its own URL; the hooks name the FHIR server and send no prefetch, so the record
-   of each vendor-shaped patient (`sandbox/ehr_profile.py`) is read there;
+   of each vendor-shaped patient (`tests/support/ehr_profile.py`) is read there;
 3. each hook answers one card, named by its decision's id, its one suggestion's id derived from
    it (`selectionBehavior: at-most-one`), and the decision is chained as asked for by the client;
 4. feedback on both cards with a signed token: one accepted with its suggestion, one overridden
@@ -33,12 +33,14 @@ from fastapi.testclient import TestClient
 from mendari.cli import main
 from mendari.core import clock
 from mendari.core.audit import AuditStore
-from mendari.sandbox import cds_client, ehr_profile
+from mendari.sandbox import cds_client
 from mendari.server.app import create_app
 from mendari.standards import cds_hooks
 from mendari.standards.data_coverage import FORMAT
 from tests.conftest import security_lines
 from tests.jwt_signers import DROP, PUBLIC_URL
+from tests.support import ehr_profile
+from tests.support import sandbox as fixtures
 from tests.test_cds_auth import Served, bearer, sign_in_on
 from tests.test_cds_clients import EC_EHR, JWKS_URI, entry, jwks_server, register, token
 from tests.test_cds_feedback import accepted, card_feedback, feedback, overridden
@@ -95,7 +97,7 @@ def test_a_signed_hook_its_card_and_its_feedback_verify_end_to_end(
 
         cards = []
         for patient_id in PATIENTS:
-            body = cds_client.hook_request("order-sign", profile[patient_id], ehr_profile.BASE)
+            body = fixtures.hook_request("order-sign", profile[patient_id], ehr_profile.BASE)
             assert "prefetch" not in body  # the record is read from the EHR's FHIR server
             answer = http.post(HOOK, json=body, headers=signed(HOOK))
             assert answer.status_code == 200, answer.text

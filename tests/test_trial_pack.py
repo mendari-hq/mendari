@@ -13,12 +13,12 @@ from typing import Any
 import pytest
 
 from mendari import Decision
-from mendari.cli import main
 from mendari.core import clock
 from mendari.core.policy import Outcome
 from mendari.sandbox import synthetic_trial
 from mendari.standards import cds_hooks
 from mendari.standards.fhir import FhirAdapter
+from tests.support import fixture_data
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / "clinical-trial-prescreener"
@@ -95,10 +95,10 @@ def test_the_local_site_differs_the_way_the_card_says() -> None:
     assert 0.2 < spanish < 0.4
 
 
-def test_sandbox_generate_writes_the_trial_data(tmp_path: Path) -> None:
+def test_the_generator_writes_the_trial_data(tmp_path: Path) -> None:
     local = tmp_path / "local.jsonl"
-    argv = ["sandbox", "generate", "--kind", "trial", "--pack-dir", str(tmp_path / "pack")]
-    assert main([*argv, "--local-out", str(local)]) == 0
+    argv = ["--kind", "trial", "--agent-dir", str(tmp_path / "pack")]
+    assert fixture_data.main([*argv, "--local-out", str(local)]) == 0
     test = (tmp_path / "pack" / "data" / "test.jsonl").read_text().splitlines()
     assert len(test) == 300 and json.loads(test[0])["id"] == "trial-0200"
     assert len(local.read_text().splitlines()) == 150

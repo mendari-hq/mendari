@@ -3,14 +3,12 @@
 #   docker compose up --build
 #
 # Dashboard: http://localhost:8000   FHIR: http://localhost:8080/fhir
-# The engines here serve the synthetic EHR's agents, the test fixtures in
-# tests/fixtures/reference-packs (with their datasets), mounted read-only: they exercise FHIR, SMART, CDS Hooks and PAS end to end. The image itself ships only
-# the demo agent (agents/).
+# The engines serve the agent the image bundles, the demo agent (agents/portal-message-agent):
+# `workflow` loads its synthetic portal messages into HAPI as FHIR and routes each through the
+# engine, and the SMART launch, the Bulk check and the signed CDS client run on them. To run
+# an agent of your own beside it, mount its folder into the engines and name the folder in
+# MENDARI_AGENTS_PATH; the sandbox commands take it with --agent.
 name: mendari
-
-x-sandbox-agents: &sandbox-agents
-  - ./tests/fixtures/reference-packs:/sandbox/agents:ro
-  - ./tests/fixtures/datasets:/sandbox/datasets:ro
 
 services:
   fhir:
@@ -86,12 +84,8 @@ services:
       MENDARI_PAS_SELF_RELATIONSHIP: ${MENDARI_PAS_SELF_RELATIONSHIP:-18}
       MENDARI_PAS_PAYER_ENTITY: ${MENDARI_PAS_PAYER_ENTITY:-PR}
       MENDARI_PAS_REQUESTER_ENTITY: ${MENDARI_PAS_REQUESTER_ENTITY:-1P}
-      MENDARI_AGENTS_PATH: /sandbox/agents
-      MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:
       - mendari-data:/data
-      - ./tests/fixtures/reference-packs:/sandbox/agents:ro
-      - ./tests/fixtures/datasets:/sandbox/datasets:ro
 
   engine-signin:
     # The same engine with sign-in on (profile `signin`, for CI's `sandbox-e2e`): the launcher is
@@ -123,7 +117,7 @@ services:
       #   python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"
       # Its database, once protected, never takes `off` again. To start over, remove this engine
       # and its volume alone (`down -v` would also remove `mendari-data`, the open engine's
-      # database and the registry's packs):
+      # database and the registry's agents):
       #   docker compose --profile signin rm -sf engine-signin
       #   docker volume rm mendari_mendari-signin-data
       MENDARI_PHI_MODE: encrypt
@@ -131,12 +125,8 @@ services:
       MENDARI_INPUT_HASH_KEY: ${MENDARI_INPUT_HASH_KEY:-}
       MENDARI_OIDC_ORG_CLAIM: org
       MENDARI_SMART_EHRS: http://launcher/v/r4/fhir=pilot:decide
-      MENDARI_AGENTS_PATH: /sandbox/agents
-      MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:
       - mendari-signin-data:/data
-      - ./tests/fixtures/reference-packs:/sandbox/agents:ro
-      - ./tests/fixtures/datasets:/sandbox/datasets:ro
 
   payer:
     # A mock payer for Da Vinci PAS: approves every well-formed prior-authorization request.
@@ -156,7 +146,7 @@ services:
       disable: true  # the image's healthcheck is for the engine's HTTP server
 
   registry:
-    # The pack registry (mendari.hub): push and pull signed packs locally. There is no shared
+    # The agent registry (mendari.hub): push and pull signed agents locally. There is no shared
     # administrator token (LP-19g): seed it after `docker compose up --build` as its operator, on
     # its database, with the image's own bundled agent:
     #   docker compose exec registry python /seed/hub_seed.py \
@@ -176,11 +166,9 @@ services:
       disable: true  # the image's healthcheck is for the engine's HTTP server
 
   workflow:
+    # The demo agent's synthetic portal messages into HAPI, then a worker that routes each new
+    # one through the engine and writes the decision's Task back.
     image: mendari-engine:0.1.0
-    environment:
-      MENDARI_AGENTS_PATH: /sandbox/agents
-      MENDARI_DATASETS_PATH: /sandbox/datasets
-    volumes: *sandbox-agents
     depends_on:
       engine:
         condition: service_healthy
@@ -191,7 +179,6 @@ services:
       - -c
       - >-
         mendari sandbox seed --fhir http://fhir:8080/fhir --count 40 --wait 300 &&
-        mendari sandbox seed --fhir http://fhir:8080/fhir --pack mendari/referral-router --count 40 &&
         mendari sandbox worker --fhir http://fhir:8080/fhir --engine http://engine:8000
     restart: on-failure
     healthcheck:
@@ -199,23 +186,20 @@ services:
 
   cds-client:
     # A signed CDS Hooks client over HTTP (LP-23e, profile `signin`, for CI's `sandbox-e2e`): it
-    # plays an EHR. It seeds the vendor-shaped EHR profile into HAPI, makes an EC P-384 key in
-    # memory, serves its JWK Set on port 8300, and calls discovery and every standard hook with
-    # a new signed token each, first on the open engine (under the sandbox flag), then on the
-    # signed-in one. Both register it (MENDARI_CDS_CLIENTS above), and its tokens for the open
-    # engine are addressed to that engine's MENDARI_PUBLIC_URL (`--audience`, the same setting).
-    # It exits 1 if any answer is not a 200, a hook's answer is not CDS Hooks', or a card says a
-    # read failed. `--use-aliases` gives the container the name `cds-client`, at which the
-    # engines fetch its keys:
+    # plays an EHR. It loads the demo agent's synthetic messages into HAPI (once: `workflow`
+    # may have), makes an EC P-384 key in memory, serves its JWK Set on port 8300, and calls
+    # discovery and the demo agent's hook for some of the messages, each call with a new signed
+    # token, first on the open engine (under the sandbox flag), then on the signed-in one. Both
+    # register it (MENDARI_CDS_CLIENTS above), and its tokens for the open engine are addressed
+    # to that engine's MENDARI_PUBLIC_URL (`--audience`, the same setting). It exits 1 if any
+    # answer is not a 200, a hook's answer is not CDS Hooks', or a card says a read failed.
+    # `--use-aliases` gives the container the name `cds-client`, at which the engines fetch
+    # its keys:
     #   docker compose --profile signin run --rm --use-aliases cds-client
     # Run it again a minute later, not sooner: each run makes a new key, and an engine fetches a
     # client's keys again at most once a minute.
     profiles: [signin]
     image: mendari-engine:0.1.0
-    environment:
-      MENDARI_AGENTS_PATH: /sandbox/agents
-      MENDARI_DATASETS_PATH: /sandbox/datasets
-    volumes: *sandbox-agents
     depends_on:
       engine:
         condition: service_healthy
@@ -227,7 +211,7 @@ services:
       - sh
       - -c
       - >-
-        mendari sandbox seed --fhir http://fhir:8080/fhir --pack ehr-profile --wait 300 &&
+        mendari sandbox seed --fhir http://fhir:8080/fhir --count 40 --wait 300 &&
         mendari sandbox cds-client --engine http://engine:8000 --fhir http://fhir:8080/fhir
         --listen 0.0.0.0:8300 --iss http://cds-client:8300
         --audience ${MENDARI_PUBLIC_URL:-http://engine:8000} &&

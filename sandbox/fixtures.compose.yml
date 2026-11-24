@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: Apache-2.0
+# The sandbox on the test fixtures' agents: an override of docker-compose.yml, for CI's
+# `sandbox-e2e` (and by hand, from the repository's root). No real PHI: every case is generated.
+#
+#   F="-f docker-compose.yml -f sandbox/fixtures.compose.yml"
+#   docker compose $F --profile signin up -d --wait engine launcher engine-signin
+#
+# The sandbox itself runs on the agent the image bundles. This file adds the agents the tests
+# keep (tests/fixtures/reference-packs, with their datasets), so that what the demo agent has no
+# use for is still exercised end to end: a SMART launch on orders, a Bulk export of a record,
+# and the standard CDS hooks (`patient-view`, `order-sign`) on a vendor-shaped EHR profile.
+#
+# `tests/` is mounted read-only under the image's working directory, so a command names a
+# fixture by the path it has in a checkout, and the test support code that seeds the fixtures'
+# cases and the EHR profile (tests/support/sandbox.py) runs in the engine's image:
+#
+#   docker compose $F exec -T engine python -m tests.support.sandbox seed \
+#     --fhir http://fhir:8080/fhir --agent tests/fixtures/reference-packs/referral-router
+#   docker compose $F exec -T engine mendari sandbox smart-launch --engine http://engine:8000 \
+#     --launcher http://launcher --fhir http://fhir:8080/fhir \
+#     --agent tests/fixtures/reference-packs/referral-router
+#
+# Paths here are relative to the first file given (docker-compose.yml: the repository's root).
+
+x-fixtures: &fixtures
+  environment:
+    MENDARI_AGENTS_PATH: tests/fixtures/reference-packs
+    MENDARI_DATASETS_PATH: tests/fixtures/datasets
+  volumes:
+    - ./tests:/home/mendari/tests:ro
+
+services:
+  engine:
+    <<: *fixtures
+
+  engine-signin:
+    <<: *fixtures
+
+  cds-client:
+    # The signed CDS client on the vendor-shaped EHR profile (LP-23e), in place of the demo
+    # agent's messages: it seeds the profile into HAPI, then calls discovery and every standard
+    # hook of the fixture agents the profile has patients for, once per patient, on the open
+    # engine and then on the signed-in one. A card may say a patient's RTF note was not read,
+    # and nothing else. Each run makes a new key, and an engine fetches a client's keys again
+    # at most once a minute: after a run of docker-compose.yml's own `cds-client`, start the
+    # engines again first (as CI does, by bringing them up with this file), or wait a minute.
+    #   docker compose $F --profile signin run --rm --use-aliases cds-client
+    <<: *fixtures
+    command:
+      - sh
+      - -c
+      - >-
+        python -m tests.support.sandbox seed --fhir http://fhir:8080/fhir --ehr-profile --wait 300 &&
+        python -m tests.support.sandbox cds-client --engine http://engine:8000
+        --fhir http://fhir:8080/fhir --listen 0.0.0.0:8300 --iss http://cds-client:8300
+        --audience ${MENDARI_PUBLIC_URL:-http://engine:8000} &&
+        python -m tests.support.sandbox cds-client --engine http://engine-signin:8000
+        --fhir http://fhir:8080/fhir --listen 0.0.0.0:8300 --iss http://cds-client:8300 --org pilot

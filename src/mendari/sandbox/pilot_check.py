@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The v0.6 pilot, scripted: an organization runs the inbox router with its own identity provider,
-PHI-safe settings, monitoring and governance approvals (the roadmap's exit check).
+"""The v0.6 pilot, scripted: an organization runs a portal-message agent with its own identity
+provider, PHI-safe settings, monitoring and governance approvals (the roadmap's exit check). The
+agent is the bundled demo agent, unless another message agent is named.
 
 It runs against an engine configured for sign-in, PHI mode `encrypt` and an input hash key
 (`MENDARI_INPUT_HASH_KEY`: every decision's input hash is keyed), and an OpenID Connect
@@ -11,12 +12,14 @@ research-preview notice (`/api/notice/acknowledge`), as the dashboard asks once 
 Then:
 
 1. an admin creates an API key for the message worker (role `service`);
-2. the worker decides synthetic inbox messages with the key;
+2. the worker decides synthetic portal messages with the key;
 3. a reviewer reads the queue (inputs decrypted, each read chained) and resolves a review, which
    is recorded under the reviewer's verified email;
 4. a viewer can read a decision but not its input, and can't resolve a review;
-5. someone on the AI committee (role `governance`) approves automation of a level 2 pack, and the
-   next decision carries the approval;
+5. someone on the AI committee (role `governance`) approves automation of a risk level 2 or 3
+   agent, and its next decision carries the approval. The demo agent is level 0 and needs no
+   approval, so this step runs when such an agent is named (`approve`), and is reported as
+   left out otherwise;
 6. monitoring counts the week's decisions, and the audit chain verifies.
 """
 
@@ -30,16 +33,16 @@ import httpx
 from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
 from mendari.evals.pack_tests import load_cases
-from mendari.sandbox import synthetic_inbox
+from mendari.sandbox import DEMO_AGENT
+from mendari.sandbox.fhir_workflow import labelled_cases
 from mendari.server.origin import OWN_REQUEST
 
 COOKIE = "mendari_session"
 SIGNIN = "mendari_signin"  # ties the engine's /auth/login to its /auth/callback
-INBOX = "mendari/patient-inbox-router"
-TRIAL = "mendari/clinical-trial-prescreener"  # risk level 2
-EMERGENCY = {
-    "message": {"body": "Crushing chest pain and my left arm is numb", "channel": "portal"}
-}
+EMERGENCY = {"message": {"body": "Crushing chest pain and my left arm is numb"}}
+NOT_APPROVED = (
+    "no risk level 2 or 3 agent was named (--approve), so the committee's approval was left out"
+)
 # Who signs in, and the groups the identity provider gives them (the engine maps groups to roles
 # with MENDARI_OIDC_ROLE_MAP; see the CI job `pilot-check`). The chain names each by their
 # verified email (`email()`).
@@ -98,8 +101,20 @@ def acknowledge(pilot: Pilot, person: dict[str, str], who: str) -> None:
 
 
 def run(
-    *, engine: str, messages: int = 12, transport: httpx.BaseTransport | None = None
+    *,
+    engine: str,
+    messages: int = 12,
+    agent: str = DEMO_AGENT,
+    approve: str | None = None,
+    transport: httpx.BaseTransport | None = None,
 ) -> dict[str, Any]:
+    """The pilot on `agent` (a message agent: an id or a directory, the engine serving it),
+    deciding `messages` of its benchmark cases. With `approve` (a risk level 2 or 3 agent the
+    engine serves), the committee approves its automation and its next decision carries the
+    approval; without, that step is left out and the result says so."""
+    pack = resolve_pack(agent)
+    governed = None if approve is None else resolve_pack(approve)
+    primary = pack.manifest.questions[pack.manifest.policy.primary]
     with httpx.Client(follow_redirects=False, timeout=60, transport=transport) as http:
         pilot = Pilot(engine, http)
         health = pilot.expect(pilot.call("GET", "/api/health", {}), 200, "health")
@@ -121,12 +136,11 @@ def run(
         )
         worker = {"authorization": f"Bearer {key['key']}"}
 
-        inputs = [EMERGENCY] + [
-            r["input"] for r in synthetic_inbox.local_site(n=messages - 1, seed=606)
-        ]
+        cases = labelled_cases(pack).records[: max(0, messages - 1)]
+        inputs = [EMERGENCY] + [record["input"] for record in cases]
         decided = [
             pilot.expect(
-                pilot.call("POST", f"/api/agents/{INBOX}/decide", worker, json=item),
+                pilot.call("POST", f"/api/agents/{pack.id}/decide", worker, json=item),
                 200,
                 "the worker decides a message",
                 log=False,
@@ -139,14 +153,15 @@ def run(
         reviewer = pilot.sign_in("reviewer")
         acknowledge(pilot, reviewer, "the reviewer")
         queue = pilot.expect(
-            pilot.call("GET", f"/api/review?pack_id={INBOX}", reviewer),
+            pilot.call("GET", f"/api/review?pack_id={pack.id}", reviewer),
             200,
             "the reviewer opens the queue",
         )
         if not queue or queue[0]["record"]["input"] is None:
             raise MendariError("the reviewer can't see the inputs in the queue")
         first = queue[0]
-        label = first["recommendation"] or "nurse"
+        # The reviewer's label is one of the question's own: the recommendation, or its first.
+        label = first["recommendation"] or next(iter(primary.criteria))
         resolved = pilot.expect(
             pilot.call(
                 "POST",
@@ -173,34 +188,35 @@ def run(
                 "POST",
                 f"/api/review/{decided[1]['id']}",
                 viewer,
-                json={"final_label": "nurse", "reviewer": "x"},
+                json={"final_label": label, "reviewer": "x"},
             ),
             403,
             "the viewer may not resolve a review",
         )
 
-        chair = pilot.sign_in("governance")
-        approval = pilot.expect(
-            pilot.call(
-                "POST",
-                "/api/governance",
-                chair,
-                json={"pack_id": TRIAL, "reference": "AI committee minutes, pilot", "days": 90},
-            ),
-            201,
-            "the committee approves automation of a level 2 agent",
-        )
-        case = load_cases(resolve_pack(TRIAL))[0]["input"]
-        trial = pilot.expect(
-            pilot.call("POST", f"/api/agents/{TRIAL}/decide", worker, json=case),
-            200,
-            "the worker decides with the approved agent",
-        )
-        if (trial.get("governance") or {}).get("approved_by") != email("governance"):
-            raise MendariError("the decision does not carry the committee's approval")
+        approval = None
+        if governed is None:
+            pilot.steps.append(NOT_APPROVED)
+        else:
+            chair = pilot.sign_in("governance")
+            level = int(governed.manifest.risk.level)
+            asked = {"pack_id": governed.id, "reference": "AI committee minutes, pilot", "days": 90}
+            approval = pilot.expect(
+                pilot.call("POST", "/api/governance", chair, json=asked),
+                201,
+                f"the committee approves automation of a level {level} agent",
+            )
+            case = load_cases(governed)[0]["input"]
+            approved = pilot.expect(
+                pilot.call("POST", f"/api/agents/{governed.id}/decide", worker, json=case),
+                200,
+                "the worker decides with the approved agent",
+            )
+            if (approved.get("governance") or {}).get("approved_by") != email("governance"):
+                raise MendariError("the decision does not carry the committee's approval")
 
         monitoring = pilot.expect(
-            pilot.call("GET", f"/api/monitoring?pack_id={INBOX}", admin),
+            pilot.call("GET", f"/api/monitoring?pack_id={pack.id}", admin),
             200,
             "monitoring shows the week",
         )
@@ -221,7 +237,7 @@ def run(
         "steps": pilot.steps,
         "decided": len(decided),
         "reviewed": {"id": resolved["id"], "final_label": label},
-        "approval": {"pack_id": approval["pack_id"], "approver": approval["approver"]},
+        "approval": approval and {"pack_id": approval["pack_id"], "approver": approval["approver"]},
         "monitoring_last_7_days": week,
         "input_reads_logged": len(reads),
     }

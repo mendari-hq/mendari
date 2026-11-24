@@ -25,7 +25,7 @@ from mendari.core.decision import Decision
 from mendari.core.pack import Pack
 from mendari.core.registry import discover, resolve_pack, version_key
 from mendari.errors import MendariError, PackValidationError
-from mendari.sandbox import example_datasets_dir
+from mendari.sandbox import DEMO_AGENT, example_datasets_dir
 from mendari.settings import (
     applies_to,
     daily_limits,
@@ -1614,71 +1614,25 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
     return 0
 
 
-SANDBOX_KINDS = {
-    # kind: (default agent directory, default local-site output). The synthetic EHR's agents
-    # are test fixtures; the sandbox (docker-compose.yml) mounts them.
-    "inbox": (
-        "tests/fixtures/reference-packs/patient-inbox-router",
-        "tests/fixtures/datasets/local-site-example.jsonl",
-    ),
-    "trial": (
-        "tests/fixtures/reference-packs/clinical-trial-prescreener",
-        "tests/fixtures/datasets/trial-local-site-example.jsonl",
-    ),
-    "referral": (
-        "tests/fixtures/reference-packs/referral-router",
-        "tests/fixtures/datasets/referral-local-site-example.jsonl",
-    ),
-    "prior-auth": (
-        "tests/fixtures/reference-packs/prior-auth-preflight",
-        "tests/fixtures/datasets/prior-auth-local-site-example.jsonl",
-    ),
-    "guard": (
-        "tests/fixtures/reference-packs/ai-guard",
-        "tests/fixtures/datasets/guard-local-site-example.jsonl",
-    ),
-}
+def _served_id(agent: str) -> str:
+    """The id an engine serves an agent under, from what a sandbox command was given: a
+    directory's own id, or the id as typed (the agent need not be on this machine)."""
+    from mendari.core.pack import has_manifest
 
-
-def cmd_sandbox_generate(args: argparse.Namespace) -> int:
-    from mendari.sandbox import (
-        synthetic_guard,
-        synthetic_inbox,
-        synthetic_prior_auth,
-        synthetic_referral,
-        synthetic_trial,
-    )
-
-    generators = {
-        "inbox": synthetic_inbox,
-        "trial": synthetic_trial,
-        "referral": synthetic_referral,
-        "prior-auth": synthetic_prior_auth,
-        "guard": synthetic_guard,
-    }
-    generator = generators[args.kind]
-    pack_dir, local_out = SANDBOX_KINDS[args.kind]
-    # Takes a directory, not an agent reference: the agent cannot load before its data exists.
-    data_dir = Path(args.pack_dir or pack_dir) / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    for split, records in generator.public_splits().items():
-        _write_jsonl(data_dir / f"{split}.jsonl", records)
-        print(f"{len(records):>5} -> {data_dir / f'{split}.jsonl'}")
-    local = generator.local_site()
-    local_path = Path(args.local_out or local_out)
-    local_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_jsonl(local_path, local)
-    print(f"{len(local):>5} -> {local_path}")
-    return 0
+    return resolve_pack(agent).id if has_manifest(Path(agent)) else agent.partition("@")[0]
 
 
 def cmd_sandbox_seed(args: argparse.Namespace) -> int:
     from mendari.sandbox import fhir_workflow
 
     created = fhir_workflow.seed(
-        args.fhir, count=args.count, wait_seconds=args.wait, pack_id=args.pack
+        args.fhir,
+        count=args.count,
+        wait_seconds=args.wait,
+        agent=args.pack,
+        dataset=args.dataset,
     )
-    print(f"seeded {created} synthetic {args.pack} cases into {args.fhir}")
+    print(f"seeded {created} synthetic messages of {_served_id(args.pack)} into {args.fhir}")
     return 0
 
 
@@ -1686,7 +1640,11 @@ def cmd_sandbox_worker(args: argparse.Namespace) -> int:
     from mendari.sandbox import fhir_workflow
 
     fhir_workflow.run_worker(
-        args.fhir, args.engine, pack_id=args.pack, interval=args.interval, once=args.once
+        args.fhir,
+        args.engine,
+        pack_id=_served_id(args.pack),
+        interval=args.interval,
+        once=args.once,
     )
     return 0
 
@@ -1695,12 +1653,16 @@ def cmd_sandbox_cds_client(args: argparse.Namespace) -> int:
     """The signed sandbox CDS client (LP-23e): its registry entry, then what each call got, and
     each problem on stderr (exit 1). A server it cannot reach is `main`'s one error line, which
     names its origin only."""
-    from mendari.sandbox.cds_client import SandboxClient
+    from mendari.sandbox import cds_client
 
-    with SandboxClient(listen=args.listen, iss=args.iss) as client:
+    if args.limit < 1:
+        raise MendariError("--limit is at least 1: the client calls the hook for each case")
+    agent = resolve_pack(args.pack)
+    with cds_client.SandboxClient(listen=args.listen, iss=args.iss) as client:
         entry = client.entry(client_id=args.id, org=args.org, fhir_server=args.fhir)
         print(f"MENDARI_CDS_CLIENTS entry: {json.dumps(entry)}", flush=True)
-        result = client.run(engine=args.engine, fhir=args.fhir, audience=args.audience)
+        calls = cds_client.sandbox_calls(agent, args.fhir, limit=args.limit)
+        result = client.run(engine=args.engine, fhir=args.fhir, calls=calls, audience=args.audience)
     _print_json(result)
     for problem in result["problems"]:
         print(f"cds-client: {problem}", file=sys.stderr)
@@ -1730,7 +1692,7 @@ def cmd_sandbox_smart_launch(args: argparse.Namespace) -> int:
         engine=args.engine,
         launcher=args.launcher,
         fhir=args.fhir,
-        pack_id=args.pack,
+        agent=resolve_pack(args.pack),
         patient=args.patient,
         limit=args.limit,
         expect_org=args.expect_org,
@@ -1769,7 +1731,9 @@ def cmd_sandbox_pilot_check(args: argparse.Namespace) -> int:
     from mendari.sandbox import pilot_check
 
     try:
-        result = pilot_check.run(engine=args.engine, messages=args.messages)
+        result = pilot_check.run(
+            engine=args.engine, messages=args.messages, agent=args.pack, approve=args.approve
+        )
     except MendariError as failure:
         print(f"pilot-check: {failure}", file=sys.stderr)
         return 1
@@ -1914,6 +1878,12 @@ def cmd_sandbox_omop(args: argparse.Namespace) -> int:
 def cmd_sandbox_omop_check(args: argparse.Namespace) -> int:
     from mendari.sandbox import omop_check
 
+    if args.pack is None:
+        raise MendariError(
+            "omop-check needs --agent: an agent that reads a patient's record (conditions, "
+            "labs, medications), by id or directory. The bundled demo agent reads a portal "
+            "message, which an OMOP database does not hold"
+        )
     result = omop_check.run(Path(args.dataset), args.pack)
     _print_json(result)
     if not result["identical"]:
@@ -1995,7 +1965,7 @@ def cmd_pas_build(args: argparse.Namespace) -> int:
 def cmd_sandbox_bulk_check(args: argparse.Namespace) -> int:
     from mendari.sandbox import bulk_check
 
-    result = bulk_check.run(args.fhir, args.pack)
+    result = bulk_check.run(args.fhir, resolve_pack(args.pack), args.dataset)
     _print_json(result)
     if not result["identical"]:
         differences = ", ".join(result["differences"])
@@ -4124,7 +4094,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--run",
         action="append",
         default=[],
-        help="a configuration to evaluate, e.g. router=llm,safety_screen=rules_and_llm (repeat)",
+        help="a configuration to evaluate, e.g. reader=rules (repeat)",
     )
     board.add_argument(
         "--dataset", action="append", default=[], help="dataset for every --run (repeat)"
@@ -4498,51 +4468,51 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox = sub.add_parser("sandbox", help="synthetic sandbox tools").add_subparsers(
         dest="sandbox_command", required=True
     )
-    generate = sandbox.add_parser(
-        "generate", help="regenerate a test-fixture agent's synthetic data"
+    demo = "the bundled demo agent"  # DEMO_AGENT: its id is long enough to wrap in a help text
+    its_cases = "one of the agent's datasets or a JSONL file (default: its benchmark dataset)"
+    seed = sandbox.add_parser(
+        "seed", help="load an agent's synthetic messages into FHIR as US Core resources"
     )
-    generate.add_argument("--kind", choices=sorted(SANDBOX_KINDS), default="inbox")
-    generate.renamed["--pack-dir"] = "--agent-dir"
-    generate.add_argument(
-        "--agent-dir",
-        dest="pack_dir",
-        metavar="DIR",
-        help="default: the kind's agent in the test fixtures",
-    )
-    generate.add_argument("--local-out", help="default: datasets/<kind's local-site example>")
-    generate.set_defaults(handler=cmd_sandbox_generate)
-    seed = sandbox.add_parser("seed", help="load synthetic cases into FHIR as US Core resources")
     seed.add_argument("--fhir", required=True, help="FHIR R4 base URL")
     _agent_option(
         seed,
-        default="mendari/patient-inbox-router",
-        choices=[  # fhir_workflow.SEEDS
-            "mendari/patient-inbox-router",
-            "mendari/referral-router",
-            "mendari/clinical-trial-prescreener",
-            "mendari/prior-auth-preflight",
-            "ehr-profile",
-        ],
-        help="whose local-site cases (default: portal messages), or ehr-profile: the "
-        "vendor-shaped EHR profile (LP-23e), under its own ids (--count does not apply)",
+        default=DEMO_AGENT,
+        help=f"the message agent whose cases to load, by id or directory (default: {demo})",
     )
+    seed.add_argument("--dataset", help=f"the cases to load: {its_cases}")
     seed.add_argument("--count", type=int, default=40)
     seed.add_argument("--wait", type=int, default=180, help="seconds to wait for the server")
     seed.set_defaults(handler=cmd_sandbox_seed)
     worker = sandbox.add_parser("worker", help="route new FHIR Communications through the engine")
     worker.add_argument("--fhir", required=True)
     worker.add_argument("--engine", required=True, help="engine base URL")
-    _agent_option(worker, default="mendari/patient-inbox-router")
+    _agent_option(
+        worker,
+        default=DEMO_AGENT,
+        help=f"the message agent that decides them, by id or directory (default: {demo})",
+    )
     worker.add_argument("--interval", type=float, default=5.0)
     worker.add_argument("--once", action="store_true")
     worker.set_defaults(handler=cmd_sandbox_worker)
     cds_client = sandbox.add_parser(
         "cds-client",
-        help="call the CDS Hooks services over HTTP as an EHR does, with signed tokens (LP-23e)",
+        help="call an agent's CDS Hooks service over HTTP as an EHR does, with signed tokens "
+        "(LP-23e)",
     )
     cds_client.add_argument("--engine", required=True, help="the engine's URL, to call")
     cds_client.add_argument(
-        "--fhir", required=True, help="the FHIR server holding the EHR profile, sent as fhirServer"
+        "--fhir",
+        required=True,
+        help="the FHIR server holding the sandbox's cases (mendari sandbox seed), sent as "
+        "fhirServer",
+    )
+    _agent_option(
+        cds_client,
+        default=DEMO_AGENT,
+        help=f"the agent whose service to call, by id or directory (default: {demo})",
+    )
+    cds_client.add_argument(
+        "--limit", type=int, default=5, help="call it for at most this many cases (default 5)"
     )
     cds_client.add_argument(
         "--audience",
@@ -4577,8 +4547,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _agent_option(
         smart,
-        default="mendari/referral-router",
-        choices=["mendari/patient-inbox-router", "mendari/referral-router"],
+        default=DEMO_AGENT,
+        help=f"the agent to launch, by id or directory: one with a FHIR mapping (default: {demo})",
     )
     smart.add_argument("--patient", help="patient id (default: one with a work item)")
     smart.add_argument("--limit", type=int, default=5, help="decide at most this many items")
@@ -4599,6 +4569,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pilot.add_argument("--engine", required=True, help="engine URL (its MENDARI_PUBLIC_URL)")
     pilot.add_argument("--messages", type=int, default=12, help="portal messages to decide")
+    _agent_option(
+        pilot,
+        default=DEMO_AGENT,
+        help=f"the message agent the pilot runs, by id or directory (default: {demo})",
+    )
+    pilot.add_argument(
+        "--approve",
+        metavar="AGENT",
+        help="a risk level 2 or 3 agent the engine serves, by id or directory: the committee "
+        "approves its automation and its next decision must carry the approval. The demo agent "
+        "is level 0 and needs none, so without this the approval is left out, and reported so",
+    )
     pilot.set_defaults(handler=cmd_sandbox_pilot_check)
     payer = sandbox.add_parser("payer", help="a mock payer answering Da Vinci PAS requests")
     payer.add_argument("--host", default="127.0.0.1")
@@ -4615,13 +4597,24 @@ def build_parser() -> argparse.ArgumentParser:
         "omop-check", help="round-trip a dataset through OMOP and compare the evaluations"
     )
     omop_check.add_argument("--dataset", required=True, help="a labelled JSONL dataset")
-    _agent_option(omop_check, default="mendari/clinical-trial-prescreener")
+    _agent_option(
+        omop_check,
+        help="required: an agent that reads a patient's record (conditions, labs, medications), "
+        "by id or directory. The bundled demo agent reads a portal message, which OMOP does "
+        "not hold",
+    )
     omop_check.set_defaults(handler=cmd_sandbox_omop_check)
     bulk_check = sandbox.add_parser(
         "bulk-check", help="Bulk export the sandbox, evaluate it, and compare with the dataset file"
     )
     bulk_check.add_argument("--fhir", required=True, help="the sandbox's FHIR R4 base URL")
-    _agent_option(bulk_check, default="mendari/referral-router")
+    _agent_option(
+        bulk_check,
+        default=DEMO_AGENT,
+        help=f"the agent whose cases the sandbox was seeded with, by id or directory "
+        f"(default: {demo})",
+    )
+    bulk_check.add_argument("--dataset", help=f"the labelled cases it was seeded from: {its_cases}")
     bulk_check.set_defaults(handler=cmd_sandbox_bulk_check)
 
     pas_cmd = sub.add_parser(

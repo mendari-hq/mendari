@@ -7,22 +7,21 @@ describes ("Trusting CDS Clients") and an EHR such as Epic does.
   dies with the process. It serves the public JWK Set at `<iss>/jwks.json` (`--listen`), for
   the engine to fetch as it would an EHR's.
 - It prints the registry entry the engine needs for it (`MENDARI_CDS_CLIENTS`).
-- It checks that the FHIR server it names holds the EHR profile's patients
-  (`sandbox/ehr_profile.py`, `mendari sandbox seed --agent ehr-profile`).
-- It reads discovery, then calls each standard hook (`patient-view` and `order-sign`) of each
-  service the profile has patients for, once per patient. Each call carries a new ES384 token:
-  `iss` its own URL, `aud` the engine's public URL and the path, five minutes, a new `jti`, and
-  `jku` its JWK Set's URL in the header. A request names the FHIR server (`fhirServer`) and
-  sends no prefetch, so the engine reads the record there through its allow-list. An order
-  hook's `draftOrders` are the patient's orders, in draft.
+- It finds what the FHIR server it names holds for the agent to decide (`sandbox_calls`): the
+  synthetic cases `mendari sandbox seed` loaded, by the sandbox tag and the agent's FHIR focus.
+  The agent is the bundled demo agent unless another is named.
+- It reads discovery, then calls the agent's service once for each case found (`HookCall`).
+  Each call carries a new ES384 token: `iss` its own URL, `aud` the engine's public URL and the
+  path, five minutes, a new `jti`, and `jku` its JWK Set's URL in the header. A request names
+  the FHIR server (`fhirServer`) and sends no prefetch, so the engine reads the record there
+  through its allow-list. Its context names the patient and what the service's prefetch asks
+  for by id; an order hook's `draftOrders` are the patient's orders, in draft.
 - It exits 1 on any answer other than 200, a hook answer that is not CDS Hooks' (a `cards`
   list, each card with a summary, an indicator and a source), or a card saying part of the
-  record could not be read (LP-23d's ABSTAIN) for anything but what the profile leaves unread:
-  a patient's note whose Binary is RTF, which no pack reads as text (`notes: unsupported_type`,
-  `expected_unread`; since LP-23k the packs read a text/plain or text/html note's Binary). Any
-  other key or reason (`not_fetched`, `http_status`, `not_r4`, ...) is a read of the FHIR server
-  that failed or was not made, and a patient with no note, or a readable one, has nothing to
-  leave unread.
+  record could not be read (LP-23d's ABSTAIN) for anything but what the call says may be left
+  unread (`HookCall.unread`: nothing, for the sandbox's own cases). Any other key or reason
+  (`not_fetched`, `http_status`, `not_r4`, ...) is a read of the FHIR server that failed or was
+  not made.
 
 A new key each run: an engine fetches a client's keys again at most once a minute, so a second
 run within the minute is refused (`cds_key`) until that minute has passed.
@@ -33,34 +32,38 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import socket
 import threading
 import time
 import uuid
-from collections.abc import Callable, Mapping
-from datetime import date
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import TracebackType
 from typing import Any, Protocol
+from urllib.parse import urlencode
 
 import httpx
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from mendari.sandbox.ehr_profile import PACKS, PRESCRIBER_ID, ProfilePatient, patients
-from mendari.standards.cds_hooks import ALSO_NOTED, ORDER_HOOKS, UNREADABLE_SUMMARY
+from mendari.core.pack import Pack
+from mendari.errors import MendariError
+from mendari.sandbox.code_systems import SANDBOX_TAG
+from mendari.sandbox.smart_launch import focus_search
+from mendari.standards.cds_hooks import ALSO_NOTED, ORDER_HOOKS, UNREADABLE_SUMMARY, service_id
 
-STANDARD_HOOKS = ("patient-view", "order-sign")
 ALGORITHM = "ES384"
 LIFETIME = 300  # seconds a token lives, as CDS Hooks 2.0 advises at most
 TITLE = "Mendari sandbox CDS client"
 INDICATORS = ("info", "warning", "critical")
+USER = "Practitioner/sandbox-clinician"  # who the sandbox's calls say is at the EHR
 _JWKS_PATH = "/jwks.json"
-# What a hook may say it could not read on the profile: a note whose linked Binary is RTF, which
-# no pack reads as text (the hooks read text/plain and text/html Binaries since LP-23h, and the
-# shipped packs read their notes so since LP-23k).
-RTF_NOTE = ("notes", "unsupported_type")
-UNREADABLE_NOTE_TYPES = ("text/rtf",)
+_TAG = f"{SANDBOX_TAG['system']}|{SANDBOX_TAG['code']}"
+# A prefetch template that reads one resource by an id the hook's context gives:
+# `Communication/{{context.communicationId}}`.
+_READ_BY_ID = re.compile(r"^(\w+)/\{\{\s*context\.(\w+)\s*\}\}$")
 
 
 class Answer(Protocol):
@@ -79,6 +82,20 @@ class Http(Protocol):
     def get(self, url: str, *, headers: Mapping[str, str]) -> Answer: ...
 
     def post(self, url: str, *, json: Any, headers: Mapping[str, str]) -> Answer: ...
+
+
+@dataclass(frozen=True)
+class HookCall:
+    """One call the client makes: a CDS service's hook, for one patient."""
+
+    service: str  # the CDS service's id (`<namespace>.<name>`)
+    patient: str  # the patient's id on the FHIR server
+    # The hook's context beside the patient: the user, what its prefetch reads by id, the drafts.
+    context: Mapping[str, Any] = field(default_factory=dict)
+    hooks: tuple[str, ...] = ()  # the hooks discovery may list for the service; empty: any
+    # What a card may say it could not read, as (key, reason), and how a problem says so.
+    unread: frozenset[tuple[str, str]] = frozenset()
+    unread_rule: str = "nothing of a sandbox case may be unread"
 
 
 class SandboxClient:
@@ -153,46 +170,39 @@ class SandboxClient:
         *,
         engine: str,
         fhir: str,
+        calls: Sequence[HookCall],
         audience: str | None = None,
-        today: date | None = None,
         http: Http | None = None,
-        fhir_http: Http | None = None,
     ) -> dict[str, Any]:
-        """Discovery and every standard hook of the profile's packs at `engine`, with `fhir`
-        as the FHIR server; what each answered, and the problems found (none: it passed).
-        `audience` is the engine's `MENDARI_PUBLIC_URL` (default: `engine`)."""
+        """Discovery, then each of `calls` at `engine`, with `fhir` as the FHIR server; what
+        each answered, and the problems found (none: it passed). `audience` is the engine's
+        `MENDARI_PUBLIC_URL` (default: `engine`)."""
         engine, fhir = engine.rstrip("/"), fhir.rstrip("/")
         public = (audience or engine).rstrip("/")
-        profile = patients(today)
         result: dict[str, Any] = {"discovery": None, "calls": [], "jwks_fetches": 0, "problems": []}
         problems: list[str] = result["problems"]
-        with _client(http) as caller, _client(fhir_http) as reader:
-            missing = [p.id for p in profile if not _held(reader, fhir, p)]
-            if missing:
-                problems.append(
-                    f"{fhir} does not hold the EHR profile's patients ({', '.join(missing)}): "
-                    "seed it first (mendari sandbox seed --agent ehr-profile)"
-                )
-                return result
+        with _client(http) as caller:
             path = "/cds-services"
             listed = caller.get(f"{engine}{path}", headers=self._bearer(f"{public}{path}"))
             services = _services(listed) if listed.status_code == 200 else {}
             result["discovery"] = {"status": listed.status_code, "services": sorted(services)}
             if listed.status_code != 200:
                 problems.append(_refused(f"discovery answered {listed.status_code}", listed))
-            for spec in PACKS if listed.status_code == 200 else ():
-                service = spec.pack_id.replace("/", ".")
-                hook = services.get(service)
-                if hook not in STANDARD_HOOKS:
-                    problems.append(f"discovery lists no standard hook for {spec.pack_id}")
+            unlisted: set[str] = set()
+            for call in calls if listed.status_code == 200 else ():
+                hook = services.get(call.service)
+                if hook is None or (call.hooks and hook not in call.hooks):
+                    if call.service not in unlisted:
+                        wanted = " or ".join(call.hooks) if call.hooks else "a"
+                        problems.append(f"discovery lists no {wanted} hook for {call.service}")
+                    unlisted.add(call.service)
                     continue
-                for patient in (p for p in profile if p.pack_id == spec.pack_id):
-                    call = f"{path}/{service}"
-                    body = hook_request(hook, patient, fhir)
-                    answer = caller.post(
-                        f"{engine}{call}", json=body, headers=self._bearer(f"{public}{call}")
-                    )
-                    result["calls"].append(_called(service, hook, patient, answer, problems))
+                route = f"{path}/{call.service}"
+                body = hook_request(hook, call, fhir)
+                answer = caller.post(
+                    f"{engine}{route}", json=body, headers=self._bearer(f"{public}{route}")
+                )
+                result["calls"].append(_called(call, hook, answer, problems))
         result["jwks_fetches"] = self.fetches
         return result
 
@@ -200,38 +210,66 @@ class SandboxClient:
         return {"authorization": f"Bearer {self.token(audience)}"}
 
 
-def hook_request(hook: str, patient: ProfilePatient, fhir: str) -> dict[str, Any]:
-    """A CDS Hooks request for one patient, as an EHR sends it with no prefetch: the context
-    (the user, the patient and, for an order hook, the patient's orders in draft) and the FHIR
-    server to read the record from."""
-    context: dict[str, Any] = {"userId": f"Practitioner/{PRESCRIBER_ID}", "patientId": patient.id}
-    if hook in ORDER_HOOKS:
-        drafts = [{"resource": {**order, "status": "draft"}} for order in patient.orders()]
-        context["draftOrders"] = {"resourceType": "Bundle", "type": "collection", "entry": drafts}
+def sandbox_calls(
+    agent: Pack, fhir: str, *, limit: int = 5, http: Http | None = None
+) -> list[HookCall]:
+    """One call of the agent's CDS service for each of up to `limit` of the sandbox's cases
+    for it on the FHIR server: the tagged resources its FHIR mapping focuses on, as `mendari
+    sandbox seed` loads them. The context names the patient, the user, and the case's resource
+    under whichever name the service's prefetch reads it by id; an order hook also gets it as
+    the draft order."""
+    hooks = agent.manifest.cds_hooks
+    if hooks is None:
+        raise MendariError(f"{agent.id} declares no CDS Hooks service (`cds_hooks`)")
+    kind, narrowed = focus_search(agent)
+    query = urlencode({"_tag": _TAG, **narrowed, "_count": str(limit)})
+    with _client(http) as reader:
+        found = reader.get(
+            f"{fhir.rstrip('/')}/{kind}?{query}",
+            headers={"accept": "application/fhir+json", "cache-control": "no-cache"},
+        )
+    if found.status_code != 200:
+        raise MendariError(f"the FHIR server answered {found.status_code} for its {kind}s")
+    entries = found.json().get("entry") or []
+    cases = [entry["resource"] for entry in entries if isinstance(entry.get("resource"), dict)]
+    cases = [case for case in cases if case.get("resourceType") == kind][:limit]
+    if not cases:
+        raise MendariError(
+            f"no synthetic {kind} for {agent.id} in {fhir}: run `mendari sandbox seed` first"
+        )
+    # The context names under which the service's prefetch reads the case's resource by id.
+    reads = [_READ_BY_ID.match(template) for template in hooks.prefetch.values()]
+    names = [read[2] for read in reads if read is not None and read[1] == kind]
+    calls = []
+    for case in cases:
+        context: dict[str, Any] = {"userId": USER, **dict.fromkeys(names, case.get("id"))}
+        if hooks.hook in ORDER_HOOKS:
+            draft = {"resource": {**case, "status": "draft"}}
+            context["draftOrders"] = {
+                "resourceType": "Bundle",
+                "type": "collection",
+                "entry": [draft],
+            }
+        subject = str(case.get("subject", {}).get("reference", ""))
+        patient = str(case.get("id")) if kind == "Patient" else subject.rsplit("/", 1)[-1]
+        calls.append(HookCall(service_id(agent), patient, context))
+    return calls
+
+
+def hook_request(hook: str, call: HookCall, fhir: str) -> dict[str, Any]:
+    """A CDS Hooks request for one call, as an EHR sends it with no prefetch: the context (the
+    patient and what the call adds) and the FHIR server to read the record from."""
     return {
         "hook": hook,
         "hookInstance": str(uuid.uuid4()),
         "fhirServer": fhir,
-        "context": context,
+        "context": {"patientId": call.patient, **call.context},
     }
-
-
-def expected_unread(patient: ProfilePatient) -> set[tuple[str, str]]:
-    """The keys and reasons a hook may say it could not read for the patient (an unreadable
-    ABSTAIN's card): its note, when the Binary it links to is RTF; nothing for a patient with no
-    note or a readable one."""
-    binaries = {f"Binary/{r['id']}": r for r in patient.resources if r["resourceType"] == "Binary"}
-    for document in (r for r in patient.resources if r["resourceType"] == "DocumentReference"):
-        for content in document.get("content", []):
-            binary = binaries.get(content.get("attachment", {}).get("url"), {})
-            if binary.get("contentType") in UNREADABLE_NOTE_TYPES:
-                return {RTF_NOTE}
-    return set()
 
 
 def unread_of(card: Mapping[str, Any]) -> set[tuple[str, str]] | None:
     """What an unreadable ABSTAIN's card says could not be read: each `- <key>: <reason>` line of
-    its detail (the pack's key names and a closed set of reasons, nothing of the record), up to
+    its detail (the agent's key names and a closed set of reasons, nothing of the record), up to
     what it also notes (`ALSO_NOTED`). None for any other card."""
     if card.get("summary") != UNREADABLE_SUMMARY:
         return None
@@ -266,17 +304,15 @@ def problems_of(answer: Any) -> list[str]:
     return found
 
 
-def _called(
-    service: str, hook: str, patient: ProfilePatient, answer: Answer, problems: list[str]
-) -> dict[str, Any]:
+def _called(call: HookCall, hook: str, answer: Answer, problems: list[str]) -> dict[str, Any]:
     """One hook call as the result shows it, its problems added to `problems`."""
     called: dict[str, Any] = {
-        "service": service,
+        "service": call.service,
         "hook": hook,
-        "patient": patient.id,
+        "patient": call.patient,
         "status": answer.status_code,
     }
-    where = f"{service} for {patient.id}"
+    where = f"{call.service} for {call.patient}"
     if answer.status_code != 200:
         problems.append(_refused(f"{where} answered {answer.status_code}", answer))
         return called
@@ -291,17 +327,14 @@ def _called(
     called["cards"] = [
         {"indicator": card.get("indicator"), "summary": card.get("summary")} for card in cards
     ]
-    expected = expected_unread(patient)
     for number, card in enumerate(cards, start=1):
         unread = unread_of(card)
         if unread is not None and not unread:
             problems.append(
                 f"{where}: card {number} says part of the record was not read, not which"
             )
-        for key, reason in sorted((unread or set()) - expected):
-            problems.append(
-                f"{where}: could not read {key}: {reason} (only an RTF note may be unread)"
-            )
+        for key, reason in sorted((unread or set()) - call.unread):
+            problems.append(f"{where}: could not read {key}: {reason} ({call.unread_rule})")
     return called
 
 
@@ -326,15 +359,6 @@ def _services(listed: Answer) -> dict[str, str]:
         for s in services
         if isinstance(s, dict) and isinstance(s.get("id"), str)
     }
-
-
-def _held(reader: Http, fhir: str, patient: ProfilePatient) -> bool:
-    """Whether the FHIR server holds the patient (a server that cannot be reached raises)."""
-    found = reader.get(
-        f"{fhir}/Patient/{patient.id}",
-        headers={"accept": "application/fhir+json", "cache-control": "no-cache"},
-    )
-    return found.status_code == 200
 
 
 class _client:

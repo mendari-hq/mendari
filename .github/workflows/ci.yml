@@ -235,13 +235,19 @@ jobs:
 
   sandbox-e2e:
     # The roadmap's v0.4 exit on the real sandbox (docker compose): HAPI FHIR, the SMART launcher
-    # and the engine. The inbox and referral packs run from a scripted SMART EHR launch, and every
-    # input they decide on conforms to US Core. A second engine (profile `signin`) has sign-in on
-    # and the launcher registered for organization `pilot` (ADR-0006): its launches must decide
-    # in that organization, chained as the launcher's `<issuer>|<subject>`. Last, a signed CDS
-    # client (compose service `cds-client`, LP-23e) calls both engines' CDS Hooks services over
-    # HTTP with its own tokens, on the vendor-shaped EHR profile.
+    # and the engine. First the sandbox as it ships, on the bundled demo agent: its portal
+    # messages run from a scripted SMART EHR launch, and every input it decides on conforms to US
+    # Core. A second engine (profile `signin`) has sign-in on and the launcher registered for
+    # organization `pilot` (ADR-0006): its launches must decide in that organization, chained as
+    # the launcher's `<issuer>|<subject>`. A Bulk export of the sandbox evaluates as the agent's
+    # own dataset does, and a signed CDS client (compose service `cds-client`, LP-23e) calls both
+    # engines' CDS Hooks services over HTTP with its own tokens.
+    # Then the same on the test fixtures' agents (sandbox/fixtures.compose.yml, each named by its
+    # folder), for what the demo agent has no use for: a launch on orders, the Bulk export of a
+    # record, and the standard hooks on the vendor-shaped EHR profile.
     runs-on: ubuntu-latest
+    env:
+      FIXTURES: -f docker-compose.yml -f sandbox/fixtures.compose.yml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -264,51 +270,83 @@ jobs:
             echo "$name=$key" >> "$GITHUB_ENV"
           done
       - run: docker compose --profile signin up -d --build --wait engine launcher engine-signin
-      - name: Wait until the workflow has seeded both packs
+      - name: Wait until the workflow has seeded the demo agent's portal messages
         run: |
           docker compose up -d workflow
           for i in $(seq 1 60); do
             total=$(curl -s -H 'cache-control: no-cache' \
-              'http://127.0.0.1:8080/fhir/ServiceRequest?_tag=https%3A%2F%2Fmendari.co%2Ffhir%2Fsandbox%7Csynthetic&_summary=count' \
+              'http://127.0.0.1:8080/fhir/Communication?_tag=https%3A%2F%2Fmendari.co%2Ffhir%2Fsandbox%7Csynthetic&_summary=count' \
               | python3 -c 'import json,sys; print(json.load(sys.stdin).get("total", 0))' 2>/dev/null || echo 0)
-            [ "${total:-0}" -gt 0 ] && echo "seeded ($total referrals)" && exit 0
+            [ "${total:-0}" -gt 0 ] && echo "seeded ($total portal messages)" && exit 0
             sleep 5
           done
           docker compose logs workflow
           exit 1
-      - name: SMART launch, a test-fixture agent on referrals
+      - name: SMART launch, the demo agent on portal messages
         run: >-
           docker compose exec -T engine mendari sandbox smart-launch --strict
           --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
-          --pack mendari/referral-router
-      - name: SMART launch, a test-fixture agent on portal messages
-        run: >-
-          docker compose exec -T engine mendari sandbox smart-launch --strict
-          --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
-          --pack mendari/patient-inbox-router
       - name: The launcher, as `mendari smart check` sees it with sign-in on
         run: docker compose exec -T engine-signin mendari smart check http://launcher/v/r4/fhir
+      - name: SMART launch with sign-in on, the demo agent, in the registered organization
+        run: >-
+          docker compose exec -T engine-signin mendari sandbox smart-launch --strict
+          --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
+          --expect-org pilot --db /data/mendari.db
+      - name: Bulk export -> dataset -> mendari eval (the demo agent)
+        # The export's cases must evaluate exactly like the same cases read from the dataset file.
+        run: docker compose exec -T engine mendari sandbox bulk-check --fhir http://fhir:8080/fhir
+      - name: A signed CDS client over HTTP, on the open engine (sandbox flag) and the signed-in one
+        # LP-23e: another container serves its JWK Set and calls discovery and the demo agent's
+        # hook for the seeded messages with its own ES384 tokens, as an EHR does. Any answer but
+        # a 200, a hook answer that is not CDS Hooks', or a card saying a read failed, fails the
+        # job.
+        run: docker compose --profile signin run --rm -T --use-aliases cds-client
+      - name: The engines again, serving the test fixtures' agents too
+        # sandbox/fixtures.compose.yml mounts tests/ into the engines, which now also serve the
+        # agents under tests/fixtures/reference-packs. New containers, so each fetches the next
+        # signed client's keys afresh.
+        run: docker compose $FIXTURES --profile signin up -d --wait engine engine-signin
+      - name: Seed a test-fixture agent's referrals
+        run: >-
+          docker compose $FIXTURES exec -T engine python -m tests.support.sandbox seed
+          --fhir http://fhir:8080/fhir --count 40
+          --agent tests/fixtures/reference-packs/referral-router
+      - name: SMART launch, a test-fixture agent on referrals
+        run: >-
+          docker compose $FIXTURES exec -T engine mendari sandbox smart-launch --strict
+          --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
+          --agent tests/fixtures/reference-packs/referral-router
+      - name: SMART launch, a test-fixture agent on portal messages
+        run: >-
+          docker compose $FIXTURES exec -T engine mendari sandbox smart-launch --strict
+          --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
+          --agent tests/fixtures/reference-packs/patient-inbox-router
       - name: SMART launch with sign-in on, the agent on referrals, in the registered organization
         run: >-
-          docker compose exec -T engine-signin mendari sandbox smart-launch --strict
+          docker compose $FIXTURES exec -T engine-signin mendari sandbox smart-launch --strict
           --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
-          --pack mendari/referral-router --expect-org pilot --db /data/mendari.db
+          --agent tests/fixtures/reference-packs/referral-router
+          --expect-org pilot --db /data/mendari.db
       - name: SMART launch with sign-in on, the agent on portal messages, in the registered organization
         run: >-
-          docker compose exec -T engine-signin mendari sandbox smart-launch --strict
+          docker compose $FIXTURES exec -T engine-signin mendari sandbox smart-launch --strict
           --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
-          --pack mendari/patient-inbox-router --expect-org pilot --db /data/mendari.db
+          --agent tests/fixtures/reference-packs/patient-inbox-router
+          --expect-org pilot --db /data/mendari.db
       - name: Bulk export -> dataset -> mendari eval (the agent on referrals)
         # The export's cases must evaluate exactly like the same cases read from the dataset file.
         run: >-
-          docker compose exec -T engine mendari sandbox bulk-check
-          --fhir http://fhir:8080/fhir --pack mendari/referral-router
-      - name: A signed CDS client over HTTP, on the open engine (sandbox flag) and the signed-in one
-        # LP-23e: another container seeds the vendor-shaped EHR profile, serves its JWK Set and
-        # calls discovery and every standard hook with its own ES384 tokens, as an EHR does. Any
-        # answer but a 200, a hook answer that is not CDS Hooks', or a card saying a read failed
-        # (anything unread but an RTF note, `notes: unsupported_type`), fails the job.
-        run: docker compose --profile signin run --rm -T --use-aliases cds-client
+          docker compose $FIXTURES exec -T engine mendari sandbox bulk-check
+          --fhir http://fhir:8080/fhir
+          --agent tests/fixtures/reference-packs/referral-router
+          --dataset tests/fixtures/datasets/referral-local-site-example.jsonl
+      - name: The signed CDS client on the vendor-shaped EHR profile, both engines
+        # LP-23e: the container seeds the profile and calls discovery and every standard hook of
+        # the fixture agents (tests/support/sandbox.py). Any answer but a 200, a hook answer
+        # that is not CDS Hooks', or a card saying a read failed (anything unread but an RTF
+        # note, `notes: unsupported_type`), fails the job.
+        run: docker compose $FIXTURES --profile signin run --rm -T --use-aliases cds-client
       - if: failure()
         run: docker compose --profile signin logs --tail 200
 
@@ -617,9 +655,11 @@ jobs:
         run: uv run python scripts/check_doc_snippets.py
 
   pilot-check:
-    # The v0.6 exit: a pilot organization runs a portal-message agent with its own identity provider,
-    # PHI-safe settings, monitoring and governance approvals. The provider is a real third-party
-    # OpenID Connect implementation (navikt/mock-oauth2-server) with a scriptable sign-in form.
+    # The v0.6 exit: a pilot organization runs a portal-message agent (the bundled demo agent)
+    # with its own identity provider, PHI-safe settings, monitoring and governance approvals. The
+    # provider is a real third-party OpenID Connect implementation (navikt/mock-oauth2-server)
+    # with a scriptable sign-in form. The committee's approval needs a risk level 2 or 3 agent,
+    # which the product does not bundle: a test-fixture agent, named by its folder.
     runs-on: ubuntu-latest
     services:
       idp:
@@ -634,7 +674,8 @@ jobs:
       MENDARI_OIDC_ROLE_MAP: informatics=admin,clinicians=reviewer,front-desk=viewer,ai-committee=governance
       MENDARI_PHI_MODE: encrypt
       MENDARI_PUBLIC_URL: http://127.0.0.1:8000
-      # The pilot runs a portal-message agent of the test fixtures.
+      # The engine also serves the test fixtures' agents, for the one whose automation the
+      # committee approves.
       MENDARI_AGENTS_PATH: tests/fixtures/reference-packs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -652,7 +693,10 @@ jobs:
           export MENDARI_INPUT_HASH_KEY=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
           .venv/bin/mendari serve --port 8000 --db /tmp/pilot.db > /tmp/engine.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8000/api/health > /dev/null && break; sleep 1; done
-      - run: uv run mendari sandbox pilot-check --engine http://127.0.0.1:8000
+      - name: The pilot on the demo agent, the committee approving a risk level 2 agent
+        run: >-
+          uv run mendari sandbox pilot-check --engine http://127.0.0.1:8000
+          --approve tests/fixtures/reference-packs/clinical-trial-prescreener
       - if: failure()
         run: tail -100 /tmp/engine.log
 

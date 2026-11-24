@@ -11,9 +11,18 @@ import pytest
 
 from mendari.cli import main
 from mendari.errors import MendariError
-from mendari.sandbox import pilot_check
+from mendari.sandbox import DEMO_AGENT, pilot_check
+from tests.conftest import DEMO_AGENT_DIR, INBOX_DIR
 
 ENGINE = "http://engine.test"
+TRIAL = "mendari/clinical-trial-prescreener"  # a risk level 2 agent of the test fixtures
+
+
+@pytest.fixture(autouse=True)
+def _the_demo_agent_is_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The pilot runs the bundled demo agent unless told otherwise: here it is on the search
+    path, as in a release (the test suite's bundled agents are the fixtures)."""
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
 
 
 def test_the_pilot_needs_sign_in_and_phi_encryption() -> None:
@@ -82,9 +91,21 @@ def test_the_cli_reports_the_steps_or_the_failure(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     result: dict[str, Any] = {"steps": ["health"], "decided": 1}
-    monkeypatch.setattr(pilot_check, "run", lambda **kwargs: result)
+    asked: list[dict[str, Any]] = []
+
+    def run(**kwargs: Any) -> dict[str, Any]:
+        asked.append(kwargs)
+        return result
+
+    monkeypatch.setattr(pilot_check, "run", run)
     assert main(["sandbox", "pilot-check", "--engine", ENGINE]) == 0
     assert '"decided": 1' in capsys.readouterr().out
+    # The bundled demo agent, and no approval, unless the command names them.
+    assert asked == [{"engine": ENGINE, "messages": 12, "agent": DEMO_AGENT, "approve": None}]
+    named = ["--agent", str(INBOX_DIR), "--approve", TRIAL, "--messages", "3"]
+    assert main(["sandbox", "pilot-check", "--engine", ENGINE, *named]) == 0
+    assert asked[1] == {"engine": ENGINE, "messages": 3, "agent": str(INBOX_DIR), "approve": TRIAL}
+    capsys.readouterr()
 
     def fail(**kwargs: Any) -> dict[str, Any]:
         raise MendariError("the viewer could read an input")
