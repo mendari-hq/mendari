@@ -169,6 +169,11 @@ class Deployment:
     # Organizations' agent stores are served (`MENDARI_AGENT_STORE=on`, memberships mode): what
     # an agent found in the registry is added to from the console.
     agent_store: bool = True
+    # The agents the operator's organization is served, the deployment's own and those of its
+    # agent store, and how many of them came from a registry. None: as health counts them (the
+    # deployment's own only).
+    served: int | None = None
+    served_from_registry: int | None = None
     any_decision: bool = False
     demo_only: bool = False
     recalls: Sequence[Mapping[str, str]] = ()
@@ -1030,7 +1035,7 @@ def _registry(d: Deployment) -> SystemCheck:
 def _agents(d: Deployment) -> SystemCheck:
     label = "Agents"
     invalid = sorted(d.health.get("invalid") or {})
-    served = int(d.health.get("packs") or 0)
+    served = int(d.health.get("packs") or 0) if d.served is None else d.served
     if invalid:
         return _check(
             "agents",
@@ -1064,7 +1069,9 @@ def _agents(d: Deployment) -> SystemCheck:
             "Adopt an agent from the Agents view.",
         )
     origins = d.health.get("packs_by_origin") or {}
-    pulled = int(origins.get("hub") or 0)
+    pulled = (
+        int(origins.get("hub") or 0) if d.served_from_registry is None else d.served_from_registry
+    )
     from_registry = f", {pulled} of them from a registry" if pulled else ""
     return _check(
         "agents",

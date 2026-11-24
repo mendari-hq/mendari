@@ -460,6 +460,14 @@ CASES: list[Case] = [
     # The agents.
     ("agents", {}, "ok", "2 agents are served, 1 of them from a registry"),
     ("agents", {"demo_only": True}, "not_set", "Only the bundled demo agent"),
+    # Counted as the organization is served: its own store's agents with the deployment's.
+    (
+        "agents",
+        {"served": 3, "served_from_registry": 2},
+        "ok",
+        "3 agents are served, 2 of them from a registry",
+    ),
+    ("agents", {"served": 1, "served_from_registry": 0}, "ok", "1 agent is served."),
     (
         "agents",
         {"health": health(invalid={"clinic/triage": "its manifest does not load"})},

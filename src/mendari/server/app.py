@@ -3965,6 +3965,8 @@ def create_app(
         runs = store.runs()
         sent = store.last_alerts()
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
+        # What this organization is served: the deployment's agents and its own store's.
+        served = served_here()
         return system.Deployment(
             health={**public, **health_details(request, principal, org_of(principal))},
             ready=readiness.answer().body,
@@ -3996,11 +3998,13 @@ def create_app(
             ),
             registry=registry_probe.state(),
             agent_store=kept_store is not None,
+            served=len(served),
+            served_from_registry=sum(pack.shown_origin == "hub" for pack in served.values()),
             any_decision=store.any_decision(),
-            demo_only=set(served_here()) == {DEMO_AGENT},
+            demo_only=set(served) == {DEMO_AGENT},
             recalls=[
                 {"agent": pack.id, "version": pack.version, "reason": why}
-                for pack in packs.values()
+                for pack in served.values()
                 if (why := recall_watch.recalled(pack)) is not None
             ],
             ehr_checked=runs.get("ehr.check"),
