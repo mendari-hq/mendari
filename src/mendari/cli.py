@@ -881,10 +881,7 @@ def cmd_written_eval(args: argparse.Namespace) -> int:
     from mendari.evals.render import written_report_text
     from mendari.providers.judge import Judge
 
-    if args.seed < 0:
-        raise MendariError("--seed is 0 or more")
-    if not 1 <= args.resamples <= MAX_RESAMPLES:
-        raise MendariError(f"--resamples is 1 to {MAX_RESAMPLES}")
+    _written_resamples(args.resamples)  # before the agent or a judge is asked anything
     decision = _decision(args, origin_cap=False)  # the agent's own answers, as `mendari eval`
     pack = decision.pack
     if args.rubric not in pack.manifest.rubrics:
@@ -898,7 +895,8 @@ def cmd_written_eval(args: argparse.Namespace) -> int:
     workers = args.workers or (8 if decision.is_remote or not judge.canned else 1)
     run = written.run(decision, dataset, args.rubric, judge=judge, workers=workers)
     grades = _written_grades(args, pack, whole)
-    found = written.report(run.ledger, grades, seed=args.seed, resamples=args.resamples)
+    # The bootstrap's seed is the report's constant default: no option chooses its draws.
+    found = written.report(run.ledger, grades, resamples=args.resamples)
     report = written.run_report(found, run.ledger)
     if args.out:
         out = Path(args.out)
@@ -914,6 +912,16 @@ def cmd_written_eval(args: argparse.Namespace) -> int:
         ids = {case_hash(dataset.case_key, r["id"]): r["id"] for r in dataset.records}
         print(written_report_text(report, ids))
     return 0
+
+
+def _written_resamples(resamples: int) -> None:
+    """Refuse, before anything is run or changed, resamples a judge's state may not be decided
+    on (`evals/written.py` `resamples_problem`: fewer than 2,000 is a few draws, not a bound)."""
+    from mendari.evals.written import resamples_problem
+
+    problem = resamples_problem(resamples)
+    if problem is not None:
+        raise MendariError(f"--resamples: {problem}")
 
 
 def _written_store(target: str | None, *, writes: bool) -> tuple[Any, str]:
@@ -986,7 +994,7 @@ def cmd_written_round_assign(args: argparse.Namespace) -> int:
     twice."""
     store, shown = _written_store(args.db, writes=True)
     with store.store:
-        made = store.assign(args.round_id, args.grader, double=args.double, seed=args.seed)
+        made = store.assign(args.round_id, args.grader, double=args.double)
     _print_json(made)
     print(
         f"{made['assigned']} assignment(s) made and {made['withdrawn']} withdrawn in {shown}",
@@ -1000,7 +1008,10 @@ def cmd_written_round_progress(args: argparse.Namespace) -> int:
     by user id. Counts only; read-only."""
     store, _ = _written_store(args.db, writes=False)
     with store.store:
-        _print_json(store.progress(args.round_id))
+        found = store.progress(args.round_id)
+    if found["note"]:
+        print(f"note: {found['note']}", file=sys.stderr)
+    _print_json(found)
     return 0
 
 
@@ -1009,15 +1020,10 @@ def cmd_written_round_close(args: argparse.Namespace) -> int:
     every text the round kept is erased. Prints the report (hashes, never a text)."""
     from mendari.evals.render import written_report_text
 
-    if args.seed < 0:
-        raise MendariError("--seed is 0 or more")
-    if not 1 <= args.resamples <= MAX_RESAMPLES:
-        raise MendariError(f"--resamples is 1 to {MAX_RESAMPLES}")
+    _written_resamples(args.resamples)  # before the database is opened
     store, shown = _written_store(args.db, writes=True)
     with store.store:
-        closed = store.close(
-            args.round_id, by=_command_line_actor(), seed=args.seed, resamples=args.resamples
-        )
+        closed = store.close(args.round_id, by=_command_line_actor(), resamples=args.resamples)
     if args.json:
         _print_json(closed["report"])
     else:
@@ -1032,13 +1038,16 @@ def cmd_written_round_close(args: argparse.Namespace) -> int:
 def cmd_written_round_list(args: argparse.Namespace) -> int:
     """Every round (of `--org`, of `--agent`), with its state and counts: ids and counts,
     read-only. A closed round's report is in the console and in `mendari written round close`'s
-    answer; here, its hash."""
+    answer; here, its hash. `note` says what a state needs said: a round left closing, with how
+    to finish it, and a stored report that is not the one the audit trail committed to."""
     store, _ = _written_store(args.db, writes=False)
     with store.store:
         rounds = store.rounds(args.org, args.agent)
     for found in rounds:
         report = found.pop("report")
         found["report_sha256"] = None if report is None else report.get("result_sha256")
+        if found["note"]:
+            print(f"note: round {found['id']}: {found['note']}", file=sys.stderr)
     _print_json(rounds)
     return 0
 
@@ -6354,10 +6363,10 @@ def build_parser() -> argparse.ArgumentParser:
     written_eval.add_argument("--out", help="write the full JSON report here, its ledger beside it")
     written_eval.add_argument("--json", action="store_true", help="print the JSON report")
     written_eval.add_argument(
-        "--seed", type=int, default=0, help="the bootstrap's seed (default 0)"
-    )
-    written_eval.add_argument(
-        "--resamples", type=int, default=2000, help="bootstrap resamples (default 2000)"
+        "--resamples",
+        type=int,
+        default=2000,
+        help="bootstrap resamples: 2000 (the default) or more, never fewer",
     )
     written_eval.set_defaults(handler=cmd_written_eval)
     written_round = written.add_parser(
@@ -6381,7 +6390,13 @@ def build_parser() -> argparse.ArgumentParser:
     round_create.add_argument(
         "--sample", type=int, required=True, help="how many of the run's outputs to keep to grade"
     )
-    round_create.add_argument("--seed", type=int, default=0, help="the draw's seed (default 0)")
+    round_create.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="the round's seed, fixed here and recorded: its sample, its assignments and its "
+        "report's bootstrap all use it (default 0)",
+    )
     round_create.add_argument(
         "--provider",
         action="append",
@@ -6417,7 +6432,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.25,
         help="the share of items a second grader also grades (default 0.25; 0 for none)",
     )
-    round_assign.add_argument("--seed", type=int, default=0, help="the draw's seed (default 0)")
     round_assign.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     round_assign.set_defaults(handler=cmd_written_round_assign)
     round_progress = written_round.add_parser(
@@ -6431,9 +6445,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     round_close.add_argument("round_id", metavar="ROUND", help="the round's id")
     round_close.add_argument("--json", action="store_true", help="print the JSON report")
-    round_close.add_argument("--seed", type=int, default=0, help="the bootstrap's seed (default 0)")
     round_close.add_argument(
-        "--resamples", type=int, default=2000, help="bootstrap resamples (default 2000)"
+        "--resamples",
+        type=int,
+        default=2000,
+        help="bootstrap resamples: 2000 (the default) or more, never fewer",
     )
     round_close.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     round_close.set_defaults(handler=cmd_written_round_close)

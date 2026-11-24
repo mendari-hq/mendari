@@ -85,7 +85,7 @@ async function boot() {
   state.labelling = Boolean(person && me.principal.org && me.principal.permissions.includes("label"))
     && await api("/api/labelling").then(() => true, () => false);
   // And they grade what an agent wrote (ADR-0025, written.js) where the deployment serves a
-  // grader's routes (memberships mode under PHI mode encrypt) and a grading round holds work of
+  // grader's routes (memberships mode under PHI mode encrypt) and a round holds work of
   // theirs, waiting or done: their counts say both, read once. Those routes need no key of
   // their own, so a labeller no round was ever assigned to sees what they saw before.
   state.written = Boolean(person && me.principal.org && me.principal.permissions.includes("label"))
@@ -256,7 +256,7 @@ function showLabelling() {
   $('.nav a[data-view="labelling"]').hidden = Boolean(state.noAccess) || !views.labelling.available();
 }
 
-// And where a grader's routes are served (ADR-0025): the grading screen (written.js).
+// And where a grader's routes are served (ADR-0025): the grader's screen (written.js).
 function showWritten() {
   $('.nav a[data-view="written"]').hidden = Boolean(state.noAccess) || !views.written.available();
 }

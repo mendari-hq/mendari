@@ -561,8 +561,13 @@ class WrittenRound(BaseModel):
     items: int = Field(description="the outputs kept to grade")
     graded: int = Field(description="grades given so far")
     open: int = Field(description="assignments still waiting for their grader")
+    note: str | None = Field(
+        description="what its state needs said: a round left closing, with how to finish it; "
+        "or that its stored report does not match the audit trail, and is not shown"
+    )
     report: dict[str, Any] | None = Field(
-        description="the round's report (`mendari.written/1`), once it is closed; null before"
+        description="the round's report (`mendari.written/1`), once it is closed and while it "
+        "is the one the audit trail committed to; null otherwise"
     )
 
 
@@ -4435,8 +4440,10 @@ def add_written_routes(app: FastAPI, auth: Auth, rounds: WrittenStore) -> None:
         (`mendari.written/1`): per criterion, the judge's agreement with clinicians beside
         clinician with clinician, the state (validated, not validated, insufficient evidence),
         and the judge's grades for ungraded outputs only where validated. While a round is
-        open there is no report: nothing compares anyone before it closes. Counts,
-        coefficients, hashes and graders' user ids: never a text or a single grade."""
+        open there is no report: nothing compares anyone before it closes. A stored report is
+        served only while its hash is the one the round's closing recorded in the audit trail;
+        otherwise `report` is null and `note` says so. Counts, coefficients, hashes and
+        graders' user ids: never a text or a single grade."""
         org = org_of(auth.acting(request))
         return [
             WrittenRound.model_validate(

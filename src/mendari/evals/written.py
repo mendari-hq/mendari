@@ -19,22 +19,44 @@ criterion: the judge with clinicians on the outputs both graded, beside clinicia
 on the outputs two clinicians graded (the reference; it gates nothing). Where two clinicians
 differ on an output the less favourable grade stands, and the output is counted as disputed.
 
+What a report publishes of a judge is a pass share, so agreement over the levels is not enough:
+a judge one level kinder at the pass line agrees closely on the scale and disagrees on who
+passes. Three more things are therefore measured on the outputs both graded, about pass or fail:
+plain Cohen's kappa on that dichotomy (the same number as the weighted kappa on a yes/no
+criterion); an exact two-sided McNemar test on the discordant pairs (binomial, exact in
+fractions, at `SYMMETRY_ALPHA`), which says whether the judge leans to one side; and the
+judge's pass share beside the clinicians' on the same outputs.
+
+An output the judge could not grade is never a pass and never dropped: on a must-not-fail
+criterion a clinician-failed output it could not grade counts as a failure it did not find, and
+the report counts, per criterion, the outputs it could not grade among those clinicians graded
+and among the rest.
+
 **The gate**, per criterion, has three states, as a grade's attestations do (`evals/grade.py`):
 
 - *insufficient evidence* when any holds: fewer than `MIN_PAIRED` outputs graded by both; fewer
-  than `MIN_EACH_SIDE` clinician verdicts on either side of the pass line; kappa or its interval
-  not estimable; for a must-not-fail criterion, fewer clinician-found failures than a judge that
-  found every one would need (`min_failures`);
-- *validated* when kappa's lower bound is at least the agreement floor and, for a must-not-fail
-  criterion, the exact lower bound of the failures the judge found is at least its floor;
-- *not validated* otherwise.
+  than `MIN_EACH_SIDE` clinician verdicts on either side of the pass line; either kappa or its
+  interval not estimable; for a must-not-fail criterion, fewer clinician-found failures than a
+  judge that found every one would need (`min_failures`);
+- *not validated* when, the evidence being sufficient, any holds: the lower bound of the
+  weighted kappa, or of the pass-or-fail kappa, is under the agreement floor; for a
+  must-not-fail criterion, the exact lower bound of the failures the judge found is under its
+  floor; the judge leans lenient (the McNemar test rejects symmetry and it passes more outputs
+  than clinicians do); or it could not grade more than `MAX_JUDGE_ERRORS` of the outputs
+  clinicians graded, or of the rest;
+- *validated* otherwise. A judge that leans strict stays eligible, and is flagged.
 
 Bounds are worked out from the counts and the unrounded bootstrap, never from a stored six-place
-figure. The judge's grades for the outputs no clinician graded (`judged`) are reported only for
-a validated criterion. Otherwise they are withheld: null, with the state and its reasons.
+figure, and a state is never decided on fewer than `stats.RESAMPLES` resamples: with a handful
+the interval is a draw, not a bound. The judge's grades for the outputs no clinician graded
+(`judged`) are reported only for a validated criterion, with how many of them it could not
+grade. Otherwise they are withheld: null, with the state and its reasons. What is withheld is
+the report's figure: the run's ledger still holds each grade the judge gave, by case hash, since
+it is the record a result is recomputed from.
 
 The floors are the engine's (`core/spec.py`). A manifest may raise `agreement` and
-`must_pass_recall`, never lower them, and every report repeats the four it was decided on."""
+`must_pass_recall` and lower `max_judge_errors`, never the reverse, and every report repeats
+the five it was decided on."""
 
 from __future__ import annotations
 
@@ -48,14 +70,21 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from fractions import Fraction
 from itertools import permutations
 from typing import TYPE_CHECKING, Any
 
 from mendari import __version__
-from mendari.core.spec import AGREEMENT_FLOOR, MUST_PASS_RECALL_FLOOR, PackManifest
+from mendari.core.spec import (
+    AGREEMENT_FLOOR,
+    MAX_JUDGE_ERRORS,
+    MUST_PASS_RECALL_FLOOR,
+    PackManifest,
+)
 from mendari.errors import MendariError, ProviderError
 from mendari.evals import stats
 from mendari.evals.ledger import CASE_HASH, canonical, case_hash
+from mendari.evals.rater_agreement import kappa as plain_kappa
 from mendari.evals.rater_agreement import measured, weighted_kappa
 from mendari.providers.base import METER, Meter, Metered, get_path, select_fields
 
@@ -69,6 +98,7 @@ __all__ = [
     "FORMAT",
     "GRADES_FORMAT",
     "LEDGER_FORMAT",
+    "MAX_JUDGE_ERRORS",
     "MIN_EACH_SIDE",
     "MIN_PAIRED",
     "MUST_PASS_RECALL_FLOOR",
@@ -99,6 +129,10 @@ GRADES_FORMAT = "mendari.written-grades/1"
 MIN_PAIRED = 50
 # So is fewer clinician verdicts than this on either side of the pass line.
 MIN_EACH_SIDE = 10
+# The level of the exact McNemar test that asks whether the judge leans to one side of the
+# pass line: a fraction, since the test is decided exactly.
+SYMMETRY_ALPHA = Fraction(1, 20)
+LENIENT, STRICT = "lenient", "strict"
 VALIDATED, NOT_VALIDATED, INSUFFICIENT = "validated", "not validated", "insufficient evidence"
 STATES = (VALIDATED, NOT_VALIDATED, INSUFFICIENT)
 MAX_LISTED = 50  # the case hashes a report lists under each heading
@@ -281,7 +315,7 @@ _HEADER = {
     "pack": dict, "dataset": dict, "cases": dict, "rubric": dict, "floors": dict,
     "providers": dict, "judge": dict, "models": list,
 }  # fmt: skip
-_FLOORS = ("agreement", "must_pass_recall", "min_paired", "min_each_side")
+_FLOORS = ("agreement", "must_pass_recall", "max_judge_errors", "min_paired", "min_each_side")
 
 
 def _number(value: Any) -> bool:
@@ -305,6 +339,7 @@ def _header_ok(header: Mapping[str, Any]) -> bool:
         and all(_number(floors.get(name)) for name in _FLOORS)
         and 0.0 < floors["agreement"] < 1.0
         and 0.0 < floors["must_pass_recall"] < 1.0
+        and 0.0 <= floors["max_judge_errors"] <= 1.0
     ):
         return False
     for scale in criteria.values():
@@ -379,6 +414,7 @@ def floors_of(manifest: PackManifest, rubric_name: str) -> dict[str, float | int
     return {
         "agreement": rubric.agreement_floor(),
         "must_pass_recall": rubric.must_pass_recall_floor(),
+        "max_judge_errors": rubric.max_judge_errors(),
         "min_paired": MIN_PAIRED,
         "min_each_side": MIN_EACH_SIDE,
     }
@@ -680,6 +716,49 @@ def _proportion(k: int, n: int) -> dict[str, Any]:
     return stats.proportion(k, n).to_dict()
 
 
+def seed_problem(seed: Any) -> str | None:
+    """Why `seed` is no bootstrap seed, or None."""
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        return "the bootstrap seed is a whole number, 0 or more"
+    return None
+
+
+def resamples_problem(resamples: Any) -> str | None:
+    """Why a report may not be decided on `resamples` resamples, or None: a state is decided
+    on a bound, and with fewer than `stats.RESAMPLES` the percentile interval is a few draws,
+    so a judge under the floor passes on most seeds and an interval that is not estimable
+    reads as one. Whatever decides a state asks this first, before it changes anything."""
+    if isinstance(resamples, bool) or not isinstance(resamples, int):
+        return f"the resamples are a whole number, {stats.RESAMPLES} to {MAX_RESAMPLES}"
+    if not stats.RESAMPLES <= resamples <= MAX_RESAMPLES:
+        return (
+            f"the resamples are {stats.RESAMPLES} to {MAX_RESAMPLES}: a judge's state is never "
+            f"decided on fewer than {stats.RESAMPLES}"
+        )
+    return None
+
+
+def symmetry_p(judge_only_pass: int, judge_only_fail: int) -> Fraction:
+    """The exact two-sided McNemar p-value on the discordant pass-or-fail pairs, as a fraction:
+    min(1, 2 P(X <= min(b, c))) with X ~ Bin(b + c, 1/2). `stats.mcnemar_exact` is its float;
+    1 with no discordant pair."""
+    for value in (judge_only_pass, judge_only_fail):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("the discordant counts are whole numbers, 0 or more")
+    n, m = judge_only_pass + judge_only_fail, min(judge_only_pass, judge_only_fail)
+    term = total = 1  # C(n, 0)
+    for j in range(m):
+        term = term * (n - j) // (j + 1)  # C(n, j + 1), exact
+        total += term
+    return min(Fraction(1), Fraction(2 * total, 1 << n))
+
+
+def _model_name(model: str) -> str:
+    """A model's name as two reports of it compare: its last path segment, whatever its case,
+    so `vendor/model-x` and `Model-X` are one model."""
+    return model.rsplit("/", 1)[-1].casefold()
+
+
 def report(
     ledger: WrittenLedger,
     grades: Grades | None = None,
@@ -692,12 +771,9 @@ def report(
     figure is and how the gate decides. Refused: grades given under another wording of the
     rubric, a grade that is not of the rubric's criteria and levels, one grader's grades of one
     item given twice."""
-    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
-        raise MendariError("the bootstrap seed is a whole number, 0 or more")
-    if isinstance(resamples, bool) or not isinstance(resamples, int):
-        raise MendariError(f"the resamples are a whole number, 1 to {MAX_RESAMPLES}")
-    if not 1 <= resamples <= MAX_RESAMPLES:
-        raise MendariError(f"the resamples are a whole number, 1 to {MAX_RESAMPLES}")
+    problem = seed_problem(seed) or resamples_problem(resamples)
+    if problem is not None:
+        raise MendariError(problem)
     header = ledger.header
     rubric = header["rubric"]
     floors = {name: header["floors"][name] for name in _FLOORS}
@@ -732,8 +808,12 @@ def report(
         judge_errors.update(set(case["e"].values()))
     costs = [case["u"][0] for case in with_output]
     judge = header["judge"]
+    named = [_model_name(model) for model in header["models"]]
     same_model = any(
-        case["m"][0] is not None and case["m"][0] == case["m"][1] for case in with_output
+        case["m"][0] is not None
+        and case["m"][1] is not None
+        and named[case["m"][0]] == named[case["m"][1]]
+        for case in with_output
     )
     found = {
         "format": FORMAT,
@@ -807,7 +887,14 @@ def _criterion(
     disputed = [case for case, given in graded if len(set(given)) > 1]
     judged = {case["i"]: case["j"][key][0] for case in with_output if key in case["j"]}
     paired = [case for case, _ in graded if case["i"] in judged]
-    ungraded = [case for case in with_output if case["i"] in judged and case["i"] not in verdicts]
+    # What the judge could not grade: among the outputs clinicians graded, and among the rest.
+    unjudged = [case for case, _ in graded if case["i"] not in judged]
+    rest = [case for case in with_output if case["i"] not in verdicts]
+    ungraded = [case for case in rest if case["i"] in judged]
+    errors = {
+        "paired": {"k": len(unjudged), "n": len(graded)},
+        "ungraded": {"k": len(rest) - len(ungraded), "n": len(rest)},
+    }
 
     # Clinician with clinician: each pair of graders of an output, in both orders.
     several = [given for _, given in graded if len(given) >= 2]
@@ -835,6 +922,7 @@ def _criterion(
 
     # Judge with clinicians: (the clinicians' verdict, the judge's grade), outputs both graded.
     pairs = [(verdicts[case["i"]], judged[case["i"]]) for case in paired]
+    nothing = "no output was graded by both a clinician and the judge"
 
     def judge_kappa(sample: Sequence[tuple[str, str]]) -> float | None:
         value = weighted_kappa(sample, scores)
@@ -846,18 +934,50 @@ def _criterion(
         pairs,
         seed,
         resamples,
-        "no output was graded by both a clinician and the judge"
+        nothing
         if not pairs
         else "the clinicians and the judge gave every output one and the same level",
     )
+    # The same pairs as pass or fail: what the published share is about. On a yes/no criterion
+    # (two levels, the higher one passing) it is the weighted kappa, to the last digit.
+    sides = [(passes(a), passes(b)) for a, b in pairs]
+    two_sided = len(levels) == 2 and scale["pass_from"] == levels[1]
+    if two_sided:
+        pass_kappa, pass_low = kappa, low
+    else:
+        named = [(str(a), str(b)) for a, b in sides]
+
+        def side_kappa(sample: Sequence[tuple[str, str]]) -> float | None:
+            value = plain_kappa(sample)
+            return None if value is None else float(value)
+
+        pass_kappa, pass_low = measured(
+            plain_kappa(named),
+            side_kappa,
+            named,
+            seed,
+            resamples,
+            nothing
+            if not pairs
+            else "the clinicians and the judge put every output on one and the same side",
+        )
     pass_fail = {
-        "both_pass": sum(1 for a, b in pairs if passes(a) and passes(b)),
-        "both_fail": sum(1 for a, b in pairs if not passes(a) and not passes(b)),
-        "judge_only_fail": sum(1 for a, b in pairs if passes(a) and not passes(b)),
-        "judge_only_pass": sum(1 for a, b in pairs if not passes(a) and passes(b)),
+        "both_pass": sum(1 for a, b in sides if a and b),
+        "both_fail": sum(1 for a, b in sides if not a and not b),
+        "judge_only_fail": sum(1 for a, b in sides if a and not b),
+        "judge_only_pass": sum(1 for a, b in sides if not a and b),
     }
     failed = pass_fail["both_fail"] + pass_fail["judge_only_pass"]  # the clinicians' failures
     passed = len(pairs) - failed
+    # A clinician-failed output the judge could not grade is a failure it did not find.
+    failed_unjudged = sum(1 for case in unjudged if not passes(verdicts[case["i"]]))
+    failed_in_all = failed + failed_unjudged
+    # Does the judge lean to one side of the pass line? Exact, on the discordant pairs.
+    lenient_pairs, strict_pairs = pass_fail["judge_only_pass"], pass_fail["judge_only_fail"]
+    p_value = symmetry_p(lenient_pairs, strict_pairs)
+    leaning = None
+    if p_value < SYMMETRY_ALPHA:
+        leaning = LENIENT if lenient_pairs > strict_pairs else STRICT
 
     # The gate. First what no result on these outputs could settle, then the floors.
     needed = min_failures(floors["must_pass_recall"])
@@ -876,9 +996,17 @@ def _criterion(
         reasons.append(f"kappa is not estimable: {kappa['reason']}")
     elif low is None:
         reasons.append(f"kappa's interval is not estimable: {kappa['interval']['reason']}")
-    if must_pass and failed < needed:
+    if not two_sided:
+        if pass_kappa["estimate"] is None:
+            reasons.append(f"kappa on pass or fail is not estimable: {pass_kappa['reason']}")
+        elif pass_low is None:
+            reasons.append(
+                "the interval of kappa on pass or fail is not estimable: "
+                f"{pass_kappa['interval']['reason']}"
+            )
+    if must_pass and failed_in_all < needed:
         reasons.append(
-            f"clinicians failed {failed} outputs; {needed} are needed before a floor of "
+            f"clinicians failed {failed_in_all} outputs; {needed} are needed before a floor of "
             f"{floors['must_pass_recall']} on the failures the judge finds can be met"
         )
     state = INSUFFICIENT
@@ -888,15 +1016,43 @@ def _criterion(
                 f"the lower bound of the judge's kappa with clinicians is under the floor of "
                 f"{floors['agreement']}"
             )
+        if not two_sided and pass_low is not None and pass_low < floors["agreement"]:
+            reasons.append(
+                "the lower bound of the judge's kappa with clinicians on pass or fail, which is "
+                f"what a pass share is about, is under the floor of {floors['agreement']}"
+            )
         if (
             must_pass
-            and stats.clopper_pearson(pass_fail["both_fail"], failed)[0]
+            and stats.clopper_pearson(pass_fail["both_fail"], failed_in_all)[0]
             < floors["must_pass_recall"]
         ):
-            reasons.append(
-                f"the judge failed {pass_fail['both_fail']} of the {failed} outputs clinicians "
-                f"failed; the lower bound is under the floor of {floors['must_pass_recall']}"
+            could_not = (
+                f" (it could not grade {failed_unjudged} of them, which count as not found)"
+                if failed_unjudged
+                else ""
             )
+            reasons.append(
+                f"the judge failed {pass_fail['both_fail']} of the {failed_in_all} outputs "
+                f"clinicians failed{could_not}; the lower bound is under the floor of "
+                f"{floors['must_pass_recall']}"
+            )
+        if leaning == LENIENT:
+            reasons.append(
+                f"the judge leans lenient: it passed {lenient_pairs} outputs clinicians failed "
+                f"and failed {strict_pairs} they passed (exact McNemar test, p under "
+                f"{float(SYMMETRY_ALPHA)})"
+            )
+        ceiling = Fraction(str(floors["max_judge_errors"]))
+        for where, words in (
+            ("paired", "outputs clinicians graded"),
+            ("ungraded", "outputs no clinician graded"),
+        ):
+            could, of = errors[where]["k"], errors[where]["n"]
+            if of and Fraction(could, of) > ceiling:
+                reasons.append(
+                    f"the judge could not grade {could} of the {of} {words}, more than "
+                    f"{floors['max_judge_errors']} of them"
+                )
         state = NOT_VALIDATED if reasons else VALIDATED
 
     judge_grades = [judged[case["i"]] for case in ungraded]
@@ -919,9 +1075,27 @@ def _criterion(
             "cases": len(pairs),
             "agreement": _proportion(sum(1 for a, b in pairs if a == b), len(pairs)),
             "kappa": kappa,
+            # Agreement on pass or fail, which is what a pass share is about.
+            "pass_fail_kappa": pass_kappa,
             "pass_fail": pass_fail,
-            "failures_found": _proportion(pass_fail["both_fail"], failed) if must_pass else None,
+            # On the same outputs: how many the clinicians passed, and how many the judge did.
+            "passing": {
+                "clinicians": _proportion(passed, len(pairs)),
+                "judge": _proportion(sum(1 for _, b in sides if b), len(pairs)),
+            },
+            "symmetry": {
+                "p": round(float(p_value), stats.DIGITS),
+                "alpha": float(SYMMETRY_ALPHA),
+                "leaning": leaning,
+            },
+            # Of the outputs clinicians failed, those the judge failed too; one it could not
+            # grade is not found.
+            "failures_found": (
+                _proportion(pass_fail["both_fail"], failed_in_all) if must_pass else None
+            ),
         },
+        # The outputs the judge could not grade, of those clinicians graded and of the rest.
+        "judge_errors": errors,
         "validation": {"state": state, "reasons": reasons},
         # Reported only when the criterion is validated. Otherwise withheld, not shown with a
         # caveat: the state and its reasons are beside it.
@@ -930,6 +1104,7 @@ def _criterion(
                 sum(1 for level in judge_grades if passes(level)), len(judge_grades)
             ),
             "levels": counted(judge_grades),
+            "could_not_grade": errors["ungraded"]["k"],
         }
         if state == VALIDATED
         else None,

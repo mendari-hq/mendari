@@ -695,7 +695,8 @@ def written_report_text(report: Mapping[str, Any], ids: Mapping[str, Any] | None
         f"  floors: kappa's lower bound at least {floors['agreement']}; on a must-not-fail "
         f"criterion, the failures the judge finds at least {floors['must_pass_recall']} by their "
         f"lower bound; {floors['min_paired']} outputs graded by both, {floors['min_each_side']} "
-        "on each side of the pass line"
+        "on each side of the pass line; and the judge may fail to grade at most "
+        f"{floors['max_judge_errors']} of the outputs"
     )
     lines.append(
         f"  {round(seeds['level'] * 100)}% intervals; bootstrap seed {seeds['bootstrap']}, "
@@ -719,10 +720,28 @@ def written_report_text(report: Mapping[str, Any], ids: Mapping[str, Any] | None
             f"    judge with clinicians, {judged['cases']} outputs: agree "
             f"{shown(judged['agreement'])}; kappa {_kappa_text(judged['kappa'])}"
         )
+        # What a pass share is about: the same outputs as pass or fail.
+        symmetry, sides = judged["symmetry"], judged["pass_fail"]
+        leaning = f"; the judge leans {symmetry['leaning']}" if symmetry["leaning"] else ""
+        lines.append(
+            f"    on pass or fail: kappa {_kappa_text(judged['pass_fail_kappa'])}; clinicians "
+            f"passed {shown(judged['passing']['clinicians'])}, the judge "
+            f"{shown(judged['passing']['judge'])}; the judge alone passed "
+            f"{sides['judge_only_pass']} and alone failed {sides['judge_only_fail']} (exact "
+            f"McNemar p {symmetry['p']:.4f}){leaning}"
+        )
         if judged["failures_found"] is not None:
             lines.append(
                 f"    failures the judge found, of those clinicians found: "
                 f"{shown(judged['failures_found'])}"
+            )
+        could_not = measured["judge_errors"]
+        if could_not["paired"]["k"] or could_not["ungraded"]["k"]:
+            lines.append(
+                f"    the judge could not grade {could_not['paired']['k']} of the "
+                f"{could_not['paired']['n']} outputs clinicians graded, and "
+                f"{could_not['ungraded']['k']} of the {could_not['ungraded']['n']} others "
+                "(never a pass, and on a must-not-fail criterion never a failure found)"
             )
         lines.append(f"    the judge on this criterion: {validation['state']}")
         lines.extend(f"      - {reason}" for reason in validation["reasons"])
@@ -731,8 +750,9 @@ def written_report_text(report: Mapping[str, Any], ids: Mapping[str, Any] | None
         else:
             lines.append(
                 "    judged, outputs no clinician graded, passing: "
-                f"{shown(measured['judged']['passing'])} (its interval covers sampling only; "
-                "the agreement above says how far to trust it)"
+                f"{shown(measured['judged']['passing'])}; it could not grade "
+                f"{measured['judged']['could_not_grade']} more (its interval covers sampling "
+                "only; the agreement above says how far to trust it)"
             )
         for heading, name in (
             ("failed by clinicians", "failed_by_clinicians"),

@@ -434,6 +434,15 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     ),
     # An agent's connection for an organization (ADR-0021): the agent and who acted; never the
     # token, nor where it leads (the origin stays in the chain's own payload).
+    # A grading round of written output (ADR-0025): the round and its organization, and who
+    # graded or closed. The item, the assignment, the commitment and the counts are no detail
+    # here (`_ADMINISTRATIVE_DETAILS`).
+    "written.round_created": ("C", "Grading round of written output created", None),
+    "written.assigned": ("C", "Written output assigned to a grader", None),
+    "written.item_read": ("R", "Written output read by its grader", None),
+    "written.graded": ("C", "Written output graded", None),
+    "written.round_closed": ("U", "Grading round closed and its texts erased", None),
+    "written.erased": ("D", "Written outputs erased by retention", None),
     "agent_connection.set": ("U", "Agent connection set", _CONFIGURATION),
     "agent_connection.cleared": ("D", "Agent connection cleared", _CONFIGURATION),
     "agent_connection.origin_allowed": (
@@ -466,6 +475,11 @@ _ACTOR_KEY = {
     "evalset.case_read": "labeller",
     "evalset.labelled": "labeller",
     "evalset.graded": "grader",
+    # Who was shown or graded an item is its grader; `grader` on `written.assigned` is who was
+    # assigned, not who acted. A round is closed `by` someone.
+    "written.item_read": "grader",
+    "written.graded": "grader",
+    "written.round_closed": "by",
 }
 # What a payload says, as ids and codes (never `name`, `reason`, `reference` or `providers`).
 _ADMINISTRATIVE_DETAILS = (

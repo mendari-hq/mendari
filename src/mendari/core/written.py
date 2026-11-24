@@ -31,7 +31,13 @@ salted commitment, the closing and any erasure by retention. Ids, hashes and cou
 
 Closing (`close`) ends the open assignments, computes the report from the ledger and the grades
 (grader: the person's user id), stores it, and erases every text the round still keeps. Grades
-and ids remain."""
+and ids remain.
+
+What a round stores is held to what the chain committed to. The round's seed is fixed when it
+is made and chained (`written.round_created`), so nobody chooses the bootstrap's draws once
+grades exist. A closed round's report is served only while its hash is the one its
+`written.round_closed` chained (`rounds`), and `AuditStore.verify` checks every closed round's
+report and every stored grade's commitment (`check_stored`)."""
 
 from __future__ import annotations
 
@@ -67,6 +73,88 @@ class NoRound(MendariError):
 
 
 NO_ROUND = "no such grading round"
+# What a round says of itself where its state needs a word (`rounds`, `progress`).
+CLOSING_NOTE = (
+    "closing: its assignments are ended and its report is not stored yet. Run `mendari written "
+    "round close` on it again to finish; until then it takes no assignment and no grade"
+)
+REPORT_MISMATCH = "its stored report does not match the audit trail, so it is not shown"
+
+
+def report_hash(report: Any) -> str | None:
+    """The hash of a stored report's result, recomputed from the report itself (everything but
+    its `run` and its own `result_sha256`); None for what is no report."""
+    if not isinstance(report, dict):
+        return None
+    found = {key: value for key, value in report.items() if key not in ("run", "result_sha256")}
+    try:
+        return written.result_sha256(found)
+    except (TypeError, ValueError):
+        return None
+
+
+def check_stored(
+    events: Sequence[Mapping[str, Any]],
+    rounds: Mapping[str, Mapping[str, Any]],
+    assignments: Mapping[str, Mapping[str, Any]],
+    items: Mapping[str, str],
+) -> tuple[int | None, dict[str, int]]:
+    """What the rounds' rows hold, against what the chain committed to (`AuditStore.verify`):
+    each stored grade against the commitment its `written.graded` chained, each closed round's
+    stored report against the hash its `written.round_closed` chained, and no stored grade or
+    closed round without its event. `events`: the chain's `written.graded` and
+    `written.round_closed`, in order; `rounds` and `assignments` by id; `items`: an item row's
+    id to its item id. The `seq` of the first event its row does not match (0: a row no event
+    accounts for), or None; and what was checked, counted."""
+    counts = {"rounds": 0, "grades": 0}
+    graded: set[str] = set()
+    closed: set[str] = set()
+    for event in events:
+        payload = json.loads(event["payload"])
+        seq = int(event["seq"])
+        if event["event"] == "written.graded":
+            assignment = str(payload.get("assignment"))
+            row = assignments.get(assignment)
+            ref = payload.get("grade_ref") or {}
+            try:
+                body = json.loads(row["grades"]) if row and row["grades"] else None
+                salt = base64.b64decode(str(body["salt"]), validate=True) if body else None
+            except (ValueError, TypeError, KeyError):
+                return seq, counts
+            if body is None or salt is None or row is None:
+                return seq, counts
+            said = grade_ref(
+                salt,
+                str(row["round_id"]),
+                items.get(str(row["item_id"]), ""),
+                assignment,
+                body.get("values") or {},
+            )
+            if said != ref.get("sha256") or payload.get("round") != row["round_id"]:
+                return seq, counts
+            graded.add(assignment)
+            counts["grades"] += 1
+        else:
+            round_id = str(payload.get("round"))
+            row = rounds.get(round_id)
+            try:
+                stored = json.loads(row["report"]) if row and row["report"] else None
+            except ValueError:
+                return seq, counts
+            if row is None or row["state"] != CLOSED:
+                return seq, counts
+            if report_hash(stored) != payload.get("report_sha256"):
+                return seq, counts
+            closed.add(round_id)
+            counts["rounds"] += 1
+    unchained = any(
+        row["grades"] is not None and key not in graded for key, row in assignments.items()
+    )
+    unclosed = any(
+        (row["state"] == CLOSED or row["report"] is not None) and key not in closed
+        for key, row in rounds.items()
+    )
+    return (0 if unchained or unclosed else None), counts
 
 
 def grade_ref(
@@ -156,9 +244,11 @@ class WrittenStore:
     ) -> dict[str, Any]:
         """A new open round of `org` from one run of `pack` on its rubric: `sample` of the run's
         outputs, drawn with `seed` and kept in the run's order, each with its context; the
-        run's ledger whole. The run's remote calls go to the organization's usage ledger. Refused:
-        PHI mode `hash`; a run of another agent or another wording of the rubric; a sample of
-        no item, or of more than the run has (or than `MAX_ITEMS`). Returns ids and counts."""
+        run's ledger whole. `seed` is the round's from then on, chained with its making: its
+        assignments' draws and its report's bootstrap use it, so neither is chosen later. The
+        run's remote calls go to the organization's usage ledger. Refused: PHI mode `hash`; a
+        run of another agent or another wording of the rubric; a sample of no item, or of more
+        than the run has (or than `MAX_ITEMS`). Returns ids and counts."""
         try:
             org = accounts.check_org_id(org)
         except ValueError as error:
@@ -173,14 +263,14 @@ class WrittenStore:
             self.store.refuse_plaintext()
         if rubric_name not in pack.manifest.rubrics:
             raise MendariError(f"{pack.id} has no rubric {rubric_name!r}")
-        header = rubric_header(pack, rubric_name)
+        if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+            raise MendariError("the seed is a whole number, 0 or more")
+        header = {**rubric_header(pack, rubric_name), "seed": seed}
         said = run.ledger.header
         if said["pack"].get("digest") != pack.digest or said["rubric"].get("name") != rubric_name:
             raise MendariError("the run is of another agent or rubric than the round's")
         if said["rubric"].get("sha256") != header["rubric_sha256"]:
             raise MendariError("the run was made under another wording of the rubric")
-        if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
-            raise MendariError("the seed is a whole number, 0 or more")
         if isinstance(sample, bool) or not isinstance(sample, int) or sample < 1:
             raise MendariError("a round samples 1 output or more")
         if sample > len(run.items):
@@ -244,10 +334,27 @@ class WrittenStore:
                 "rubric_sha256": header["rubric_sha256"],
                 "ledger": run.ledger.id,
                 "items": len(rows),
+                "seed": seed,
             }
             chained = self.store._bound("written.round_created", payload, org)
             self.store._append(db, f"written:{round_id}", "written.round_created", chained)
-        return {"round": round_id, "items": len(rows), "ledger": run.ledger.id, "state": OPEN}
+        return {
+            "round": round_id,
+            "items": len(rows),
+            "ledger": run.ledger.id,
+            "state": OPEN,
+            "seed": seed,
+        }
+
+    def _seed(self, db: Session, round_id: str) -> int:
+        """The round's seed, as its making chained it (0 for a round chained without one)."""
+        row = db.one(
+            "SELECT payload FROM audit_events WHERE decision_id = ? AND event = ? "
+            "ORDER BY seq LIMIT 1",
+            (f"written:{round_id}", "written.round_created"),
+        )
+        seed = json.loads(row["payload"]).get("seed") if row is not None else None
+        return seed if isinstance(seed, int) and not isinstance(seed, bool) and seed >= 0 else 0
 
     def assign(
         self,
@@ -255,28 +362,26 @@ class WrittenStore:
         graders: Sequence[str],
         *,
         double: float = DOUBLE,
-        seed: int = 0,
         org: str | None = None,
     ) -> dict[str, Any]:
         """Give an open round's items to `graders` (user ids): one grader an item, and
         `ceil(double x items)` seeded items a second, different one. Loads are balanced, ties by
-        a seeded rank. Each grader holds the `labeller` role on a membership in force in the
-        round's organization and no role that manages its sets; a second grader needs two
-        graders. Open assignments whose membership no longer holds are withdrawn first, and
-        their items given again. An item that already has its graders gets none. Returns ids
-        and counts, never which items are graded twice."""
+        a seeded rank; the seed is the round's own (`create_round`). Each grader holds the
+        `labeller` role on a membership in force in the round's organization and no role that
+        manages its sets; a second grader needs two graders. Open assignments whose membership
+        no longer holds are withdrawn first, and their items given again. An item that already
+        has its graders gets none. Returns ids and counts, never which items are graded twice."""
         if isinstance(double, bool) or not isinstance(double, int | float):
             raise MendariError("`double` is a share, 0 to 1")
         if not (math.isfinite(double) and 0.0 <= double <= 1.0):
             raise MendariError("`double` is a share, 0 to 1")
-        if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
-            raise MendariError("the seed is a whole number, 0 or more")
         users = user_ids(graders, at_least=2 if double > 0 else 1)
         with self.store._db.session(exclusive=True) as db:
             found = self._round(db, round_id, org)
             if found["state"] != OPEN:
                 raise MendariError(f"round {round_id} is {found['state']}: nothing is assigned")
             owner = str(found["org"])
+            seed = self._seed(db, round_id)
             withdrawn = self._withdraw(db, round_id, owner)
             memberships = {user: labeller_in(db, owner, user) for user in users}
             items = db.all(
@@ -397,7 +502,6 @@ class WrittenStore:
         *,
         by: str,
         org: str | None = None,
-        seed: int = 0,
         resamples: int = stats.RESAMPLES,
     ) -> dict[str, Any]:
         """Close an open round: end its open assignments, compute the report
@@ -407,12 +511,27 @@ class WrittenStore:
         closed it). A round already closed is refused. Three steps, so the chain's lock is not
         held while the report is computed: the round is `closing` between the first and the
         last, which takes no assignment and no grade; a `closing` round is closed by running
-        this again. Returns the stored report."""
+        this again. Returns the stored report.
+
+        Every argument is checked before the first step, which cannot be undone: fewer than
+        `stats.RESAMPLES` resamples is refused (a state is never decided on a handful of
+        draws), and so is a `by` that names no one. The bootstrap's seed is the round's own,
+        chained when it was made: closing takes none."""
+        problem = written.resamples_problem(resamples)
+        if problem is not None:
+            raise MendariError(problem)
+        if not isinstance(by, str) or not by.strip():
+            raise MendariError("closing a round names who closes it")
         with self.store._db.session(exclusive=True) as db:
             found = self._round(db, round_id, org)
             if found["state"] == CLOSED:
                 raise MendariError(f"round {round_id} is already closed")
             owner = str(found["org"])
+            seed = self._seed(db, round_id)
+            # Read as a ledger before anything changes: one that is not one closes nothing.
+            ledger = written.WrittenLedger.loads(
+                str(found["ledger"]).encode("utf-8"), where=f"round {round_id}"
+            )
             now = _now()
             db.all(
                 "UPDATE written_assignments SET ended_at = ? WHERE round_id = ? "
@@ -426,9 +545,6 @@ class WrittenStore:
                 "AND a.grades IS NOT NULL ORDER BY a.created_at, a.id",
                 (round_id,),
             )
-        ledger = written.WrittenLedger.loads(
-            str(found["ledger"]).encode("utf-8"), where=f"round {round_id}"
-        )
         grades = written.Grades(
             str(found["rubric_sha256"]),
             tuple(
@@ -508,6 +624,7 @@ class WrittenStore:
         return {
             "round": round_id,
             "state": str(found["state"]),
+            "note": CLOSING_NOTE if found["state"] == CLOSING else None,
             "items": len(items),
             "erased": sum(1 for item in items if item["body"] is None),
             "items_graded": len(graded_items),
@@ -521,7 +638,13 @@ class WrittenStore:
     def rounds(self, org: str | None, pack_id: str | None = None) -> list[dict[str, Any]]:
         """`org`'s rounds (every organization's, if None: the command line), oldest first,
         optionally one agent's: ids, the rubric and its hash, the state, times, counts and,
-        once closed, the stored report. Never a text, a context or a single grade."""
+        once closed, the stored report. Never a text, a context or a single grade.
+
+        A closed round's report is served only while it is the one the round's closing chained:
+        its hash is recomputed from the stored report and compared with the
+        `written.round_closed` event's. One that differs (edited in the database) is not
+        served: `report` is null and `note` says why. A round left `closing` says so in `note`
+        too, with how to finish it."""
         with self.store._db.session(exclusive=False) as db:
             if not self._has_tables(db):
                 return []
@@ -545,6 +668,22 @@ class WrittenStore:
                 + " ORDER BY r.created_at, r.id",
                 params,
             )
+            chained = {
+                str(row["decision_id"]).removeprefix("written:"): json.loads(row["payload"]).get(
+                    "report_sha256"
+                )
+                for row in db.all(
+                    "SELECT decision_id, payload FROM audit_events WHERE event = ? ORDER BY seq",
+                    ("written.round_closed",),
+                )
+            }
+        listed = []
+        for row in rows:
+            report = None if row["report"] is None else json.loads(row["report"])
+            note = CLOSING_NOTE if row["state"] == CLOSING else None
+            if report is not None and report_hash(report) != chained.get(str(row["id"])):
+                report, note = None, REPORT_MISMATCH
+            listed.append((row, report, note))
         return [
             {
                 "id": str(row["id"]),
@@ -560,9 +699,10 @@ class WrittenStore:
                 "items": int(row["items"]),
                 "graded": int(row["graded"]),
                 "open": int(row["waiting"]),
-                "report": None if row["report"] is None else json.loads(row["report"]),
+                "note": note,
+                "report": report,
             }
-            for row in rows
+            for row, report, note in listed
         ]
 
     # -- a grader's -------------------------------------------------------------------------------

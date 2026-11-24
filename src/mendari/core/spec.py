@@ -64,6 +64,9 @@ JUDGE_MODEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
 # it found too, each by its lower bound. A manifest may raise one, never lower it.
 AGREEMENT_FLOOR = 0.60
 MUST_PASS_RECALL_FLOOR = 0.80
+# The most of the outputs a judge may fail to grade (of those clinicians graded, and of the
+# rest) and still be believed. A ceiling: a manifest may lower it, never raise it.
+MAX_JUDGE_ERRORS = 0.05
 
 
 def at_least(version: str, wanted: str) -> bool:
@@ -925,6 +928,8 @@ class RubricFloors(_Strict):
 
     agreement: float | None = Field(default=None, ge=0.0, lt=1.0)
     must_pass_recall: float | None = Field(default=None, ge=0.0, lt=1.0)
+    # A ceiling, so tightening it is lowering it: at most the engine's `MAX_JUDGE_ERRORS`.
+    max_judge_errors: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class Rubric(_Strict):
@@ -953,6 +958,10 @@ class Rubric(_Strict):
     def must_pass_recall_floor(self) -> float:
         own = self.floors.must_pass_recall
         return MUST_PASS_RECALL_FLOOR if own is None else own
+
+    def max_judge_errors(self) -> float:
+        own = self.floors.max_judge_errors
+        return MAX_JUDGE_ERRORS if own is None else own
 
 
 # The most characters a CDS Hooks card's summary has: CDS Hooks 2.0 says under 140 (Inferno's CRD
@@ -1384,6 +1393,12 @@ def written_problems(m: PackManifest) -> list[str]:
                     f"rubrics.{name[:40]}.floors.{floor} is below the engine's {lowest}: a "
                     "manifest may raise a floor, never lower it"
                 )
+        ceiling = rubric.floors.max_judge_errors
+        if ceiling is not None and ceiling > MAX_JUDGE_ERRORS:
+            problems.append(
+                f"rubrics.{name[:40]}.floors.max_judge_errors is above the engine's "
+                f"{MAX_JUDGE_ERRORS}: a manifest may lower this ceiling, never raise it"
+            )
     for name, grades in m.evaluation.grades.items():
         if name not in m.rubrics:
             problems.append(f"evaluation.grades.{name[:40]} is not a declared rubric")

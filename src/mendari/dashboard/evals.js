@@ -59,7 +59,7 @@ function showEvalsTab(requested) {
       if (body.dataset.tab === "run") body.innerHTML = empty(`Could not load the datasets: ${esc(error.message)}`);
     });
   } else if (tab === "written") {
-    body.innerHTML = empty("Loading the grading rounds…");
+    body.innerHTML = empty("Loading the rounds…");
     roundsPanel(body, state.packId);
   } else {
     const reports = evalsState.reports;

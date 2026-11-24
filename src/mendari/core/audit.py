@@ -281,6 +281,9 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     "written.round_closed": "written",
     "written.erased": "written",
 }
+# The kinds whose payload commits to something a grading round stores: a grade, and a closed
+# round's report (`core/written.py` `check_stored`, which `verify` runs).
+_WRITTEN_COMMITTED = frozenset({"written.graded", "written.round_closed"})
 # A pack store version's state after each of its kinds: `verify` checks a version's row against
 # its newest (LP-20e).
 STORE_STATES: dict[str, str] = {
@@ -6097,6 +6100,12 @@ class AuditStore(RateBuckets):
         with that hash: a chain rewritten from before the statement, or cut short of it, has
         none, and fails with `reason: "statement"`.
 
+        A full verification also checks the grading rounds of written output (ADR-0025):
+        each stored grade against the commitment its `written.graded` chained, and each closed
+        round's stored report against the hash its `written.round_closed` chained; a grade or
+        a report changed in the database, or one no event accounts for, breaks it with
+        `reason: "written"` (`written`: what was checked, where there is any).
+
         With `evalsets` (`mendari audit verify --evalsets`, LP-11e), a full verification also
         checks the hidden evaluation sets against their chained hashes (`_check_evalsets`):
         their keys (`EvalsetKeys`) to open each sealed row, or True without them, when every
@@ -6248,6 +6257,10 @@ class AuditStore(RateBuckets):
                 if db.columns("store_versions")
                 else {}
             )
+            # Grading rounds of written output (ADR-0025): each stored grade and each closed
+            # round's stored report, against what the chain committed to (`_check_written`).
+            graded_rounds = self._written_rows(db) if start is None else None
+            of_written: list[dict[str, Any]] = []
             states: dict[str, str] = {}
             prev = GENESIS
             expected = {row["seq"]: row["hash"] for row in recorded} if start is None else {}
@@ -6296,6 +6309,8 @@ class AuditStore(RateBuckets):
                         noted.append(event)
                     if held is not None and kind.startswith("evalset."):
                         of_evalsets.append(event)
+                    if graded_rounds is not None and kind in _WRITTEN_COMMITTED:
+                        of_written.append(event)
                     seen_head = seen_head or event["hash"] == head
                     prev = event["hash"]
                     last = {"seq": event["seq"], "hash": event["hash"]}
@@ -6317,6 +6332,14 @@ class AuditStore(RateBuckets):
                 return {"ok": False, "events": total, **found, "reason": "decision"}, None
         since = {} if start is None else {"checkpoint": start}
         checked: dict[str, Any] = {}
+        if graded_rounds is not None and (of_written or any(graded_rounds[:2])):
+            from mendari.core.written import check_stored  # imports this module
+
+            broken, counts = check_stored(of_written, *graded_rounds)
+            if broken is not None:
+                failed = {"ok": False, "events": total, "reason": "written", "written": counts}
+                return ({**failed, "broken_at": broken} if broken else failed), None
+            checked["written"] = counts
         if notes:
             broken, counts, unopenable = self._check_notes(noted, {row["id"]: row for row in kept})
             if broken is not None:
@@ -6333,6 +6356,26 @@ class AuditStore(RateBuckets):
                 return {**status, **refused, "evalsets": counts}, None
             checked["evalsets"] = counts
         return {"ok": True, "events": total, "head": prev, **since, **checked}, last
+
+    def _written_rows(
+        self, db: _Session
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, str]]:
+        """The grading rounds' rows a full verification checks (`core/written.py`
+        `check_stored`): each round's state and stored report, each assignment's grades, and
+        each item row's item id. Empty for a database from before the tables."""
+        if not db.columns("written_rounds"):
+            return {}, {}, {}
+        rounds = {
+            str(row["id"]): row for row in db.all("SELECT id, state, report FROM written_rounds")
+        }
+        assignments = {
+            str(row["id"]): row
+            for row in db.all("SELECT id, round_id, item_id, grades FROM written_assignments")
+        }
+        items = {
+            str(row["id"]): str(row["item"]) for row in db.all("SELECT id, item FROM written_items")
+        }
+        return rounds, assignments, items
 
     def _check_notes(
         self, events: list[dict[str, Any]], kept: Mapping[str, Mapping[str, Any]]
