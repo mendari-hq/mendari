@@ -250,6 +250,7 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
             f"| {_c(slot)} | {_t(', '.join(spec.answers))} | {_c(spec.use)} ({_t(default.type)}) | "
             f"{alternatives or 'none'} |"
         )
+    out += _confidence(pack)
     out += ["", "## Validation", ""]
     if report:
         out += _validation(report)
@@ -371,6 +372,59 @@ def _actions(pack: Pack) -> list[str]:
             f"{GATE_TEXT[gate]} | {arguments} |"
         )
     return [*out, ""]
+
+
+def _confidence(pack: Pack) -> list[str]:
+    """The card's Confidence section (ADR-0022), from the manifest and the calibration files
+    the digest covers: for each `agent` variant (a composite's member too), whether its
+    confidence is calibrated, on how many cases and when, or that it is not; and each second
+    signal a variant carries. Nothing for an agent with neither."""
+    from mendari.providers import agent_calibration
+
+    lines = []
+    for slot, spec in pack.manifest.providers.items():
+        for name, variant in spec.variants.items():
+            config = {"type": variant.type, **(variant.model_extra or {})}
+            members = config.get("members")
+            members = members if isinstance(members, dict) else {}
+            configs = [(name, config)]
+            configs += [(f"{name}.{key}", m) for key, m in members.items() if isinstance(m, dict)]
+            for label, item in configs:
+                where = f"{_c(slot)} / {_c(label)}"
+                if item.get("type") == "agent":
+                    found = agent_calibration.status(pack, item)
+                    if isinstance(found, str):
+                        lines.append(
+                            f"- {where}: **{_t(found)}**. Its confidence is the agent's own "
+                            "report, and the automation threshold cuts on it as reported."
+                        )
+                    else:
+                        agent = f"{_c(found.agent_id)} " if found.agent_id else ""
+                        fitted = ", ".join(_c(key) for key in sorted(found.temperatures))
+                        lines.append(
+                            f"- {where}: confidence **calibrated** on {found.cases:,} cases of "
+                            f"{_c(found.dataset)} on {_t(found.date)}, for {agent}version "
+                            f"{_c(found.agent_version)} (questions: {fitted or 'none'}). When "
+                            "the agent's service reports another version, no decision is "
+                            "automated until it is calibrated again."
+                        )
+                        lines += [
+                            f"  - {_c(key)}: not calibrated ({_t(why)})"
+                            for key, why in found.not_fitted.items()
+                        ]
+                if item.get("type") in ("agent", "llm") and "repeat" in item:
+                    lines.append(
+                        f"- {where}: asks each case {_t(item['repeat'])} times; the answer is "
+                        "the majority's with the lowest confidence among the runs that agree, "
+                        "and a disagreement is never automated."
+                    )
+            if variant.type == "check" and len(members) == 2:
+                first, second = members
+                lines.append(
+                    f"- {_c(slot)} / {_c(name)}: {_c(first)} answers and {_c(second)} checks; "
+                    "where they disagree, the decision is never automated."
+                )
+    return ["", "## Confidence", "", *lines] if lines else []
 
 
 def _t(value: Any) -> str:

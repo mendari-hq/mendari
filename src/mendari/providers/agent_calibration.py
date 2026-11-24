@@ -22,7 +22,8 @@ The fit is a file of the agent (`mendari.agent-calibration/1`), named by the var
 cover it. It records what it was fitted on (the dataset, its sha256, the number of cases, the
 date) and for which agent: the variant's `agent_id` and the `agent_version` the agent's service
 reported while it was asked. A question with fewer than `MIN_CASES` labelled cases is not
-fitted and is left as reported.
+fitted and is left as reported; so is one whose best temperature is at the edge of the search
+(an agent right on every case has no temperature: sharpening it further always fits better).
 
 At decision time (`calibrated`, called by `AgentProvider.answer` for every call, so on every
 path a decision is made by):
@@ -46,7 +47,12 @@ from mendari.core.pack import Pack
 from mendari.core.spec import Question
 from mendari.errors import MendariError, PackValidationError, ProviderError
 from mendari.providers.base import ProviderOutput, read_problems
-from mendari.providers.calibration import fit_temperature, log_probabilities, rescale
+from mendari.providers.calibration import (
+    fit_temperature,
+    log_probabilities,
+    rescale,
+    temperature_grid,
+)
 from mendari.providers.signals import Cap, Signals
 
 if TYPE_CHECKING:
@@ -296,6 +302,8 @@ def fit(
     temperatures: dict[str, float] = {}
     questions: dict[str, Any] = {}
     not_fitted: dict[str, str] = {}
+    grid = temperature_grid()
+    edges = (grid[0], grid[-1])
     for key in provider.questions:
         answered = [
             (output.answers[key], record["labels"][key])
@@ -307,6 +315,15 @@ def fit(
             continue
         scored = [(log_probabilities(answer.probabilities), truth) for answer, truth in answered]
         temperature, before, after = fit_temperature(scored)
+        if temperature in edges:
+            # No temperature is the best one: the likelihood keeps improving past the search
+            # (an agent right on every case can always be sharpened further). The cases do not
+            # place its confidence, so it is left as reported.
+            not_fitted[key] = (
+                f"its {len(answered)} answers place no temperature: too few of them are "
+                "wrong, or too few are right"
+            )
+            continue
         temperature = round(temperature, 4)
         correct = [answer.label == truth for answer, truth in answered]
         confident = [answer.confidence for answer, _ in answered]

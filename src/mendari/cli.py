@@ -269,7 +269,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
 
 def cmd_eval(args: argparse.Namespace) -> int:
     from mendari.core.card import benchmark
-    from mendari.evals import compare, gate, operating_point, resolve_dataset
+    from mendari.evals import compare, confidence, gate, operating_point, resolve_dataset
     from mendari.evals.compare import FROM_REGISTRY, not_compared
     from mendari.evals.harness import evaluation
     from mendari.evals.render import comparison_text, report_markdown, report_text
@@ -399,6 +399,8 @@ def cmd_eval(args: argparse.Namespace) -> int:
         # What the automation threshold lets through, and the threshold the cases support when
         # the run was given targets: the engine's sentences, as the terminal prints them.
         print(operating_point.markdown(report["run"]["operating_point"]))
+        if said := confidence.markdown(report["run"]):
+            print(said)
         if comparison:  # as the terminal shows it, in a block that renders nothing
             print("### Against the agent's benchmark\n")
             print(textwrap.indent(comparison_text(comparison), "    ") + "\n")
@@ -406,6 +408,11 @@ def cmd_eval(args: argparse.Namespace) -> int:
             print(checked.markdown())
     else:
         print(report_text(report))
+        if said := confidence.text(report["run"]):
+            # Whether the confidence the policy cuts on is calibrated, and a second signal's
+            # effect on these cases.
+            print()
+            print(said)
         print()
         print(operating_point.text(report["run"]["operating_point"], *_no_target(targets)))
         if comparison:
@@ -709,17 +716,101 @@ def cmd_improve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _calibration_set_note(pack: Pack, name: str) -> None:
+    """Say, for an `llm` variant and an `agent` variant alike, that a calibration is being
+    fitted on one of the agent's own evaluation sets: `mendari eval` on it then reports on the
+    cases the fit saw. The agent's fitting sets (`train`, `calibration`) are what a fit is for."""
+    from mendari.evals.results_store import FITTING_SETS
+
+    if name in pack.manifest.evaluation.datasets and name not in FITTING_SETS:
+        print(
+            f"note: {name} is one of this agent's evaluation sets. A calibration fitted on the "
+            "cases an evaluation reports on makes that evaluation look better calibrated than "
+            "the agent is: fit it on a set of its own (`calibration` in evaluation.datasets).",
+            file=sys.stderr,
+        )
+
+
+def _calibrate_agent(args: argparse.Namespace, pack: Pack, provider: Any) -> int:
+    """`mendari calibrate` for an `agent` variant (ADR-0022): the live agent is asked about each
+    labelled case once, and one temperature per question is fitted on its own confidence, for
+    the version its service reported (`providers/agent_calibration.py`)."""
+    from mendari.evals import resolve_dataset
+    from mendari.evals.harness import record_problems
+    from mendari.providers import agent_calibration
+
+    where = f"{args.slot}/{args.variant}"
+    provider.preflight()
+    dataset = resolve_dataset(pack, args.dataset)
+    if args.limit:
+        dataset = dataset.head(args.limit)
+    problems = record_problems(pack.manifest, dataset)
+    if problems:
+        more = f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""
+        raise MendariError(f"{problems[0]}{more}")
+    _calibration_set_note(pack, dataset.name)
+    records = dataset.records
+    print(f"asking {provider.info.model or where} about {len(records)} {dataset.name} cases...")
+    fitted = agent_calibration.fit(
+        provider,
+        records,
+        dataset=dataset.name,
+        sha256=dataset.sha256,
+        date=clock.today().isoformat(),
+        workers=args.workers,
+    )
+    for question, why in fitted["not_fitted"].items():
+        print(f"  {question}: not fitted ({why})")
+    if not fitted["temperatures"]:
+        raise MendariError(
+            f"{where}: nothing was fitted, so nothing was written: a question needs "
+            f"{agent_calibration.MIN_CASES} labelled cases the agent answered"
+        )
+    relative = (
+        provider.settings.calibration or f"models/{args.slot}-{args.variant}-calibration.json"
+    )
+    target = pack.path(relative)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(fitted, indent=2) + "\n", encoding="utf-8")
+    for question, found in fitted["questions"].items():
+        print(
+            f"  {question}: T={fitted['temperatures'][question]} on {found['cases']} cases "
+            f"(NLL {found['nll_before']} -> {found['nll_after']}, "
+            f"ECE {found['ece_before']} -> {found['ece_after']} on the same cases)"
+        )
+    if fitted["failures"]:
+        print(f"  failed calls: {fitted['failures']}")
+    print(f"cost: ${fitted['cost_usd']}" if fitted["cost_usd"] is not None else "cost: unknown")
+    agent = fitted["agent"]
+    print(
+        f"fitted for {agent['id'] or 'the agent'} version {agent['version']}: when its service "
+        "reports another version, nothing is rescaled and no decision is automated until it is "
+        "calibrated again"
+    )
+    print(f"-> {relative}")
+    if provider.settings.calibration is None:
+        print(
+            f"add `calibration: {relative}` to the {where} variant to use it "
+            "(it needs spec_version: '0.4')"
+        )
+    return 0
+
+
 def cmd_calibrate(args: argparse.Namespace) -> int:
     from mendari.evals import resolve_dataset
     from mendari.providers import build_provider
+    from mendari.providers.agent import AgentProvider
     from mendari.providers.llm import LlmProvider, fit_calibration
 
     pack = resolve_pack(args.pack)
     provider = build_provider(pack, args.slot, args.variant)
+    if isinstance(provider, AgentProvider):
+        return _calibrate_agent(args, pack, provider)
     if not isinstance(provider, LlmProvider):
-        raise MendariError(f"{args.slot}/{args.variant} is not an llm variant")
+        raise MendariError(f"{args.slot}/{args.variant} is not an llm or an agent variant")
     provider.preflight()  # e.g. no model (there is no default): one line, before anything else
     dataset = resolve_dataset(pack, args.dataset)
+    _calibration_set_note(pack, dataset.name)
     records = dataset.records[: args.limit] if args.limit else dataset.records
     print(f"asking {provider.model} about {len(records)} {dataset.name} records...")
     fitted = fit_calibration(provider, records, workers=args.workers)
@@ -4800,10 +4891,12 @@ def build_parser() -> argparse.ArgumentParser:
     better.add_argument("--json", action="store_true", help="print the JSON report")
 
     calibrate = pack_command(
-        "calibrate", cmd_calibrate, "fit per-question temperatures for an llm variant (live calls)"
+        "calibrate",
+        cmd_calibrate,
+        "fit per-question temperatures for an llm or an agent variant (live calls)",
     )
     calibrate.add_argument("--slot", required=True, help="provider slot")
-    calibrate.add_argument("--variant", required=True, help="llm variant of the slot")
+    calibrate.add_argument("--variant", required=True, help="llm or agent variant of the slot")
     calibrate.add_argument("--dataset", default="calibration", help="labelled dataset")
     calibrate.add_argument("--limit", type=int, default=200, help="records to use (default 200)")
     calibrate.add_argument("--workers", type=int, default=8, help="parallel calls (default 8)")

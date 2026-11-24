@@ -18,6 +18,8 @@ report's result is computed from its ledger (mendari.evals.result); `evaluation`
 Its `run` block also holds the run's operating point (mendari.evals.operating_point): what the
 automation threshold lets through, and the threshold the cases support when the run is given
 targets. That is worked out from what each decision kept in memory, so it is not in the result.
+So are its calibration and second-signal blocks (mendari.evals.confidence), when the run
+decided with a model variant or a second signal.
 """
 
 from __future__ import annotations
@@ -35,8 +37,8 @@ from mendari.core.decision import Decision, DecisionResult
 from mendari.core.pack import Pack, not_json
 from mendari.core.spec import PackManifest
 from mendari.errors import MendariError
+from mendari.evals import confidence, metrics, operating_point
 from mendari.evals import ledger as ledgers
-from mendari.evals import metrics, operating_point
 from mendari.evals.ledger import Ledger
 from mendari.evals.operating_point import Targets
 from mendari.evals.result import FORMAT, result_from_ledger, result_sha256
@@ -211,6 +213,16 @@ def build_evaluation(
     }
     if decision.governance is not None:  # who approved it: local, never in the result
         run["governance_override"] = decision.governance.to_dict()
+    # Whether the confidence the policy cuts on is calibrated, and what a second signal did
+    # (`evals/confidence.py`): in the run for the same reason, and only when there is one.
+    calibration = confidence.calibration(decision, dataset, results)
+    if calibration["variants"]:
+        run["calibration"] = calibration
+    primary = decision.pack.manifest.policy.primary
+    truths = [(record.get("labels") or {}).get(primary) for record in dataset.records]
+    second_signal = confidence.second_signal(decision, ledger.cases, results, truths)
+    if second_signal["signals"]:
+        run["second_signal"] = second_signal
     report = {**found, "run": run, "result_sha256": result_sha256(found)}
     usage: dict[str, Metered] = {}
     for res in results:
