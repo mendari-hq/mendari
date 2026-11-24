@@ -56,7 +56,14 @@ from mendari.providers.base import (
     select_fields,
     state_fields_problem,
 )
-from mendari.providers.http import allowed_origins, post_json, require_https, require_secure
+from mendari.providers.http import (
+    allowed_origins,
+    post_json,
+    require_allowed,
+    require_https,
+    require_secure,
+)
+from mendari.standards.fhir_client import origin_of
 
 ENDPOINT_ENV = "MENDARI_AGENT_URL"
 TOKEN_ENV = "MENDARI_AGENT_TOKEN"
@@ -77,6 +84,10 @@ class Connection:
 
     endpoint: str
     token: str | None = field(default=None, repr=False)
+    # Whether an operator of the deployment allowed this endpoint's origin for this agent in
+    # this organization (`core/connections.py`): where the deployment's allow-list does not
+    # list it, it is called all the same, at public addresses only.
+    allowed: bool = False
 
 
 # The connection the organization a call acts for set for an agent, by the agent's id; None for
@@ -92,6 +103,8 @@ class Live:
     url: str
     source: Source
     token: str | None = field(default=None, repr=False)
+    # An organization's connection whose origin an operator allowed (`Connection.allowed`).
+    allowed: bool = False
 
 
 # Same character class as `evals/share.py` `_MODEL_PART` so provenance ids are always shareable.
@@ -232,7 +245,9 @@ class AgentProvider(Provider):
                     "credential_unavailable", "this agent's connection cannot be read"
                 ) from None
             if connection is not None:
-                return Live(connection.endpoint, "organization", connection.token)
+                return Live(
+                    connection.endpoint, "organization", connection.token, connection.allowed
+                )
         if not self.pack.bounded and self.settings.endpoint:
             return Live(self.settings.endpoint, "agent")
         env_url = os.environ.get(ENDPOINT_ENV, "").strip()
@@ -249,14 +264,26 @@ class AgentProvider(Provider):
         """Check that `live` may be called, and the client to call it with (None: the
         deployment's shared one). Every endpoint is https (http to this machine only) and, where
         the deployment lists the origins its providers may be called at, one of them. An
-        organization's connection, where it lists none, leads to the public internet only: its
-        host is checked here, and its addresses by the client that connects
-        (`providers/reach.py`)."""
-        require_secure(live.url, "Agent")
-        if self._client is not None or live.source != "organization":
+        organization's connection leads to the public internet only where the deployment lists
+        no origin, and where it lists some and not this one, which an operator allowed for this
+        agent in this organization (`Live.allowed`): its host is checked here, and its
+        addresses by the client that connects (`providers/reach.py`). An origin on the list is
+        the deployment's own word, and is called as its own endpoints are."""
+        if live.source != "organization":
+            require_secure(live.url, "Agent")
             return self._client
-        if allowed_origins() is not None:  # on the list (`require_secure`): the operator's word
-            return None
+        require_https(live.url, "Agent")
+        try:
+            listed = allowed_origins()
+        except MendariError:
+            require_allowed(live.url, "Agent")  # a list that cannot be read refuses every call
+            raise
+        if listed is not None and origin_of(live.url) in listed:
+            return self._client
+        if listed is not None and not live.allowed:
+            require_allowed(live.url, "Agent")  # refused, in the list's own words
+        if self._client is not None:
+            return self._client
         reach.check_name(live.url)
         return reach.public_client()
 
@@ -327,6 +354,9 @@ class AgentProvider(Provider):
             timeout_s=self.settings.timeout_seconds,
             max_bytes=MAX_RESPONSE_BYTES,
             retries=1,
+            # Off the deployment's list and allowed by an operator: `_secure` just read the
+            # list, checked the host, and gave the client that opens public addresses only.
+            allowed=live.source == "organization" and live.allowed,
         )
         parsed = validate_response(raw, self.questions)
         usage = parsed["usage"]

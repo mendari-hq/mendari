@@ -13,6 +13,14 @@ Where a live call goes is decided in one place, `providers/agent.py` (`AgentProv
   fragment, and is one the deployment may call (`admitted`): on its provider allow-list where it
   has one (`MENDARI_PROVIDER_ALLOWED_ORIGINS`), else on the public internet only
   (`providers/reach.py`).
+- **An origin the list does not name** can be allowed for one agent in one organization by an
+  operator of the deployment (an administrator of the organization that operates it, signed in
+  as a person: `server/auth.py` `operate`), when they set the connection. What they allow is
+  kept on the connection's row and chained (`agent_connection.origin_allowed`), and it leads to
+  the public internet only, exactly as on a deployment with no list: this machine and the
+  site's own network stay out of reach unless the list names them. It holds for that origin
+  alone: a connection changed to another origin, or cleared, has lost it. Anyone else stays
+  bound by the list.
 - **The token** is write-only. It is sealed under the deployment's PHI key (`core/phi.py`, the
   kind `connection`), bound to its row, its organization and its agent, and is opened only to
   call that endpoint. No method here returns it but `resolve`, which the provider calls; a
@@ -76,8 +84,9 @@ class ConnectionRefused(MendariError):
     route answers with (404 no such connection of this organization, 409 not possible on this
     deployment as it is configured, 422 otherwise). Its words never hold a token."""
 
-    def __init__(self, message: str, status: int = 422):
+    def __init__(self, message: str, status: int = 422, *, code: str | None = None):
         self.status = status
+        self.code = code  # `origin_not_listed`: an operator could allow it; None otherwise
         super().__init__(message)
 
 
@@ -92,11 +101,29 @@ def enabled() -> bool:
     raise MendariError(f"{SWITCH_ENV} is on or off")
 
 
-def admitted(endpoint: str) -> tuple[str, str]:
-    """An endpoint as it is kept, and its origin, or a `ConnectionRefused` that says why not, in
-    this order: its shape (https, or plain http to this machine; no user, password, query or
-    fragment); then where it leads: an origin on the deployment's provider allow-list where it
-    has one, else the public internet only, looked up now (`providers/reach.py`)."""
+# How an endpoint's origin is one the deployment may call (`admitted`).
+LISTED = "listed"  # on the deployment's allow-list: the operator's own word, called as its own
+PUBLIC = "public"  # the deployment lists no origins: the public internet only
+ALLOWED = "allowed"  # off the list, allowed for this agent here by an operator: public only
+# What refuses an origin the deployment's list does not name, to whoever may not allow it.
+NOT_LISTED = (
+    "{origin} is not on the list of addresses this deployment may call. An administrator of "
+    "the organization that operates this deployment can allow it for this agent when setting "
+    "its connection (public addresses only); otherwise whoever runs the deployment adds that "
+    f"origin to {ALLOWED_ORIGINS_ENV}"
+)
+
+
+def admitted(
+    endpoint: str, *, allowed_origin: str | None = None, allow: bool = False
+) -> tuple[str, str, str]:
+    """An endpoint as it is kept, its origin and how that origin is admitted (`LISTED`,
+    `PUBLIC` or `ALLOWED`), or a `ConnectionRefused` that says why not, in this order: its
+    shape (https, or plain http to this machine; no user, password, query or fragment); then
+    where it leads: an origin on the deployment's provider allow-list where it has one, else
+    the public internet only, looked up now (`providers/reach.py`). An origin the list does not
+    name is admitted, to the public internet only, when an operator allowed it for this agent
+    here before (`allowed_origin`) or allows it now (`allow`: the caller is one, and asked)."""
     endpoint = endpoint.strip()
     if not endpoint or len(endpoint) > MAX_ENDPOINT_CHARS or not endpoint.isprintable():
         raise ConnectionRefused(f"an address is 1 to {MAX_ENDPOINT_CHARS} printable characters")
@@ -132,18 +159,15 @@ def admitted(endpoint: str) -> tuple[str, str]:
             "whoever runs this deployment corrects it",
             409,
         ) from None
-    if allowed is not None:
-        if origin not in allowed:
-            raise ConnectionRefused(
-                f"{origin} is not an address this deployment may call: whoever runs it adds "
-                f"that origin to {ALLOWED_ORIGINS_ENV}"
-            )
-        return endpoint, origin
+    if allowed is not None and origin in allowed:
+        return endpoint, origin, LISTED
+    if allowed is not None and not (allow or origin == allowed_origin):
+        raise ConnectionRefused(NOT_LISTED.format(origin=origin), code="origin_not_listed")
     try:
         reach.check_public(endpoint)
     except ProviderError as error:
         raise ConnectionRefused(_said(error)) from None
-    return endpoint, origin
+    return endpoint, origin, PUBLIC if allowed is None else ALLOWED
 
 
 # What the provider's own checks say of an endpoint (`providers/http.py` `require_https`), as
@@ -198,7 +222,16 @@ def _shown(row: Mapping[str, Any]) -> dict[str, Any]:
         "token_set_at": row["token_set_at"],
         "set_by": row["changed_by"],
         "set_at": row["changed_at"],
+        # Who allowed this origin for this agent here, and when, where the deployment's list
+        # does not name it; null where the list does, or where there is no list.
+        "origin_allowed_by": row["allowed_by"] if _allowed(row) else None,
+        "origin_allowed_at": row["allowed_at"] if _allowed(row) else None,
     }
+
+
+def _allowed(row: Mapping[str, Any]) -> bool:
+    """Whether a row's endpoint is at the origin an operator allowed for it."""
+    return row["endpoint"] is not None and row["allowed_origin"] == origin_of(str(row["endpoint"]))
 
 
 class ConnectionStore:
@@ -235,16 +268,39 @@ class ConnectionStore:
         return [_shown(row) for row in rows]
 
     def set(
-        self, org: str, pack_id: str, *, endpoint: str, by: str, token: Any = KEEP
+        self,
+        org: str,
+        pack_id: str,
+        *,
+        endpoint: str,
+        by: str,
+        token: Any = KEEP,
+        allow_origin: bool = False,
     ) -> dict[str, Any]:
         """Set or change `org`'s connection for an agent: `endpoint` as `admitted` accepts it;
         `token` a bearer token to send with each call, None for none, or left out (`KEEP`) to
         keep the one there is, which holds only while the endpoint is exactly the one it was
         set for. Chained `agent_connection.set` (the agent, the origin, whether it carries a
         token), unless nothing changed. A token is refused where there is no key to seal it
-        under, before anything is written."""
+        under, before anything is written.
+
+        `allow_origin`: `by` is an operator of the deployment (the route checked) and allows
+        this endpoint's origin for this agent in `org`, where the deployment's allow-list does
+        not name it. Chained `agent_connection.origin_allowed` (the agent, the origin, who)
+        before the connection's own event. Without it, an origin off the list is accepted only
+        if one was allowed for this connection before and it is the same one."""
         org, pack_id, by = _org(org), _agent(pack_id), _actor(by)
-        endpoint, origin = admitted(endpoint)
+        with self.store._db.session(exclusive=False) as db:
+            held = db.one(
+                "SELECT allowed_origin FROM agent_connections WHERE org = ? AND pack_id = ? "
+                "AND endpoint IS NOT NULL",
+                (org, pack_id),
+            )
+        endpoint, origin, how = admitted(
+            endpoint,
+            allowed_origin=None if held is None else held["allowed_origin"],
+            allow=allow_origin,
+        )
         if token is not KEEP and token is not None:
             if not isinstance(token, str) or not _TOKEN.fullmatch(token):
                 raise ConnectionRefused(
@@ -281,21 +337,59 @@ class ConnectionStore:
                     raise ConnectionRefused(str(error), 409) from None
                 sealed = self.store.phi.seal("connection", token, connection_id, org, pack_id)
                 set_by, set_at = by, now
+            # What an operator allowed stays with its origin: kept while the connection is
+            # still at it, given now, or gone. Read again under the lock: one allowed before,
+            # and cleared or moved since, allows nothing.
+            kept = row is not None and before is not None and row["allowed_origin"] == origin
+            if how != ALLOWED:
+                allowance: tuple[Any, ...] = (None, None, None)
+            elif kept:
+                assert row is not None
+                allowance = (origin, row["allowed_by"], row["allowed_at"])
+            elif allow_origin:
+                allowance = (origin, by, now)
+            else:
+                raise ConnectionRefused(NOT_LISTED.format(origin=origin), code="origin_not_listed")
             unchanged = (
-                row is not None and before == endpoint and row["token"] == sealed and token is KEEP
+                row is not None
+                and before == endpoint
+                and row["token"] == sealed
+                and token is KEEP
+                and row["allowed_origin"] == allowance[0]
             )
             if unchanged:
                 assert row is not None
                 return _shown(row)
             db.all(
                 "INSERT INTO agent_connections (id, org, pack_id, endpoint, token, token_set_by, "
-                "token_set_at, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "token_set_at, changed_by, changed_at, allowed_origin, allowed_by, allowed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (org, pack_id) DO UPDATE SET endpoint = excluded.endpoint, "
                 "token = excluded.token, token_set_by = excluded.token_set_by, "
                 "token_set_at = excluded.token_set_at, changed_by = excluded.changed_by, "
-                "changed_at = excluded.changed_at",
-                (connection_id, org, pack_id, endpoint, sealed, set_by, set_at, by, now),
+                "changed_at = excluded.changed_at, allowed_origin = excluded.allowed_origin, "
+                "allowed_by = excluded.allowed_by, allowed_at = excluded.allowed_at",
+                (
+                    connection_id,
+                    org,
+                    pack_id,
+                    endpoint,
+                    sealed,
+                    set_by,
+                    set_at,
+                    by,
+                    now,
+                    *allowance,
+                ),
             )
+            if how == ALLOWED and not kept:
+                granted = {"pack_id": pack_id, "origin": origin, "allowed_by": by}
+                self.store._append(
+                    db,
+                    f"agent_connection:{connection_id}",
+                    "agent_connection.origin_allowed",
+                    self.store._bound("agent_connection.origin_allowed", granted, org),
+                )
             payload = {
                 "pack_id": pack_id,
                 "origin": origin,
@@ -312,9 +406,9 @@ class ConnectionStore:
 
     def clear(self, org: str, pack_id: str, *, by: str) -> None:
         """Clear `org`'s connection for an agent: its endpoint and its token are gone from the
-        row (which stays: its events name it), and the agent answers as it did before one was
-        set. Chained `agent_connection.cleared`. A `ConnectionRefused` (404) when there is
-        none."""
+        row (which stays: its events name it), with what an operator allowed for it, and the
+        agent answers as it did before one was set. Chained `agent_connection.cleared`. A
+        `ConnectionRefused` (404) when there is none."""
         org, pack_id, by = _org(org), _agent(pack_id), _actor(by)
         with self.store._db.session(exclusive=True) as db:
             row = db.one(
@@ -325,7 +419,8 @@ class ConnectionStore:
                 raise ConnectionRefused("this agent has no connection set here", 404)
             db.all(
                 "UPDATE agent_connections SET endpoint = NULL, token = NULL, token_set_by = NULL, "
-                "token_set_at = NULL, changed_by = ?, changed_at = ? WHERE id = ?",
+                "token_set_at = NULL, allowed_origin = NULL, allowed_by = NULL, "
+                "allowed_at = NULL, changed_by = ?, changed_at = ? WHERE id = ?",
                 (by, _now(), row["id"]),
             )
             chained = self.store._bound(
@@ -342,7 +437,8 @@ class ConnectionStore:
         endpoint."""
         with self.store._db.session(exclusive=False) as db:
             row = db.one(
-                "SELECT id, endpoint, token FROM agent_connections WHERE org = ? AND pack_id = ?",
+                "SELECT id, endpoint, token, allowed_origin FROM agent_connections "
+                "WHERE org = ? AND pack_id = ?",
                 (org, pack_id),
             )
         if row is None or row["endpoint"] is None:
@@ -353,4 +449,4 @@ class ConnectionStore:
                 "connection", str(row["token"]), str(row["id"]), org, pack_id
             )
             token = str(opened)
-        return Connection(endpoint=str(row["endpoint"]), token=token)
+        return Connection(endpoint=str(row["endpoint"]), token=token, allowed=_allowed(row))

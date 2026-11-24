@@ -73,8 +73,10 @@ its fixed reason, `no_set` with no id, any other with the set's id), `store.pull
 (a version added to an organization's agent store from the deployment's registry,
 `server/hub_routes.py`: its digest; or refused as `not_listed`, `key_changed`, `verification`,
 `unreachable`, `registry_answer`, `phi` or `checks`, with no id and never the registry's words),
-`admin.connection.set|cleared|checked|refused` (an agent's connection, ADR-0021: the agent's id
-and who acted; never its address or its token), and `error.unhandled`.
+`admin.connection.set|cleared|checked|refused|origin_allowed` (an agent's connection, ADR-0021:
+the agent's id and who acted; never its address or its token; a refusal's reason is `checks`,
+`origin_not_listed` or `not_operator`; `origin_allowed` is an operator allowing an origin the
+deployment's list does not name), and `error.unhandled`.
 
 **Library loggers** that would log a URL or a connection at INFO (httpx, psycopg's pool: see
 `QUIETED`) keep only warnings: on Vercel the runtime gives the root logger INFO and a handler.

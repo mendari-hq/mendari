@@ -418,6 +418,11 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     # token, nor where it leads (the origin stays in the chain's own payload).
     "agent_connection.set": ("U", "Agent connection set", _CONFIGURATION),
     "agent_connection.cleared": ("D", "Agent connection cleared", _CONFIGURATION),
+    "agent_connection.origin_allowed": (
+        "U",
+        "Agent connection's address allowed by an operator",
+        _CONFIGURATION,
+    ),
 }
 # Who acted, by the first of these a payload has (ids: a principal's chain name or an id).
 _ACTORS = (

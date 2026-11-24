@@ -311,7 +311,11 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     # verified, then kept as any new version is.
     (ENGINE, "POST", "/api/store/pulls"): ("pack_version.created", "pack_version.held"),
     # An agent's connection for an organization (ADR-0021): set or changed, and cleared.
-    (ENGINE, "PUT", "/api/connections/{namespace}/{name}"): ("agent_connection.set",),
+    # An operator may allow its origin too, where the deployment's list does not name it.
+    (ENGINE, "PUT", "/api/connections/{namespace}/{name}"): (
+        "agent_connection.set",
+        "agent_connection.origin_allowed",
+    ),
     (ENGINE, "DELETE", "/api/connections/{namespace}/{name}"): ("agent_connection.cleared",),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a

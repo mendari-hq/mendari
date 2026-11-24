@@ -25,14 +25,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari.core.audit import AuditStore
+from mendari.core.connections import ALLOWED as ALLOWED_BY_AN_OPERATOR
 from mendari.core.connections import (
     KEEP,
+    LISTED,
     SWITCH_ENV,
     ConnectionRefused,
     ConnectionStore,
     admitted,
     enabled,
 )
+from mendari.core.connections import PUBLIC as PUBLIC_ONLY
 from mendari.core.pack import Pack, load_pack
 from mendari.core.phi import PhiPolicy, key_id
 from mendari.errors import MendariError, ProviderError
@@ -41,6 +44,7 @@ from mendari.providers.agent import ENDPOINT_ENV, TOKEN_ENV, Connection, Live
 from mendari.providers.http import ALLOWED_ORIGINS_ENV
 from mendari.server import connection_routes
 from mendari.server.app import create_app
+from mendari.standards.fhir_client import origin_of
 from tests.conftest import (
     DASHBOARD,
     DEMO_AGENT_DIR,
@@ -279,11 +283,14 @@ def test_this_machine_written_another_way_is_still_this_machine(
 
 
 def test_a_public_address_is_accepted_and_kept_as_it_was_given() -> None:
-    assert admitted(f"  {ELSEWHERE} ") == (ELSEWHERE, "https://agents.example.org")
+    assert admitted(f"  {ELSEWHERE} ") == (ELSEWHERE, "https://agents.example.org", PUBLIC_ONLY)
     assert admitted("https://1.1.1.1:8443/decide") == (
         "https://1.1.1.1:8443/decide",
         "https://1.1.1.1:8443",
+        PUBLIC_ONLY,
     )
+    # With no list there is nothing to allow: an operator's word changes nothing.
+    assert admitted(ELSEWHERE, allow=True)[2] == PUBLIC_ONLY
     assert admitted("https://[2606:4700:4700::1111]/x")[1] == "https://[2606:4700:4700::1111]"
 
 
@@ -1148,3 +1155,383 @@ def test_a_connection_set_on_one_instance_is_used_by_another_on_the_same_databas
         )
         assert decided.status_code == 200 and decided.json()["outcome"] == "AUTO"
     assert outside.authorizations() == [f"Bearer {TOKEN}"]
+
+
+# -- an origin the deployment's list does not name, allowed by an operator ------------------------
+
+LIST = "https://listed.example.org"
+ORIGIN = "https://agents.example.org"
+NOT_PUBLIC = (
+    "https://10.0.0.5/decide",
+    "https://169.254.169.254/latest/meta-data",
+    "https://localhost/decide",
+    "https://intranet/decide",
+    "https://agents.internal.example.org/decide",  # a name that leads to a private address
+    "http://127.0.0.1:8000/decide",
+)
+
+
+@pytest.fixture
+def operated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Store]:
+    """The server of `lite`, operated by clinic-a (its administrators hold `operate`), with an
+    allow-list that names one origin and not the agent's service: a site install's state."""
+    monkeypatch.setenv("MENDARI_OPERATOR_ORG", ORG_A)
+    monkeypatch.setenv(ALLOWED_ORIGINS_ENV, LIST)
+    yield from serving_the_agent(str(tmp_path / "audit.db"), tmp_path, monkeypatch)
+
+
+def test_an_origin_off_the_list_is_admitted_only_when_an_operator_allows_it(
+    monkeypatch: pytest.MonkeyPatch, looked_up: dict[str, list[str]]
+) -> None:
+    """`admitted`, every branch with a list: on it (the deployment's word, inside or not); off
+    it and refused; off it and allowed now, or before for this same origin: public only."""
+    monkeypatch.setenv(ALLOWED_ORIGINS_ENV, f"{LIST},https://10.0.0.9")
+    looked_up["agents.internal.example.org"] = ["10.1.2.3"]
+    assert admitted(f"{LIST}/decide")[2] == LISTED
+    assert admitted("https://10.0.0.9/decide", allow=True)[2] == LISTED  # listed: not "allowed"
+    with pytest.raises(ConnectionRefused) as refused:
+        admitted(ELSEWHERE)
+    assert (refused.value.status, refused.value.code) == (422, "origin_not_listed")
+    assert ORIGIN in str(refused.value) and "operates this deployment" in str(refused.value)
+    assert admitted(ELSEWHERE, allow=True) == (ELSEWHERE, ORIGIN, ALLOWED_BY_AN_OPERATOR)
+    assert admitted(ELSEWHERE, allowed_origin=ORIGIN)[2] == ALLOWED_BY_AN_OPERATOR
+    # What was allowed is one origin: another is as unlisted as before.
+    with pytest.raises(ConnectionRefused) as other:
+        admitted("https://other.example.org/decide", allowed_origin=ORIGIN)
+    assert other.value.code == "origin_not_listed"
+    with pytest.raises(ConnectionRefused):
+        admitted("https://agents.example.org:8443/decide", allowed_origin=ORIGIN)  # another port
+    # An operator's word never reaches inside: the same refusals as with no list at all.
+    for inside in NOT_PUBLIC:
+        with pytest.raises(ConnectionRefused) as now:
+            admitted(inside, allow=True)
+        with pytest.raises(ConnectionRefused) as before:
+            admitted(inside, allowed_origin=origin_of(inside))
+        for kept_out in (now.value, before.value):
+            assert kept_out.code is None and "10.1.2.3" not in str(kept_out)
+    # A list that cannot be read accepts nothing, an operator's word or not.
+    monkeypatch.setenv(ALLOWED_ORIGINS_ENV, "not a list of origins")
+    with pytest.raises(ConnectionRefused) as unread:
+        admitted(ELSEWHERE, allow=True)
+    assert unread.value.status == 409
+
+
+def test_what_an_operator_allowed_is_kept_with_its_origin_and_chained(
+    db_target: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On SQLite and Postgres, the store: the allowance is on the row and in the chain; it
+    holds while the connection stays at that origin, for whoever changes it; another origin,
+    or a cleared connection, has lost it; an origin the list names needs none."""
+    monkeypatch.setenv(ALLOWED_ORIGINS_ENV, LIST)
+    with encrypted_store(db_target) as store:
+        connections = ConnectionStore(store)
+        with pytest.raises(ConnectionRefused) as refused:
+            connections.set(ORG_A, DEMO, endpoint=ELSEWHERE, token=TOKEN, by="bob")
+        assert refused.value.code == "origin_not_listed"
+        assert rows(store) == [] and events(store) == []
+        made = connections.set(
+            ORG_A, DEMO, endpoint=ELSEWHERE, token=TOKEN, by="ada", allow_origin=True
+        )
+        assert made["origin_allowed_by"] == "ada" and made["origin_allowed_at"] == made["set_at"]
+        [row] = rows(store)
+        assert (row["allowed_origin"], row["allowed_by"]) == (ORIGIN, "ada")
+        assert events(store) == [
+            (
+                "agent_connection.origin_allowed",
+                {"org": ORG_A, "pack_id": DEMO, "origin": ORIGIN, "allowed_by": "ada"},
+            ),
+            (
+                "agent_connection.set",
+                {
+                    "org": ORG_A,
+                    "pack_id": DEMO,
+                    "origin": ORIGIN,
+                    "token": True,
+                    "changed_by": "ada",
+                },
+            ),
+        ]
+        assert connections.resolve(ORG_A, DEMO) == Connection(ELSEWHERE, TOKEN, allowed=True)
+        # Another organization's connection to the same origin was allowed by nobody.
+        with pytest.raises(ConnectionRefused):
+            connections.set(ORG_B, DEMO, endpoint=ELSEWHERE, by="eve")
+        # Someone who is not an operator changes the path and the token: the same origin, so
+        # what was allowed still holds, as who allowed it and when, and is not chained again.
+        moved = connections.set(ORG_A, DEMO, endpoint=f"{ORIGIN}/v2/decide", token=TOKEN, by="bob")
+        assert (moved["origin_allowed_by"], moved["origin_allowed_at"]) == (
+            "ada",
+            made["origin_allowed_at"],
+        )
+        assert [kind for kind, _ in events(store)].count("agent_connection.origin_allowed") == 1
+        # Another origin: refused to them, the row as it was; an operator allows that one anew.
+        with pytest.raises(ConnectionRefused) as elsewhere:
+            connections.set(ORG_A, DEMO, endpoint="https://other.example.org/decide", by="bob")
+        assert elsewhere.value.code == "origin_not_listed"
+        assert connections.get(ORG_A, DEMO) == moved
+        other = connections.set(
+            ORG_A, DEMO, endpoint="https://other.example.org/decide", by="cy", allow_origin=True
+        )
+        assert other["origin_allowed_by"] == "cy"
+        assert events(store)[-2] == (
+            "agent_connection.origin_allowed",
+            {
+                "org": ORG_A,
+                "pack_id": DEMO,
+                "origin": "https://other.example.org",
+                "allowed_by": "cy",
+            },
+        )
+        # The first origin is no longer allowed: going back needs an operator again.
+        with pytest.raises(ConnectionRefused):
+            connections.set(ORG_A, DEMO, endpoint=ELSEWHERE, by="bob")
+        # Cleared: the allowance goes with the connection.
+        connections.clear(ORG_A, DEMO, by="bob")
+        [emptied] = rows(store)
+        assert (emptied["allowed_origin"], emptied["allowed_by"], emptied["allowed_at"]) == (
+            None,
+            None,
+            None,
+        )
+        with pytest.raises(ConnectionRefused) as after:
+            connections.set(ORG_A, DEMO, endpoint="https://other.example.org/decide", by="bob")
+        assert after.value.code == "origin_not_listed"
+        # An origin the list names needs nobody's allowance, and none is recorded for it.
+        listed = connections.set(
+            ORG_A, DEMO, endpoint=f"{LIST}/decide", by="bob", allow_origin=True
+        )
+        assert listed["origin_allowed_by"] is None and rows(store)[0]["allowed_origin"] is None
+        assert connections.resolve(ORG_A, DEMO) == Connection(f"{LIST}/decide", None)
+        assert [kind for kind, _ in events(store)].count("agent_connection.origin_allowed") == 2
+        assert store.verify()["ok"]
+        said = [item["event"] for item in store.iter_administrative_events(ORG_A)]
+        assert said.count("agent_connection.origin_allowed") == 2
+
+
+def test_once_the_list_names_an_allowed_origin_the_list_speaks_for_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ALLOWED_ORIGINS_ENV, LIST)
+    with encrypted_store(str(tmp_path / "audit.db")) as store:
+        connections = ConnectionStore(store)
+        connections.set(ORG_A, DEMO, endpoint=ELSEWHERE, by="ada", allow_origin=True)
+        monkeypatch.setenv(ALLOWED_ORIGINS_ENV, f"{LIST},{ORIGIN}")
+        again = connections.set(ORG_A, DEMO, endpoint=ELSEWHERE, by="bob")
+        assert again["origin_allowed_by"] is None and rows(store)[0]["allowed_origin"] is None
+        # And with no list at all, nothing is allowed because nothing needs to be.
+        monkeypatch.delenv(ALLOWED_ORIGINS_ENV)
+        free = connections.set(
+            ORG_A, DEMO, endpoint="https://1.1.1.1/decide", by="ada", allow_origin=True
+        )
+        assert free["origin_allowed_by"] is None
+        assert [kind for kind, _ in events(store)].count("agent_connection.origin_allowed") == 1
+
+
+def test_an_allowed_origin_is_called_at_public_addresses_only(
+    agent: Pack, monkeypatch: pytest.MonkeyPatch, outside: Outside
+) -> None:
+    """The provider, with a list that does not name the connection's origin: allowed, it goes
+    out through the client that opens public addresses only, its host checked before each
+    call; not allowed, it is refused; a listed origin is the deployment's own."""
+    monkeypatch.setenv(ALLOWED_ORIGINS_ENV, LIST)
+    provider = make_agent_provider(agent)  # no client of its own: as a server builds it
+    theirs = {DEMO: Connection(ELSEWHERE, TOKEN, allowed=True)}
+    provider.use_connection(theirs.get)
+    assert provider.live() == Live(ELSEWHERE, "organization", TOKEN, True)
+    provider.preflight()
+    assert provider.answer(message("refill")).canned is None
+    assert [str(request.url) for request in outside.seen] == [ELSEWHERE]
+    assert outside.authorizations() == [f"Bearer {TOKEN}"]
+    for inside in ("https://10.0.0.5/decide", "https://localhost/decide", "https://intranet/x"):
+        theirs[DEMO] = Connection(inside, TOKEN, allowed=True)  # a row changed past the checks
+        with pytest.raises(ProviderError) as refused:
+            provider.answer(message("refill"))
+        assert refused.value.code == "invalid_endpoint"
+        with pytest.raises(ProviderError):
+            provider.preflight()
+    theirs[DEMO] = Connection(ELSEWHERE, TOKEN)  # the same address, allowed by nobody
+    with pytest.raises(ProviderError) as off_list:
+        provider.answer(message("refill"))
+    assert off_list.value.code == "invalid_endpoint" and "allow-list" in str(off_list.value.detail)
+    assert len(outside.seen) == 1
+    # A list that cannot be read refuses every call, allowed or not.
+    monkeypatch.setenv(ALLOWED_ORIGINS_ENV, "not a list of origins")
+    theirs[DEMO] = Connection(ELSEWHERE, TOKEN, allowed=True)
+    with pytest.raises(ProviderError) as unread:
+        provider.answer(message("refill"))
+    assert unread.value.code == "invalid_endpoint" and len(outside.seen) == 1
+
+
+def test_a_listed_origin_is_called_as_the_deployments_own(
+    agent: Pack, monkeypatch: pytest.MonkeyPatch, outside: Outside
+) -> None:
+    """An origin on the list goes through the deployment's shared client, not the public-only
+    one, whether or not anything was allowed for it: the list is the operator's word."""
+    sent: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(str(request.url))
+        return httpx.Response(200, json=agent_response())
+
+    monkeypatch.setenv(ALLOWED_ORIGINS_ENV, LIST)
+    provider = make_agent_provider(agent, handler)
+    provider.use_connection({DEMO: Connection(f"{LIST}/decide", TOKEN, allowed=True)}.get)
+    assert provider.answer(message("refill")).canned is None
+    assert sent == [f"{LIST}/decide"] and outside.seen == []
+
+
+def test_an_operator_allows_an_unlisted_origin_from_the_console(
+    operated: Store, outside: Outside, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The site install's path, through the API: the list names nothing useful, and an
+    administrator of the operating organization connects the agent's service without a file."""
+    before = read(operated)
+    assert before["allowed_origins"] == [LIST] and before["may_allow_origin"] is True
+    capsys.readouterr()
+    plain = put(operated, token=TOKEN)  # not asked for: refused, and told what would allow it
+    assert plain.status_code == 422, plain.text
+    assert ORIGIN in plain.json()["detail"] and "operates this deployment" in plain.json()["detail"]
+    assert rows(operated.db) == [] and events(operated.db) == []
+    made = put(operated, token=TOKEN, allow_origin=True)
+    assert made.status_code == 200, made.text
+    shown = made.json()["connection"]
+    assert shown["origin_allowed_by"] == shown["set_by"] and shown["set_by"].endswith(
+        "admin-clinic-a"
+    )
+    assert shown["origin_allowed_at"] == shown["set_at"]
+    assert [kind for kind, _ in events(operated.db)] == [
+        "agent_connection.origin_allowed",
+        "agent_connection.set",
+    ]
+    lines = [
+        (line["event"], line.get("reason"))
+        for line in security_lines(capsys.readouterr().out)
+        if line["event"].startswith("admin.connection")
+    ]
+    assert lines == [
+        ("admin.connection.refused", "origin_not_listed"),
+        ("admin.connection.origin_allowed", None),
+        ("admin.connection.set", None),
+    ]
+    # Every reader sees who allowed it and when; the list itself is as it was.
+    seen = read(operated, who="viewer")
+    assert seen["connection"]["origin_allowed_by"] == shown["origin_allowed_by"]
+    assert seen["allowed_origins"] == [LIST] and seen["may_allow_origin"] is False
+    # A decision calls the service, with its token, through the public-only client.
+    assert decide(operated)["outcome"] == "AUTO"
+    assert [str(request.url) for request in outside.seen] == [ELSEWHERE]
+    assert outside.authorizations() == [f"Bearer {TOKEN}"]
+    checked = operated.client.post(f"{AT}/check", headers=operated.as_(ORG_A, "admin"))
+    assert checked.status_code == 200 and checked.json()["ok"] is True
+    # Changed within the origin, with no word about allowing: still allowed, chained once.
+    moved = put(operated, endpoint=f"{ORIGIN}/v2/decide")
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["connection"]["origin_allowed_at"] == shown["origin_allowed_at"]
+    kinds = [kind for kind, _ in events(operated.db)]
+    assert kinds.count("agent_connection.origin_allowed") == 1
+    assert operated.db.verify()["ok"]
+    listed = operated.client.get(
+        "/api/audit/administrative", headers=operated.as_(ORG_A, "admin")
+    ).json()["items"]
+    assert "agent_connection.origin_allowed" in {item["event"] for item in listed}
+
+
+@pytest.mark.parametrize("inside", NOT_PUBLIC)
+def test_an_operator_cannot_allow_an_address_inside(
+    operated: Store, looked_up: dict[str, list[str]], inside: str
+) -> None:
+    looked_up["agents.internal.example.org"] = ["10.1.2.3"]
+    refused = put(operated, endpoint=inside, token=TOKEN, allow_origin=True)
+    assert refused.status_code == 422, refused.text
+    assert "10.1.2.3" not in refused.text and TOKEN not in refused.text
+    assert rows(operated.db) == [] and events(operated.db) == []
+
+
+def test_an_administrator_who_does_not_operate_the_deployment_stays_bound_by_the_list(
+    operated: Store, outside: Outside, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Another organization's administrator: `allow_origin` is refused whole, and without it
+    the list refuses the origin as before. What the operating organization allowed for its own
+    connection allows nothing for theirs."""
+    assert put(operated, token=TOKEN, allow_origin=True).status_code == 200
+    theirs = read(operated, org=ORG_B)
+    assert theirs["may_set"] is True and theirs["may_allow_origin"] is False
+    capsys.readouterr()
+    asked = put(operated, org=ORG_B, token=TOKEN, allow_origin=True)
+    assert asked.status_code == 403, asked.text
+    assert "operates this deployment" in asked.json()["detail"]
+    plain = put(operated, org=ORG_B, token=TOKEN)
+    assert plain.status_code == 422 and ALLOWED_ORIGINS_ENV in plain.json()["detail"]
+    assert [row["org"] for row in rows(operated.db)] == [ORG_A]
+    reasons = [
+        line["reason"]
+        for line in security_lines(capsys.readouterr().out)
+        if line["event"] == "admin.connection.refused"
+    ]
+    assert reasons == ["not_operator", "origin_not_listed"]
+    # An origin the list names is theirs to set, as before.
+    assert put(operated, org=ORG_B, endpoint=f"{LIST}/decide").status_code == 200
+    assert read(operated, org=ORG_B)["connection"]["origin_allowed_by"] is None
+    assert decide(operated, org=ORG_A)["outcome"] == "AUTO" and len(outside.seen) == 1
+
+
+def test_where_nobody_operates_the_deployment_through_the_web_nobody_allows_an_origin(
+    lite: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Memberships mode with no operator organization named: no administrator holds `operate`,
+    so the list binds every one of them."""
+    monkeypatch.setenv(ALLOWED_ORIGINS_ENV, LIST)
+    assert read(lite)["may_allow_origin"] is False
+    assert put(lite, token=TOKEN, allow_origin=True).status_code == 403
+    assert put(lite, token=TOKEN).status_code == 422
+    assert rows(lite.db) == [] and events(lite.db) == []
+
+
+def test_without_sign_in_nobody_allows_an_origin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outside: Outside
+) -> None:
+    """Open mode holds `operate` as it holds everything, but nobody there is a person who
+    signed in: an origin off the list stays refused, and whoever runs the server lists it."""
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
+    monkeypatch.setenv(ALLOWED_ORIGINS_ENV, LIST)
+    target = tmp_path / "open.db"
+    with TestClient(create_app(db_path=target)) as client, AuditStore(target) as store:
+        assert client.get(AT).json()["may_allow_origin"] is False
+        asked = client.put(AT, json={"endpoint": ELSEWHERE, "allow_origin": True})
+        assert asked.status_code == 403, asked.text
+        assert client.put(AT, json={"endpoint": ELSEWHERE}).status_code == 422
+        assert rows(store) == [] and events(store) == []
+        assert client.put(AT, json={"endpoint": f"{LIST}/decide"}).status_code == 200
+
+
+def test_with_no_list_an_operators_word_allows_nothing_because_nothing_needs_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MENDARI_OPERATOR_ORG", ORG_A)
+    for site in serving_the_agent(str(tmp_path / "audit.db"), tmp_path, monkeypatch):
+        assert read(site)["allowed_origins"] is None and read(site)["may_allow_origin"] is False
+        made = put(site, token=TOKEN, allow_origin=True)
+        assert made.status_code == 200, made.text
+        assert made.json()["connection"]["origin_allowed_by"] is None
+        assert [kind for kind, _ in events(site.db)] == ["agent_connection.set"]
+
+
+def test_a_database_from_before_allowances_gains_their_columns_and_keeps_its_rows(
+    db_target: str,
+) -> None:
+    """On SQLite and Postgres: a connection kept before an origin could be allowed is read as
+    one nobody allowed, after the start that adds the columns; a second start changes nothing."""
+    with encrypted_store(db_target) as store:
+        made = ConnectionStore(store).set(ORG_A, DEMO, endpoint=ELSEWHERE, token=TOKEN, by="ada")
+        with store._db.session(exclusive=True) as db:
+            for column in ("allowed_origin", "allowed_by", "allowed_at"):
+                db.all(f"ALTER TABLE agent_connections DROP COLUMN {column}")
+            assert "allowed_origin" not in db.columns("agent_connections")
+    for _ in range(2):
+        with encrypted_store(db_target) as store:
+            with store._db.session(exclusive=False) as db:
+                assert {"allowed_origin", "allowed_by", "allowed_at"} <= db.columns(
+                    "agent_connections"
+                )
+            assert ConnectionStore(store).get(ORG_A, DEMO) == made
+            assert ConnectionStore(store).resolve(ORG_A, DEMO) == Connection(ELSEWHERE, TOKEN)
+            assert store.verify()["ok"]

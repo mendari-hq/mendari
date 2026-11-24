@@ -1263,6 +1263,7 @@ const ACTIVITY_TEXT = {
   "store_dataset.proposal_dismissed": "Proposed test dismissed for an agent store version",
   "agent_connection.set": "Agent connection set",
   "agent_connection.cleared": "Agent connection cleared",
+  "agent_connection.origin_allowed": "Agent connection's address allowed by an operator",
 };
 
 // What an event is about, by its chain id's prefix (core/audit.py SUBJECT_TABLES).

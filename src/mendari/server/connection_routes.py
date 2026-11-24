@@ -17,6 +17,14 @@ or plant a token. Each route acts for the organization the guard let the caller 
 (`org_of`), never one a body, a query or a path names, and an agent is one that organization is
 served or holds in its agent store: any other answers as an agent that does not exist.
 
+**An address the deployment's list does not name.** Where the deployment lists the origins it
+may call (`MENDARI_PROVIDER_ALLOWED_ORIGINS`) and a connection's is not one of them, the `PUT`
+is refused, unless the caller operates the deployment (`operate`: an administrator of the
+organization that operates it, signed in as a person) and sends `allow_origin: true`. That
+allows the origin for this agent in their organization, chained
+`agent_connection.origin_allowed`, and it leads to public addresses only, as on a deployment
+with no list. `allow_origin` from anyone else is a `403`, and changes nothing.
+
 **No answer holds a token.** A connection is shown as where it leads and who set it when
 (`token: "set"`, with who set that and when); the endpoint's path is shown to those who may set
 it, its origin to every reader. The security log names the agent and the actor, and for a
@@ -52,6 +60,10 @@ from mendari.server.auth import Auth, Principal, org_of
 
 TAG = "Agents"
 CHECK_DEADLINE_S = 20.0  # one check, each of its calls: a person is waiting
+NOT_AN_OPERATOR = (
+    "only an administrator of the organization that operates this deployment, signed in as a "
+    "person, may allow an address its list does not name. Nothing was changed"
+)
 OFF = (
     f"connections are switched off on this deployment ({SWITCH_ENV}=off): its agents answer "
     "through the service whoever runs it configured"
@@ -94,6 +106,14 @@ class ConnectionRequest(BaseModel):
         "it. Leave it out to keep the one that is set (which holds only while the endpoint "
         "stays the same); send null to remove it",
     )
+    allow_origin: bool = Field(
+        default=False,
+        description="allow this endpoint's origin for this agent in your organization, where "
+        "the deployment's list of addresses it may call does not name it. Only an "
+        "administrator of the organization that operates the deployment, signed in as a "
+        "person, may send it (`403` otherwise); the endpoint must still lead to public "
+        "addresses only, and what was allowed is chained",
+    )
 
 
 Providers = Callable[[str, str], tuple[Pack, list[AgentProvider]] | None]
@@ -117,6 +137,12 @@ def add_connection_routes(
 
     def may_set(principal: Principal) -> bool:
         return principal.may("keys")
+
+    def may_allow(principal: Principal) -> bool:
+        """Whether this caller may allow an origin the deployment's list does not name: one of
+        the deployment's operators, signed in as a person. Never open mode, where nobody signs
+        in: whoever runs such a server lists the origin in its settings."""
+        return principal.kind == "user" and principal.may("operate")
 
     def shown(row: Mapping[str, Any] | None, principal: Principal) -> dict[str, Any] | None:
         """A connection as this caller sees it: its origin, who set it and when, whether it
@@ -181,6 +207,9 @@ def add_connection_routes(
             "may_set": enabled and may_set(principal),
             "seals": connections.seals,
             "allowed_origins": None if listed is None else sorted(listed),
+            # Whether this caller may allow an origin that list does not name, for an agent
+            # here (`allow_origin`); false where there is no list: nothing needs allowing.
+            "may_allow_origin": enabled and listed is not None and may_allow(principal),
             "deployment_endpoint": bool(os.environ.get(ENDPOINT_ENV, "").strip()),
         }
 
@@ -213,7 +242,8 @@ def add_connection_routes(
         `agent`, an endpoint its own manifest names; `none`, its canned examples, which never
         automate where people sign in), and its connection: where it leads, who set it and
         when, and whether it carries a token. Never the token. With it, what the deployment
-        allows (`enabled`, `seals`, `allowed_origins`)."""
+        allows (`enabled`, `seals`, `allowed_origins`, and `may_allow_origin`: whether you
+        may allow an address that list does not name)."""
         principal = auth.acting(request)
         org = org_of(principal)
         listed = [state(org, pack_id, principal) for pack_id in sorted(agents(org))]
@@ -248,29 +278,56 @@ def add_connection_routes(
         its policy, its approvals and its holds allow.
 
         The endpoint must be one this deployment may call: on its provider allow-list where it
-        has one, else on the public internet only (`422` saying which rule refused it). A token
-        is kept sealed and never shown again; a deployment with no key to seal it under refuses
-        one (`409`). Changing the endpoint drops the token unless a new one is sent with it.
-        Chained `agent_connection.set`: who, when, the agent and the endpoint's origin."""
+        has one, else on the public internet only (`422` saying which rule refused it). An
+        origin the list does not name is accepted when an administrator of the organization
+        that operates the deployment sends `allow_origin: true` (`403` from anyone else): it
+        is then allowed for this agent in your organization, to public addresses only, and
+        chained `agent_connection.origin_allowed`. A token is kept sealed and never shown
+        again; a deployment with no key to seal it under refuses one (`409`). Changing the
+        endpoint drops the token unless a new one is sent with it, and what was allowed holds
+        for its origin alone. Chained `agent_connection.set`: who, when, the agent and the
+        endpoint's origin."""
         if not enabled:
             raise HTTPException(409, OFF)
         principal, org, pack_id = writable(request, namespace, name)
+        if body.allow_origin and not may_allow(principal):
+            security_log.event(
+                "admin.connection.refused",
+                outcome="refused",
+                reason="not_operator",
+                actor=principal.id,
+                org=org,
+                ids=[pack_id],
+            )
+            raise HTTPException(403, NOT_AN_OPERATOR)
         token: Any = body.token if "token" in body.model_fields_set else KEEP
+        before = connections.get(org, pack_id)
         try:
             made = connections.set(
-                org, pack_id, endpoint=body.endpoint, token=token, by=principal.actor
+                org,
+                pack_id,
+                endpoint=body.endpoint,
+                token=token,
+                by=principal.actor,
+                allow_origin=body.allow_origin,
             )
         except ConnectionRefused as error:
             security_log.event(
                 "admin.connection.refused",
                 outcome="refused",
-                reason="checks",
+                reason=error.code or "checks",
                 actor=principal.id,
                 org=org,
                 ids=[pack_id],
             )
             raise HTTPException(error.status, str(error)) from None
         changed()
+        if made["origin_allowed_at"] and made["origin_allowed_at"] != (before or {}).get(
+            "origin_allowed_at"
+        ):
+            security_log.event(
+                "admin.connection.origin_allowed", actor=principal.id, org=org, ids=[pack_id]
+            )
         security_log.event("admin.connection.set", actor=principal.id, org=org, ids=[pack_id])
         return {"pack_id": pack_id, "connection": shown(made, principal)}
 

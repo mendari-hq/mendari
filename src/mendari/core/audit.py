@@ -254,6 +254,9 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     # Never the token, nor the endpoint's path.
     "agent_connection.set": "agent_connection",
     "agent_connection.cleared": "agent_connection",
+    # An origin the deployment's allow-list does not name, allowed for one agent in one
+    # organization by an operator of the deployment: the agent, the origin and who.
+    "agent_connection.origin_allowed": "agent_connection",
 }
 # A pack store version's state after each of its kinds: `verify` checks a version's row against
 # its newest (LP-20e).
@@ -717,6 +720,9 @@ CREATE TABLE IF NOT EXISTS agent_connections (
     token_set_at  TEXT,
     changed_by    TEXT NOT NULL,
     changed_at    TEXT NOT NULL,
+    allowed_origin TEXT,
+    allowed_by    TEXT,
+    allowed_at    TEXT,
     UNIQUE (org, pack_id)
 );
 CREATE TABLE IF NOT EXISTS store_usage (
@@ -890,7 +896,10 @@ CREATE INDEX IF NOT EXISTS alert_deliveries_created
 # in one organization, set in the console: one row per organization and agent, kept when the
 # connection is cleared (`endpoint` NULL then), since its events name it. `token` is the bearer
 # token sealed under the PHI key (`core/phi.py`, kind `connection`), bound to the row's id, its
-# organization and its agent; never in an event, an answer or a log line.
+# organization and its agent; never in an event, an answer or a log line. `allowed_origin`,
+# with who and when, is the origin an operator of the deployment allowed for this agent in this
+# organization where the deployment's allow-list does not name it (chained
+# `agent_connection.origin_allowed`); NULL otherwise, and once the connection is cleared.
 
 # The tables a read-only store reads (`_read_only_check`); the first two must be there.
 _READ_TABLES = ("audit_events", "decisions", "feedback", "decision_inputs", "notes", "settings")
@@ -939,6 +948,11 @@ _ADDED_COLUMNS = (
     # Where a version pulled from a registry came from (`core/pack_store.py`, source `hub`);
     # NULL for every other version, and on rows from before it.
     ("store_versions", "pulled", "TEXT"),
+    # The origin an operator allowed for an agent's connection, by whom and when
+    # (`core/connections.py`); NULL where none was, and on rows from before it.
+    ("agent_connections", "allowed_origin", "TEXT"),
+    ("agent_connections", "allowed_by", "TEXT"),
+    ("agent_connections", "allowed_at", "TEXT"),
 )
 # API keys (ADR-0004): machines are viewer or service; a key lives 90 days unless asked
 # otherwise, 365 at most; keys made before keys expired get 30 days from the first start of

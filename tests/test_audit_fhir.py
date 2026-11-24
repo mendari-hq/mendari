@@ -254,6 +254,7 @@ NOT_ON_A_DECISION = {
     # An agent's connection for an organization (`agent_connection:<id>`, ADR-0021).
     "agent_connection.set",
     "agent_connection.cleared",
+    "agent_connection.origin_allowed",
     "governance.approved",
     "governance.revoked",
     "registry_pack.approved",
