@@ -14,7 +14,7 @@ what it says, and about two checks that send an unstable answer to a person:
 The first changes the number. The other two never do: they can only turn an automated decision
 into one a person reviews. The reasons behind each rule are in
 [ADR-0024](../decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md), and the manifest
-keys in [spec 0.4](../spec/agent-manifest-0.4-second-signal.md). All three need
+keys in [spec 0.4](../spec/agent-manifest-0.4.md), sections 8 to 13. All three need
 `spec_version: "0.4"`.
 
 This page is for the author of an agent and for the hospital deciding whether to trust its
@@ -286,6 +286,32 @@ answers in its place.
 is unsure. Use those when you want the second member to change the answer; use `check` when
 you want it only to object.
 
+### When the agent also proposes actions
+
+An agent on spec 0.4 may ask to have something done with its answer
+([Governing actions](governing-actions.md)). A second signal holds those proposals to the same
+rule as the answers: what the runs do not agree on is not automated.
+
+- **Repeated runs.** An action every run proposed, with the same arguments, is taken as
+  proposed. One that only some runs proposed is held for the decision's reviewer, and is never
+  released without one, a `read` included. The decision goes to a person, with the reason
+  `2 of 3 runs proposed action 'assign_queue'; a person decides`.
+- **A second model.** The first member's proposals are the slot's. If the second member is an
+  agent that proposes actions too, a proposal it did not make with the same arguments is held
+  the same way, and any difference between the two sends the decision to a person. A second
+  member that only answers questions (an `llm` variant) checks the answers and not the
+  actions.
+
+When several caps apply to one decision, its reasons give them in one order: the version cap,
+then the second signal, then what the actions need.
+
+```text
+confidence 0.97 >= auto threshold 0.90
+the agent changed since its confidence was calibrated (was 2.1.0, is 2.2.0); a person decides
+2 of 3 runs agreed on request; a person decides
+action 'renew_prescription' (order) is never released without a person; a person decides
+```
+
 ### Canned answers
 
 An agent that answers from its `mock_file` (no live service set) gives the same answer every
@@ -313,7 +339,8 @@ Canned answers are not calibrated either, and on a server with sign-in they neve
 
 All three leave the operating point exact: `mendari eval --target-...` works out what another
 threshold would do by applying the policy again to each case, caps included, so a recommended
-threshold already accounts for the decisions a second signal or a changed version holds back.
+threshold already accounts for the decisions a second signal, a changed version or a proposed
+action holds back.
 
 ## Reference
 

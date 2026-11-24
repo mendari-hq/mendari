@@ -1,24 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
 """`mendari demo`: the bundled demo agent end to end, offline, on synthetic data, in seconds.
 
-It routes a few patient portal messages through the agent under its policy, fills a review queue
-and has simulated reviewers work it, verifies the audit chain, then evaluates the agent on its
-600-case set the way a site would before going live. The demo agent answers from canned
-responses (its `mock_file`) and does not detect urgent messages that are worded as a patient
-might say them: the evaluation is there to catch exactly that.
+One story, in five numbered sections and an ending:
 
-Between the two it shows what the agent asks to do (spec 0.4): the demo agent declares two
-actions and its canned answers propose them. A write is released with an AUTO decision, a
-message to the patient is held until a reviewer confirms the decision, and an action the agent
-never declared is blocked. Mendari authorizes each and runs none.
+1. It routes a few patient portal messages through the agent under its policy.
+2. It shows what the agent asked to do with them (spec 0.4): the demo agent declares two
+   actions and its canned answers propose them. A write is released with an AUTO decision, a
+   message to the patient is held until a reviewer confirms the decision, and an action the
+   agent never declared is blocked. Mendari authorizes each and runs none.
+3. It fills a review queue, has simulated reviewers work it, and verifies the audit chain.
+4. It evaluates the agent on its 600-case set the way a site would before going live. The demo
+   agent answers from canned responses (its `mock_file`) and does not detect urgent messages
+   that are worded as a patient might say them: the evaluation is there to catch exactly that.
+5. It probes the agent (`evals/probe.py`): some of the same cases, each rewritten in ways that
+   keep its meaning, to find the failures no one wrote a case for. The probe's own report says
+   whose answers it read: the fixture's, on this machine, and not an agent's.
 
-Then it probes the agent (`evals/probe.py`): some of the same cases, each rewritten in ways that
-keep its meaning, to find the failures no one wrote a case for. The probe's own report says
-whose answers it read: the fixture's, on this machine, and not an agent's.
-
-It ends with what next, in three parts: the evaluation's verdict; its operating point
+It ends with what next: the evaluation's verdict; its operating point
 (`evals/operating_point.py`), which says whether these cases support any automation threshold
-that keeps the urgent messages no person reads to `TARGETS`; and the commands to type next.
+that keeps the urgent messages no person reads to `TARGETS`; the commands to type next; and
+where a model of your own goes, with the two things to do once it answers: check its confidence
+and gate what it does.
 """
 
 from __future__ import annotations
@@ -62,6 +64,10 @@ EXAMPLES = "https://github.com/mendari-hq/mendari/tree/main/examples"
 # An action the demo agent's manifest does not declare, asked for one of its decisions.
 UNDECLARED = ("renew_prescription", {"days_supply": 90})
 MODEL = f"A model answers behind MENDARI_AGENT_URL: the starters are at {EXAMPLES}"
+# What a live agent can then have that canned answers cannot: its confidence calibrated and a
+# second signal, and its actions gated as section 2 showed. The guides' folder, as a URL.
+GUIDES = "https://github.com/mendari-hq/mendari/tree/main/docs/guides"
+THEN = f"Then check its confidence (mendari calibrate) and gate what it does: {GUIDES}"
 _WIDTH = 100
 
 
@@ -93,12 +99,12 @@ def _run(store: AuditStore) -> None:
             f"{result.outcome.value:<12} {target:<12} {result.priority.value:<7} {confidence}  "
             f"{body[:56]}{'…' if len(body) > 56 else ''}"
         )
-    print("The last-but-one message describes chest pain in other words; see section 3.")
+    print("The last-but-one message describes chest pain in other words; see section 4.")
 
-    _section("Actions: what the agent asks to do")
+    _section("2. What the agent asks to do")
     _actions(agent, store, decided)
 
-    _section("2. The review queue and the audit trail")
+    _section("3. The review queue and the audit trail")
     test = resolve_dataset(pack, "test")
     truth = {}
     for record in test.records[:REVIEWED]:
@@ -116,7 +122,7 @@ def _run(store: AuditStore) -> None:
     chain = store.verify()
     print(f"audit chain: {'verified' if chain['ok'] else 'BROKEN'} ({chain['events']} events)")
 
-    _section("3. Before going live: evaluate the agent")
+    _section("4. Before going live: evaluate the agent")
     report = evaluate(Decision(pack), test, targets=TARGETS)
     decisions = report["decisions"]
     request = report["questions"][m.policy.primary]
@@ -133,7 +139,7 @@ def _run(store: AuditStore) -> None:
             f"{critical['auto_missed']} would have been automated"
         )
 
-    _section("4. Find the failures nobody wrote down")
+    _section("5. Find the failures nobody wrote down")
     print(
         "Each case is rewritten six ways that keep its meaning (a typing error, a line break, an\n"
         "instruction slipped in): an answer that then changes is a failure."
@@ -155,6 +161,7 @@ def _run(store: AuditStore) -> None:
     for command, what in NEXT:
         print(f"  {command:<{column}}{what}")
     print(f"  {MODEL}")
+    print(f"  {THEN}")
 
 
 def _actions(agent: Decision, store: AuditStore, decided: Sequence[DecisionResult]) -> None:

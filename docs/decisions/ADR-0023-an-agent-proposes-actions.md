@@ -58,8 +58,13 @@ What the engine holds any design to:
    automated decision becomes HUMAN_REVIEW: an agent that proposes what it never declared is
    not trusted to automate. An `order`, or an `allow_auto: false` action, also makes an
    automated decision HUMAN_REVIEW, because that is the only way it gets a person. One more cap
-   in `apply_policy`: it turns AUTO into HUMAN_REVIEW and changes nothing else. What the policy
-   decided from keeps it, so an evaluation's operating point re-applies it exactly.
+   in `apply_policy`, its last step: it turns AUTO into HUMAN_REVIEW and changes nothing else,
+   after the caps that say what the answers are worth
+   ([ADR-0024](ADR-0024-a-checked-confidence-and-a-second-signal.md): the version cap and the
+   second signal's). What the policy decided from keeps it, so an evaluation's operating point
+   re-applies it exactly. A `check` is the one composite whose proposals are taken (its first
+   member's), and a proposal that repeated runs or a check did not agree on is held for the
+   reviewer, never released without one: ADR-0024, point 5.
 5. **Held means "waits for this decision's reviewer".** So an action is held only on a decision
    that awaits review and has a recommendation. Where no confirmation can come (an abstention,
    a decision already reviewed, an `order` asked for on an automated decision) it is blocked:

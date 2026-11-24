@@ -827,7 +827,9 @@ def test_no_run_raises_an_outcome_or_releases_an_action_with_every_feature_on(
     """Whatever three runs answer, propose and report as their version, and whatever a second
     agent does: a decision that is AUTO with every feature on is AUTO for each of those runs on
     its own with every feature off, and an action released with every feature on is released
-    for each run on its own. So the three together make AUTO of nothing, and release nothing."""
+    for each run on its own. So the three together make AUTO of nothing, and release nothing.
+    (The calibration here is the identity, T = 1: its version cap is all it can change. A
+    fitted map is a measured correction and may move a confidence either way.)"""
     plain = Decision(load_pack(acting(tmp_path, "plain")))
     everything = Decision(load_pack(with_all(tmp_path)))
     checked = Decision(load_pack(checking(tmp_path)))

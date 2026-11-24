@@ -23,7 +23,7 @@ uv run mendari demo
 Between its messages and its review queue, the demo shows what its agent asked to do:
 
 ```text
-== Actions: what the agent asks to do ======================================
+== 2. What the agent asks to do ============================================
 Mendari authorizes each action and runs none: your caller runs what is released.
 released  assign_queue (write)                 with the AUTO decision on message 1
 held      send_acknowledgement (contact)       message 3 waits for a reviewer
@@ -126,6 +126,19 @@ Two more rules:
 - **An agent your deployment has not vouched for gets nothing released without a person**: a
   community agent, or one from a registry before your organization approves its digest. Its
   declared effects are claims nobody here checked, so even its reads wait for a reviewer.
+- **An action the agent was not sure of is held, never released.** Where the agent is asked
+  each case several times, or checked by a second agent
+  ([Calibration and a second signal](calibration-and-a-second-signal.md)), a proposal that only
+  some runs made, or that the second agent did not make with the same arguments, waits for the
+  decision's reviewer whatever its effect, a `read` too. The decision goes to a person, and
+  its reasons say which action the runs differed on:
+
+  ```text
+  2 of 3 runs proposed action 'look_up_medications'; a person decides
+  ```
+
+  A second model that only answers the questions (an `llm` variant) checks the answers and not
+  the actions: the agent's proposals are then gated by the table above, as always.
 
 ## 4. Propose, do not act
 
@@ -295,7 +308,8 @@ This is the first phase. Planned for the second:
   for releasing orders;
 - `expect.actions` in behaviour tests, and action figures in evaluation reports (how often a
   proposal is refused or held);
-- proposals from a composite's member, which are blocked today;
+- proposals from a member of a `vote`, `cascade` or `any_of` composite, which are blocked
+  today (a `check` takes its first member's);
 - actions in CDS Hooks answers, in `$decide`, and on the FHIR Task;
 - the full input-schema keyword set for arguments, and schemas in files;
 - a deployment's own tightening per effect.

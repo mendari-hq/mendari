@@ -140,9 +140,15 @@ def test_the_bundled_agent_and_the_scaffold_are_as_this_wave_left_them() -> None
         "assign_queue": ("write", True),
         "send_acknowledgement": ("contact", False),
     }
-    # The scaffold stays a 0.2 agent, and shows an action as a comment a person can uncomment.
+    # The scaffold stays a 0.2 agent, since it uses nothing newer, and says so where its author
+    # sets the version; it shows an action as a comment a person can uncomment.
     template = (ROOT / "src" / "mendari" / "templates" / "agent" / "agent.yaml").read_text()
-    assert 'spec_version: "0.2"' in template
+    assert (
+        '# Spec 0.2 is all this agent uses, so every engine that reads 0.2 runs it. Set "0.4" '
+        "for what\n# 0.4 adds: actions (the commented section at the end of this file), a "
+        "calibrated confidence\n# (`mendari calibrate`) and a second signal (`repeat`, or a "
+        '`check` by a second model).\nspec_version: "0.2"\n'
+    ) in template
     commented = [line[2:] for line in template.splitlines() if line.startswith("# ")]
     example = yaml.safe_load("\n".join(commented[commented.index("actions:") :]))
     declared = {

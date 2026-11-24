@@ -1500,14 +1500,34 @@ def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_nex
     demo: Pack,
     demo_run: tuple[Any, list[Any]],
 ) -> None:
-    """The demo's closing, after the evaluation and the probe: the evaluation's verdict, the
-    operating point (the block's own summary, then what to do), then the commands. Short, and
-    in that order."""
+    """The demo is one story: five numbered sections, then its closing. The closing, after the
+    evaluation and the probe: the evaluation's verdict, the operating point (the block's own
+    summary, then what to do), then the commands. Short, and in that order."""
     monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT / "agents"))  # as a release finds it
     run_demo()
     out = capsys.readouterr().out
     before, heading, closing = out.partition("\n== What next ")
-    assert heading and before.index("\n== 3. Before going live") < before.index("\n== 4. Find ")
+    assert heading
+    titles = [line.strip("= ") for line in out.splitlines() if line.startswith("== ")]
+    assert titles == [
+        "1. Patient messages, through the agent and its policy",
+        "2. What the agent asks to do",
+        "3. The review queue and the audit trail",
+        "4. Before going live: evaluate the agent",
+        "5. Find the failures nobody wrote down",
+        "What next",
+    ]
+    assert "in other words; see section 4." in before  # the evaluation, where it is caught
+    # What the agent asked to do with the messages above: each line a disposition, the action
+    # with its effect, and why.
+    asked = before.split("\n== 2. What the agent asks to do ")[1].split("\n== 3. ")[0]
+    assert [" ".join(line.split()) for line in asked.splitlines()[1:] if line.strip()] == [
+        "Mendari authorizes each action and runs none: your caller runs what is released.",
+        "released assign_queue (write) with the AUTO decision on message 1",
+        "held send_acknowledgement (contact) message 3 waits for a reviewer",
+        "released send_acknowledgement (contact) the reviewer confirmed it",
+        "blocked an action the agent never declared asked for message 1",
+    ]
     # The counts the verdict says are the evaluation's own, two sections up.
     assert "critical urgent_symptoms=yes: 81 of 114 detected, 9 would have been automated" in before
     lines = closing.splitlines()[1:]
@@ -1525,7 +1545,13 @@ def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_nex
         "second signal, and evaluate again before it decides anything alone. "
         "Next: mendari new my-agent --id my-clinic/my-agent an agent of your own, "
     )
-    assert len(lines) == 10 and max(map(len, lines[:-1])) <= 100  # the last holds an address
+    # The last two lines each hold an address: where a model goes, then what it can have.
+    assert len(lines) == 11 and max(map(len, lines[:-2])) <= 100
+    assert lines[-2].strip().startswith("A model answers behind MENDARI_AGENT_URL: ")
+    assert lines[-1].strip() == (
+        "Then check its confidence (mendari calibrate) and gate what it does: "
+        "https://github.com/mendari-hq/mendari/tree/main/docs/guides"
+    )
     assert out.endswith(lines[-1] + "\n")  # and nothing comes after it
     # The operating point's first sentence is the block's own summary, as `mendari eval` prints
     # it for the target the demo holds the agent to.

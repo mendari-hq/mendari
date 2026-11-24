@@ -5,6 +5,10 @@ Accepted
 
 Decided by the maintainer on 2026-11-24, before the repository was public, so no comment period ran; open to revision when it is.
 
+Specified in [agent manifest spec 0.4](../spec/agent-manifest-0.4.md), sections 8 to 13. Built
+beside [ADR-0023](ADR-0023-an-agent-proposes-actions.md) (actions); point 5 below is where the
+two meet.
+
 ## Context
 The policy automates a decision when the confidence of the answer to the primary question is at
 or above a threshold (`core/policy.py`, spec section 6). Everything else the policy does is a
@@ -126,15 +130,46 @@ agreement is claimed; a check with a canned member says its agreement is not evi
 ### 4. Where the caps live
 A provider reports what it found beside its answers (`providers/signals.py`: `Cap`, a kind and
 a reason). The decision collects them into what its policy decided from
-(`policy.PolicyInputs.caps`), and `policy.lowered` applies them after `apply_policy`: with any
-cap, AUTO becomes HUMAN_REVIEW; every other outcome keeps its outcome, recommendation, priority
-and rule, and gets the reason. `PolicyInputs.apply` is the one function every decision and every
-replay of one goes through, so the operating point, which applies the policy again to what each
+(`policy.PolicyInputs.caps`), and `apply_policy` applies them as its seventh step
+(`policy.lowered`), after every cap it already had: with any cap, AUTO becomes HUMAN_REVIEW;
+every other outcome keeps its outcome, recommendation, priority and rule, and gets the reason.
+The reason ends "; a person decides" wherever a person does, so on every outcome but a BLOCK,
+which gets it as a note. They are given in one order whatever order they were found in: the
+version cap, then repeated runs, then a check. The actions' cap of ADR-0023 is the eighth step
+and the last: what the answers are worth is settled before what the agent asks to do.
+`apply_policy` is the one function every decision and every replay of one goes through
+(`PolicyInputs.apply`), so the operating point, which applies the policy again to what each
 case kept, reproduces the run case for case with these features on.
 
 Nothing stored, hashed or signed changes shape. The caps reach the record as reasons. What an
 evaluation reports about calibration and second signals is in the report's `run` block, beside
 the operating point, outside the result that `result_sha256` covers.
+
+### 5. A second signal that did not agree on a proposed action holds the action
+An agent on spec 0.4 may propose actions with its answers (ADR-0023). A second signal treats
+them as it treats answers: what the runs did not agree on is not automated.
+
+- **Repeated runs.** The slot proposes each distinct proposal (a name with its arguments) that
+  any run made. One that every run made is taken as proposed. One that only some runs made (a
+  run that failed made none) is **disputed**: the decision is capped, the reason
+  `2 of 3 runs proposed action <name>`, and the action's gate becomes `person`. So it is held
+  for the decision's reviewer, and never released without one, whatever its effect: a `read`
+  that any other decision would release is held too.
+- **A check.** The first member's proposals are the slot's, and the second member's own are
+  never taken, as its answers are not. Where the second member also proposes actions (an
+  `agent` variant), a proposal it did not make with the same arguments is disputed, and any
+  difference between the two caps the decision. A second member that cannot propose (an `llm`)
+  checks the answers and not the actions. A `check` is therefore the one composite whose
+  proposals are taken; a member of a `vote`, `cascade` or `any_of` still has none taken.
+
+The cap is the second signal's (a reason among `PolicyInputs.caps`), so the evaluation counts
+such a case among those its second signal kept from automation, and the operating point
+re-applies it. The gate is where every other gate is (`policy.gate_of`).
+
+Why held and not blocked: the action may be the right one, and a reviewer is about to read the
+decision anyway. Why not released on a `read`: an agent that reads a chart on one run in three
+is doing something its author did not evaluate, and nothing is lost by waiting for the person
+who now decides.
 
 ## Consequences
 - An agent's Decision Card says whether its confidence is calibrated, on how many cases and

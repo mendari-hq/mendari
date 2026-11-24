@@ -3,6 +3,9 @@
 # external HTTP agent service when `MENDARI_AGENT_URL` is set.
 # The authoring guide walks through every section:
 # https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md
+# Spec 0.2 is all this agent uses, so every engine that reads 0.2 runs it. Set "0.4" for what
+# 0.4 adds: actions (the commented section at the end of this file), a calibrated confidence
+# (`mendari calibrate`) and a second signal (`repeat`, or a `check` by a second model).
 spec_version: "0.2"
 id: {{id}}
 version: 0.1.0

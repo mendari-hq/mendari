@@ -21,7 +21,9 @@ governed agent is a folder of plain text:
 |---|---|
 | wrap your agent: its manifest (`agent.yaml`) and HTTP contract | [Authoring an agent](guides/authoring-an-agent.md) |
 | find the failures nobody wrote a case for, and keep them as tests | [Finding failures](guides/finding-failures.md) |
+| make an agent's confidence mean what it says, and never automate an unstable answer | [Calibration and a second signal](guides/calibration-and-a-second-signal.md) |
 | know which automation threshold your cases support | [Choosing an automation threshold](guides/choosing-a-threshold.md) |
+| gate what an agent does, not only what it answers | [Governing actions](guides/governing-actions.md) |
 | check an agent on every change, in CI | [Evaluating an agent on every change](guides/evaluate-in-ci.md) |
 | call Mendari from your code, over REST or FHIR | [Using the API](guides/api.md) (on a running server: `/docs`) |
 | let an EHR call the CDS Hooks services with its own signed token | [Connecting an EHR](guides/connecting-an-ehr.md) |
@@ -29,7 +31,7 @@ governed agent is a folder of plain text:
 | give your AI governance committee one document about an agent | [The committee packet](guides/committee-packet.md) |
 | run Mendari at your organization | [Deploying with real patient data](deploying-with-phi.md) |
 | publish and pull signed agents | [Running a registry](operations/registry.md) |
-| know exactly what a manifest may contain | [The spec](spec/agent-manifest-0.2.md), and the FHIR mapping of [0.3](spec/agent-manifest-0.3.md) |
+| know exactly what a manifest may contain | [The spec](spec/agent-manifest-0.2.md), the FHIR mapping of [0.3](spec/agent-manifest-0.3.md), and the actions, calibration and second signal of [0.4](spec/agent-manifest-0.4.md) |
 | understand how the engine works | [Architecture](architecture.md) |
 | review its security | [Threat model](security/threat-model.md) |
 | read why it is built this way | The decision records, from [ADR-0001](decisions/ADR-0001-questions-as-the-core-abstraction.md) on |
