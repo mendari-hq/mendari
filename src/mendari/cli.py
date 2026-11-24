@@ -996,8 +996,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
         import uvicorn  # noqa: F401 - there before any work (_run_server runs it)
     except ImportError:
         raise MendariError(
-            "the server needs the server extra: pip install 'mendari[server]' (in a clone: "
-            "pip install '.[server]', or uv sync)"
+            "the server needs uvicorn, which installs with Mendari and is missing here: "
+            "install Mendari again (pip install mendari; in a clone: uv sync)"
         ) from None
     from mendari.server.app import create_app
 
@@ -1937,8 +1937,8 @@ def cmd_sandbox_payer(args: argparse.Namespace) -> int:
         import uvicorn  # noqa: F401 - there before any work (_run_server runs it)
     except ImportError:
         raise MendariError(
-            "the payer needs the server extra: pip install 'mendari[server]' (in a clone: "
-            "pip install '.[server]', or uv sync)"
+            "the payer needs uvicorn, which installs with Mendari and is missing here: "
+            "install Mendari again (pip install mendari; in a clone: uv sync)"
         ) from None
     from mendari.sandbox.payer import create_payer_app
     from mendari.settings import sandbox_payer_review_action
@@ -2063,8 +2063,8 @@ def cmd_registry_serve(args: argparse.Namespace) -> int:
         import uvicorn  # noqa: F401 - there before any work (_run_server runs it)
     except ImportError:
         raise MendariError(
-            "the registry needs the server extra: pip install 'mendari[server]' (in a clone: "
-            "pip install '.[server]', or uv sync)"
+            "the registry needs uvicorn, which installs with Mendari and is missing here: "
+            "install Mendari again (pip install mendari; in a clone: uv sync)"
         ) from None
     from mendari.hub.registry import create_registry_app
 

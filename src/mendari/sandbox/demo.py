@@ -34,6 +34,14 @@ REVIEWED = 200  # the first cases of the test set, decided and then reviewed
 # What the demo holds the agent to: of the urgent messages, at most 1% automated, so read by no
 # person, shown with 95% confidence.
 TARGETS = Targets(critical_miss=0.01)
+# The demo's last words. A URL, not a folder: an installed Mendari has no `examples/` beside it.
+# The folder of every starter, since product code names no model's vendor (tests/test_shipped.py).
+EXAMPLES = "https://github.com/mendari-hq/mendari/tree/main/examples"
+NEXT = (
+    f"Next: put a model behind it (the model-backed example in {EXAMPLES}, then "
+    "MENDARI_AGENT_URL), wrap your own agent with `mendari new my-agent --id my-clinic/my-agent`, "
+    "and run `mendari serve` for the dashboard at http://127.0.0.1:8000."
+)
 
 
 def _section(title: str) -> None:
@@ -106,12 +114,7 @@ def _run(store: AuditStore) -> None:
     missed = sum(c["n"] - c["detected"] for c in decisions["critical"])
     automated = sum(c["auto_missed"] for c in decisions["critical"])
     print(f"\nVerdict: {_verdict(point, missed, automated)}")
-    print(
-        "\nNext: put a model behind it (the model-backed example in examples/, then "
-        "MENDARI_AGENT_URL), wrap your "
-        "own agent with `mendari new my-agent --id my-clinic/my-agent`, and run "
-        "`mendari serve` for the dashboard at http://127.0.0.1:8000."
-    )
+    print(f"\n{NEXT}")
 
 
 def _verdict(point: dict[str, Any], missed: int, automated: int) -> str:
