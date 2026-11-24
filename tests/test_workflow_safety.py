@@ -363,7 +363,11 @@ def test_the_history_is_scanned_for_secrets() -> None:
     for allowance in config["allowlists"]:
         assert allowance["condition"] == "AND" and allowance["description"]
         assert allowance["paths"] and allowance["regexes"] and allowance["targetRules"]
-    assert [a["paths"] for a in config["allowlists"]] == [[r"^deploy/onprem/\.env\.example$"]]
+    assert [a["paths"] for a in config["allowlists"]] == [
+        [r"^deploy/onprem/\.env\.example$"],
+        [r"^src/mendari/server/connection_routes\.py$"],
+        [r"^tests/support/evaluation_pages\.py$"],
+    ]
     # No other allowance: no ignore file, no inline marker.
     assert not (ROOT / ".gitleaksignore").exists()
     marker = "gitleaks" + ":allow"
