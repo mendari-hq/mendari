@@ -10,6 +10,7 @@ do not test equality)."""
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -205,6 +206,37 @@ def test_a_0_4_card_uses_the_0_3_card_keys() -> None:
     assert PackManifest.model_validate(raw).cds_hooks is not None
     with pytest.raises(ValidationError, match=r"spec 0\.3 card features"):
         PackManifest.model_validate({**raw, "spec_version": "0.2", "actions": {}})
+
+
+def test_no_product_code_asks_for_a_spec_version_by_equality() -> None:
+    """A feature of spec X is one of every later version too: each check asks `at_least`.
+    The one equality left is on the oldest version (what 0.1 does not have), which no later
+    version can break."""
+    asked = re.compile(r"spec_version\s*(?:==|!=|\bnot in\b|\bin\b)\s*(.*)")
+    found = []
+    for path in sorted((ROOT / "src" / "mendari").rglob("*.py")):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            match = asked.search(line.split("#")[0])
+            if match:
+                found.append((str(path.relative_to(ROOT)), number, match.group(1).strip()))
+    assert [(name, compared) for name, _, compared in found] == [
+        ("src/mendari/core/spec.py", '"0.1":')
+    ], found
+    assert not hasattr(spec, "SPEC_04")  # the version is asked of `at_least`, by its name
+
+
+def test_a_0_4_manifest_uses_the_second_signal_keys_and_an_older_one_is_told_to_say_0_4() -> None:
+    """`repeat`, `calibration` and the `check` composite are asked for as actions are: by
+    `at_least`, so a later version keeps them, and an older manifest is refused naming each."""
+    raw = raw_manifest()
+    raw["providers"]["reader"]["variants"]["agent"]["repeat"] = 3
+    assert PackManifest.model_validate(raw).spec_version == "0.4"
+    for version in ("0.2", "0.3"):
+        older = {**raw, "spec_version": version, "actions": {}}
+        with pytest.raises(ValidationError, match=r"use spec 0\.4 features") as refused:
+            PackManifest.model_validate(older)
+        assert "providers.reader.variants.agent.repeat" in str(refused.value)
+        assert "set spec_version: '0.4'" in str(refused.value)
 
 
 # -- the section's own rules ----------------------------------------------------------------------
