@@ -187,7 +187,7 @@ def test_a_reader_sees_the_rounds_and_a_closed_ones_report(grading: Grading) -> 
     assert JUDGE_MARK not in page.content() and "kappa" not in panel.inner_text()
     # A reader holds no `label`: no grading screen for them.
     expect(page.locator('.nav a[data-view="written"]')).to_be_hidden()
-    grading.rounds.close(round_id, by="ops", resamples=50)
+    grading.rounds.close(round_id, by="ops")
     page.reload()
     panel = page.locator(f'[data-round="{round_id}"]')
     expect(panel).to_contain_text("Closed")

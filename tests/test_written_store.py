@@ -36,8 +36,10 @@ from mendari.core.pack import Pack
 from mendari.core.phi import PhiPolicy, key_id
 from mendari.core.written import (
     CLOSED,
+    CLOSING_NOTE,
     NO_ROUND,
     OPEN,
+    REPORT_MISMATCH,
     NoRound,
     WrittenStore,
     grade_ref,
@@ -47,9 +49,10 @@ from mendari.errors import LabelError, MendariError, NoAssignment
 from mendari.evals import resolve_dataset, written
 from mendari.evals.written import INSUFFICIENT, WrittenLedger, WrittenRun
 from mendari.providers.judge import Judge
+from mendari.standards import audit_fhir, fhir_structure
 from tests.conftest import HASH_KEY_B64, PHI_KEY_B64, ROOT
 from tests.test_evalset_labelling import ISSUER, membership_of, person
-from tests.test_evalset_store import CLINIC, chained, served
+from tests.test_evalset_store import CLINIC, chained, served, tamper
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini"
 RUBRIC = "reply_quality"
@@ -60,7 +63,8 @@ TABLES = ("written_rounds", "written_items", "written_assignments", "audit_event
 # What each event's payload holds, and nothing else.
 PAYLOADS = {
     "written.round_created": {
-        *("round", "org", "pack_id", "pack_digest", "rubric", "rubric_sha256", "ledger", "items")
+        *("round", "org", "pack_id", "pack_digest", "rubric", "rubric_sha256", "ledger", "items"),
+        "seed",
     },
     "written.assigned": {"round", "org", "item", "assignment", "grader"},
     "written.item_read": {"round", "org", "item", "assignment", "grader"},
@@ -145,13 +149,14 @@ def test_a_round_keeps_a_seeded_sample_sealed_and_the_ledger_whole(world: World)
         "items": 6,
         "ledger": world.run.ledger.id,
         "state": OPEN,
+        "seed": 3,
     }
     (kept,) = rows(world.store, "written_rounds")
     assert (kept["org"], kept["pack_id"], kept["state"]) == (CLINIC, world.pack.id, OPEN)
     assert kept["pack_digest"] == world.pack.digest and kept["report"] is None
     assert kept["rubric_sha256"] == written.rubric_sha256(world.pack.manifest, RUBRIC)
     assert WrittenLedger.loads(kept["ledger"].encode()).id == world.run.ledger.id
-    assert json.loads(kept["header"]) == rubric_header(world.pack, RUBRIC)
+    assert json.loads(kept["header"]) == {**rubric_header(world.pack, RUBRIC), "seed": 3}
     items = rows(world.store, "written_items")
     assert len(items) == 6 and {item["sealed"] for item in items} == {1}
     by_id = {item.item: item for item in world.run.items}
@@ -191,6 +196,7 @@ def test_a_round_keeps_a_seeded_sample_sealed_and_the_ledger_whole(world: World)
         "rubric_sha256": kept["rubric_sha256"],
         "ledger": world.run.ledger.id,
         "items": 6,
+        "seed": 3,
     }
     assert world.store.verify()["ok"]
 
@@ -261,7 +267,7 @@ def test_under_off_in_an_unprotected_database_the_texts_are_plain(
         world.rounds.assign(round_id, [a, b])
         shown = world.rounds.next_item(a, org=CLINIC)
         assert shown is not None and shown["written"]["text"].startswith("Thank you")
-        world.rounds.close(round_id, by="ops", resamples=50)
+        world.rounds.close(round_id, by="ops")
         assert {item["body"] for item in rows(store, "written_items")} == {None}
 
 
@@ -271,7 +277,7 @@ def test_under_off_in_an_unprotected_database_the_texts_are_plain(
 def test_one_grader_an_item_and_a_seeded_share_a_second_different_one(world: World) -> None:
     round_id = world.round(10)
     a, b, c = graders(world.store, 3)
-    made = world.rounds.assign(round_id, [a, b, c], double=0.25, seed=1)
+    made = world.rounds.assign(round_id, [a, b, c], double=0.25)
     assert made["assigned"] == 13 and made["withdrawn"] == 0  # 10, and ceil(0.25 x 10) = 3 twice
     assert set(made) == {"round", "assigned", "withdrawn", "graders"}  # never which are twice
     assert sum(made["graders"].values()) == 13
@@ -285,14 +291,14 @@ def test_one_grader_an_item_and_a_seeded_share_a_second_different_one(world: Wor
     assert {row["membership_id"] for row in held} == {
         membership_of(world.store, u) for u in (a, b, c)
     }
-    assert world.rounds.assign(round_id, [a, b, c], double=0.25, seed=1)["assigned"] == 0
+    assert world.rounds.assign(round_id, [a, b, c], double=0.25)["assigned"] == 0
     assigned = events(world.store, "written.assigned")
     assert len(assigned) == 13 and all(
         set(e["payload"]) == PAYLOADS["written.assigned"] for e in assigned
     )
     # The same seed gives the same pairs in another round of the same items.
     second = world.round(10)
-    world.rounds.assign(second, [a, b, c], double=0.25, seed=1)
+    world.rounds.assign(second, [a, b, c], double=0.25)
     items = {row["id"]: row["item"] for row in rows(world.store, "written_items")}
 
     def pairs(of: str) -> set[tuple[str, str]]:
@@ -451,7 +457,7 @@ def test_a_planted_judge_never_reaches_a_grader(world: World) -> None:
             said.append(world.rounds.record_grades(shown["assignment"], user, PASS, org=CLINIC))
     assert len(said) > 20 and mark not in json.dumps(said)
     assert mark not in json.dumps(world.rounds.progress(made["round"]))
-    closed = world.rounds.close(made["round"], by="ops", resamples=50)
+    closed = world.rounds.close(made["round"], by="ops")
     assert closed["report"]["judge"]["model"] == mark  # the report names it, once closed
 
 
@@ -558,12 +564,12 @@ def test_each_showing_is_chained_before_it_is_answered(
 def test_closing_computes_the_report_and_erases_every_text(world: World) -> None:
     round_id = world.round(10)
     a, b, c = graders(world.store, 3)
-    world.rounds.assign(round_id, [a, b, c], double=0.5, seed=2)
+    world.rounds.assign(round_id, [a, b, c], double=0.5)
     assert grade_all(world, [a, b]) > 0  # c grades nothing: their assignments end unanswered
     waiting = world.rounds.labelling(c, org=CLINIC)["remaining"]
     assert waiting > 0
     graded = len(events(world.store, "written.graded"))
-    closed = world.rounds.close(round_id, by="ops", resamples=100)
+    closed = world.rounds.close(round_id, by="ops")
     assert (closed["state"], closed["graded"], closed["erased"]) == (CLOSED, graded, 10)
     report = closed["report"]
     assert report["format"] == "mendari.written/1" and report["ledger"]["id"] == world.run.ledger.id
@@ -610,9 +616,24 @@ def test_closing_computes_the_report_and_erases_every_text(world: World) -> None
         if event["event"] in PAYLOADS:
             assert set(event["payload"]) == PAYLOADS[event["event"]], event["event"]
             assert event["decision_id"] == f"written:{round_id}"
-    kinds = {item["event"] for item in world.store.administrative_events(CLINIC, limit=500).rows}
+    items = world.store.administrative_events(CLINIC, limit=500).rows
+    kinds = {item["event"] for item in items}
     assert set(PAYLOADS) - {"written.erased"} <= kinds
     assert world.store.administrative_events("clinic-b", limit=500).rows == []
+    # As FHIR AuditEvents (the administrators' export): well formed, the grader or whoever
+    # closed the round as the agent, and no item, assignment, commitment or count as a detail.
+    for item in items:
+        if item["event"] not in PAYLOADS:
+            continue
+        resource = audit_fhir.administrative_event(item)
+        assert fhir_structure.check(resource) == [], resource
+        acted = resource["agent"][0]["who"]["display"]
+        if item["event"] in ("written.item_read", "written.graded"):
+            assert acted in (a, b)
+        if item["event"] == "written.round_closed":
+            assert acted == "ops"
+        details = {detail["type"] for detail in resource["entity"][0].get("detail", [])}
+        assert details <= {"org", "pack_id", "pack_digest", "ledger", "hash"}, details
 
 
 def test_a_round_left_closing_is_closed_by_running_it_again(
@@ -634,7 +655,7 @@ def test_a_round_left_closing_is_closed_by_running_it_again(
     assert kept["state"] == "closing" and kept["report"] is None
     assert world.rounds.next_item(b, org=CLINIC) is None  # no grade is taken meanwhile
     assert {item["body"] is None for item in rows(world.store, "written_items")} == {False}
-    assert world.rounds.close(round_id, by="ops", resamples=50)["state"] == CLOSED
+    assert world.rounds.close(round_id, by="ops")["state"] == CLOSED
 
 
 # -- keys and retention -------------------------------------------------------------------------
@@ -700,7 +721,7 @@ def test_retention_erases_the_texts_a_round_still_keeps(world: World) -> None:
     assert world.rounds.labelling(a, org=CLINIC)["remaining"] == 0
     assert world.rounds.progress(round_id)["erased"] == 4
     assert "written" not in world.store.purge(0, source="command")  # counted only where any
-    closed = world.rounds.close(round_id, by="ops", resamples=50)
+    closed = world.rounds.close(round_id, by="ops")
     assert closed["erased"] == 0 and closed["graded"] == 0
     assert world.store.verify()["ok"]
 
@@ -769,9 +790,21 @@ def test_the_operators_commands_make_assign_show_and_close_a_round(
     code, out, _ = run_cli(capsys, "written", "round", "list", "--org", CLINIC, "--db", db)
     (listed,) = json.loads(out)
     assert (listed["id"], listed["state"], listed["report_sha256"]) == (round_id, OPEN, None)
-    close = ("written", "round", "close", round_id, "--db", db, "--resamples", "50")
+    close = ("written", "round", "close", round_id, "--db", db)
+    # Fewer than 2,000 resamples is refused before the database is opened: nothing changes.
+    for few in ("1", "50", "1999"):
+        code, _, err = run_cli(capsys, *close, "--resamples", few)
+        assert code == 1 and "--resamples: the resamples are 2000 to 100000" in err
+    code, out, _ = run_cli(capsys, "written", "round", "progress", round_id, "--db", db)
+    assert json.loads(out)["state"] == OPEN
+    # No option chooses the bootstrap's seed: it is the round's own.
+    code, _, err = run_cli(capsys, *close, "--seed", "7")
+    assert code != 0 and "--seed" in err
+    code, _, err = run_cli(capsys, *assign, "--seed", "7")
+    assert code != 0 and "--seed" in err
     code, out, err = run_cli(capsys, *close)
     assert code == 0 and "Written output: rubric reply_quality" in out
+    assert "bootstrap seed 0, 2000 resamples" in out
     assert "12 grade(s) kept, 8 text(s) erased" in err
     code, _, err = run_cli(capsys, *close)
     assert code == 1 and "already closed" in err
@@ -793,3 +826,175 @@ def test_the_operators_commands_make_assign_show_and_close_a_round(
         capsys, *create, "--org", CLINIC, "--sample", "2", "--db", str(tmp_path / "hashed.db")
     )
     assert code == 1 and "PHI mode hash keeps no patient text" in err
+
+
+# -- what the review found ----------------------------------------------------------------------
+
+
+def test_closing_checks_its_arguments_before_it_changes_anything(world: World) -> None:
+    """The reviewer's case: `close(resamples=0)` was refused only after the round's assignments
+    were ended and the round set `closing`. Every argument is checked before the first step."""
+    round_id = world.round(3)
+    a, b = graders(world.store, 2)
+    world.rounds.assign(round_id, [a, b], double=0)
+    before = dump(world.store)
+    for bad in (0, 1, 50, 1999, 100_001, True, "2000"):
+        with pytest.raises(MendariError, match="the resamples are"):
+            world.rounds.close(round_id, by="ops", resamples=bad)  # type: ignore[arg-type]
+    for nobody in ("", "   ", None):
+        with pytest.raises(MendariError, match="names who closes it"):
+            world.rounds.close(round_id, by=nobody)  # type: ignore[arg-type]
+    assert dump(world.store) == before  # still open, every assignment still open
+    assert world.rounds.progress(round_id)["state"] == OPEN
+    assert world.rounds.next_item(a, org=CLINIC) is not None
+
+
+def test_a_round_left_closing_says_so_and_retention_still_erases_its_texts(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    round_id = world.round(3)
+    a, b = graders(world.store, 2)
+    world.rounds.assign(round_id, [a, b], double=0)
+
+    def failing(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("interrupted")
+
+    monkeypatch.setattr(written, "report", failing)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        world.rounds.close(round_id, by="ops")
+    monkeypatch.undo()
+    (listed,) = world.rounds.rounds(CLINIC)
+    assert listed["state"] == "closing" and listed["report"] is None
+    assert listed["note"] == CLOSING_NOTE and "close` on it again to finish" in CLOSING_NOTE
+    assert world.rounds.progress(round_id)["note"] == CLOSING_NOTE
+    # Its texts are still kept (nothing was erased), and retention still erases them.
+    assert {item["body"] is None for item in rows(world.store, "written_items")} == {False}
+    assert world.store.purge(0, source="command")["written"] == 3
+    assert {item["body"] for item in rows(world.store, "written_items")} == {None}
+    closed = world.rounds.close(round_id, by="ops")
+    assert closed["state"] == CLOSED and closed["erased"] == 0
+    (listed,) = world.rounds.rounds(CLINIC)
+    assert listed["note"] is None and listed["report"] == closed["report"]
+    assert world.store.verify()["ok"]
+
+
+def test_a_rounds_seed_is_fixed_when_it_is_made_and_is_the_reports(world: World) -> None:
+    made = world.rounds.create_round(
+        CLINIC, world.pack, RUBRIC, world.run, sample=4, seed=11, created_by="ops"
+    )
+    a, b = graders(world.store, 2)
+    world.rounds.assign(made["round"], [a, b], double=0.5)
+    grade_all(world, [a, b])
+    # Nobody chooses it later: closing takes no seed, and reads the one the chain holds even
+    # when the round's own row was edited.
+    with pytest.raises(TypeError):
+        world.rounds.close(made["round"], by="ops", seed=3)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        world.rounds.assign(made["round"], [a, b], seed=3)  # type: ignore[call-arg]
+    tamper(world.store, "UPDATE written_rounds SET header = replace(header, ?, ?)", (
+        '"seed":11', '"seed":99'
+    ))  # fmt: skip
+    closed = world.rounds.close(made["round"], by="ops")
+    assert closed["report"]["seeds"] == {"bootstrap": 11, "resamples": 2000, "level": 0.95}
+
+
+def closed_round(world: World) -> tuple[str, dict[str, Any]]:
+    round_id = world.round(4)
+    a, b = graders(world.store, 2)
+    world.rounds.assign(round_id, [a, b], double=1.0)
+    grade_all(world, [a], PASS)
+    grade_all(world, [b], FAIL)
+    return round_id, world.rounds.close(round_id, by="ops")["report"]
+
+
+def test_a_stored_report_edited_in_the_database_is_not_served_and_breaks_verification(
+    world: World,
+) -> None:
+    """The reviewer's case: a `written_rounds.report` edited by SQL to say "validated" was
+    served unchanged, and `verify` said ok. Its hash is recomputed and compared with the one
+    the round's closing chained."""
+    round_id, report = closed_round(world)
+    (listed,) = world.rounds.rounds(CLINIC)
+    assert listed["report"] == report and listed["note"] is None
+    checked = world.store.verify()
+    assert checked["ok"] and checked["written"] == {"rounds": 1, "grades": 8}
+    forged = json.loads(json.dumps(report))
+    for criterion in forged["criteria"].values():
+        criterion["validation"] = {"state": "validated", "reasons": []}
+        criterion["judged"] = {"passing": {"k": 9, "n": 9, "low": 0.66, "high": 1.0}, "levels": {}}
+    tamper(
+        world.store,
+        "UPDATE written_rounds SET report = ? WHERE id = ?",
+        (json.dumps(forged, sort_keys=True, separators=(",", ":")), round_id),
+    )
+    (listed,) = world.rounds.rounds(CLINIC)
+    assert listed["report"] is None and listed["note"] == REPORT_MISMATCH
+    assert "does not match the audit trail" in REPORT_MISMATCH
+    assert "validated" not in json.dumps(listed)
+    broken = world.store.verify()
+    (closing,) = events(world.store, "written.round_closed")
+    assert broken["ok"] is False and broken["reason"] == "written"
+    assert broken["broken_at"] == closing["seq"]
+    # A forgery that also rewrites its own `result_sha256` is caught the same way: the hash is
+    # recomputed from the report, never read from it.
+    forged["result_sha256"] = written.result_sha256(
+        {k: v for k, v in forged.items() if k not in ("run", "result_sha256")}
+    )
+    tamper(
+        world.store,
+        "UPDATE written_rounds SET report = ? WHERE id = ?",
+        (json.dumps(forged), round_id),
+    )
+    assert world.rounds.rounds(CLINIC)[0]["report"] is None
+    assert world.store.verify()["ok"] is False
+    # Put back as it was stored: served again, and the chain holds.
+    tamper(
+        world.store,
+        "UPDATE written_rounds SET report = ? WHERE id = ?",
+        (json.dumps(report, sort_keys=True, separators=(",", ":")), round_id),
+    )
+    assert world.rounds.rounds(CLINIC)[0]["report"] == report and world.store.verify()["ok"]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        # A grade changed, kept its salt.
+        """UPDATE written_assignments SET grades = replace(grades, '"yes"', '"no"')
+           WHERE id = (SELECT min(id) FROM written_assignments WHERE grades LIKE '%"yes"%')""",
+        # A grade removed.
+        """UPDATE written_assignments SET grades = NULL
+           WHERE id = (SELECT min(id) FROM written_assignments)""",
+        # A grade moved to another item.
+        """UPDATE written_assignments SET item_id = (SELECT max(id) FROM written_items)
+           WHERE id = (SELECT min(a.id) FROM written_assignments a
+                       WHERE a.item_id <> (SELECT max(id) FROM written_items))""",
+        # A closed round reopened, or its report removed.
+        "UPDATE written_rounds SET state = 'open'",
+        "UPDATE written_rounds SET report = NULL",
+    ],
+)
+def test_verify_checks_every_stored_grade_and_closed_round_against_the_chain(
+    world: World, sql: str
+) -> None:
+    closed_round(world)
+    assert world.store.verify()["ok"]
+    tamper(world.store, sql)
+    broken = world.store.verify()
+    assert broken["ok"] is False and broken["reason"] == "written", broken
+
+
+def test_verify_finds_a_grade_no_event_accounts_for(world: World) -> None:
+    round_id = world.round(2)
+    a, b = graders(world.store, 2)
+    world.rounds.assign(round_id, [a, b], double=0)
+    assert world.store.verify()["ok"]  # an open round with no grade: nothing to check
+    forged = json.dumps({"salt": base64.b64encode(os.urandom(32)).decode(), "values": PASS})
+    tamper(
+        world.store,
+        "UPDATE written_assignments SET grades = ?, graded_at = created_at, ended_at = created_at "
+        "WHERE id = (SELECT min(id) FROM written_assignments)",
+        (forged,),
+    )
+    broken = world.store.verify()
+    assert broken["ok"] is False and broken["reason"] == "written" and "broken_at" not in broken

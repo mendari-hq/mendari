@@ -227,7 +227,7 @@ def test_under_off_the_items_hold_the_texts_and_nothing_else_does(tmp_path: Path
         if name != "written_items":
             clean(f"table {name}", text)
     with AuditStore(db) as store:
-        closed: dict[str, Any] = WrittenStore(store).close(made["round"], by="ops", resamples=50)
+        closed: dict[str, Any] = WrittenStore(store).close(made["round"], by="ops")
         clean("the closing's answer", json.dumps(closed))
     for name, text in tables(db).items():  # closed: erased there too
         clean(f"table {name} after closing", text)

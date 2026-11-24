@@ -350,3 +350,22 @@ def test_a_manifest_loads_again_from_its_own_dump() -> None:
         WrittenOutput.model_validate(dumped["outputs"]["reply_draft"])
         == loaded.outputs["reply_draft"]
     )
+
+
+def test_a_manifest_may_lower_the_ceiling_on_judge_errors_and_never_raise_it() -> None:
+    """The share of outputs a judge may fail to grade is a ceiling: tightening it is lowering
+    it, the other way round from the two floors."""
+    assert spec.MAX_JUDGE_ERRORS == written.MAX_JUDGE_ERRORS == 0.05
+    default = PackManifest.model_validate(raw()).rubrics["reply_quality"]
+    assert default.max_judge_errors() == 0.05
+    for kept in (0.0, 0.01, 0.05):
+        loaded = PackManifest.model_validate(rubric(floors={"max_judge_errors": kept}))
+        assert loaded.rubrics["reply_quality"].max_judge_errors() == kept
+    for raised in (0.051, 0.2, 1.0):
+        refused(
+            rubric(floors={"max_judge_errors": raised}),
+            "rubrics.reply_quality.floors.max_judge_errors is above the engine's 0.05: a "
+            "manifest may lower this ceiling, never raise it",
+        )
+    for outside in (-0.1, 1.5):
+        refused(rubric(floors={"max_judge_errors": outside}), "max_judge_errors")

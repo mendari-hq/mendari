@@ -228,7 +228,7 @@ def test_no_report_exists_before_the_round_closes_and_a_planted_judge_reaches_no
     assert JUDGE_MARK not in listed.text and "kappa" not in listed.text
     # A grader may not read the rounds: their role holds `label`, and nothing else.
     assert world.client.get(ROUNDS, headers=a).status_code == 403
-    world.rounds.close(round_id, by="ops", resamples=50)
+    world.rounds.close(round_id, by="ops")
     (closed,) = world.client.get(ROUNDS, headers=viewer).json()
     report = closed["report"]
     assert closed["state"] == "closed" and report["format"] == "mendari.written/1"
@@ -281,7 +281,7 @@ def test_a_closed_round_takes_no_grade(world: World) -> None:
     (first, a), (second, _) = world.person("grader-a"), world.person("grader-b")
     round_id = world.round([first, second], sample=2)
     assignment = world.next(a).json()["assignment"]
-    world.rounds.close(round_id, by="ops", resamples=50)
+    world.rounds.close(round_id, by="ops")
     assert world.grade(assignment, PASS, a).status_code == 404
     assert world.next(a).status_code == 204
     assert world.client.get(LABELLING, headers=a).json() == {"sets": [], "remaining": 0}
@@ -490,3 +490,33 @@ def test_the_answers_are_closed_and_documented(world: World) -> None:
         assert operation["security"] == [{"session": []}], (method, path)
     assert "204" in schema["paths"][NEXT]["get"]["responses"]
     assert "Written output" in {tag["name"] for tag in schema["tags"]}
+
+
+def test_a_report_is_served_only_as_the_audit_trail_has_it(world: World) -> None:
+    """A stored report edited in the database is not served: the round's `note` says it does
+    not match the audit trail. A round left closing says so, with how to finish it."""
+    (first, a), (second, b) = world.person("grader-a"), world.person("grader-b")
+    viewer = world.person("reader", "viewer")[1]
+    round_id = world.round([first, second], sample=2)
+    for headers in (a, b):
+        while (shown := world.next(headers)).status_code == 200:
+            world.grade(shown.json()["assignment"], PASS, headers)
+    world.rounds.close(round_id, by="ops")
+    (closed,) = world.client.get(ROUNDS, headers=viewer).json()
+    assert closed["note"] is None and closed["report"]["seeds"]["resamples"] == 2000
+    forged = dict(closed["report"])
+    forged["criteria"] = {
+        key: {**found, "validation": {"state": "validated", "reasons": []}}
+        for key, found in forged["criteria"].items()
+    }
+    with world.store._db.session(exclusive=True) as db:
+        db.all("UPDATE written_rounds SET report = ? WHERE id = ?", (json.dumps(forged), round_id))
+    (served,) = world.client.get(ROUNDS, headers=viewer).json()
+    assert served["report"] is None and "does not match the audit trail" in served["note"]
+    assert "validated" not in json.dumps(served)
+    assert world.store.verify()["reason"] == "written"
+    with world.store._db.session(exclusive=True) as db:
+        db.all("UPDATE written_rounds SET state = 'closing', report = NULL")
+    (left,) = world.client.get(ROUNDS, headers=viewer).json()
+    assert left["state"] == "closing" and left["report"] is None
+    assert "Run `mendari written round close` on it again to finish" in left["note"]

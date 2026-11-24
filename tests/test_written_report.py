@@ -39,7 +39,13 @@ MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini"
 RUBRIC_SHA = "a" * 64
 YES_NO = {"levels": ["no", "yes"], "scores": [0, 1], "pass_from": "yes"}
 THREE = {"levels": ["poor", "fair", "good"], "scores": [0, 1, 2], "pass_from": "good"}
-FLOORS = {"agreement": 0.6, "must_pass_recall": 0.8, "min_paired": 50, "min_each_side": 10}
+FLOORS = {
+    "agreement": 0.6,
+    "must_pass_recall": 0.8,
+    "max_judge_errors": 0.05,
+    "min_paired": 50,
+    "min_each_side": 10,
+}
 # One row is one output: the clinicians' grades of it (none: no clinician graded it) and the
 # judge's grade (None: the judge could not grade it).
 Row = tuple[Sequence[str], str | None]
@@ -157,7 +163,7 @@ def everywhere(value: Any) -> list[dict[str, Any]]:
     return found
 
 
-# -- the gate -------------------------------------------------------------------------------------
+# -- the gate -----------------------------------------------------------------------------------
 
 
 def test_a_validated_criterion_reports_the_judges_grades_for_ungraded_outputs() -> None:
@@ -169,6 +175,20 @@ def test_a_validated_criterion_reports_the_judges_grades_for_ungraded_outputs() 
     assert criterion["judged"] == {
         "passing": stats.proportion(37, 41).to_dict(),
         "levels": {"no": 4, "yes": 37},
+        "could_not_grade": 0,
+    }
+    # On pass or fail, which the share is about: the same kappa on a yes/no criterion, the two
+    # pass shares on the same outputs, and no lean either way.
+    judged = criterion["judge_agreement"]
+    assert judged["pass_fail_kappa"] == judged["kappa"]
+    assert judged["passing"] == {
+        "clinicians": stats.proportion(62, 100).to_dict(),
+        "judge": stats.proportion(62, 100).to_dict(),
+    }
+    assert judged["symmetry"] == {"p": 1.0, "alpha": 0.05, "leaning": None}
+    assert criterion["judge_errors"] == {
+        "paired": {"k": 0, "n": 100},
+        "ungraded": {"k": 0, "n": 41},
     }
     agreement = criterion["judge_agreement"]
     assert agreement["cases"] == 100
@@ -304,21 +324,27 @@ def test_a_judge_that_always_passes_is_not_validated() -> None:
         "the lower bound of the judge's kappa with clinicians is under the floor of 0.6",
         "the judge failed 0 of the 30 outputs clinicians failed; the lower bound is under the "
         "floor of 0.8",
+        "the judge leans lenient: it passed 30 outputs clinicians failed and failed 0 they "
+        "passed (exact McNemar test, p under 0.05)",
     ]
+    assert agreement["symmetry"]["leaning"] == "lenient"
+    assert agreement["passing"]["judge"] == stats.proportion(100, 100).to_dict()
+    assert agreement["passing"]["clinicians"] == stats.proportion(70, 100).to_dict()
     assert criterion["judged"] is None
     assert len(criterion["cases"]["judge_missed"]) == 30
 
 
 def test_must_not_fail_with_high_kappa_and_failures_missed_is_not_validated() -> None:
-    rows = paired(360, 30, 0, 10)
+    rows = paired(700, 60, 12, 20)  # it misses 20 of 80 failures, and leans neither way
     criterion = measured(rows + UNGRADED, must_pass=True)
     agreement = criterion["judge_agreement"]
     assert agreement["kappa"]["interval"]["low"] >= 0.6
-    assert agreement["failures_found"] == stats.proportion(30, 40).to_dict()
+    assert agreement["symmetry"]["leaning"] is None
+    assert agreement["failures_found"] == stats.proportion(60, 80).to_dict()
     assert criterion["validation"] == {
         "state": NOT_VALIDATED,
         "reasons": [
-            "the judge failed 30 of the 40 outputs clinicians failed; the lower bound is under "
+            "the judge failed 60 of the 80 outputs clinicians failed; the lower bound is under "
             "the floor of 0.8"
         ],
     }
@@ -402,7 +428,7 @@ def test_kappa_whose_interval_is_not_estimable_is_insufficient_evidence() -> Non
     ]
 
 
-# -- grades ---------------------------------------------------------------------------------------
+# -- grades -------------------------------------------------------------------------------------
 
 
 def test_stale_grades_are_counted_and_dropped() -> None:
@@ -485,22 +511,90 @@ def test_clinician_agreement_is_reported_beside_and_gates_nothing() -> None:
     assert criterion["validation"]["state"] == VALIDATED
 
 
-def test_an_output_the_judge_could_not_grade_is_never_a_pass() -> None:
-    rows = paired(60, 36, 2, 2) + [(["yes"], None)] * 3 + [([], None)] * 5 + UNGRADED
+def test_an_output_the_judge_could_not_grade_is_counted_and_never_a_pass() -> None:
+    """A few outputs the judge could not grade, under the ceiling: the criterion can still be
+    validated, and the report counts them, among the outputs clinicians graded and among the
+    rest, and says how many beside the judged share."""
+    rows = paired(60, 36, 2, 2) + of(["yes"], None, 3) + of([], None, 2) + UNGRADED
     ledger, grades = constructed(rows, no_output=4)
     found = written.report(ledger, grades)
     criterion = found["criteria"]["quality"]
-    assert found["cases"]["judge_errors"] == {"timeout": 8}
-    assert found["cases"]["judged"] == 141 and found["cases"]["with_output"] == 149
+    assert found["cases"]["judge_errors"] == {"timeout": 5}
+    assert found["cases"]["judged"] == 141 and found["cases"]["with_output"] == 146
     assert found["cases"]["no_output"] == {"none": 4, "refused": 0, "error": 0}
-    assert found["cases"]["n"] == 153 and found["cases"]["graded"] == 103
+    assert found["cases"]["n"] == 150 and found["cases"]["graded"] == 103
+    assert criterion["judge_agreement"]["cases"] == 100  # the three are paired with nothing
+    assert criterion["judge_errors"] == {
+        "paired": {"k": 3, "n": 103},
+        "ungraded": {"k": 2, "n": 43},
+    }
+    assert criterion["validation"]["state"] == VALIDATED
+    assert criterion["judged"] == {
+        "passing": stats.proportion(37, 41).to_dict(),
+        "levels": {"no": 4, "yes": 37},
+        "could_not_grade": 2,
+    }
+    text = written_report_text(found)
+    assert "the judge could not grade: timeout 5 (never counted as a pass)" in text
     assert (
-        criterion["judge_agreement"]["cases"] == 100
-    )  # the three it could not grade are not paired
-    assert criterion["judged"]["passing"] == stats.proportion(37, 41).to_dict()
-    assert "the judge could not grade: timeout 8 (never counted as a pass)" in written_report_text(
-        found
-    )
+        "the judge could not grade 3 of the 103 outputs clinicians graded, and 2 of the 43 others"
+    ) in text
+    assert "passing: 37 of 41 [" in text and "it could not grade 2 more" in text
+
+
+def test_a_failure_the_judge_could_not_grade_is_a_failure_it_did_not_find() -> None:
+    """The reviewer's case. Clinicians fail 40 outputs; the judge fails 20 and errors on the
+    other 20. Dropping those 20 gave a kappa of 1, "failures found 20 of 20" and a validated
+    must-not-fail criterion, with a judged share over only the half of the ungraded outputs it
+    could grade. They count: 20 of 40 found, and too many it could not grade."""
+    rows = paired(100, 20) + of(["no"], None, 20) + of([], "yes", 100) + of([], None, 100)
+    criterion = measured(rows, must_pass=True)
+    judged = criterion["judge_agreement"]
+    assert judged["kappa"]["estimate"] == 1.0 and judged["cases"] == 120
+    assert judged["failures_found"] == stats.proportion(20, 40).to_dict()
+    assert criterion["judge_errors"] == {
+        "paired": {"k": 20, "n": 140},
+        "ungraded": {"k": 100, "n": 200},
+    }
+    assert criterion["validation"] == {
+        "state": NOT_VALIDATED,
+        "reasons": [
+            "the judge failed 20 of the 40 outputs clinicians failed (it could not grade 20 of "
+            "them, which count as not found); the lower bound is under the floor of 0.8",
+            "the judge could not grade 20 of the 140 outputs clinicians graded, more than 0.05 "
+            "of them",
+            "the judge could not grade 100 of the 200 outputs no clinician graded, more than "
+            "0.05 of them",
+        ],
+    }
+    assert criterion["judged"] is None
+    for mapping in everywhere(criterion):
+        assert not (mapping.get("k") == 100 and mapping.get("n") == 100), mapping
+
+
+def test_the_ceiling_on_what_a_judge_could_not_grade() -> None:
+    """More than 5% of the outputs clinicians graded, or of the rest, is not validated, each on
+    its own; exactly 5% is within it; and a rubric may only lower the ceiling."""
+    good = paired(60, 36, 2, 2)  # 100 paired
+    at = measured(good + of(["yes"], None, 5) + of([], "yes", 38) + of([], None, 2))
+    assert at["judge_errors"] == {"paired": {"k": 5, "n": 105}, "ungraded": {"k": 2, "n": 40}}
+    assert at["validation"]["state"] == VALIDATED  # 5 of 105 and 2 of 40: each at most 5%
+    over = measured(good + of(["yes"], None, 6) + UNGRADED)
+    assert over["validation"] == {
+        "state": NOT_VALIDATED,
+        "reasons": [
+            "the judge could not grade 6 of the 106 outputs clinicians graded, more than 0.05 "
+            "of them"
+        ],
+    }
+    rest = measured(good + of([], "yes", 37) + of([], None, 3))
+    assert rest["validation"]["reasons"] == [
+        "the judge could not grade 3 of the 40 outputs no clinician graded, more than 0.05 of them"
+    ]
+    assert rest["judged"] is None
+    tighter = measured(good + of(["yes"], None, 3) + UNGRADED, floors={"max_judge_errors": 0.02})
+    assert tighter["validation"]["state"] == NOT_VALIDATED
+    assert "more than 0.02 of them" in tighter["validation"]["reasons"][0]
 
 
 def test_a_second_run_gives_the_same_bytes() -> None:
@@ -518,8 +612,8 @@ def test_a_second_run_gives_the_same_bytes() -> None:
     other_ledger, _ = constructed(rows[:-1])
     with pytest.raises(MendariError, match="another ledger"):
         written.run_report(first, other_ledger)
-    for bad in ({"seed": -1}, {"resamples": 0}, {"resamples": 100_001}, {"seed": True}):
-        with pytest.raises(MendariError):
+    for bad in ({"seed": -1}, {"seed": True}, {"seed": "0"}):
+        with pytest.raises(MendariError, match="the bootstrap seed is a whole number"):
             written.report(ledger, grades, **bad)
 
 
@@ -578,7 +672,7 @@ def test_a_ledger_that_is_not_one_is_refused_in_one_line(change: Any) -> None:
         WrittenLedger.loads(b"\xff\xfe not json")
 
 
-# -- a run on the fixture agent -------------------------------------------------------------------
+# -- a run on the fixture agent -----------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
@@ -717,7 +811,7 @@ def test_a_run_is_refused_before_anything_is_asked(pack: Pack, tmp_path: Path) -
         )
 
 
-# -- grades in a file -----------------------------------------------------------------------------
+# -- grades in a file ---------------------------------------------------------------------------
 
 
 def grades_file(
@@ -873,7 +967,7 @@ def test_a_grades_file_of_another_dataset_or_with_a_bad_line_is_a_problem(
     assert found == ["data/written_grades.jsonl:2: it leaves safe_to_send ungraded"]
 
 
-# -- the command ----------------------------------------------------------------------------------
+# -- the command --------------------------------------------------------------------------------
 
 
 def test_the_command_prints_the_report_and_writes_it_with_its_ledger(
@@ -945,3 +1039,139 @@ def test_the_command_prints_the_report_and_writes_it_with_its_ledger(
     ):
         assert main(["written", "eval", str(MINI), *bad]) == 1
         assert "Thank you" not in capsys.readouterr().err
+
+
+# -- what the review found ----------------------------------------------------------------------
+
+SEVEN = {
+    "levels": [f"l{n}" for n in range(7)],
+    "scores": list(range(7)),
+    "pass_from": "l3",
+}
+
+
+def test_a_scored_criterion_is_held_to_agreement_on_pass_or_fail_too() -> None:
+    """The reviewer's case. Seven levels passing from `l3`; the judge gives `l3` wherever
+    clinicians gave `l2`, and agrees everywhere else. Over the levels it is one step off on
+    half the outputs: a weighted kappa near 0.8, which alone validated it, while clinicians pass
+    a quarter of the outputs and the judge three quarters. On pass or fail it barely agrees,
+    and it leans lenient: not validated, and the judged share is withheld."""
+    rows: list[Row] = (
+        of(["l0"], "l0", 50)
+        + of(["l2"], "l3", 100)  # the judge is one level kinder, across the pass line
+        + of(["l4"], "l4", 25)
+        + of(["l6"], "l6", 25)
+        + of([], "l3", 75)
+        + of([], "l1", 25)
+    )
+    criterion = measured(rows, scale=SEVEN)
+    judged = criterion["judge_agreement"]
+    assert judged["kappa"]["interval"]["low"] >= 0.6  # over the levels: above the floor
+    assert judged["pass_fail_kappa"]["estimate"] < 0.4  # on pass or fail: far under it
+    assert judged["passing"] == {
+        "clinicians": stats.proportion(50, 200).to_dict(),
+        "judge": stats.proportion(150, 200).to_dict(),
+    }
+    assert judged["pass_fail"]["judge_only_pass"] == 100
+    assert judged["symmetry"]["leaning"] == "lenient" and judged["symmetry"]["p"] < 1e-6
+    assert criterion["validation"] == {
+        "state": NOT_VALIDATED,
+        "reasons": [
+            "the lower bound of the judge's kappa with clinicians on pass or fail, which is "
+            "what a pass share is about, is under the floor of 0.6",
+            "the judge leans lenient: it passed 100 outputs clinicians failed and failed 0 they "
+            "passed (exact McNemar test, p under 0.05)",
+        ],
+    }
+    assert criterion["judged"] is None
+    for mapping in everywhere(criterion):
+        assert not (mapping.get("k") == 75 and mapping.get("n") == 100), mapping
+    text = written_report_text(written.report(*constructed(rows, scale=SEVEN)))
+    assert "the judge leans lenient" in text and "75 of 100" not in text
+    assert "clinicians passed 50 of 200 [" in text and "the judge 150 of 200 [" in text
+    # The same disagreement away from the pass line (`l4` where clinicians gave `l5`) changes
+    # no one's pass or fail: both kappas clear the floor, and it is validated.
+    away: list[Row] = (
+        of(["l0"], "l0", 50)
+        + of(["l2"], "l2", 50)
+        + of(["l5"], "l4", 50)
+        + of(["l6"], "l6", 50)
+        + of([], "l3", 75)
+        + of([], "l1", 25)
+    )
+    fine = measured(away, scale=SEVEN)
+    assert fine["judge_agreement"]["pass_fail_kappa"]["estimate"] == 1.0
+    assert fine["validation"] == {"state": VALIDATED, "reasons": []}
+    assert fine["judged"]["passing"] == stats.proportion(75, 100).to_dict()
+
+
+def test_a_judge_that_leans_strict_stays_eligible_and_is_flagged() -> None:
+    rows = paired(60, 30, 14, 1) + UNGRADED  # it fails 14 the clinicians passed, passes 1
+    ledger, grades = constructed(rows, floors={"agreement": 0.5})
+    found = written.report(ledger, grades)
+    criterion = found["criteria"]["quality"]
+    assert criterion["judge_agreement"]["symmetry"]["leaning"] == "strict"
+    assert criterion["validation"] == {"state": VALIDATED, "reasons": []}
+    assert "the judge leans strict" in written_report_text(found)
+    # The mirror image leans lenient, and is not validated for it.
+    mirrored = measured(paired(60, 30, 1, 14) + UNGRADED, floors={"agreement": 0.5})
+    assert mirrored["judge_agreement"]["symmetry"]["leaning"] == "lenient"
+    assert mirrored["validation"]["state"] == NOT_VALIDATED and mirrored["judged"] is None
+
+
+def test_the_symmetry_test_is_the_exact_binomial_one() -> None:
+    from fractions import Fraction
+
+    from scipy import stats as scipy_stats
+
+    assert written.symmetry_p(0, 0) == 1 and written.symmetry_p(3, 3) == 1
+    assert written.symmetry_p(5, 0) == Fraction(2, 32)  # 2 * (1/2)^5: not under 1/20
+    assert written.symmetry_p(6, 0) == Fraction(2, 64)  # under it
+    assert Fraction(1, 20) == written.SYMMETRY_ALPHA
+    for b in range(0, 30, 3):
+        for c in range(0, 30, 4):
+            exact = written.symmetry_p(b, c)
+            assert exact == written.symmetry_p(c, b)
+            assert float(exact) == pytest.approx(stats.mcnemar_exact(b, c), abs=1e-15)
+            if b + c:
+                reference = scipy_stats.binomtest(min(b, c), b + c, 0.5).pvalue
+                assert float(exact) == pytest.approx(reference, abs=1e-12)
+    for bad in ((-1, 2), (True, 2), (1.0, 2)):
+        with pytest.raises(ValueError):
+            written.symmetry_p(*bad)
+
+
+def test_a_state_is_never_decided_on_a_handful_of_resamples() -> None:
+    """The reviewer's case: with one resample the "interval" is one draw, so a judge whose
+    lower bound is under the floor is validated on most seeds, and an interval that is not
+    estimable reads as one. Fewer than 2,000 is refused, whoever asks."""
+    rows = paired(55, 25, 10, 10) + UNGRADED  # its bound at 2,000 resamples is under the floor
+    ledger, grades = constructed(rows)
+    assert written.report(ledger, grades)["criteria"]["quality"]["validation"]["state"] == (
+        NOT_VALIDATED
+    )
+    for few in (1, 2, 50, 1999, 0, -5, 100_001, True, 2000.0):
+        with pytest.raises(MendariError, match="the resamples are"):
+            written.report(ledger, grades, resamples=few)  # type: ignore[arg-type]
+        assert written.resamples_problem(few) is not None
+    assert written.resamples_problem(2000) is None and written.resamples_problem(100_000) is None
+    assert stats.RESAMPLES == 2000
+    # No seed moves it at the resamples a report is decided on.
+    states = {
+        written.report(ledger, grades, seed=seed)["criteria"]["quality"]["validation"]["state"]
+        for seed in range(6)
+    }
+    assert states == {NOT_VALIDATED}
+
+
+def test_the_same_model_flag_reads_the_models_name_not_its_spelling() -> None:
+    ledger, grades = constructed(paired(60, 36, 2, 2))
+    for agent, judge, same in (
+        ("vendor/claude-x", "claude-x", True),
+        ("Claude-X", "other/route/claude-x", True),
+        ("vendor/claude-x", "vendor/claude-y", False),
+        ("claude-x-mini", "claude-x", False),
+    ):
+        header = {**ledger.header, "models": [agent, judge]}
+        named = WrittenLedger(header, ledger.cases)
+        assert written.report(named, grades)["judge"]["same_model_as_agent"] is same, (agent, judge)
