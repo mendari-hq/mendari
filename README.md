@@ -332,16 +332,17 @@ src/mendari/
 ├── dashboard/    the Governance Console: HTML, CSS and ES modules, no build step
 ├── hub/          the registry service and its client (push, pull, verify)
 ├── community/    the checks a contributed agent must pass
+├── sandbox/      `mendari demo` and the `mendari sandbox` commands, on the demo agent
 ├── templates/    what `mendari new` writes
 ├── agent_kit.py  the kit the starters answer the agent contract with
 └── mcp.py        governed decisions as MCP tools
-tests/            the test suite (tests/fixtures/ holds synthetic fixtures only)
+tests/            the test suite (tests/fixtures/ holds synthetic fixtures only; tests/support/ makes them)
 docs/             guides, spec, operations, security, decision records (the documentation site)
 hub/              the Agent Hub website (Next.js), a front end to a registry
 web/              the public page, mendari.co (static HTML and CSS)
 deploy/           on-premises, Kubernetes and Vercel templates
 scripts/          checks and generators that CI runs
-sandbox/inferno/  Inferno conformance kits against the engine
+sandbox/          Inferno conformance kits against the engine (inferno/); CI's compose file for the test fixtures
 licenses/         licence texts and notices for what the images and NOTICE carry
 notes/, tasks/    project notes, plans and lessons
 ```
@@ -354,7 +355,7 @@ uv sync
 uv run pytest                             # the full suite; warnings are errors
 uv run pytest -m core                     # the edit loop, about 20 s: loading, decisions, policy, audit
 uv run pytest tests/test_agent_provider.py   # and the file for what you changed
-uv run ruff check src tests && uv run ruff format --check src tests
+uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
 uv run mypy src tests
 ```
 

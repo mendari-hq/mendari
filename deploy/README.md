@@ -11,10 +11,11 @@ first: it explains every setting below and the checks to run before go-live.
 | [`onprem/nginx-limits.conf`](onprem/nginx-limits.conf) | A reverse proxy in front of either, with per-address limits on sign-in |
 | [`vercel/`](vercel) | The project's own Vercel deployment: its firewall rule and runbook |
 
-Images are published to GitHub Container Registry by a release (workflow `release`, started by
-a maintainer, never by a tag push alone), for linux/amd64 and linux/arm64: `mendari-engine` (every
-bundled agent), or an image that serves only one agent. No release has been tagged yet, so build your own until
-then: `docker build --build-arg PACK=mendari/portal-message-agent .`.
+A release publishes one image to GitHub Container Registry (workflow `release`, started by a
+maintainer, never by a tag push alone), for linux/amd64 and linux/arm64: `mendari-engine`, which
+serves every bundled agent. No release has been tagged yet, so build your own until then:
+`docker build .`, or, for an image that serves only one agent,
+`docker build --build-arg AGENT=mendari/portal-message-agent .`.
 
 The image installs exactly the dependencies in `uv.lock`, on a base image pinned by digest.
 **Deploy by digest, not by tag**: `ghcr.io/mendari-hq/mendari-engine:v0.1.0@sha256:<digest>`

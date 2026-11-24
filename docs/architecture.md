@@ -173,6 +173,9 @@
 ## Sandbox
 
 `docker compose up` runs HAPI FHIR (R4, in-memory), the engine image, and a worker that seeds
-synthetic Patients and Communications tagged `https://mendari.co/fhir/sandbox|synthetic`.
-The worker then routes each in-progress Communication through the engine, writes a `Task`, and
-marks the Communication completed. Only tagged resources are ever touched.
+the bundled demo agent's synthetic portal messages, as Patients and Communications tagged
+`https://mendari.co/fhir/sandbox|synthetic`. The worker then routes each in-progress
+Communication through the engine, writes a `Task`, and marks the Communication completed. Only
+tagged resources are ever touched. The other sandbox commands (`mendari sandbox seed`,
+`smart-launch`, `bulk-check`, `cds-client`) run on the same agent unless `--agent` names
+another.

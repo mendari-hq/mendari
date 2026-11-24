@@ -830,8 +830,11 @@ agent's own `evals/` is in every archive, where a publisher's agent could carry 
   scoreboard canary AGENT --config ... --size 30 --seed S` runs a canary the same way, by hand, with
   no schedule. The agent is read from the repository's `agents/` (the bundled agents), never from
   `MENDARI_AGENTS_PATH` or the registry cache. The check and the page read it from there too.
-- **The check.** `scripts/check_scoreboard.py --base REF`, a step of the required
-  `demo-agent` job, names each file whose name is not its content's, each result of the base
+- **The check.** `results_store.check` (`evals/results_store.py`) takes a store and the result
+  files of a base commit. It is a library function: Mendari keeps no store of its own since the
+  bundled demo agent is not scored, so no script and no CI job runs it any more, and the test
+  suite holds it on stores it builds. It names each file whose name is not its content's, each
+  result of the base
   removed or changed (but for a valid signature added), each `supersedes` link that breaks the
   rules above, and each current result whose signature does not verify against `keys.json`, or
   was made with a publisher's or a registry's key this machine pinned (CI pins none). It
@@ -854,11 +857,10 @@ agent's own `evals/` is in every archive, where a publisher's agent could carry 
   recompute from, may be of any version of an agent Mendari maintains, and is checked as
   [the hidden-set scoreboard](#the-hidden-set-scoreboard-mendarihidden_scoreboard1) says
   ("Stored").
-- **The page.** `scripts/scoreboard_page.py` writes
-  the early scoreboard from the current results, through `board`
-  and `render.scoreboard_markdown`, and lists each superseded result; `--check` (also in
-  `demo-agent`) fails when the page is not the store's. Its bytes depend only on the repository:
-  the store and `agents/`.
+- **The page.** `scripts/scoreboard_page.py STORE --out PAGE.md` writes
+  the early scoreboard from the store's current results, through `board`
+  and `render.scoreboard_markdown`, and lists each superseded result. Its bytes depend only on
+  the store and `agents/`, so the same store gives the same page.
 
 ## Paired comparisons: `mendari.compare/1`
 

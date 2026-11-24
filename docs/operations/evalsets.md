@@ -202,9 +202,9 @@ the case's `attributes`. Keep it outside Mendari's package and any checkout of i
 - A `system` or `feedback` block, as `mendari feedback export` writes, is refused: it holds what
   a model decided or what people rated.
 - An input equal to a public case's is refused, exactly or once its text is folded (`norm/v1`):
-  the bundled agents' data and the example datasets as this release bundles them, and each
-  synthetic generator's output at its default seed. A paraphrase of a public case passes this
-  check: the author's care and review stand in for it.
+  the bundled agents' data as this release bundles it, and the example datasets a deployment
+  names (`MENDARI_DATASETS_PATH`: every JSON Lines file there; a release bundles none). A
+  paraphrase of a public case passes this check: the author's care and review stand in for it.
 
 `add` takes the whole file or nothing: a refused line refuses it all, named by its line number,
 never its text. It prints each case's line and keyed hash; `remove-case` takes that hash, and

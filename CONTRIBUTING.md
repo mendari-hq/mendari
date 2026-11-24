@@ -74,7 +74,7 @@ fails.
 
 ```bash
 uv sync
-uv run pytest && uv run ruff check src tests && uv run ruff format --check src tests && uv run mypy src tests
+uv run pytest && uv run ruff check src tests scripts && uv run ruff format --check src tests scripts && uv run mypy src tests
 uv run pytest -m browser    # if you touched the dashboard (once: uv run playwright install chromium)
 ```
 

@@ -375,13 +375,57 @@ When the clinician acts on a card, the EHR may send CDS Hooks 2.0 feedback to
 
 ## Try it with the sandbox's client
 
-Before an EHR does, the sandbox plays one: a CDS client that signs its own tokens, calling over
-HTTP, on synthetic patients shaped as an EHR's FHIR API returns them.
+Before an EHR does, the sandbox plays one: a CDS client that signs its own tokens and calls
+over HTTP, for synthetic cases a FHIR server holds.
 
-**The vendor-shaped EHR profile.** `mendari sandbox seed --agent ehr-profile --fhir <FHIR base>`
-loads it into a FHIR server, each resource under its own id, so seeding again replaces it. It
-holds synthetic patients for standard hooks (`patient-view`, `order-sign`). Its shapes follow
-Epic's and Oracle Health's public FHIR documentation, and it holds none of their data:
+**The cases.** `mendari sandbox seed --fhir <FHIR base>` loads the bundled demo agent's
+synthetic portal messages into a FHIR server, as US Core Patients and Communications tagged
+`https://mendari.co/fhir/sandbox|synthetic`. For an agent of your own that reads a portal
+message, name it (`--agent`, an id or a directory); `--dataset` gives other cases than its
+benchmark dataset.
+
+**The client.** `mendari sandbox cds-client --engine <URL> --fhir <FHIR base>`, for the same
+agent (`--agent`; the demo agent unless given):
+
+1. makes an EC P-384 key in memory, which it never writes anywhere, and serves its JWK Set at
+   `<iss>/jwks.json` (`--listen`, default `127.0.0.1:8300`; `--iss`, the URL the engine reaches
+   it at, default `http://` and the listening address);
+2. prints its `MENDARI_CDS_CLIENTS` entry, with its keys by `jwks_uri` (`--id`, default
+   `sandbox-client`; `--org`, default `default`);
+3. finds the agent's seeded cases on the FHIR server, by the sandbox's tag and the resource
+   the agent's FHIR mapping decides about, five of them at most (`--limit`). With none there,
+   it stops and says to seed first;
+4. reads discovery, then calls the agent's service once for each case. Each call carries a new
+   ES384 token: `iss` its own URL, `aud` the engine's public URL (`--audience`, default
+   `--engine`) and the path, five minutes, a new `jti`, and `jku` in the header. The request
+   sends no prefetch and names the FHIR server as `fhirServer`, so the engine reads the record
+   there. Its context names the patient and, by id, what the service's prefetch reads (the
+   demo agent's message, as `communicationId`); an order hook's `draftOrders` is the case's
+   order, as a draft.
+
+It prints what each call answered, and exits 1 on any answer other than `200`, a hook answer
+that is not CDS Hooks' (a `cards` list, each with a summary, an indicator and a source), or a
+card saying part of the record could not be read. Every hook answers `200`, so a read of the
+FHIR server that failed (`could not read conditions: http_status`, say) shows only there. To run
+it against your own engine, register the entry it prints, put its origin and the FHIR server's
+on `MENDARI_FHIR_ALLOWED_SERVERS`, and give the engine's `MENDARI_PUBLIC_URL` as `--audience`.
+Each run makes a new key, and an engine fetches a client's keys again at most once a minute, so
+a second run within the minute is refused (`cds_key`).
+
+In the compose sandbox, the profile `signin`'s service `cds-client` seeds the demo agent's
+messages and runs the client against both engines, the open one (under `MENDARI_CDS_SANDBOX=1`)
+and the signed-in one (in organization `pilot`). Both register it at `http://cds-client:8300`.
+CI's `sandbox-e2e` runs it on every change:
+
+```bash
+docker compose --profile signin run --rm --use-aliases cds-client
+```
+
+**The standard hooks, on data shaped as an EHR returns it.** The demo agent's hook is its own
+(`mendari-message-received`). The standard hooks (`patient-view`, `order-sign`) are held by
+the test suite and CI on what the product does not bundle: the test fixtures' agents, and a
+vendor-shaped EHR profile (`tests/support/ehr_profile.py`). Its synthetic patients follow the
+shapes of Epic's and Oracle Health's public FHIR documentation, and hold none of their data:
 
 - a note is a DocumentReference that links to a Binary (`attachment.url`), as plain text, HTML or
   RTF;
@@ -393,48 +437,25 @@ Epic's and Oracle Health's public FHIR documentation, and it holds none of their
 - a referral's category carries the site's order type beside the referral code;
 - no SNOMED CT anywhere.
 
-It carries neither the sandbox tag nor a synthetic case id, as an EHR's data would not, so the
-sandbox's worker, SMART launch and Bulk check never read it.
-
-**The client.** `mendari sandbox cds-client --engine <URL> --fhir <FHIR base>`:
-
-1. makes an EC P-384 key in memory, which it never writes anywhere, and serves its JWK Set at
-   `<iss>/jwks.json` (`--listen`, default `127.0.0.1:8300`; `--iss`, the URL the engine reaches
-   it at, default `http://` and the listening address);
-2. prints its `MENDARI_CDS_CLIENTS` entry, with its keys by `jwks_uri` (`--id`, default
-   `sandbox-client`; `--org`, default `default`);
-3. checks that the FHIR server holds the profile's patients;
-4. reads discovery, then calls each standard hook of each agent the profile has patients for,
-   once per patient. Each call carries a new ES384 token: `iss` its own URL, `aud` the engine's
-   public URL (`--audience`, default `--engine`) and the path, five minutes, a new `jti`, and
-   `jku` in the header. The request sends no prefetch and names the FHIR server as
-   `fhirServer`, so the engine reads the record there; an order hook's `draftOrders` are the
-   patient's orders, as drafts.
-
-It prints what each call answered, and exits 1 on any answer other than `200`, a hook answer
-that is not CDS Hooks' (a `cards` list, each with a summary, an indicator and a source), or a
-card saying part of the record could not be read for anything but a patient's RTF note
-(`notes: unsupported_type`, below). Every hook answers `200`, so a read of the FHIR server that
-failed (`could not read conditions: http_status`, say) shows only there. To run
-it against your own engine, register the entry it prints, put its origin and the FHIR server's
-on `MENDARI_FHIR_ALLOWED_SERVERS`, and give the engine's `MENDARI_PUBLIC_URL` as `--audience`.
-Each run makes a new key, and an engine fetches a client's keys again at most once a minute, so
-a second run within the minute is refused (`cds_key`).
-
-In the compose sandbox, the profile `signin`'s service `cds-client` seeds the profile and runs
-the client against both engines, the open one (under `MENDARI_CDS_SANDBOX=1`) and the signed-in
-one (in organization `pilot`). Both register it at `http://cds-client:8300`. CI's `sandbox-e2e`
-runs it on every change:
+Each resource has an id of the profile's own, and none carries the sandbox's tag or a synthetic
+case id, as an EHR's data would not: the sandbox's worker, SMART launch and Bulk check never
+read it. In a checkout, `sandbox/fixtures.compose.yml` adds the fixtures to the compose
+sandbox: the engines serve the fixture agents too, and `cds-client` seeds the profile and
+calls every standard hook of the agents it has patients for, once per patient, with the same
+signed client. CI's `sandbox-e2e` runs that too:
 
 ```bash
-docker compose --profile signin run --rm --use-aliases cds-client
+F="-f docker-compose.yml -f sandbox/fixtures.compose.yml"
+docker compose $F --profile signin up -d --wait engine launcher engine-signin
+docker compose $F --profile signin run --rm --use-aliases cds-client
 ```
 
 **What an agent cannot read in these shapes.** An agent on spec 0.3 reads a note that is only a
 link from the FHIR server (its Binary, as text/plain or text/html); an RTF note is not read, so
 the decision abstains for a patient whose note is RTF (`could not read notes: unsupported_type`,
-an `info` card). A payer's reference is followed to its Organization, but the Organization holds
-only the site's own payer id, which no site code map translates (a map translates codings only).
+an `info` card), the one unread thing that run allows. A payer's reference is followed to its
+Organization, but the Organization holds only the site's own payer id, which no site code map
+translates (a map translates codings only).
 
 ## Site codes
 

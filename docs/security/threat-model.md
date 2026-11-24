@@ -545,8 +545,10 @@ Whatever it says, and whoever wrote it, an agent cannot:
   `unresolved`, and gives each pair's kappa (I13).
 - **Paraphrases of public cases pass.** `mendari evalset add` takes hand-written cases only
   (`source` is `hand_written`, `template` is null) and refuses an input equal to a public case's,
-  exactly or under `norm/v1`: the bundled reference data and example datasets, and each
-  synthetic generator's output at its default seed. A reworded public case passes that check;
+  exactly or under `norm/v1`: the bundled agents' data, and the example datasets a deployment
+  names (`MENDARI_DATASETS_PATH`). A release carries no generator of synthetic cases any more
+  (those of the test fixtures' data left it), so what one wrote is known as public only where a
+  deployment names its files. A reworded public case passes that check;
   only the rule, the author's care and review stand against it. The hidden-case index matches
   the same two forms, so the agent store's upload check (LP-20f, I22) misses a hidden case
   reworded beyond them too.

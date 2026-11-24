@@ -13,8 +13,9 @@ its own organization's requests (LP-20h). Its tables are created empty in every 
 
 - **Authors** hold the reserved role `pack_author` (`author`, people only; the role keeps the
   name it had before, which memberships record). An administrator
-  gives it, themself included: `admin` does not hold it. Authors upload signed archives, copy an
-  agent this deployment serves, edit text files into new drafts, run a draft's tests and
+  gives it, themself included: `admin` does not hold it. Authors upload signed archives (the
+  `.mendari` file `mendari archive build` writes; one named `.ohpack`, as it was before
+  2026-11, is the same file), copy an agent this deployment serves, edit text files into new drafts, run a draft's tests and
   withdraw a draft (`docs/guides/api.md`, "An organization's agent store").
 - **Administrators** (`keys`) register and revoke the authors' Ed25519 public keys: an upload
   must be signed by one of the organization's keys that is not revoked.

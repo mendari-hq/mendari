@@ -36,7 +36,7 @@ below, each by its requirement id.
 It cannot prove:
 - that a payer accepts Mendari's PAS request or its documentation;
 - that an EHR's DTR client renders and completes the package;
-- that a pack's requirement tables match a real payer's policy (the payers and codes here are
+- that an agent's requirement tables match a real payer's policy (the payers and codes here are
   fictional);
 - X12 or CPT correctness (both are licensed, and neither can be validated here);
 - timing, or DTR's security and privacy requirements.
@@ -176,7 +176,7 @@ Not run:
   must-support elements) names no requirement id, and fails: it asks the run's answers, taken
   together, to show every must-support part of CRD's coverage-information extension
   (`billingCode`, `contact`, `dependency`, `detail`, `doc-purpose`, `expiry-date`,
-  `info-needed`, `questionnaire`, `satisfied-pa-id` and more), most of which no pack has data
+  `info-needed`, `questionnaire`, `satisfied-pa-id` and more), most of which no agent has data
   for. An expected failure must name the requirement it leaves unmet (`inferno_check.py`), so
   the group is not started rather than the rule loosened. In the run that found this, 3.7.01,
   3.7.03, 3.7.04 and 3.7.06 passed, and 3.7.05 failed (US Core 3.1.1 support not demonstrated).
@@ -193,9 +193,9 @@ Known gaps (`crd_server_v221_expected.json` has each reason):
 | 4.2.3.02, 4.2.3.03, 4.4.3.02, 4.4.3.03 (skip) | resp-26 ..., resp-44, resp-45 | No member and no active-coverage checks: those orders are `not_checked`, with no coverage information |
 | 4.3.3.02, 4.3.3.03 (skip) | resp-26 ..., resp-45 | No Coverage, so no coverage information |
 
-Since LP-23k the prior-authorization pack reads the profile's linked notes (a text/plain or
+Since LP-23k the prior-authorization agent reads the profile's linked notes (a text/plain or
 text/html Binary, read from the Mock EHR), and follows the Coverage's payor to its Organization.
-That Organization holds the site's own payer id, which the pack does not know and no site code
+That Organization holds the site's own payer id, which the agent does not know and no site code
 map translates (how a payer field reads one is the owner's open question), so every patient whose
 record reads is decided `not_checked`, which shows no card (none of their notes documents a red
 flag, which would show the red-flag card) and declares no coverage information:
@@ -206,13 +206,13 @@ Issues call. 23k's PR refreshed the expected results from two local runs (2026-1
 same results; before, most decisions abstained on their unread linked note.
 
 Test 1.06 (standard prefetch expressions) passes with warnings, which `inferno_check.py` does not
-compare: the prior-authorization pack's prefetch asks for `Condition`, `Procedure` and
+compare: the prior-authorization agent's prefetch asks for `Condition`, `Procedure` and
 `DocumentReference` searches that are not among CRD's standard expressions (plan decision 53).
 
 ### SMART App Launch: Inferno as the EHR (`smart-client`)
 
 Suite option `client_type`: `SMART,authorization_code,public`, Mendari's EHR launch as a public
-client. The open engine (`engine`, PHI mode `off`, one pack, so a launch needs no `pack`) is
+client. The open engine (`engine`, PHI mode `off`, one agent, so a launch needs no `pack`) is
 registered with Inferno by its client id, launch URL and redirect URI. When the access test
 waits, the driver runs `mendari sandbox smart-launch --launch-url <Inferno's launch URL>` in the
 engine's container: the browser's part (the engine's launch, Inferno's authorize endpoint, the
@@ -268,6 +268,10 @@ and the signed-in one on `127.0.0.1:8091`; `MENDARI_INFERNO_UI_PORT`,
 project and the DTR one at once, they share those ports).
 
 ```bash
+# The suites run on the test fixtures' agents (the image ships only the demo agent): the
+# scripts below read them and their datasets here, as the workflow's `env` does.
+export MENDARI_AGENTS_PATH=tests/fixtures/reference-agents
+export MENDARI_DATASETS_PATH=tests/fixtures/datasets
 F=sandbox/inferno/scripted/docker-compose.yml
 docker compose -f $F build engine inferno
 

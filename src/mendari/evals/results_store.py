@@ -18,9 +18,10 @@ under `scoreboard/`, outside the wheel, the sdist and the site.
 A result may name the earlier result it supersedes (`supersedes`, in its body): one of the same
 pack, set, arm and configuration, measured no later. Both stay in the store; the later is the
 current one (`heads`), and one pack, set, arm and configuration has one current result at most.
-Nothing stored changes: `add` refuses to overwrite, and `check` (`scripts/check_scoreboard.py`,
-in the required `reference-pack` job) refuses a result removed or changed against a base commit,
-except a valid signature added to an unsigned result whose body stays the same. It recomputes
+Nothing stored changes: `add` refuses to overwrite, and `check` refuses a result removed or
+changed against a base commit, except a valid signature added to an unsigned result whose body
+stays the same (no script or CI job runs it since Mendari stopped keeping a store of its own:
+the test suite holds it, on stores it builds). It recomputes
 every public result from its stored inputs, and re-runs every local ledger on its pack's current
 digest. A result of an older digest is recomputed and kept, never re-run; one whose set or
 method changed is kept as it is. A new result must be on its pack's current digest, set and

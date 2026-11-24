@@ -505,7 +505,9 @@ into one page. Share it with your AI or clinical decision support committee. At 
   mendari push my-agent --key keys/publisher.key
   ```
 
-  `mendari archive verify` loads an archive as a puller will. Once a registry reviewer approves the
+  `push` builds the signed archive and sends it. `mendari archive build my-agent --key
+  keys/publisher.key` writes the same archive to a file (`dist/<namespace>-<name>-<version>.mendari`),
+  and `mendari archive verify` loads an archive as a puller will. Once a registry reviewer approves the
   namespace, others `mendari pull my-clinic/my-agent` and verify it; whoever serves it approves
   its digest before it automates.
   `mendari yank my-clinic/my-agent@0.1.0 --reason "..." --severity high --key keys/publisher.key`

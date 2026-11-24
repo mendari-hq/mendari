@@ -127,8 +127,6 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("*", "`packs/<namespace>/<name>/<version>`"): "the folder the registry cache had until "
     "2026-11, where a version pulled then is still read (`hub/client.py` `former_cache`): an "
     "operator removes one by that path",
-    ("*", "--build-arg PACK="): "the Dockerfile's build argument is still named `PACK`: the "
-    "command needs its real name, and packaging renames it",
     (
         "docs/guides/connecting-an-ehr.md",
         "/smart/launch?pack=<agent id>",

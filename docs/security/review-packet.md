@@ -271,8 +271,12 @@ uv run mendari serve --port 8000 --db var/review.db
 
 - **The scripted pilot:** in another shell, `uv run mendari sandbox pilot-check --engine
   http://127.0.0.1:8000`. It signs in four people through the real flow, creates a key,
-  decides 12 synthetic messages, reads and resolves a review, checks a viewer is refused,
-  approves an agent and verifies the chain.
+  decides 12 synthetic messages with the demo agent, reads and resolves a review, checks a
+  viewer is refused and verifies the chain. The committee's approval of automation needs an
+  agent of risk level 2 or 3, and the demo agent is level 0: name one the engine serves
+  (`--approve AGENT`, an id or a directory; CI gives a test fixture's) and it is approved and
+  its next decision checked for the approval; without it that step is left out, and reported
+  so.
 - **In a browser:** open `http://127.0.0.1:8000/` (`MENDARI_PUBLIC_URL`'s host; a sign-in
   started on another, such as `localhost`, is sent there first).
   The provider's form takes any user name and, as claims, for example

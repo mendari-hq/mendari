@@ -9,10 +9,12 @@ no section, or whose section is not the newest. Changes to an agent are in the a
 
 The first release (not yet published).
 
-- **One vocabulary: what Mendari governs is an agent** (2026-11-23; nothing that worked stops
-  working). "Pack" and "Decision Pack" are no longer written where a person reads or types: the
-  command line's help and messages, the API descriptions, the README and the docs. What was
-  renamed, and what the name it had still does:
+- **One vocabulary: what Mendari governs is an agent** (2026-11-23). "Pack" and "Decision Pack"
+  are no longer written where a person reads or types: the command line's help and messages,
+  the API descriptions, the README and the docs, the console, the Agent Hub and mendari.co, and
+  what GitHub shows a contributor. A name that a deployment, a link or a person may still hold
+  keeps working; what stopped is listed last. What was renamed, and what the name it had still
+  does:
   - the manifest is `agent.yaml`; a manifest named `pack.yaml` still loads where it is the only
     one of the two, and a folder that holds both is refused. A file's name is part of an
     agent's digest, so the bundled agent is version 0.1.2;
@@ -29,17 +31,46 @@ The first release (not yet published).
   - the settings are `MENDARI_AGENTS_PATH`, `MENDARI_AGENTS`, `MENDARI_AGENT_STORE` and
     `MENDARI_COMMUNITY_AGENTS`; `MENDARI_PACKS_PATH`, `MENDARI_PACKS`, `MENDARI_PACK_STORE` and
     `MENDARI_COMMUNITY_PACKS` are each read while the new name is unset;
+  - the console's address names the agent as `?agent=`, and its store's tab is `#store/agents`;
+    `?pack=` and `#store/packs` still open, and the links a CDS card and a SMART launch give say
+    `?agent=`. An agent's page on the Hub is `/agents/<namespace>/<name>`, and
+    `/packs/<namespace>/<name>` redirects there;
+  - a signed archive is written as `<namespace>-<name>-<version>.mendari`; one named `.ohpack`
+    is the same file, and verifies, loads and uploads as before;
+  - `mendari pull` caches under `agents/` in the cache directory; what is cached under
+    `packs/` is still read, recalled and removed there;
+  - the folder of community agents is `community-agents/` (it holds none yet), and its
+    `MAINTAINERS.yaml` lists `agents:`; a file that still says `packs:` is refused, saying
+    which key to rename;
+  - on GitHub, the workflow `packs` and its check `pack-check` are `agents` and `agent-check`,
+    the pull request template for a community agent is `agent.md`, and the issue forms are
+    "Agent content" and "Propose an agent";
   - in the docs, the decision records say agent (each says so under its status), and three of
     them have new file names (ADR-0007, ADR-0009 and ADR-0016).
 
   Not renamed: the names in stored, hashed and signed records (the JSON keys `pack`, `pack_id`,
   `pack_version` and `pack_digest`, the role `pack_author`, the chain's event names, a signed
-  archive's `pack/` folder and `mendari-pack.json`), the database's columns and the Python
-  identifiers. Renaming them rewrites what the audit chain and the signatures cover, so it is a
-  versioned change of its own. A decision's reasons say "agent" from now on, and stored ones
-  keep their words. Tests hold the line (`tests/test_vocabulary.py`,
-  `tests/test_cli_vocabulary.py`, `tests/test_vocabulary_docs.py`). The entries below are kept
-  as they were written, with the names of their time.
+  archive's `pack/` folder and `mendari-pack.json`), the `pack` parameter of `/smart/launch`,
+  the database's columns and the Python identifiers. Renaming them rewrites what the audit
+  chain and the signatures cover, so it is a versioned change of its own. A decision's reasons
+  say "agent" from now on, and stored ones keep their words. Tests hold the line
+  (`tests/test_vocabulary.py`, `tests/test_cli_vocabulary.py`, `tests/test_vocabulary_docs.py`,
+  `tests/test_vocabulary_frontends.py`).
+
+  What stopped, with the five former packs' last names in the product (they are test fixtures,
+  and no default, example, script or image names one: `tests/test_former_packs.py`):
+  - `mendari sandbox generate` is gone: it wrote those fixtures' data, and a release carries
+    no data generator. The other `mendari sandbox` commands run on the bundled demo agent
+    unless given another (`--agent`, an id or a directory); `omop-check` has no default, since
+    the demo agent reads a portal message, which OMOP does not hold, and `pilot-check`
+    approves the agent `--approve` names;
+  - a hidden evaluation set's public cases are the bundled agents' data and the example
+    datasets a deployment names, no longer a generator's output too;
+  - the image's build argument is `AGENT` (`docker build --build-arg AGENT=<id> .`). One built
+    with `--build-arg PACK=<id>` builds as with no argument, under Docker's warning that no
+    stage used it, and serves every bundled agent.
+
+  The entries below are kept as they were written, with the names of their time.
 - **Decision Packs:** the specification (0.2, and 0.3 for the FHIR mapping; 0.1 still loads),
   and the runtime that runs a
   pack's providers (rules, naive Bayes, Jev, LLMs, criteria, CQL, dosing) under a risk policy

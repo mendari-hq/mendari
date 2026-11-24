@@ -9,7 +9,7 @@ privacy officer's review) come first.
 
 Run Mendari inside your organization's network or an approved cloud account:
 - the engine's container image, or a per-agent image that serves only one agent
-  (`docker build --build-arg PACK=mendari/portal-message-agent .`, which sets
+  (`docker build --build-arg AGENT=mendari/portal-message-agent .`, which sets
   `MENDARI_AGENTS`);
 - Postgres (not SQLite) for the audit store.
 
@@ -489,7 +489,8 @@ note) refuses to keep input text in it: run it with the deployment's mode and ke
 unset, on SQLite and Postgres alike: people bring other people's cases, and an input kept in
 plaintext can never be erased without retiring the database (below). `off` is for a local sandbox
 without sign-in. A signed-in sandbox on synthetic data runs `encrypt` with two keys generated for
-it (the compose sandbox's `signin` profile, in the README, reads them from your shell or `.env`).
+it (the compose sandbox's `signin` profile reads them from your shell or `.env`; the comments
+of `docker-compose.yml` give the command that makes each).
 
 **Choosing is required for the EHR launch.** With the EHR launch on and sign-in off
 (`MENDARI_SMART_CLIENT_ID`: a launch fetches the patient's record), the engine refuses to start
@@ -849,10 +850,11 @@ setting:
 Each is 1 to 3 capital letters or digits; anything else is refused naming the setting. The
 sandbox's mock payer answers with `MENDARI_SANDBOX_PAYER_REVIEW_ACTION` (an X12 306 code), or
 with no review action code when it is unset or empty. The compose sandbox sets all of these for
-its synthetic requests except the service type: its synthetic orders carry none, and they are not
-all one kind of service, so each request there gives its own (`service_type`). Nor does it set
-the report type: a request there that attaches a QuestionnaireResponse gives its own
-(`report_type`).
+synthetic requests except the service type: synthetic orders are not all one kind of service, so
+each request there gives its own (`service_type`). Nor does it set the report type: a request
+there that attaches a QuestionnaireResponse gives its own (`report_type`). The product bundles
+no prior-authorization agent, so a request there is for one you serve beside the demo agent
+(`docker-compose.yml` says how to mount it).
 
 To hold remote models to the places your agreements cover, set
 `MENDARI_PROVIDER_ALLOWED_ORIGINS` to the origins they may be called at, comma-separated as for
