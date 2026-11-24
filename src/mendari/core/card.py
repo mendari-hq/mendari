@@ -393,11 +393,14 @@ def _written(pack: Pack) -> list[str]:
             floors = written.floors_of(manifest, key)
             out += [
                 "",
-                "A judge is believed on a criterion when the lower bound of its weighted kappa "
-                f"with clinicians is at least {floors['agreement']} and, on a criterion that "
-                "must not fail, the lower bound of the share of clinician-found failures it "
-                f"finds is at least {floors['must_pass_recall']}, on at least "
-                f"{floors['min_paired']} outputs graded by both with {floors['min_each_side']} "
+                "A judge is believed on a criterion when the lower bound of its kappa with "
+                f"clinicians is at least {floors['agreement']}, over the levels and on pass or "
+                "fail alike; it does not pass more outputs than clinicians do by more than "
+                "chance; it could grade all but "
+                f"{floors['max_judge_errors']} of the outputs; and, on a criterion that must "
+                "not fail, the lower bound of the share of clinician-found failures it finds "
+                f"is at least {floors['must_pass_recall']}. That is decided on at least "
+                f"{floors['min_paired']} outputs graded by both, with {floors['min_each_side']} "
                 "on each side of the pass line. On less, the evidence is insufficient.",
                 "",
             ]

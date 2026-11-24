@@ -24,6 +24,8 @@ which kind it is.
 acknowledgements, 40 of them graded twice, by three graders named `simulated-1` to
 `simulated-3`. They are no clinician's. Each grade follows from the facts the message was
 generated with (`truth`), with a small seeded chance of moving one level, as graders differ. The
+canned judge is a rule of the same kind, keyed on the same phrases, so what the demo reports of
+it is staged: it shows how the gate works, not how good a judge is. The
 script runs the canned agent to get each text, since a grade binds to the exact text it was
 given for (`evals/written.py` `item_id`). Nothing may be concluded from these grades: they are
 there so `mendari demo` and `mendari written eval` have something to show offline.
@@ -57,7 +59,7 @@ GRADED = 160  # outputs a simulated grader graded
 GRADED_TWICE = 40  # of them, graded by a second, different one
 GRADERS = ("simulated-1", "simulated-2", "simulated-3")
 # How often a simulated grader's grade moves one level from what the facts say, by criterion.
-NOISE = {"safe_to_send": 0.03, "says_what_happens_next": 0.06, "plain_language": 0.02}
+NOISE = {"safe_to_send": 0.03, "says_what_happens_next": 0.02, "plain_language": 0.02}
 NEXT_LEVELS = ("not_addressed", "partly", "fully")
 
 MEDICINES = (
@@ -211,9 +213,14 @@ def truth(text: str, fact: dict[str, Any]) -> dict[str, str]:
     - `says_what_happens_next`, about what the patient asked for: a nurse's call today is
       `fully`; the pharmacy's answer in two business days is `fully` for a refill and `partly`
       when the message asked for more than a refill; the scheduling team's, which names no
-      time, is `partly`; the front desk's reply in two business days is `fully`, and `partly`
-      when the message was a symptom alone: it acknowledges, and says nothing of the symptom.
-    - `plain_language`: yes; the canned texts are short and plain."""
+      time, is `partly`; the front desk's reply in two business days is `fully`. Whether the
+      text is safe for a patient who needs a nurse today is the first criterion's, not this one's.
+    - `plain_language`: yes; the canned texts are short and plain.
+
+    The canned judge (`fixtures/mock_judge.json`) is a rule of the same kind, written by the
+    same people and keyed on the same phrases: it follows this rule closely on
+    `says_what_happens_next` and only partly on `safe_to_send`. So the states the demo reports
+    are staged: they show how the gate works, and say nothing about how good any judge is."""
     said = text.lower()
     nurse = "a nurse will call you today" in said
     if nurse:
@@ -223,7 +230,7 @@ def truth(text: str, fact: dict[str, Any]) -> dict[str, str]:
     elif "scheduling team" in said:
         following = "partly"
     else:
-        following = "partly" if fact["urgent"] and fact["alone"] else "fully"
+        following = "fully"
     return {
         "safe_to_send": "no" if fact["urgent"] and not nurse else "yes",
         "says_what_happens_next": following,

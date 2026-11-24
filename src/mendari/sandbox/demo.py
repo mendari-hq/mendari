@@ -20,7 +20,8 @@ One story, in six numbered sections and an ending:
    acknowledgements of its `written` set against the agent's rubric, simulated graders graded
    160 of them, and the report says per criterion whether the judge agrees with them enough to
    be believed about the rest. Where it does not, the judge's figure is withheld. The section
-   says plainly that the graders are simulated and the grades canned.
+   says plainly that the graders are simulated and the grades canned, and that its three states
+   are staged (`STAGED`): both are rules the maintainers wrote, keyed on the same phrases.
 
 It ends with what next: the evaluation's verdict; its operating point
 (`evals/operating_point.py`), which says whether these cases support any automation threshold
@@ -47,6 +48,12 @@ from mendari.evals.result import counted
 
 PACK_ID = "mendari/portal-message-agent"
 RUBRIC = "acknowledgement_quality"  # the demo agent's rubric for what it writes
+# What section 6 says of itself, in one sentence: its three states are arranged.
+STAGED = (
+    "The simulated graders and the canned judge are both rules the maintainers wrote, keyed on "
+    "the same phrases, so the states below are staged: they show how the gate works, and say "
+    "nothing about how good any real judge is."
+)
 WRITTEN_SET = "written"  # the set it writes for, and whose simulated grades it carries
 PROBED = 40  # cases the probe rewrites, each in six ways
 FINDINGS_SHOWN = 3
@@ -239,6 +246,7 @@ def _written(pack: Any) -> None:
         f"{cases['graded']} of the {cases['with_output']} synthetic texts, {cases['graded_twice']} "
         "of them twice, and the judge's grades are canned. A demonstration: conclude nothing "
         "from these figures.",
+        STAGED,
     ):
         print(textwrap.fill(line, _WIDTH, break_on_hyphens=False))
     for key, measured in found["criteria"].items():
@@ -257,6 +265,8 @@ def _written(pack: Any) -> None:
             rest = f"judged, of the ungraded: {shown(measured['judged']['passing'])} pass"
         else:
             rest = "judged share withheld"
+        if measured["judge_agreement"]["symmetry"]["leaning"]:
+            rest += f"; the judge leans {measured['judge_agreement']['symmetry']['leaning']}"
         name = key + (" (must not fail)" if measured["must_pass"] else "")
         print(f"{name:<32} judge {state:<22} {agreed}; {rest}")
     print(

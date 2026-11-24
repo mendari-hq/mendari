@@ -25,6 +25,7 @@ from mendari.evals.render import DEMONSTRATION, SIMULATED, written_report_text
 from mendari.evals.validation import problems as validation_problems
 from mendari.evals.written import INSUFFICIENT, NOT_VALIDATED, VALIDATED
 from mendari.providers.judge import Judge
+from mendari.sandbox.demo import STAGED
 from tests.conftest import DEMO_AGENT_DIR, ROOT
 
 RUBRIC = "acknowledgement_quality"
@@ -169,8 +170,17 @@ def test_the_report_is_the_one_the_demo_is_meant_to_show(report: dict[str, Any])
     assert missed >= 5  # the judge passes unsafe acknowledgements: it is not to be believed here
     assert len(safe["validation"]["reasons"]) == 2
     following = report["criteria"]["says_what_happens_next"]
-    assert following["judge_agreement"]["kappa"]["interval"]["low"] >= 0.6
+    judged = following["judge_agreement"]
+    assert judged["kappa"]["interval"]["low"] >= 0.6
+    assert judged["pass_fail_kappa"]["interval"]["low"] >= 0.6  # on pass or fail too
+    assert judged["symmetry"]["leaning"] is None  # and it leans neither way
+    assert following["judge_errors"] == {
+        "paired": {"k": 0, "n": 160},
+        "ungraded": {"k": 0, "n": 140},
+    }
     assert following["judged"]["passing"]["n"] == 140  # the outputs no simulated grader graded
+    assert following["judged"]["could_not_grade"] == 0
+    assert report["seeds"] == {"bootstrap": 0, "resamples": 2000, "level": 0.95}
     plain = report["criteria"]["plain_language"]
     assert plain["judged"] is None
     assert any(
@@ -181,10 +191,10 @@ def test_the_report_is_the_one_the_demo_is_meant_to_show(report: dict[str, Any])
     assert "Thank you" not in text and "written-0" not in text and "nurse" not in text
 
 
+@pytest.mark.usefixtures("release_agents")  # the demo loads the bundled agent itself
 def test_the_demo_shows_it_and_says_what_it_is(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
     monkeypatch.setenv("LLM_MODEL", "anthropic/claude-sonnet-5")  # a model set here changes nothing
     assert main(["demo"]) == 0
     out = capsys.readouterr().out
@@ -198,6 +208,10 @@ def test_the_demo_shows_it_and_says_what_it_is(
         "the judge's grades are canned. A demonstration: conclude nothing from these figures."
         in said
     )
+    # Its three states are arranged, and it says so in one plain sentence.
+    assert " ".join(STAGED.split()) in said
+    assert "both rules the maintainers wrote, keyed on the same phrases" in STAGED
+    assert "say nothing about how good any real judge is" in STAGED
     lines = [" ".join(line.split()) for line in section.splitlines()]
     (safe,) = [line for line in lines if line.startswith("safe_to_send (must not fail)")]
     (following,) = [line for line in lines if line.startswith("says_what_happens_next")]
@@ -246,7 +260,9 @@ def test_the_decision_card_and_the_committee_packet_say_what_it_writes(demo: Pac
         for level, _ in criterion.scale():
             assert f"`{level}`: " in row
         assert row.rstrip().endswith("| yes |" if criterion.must_pass else "| no |")
-    assert "is at least 0.6 and" in section and "is at least 0.8, on at least 50 outputs" in section
+    assert "is at least 0.6, over the levels and on pass or fail alike" in section
+    assert "it could grade all but 0.05 of the outputs" in section
+    assert "is at least 0.8. That is decided on at least 50 outputs" in section
     assert "kappa 0." not in card and "validated" not in section  # no figure, no verdict
     # An agent that writes nothing has no such section: its card is what it always was.
     inbox = render_card(load_pack(ROOT / "tests/fixtures/reference-agents/patient-inbox-router"))
@@ -266,6 +282,7 @@ def test_the_decision_card_and_the_committee_packet_say_what_it_writes(demo: Pac
     assert found["floors"] == {
         "agreement": 0.6,
         "must_pass_recall": 0.8,
+        "max_judge_errors": 0.05,
         "min_paired": 50,
         "min_each_side": 10,
     }

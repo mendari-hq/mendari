@@ -2124,9 +2124,11 @@ def _html_written(outputs: Sequence[Mapping[str, Any]]) -> str:
                     criteria,
                     _e(
                         f"kappa with clinicians at least {floors['agreement']} by its lower "
-                        f"bound; failures found at least {floors['must_pass_recall']} on a "
-                        f"criterion that must not fail; {floors['min_paired']} outputs graded "
-                        f"by both, {floors['min_each_side']} on each side of the pass line"
+                        "bound, over the levels and on pass or fail; it does not lean lenient; "
+                        f"it could grade all but {floors['max_judge_errors']} of the outputs; "
+                        f"failures found at least {floors['must_pass_recall']} on a criterion "
+                        f"that must not fail; {floors['min_paired']} outputs graded by both, "
+                        f"{floors['min_each_side']} on each side of the pass line"
                     ),
                 ]
             )
