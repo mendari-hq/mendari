@@ -6,10 +6,11 @@
   `MENDARI_PUBLIC_URL`, where the callback lands); the callback sets an opaque,
   HttpOnly, SameSite=Lax `__Host-` session cookie (ending the launch the browser held until
   then: one browser, one launch) and sends the browser to the dashboard's "This patient" view
-  for the pack, pinned to this launch (`#patient/<launch_id>`: a window whose launch another
-  launch in the same browser replaced says so, and never shows the other patient). The session
-  ends after 30 minutes idle, 8 hours, or when the EHR's token expires, whichever is first
-  (`server/sessions.py`).
+  for the pack (`/?agent=<id>`, as the dashboard's address names it; the launch route's own
+  parameter stays `pack`, which an EHR's registered launch may hold), pinned to this launch
+  (`#patient/<launch_id>`: a window whose launch another launch in the same browser replaced
+  says so, and never shows the other patient). The session ends after 30 minutes idle, 8 hours,
+  or when the EHR's token expires, whichever is first (`server/sessions.py`).
 - `GET /api/smart/session` (`{"active": false}` without one), `POST /api/smart/logout`: public.
   The session names the launch (`launch_id`, not a secret) and the packs it may use (id, name,
   origin and its label), so a browser that only launched opens the dashboard on the patient
@@ -273,7 +274,7 @@ def add_smart_routes(
         security_log.event("smart.launch.ok", actor=actor, org=org)
         pack = quote(pending["pack"], safe="/")
         base = options.public_url or ""
-        opened = f"{base}/?pack={pack}#patient/{session['launch_id']}"
+        opened = f"{base}/?agent={pack}#patient/{session['launch_id']}"
         response = RedirectResponse(opened, status_code=302)
         sessions.set_cookie(response, request, COOKIE, sid)
         sessions.clear_cookie(response, request, sessions.LAUNCH)  # used: one launch, once

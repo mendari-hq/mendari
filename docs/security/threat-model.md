@@ -618,7 +618,7 @@ Whatever it says, and whoever wrote it, an agent cannot:
   The sandbox run records the `jku` Epic sends and whether it is always the same
   (`notes/epic-sandbox-checklist.md`).
 - **The decision id disclosed to the EHR.** A card's `uuid` is its decision's id (I18), and with
-  `MENDARI_PUBLIC_URL` set its link opens `/?pack=<agent id>#audit/<id>`, so the EHR holds each id
+  `MENDARI_PUBLIC_URL` set its link opens `/?agent=<agent id>#audit/<id>`, so the EHR holds each id
   beside the patient and the order it sent, in whatever it keeps of the call (its logs, its own
   audit, its feedback, a vendor's copies), for as long as it keeps them. The id names no one (a
   random UUID 4 the engine made) and opens nothing by itself: a decision is read only with `read`

@@ -132,8 +132,11 @@ ALLOWED: dict[tuple[str, str], str] = {
     "still `packs` (`hub/client.py`): an operator removes a version by that path",
     ("*", "--build-arg PACK="): "the Dockerfile's build argument is still named `PACK`: the "
     "command needs its real name, and packaging renames it",
-    ("*", "?pack=<agent id>"): "a card's links and the dashboard's address read `?pack=` "
-    "(`standards/cds_hooks.py`): a query parameter, renamed with the dashboard's scripts",
+    (
+        "docs/guides/connecting-an-ehr.md",
+        "/smart/launch?pack=<agent id>",
+    ): "the launch route's query parameter is `pack` (`server/smart_routes.py`): a name on the "
+    "wire, which an EHR's registered launch address may hold, renamed with the wire names",
     ("docs/guides/contributing-an-agent.md", "?template=pack.md"): _TEMPLATE,
     ("docs/guides/contributing-an-agent.md", "--template pack.md"): _TEMPLATE,
     ("docs/spec/provider-configs.schema.json", "the pack file its config is in"): "generated "

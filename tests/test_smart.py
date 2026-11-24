@@ -221,8 +221,9 @@ def test_an_ehr_launch_opens_the_patients_view_with_a_server_side_session(
         "launch_id": session["launch_id"],
         "packs": session["packs"],
     }
-    # The window opens on this launch's patient view, pinned to the launch.
-    assert done.headers["location"] == f"{APP}/?pack={REFERRAL}#patient/{session['launch_id']}"
+    # The window opens on this launch's patient view, pinned to the launch, the agent named as
+    # the console's address names it (`?agent=`).
+    assert done.headers["location"] == f"{APP}/?agent={REFERRAL}#patient/{session['launch_id']}"
     assert "access" not in json.dumps(session)  # the token stays on the server
 
 
@@ -347,7 +348,7 @@ def test_a_launch_on_another_name_moves_to_the_public_url_first(
         f"{APP}/smart/callback", params={"code": code, "state": state}, follow_redirects=False
     )
     assert done.status_code == 302
-    assert done.headers["location"].startswith(f"{APP}/?pack={REFERRAL}#patient/")
+    assert done.headers["location"].startswith(f"{APP}/?agent={REFERRAL}#patient/")
     assert alias.get(f"{APP}/api/smart/session").json()["active"] is True
 
 
@@ -917,7 +918,7 @@ def test_a_launch_opens_the_dashboard_page_and_nothing_else(
     app = signed_site(tmp_path / "a.db", monkeypatch, REGISTERED, a, b)
     location = full_launch(app, a).headers["location"]
     session = app.get("/api/smart/session").json()
-    assert location == f"{APP}/?pack={REFERRAL}#patient/{session['launch_id']}"
+    assert location == f"{APP}/?agent={REFERRAL}#patient/{session['launch_id']}"
     referral = {
         "id": REFERRAL,
         "name": "Referral Router",

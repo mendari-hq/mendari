@@ -196,7 +196,7 @@ def test_a_record_link_opens_its_drawer(page: Page, live_server: str) -> None:
 
 @pytest.mark.parametrize("axe_page", ["light", "dark"], indirect=True)
 def test_a_fhir_decision_shows_what_it_read_in_its_record(axe_page: Page, live_server: str) -> None:
-    """A decision made from FHIR opens, from the link a card gives (`?pack=…#audit/<id>`,
+    """A decision made from FHIR opens, from the link a card gives (`?agent=…#audit/<id>`,
     LP-23f), on a panel of what it read (its data-coverage record): each mapped field and list,
     the resources read, the values found and what could not be read, as counts, never as a
     share; and the drawer passes axe in both themes. A decision on JSON input has no panel."""
@@ -206,7 +206,7 @@ def test_a_fhir_decision_shows_what_it_read_in_its_record(axe_page: Page, live_s
     made = httpx.post(f"{live_server}/api/packs/{INBOX}/fhir/decide", json=BUNDLE, timeout=30)
     assert made.status_code == 200, made.text
     decision = made.json()["decision"]["id"]
-    axe_page.goto(f"/?pack={INBOX}#audit/{decision}")  # as the card writes it
+    axe_page.goto(f"/?agent={INBOX}#audit/{decision}")  # as the card writes it
     panel = axe_page.locator(".drawer section.coverage")
     expect(panel).to_be_visible()
     expect(panel.get_by_role("heading", name="What it read")).to_be_visible()
