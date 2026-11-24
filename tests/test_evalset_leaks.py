@@ -412,6 +412,9 @@ SCOREBOARD_RUN = {"pack": INBOX, "arms": {"deterministic": SCOREBOARD_LOCAL}, "d
 # Routes no principal here is answered on with a 2xx or 3xx, in either mode, each with why: they
 # are still called and scanned. (A write the sweep sends an empty body is answered by `served`.)
 NOT_ANSWERED: dict[Route, str] = {
+    ("POST", "/api/written/labelling/{assignment_id}"): "grades a written output: no grading "
+    "round exists here (tests/test_written_routes.py answers it, tests/test_written_leaks.py "
+    "sweeps it)",
     ("POST", "/api/registry-approvals"): "approves only a pack served from a registry; none is "
     "served here, so it is refused (tests/test_registry_origin.py answers it)",
     ("DELETE", "/api/registry-approvals/{approval_id}"): "revokes such an approval; none exists "
@@ -1403,11 +1406,14 @@ def mounted_in(mode: str) -> set[Route]:
 
 
 def evalset_routes(routes: Iterable[Route]) -> set[Route]:
-    """The evaluation-set routes among `routes` (`EVALSET_PERMISSIONS`, `EVALSET_PATH`)."""
+    """The evaluation-set routes among `routes` (`EVALSET_PERMISSIONS`, `EVALSET_PATH`). A
+    grader's routes over written output hold `label` too and read no hidden set: their own
+    sweep is tests/test_written_leaks.py."""
     return {
         (m, p)
         for m, p in routes
-        if permission_for(m, p) in EVALSET_PERMISSIONS or EVALSET_PATH.search(p)
+        if (permission_for(m, p) in EVALSET_PERMISSIONS or EVALSET_PATH.search(p))
+        and not p.startswith("/api/written/")
     }
 
 

@@ -210,6 +210,10 @@ def test_the_table_of_what_each_call_needs_is_the_route_rules(
             ("GET", "/api/labelling"),
             ("GET", "/api/labelling/next"),
             ("POST", "/api/labelling/{assignment_id}"),
+            # A grader's, over written output (ADR-0025): the same role, the same rule.
+            ("GET", "/api/written/labelling"),
+            ("GET", "/api/written/labelling/next"),
+            ("POST", "/api/written/labelling/{assignment_id}"),
         }
         assert "docs-scope" not in labelling[1]  # no scope reaches them
         curating = re.search(r'<tr data-permission="curate">(.*?)</tr>', text, re.S)
