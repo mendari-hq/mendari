@@ -24,7 +24,7 @@ claims mode too (for an administrator who signed in). Claims mode never reads or
   matched without regard to the case of its letters; an internationalised one is refused.
 - A membership holds the server's roles (`viewer`, `reviewer`, `service`, `governance`,
   `admin`), and may also hold `pack_author`, which grants `author` alone: writing agents in the
-  organization's agent store (LP-20f; memberships mode only, mounted with `MENDARI_PACK_STORE=on`:
+  organization's agent store (LP-20f; memberships mode only, mounted with `MENDARI_AGENT_STORE=on`:
   the routes under `/api/store`, [agent store](agent-store.md); an administrator who writes agents
   gives themself the role), and `labeller`, which
   grants `label` alone: labelling the cases of hidden evaluation sets (LP-11; memberships mode

@@ -327,7 +327,7 @@ case's, a resolved case's majority): distinct cases and positives, the warning u
 distinct positives of a critical label, and the mix of languages, sources and strata
 (`mendari.coverage/1`). Both name labels and counts, never a case; `coverage` also names the
 strata and languages, so keep its output as you would the set. The agent is the one the set was
-made for, found by its id; give `--pack` (an id or a directory) if it does not resolve where you
+made for, found by its id; give `--agent` (an id or a directory) if it does not resolve where you
 run the command. `coverage` uses seed 0 and 2,000 resamples for the agreement it stores beside
 it: run `agreement` afterwards to store other settings. A set whose drawn cases or labels change
 while it is measured (a draw or a label landing as it reads) is refused: run it again. A set
@@ -384,7 +384,7 @@ route computes statistics, freezes or retires.
 
 | Route | What it does |
 |---|---|
-| `GET /api/evalsets` | The organization's sets, oldest first: `[{"set", "name", "pack", "state", "created_at", "cases"}]`. Nothing is recorded. |
+| `GET /api/evalsets` | The organization's sets, oldest first: a list, each with `set`, `name`, `pack`, `state`, `created_at` and `cases`. Nothing is recorded. |
 | `GET /api/evalsets/{set}` | One set: its `name`, `pack` and `questions` (with their labels); its `state`, `created_at`, `frozen_at`, `commitment`, `max_runs`, `max_age_days`, `runs` (`used`, `left`), `graded_until` and `retired_at`; its `cases` and their `statuses`; each labeller's assignments by user id (`labellers`: in each round, assigned, labelled, open and withdrawn); and its `aggregates`, the coverage and agreement the key holder last stored (`agreement` or `coverage`, or at freeze) with when they were measured (`measured_at`), or null before, each pair of labellers' kappa without the pair's label counts (where a pair shares few cases, those are what each answered; the key holder's commands keep them). Never a case, an input, a label given, an attribute or a case id. |
 | `POST /api/evalsets/{set}/sample` | Step 1 above: `{"per_stratum": N}` or `{"cases": N}`, and `"seed"` (0 unless given). The answer: `{"set", "drawn", "sampled", "seed"}`. Chained: `evalset.sampled`. |
 | `POST /api/evalsets/{set}/assignments` | Step 2: `{"labellers": ["user:…", ...], "seed": 0}`. The answer: `{"set", "round", "assigned", "withdrawn"}`, counts only. Chained: `evalset.assigned`, one per assignment. |
@@ -469,7 +469,7 @@ No signature is made of the commitment: the grading key does not sign a freeze c
 a signed hidden-set result carries the commitment instead (the
 [grading method](../grading/method-1.0.md), section 11).
 
-The agent is the one the set was made for, found by its id (give `--pack` if it does not resolve
+The agent is the one the set was made for, found by its id (give `--agent` if it does not resolve
 where you run the command); a later version of it grades the set too, since the content keeps
 the derived labels as they were. A set whose cases or labels change while it is being frozen is
 refused: run it again.
@@ -535,7 +535,8 @@ curl -sS -X POST "$MENDARI/api/evalsets/<set id>/runs" \
   -d '{"pack": "mendari/portal-message-agent", "variants": {"reader": "rules"}}'
 ```
 
-- `pack` is the id of the agent the set was made for, as this server serves it. A later version
+- `pack` is the id of the agent the set was made for, as this server serves it (the key keeps
+  the word Mendari used before, as stored and signed records hold it). A later version
   of it grades the set too, as long as it asks the set's questions with their labels and
   critical labels.
 - `variants` may name a variant for any of the agent's provider slots; the others run the
@@ -599,7 +600,7 @@ names the route's template.
 The same route grades the arms of the scoreboard (LP-17k, the
 [grading method](../grading/method-1.0.md), sections 3 to 9). The grader declares, per arm, the
 local configuration a hidden set grades (its `local` entry in the results store's
-`declared/<pack name>.json`, `mendari.declared/1`) before any hidden set is graded, and commits
+`declared/<agent name>.json`, `mendari.declared/1`) before any hidden set is graded, and commits
 the declaration. A run sends those configurations, as `arms`, with the
 declaration's SHA-256, as `declared`, in place of `variants`:
 

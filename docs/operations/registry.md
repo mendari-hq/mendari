@@ -92,7 +92,7 @@ decision for a deployment, and no release turns it on.
   100 MB. Larger archives under the engine wait for the agent store (LP-20).
 - **Limits and logs.** The registry's own rate limits apply (`MENDARI_REGISTRY_RATE_LIMITS`,
   above), counted in the engine's database. Requests under `/registry/` get an access line in
-  the engine's security log with the route's template (`/registry/v1/packs/{namespace}/{name}`),
+  the engine's security log with the route's template (`/registry/v1/agents/{namespace}/{name}`),
   never the raw path or a token.
 - **Two chains, one database.** The registry's events stay in its own chain (`hub_events`,
   `mendari registry verify --db`), the engine's in the audit chain; neither is written twice.
@@ -226,8 +226,9 @@ digest, at every risk level (2 and 3 need their governance approval too, and 4 n
 automates); until then its own rule's BLOCK goes to a person. Approve it on its Decision Card
 (the Automation approval section: where it came from, the digest served, any recall, then a
 dialog naming the digest) or with `POST /api/registry-approvals` (`pack_id`, `pack_digest`, a
-`reference` such as the committee's minutes); `DELETE /api/registry-approvals/{id}` revokes it
-at once. Both need the `approve` permission and are chained. An approval names one digest and
+`reference` such as the committee's minutes; the two keys name the agent and keep the word
+Mendari used before, as stored records hold them); `DELETE /api/registry-approvals/{id}` revokes
+it at once. Both need the `approve` permission and are chained. An approval names one digest and
 lasts until revoked. It never lifts a recall, a hold or a risk level's cap.
 
 | Setting | Default | What it does |
@@ -263,7 +264,7 @@ A publisher publishes its evaluations of a listed version, one per configuration
 dataset ([ADR-0020](../decisions/ADR-0020-publisher-evaluations.md)): `mendari eval AGENT
 --dataset NAME --publish --key publisher.key` sends a `mendari.publisher-evaluation/1` record
 ([the format](../spec/evaluation-reports.md#publisher-evaluations-mendaripublisher-evaluation1))
-to `POST /v1/packs/{namespace}/{name}/{version}/evaluations` with the namespace's publisher
+to `POST /v1/agents/{namespace}/{name}/{version}/evaluations` with the namespace's publisher
 token, which is checked before the body is read (at most 256 KB; writes count against the
 namespace's `registry_write` rate). Then, in order, each refusal naming the field and never a
 value:
@@ -291,7 +292,7 @@ configuration, dataset, key and whether it was re-run) and `evaluation.supersede
 stay. The same signed record sent again is answered as it was while it is live and refused
 once superseded; one signed before the live evaluation is refused.
 
-`GET /v1/packs/{namespace}/{name}/{version}/evaluations` (`mendari.publisher-evaluations/1`)
+`GET /v1/agents/{namespace}/{name}/{version}/evaluations` (`mendari.publisher-evaluations/1`)
 lists the live ones, ordered by configuration, never by a figure: each with its configuration,
 dataset (name, n, SHA-256), key, the models and latency and cost the publisher reported, whether
 the registry re-ran it, and the figures the registry works out from the counts, each k of n with
@@ -448,7 +449,7 @@ second ticket for that digest and configuration. An expired ticket is not withdr
 unreported. Chained `site.ticket_issued`
 and `site.ticket_withdrawn`.
 
-`GET /v1/packs/{namespace}/{name}/tickets` lists, per verified site, digest and configuration,
+`GET /v1/agents/{namespace}/{name}/tickets` lists, per verified site, digest and configuration,
 how many tickets were reported, are unreported (open, or expired with no report) and were
 withdrawn, with the first and last dates: a ticket with no result stays counted for good, a
 closed site's too. No
@@ -456,7 +457,7 @@ commitment and no secret is served.
 
 On the site's machine (`mendari site`): `init --site ID` makes its key and commitment secret
 in the client's configuration directory (mode 0600) and writes the key file the registry takes;
-`key --new` makes a new key; `ticket PACK --dataset FILE` asks for a ticket (the deterministic
+`key --new` makes a new key; `ticket AGENT --dataset FILE` asks for a ticket (the deterministic
 arm unless `--provider` names variants; a remote one needs `--consent-remote`), keeping the
 ticket and its secret there too, or with `--out FILE` writes the signed request to carry to a
 machine that reaches the registry.
@@ -465,7 +466,7 @@ machine that reaches the registry.
 
 A verified site answers one ticket with a `mendari.site-submission/1` it signed (`mendari eval
 --share`, or `--share-out` then `mendari site submit`), sent to
-`POST /v1/packs/{namespace}/{name}/{version}/reports` with the ticket's one-time secret as the
+`POST /v1/agents/{namespace}/{name}/{version}/reports` with the ticket's one-time secret as the
 bearer credential: the registry finds the ticket by the secret's SHA-256 before it reads the
 body, then reads at most 2 MB and checks that the ticket is the record's and still open (not
 expired, withdrawn or reported), that the key is a live key of the ticket's site, the signature
@@ -475,7 +476,7 @@ ticket's `reported` status are written in one transaction, chained `report.share
 site, key, ticket and the body's SHA-256) and `site.ticket_reported`. A publisher token no
 longer shares a report (401, naming `mendari site init`).
 
-`GET /v1/packs/{namespace}/{name}/reports` lists the signed reports (`verified: true`, each
+`GET /v1/agents/{namespace}/{name}/reports` lists the signed reports (`verified: true`, each
 with its site, key, ticket, whether a correction superseded it and whether its key was revoked
 as compromised, and its figures worked out from its counts) and how many are superseded;
 `GET …/reports/{id}` serves the signed record, to check against the site's key. A correction
@@ -485,7 +486,7 @@ reports stored before LP-22f stay in `hub_reports` and are no longer served.
 A submission carried by hand is taken by the operator through the same checks (but the
 secret): `mendari registry accept-report --db … submission.json`.
 
-`GET /v1/packs/{namespace}/{name}/site-evidence` (`mendari.site-evidence/1`, LP-22g) puts the
+`GET /v1/agents/{namespace}/{name}/site-evidence` (`mendari.site-evidence/1`, LP-22g) puts the
 signed reports side by side per digest and configuration: each site's k of n first, then the
 pooled figures, the homogeneity test and its warning, with the publisher's own site, reports
 under a compromised key and superseded reports left out and listed, and the unreported and
@@ -545,12 +546,12 @@ reviewer role sees this screen alone. Through the API:
 | Route | What it does |
 |---|---|
 | `GET /api/registry/review` | The pending claims, oldest first (50 at most): each with its organization, who claimed it (their id), its publisher keys by id, and its newest versions (5 at most) with what the registry `checked` apart from what the publisher `claimed`. No cards: a publisher chooses a card's size |
-| `GET /api/registry/review/packs/{namespace}/{name}/{version}` | One version of any namespace, listed or not, with the card the registry rendered |
+| `GET /api/registry/review/agents/{namespace}/{name}/{version}` | One version of any namespace, listed or not, with the card the registry rendered |
 | `POST /api/registry/review/namespaces/{namespace}` `{decision, note}` | `approve` or `refuse` the claim, once |
 | `POST /api/registry/review/namespaces/{namespace}/publisher-type` `{publisher_type}` | Record who publishes there: `community`, `verified` or `institutional` |
-| `POST /api/registry/review/packs/{namespace}/{name}/{version}` `{risk_level, note}` | Record the risk level a version's review found |
-| `POST /api/registry/review/packs/{namespace}/{name}/{version}/recall` `{reason, severity}` | Recall it, signed by the registry (`409` without `MENDARI_REGISTRY_SIGNING_KEY`) |
-| `POST /api/registry/review/packs/{namespace}/{name}/{version}/delete` `{reason}` | Delete its archive for good, keeping a tombstone |
+| `POST /api/registry/review/agents/{namespace}/{name}/{version}` `{risk_level, note}` | Record the risk level a version's review found |
+| `POST /api/registry/review/agents/{namespace}/{name}/{version}/recall` `{reason, severity}` | Recall it, signed by the registry (`409` without `MENDARI_REGISTRY_SIGNING_KEY`) |
+| `POST /api/registry/review/agents/{namespace}/{name}/{version}/delete` `{reason}` | Delete its archive for good, keeping a tombstone |
 
 - **A reviewer never acts on a namespace they claimed themselves** (`403`): not its decision,
   its publisher type, a review, a recall or a deletion. The queue marks it `own`, and another
@@ -577,9 +578,9 @@ database, each chained with who ran the command:
 
 ```bash
 mendari registry publisher-type --db var/registry.db --namespace acme --type verified --reason "met them"
-mendari registry review acme/inbox@1.2.0 --db var/registry.db --risk-level 1 --reason "reads as level 1"
-mendari registry recall acme/inbox@1.2.0 --db var/registry.db --severity high --reason "a fault"   # needs the signing key
-mendari registry delete acme/inbox@1.2.0 --db var/registry.db --reason "carried what it should not"
+mendari registry review acme/intake-agent@1.2.0 --db var/registry.db --risk-level 1 --reason "reads as level 1"
+mendari registry recall acme/intake-agent@1.2.0 --db var/registry.db --severity high --reason "a fault"   # needs the signing key
+mendari registry delete acme/intake-agent@1.2.0 --db var/registry.db --reason "carried what it should not"
 ```
 
 ## The counter-signature

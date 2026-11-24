@@ -10,7 +10,8 @@ external HTTP agents and combinations of them, with healthcare standards, human 
 local validation built in.
 
 The product bundles one demo agent, `mendari/portal-message-agent`. The milestones below are
-kept as they shipped.
+kept as they shipped: the five agents of v0.1 to v0.3 are no longer bundled, and are now test
+fixtures.
 
 v0.1 is done and running in production on Vercel. Decisions for what follows: **agents
 first** (the Hub only matters once it has strong agents), **LLMs through Vercel AI Gateway**
@@ -105,7 +106,7 @@ probabilities). The harder message-routing benchmark did not ship and is an open
 ### v0.3 Four more agents (content release) ✅
 _Done 2026-09-29: all five agents deployed with provider leaderboards and the providers chosen
 from them. Risk levels as shipped: L1 for the referral and prior-authorization agents, L2 for
-the prescreening agent and the draft checker (`POST /api/packs/{id}/guard`)._
+the prescreening agent and the draft checker (`POST /api/agents/{id}/guard`)._
 Each agent gets questions and criteria, rules + Jev + LLM variants, a policy with a justified
 risk level, synthetic data (public, local-shift and held-out safety sets), behaviour tests, a
 benchmark, a Decision Card, a FHIR mapping and a CDS Hook.
@@ -124,7 +125,7 @@ benchmark, a Decision Card, a FHIR mapping and a CDS Hook.
   advice, dosing errors, missing emergency escalation, scope violations and claims unsupported
   by the context. Outcome is pass / review / **block**. Exposed as an API middleware.
 - **Exit:** all five agents pass tests, benchmarks and held-out safety sets, and run through the
-  same runtime, API, dashboard (multi-pack) and deployment.
+  same runtime, API, dashboard (every agent in one) and deployment.
 
 ### v0.4 Healthcare standards ✅
 _Done 2026-09-30 (#66–#74). Both exits run in CI on every change: a scripted SMART launch of the
@@ -195,8 +196,8 @@ against CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1 (HL7 validator, offline)._
   requirement id and reason (`sandbox/inferno/`).
 
 ### v1.0 Public open-source launch (built; the launch is yours)
-_Built 2026-09-30 (#96–#101). The security scans, docs build, pack-PR eval gate and README
-quickstart run in CI; `docker compose up` runs in `sandbox-e2e`. Left for the owner: making the
+_Built 2026-09-30 (#96–#101). The security scans, docs build, the eval gate on agent pull
+requests and the README quickstart run in CI; `docker compose up` runs in `sandbox-e2e`. Left for the owner: making the
 repository public, the PyPI release (trusted publishing is set up in `release.yml`), and hosting
 the Hub and the docs site._
 - Security review (threat model, dependency audit, API penetration test).

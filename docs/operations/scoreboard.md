@@ -82,7 +82,7 @@ uv run python scripts/scoreboard_page.py scoreboard --out scoreboard.md
 - `--again` runs a result that is still current again. The new result supersedes it.
 - `--store DIR` uses another store. Without it, the store is `scoreboard/` in the working
   directory.
-- The agent is one bundled with Mendari, from `agents/`. A copy on `MENDARI_PACKS_PATH`, or an agent pulled
+- The agent is one bundled with Mendari, from `agents/`. A copy on `MENDARI_AGENTS_PATH`, or an agent pulled
   from a registry, is never run, checked or shown, whatever its version.
 
 ## A remote configuration: replicates, by hand
@@ -140,7 +140,7 @@ holds the statement it should carry.
 
 ### Declaring a configuration
 
-Each agent's declaration is `declared/<pack name>.json` in the store (`mendari.declared/1`):
+Each agent's declaration is `declared/<agent name>.json` in the store (`mendari.declared/1`):
 
 ```json
 {
@@ -153,7 +153,8 @@ Each agent's declaration is `declared/<pack name>.json` in the store (`mendari.d
 }
 ```
 
-Per arm it names one remote configuration (`remote`), the one run on public sets with
+`pack` is the agent's id (the key keeps the word Mendari used before, as signed results hold
+it). Per arm it names one remote configuration (`remote`), the one run on public sets with
 replicates, and may name one local configuration (`local`), the one a hidden set grades. Commit
 it before the run: the run refuses a declaration that is not committed as it is, so a run cannot
 pick its configuration after seeing results. The result cites the declaration's SHA-256. The
@@ -256,7 +257,7 @@ deployment's database, and the answer holds aggregates only (`mendari.hidden_sco
 
 1. **Declare.** Before any hidden set of the agent is graded, the deployment declares the arm's
    local configuration, the one a hidden set grades, as its `local` entry in the agent's
-   declaration (`scoreboard/declared/<pack name>.json`, `mendari.declared/1`: the method's
+   declaration (`scoreboard/declared/<agent name>.json`, `mendari.declared/1`: the method's
    section 3, and [Declaring a configuration](#declaring-a-configuration)), and commits it.
    Under the method 1.0 a hidden set is graded with local providers only (owner decision 2), so
    the deterministic arm is the one declared arm that runs:

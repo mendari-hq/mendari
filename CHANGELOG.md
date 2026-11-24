@@ -2,13 +2,44 @@
 
 Notable changes to Mendari, newest first. Each release has a section named by its version
 (`## 0.1.0`), written before the release: the release workflow refuses a tag whose version has
-no section, or whose section is not the newest. Changes to a pack are in the pack's own
+no section, or whose section is not the newest. Changes to an agent are in the agent's own
 `CHANGELOG.md`.
 
 ## 0.1.0
 
 The first release (not yet published).
 
+- **One vocabulary: what Mendari governs is an agent** (2026-11-23; nothing that worked stops
+  working). "Pack" and "Decision Pack" are no longer written where a person reads or types: the
+  command line's help and messages, the API descriptions, the README and the docs. What was
+  renamed, and what the name it had still does:
+  - the manifest is `agent.yaml`; a manifest named `pack.yaml` still loads where it is the only
+    one of the two, and a folder that holds both is refused. A file's name is part of an
+    agent's digest, so the bundled agent is version 0.1.2;
+  - the routes are `/api/agents/...`, `/api/store/agents` and `/api/registry/review/agents/...`,
+    and the registry's `/v1/agents/...`; `/api/packs/...`, `/api/store/packs`,
+    `/api/registry/review/packs/...` and `/v1/packs/...` answer the same, by the same handlers
+    under the same permissions and limits, and are left out of the API description;
+  - the command line takes `agent` and `--agent` (`--agent-dir`), and signed archives are
+    `mendari archive build` and `verify`; `pack`, `--pack`, `--pack-dir` and `mendari pack` are
+    still read, and no help shows them. `mendari new NAME` writes an agent with no flag
+    (`--agent` is still read; the rules-only starter is gone: it is the agent's `rules`
+    variant). `mendari --help` shows the twelve commands to start with, and `mendari help all`
+    every one;
+  - the settings are `MENDARI_AGENTS_PATH`, `MENDARI_AGENTS`, `MENDARI_AGENT_STORE` and
+    `MENDARI_COMMUNITY_AGENTS`; `MENDARI_PACKS_PATH`, `MENDARI_PACKS`, `MENDARI_PACK_STORE` and
+    `MENDARI_COMMUNITY_PACKS` are each read while the new name is unset;
+  - in the docs, the decision records say agent (each says so under its status), and three of
+    them have new file names (ADR-0007, ADR-0009 and ADR-0016).
+
+  Not renamed: the names in stored, hashed and signed records (the JSON keys `pack`, `pack_id`,
+  `pack_version` and `pack_digest`, the role `pack_author`, the chain's event names, a signed
+  archive's `pack/` folder and `mendari-pack.json`), the database's columns and the Python
+  identifiers. Renaming them rewrites what the audit chain and the signatures cover, so it is a
+  versioned change of its own. A decision's reasons say "agent" from now on, and stored ones
+  keep their words. Tests hold the line (`tests/test_vocabulary.py`,
+  `tests/test_cli_vocabulary.py`, `tests/test_vocabulary_docs.py`). The entries below are kept
+  as they were written, with the names of their time.
 - **Decision Packs:** the specification (0.2, and 0.3 for the FHIR mapping; 0.1 still loads),
   and the runtime that runs a
   pack's providers (rules, naive Bayes, Jev, LLMs, criteria, CQL, dosing) under a risk policy

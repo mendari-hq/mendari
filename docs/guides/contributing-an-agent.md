@@ -1,13 +1,13 @@
 # Contributing an agent
 
 A community agent is an agent you contribute by pull request, for anyone running Mendari to
-use. It lives in `community-packs/<name>/`, its id is `community/<name>`, and it is yours: you
+use. It lives in `community-agents/<name>/`, its id is `community/<name>`, and it is yours: you
 are its maintainer. This guide is the whole path, from the idea to the merge and the updates
 after it. How to write an agent in the first place is in
 [Authoring an agent](authoring-an-agent.md); read that first.
 
 **What a community agent can do.** A deployment serves community agents only when it sets
-`MENDARI_COMMUNITY_PACKS=on` (off by default). There, every surface that shows the agent (the
+`MENDARI_COMMUNITY_AGENTS=on` (off by default). There, every surface that shows the agent (the
 API, the dashboard, Try it, the review queue, the SMART patient view, its Decision Card, CDS
 Hooks, its FHIR CodeSystems, the `/docs` page) labels it
 **"Community · not clinically reviewed"**, and the runtime holds it to these limits, whatever
@@ -84,9 +84,9 @@ where the agent lives, never from `publisher.type`, which every agent declares f
 
 ## The path
 
-1. **Propose it (recommended for a new agent).** Open a "Propose a pack" issue (the form's
-    name): the use case, who would use it, the risk level you intend and how you will make the data. The owner answers
-    yes, no or "changes needed" before you build anything.
+1. **Propose it (recommended for a new agent).** Open an issue with the proposal form: the use
+    case, who would use it, the risk level you intend and how you will make the data. The owner
+    answers yes, no or "changes needed" before you build anything.
 
 2. **Fork and set up.** Fork the repository on GitHub, clone your fork, and run `uv sync` in it.
     Mendari is not on PyPI yet, so every command below starts with `uv run`.
@@ -94,14 +94,14 @@ where the agent lives, never from `publisher.type`, which every agent declares f
 3. **Create it.**
 
     ```bash
-    uv run mendari new community-packs/<name> --community --publisher "<you>"
+    uv run mendari new community-agents/<name> --community --publisher "<you>"
     ```
 
     The folder name is lowercase letters, digits and dashes, and it is the agent's name.
-    (`--community` and `--agent` do not combine: the community scaffold decides with keyword
-    rules; add an `agent` variant to its slot as step 4 of
-    [Authoring an agent](authoring-an-agent.md#5-declare-the-agent-slot) shows, and keep a local
-    variant as its `use`.) The
+    (The community scaffold decides with keyword rules, not with the offline mock agent a plain
+    `mendari new` writes; to put a model behind it, add an `agent` variant to its slot as step 5
+    of [Authoring an agent](authoring-an-agent.md#5-declare-the-agent-slot) shows, and keep a
+    local variant as its `use`.) The
     scaffold already has the community defaults: `license: Apache-2.0`, `store_input: hash`,
     local providers, a `CHANGELOG.md`, a benchmark, its Decision Card and a critical label
     with tests. It passes the checks as written.
@@ -113,31 +113,32 @@ where the agent lives, never from `publisher.type`, which every agent declares f
     `evals/ledgers/`, which CI checks too) and the card, after every change:
 
     ```bash
-    uv run mendari eval community-packs/<name> --dataset examples --baseline none \
-        --out community-packs/<name>/evals/benchmark.json
-    uv run mendari card community-packs/<name> --write
+    uv run mendari eval community-agents/<name> --dataset examples --baseline none \
+        --out community-agents/<name>/evals/benchmark.json
+    uv run mendari card community-agents/<name> --write
     ```
 
 5. **List yourself as its maintainer** in
-    [`community-packs/MAINTAINERS.yaml`](https://github.com/mendari-hq/mendari/blob/main/community-packs/MAINTAINERS.yaml),
+    [`community-agents/MAINTAINERS.yaml`](https://github.com/mendari-hq/mendari/blob/main/community-agents/MAINTAINERS.yaml),
     with your GitHub user name: `{id: community/<name>, maintainers: [<you>]}`.
 
 6. **Check it locally**, with the checks CI runs:
 
     ```bash
-    uv run mendari community-check community-packs/<name> --base origin/main
+    uv run mendari community-check community-agents/<name> --base origin/main
     ```
 
     Each problem says what to fix. Run it until it says "passed: ready for review".
 
 7. **Open the pull request.** Sign off every commit (`git commit -s`, the
     [Developer Certificate of Origin](https://github.com/mendari-hq/mendari/blob/main/CONTRIBUTING.md#sign-off-the-developer-certificate-of-origin)).
-    Change only `community-packs/<name>/` and your entry in `MAINTAINERS.yaml`. Use the pack
-    pull request template: add `?template=pack.md` to the address of the "Open a pull request" page, or run
-    `gh pr create --template pack.md`. It asks for the risk level and why, who reviewed the
-    clinical content, how the data was made, the providers, and the CHANGELOG entry.
+    Change only `community-agents/<name>/` and your entry in `MAINTAINERS.yaml`. Use the pull
+    request template for a community agent: add `?template=pack.md` (the template's file name)
+    to the address of the "Open a pull request" page, or run `gh pr create --template pack.md`.
+    It asks for the risk level and why, who reviewed the clinical content, how the data was
+    made, the providers, and the CHANGELOG entry.
 
-8. **CI runs.** The `pack-check` job runs `community-check` on your agent, and fails if the pull
+8. **CI runs.** A job runs `community-check` on your agent, and fails if the pull
     request changes anything outside your agent's folder and its `MAINTAINERS.yaml` entry (or
     adds a git submodule: the agent's files are in the repository, where they are read). Its
     summary shows the metrics and the rendered Decision Card. GitHub may ask the owner to
@@ -145,7 +146,7 @@ where the agent lives, never from `publisher.type`, which every agent declares f
     fork: CI is the preview.
 
 9. **Review.** The owner reads what CI cannot judge ([below](#what-the-reviewer-reads)) and
-    labels the pull request: `pack:new` or `pack:update`; `clinical-review:provided` when a
+    labels the pull request: a new agent or an update; `clinical-review:provided` when a
     clinician who is not the author reviewed the content and the pull request says who, else
     `needs-clinical-review`; `risk-level-change` when the level changes. Changes go back to
     step 4.
@@ -187,7 +188,7 @@ merged into a public repository cannot be fully taken back. Write every case you
 a teaching case is written, and keep rare-condition and date combinations vague. `community-check`
 warns on text in `data/`, `tests/` and a trained model's vocabulary that looks like a real
 person's details; act on every warning. It fails on any file that holds a case `mendari
-improve` added to a pack or `mendari feedback export` wrote, or a model built from one: those
+improve` added to an agent or `mendari feedback export` wrote, or a model built from one: those
 are a site's own cases. A trained model (a composite's members too) must be what `mendari
 train` gives from the agent's own data, byte for byte.
 
@@ -200,7 +201,7 @@ Two ways to make the data, neither needs Python:
   they take, and let the script expand them, the same way every time:
 
     ```yaml
-    # community-packs/<name>/data/cases.yaml
+    # community-agents/<name>/data/cases.yaml
     - input: {message: {body: "Please refill my {drug}, I have {left} left."}}
       labels: {request: refill, urgent_symptoms: "no"}
       fill:
@@ -211,8 +212,8 @@ Two ways to make the data, neither needs Python:
     ```
 
     ```bash
-    uv run python scripts/synthetic_cases.py community-packs/<name>/data/cases.yaml \
-        --out community-packs/<name>/data/examples.jsonl --prefix ex
+    uv run python scripts/synthetic_cases.py community-agents/<name>/data/cases.yaml \
+        --out community-agents/<name>/data/examples.jsonl --prefix ex
     ```
 
     The first template makes six cases (three drugs times two amounts), the second one. A
@@ -332,4 +333,4 @@ CI checks the mechanics. The owner then reads what it cannot judge, and may ask 
   licence complaint with a pull request that deletes its folder and keeps its
   `MAINTAINERS.yaml` entry as a tombstone, so its id is never used again. An agent with a safety
   problem or real patient data is removed at once (the merge reverted and deployed), and a
-  deployment can turn every community agent off with `MENDARI_COMMUNITY_PACKS=off`.
+  deployment can turn every community agent off with `MENDARI_COMMUNITY_AGENTS=off`.

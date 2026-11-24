@@ -4,7 +4,7 @@
 
 ```text
             ┌──────────────────────────── mendari serve ────────────────────────────┐
- EHR/app ──►│ REST /api/packs/{ns}/{name}/decide      FHIR /…/fhir/decide   /cds-services│
+ EHR/app ──►│ REST /api/agents/{ns}/{name}/decide     FHIR /…/fhir/decide   /cds-services│
             │        │                                   │ FhirAdapter          │        │
             │        ▼                                   ▼                      ▼        │
             │   ┌─────────────────────────── Decision (runtime) ───────────────────┐    │
@@ -21,8 +21,8 @@
 - **Spec and agent loading** (`core/spec.py`, `core/pack.py`): pydantic models, cross-reference
   validation, file confinement, content digest.
 - **Registry** (`core/registry.py`): resolves `namespace/name[@version]` from
-  `MENDARI_PACKS_PATH`, the registry cache, the bundled agents and, with
-  `MENDARI_COMMUNITY_PACKS=on`, `community-packs/`. Each agent carries the origin of where it
+  `MENDARI_AGENTS_PATH`, the registry cache, the bundled agents and, with
+  `MENDARI_COMMUNITY_AGENTS=on`, `community-agents/`. Each agent carries the origin of where it
   was found (`core/origin.py`: maintained, community, hub or local); an id is one agent, and a
   second claim is reported, never served. The origin, never the manifest's `publisher.type`
   (self-declared), sets the label every surface shows: "Maintained by Mendari" or "Community ·
@@ -42,7 +42,7 @@
   answers.
 - **Policy** (`core/policy.py`): a pure function from answers and failures to an outcome. It
   holds all automation limits, including risk-level caps, governance overrides, the
-  community-pack cap (a community agent never automates) and the site code cap (a decision read
+  cap on community agents (one never automates) and the site code cap (a decision read
   through a site's translation of its own code never automates, `core/site_codes.py`).
 - **Providers** (`providers/`): a common `answer(inputs) -> ProviderOutput` contract.
   Within one decision, remote providers that share an endpoint and model are merged into a
@@ -125,8 +125,8 @@
   input; an agent the deployment does not own (community, registry) must name them, and runs on
   the deployment's model with its `max_tokens`, `timeout_ms` and `reasoning_effort` capped.
   Every variant's config is checked at load against its provider's closed config
-  (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): such a
-  agent is refused for a problem, an owned one warned.
+  (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): such
+  an agent is refused for a problem, an owned one warned.
   - With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set (`providers/http.py`), every Jev, LLM and Vercel
     Connect request to an origin it does not list is refused before it is opened
     (`invalid_endpoint`), and an `LLM_BASE_URL` or `JEV_API_URL` off it stops startup. Unset,

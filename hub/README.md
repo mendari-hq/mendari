@@ -9,7 +9,7 @@ itself, and renders publisher text without raw HTML or unsafe links. Every page 
 registry API (`src/mendari/hub/registry.py`) at request time, from `REGISTRY_URL`.
 
 ```bash
-# a registry with the bundled agent (and, with MENDARI_PACKS_PATH, the test fixtures' agents),
+# a registry with the bundled agent (and, with MENDARI_AGENTS_PATH, the test fixtures' agents),
 # and the test agent whose text tries to run a script
 uv run mendari registry serve --db var/registry.db &
 uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100 --db var/registry.db --hostile-example

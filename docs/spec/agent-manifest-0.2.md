@@ -17,13 +17,15 @@ limits, and how well it performed on which data, without reading code.
 
 ## 2. Layout
 
-An agent is a directory containing `pack.yaml`. All paths in the manifest are relative to the
-agent directory and MUST NOT resolve outside it.
+An agent is a directory containing its manifest, `agent.yaml`. A manifest named `pack.yaml`,
+the name it had before, still loads where it is the only one of the two (a directory that holds
+both is refused). All paths in the manifest are relative to the agent directory and MUST NOT
+resolve outside it.
 
 | Path (conventional) | Required | Content |
 |---|---|---|
-| `pack.yaml` | yes | Manifest (§3) |
-| `policy.yaml` | no | Policy (§6). It may instead be inline in `pack.yaml` |
+| `agent.yaml` | yes | Manifest (§3) |
+| `policy.yaml` | no | Policy (§6). It may instead be inline in `agent.yaml` |
 | `schemas/input.schema.json` | yes | JSON Schema 2020-12 for the agent input |
 | `fhir/mapping.yaml` | no | FHIR R4 mapping (§9) |
 | `logic/`, `models/` | per provider | Provider configuration and artifacts |
@@ -717,7 +719,7 @@ language model and its reader, e.g. a patient. The runtime turns each decision i
 (HUMAN_REVIEW or ABSTAIN) or `blocked` (BLOCK; the draft MUST NOT be sent and the policy
 `fallback` applies). Decisions are audited as usual. At risk level 2 or above, `released`
 requires a recorded governance override (§7). The reference server exposes this as
-`POST /api/packs/{id}/guard`.
+`POST /api/agents/{id}/guard`.
 
 ## 10. Behaviour tests
 
@@ -804,7 +806,7 @@ of these.
 | No lone surrogate, `!!binary`, `!!set`, `!!omap` or `!!pairs` in an agent's YAML, no lone surrogate or non-finite number in its JSON; a file is used only with the content its digest hashed (every spec version) | §3 |
 | No symbolic link out of a directory agent; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
 | Provider configs are closed (the published JSON Schema) and checked at load for every variant: a community or registry agent with a problem is invalid, any other is warned; such an agent's model variants name their `state_fields`, and its model, `max_tokens`, `timeout_ms` and `reasoning_effort` are the deployment's to choose or cap (every spec version) | §5 |
-| An owned agent's input schema nests at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one value, referring back to itself only as a recursive list or tree, with no `unevaluatedProperties` or `unevaluatedItems` below another; an agent from a registry with a reference agent's id and an equal version is that agent (every spec version) | §3, §5 |
+| An owned agent's input schema nests at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one value, referring back to itself only as a recursive list or tree, with no `unevaluatedProperties` or `unevaluatedItems` below another; an agent from a registry with a bundled agent's id and an equal version is that agent (every spec version) | §3, §5 |
 | A prefetch template is a read or search relative to the EHR's FHIR server, a wording template's placeholders are bare names, and every text a card summary can give with display names is under 140 characters: a community or registry agent with one that is not is invalid (its FHIR Task text included), any other is warned of its prefetch and card summaries, and `mendari validate` refuses both (every spec version) | §9 |
 
 To migrate an agent:

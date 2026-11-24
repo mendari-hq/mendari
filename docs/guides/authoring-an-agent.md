@@ -5,25 +5,25 @@ LangGraph workflow, any HTTP service) answers a fixed set of questions with a co
 Mendari turns those answers into `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK` under a policy you
 can read, capped by a risk level the runtime enforces, with every decision in a hash-chained
 audit trail. What Mendari needs to know about the agent is written in a folder of plain text,
-whose manifest is `pack.yaml`. This guide builds one, step by step.
+whose manifest is `agent.yaml`. This guide builds one, step by step.
 
 You need Mendari installed and a text editor. Until the first release is on PyPI, install it
 from a clone of the repository (`git clone https://github.com/mendari-hq/mendari.git`, then
 `uv sync` in it and put `uv run` before each command below, or `pip install .` in it). The
-agent's folder can live anywhere: commands take its path, and `MENDARI_PACKS_PATH` lets
+agent's folder can live anywhere: commands take its path, and `MENDARI_AGENTS_PATH` lets
 `mendari serve` find it.
 
 ## 1. Start from the template
 
 ```bash
-mendari new my-agent --agent --id my-clinic/my-agent --publisher "My Clinic"
+mendari new my-agent --id my-clinic/my-agent --publisher "My Clinic"
 ```
 
 This writes a working copy of the demo agent, `mendari/portal-message-agent`, under your id:
 
 | File | What it is |
 |---|---|
-| `pack.yaml` | The agent's manifest: identity, risk, card, questions, the agent slot, policy |
+| `agent.yaml` | The agent's manifest: identity, risk, card, questions, the agent slot, policy |
 | `schemas/input.schema.json` | What a valid input looks like (here, a portal message); anything else is `BLOCK` |
 | `fixtures/mock_agent.json` | Canned agent answers, used while no live agent is set |
 | `logic/rules.yaml` | A keyword-rules variant to compare the agent with |
@@ -38,7 +38,7 @@ mendari test my-agent           # its behaviour tests
 ```
 
 ```text
-ok  my-clinic/my-agent@0.1.0  sha256:46101e88…
+ok  my-clinic/my-agent@0.1.0  sha256:92401714…
 PASS  a refill request goes to the refill queue
 PASS  an appointment request goes to scheduling
 PASS  chest pain goes to a nurse today, whatever else the message asks
@@ -190,9 +190,10 @@ when `MENDARI_AGENT_TOKEN` is set, `authorization: Bearer <token>`:
 }
 ```
 
-`input` holds only the `state_fields`; `system_prompt` and `instructions` are present when the
-manifest sets them; a `score` question also carries its `levels`. The request may be at most
-100,000 characters.
+`pack_id` is the agent's id: the key keeps the name it had before, as stored and signed records
+hold it. `input` holds only the `state_fields`; `system_prompt` and `instructions` are present
+when the manifest sets them; a `score` question also carries its `levels`. The request may be at
+most 100,000 characters.
 
 The agent answers every question it was asked, and nothing else:
 
@@ -380,7 +381,7 @@ variant is in use: offline, the fixture; with `MENDARI_AGENT_URL` set, your live
 answer to each question under `labels`. Check the data before you measure with it:
 
 ```bash
-mendari data check my-agent                 # every dataset pack.yaml declares
+mendari data check my-agent                 # every dataset agent.yaml declares
 mendari data check my-agent my-cases.jsonl  # or one file
 ```
 
@@ -490,9 +491,9 @@ into one page. Share it with your AI or clinical decision support committee. At 
 ## 15. Share it
 
 - **In your own deployment:** keep the folder anywhere and name it, or its parent, in
-  `MENDARI_PACKS_PATH` (several separated by `:`).
+  `MENDARI_AGENTS_PATH` (several separated by `:`).
 - **With everyone, as a community agent:** open a pull request with the folder in
-  `community-packs/<name>/` ([Contributing an agent](contributing-an-agent.md)).
+  `community-agents/<name>/` ([Contributing an agent](contributing-an-agent.md)).
 - **On a registry:** your organization claims the namespace (`my-clinic`) and mints a publisher
   token, in the dashboard's Access view where the registry runs under the engine, or the
   registry's operator runs `mendari registry claim` and `mendari registry token`. Then:
@@ -504,7 +505,7 @@ into one page. Share it with your AI or clinical decision support committee. At 
   mendari push my-agent --key keys/publisher.key
   ```
 
-  `mendari pack verify` loads an archive as a puller will. Once a registry reviewer approves the
+  `mendari archive verify` loads an archive as a puller will. Once a registry reviewer approves the
   namespace, others `mendari pull my-clinic/my-agent` and verify it; whoever serves it approves
   its digest before it automates.
   `mendari yank my-clinic/my-agent@0.1.0 --reason "..." --severity high --key keys/publisher.key`
@@ -523,7 +524,7 @@ mendari eval my-agent --dataset test --provider reader=agent --publish --key key
 ```
 
 Each run sends its counts (never a case, never a rate), signed with your publisher key and sent
-with your publisher token. The dataset must be one `pack.yaml` declares, so it is in the signed
+with your publisher token. The dataset must be one `agent.yaml` declares, so it is in the signed
 archive (a file path is refused), at least 100 cases, and the whole of it (`--limit` is
 refused). The registry checks it against the archive, then:
 

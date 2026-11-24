@@ -9,12 +9,16 @@ Every example below is one of the scripts in `src/mendari/dashboard/snippets/`, 
 it is. CI runs them against a local server, once in open mode and once with a `service` key
 (`scripts/check_doc_snippets.py`), so they work as written. They need `curl` and `jq`, and every body is synthetic.
 
+A few names in requests and answers still call an agent by the word Mendari used before
+(`pack`, `pack_id`, `pack_version`, `pack_digest`): stored, hashed and signed records hold them,
+so they keep their names until a versioned change of format.
+
 ## Before you start
 
 In a clone, `uv sync` installs Mendari with the server (without uv: `pip install '.[server]'`;
 the `server` extra brings uvicorn, which `mendari serve` needs). The server serves the bundled
-demo agent (`mendari/portal-message-agent`); to serve your own too, set `MENDARI_PACKS_PATH` to their folders (`:`-separated, searched
-first). `MENDARI_PACKS` (comma-separated ids) then narrows what is served to those packs, which
+demo agent (`mendari/portal-message-agent`); to serve your own too, set `MENDARI_AGENTS_PATH` to their folders (`:`-separated, searched
+first). `MENDARI_AGENTS` (comma-separated ids) then narrows what is served to those agents, which
 must be on the path.
 
 Start a server, and in another terminal name it and, with sign-in on, your API key:
@@ -35,7 +39,7 @@ Each script runs as a whole (`bash quickstart.sh`), or step by step: copy the li
 
 ## Quickstart in three calls
 
-List the packs, ask the demo agent for a decision on a synthetic patient message (one of its
+List the agents, ask the demo agent for a decision on a synthetic patient message (one of its
 behaviour tests), and read the decision's audit record:
 
 <!-- check: include quickstart.sh -->
@@ -43,9 +47,9 @@ behaviour tests), and read the decision's audit record:
 --8<-- "quickstart.sh"
 ```
 
-Every decision ends as `AUTO` (safe to act on), `HUMAN_REVIEW` (a person decides, with the pack's
+Every decision ends as `AUTO` (safe to act on), `HUMAN_REVIEW` (a person decides, with the agent's
 recommendation), `ABSTAIN` (not confident enough to say) or `BLOCK` (the input or a safety rule
-stops it). Check `outcome`, not only the status code: an input that fails the pack's schema is a
+stops it). Check `outcome`, not only the status code: an input that fails the agent's schema is a
 recorded decision with `outcome: BLOCK`.
 
 ## FHIR in, FHIR out
@@ -62,7 +66,7 @@ clinical resources.
 --8<-- "fhir.sh"
 ```
 
-**CDS Hooks.** `GET /cds-services` lists the services, one per pack that declares a hook, and
+**CDS Hooks.** `GET /cds-services` lists the services, one per agent that declares a hook, and
 `POST /cds-services/{id}` decides on a hook's context and prefetch, answering with cards. An
 EHR calls them with a Mendari key (the `cds-hooks` preset), or, once registered, with its own
 signed token: [Connecting an EHR](connecting-an-ehr.md).
@@ -75,11 +79,11 @@ OperationOutcome, a value that is not a resource, a resource or search page that
 JSON), or a note is only a link or does not decode, the decision is `ABSTAIN` with reasons such
 as `could not read labs: timeout`, it is recorded, and its card is an `info` card that says so.
 Reasons never repeat a URL, a query or what a server answered. A request fault (the wrong hook, a
-malformed field, a required resource you sent something else for) is still a `4xx`. A pack on
+malformed field, a required resource you sent something else for) is still a `4xx`. An agent on
 spec 0.3 may also read what a link in the record points to (a note's Binary, a Coverage's payer, a
 MedicationRequest's drug) from your `fhirServer`, at most 50 notes and 50 followed references a
 decision and 100 reads a request; a link it does not read is a reason too, and `fhir/decide` and `$decide` never read one
-([linked data](connecting-an-ehr.md#linked-data)). Such a pack reads a note as text only when it
+([linked data](connecting-an-ehr.md#linked-data)). Such an agent reads a note as text only when it
 is text/plain or text/html: an RTF, PDF or CDA note abstains with `could not read <field>:
 unsupported_type`.
 A decision that read a value through the deployment's site code map is never automated: its
@@ -89,13 +93,13 @@ reasons say `site code translated (<code set>): a person decides`
 **Cards and feedback.** A card's `uuid` is its decision's id. Its one suggestion has a `uuid` of
 its own, and the card says `selectionBehavior: at-most-one` and offers three `overrideReasons`
 (`https://mendari.co/fhir/CodeSystem/card-override-reasons`: not relevant, already addressed,
-clinical judgement, each with its display). The summary uses the pack's display names, and the
-detail says the pack's status, the notice and one plain sentence for the outcome. When the
+clinical judgement, each with its display). The summary uses the agent's display names, and the
+detail says the agent's status, the notice and one plain sentence for the outcome. When the
 deployment sets `MENDARI_PUBLIC_URL`, the reasons are behind the card's link to the decision in
-the audit trail (which needs a Mendari sign-in), `source.url` is the pack's card, and, when SMART
+the audit trail (which needs a Mendari sign-in), `source.url` is the agent's card, and, when SMART
 is on and your `fhirServer` is registered for launches in your organization, a `smart` link
-opens the pack. Without it, the reasons are in the detail, but for the confidence thresholds',
-whose figures carry no interval. A service whose pack maps recommendations to coverage
+opens the agent. Without it, the reasons are in the detail, but for the confidence thresholds',
+whose figures carry no interval. A service whose agent maps recommendations to coverage
 information (`cds_hooks.coverage_information`) is a Da Vinci CRD service: discovery declares `davinci-crd.version` and the `coverage-info` option,
 and a request whose `extension.davinci-crd.configuration` sets `coverage-info` to `false` gets no
 cards and no system actions, while each order is still decided and recorded.
@@ -133,8 +137,8 @@ anywhere else they are a `403`, whatever the request carries.
 
 **What a decision read.** Every decision made from FHIR (CDS Hooks, `fhir/decide`, `$decide`, the
 SMART launch) carries `data_coverage` in its record, which `GET /api/audit/{id}` returns: for
-each mapped field and list, the paths it looked for, the code systems the pack declares, the
-pack's own codes, and what it found, as counts, with what could not be read counted by reason.
+each mapped field and list, the paths it looked for, the code systems the agent declares, the
+agent's own codes, and what it found, as counts, with what could not be read counted by reason.
 It holds no value, id or text. The answers of `fhir/decide` and the SMART launch's decide hold it
 too. A CDS Hooks card and `$decide`'s GuidanceResponse do not: they give the decision id (the
 card's `uuid` and `extension.mendari.decision_id`, the GuidanceResponse `identifier`). In the
@@ -148,7 +152,7 @@ or `null` without one ([Connecting an EHR](connecting-an-ehr.md#site-codes)).
 
 ## Guarding a model's replies
 
-A pack with a `guard` section checks a model's draft before a patient reads it. `POST /api/packs/{id}/guard` answers `{status, reply, outcome, recommendation,
+An agent with a `guard` section checks a model's draft before a patient reads it. `POST /api/agents/{id}/guard` answers `{status, reply, outcome, recommendation,
 reasons, fallback, decision_id}` and the whole `decision`: the draft is `released` only when the
 decision is automated with a release recommendation; otherwise it is `held_for_review` or
 `blocked`. Never send a blocked draft: act on `fallback`. The same check runs in Python without
@@ -174,7 +178,7 @@ refused unless an EHR is registered for it.
   for an overlap, 24 hours unless asked). A key has one role, `viewer` or `service`, expires (90
   days unless asked, 365 at most), and may carry scopes that narrow it: SMART v2 reads such as `system/Task.rs`, and
   `https://mendari.co/fhir/scope/decide` or `https://mendari.co/fhir/scope/outcome`. The decide
-  scope also lists the packs it may decide with (`GET /api/packs`, `GET /cds-services`); no
+  scope also lists the agents it may decide with (`GET /api/agents`, `GET /cds-services`); no
   scope reaches Mendari's other reads under `/api`. For each documented integration path there
   is a preset (`"preset": "fhir"`, `"cds-hooks"`, …) with the role and scope it needs:
   [the list](../deploying-with-phi.md#2-sign-in-and-roles). The dashboard's Access view (API
@@ -186,12 +190,12 @@ refused unless an EHR is registered for it.
   ES384, never a client secret) for a five-minute access token, `Bearer mat_…`. A client keeps
   its id when its public keys change (`POST /api/auth/clients/{id}/keys`, or the Access view's
   Clients tab): its tokens stop at once.
-- Where the pack registry is served under the engine (`MENDARI_REGISTRY=on`, off by default),
+- Where the agent registry is served under the engine (`MENDARI_REGISTRY=on`, off by default),
   an administrator claims a namespace and mints publisher tokens with
   `POST /api/registry/namespaces` and `POST /api/registry/tokens` (people only, like API keys).
   A publisher token (`Bearer ohr_…`) publishes to its own namespace at `/registry/v1/...` and
   is a credential nowhere else; an API key or a session cookie is never one there:
-  [Running a pack registry](../operations/registry.md#under-the-engine). The registry's
+  [Running a registry](../operations/registry.md#under-the-engine). The registry's
   reviewers (members of its one review organization who hold `registry_reviewer`; people
   only) read the queue of pending claims and decide them, and review, recall and delete
   versions, under `/api/registry/review`:
@@ -217,30 +221,30 @@ What each call needs (public, `read`, `decide`, an administrator, …) comes fro
 rules; a running server's `/docs` lists every call with it. Setting up sign-in, roles and keys is
 in [Deploying with real patient data](../deploying-with-phi.md).
 
-## An organization's pack store
+## An organization's agent store
 
-Where the operator turns it on (`MENDARI_PACK_STORE=on`, memberships mode), a person who holds
-`pack_author` in an organization keeps that organization's own versions of packs under
-`/api/store` ([the pack store](../operations/agent-store.md)). Every route acts for the
+Where the operator turns it on (`MENDARI_AGENT_STORE=on`, memberships mode), a person who holds
+`pack_author` in an organization keeps that organization's own versions of agents under
+`/api/store` ([the agent store](../operations/agent-store.md)). Every route acts for the
 organization the person acts for; no key or client reaches them.
 
 | Route | What it does |
 |---|---|
-| `GET /api/store/packs`, `GET /api/store/packs/{namespace}/{name}` | The organization's packs and their versions: state, validation, dataset checks |
+| `GET /api/store/agents`, `GET /api/store/agents/{namespace}/{name}` | The organization's agents and their versions: state, validation, dataset checks |
 | `GET /api/store/versions/{digest}` | One version, with its Decision Card rendered from its files |
 | `GET /api/store/versions/{digest}/file?path=…` | One text file of a version (UTF-8, at most 1 MiB), for its editor |
-| `POST /api/store/versions` | A signed archive (`mendari pack build`) under the body limit |
+| `POST /api/store/versions` | A signed archive (`mendari archive build`) under the body limit |
 | `POST /api/store/uploads`, `PUT …/parts/{n}`, `POST …/complete` | A larger archive in parts |
-| `POST /api/store/copies` | `{pack, name}`: a draft copy of a pack served here, renamed `<organization>/<name>` |
+| `POST /api/store/copies` | `pack` (the id of an agent served here) and `name`: a draft copy of that agent, renamed `<organization>/<name>` |
 | `POST /api/store/versions/{digest}/edits` | `{files: [{path, content}]}`: a new draft with those text files replaced |
 | `POST /api/store/versions/{digest}/tests` | Run the version's behaviour tests |
 | `DELETE /api/store/versions/{digest}` | Withdraw a draft |
 | `GET`, `POST /api/store/keys`, `DELETE /api/store/keys/{key_id}` | Authors' keys (administrators) |
 | `GET`, `POST /api/store/datasets`, `GET …/{dataset_id}` | Your labelled datasets, checked as a version is |
-| `POST /api/store/jobs`, `GET /api/store/jobs`, `GET …/{job_id}` | Evaluation jobs: a version (or the pack it was copied from) on a dataset |
+| `POST /api/store/jobs`, `GET /api/store/jobs`, `GET …/{job_id}` | Evaluation jobs: a version (or the agent it was copied from) on a dataset |
 | `POST /api/store/jobs/{job_id}/advance` | Run a job's next slice (about 20 s); the last writes its report |
 | `GET /api/store/comparisons?draft=…&current=…` | Two finished jobs, paired on the same cases |
-| `POST /api/store/packs/{namespace}/{name}/improvement` | The improvement dataset from reviewers' corrections (needs reading inputs too) |
+| `POST /api/store/agents/{namespace}/{name}/improvement` | The improvement dataset from reviewers' corrections (needs reading inputs too) |
 | `GET /api/store/versions/{digest}/proposed-tests?dataset=…`, `POST …/proposed-tests/{dataset}/{case}` | The corrections as proposed tests; accept or dismiss one |
 | `GET`, `POST /api/store/promotions`, `POST …/{promotion_id}/retire` | Promote a version to be served to your organization (`governance`, `admin`; never its author), or stop serving it |
 
@@ -248,6 +252,6 @@ An upload whose files read as a person's details is refused (`422`) with the det
 kinds, files and lines, never the text. A version that holds a case of a hidden evaluation set
 is kept `held for the operator's review`, and the answer says nothing more.
 
-The dashboard's Pack store view (LP-20j) does all of this for a person who signs in: copy,
+The dashboard's Agent store view (LP-20j) does all of this for a person who signs in: copy,
 upload, edit, test, run jobs, compare, and, for `governance` and `admin`, promote.
 

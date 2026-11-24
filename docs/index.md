@@ -19,7 +19,7 @@ governed agent is a folder of plain text:
 
 | If you want to | Read |
 |---|---|
-| wrap your agent: its manifest (`pack.yaml`) and HTTP contract | [Authoring an agent](guides/authoring-an-agent.md) |
+| wrap your agent: its manifest (`agent.yaml`) and HTTP contract | [Authoring an agent](guides/authoring-an-agent.md) |
 | call Mendari from your code, over REST or FHIR | [Using the API](guides/api.md) (on a running server: `/docs`) |
 | let an EHR call the CDS Hooks services with its own signed token | [Connecting an EHR](guides/connecting-an-ehr.md) |
 | evaluate an agent on your own site's cases | [Evaluating at your site](guides/evaluate-at-your-site.md) |
@@ -28,10 +28,8 @@ governed agent is a folder of plain text:
 | know exactly what a manifest may contain | [The spec](spec/agent-manifest-0.2.md), and the FHIR mapping of [0.3](spec/agent-manifest-0.3.md) |
 | understand how the engine works | [Architecture](architecture.md) |
 | review its security | [Threat model](security/threat-model.md) |
+| read why it is built this way | The decision records, from [ADR-0001](decisions/ADR-0001-questions-as-the-core-abstraction.md) on |
 | see where the project is going | [Roadmap](roadmap.md) |
-
-The decision records predate the agents-only change and keep their older wording; each says
-so under its title.
 
 ## In one minute
 
@@ -44,7 +42,7 @@ uv sync
 uv run mendari list                                              # the bundled demo agent
 uv run mendari test agents/portal-message-agent                  # its behaviour tests
 uv run mendari eval agents/portal-message-agent --dataset examples
-uv run mendari new triage-agent --agent --id my-clinic/triage-agent   # your own agent, in YAML
+uv run mendari new triage-agent --id my-clinic/triage-agent      # your own agent, in YAML
 uv run mendari test triage-agent
 ```
 
@@ -56,7 +54,7 @@ never automate either: without `MENDARI_AGENT_URL`, its decisions go to a person
 
 `uv sync` installs the server too (without uv: `pip install '.[server]'` in the clone); then
 `uv run mendari serve` serves the demo agent, with the dashboard, on `http://127.0.0.1:8000`, and
-`MENDARI_PACKS_PATH` names the folders of your own agents to serve them as well.
+`MENDARI_AGENTS_PATH` names the folders of your own agents to serve them as well.
 
 The code, the demo agent and the contribution guide are in the
 [repository](https://github.com/mendari-hq/mendari).
