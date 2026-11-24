@@ -277,9 +277,10 @@ own machine, say) or the AI Gateway with its key, https only, and on
 `MENDARI_PROVIDER_ALLOWED_ORIGINS` when that is set.
 
 - **What is sent.** The prompt, and the text of the case's own text fields under their names.
-  No id, no label, no other field. A case marked as a site's own is never sent. Still, the text
-  leaves your machine unless the model runs on it: probe with a model on synthetic or
-  de-identified cases.
+  No id, no label, no other field. A denial's prompt also names the finding to deny, in the
+  manifest's own words: the question, its critical label and that label's criterion. A case
+  marked as a site's own is never sent. Still, the text leaves your machine unless the model runs
+  on it: probe with a model on synthetic or de-identified cases.
 - **The prompts** are in one file, `src/mendari/evals/probe_model.py`, whole.
 - **Read what it wrote.** A model can drop the very thing that mattered, and a paraphrase that
   lost the symptom reads as a failure of the agent. The text of each variant is in the test

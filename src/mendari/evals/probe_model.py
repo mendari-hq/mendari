@@ -8,8 +8,10 @@ machine, say) or the AI Gateway, https only, on the provider allow-list when the
 the same key. There is no default model: `--model`, or `LLM_MODEL`.
 
 What is sent is the prompt below for the transformation, and one JSON object: the text of the
-case's own text fields, each under its field's name. Nothing else: no id, no label, no other
-field of the input. A site's own case is never sent (`evals/probe.py`).
+case's own text fields, each under its field's name. Nothing else of the case: no id, no label,
+no other field of its input. A denial's prompt also names the finding to deny, in the manifest's
+own words: the question's instructions, its critical label and that label's criterion. A site's
+own case is never sent (`evals/probe_variants.py` `jobs`).
 
 What a model writes is not the same twice, and a model can get it wrong: a paraphrase may drop
 what mattered. So the text of every variant it wrote is kept where a person can read it (the
