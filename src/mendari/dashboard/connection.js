@@ -4,6 +4,9 @@
 // come from now, and, for the organization's administrators, the address and token to set, a
 // check that sends one synthetic example, and clearing it. The token is typed and never shown
 // again: the server returns none, so the field is always empty when the panel opens.
+// Where the deployment lists the addresses it may call and the one typed is not among them, one
+// of the deployment's operators is offered a box to allow it for this agent (the server checks
+// who asks, and that the address is a public one); anyone else is told who can.
 // Everything the server says of an address or a person is escaped.
 
 import { $, actionDialog, api, esc, icon, may, time, toast, toastError, whileBusy } from "./ui.js";
@@ -28,6 +31,8 @@ function whereFrom(c) {
     return `<p><b>Connected</b> to <code class="break-anywhere">${esc(own.endpoint ?? own.origin)}</code>.</p>
       <dl class="facts">
         <dt>Address set</dt><dd>${esc(time(own.set_at))} by ${esc(own.set_by)}</dd>
+        ${own.origin_allowed_by ? `<dt>Address allowed</dt><dd>${esc(time(own.origin_allowed_at))} by ${esc(own.origin_allowed_by)}, for this agent
+          only. It is not on the list of addresses this deployment may call.</dd>` : ""}
         <dt>Token</dt><dd>${own.token === "set"
           ? `Set ${esc(time(own.token_set_at))} by ${esc(own.token_set_by)}. It is kept sealed and is never shown again.`
           : "None: calls are sent without one."}</dd>
@@ -48,11 +53,14 @@ function whereFrom(c) {
 }
 
 function rules(c) {
-  const reach = c.allowed_origins === null
-    ? "The address must be on the public internet. For a service on your own network, whoever runs this deployment lists it first (MENDARI_PROVIDER_ALLOWED_ORIGINS)."
-    : c.allowed_origins.length
-      ? `This deployment may call: ${c.allowed_origins.map((origin) => `<code>${esc(origin)}</code>`).join(", ")}. Another address is added by whoever runs it.`
-      : "This deployment lists no address it may call: whoever runs it adds one first (MENDARI_PROVIDER_ALLOWED_ORIGINS).";
+  const inside = "For a service on your own network, whoever runs this deployment lists it first (MENDARI_PROVIDER_ALLOWED_ORIGINS).";
+  const listed = c.allowed_origins?.length
+    ? `This deployment may call: ${c.allowed_origins.map((origin) => `<code>${esc(origin)}</code>`).join(", ")}.`
+    : "This deployment lists no address it may call.";
+  const other = c.may_allow_origin
+    ? `As one of this deployment's operators you can allow another address on the public internet for this agent when you save. ${inside}`
+    : "Another address is allowed by an administrator of the organization that operates this deployment, or listed by whoever runs it (MENDARI_PROVIDER_ALLOWED_ORIGINS).";
+  const reach = c.allowed_origins === null ? `The address must be on the public internet. ${inside}` : `${listed} ${other}`;
   const token = c.seals
     ? "The token is kept sealed and never shown again. Changing the address removes it unless you type one."
     : "This deployment cannot keep a token (it has no key to seal one under): save an address without a token, or ask whoever runs it to set MENDARI_PHI_MODE=encrypt.";
@@ -75,6 +83,13 @@ export function connectionHtml(c, { heading = "h3" } = {}) {
       <input id="connection-token" name="token" type="password" autocomplete="new-password" spellcheck="false" maxlength="4096"${c.seals ? "" : " disabled"}
         aria-describedby="connection-rules">
       <div id="connection-rules">${rules(c)}</div>
+      ${c.may_allow_origin ? `<div class="callout warning connection-allow" data-connection-allow hidden
+          data-listed="${esc(JSON.stringify(c.allowed_origins ?? []))}" data-allowed="${esc(own && c.connection.origin_allowed_by ? c.connection.origin : "")}">
+        <p><b><code class="break-anywhere" data-connection-origin></code> is not on the list of addresses this deployment may call.</b>
+          As one of this deployment's operators you can allow it for this agent in your organization. It must be on the public
+          internet, and allowing it is recorded in the audit trail with your name.</p>
+        <label><input type="checkbox" name="allow_origin"> Allow this address for this agent</label>
+      </div>` : ""}
       <p class="error" role="alert" hidden></p>
       <div class="row">
         <button type="submit" class="primary">Save connection</button>
@@ -111,6 +126,29 @@ export function wireConnection(root, packId, changed) {
   if (!panel) return;
   const form = panel.querySelector("[data-connection-form]");
   const error = form?.querySelector(".error");
+  // An operator's box to allow an address the deployment's list does not name: shown while the
+  // address typed is off the list (and is not the one already allowed for this agent).
+  const allow = form?.querySelector("[data-connection-allow]");
+  const offList = () => {
+    if (!allow) return null;
+    let origin;
+    try {
+      origin = new URL(form.endpoint.value.trim()).origin;
+    } catch {
+      return null;
+    }
+    if (!origin.startsWith("https://")) return null; // the server says why such an address is refused
+    return JSON.parse(allow.dataset.listed).includes(origin) || origin === allow.dataset.allowed ? null : origin;
+  };
+  const showAllow = () => {
+    if (!allow) return;
+    const origin = offList();
+    allow.hidden = !origin;
+    if (origin) allow.querySelector("[data-connection-origin]").textContent = origin;
+    else form.allow_origin.checked = false;
+  };
+  form?.endpoint.addEventListener("input", showAllow);
+  showAllow();
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
     error.hidden = true;
@@ -123,6 +161,15 @@ export function wireConnection(root, packId, changed) {
     }
     const body = { endpoint };
     if (form.token.value) body.token = form.token.value; // left empty: the one that is set stays
+    if (allow && offList()) {
+      if (!form.allow_origin.checked) {
+        error.textContent = "This address is not on the deployment's list. Tick the box to allow it for this agent, or use a listed address.";
+        error.hidden = false;
+        form.allow_origin.focus();
+        return;
+      }
+      body.allow_origin = true;
+    }
     whileBusy(form.querySelector('button[type="submit"]'), "Saving…", async () => {
       try {
         await api(agentPath(packId), { method: "PUT", body: JSON.stringify(body) });

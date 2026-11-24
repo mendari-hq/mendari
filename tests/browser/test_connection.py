@@ -23,12 +23,14 @@ import httpx
 import pytest
 from playwright.sync_api import Browser, Locator, Page, expect
 
+from mendari.providers import reach
 from mendari.server.app import create_app
 from tests.browser.access_site import Site, dialog, memberships, person, running
 from tests.browser.conftest import serving
 from tests.browser.test_accessibility import violations
 from tests.browser.test_dashboard import PHONE
 from tests.conftest import DEMO_AGENT_DIR
+from tests.test_agent_connections import Outside
 from tests.test_hub_routes import Service, service  # noqa: F401 - the local agent service
 
 pytestmark = pytest.mark.browser
@@ -160,7 +162,13 @@ def test_a_refused_address_is_explained_in_the_form_and_nothing_is_saved(site: S
     expect(section.get_by_label("Address of the service")).to_be_focused()
     for address, why in (
         ("http://example.org/decide", "an address starts with https://"),
-        ("https://example.org/decide", "is not an address this deployment may call"),
+        # Off the list: an administrator who does not operate the deployment is told who can
+        # allow the address.
+        (
+            "https://example.org/decide",
+            "is not on the list of addresses this deployment may call. An administrator of "
+            "the organization that operates this deployment can allow it for this agent",
+        ),
         ("https://someone:pw@example.org/decide", "no user or password"),
         ("https://example.org/decide?key=zq", "no query"),
     ):
@@ -168,6 +176,11 @@ def test_a_refused_address_is_explained_in_the_form_and_nothing_is_saved(site: S
         expect(error).to_be_visible()
         expect(error).to_contain_text(why)
         expect(error).not_to_contain_text(TOKEN)
+    # They are offered no box to allow it themselves.
+    expect(section.locator("[data-connection-allow]")).to_have_count(0)
+    expect(section).to_contain_text(
+        "Another address is allowed by an administrator of the organization that operates"
+    )
     assert violations(admin) == []
     expect(section).to_contain_text("Not connected.")
     with httpx.Client(base_url=site.base, headers=headers(site, "lead", "admin")) as client:
@@ -313,3 +326,82 @@ def test_with_connections_switched_off_the_card_says_who_sets_them(
         expect(section).to_contain_text("setting them here is switched off.")
         expect(section.locator("form")).to_have_count(0)
         assert violations(admin) == []
+
+
+ELSEWHERE = "https://agents.example.org/v1/decide"
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_an_operator_allows_an_address_the_deployments_list_does_not_name(
+    browser: Browser,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    service: Service,  # noqa: F811
+    scheme: Literal["light", "dark"],
+) -> None:
+    """A one-machine install's state: the organization operates the deployment, and the list
+    of addresses it may call does not name the agent's service. Its administrator is offered a
+    box to allow the address for this agent, must tick it, and the page then says who allowed
+    it. Nothing leaves this machine: the name is looked up here, and the public-only client is
+    replaced."""
+    outside = Outside()
+    monkeypatch.setattr(reach, "resolve", lambda host, port: ["93.184.216.34"])
+    monkeypatch.setattr(reach, "public_client", lambda: outside.client)
+    memberships(monkeypatch)
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
+    monkeypatch.setenv("MENDARI_OPERATOR_ORG", CLINIC_A)
+    monkeypatch.setenv("MENDARI_PROVIDER_ALLOWED_ORIGINS", service.origin)
+    with running(browser, tmp_path / "operated.db") as here:
+        admin = window(here, "lead", "admin", color_scheme=scheme)
+        section = card(admin)
+        expect(section).to_contain_text(
+            "As one of this deployment's operators you can allow another address on the public "
+            "internet for this agent when you save."
+        )
+        box = section.locator("[data-connection-allow]")
+        expect(box).to_be_hidden()
+        address = section.get_by_label("Address of the service")
+        # A listed address needs nobody's word.
+        address.fill(service.url)
+        expect(box).to_be_hidden()
+        address.fill(ELSEWHERE)
+        expect(box).to_be_visible()
+        expect(box).to_contain_text(
+            "https://agents.example.org is not on the list of addresses this deployment may call."
+        )
+        expect(box).to_contain_text("recorded in the audit trail with your name")
+        assert violations(admin) == []
+        # Not ticked: nothing is sent, and the form says what to do.
+        section.get_by_role("button", name="Save connection").click()
+        error = section.locator("form .error")
+        expect(error).to_contain_text("Tick the box to allow it for this agent")
+        allow = section.get_by_label("Allow this address for this agent")
+        expect(allow).to_be_focused()
+        with httpx.Client(base_url=here.base, headers=headers(here, "lead", "admin")) as client:
+            assert client.get(AT).json()["connection"] is None
+        admin.keyboard.press("Space")
+        expect(allow).to_be_checked()
+        section.locator("#connection-token").fill(TOKEN)
+        section.get_by_role("button", name="Save connection").click()
+        expect(section).to_contain_text(f"Connected to {ELSEWHERE}.")
+        expect(section).to_contain_text("Address allowed")
+        expect(section).to_contain_text("by lead@example.org, for this agent only.")
+        # The address that was allowed is offered no box again; another one is.
+        expect(section.locator("[data-connection-allow]")).to_be_hidden()
+        section.get_by_label("Address of the service").fill("https://other.example.org/decide")
+        expect(section.locator("[data-connection-allow]")).to_be_visible()
+        section.get_by_label("Address of the service").fill(ELSEWHERE)
+        assert violations(admin) == []
+        section.get_by_role("button", name="Check connection").click()
+        expect(section.locator("[data-connection-result]")).to_contain_text(
+            "The connection works.", timeout=30_000
+        )
+        assert [str(request.url) for request in outside.seen] == [ELSEWHERE]
+        assert outside.authorizations() == [f"Bearer {TOKEN}"]
+        # The audit trail's Activity names it in words.
+        with httpx.Client(base_url=here.base, headers=headers(here, "lead", "admin")) as client:
+            listed = client.get("/api/audit/administrative").json()["items"]
+        assert [
+            item["event"] for item in listed if item["event"].startswith("agent_connection")
+        ] == ["agent_connection.origin_allowed", "agent_connection.set"]
+        assert TOKEN not in str(listed)
