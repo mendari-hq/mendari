@@ -93,7 +93,8 @@ def test_validation_brief_json_markdown_gates_shadow_pilot_and_overrides(
     resp = client.get(f"{INBOX_URL}/validation-brief?days=30&minutes_per_case=4")
     assert resp.status_code == 200
     brief = resp.json()
-    assert brief["format"] == "mendari.validation-brief/1"
+    assert brief["format"] == "mendari.validation-brief/2"
+    assert brief["signed"] is False and "not signed" in brief["about"]  # it says what it is
     assert brief["pack"]["id"] == INBOX_ID
     assert brief["shadow_pilot"]["active"] is True
     assert brief["shadow_pilot"]["hold_id"] == hold.json()["id"]
@@ -122,6 +123,7 @@ def test_validation_brief_json_markdown_gates_shadow_pilot_and_overrides(
     assert md_resp.headers["content-type"].startswith("text/markdown")
     md = md_resp.text
     assert notices.NOTICE in md
+    assert brief["about"] in md and "ALL GATES PASSED" not in md
     assert "Clinical AI Validation & Readiness Brief" in md
     assert "Readiness Gates" in md
     assert f"`{routine_label}`" in md

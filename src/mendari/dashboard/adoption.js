@@ -8,7 +8,19 @@ import { esc, icon } from "./ui.js";
 const MIN_PILOT_CASES = 30; // the validation brief's pilot minimum (core/validation_brief.py)
 
 const gate = (brief, key) => (brief?.gates ?? []).find((g) => g.key === key);
+// A gate is "pass", "warn", "fail" or "no_data" (nothing to measure): only a pass is a pass.
 const passed = (g) => g?.status === "pass";
+const failed = (g) => g?.status === "fail";
+
+// What local validation has shown. A pilot can show that clinicians agree; how the agent does
+// alone is measured only once something is automated, so until then the safety gate has no data:
+// the step is done on agreement (and no safety failure), and says what is still unmeasured.
+function validation(safety, agreement) {
+  if (!safety || !agreement) return "Evaluate it on your organization's labelled cases and compare with the publisher's evaluations.";
+  if (failed(safety)) return safety.detail;
+  if (!passed(agreement)) return agreement.detail;
+  return passed(safety) ? "Safe on your cases, and clinicians agree with it." : `Clinicians agree with it. ${safety.detail}`;
+}
 
 const SOURCE = {
   hub: "Pulled from a registry and verified. Its Hub page shows the publisher's signed evaluations and sites' evidence.",
@@ -60,11 +72,9 @@ function steps(stats, brief, detail) {
     {
       key: "validate",
       title: "Validate it on your own cases",
-      state: passed(safety) && passed(agreement) ? "done" : "todo",
-      // What still stands in the way, or that both gates pass.
-      evidence: ([safety, agreement].find((g) => g && !passed(g))?.detail)
-        ?? (safety && agreement ? "Safe on your cases, and clinicians agree with it."
-          : "Evaluate it on your organization's labelled cases and compare with the publisher's evaluations."),
+      state: passed(agreement) && safety && !failed(safety) ? "done" : "todo",
+      // What still stands in the way, or what was measured (and what was not).
+      evidence: validation(safety, agreement),
       action: { href: "#evals", label: "Evaluations" },
     },
     {

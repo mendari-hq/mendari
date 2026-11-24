@@ -1998,7 +1998,12 @@ def create_app(
     ) -> Any:
         """Aggregate clinical and operational validation brief for an agent (zero PHI): readiness
         gates, exact Clopper-Pearson confidence intervals, shadow-pilot status, reclaimable
-        clinician hours, and clustered human-override patterns for closed-loop improvement."""
+        clinician hours, and clustered human-override patterns for closed-loop improvement.
+
+        Computed from your organization's audit trail when asked; it is not signed (`signed` is
+        `false`, and `about` says what it is). A gate's `status` is `pass`, `warn`, `fail` or
+        `no_data`: a gate with nothing to measure (no decision automated, as in every shadow
+        pilot; too few decisions for the monitor to compare) says so and never passes."""
         pack = pack_or_404(f"{namespace}/{name}")
         days = max(1, min(days, MONITOR_MAX_DAYS))
         minutes_per_case = max(0.5, min(minutes_per_case, 60.0))
@@ -2030,7 +2035,7 @@ def create_app(
             holds=held,
             governance_active=gov,
             registry_approval=reg,
-            monitoring_alerts=mon.get("alerts", ()),
+            monitoring=mon,
         )
         if format == "markdown":
             return Response(
