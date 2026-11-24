@@ -207,3 +207,21 @@ def test_ci_builds_the_wheel_checks_it_and_runs_the_first_five_minutes_from_it()
     assert "python3 scripts/run_quickstart.py" in [
         step.get("run") for step in ci["jobs"]["quickstart"]["steps"]
     ]
+
+
+def test_a_release_runs_both_checks_on_the_wheel_it_would_publish() -> None:
+    """In the build job, which every publishing job needs (tests/test_workflow_safety.py):
+    after the build, before the files are handed on, and with no way around."""
+    release = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text())
+    steps = release["jobs"]["build"]["steps"]
+    runs = [step.get("run", "") for step in steps]
+    (check,) = [i for i, run in enumerate(runs) if "scripts/run_quickstart.py --wheel" in run]
+    assert runs[check].splitlines() == [
+        "python3 scripts/check_sdist.py dist/mendari-*.tar.gz --wheel dist/*.whl",
+        "python3 scripts/run_quickstart.py --wheel dist/*.whl",
+    ]
+    assert not {"if", "continue-on-error"} & set(steps[check])
+    (handed_on,) = [
+        i for i, step in enumerate(steps) if step.get("uses", "").startswith("actions/upload-")
+    ]
+    assert runs.index("uv build") < check < handed_on
