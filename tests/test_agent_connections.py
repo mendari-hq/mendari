@@ -49,10 +49,12 @@ from tests.conftest import (
     DASHBOARD,
     DEMO_AGENT_DIR,
     INPUT_HASH_KEY,
+    encrypt_mode,
     encrypted_store,
     member,
     message,
     security_lines,
+    signed_in,
 )
 from tests.test_agent_provider import agent_response, make_agent_provider
 from tests.test_hub_routes import (  # noqa: F401 - `service` is the local agent service fixture
@@ -1535,3 +1537,59 @@ def test_a_database_from_before_allowances_gains_their_columns_and_keeps_its_row
             assert ConnectionStore(store).get(ORG_A, DEMO) == made
             assert ConnectionStore(store).resolve(ORG_A, DEMO) == Connection(ELSEWHERE, TOKEN)
             assert store.verify()["ok"]
+
+
+def test_no_machines_credential_allows_an_origin_even_in_the_operating_organization(
+    operated: Store,
+) -> None:
+    """An API key made by an operator holds neither `keys` nor `operate`: the guard refuses it
+    before the route, with the word about allowing or without."""
+    admin = operated.as_(ORG_A, "admin")
+    for role in ("service", "viewer"):
+        key = operated.client.post(
+            "/api/auth/keys", json={"role": role, "name": role}, headers=admin
+        ).json()["key"]
+        machine = {"authorization": f"Bearer {key}"}
+        asked = operated.client.put(
+            AT, json={"endpoint": ELSEWHERE, "allow_origin": True}, headers=machine
+        )
+        assert asked.status_code == 403, asked.text
+        assert operated.client.get(AT, headers=machine).json()["may_allow_origin"] is False
+    assert rows(operated.db) == [] and events(operated.db) == []
+
+
+def test_in_claims_mode_an_administrator_operates_and_allows_unless_another_organization_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outside: Outside
+) -> None:
+    """Sign-in by claims: one set of administrators, each an operator, so each may allow an
+    origin for their own organization; once the deployment names the organization that
+    operates it, only that one's."""
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
+    monkeypatch.setenv(ALLOWED_ORIGINS_ENV, LIST)
+    encrypt_mode(monkeypatch)
+    target = str(tmp_path / "claims.db")
+    body = {"endpoint": ELSEWHERE, "allow_origin": True}
+    with (
+        TestClient(create_app(db_path=target), base_url=HTTPS, headers=DASHBOARD) as client,
+        encrypted_store(target) as store,
+    ):
+        north = signed_in(store, role="admin", org="north")
+        assert client.get(AT, headers=north).json()["may_allow_origin"] is True
+        assert client.put(AT, json=body, headers=north).status_code == 200
+        assert [kind for kind, _ in events(store)] == [
+            "agent_connection.origin_allowed",
+            "agent_connection.set",
+        ]
+    monkeypatch.setenv("MENDARI_OPERATOR_ORG", "north")
+    with (
+        TestClient(create_app(db_path=target), base_url=HTTPS, headers=DASHBOARD) as client,
+        encrypted_store(target) as store,
+    ):
+        south = signed_in(store, role="admin", org="south")
+        assert client.get(AT, headers=south).json()["may_allow_origin"] is False
+        assert client.put(AT, json=body, headers=south).status_code == 403
+        assert client.put(AT, json={"endpoint": ELSEWHERE}, headers=south).status_code == 422
+        assert [row["org"] for row in rows(store)] == ["north"]

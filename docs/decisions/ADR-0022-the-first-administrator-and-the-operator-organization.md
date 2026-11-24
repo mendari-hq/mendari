@@ -79,7 +79,8 @@ second lets a role held through the web see and do what only the machine's owner
    chained as made by `first-administrator setting`, never as made by a person; the security
    log has `auth.first_admin.granted` once, and `auth.first_admin.ignored` when the address
    signs in to a database that no longer takes it.
-8. **What stops a start.** `MENDARI_BOOTSTRAP_ADMIN` that is not an e-mail address,
+8. **What stops a start.** `MENDARI_BOOTSTRAP_ADMIN` that is not an e-mail address, or that is
+   set where people are not managed as memberships (there is no membership to give),
    `MENDARI_OPERATOR_ORG` that no organization could have as its id, and
    `MENDARI_BOOTSTRAP_ORG_NAME` longer than 200 characters each stop the server, naming the
    setting. A first administrator set without an operator organization starts, with a warning:

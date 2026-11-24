@@ -89,7 +89,9 @@ trust boundary, and each of these is a way it can go wrong:
      is an administrator of the organization that operates the deployment, signed in as a
      person (`operate`, [ADR-0022](ADR-0022-the-first-administrator-and-the-operator-organization.md)):
      never an API key or a client, never open mode, and never an administrator of another
-     organization. They ask for it when they set the connection (`allow_origin`); it is
+     organization than the one the deployment names (where sign-in is by claims and it names
+     none, every administrator operates it, as ADR-0022 says). They ask for it when they set
+     the connection (`allow_origin`); it is
      kept on the connection's row with who allowed it and when, and chained
      (`agent_connection.origin_allowed`: the agent, the origin, who) before the connection's
      own event. An origin allowed this way is held to the rule of a deployment with no list,
