@@ -1494,6 +1494,9 @@ def test_nothing_edits_the_manifest(tmp_path: Path, capsys: pytest.CaptureFixtur
     assert written["run"]["operating_point"]["change"]["line"] == "auto: 0.93"
 
 
+DISPOSITIONS = ("released", "held", "blocked", "denied")
+
+
 def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_next(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1528,6 +1531,11 @@ def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_nex
         "released send_acknowledgement (contact) the reviewer confirmed it",
         "blocked an action the agent never declared asked for message 1",
     ]
+    # The README and the guide show those four lines as the demo prints them.
+    shown = [line for line in asked.splitlines() if line.split(" ")[0] in DISPOSITIONS]
+    assert len(shown) == 4
+    for page in ("README.md", "docs/guides/governing-actions.md"):
+        assert "\n".join(shown) in (ROOT / page).read_text(encoding="utf-8"), page
     # The counts the verdict says are the evaluation's own, two sections up.
     assert "critical urgent_symptoms=yes: 81 of 114 detected, 9 would have been automated" in before
     lines = closing.splitlines()[1:]

@@ -57,34 +57,42 @@ Tests hold the line (`tests/test_vocabulary.py` and its three companions: the co
 docs, the front ends): no "pack" in the CLI's help, the API docs' prose and paths, the docs, the
 README or the front ends, outside an explicit list of those names.
 
-- [ ] **Wave 1. No Decision Packs, one vocabulary.** (a) Names and words in the Python product:
+- [x] **Wave 1. No Decision Packs, one vocabulary.** (a) Names and words in the Python product:
   the table above, every help text, message and API description, the short `mendari --help` with
   the advanced commands behind `mendari help all`, the vocabulary test. (b) Docs and README.
   (c) Front ends: dashboard, Agent Hub, mendari.co. (d) Trim: the five former packs' generators
   and defaults leave `src/`, the CLI's defaults name the demo agent, packaging and CI follow.
-- [ ] **Wave 2. Smarter and easier, the independent pieces.** The automation threshold
+  **Shipped (#354):** one vocabulary, held by four tests; every old name still works through
+  one helper each.
+- [x] **Wave 2. Smarter and easier, the independent pieces.** The automation threshold
   recommended from evaluation data with a stated guarantee; failures found automatically
   (typos, noise, injected instructions offline; paraphrase, negation and other languages with a
   model) and written as regression tests; a CI action that runs the evaluation on every change;
   the governance committee's packet per agent, mapped to the frameworks committees use; one
   install path for a hospital.
-- [ ] **Wave 3.** An external agent's confidence calibrated, with agreement across repeated runs
+  **Shipped (#355):** the operating point (`mendari eval --target-...`), `mendari probe`, the
+  CI action, the committee packet. The install path came with wave 3.
+- [x] **Wave 3.** An external agent's confidence calibrated, with agreement across repeated runs
   or two models as a second signal that only lowers automation; a public evaluation page and a
   badge a developer links from a README; the web console's gaps against the CLI closed.
-  **Status (2026-11-24, branch `wave3/adopt-publish-install`, combined and not yet merged).**
-  Built: publishing evaluations in one command (`mendari push --evaluate`), the Hub's
-  evaluation page and the badge (a best configuration named only when it is alone in the first
-  band: ADR-0020, amended); the console's Agents view (find, add a verified version, serve)
-  and a connection per agent (ADR-0021, Accepted, with an operator's allowance of an address
-  the deployment's list does not name); the one-machine install (`deploy/site`), the first
-  administrator and the operator organization (ADR-0022), the System view and "Finish setting
-  up"; `mendari packet` without a database. Not in this branch: the calibration of an external
-  agent's confidence and the agreement signal. Open for the owner: whether an organization of
-  one person may start serving and approve what it added (the two-person rule holds today;
-  `docs/guides/adopting-an-agent.md`, "One person alone").
-- [ ] **Wave 4. Actions.** The manifest declares the tools an agent may use; anything that writes
+  **Shipped (branch `wave3/adopt-publish-install`):** publishing evaluations in one command
+  (`mendari push --evaluate`), the Hub's evaluation page and the badge (ADR-0020, amended); the
+  console's Agents view and a connection per agent (ADR-0021); the one-machine install
+  (`deploy/site`), the first administrator and the operator organization (ADR-0022), the System
+  view; `mendari packet` without a database. The calibration and the second signal shipped
+  with wave 4. Open for the owner: whether an organization of one person may start serving and
+  approve what it added (the two-person rule holds today; `docs/guides/adopting-an-agent.md`,
+  "One person alone").
+- [x] **Wave 4. Actions.** The manifest declares the tools an agent may use; anything that writes
   to the chart or contacts a patient is gated by the same four outcomes and audited (an ADR and
   a spec version first).
+  **Shipped (branch `worktree-agent-aa7cfcdf43b05fad3`, combined on wave 3 and not yet
+  merged):** spec 0.4 as one page: actions with the gate in `core/policy.py` (ADR-0023), and
+  the calibration of an external agent's confidence with its version cap, repeated runs and
+  the two-model check (ADR-0024). One policy orders every cap, a proposal the second signal
+  did not agree on is held and never released without a person, the operating point stays
+  exact with all of it on, and the committee packet says each. With it: an origin is allowed
+  only by an administrator of a named operator organization (ADR-0021, narrowed).
 - [ ] **Wave 5. Written output.** Rubrics a clinician grades, a model judge, and the judge's
   measured agreement with clinicians before its scores are reported.
 - [ ] **Wave 6 (the owner's go).** The wire and storage names, as a versioned format change.
