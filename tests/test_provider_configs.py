@@ -303,7 +303,7 @@ def test_an_owned_packs_unread_key_warns_and_it_still_serves(
         == Decision(clean).decide(BILL).to_dict()["answers"]
     )
 
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(served))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(served))
     assert main(["list"]) == 0
     listed = capsys.readouterr()
     assert PACK_ID in listed.out and "warnings" not in listed.out

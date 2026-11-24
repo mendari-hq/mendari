@@ -461,7 +461,7 @@ def test_a_removed_membership_ends_access_at_the_next_request(
 
 def test_pack_author_grants_author_only(members: TestClient, store: AuditStore) -> None:
     """LP-20f: `pack_author` grants `author` (the organization's pack store, mounted only with
-    MENDARI_PACK_STORE=on) and nothing else: no read, no packs."""
+    MENDARI_AGENT_STORE=on) and nothing else: no read, no packs."""
     headers = member(store, org="clinic-a", roles=["pack_author"], sub="ada")
     principal = me(members, headers)["principal"]
     assert (principal["org"], principal["roles"], principal["permissions"]) == (

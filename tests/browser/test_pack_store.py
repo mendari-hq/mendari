@@ -6,7 +6,7 @@ only that it is held; too few cases read "insufficient evidence"; without the st
 not there.
 
 A real server at `localhost` (tests/browser/access_site.py) in memberships mode with
-`MENDARI_PACK_STORE=on`. Run with `uv run pytest -m browser`."""
+`MENDARI_AGENT_STORE=on`. Run with `uv run pytest -m browser`."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ OWN = {"x-mendari-request": "1"}
 @pytest.fixture
 def site(browser: Browser, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Site]:
     memberships(monkeypatch)
-    monkeypatch.setenv("MENDARI_PACK_STORE", "on")
+    monkeypatch.setenv("MENDARI_AGENT_STORE", "on")
     with running(browser, tmp_path / "a.db") as here:
         yield here
 
@@ -289,7 +289,7 @@ def test_without_the_store_the_view_is_not_there(
     browser: Browser, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     memberships(monkeypatch)
-    monkeypatch.delenv("MENDARI_PACK_STORE", raising=False)
+    monkeypatch.delenv("MENDARI_AGENT_STORE", raising=False)
     with running(browser, tmp_path / "b.db") as here:
         page = here.window(
             person(here, sub="lea", email="lea@example.org", org=CLINIC_A, roles=["admin"])

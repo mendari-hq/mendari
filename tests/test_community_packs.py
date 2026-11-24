@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Community packs (plan B1, B2): packs outside developers contribute by pull request, in
 `community-agents/<name>/` with id `community/<name>`. Where a pack was found sets its origin
-(`core/origin.py`); a community pack is served only with MENDARI_COMMUNITY_PACKS=on, never
+(`core/origin.py`); a community pack is served only with MENDARI_COMMUNITY_AGENTS=on, never
 automates, decides with local providers unless the deployment names it, keeps only a hash of its
 inputs and is at most risk level 1. One id is one pack, whatever the versions."""
 
@@ -102,14 +102,14 @@ def test_community_packs_are_searched_only_when_turned_on(
     assert {pack.id for pack in discover().packs} == SHIPPED
 
     for off in ("off", "OFF", ""):
-        monkeypatch.setenv("MENDARI_COMMUNITY_PACKS", off)
+        monkeypatch.setenv("MENDARI_COMMUNITY_AGENTS", off)
         assert SearchPath(base, "community") not in search_paths()
-    # Off means off, even where MENDARI_PACKS_PATH names community-agents/.
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(base))
+    # Off means off, even where MENDARI_AGENTS_PATH names community-agents/.
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(base))
     assert SORTER_ID not in {pack.id for pack in discover().packs}
 
-    monkeypatch.delenv("MENDARI_PACKS_PATH")
-    monkeypatch.setenv("MENDARI_COMMUNITY_PACKS", "on")
+    monkeypatch.delenv("MENDARI_AGENTS_PATH")
+    monkeypatch.setenv("MENDARI_COMMUNITY_AGENTS", "on")
     assert search_paths()[-1] == SearchPath(base, "community")
     found = discover()
     assert {pack.id for pack in found.packs} == SHIPPED | {SORTER_ID}
@@ -121,8 +121,8 @@ def test_community_packs_are_searched_only_when_turned_on(
 def test_an_unknown_switch_value_fails_rather_than_guessing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MENDARI_COMMUNITY_PACKS", "yes")
-    with pytest.raises(MendariError, match="MENDARI_COMMUNITY_PACKS must be on or off"):
+    monkeypatch.setenv("MENDARI_COMMUNITY_AGENTS", "yes")
+    with pytest.raises(MendariError, match="MENDARI_COMMUNITY_AGENTS must be on or off"):
         search_paths()
 
 
@@ -134,7 +134,7 @@ def test_a_directory_has_the_origin_of_where_it_sits(
     assert origin_of(PACKS) == origin_of(INBOX_DIR) == "maintained"
     assert origin_of(base) == origin_of(base / "visit-sorter") == "community"
     assert origin_of(tmp_path) == origin_of(SORTER) == "local"
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(tmp_path / "mine"))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(tmp_path / "mine"))
     assert search_paths()[0] == SearchPath(tmp_path / "mine", "local")
     # A pack given by its directory carries that directory's origin.
     assert resolve_pack(str(base / "visit-sorter")).origin == "community"
@@ -242,10 +242,10 @@ def test_a_pack_in_the_community_namespace_elsewhere_gets_the_community_limits(
 def test_a_path_holding_packs_finds_them_as_maintained_with_community_packs_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """MENDARI_PACKS_PATH naming a checkout (CONTRIBUTING's `MENDARI_PACKS_PATH=<parent>`):
+    """MENDARI_AGENTS_PATH naming a checkout (CONTRIBUTING's `MENDARI_AGENTS_PATH=<parent>`):
     before, every pack under it took the path's origin (local), so the five reference packs
     were refused for their namespace and then skipped as already seen: none was served."""
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT))
     found = discover()
     # (A working copy may hold other packs, untracked: only the reference packs are asserted.)
     assert {pack.id for pack in found.packs if pack.origin == "maintained"} == SHIPPED
@@ -260,10 +260,10 @@ def test_a_path_holding_community_packs_serves_them_only_when_on(
     checkout = tmp_path / "checkout"
     base = _community(checkout)
     monkeypatch.setattr(registry, "_COMMUNITY_DIR", base)
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(checkout))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(checkout))
     found = discover()
     assert SORTER_ID not in {pack.id for pack in found.packs} and not found.problems
-    monkeypatch.setenv("MENDARI_COMMUNITY_PACKS", "on")
+    monkeypatch.setenv("MENDARI_COMMUNITY_AGENTS", "on")
     found = discover()
     origins = {pack.id: pack.origin for pack in found.packs}
     assert origins[SORTER_ID] == "community" and not found.problems

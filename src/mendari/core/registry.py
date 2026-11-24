@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Local hub: find agents on the search path.
 
-Search order: `MENDARI_AGENTS_PATH` (os.pathsep-separated; `MENDARI_PACKS_PATH`, the name it
-had before, is read while it is unset), then packs pulled from a registry (the verified cache,
-`mendari pull`), then the packs bundled with the installed distribution (or the repository's
-`agents/` directory in a source checkout), then, with `MENDARI_COMMUNITY_AGENTS=on`, the
-repository's `community-agents/`.
+Search order: `MENDARI_AGENTS_PATH` (os.pathsep-separated), then packs pulled from a registry
+(the verified cache, `mendari pull`), then the packs bundled with the installed distribution (or
+the repository's `agents/` directory in a source checkout), then, with
+`MENDARI_COMMUNITY_AGENTS=on`, the repository's `community-agents/`.
 
 Each directory has an origin (`core/origin.py`): `maintained`, `community`, `hub` or `local`.
 A pack found under a `local` directory takes the origin of where it sits, so a path that holds
@@ -37,7 +36,6 @@ from mendari.core.pack import MANIFEST, Pack, has_manifest, load_pack, manifests
 from mendari.core.reference import BUNDLED_DIRS, bundled_dir
 from mendari.core.spec import version_key  # also imported from here (the server, the hub)
 from mendari.errors import MendariError, PackNotFoundError
-from mendari.legacy import setting
 from mendari.settings import community_packs_enabled
 
 _PACKAGE_DIR = Path(__file__).resolve().parents[1]
@@ -61,7 +59,7 @@ def search_paths() -> list[SearchPath]:
     community = community_packs_enabled()  # an invalid value fails here, at startup
     paths = [
         SearchPath(Path(p), origin_of(Path(p)))
-        for p in setting("MENDARI_AGENTS_PATH")[1].split(os.pathsep)
+        for p in os.environ.get("MENDARI_AGENTS_PATH", "").split(os.pathsep)
         if p
     ]
     # Off means off: `MENDARI_AGENTS_PATH` naming community-agents/ does not serve them either.

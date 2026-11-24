@@ -281,7 +281,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     # A grading run (LP-11l): each read of the set chained before its run receives the cases,
     # and a frozen set's first activates it. The run itself stores nothing.
     (ENGINE, "POST", "/api/evalsets/{set_id}/runs"): ("evalset.graded", "evalset.activated"),
-    # An organization's pack store (LP-20f; MENDARI_PACK_STORE=on, memberships mode): each new
+    # An organization's pack store (LP-20f; MENDARI_AGENT_STORE=on, memberships mode): each new
     # version, and held at once when it holds a hidden case; a draft withdrawn; authors' keys.
     (ENGINE, "POST", "/api/store/versions"): ("pack_version.created", "pack_version.held"),
     (ENGINE, "POST", "/api/store/uploads/{upload_id}/complete"): (
@@ -452,7 +452,7 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_REGISTRY", "on")  # the registry mounted, with its people's routes
     monkeypatch.setenv("MENDARI_REGISTRY_REVIEW_ORG", "registry-review")  # and its reviewers'
-    monkeypatch.setenv("MENDARI_PACK_STORE", "on")  # organizations' pack stores (LP-20f)
+    monkeypatch.setenv("MENDARI_AGENT_STORE", "on")  # organizations' pack stores (LP-20f)
     # A registry to add agents from (never reached here: no route is called).
     monkeypatch.setenv("MENDARI_REGISTRY_URL", "https://hub.example.org")
     with encrypted_store(tmp_path / "engine.db") as before:

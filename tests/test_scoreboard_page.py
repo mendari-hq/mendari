@@ -61,7 +61,7 @@ def tables(text: str) -> dict[tuple[str, str], str]:
 def test_the_page_reads_the_repositorys_packs_whatever_the_search_path(
     text: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A newer copy of a reference pack on `MENDARI_PACKS_PATH` (or pulled from a registry)
+    """A newer copy of a reference pack on `MENDARI_AGENTS_PATH` (or pulled from a registry)
     comes first on the search path; the page and its check never read it."""
     copy = tmp_path / "ai-guard"
     shutil.copytree(ROOT / "tests" / "fixtures" / "reference-agents" / "ai-guard", copy)
@@ -69,7 +69,7 @@ def test_the_page_reads_the_repositorys_packs_whatever_the_search_path(
     newer = re.sub(r"^version: .*$", "version: 99.0.0", manifest, count=1, flags=re.M)
     assert newer != manifest
     (copy / "agent.yaml").write_text(newer, encoding="utf-8")
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(tmp_path))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(tmp_path))
     assert resolve_pack("mendari/ai-guard").root == copy.resolve()
     assert page_script.page(Store.at(ROOT / "tests" / "fixtures" / "scoreboard")) == text
 

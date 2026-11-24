@@ -76,7 +76,6 @@ def test_the_tests_reach_nothing_the_shell_names(
         "JEV_API_URL": url,
         "JEV_API_KEY": "shell-key",
         "MENDARI_ALERT_WEBHOOK": f"{url}/hook",
-        "OPENHEALTH_ALERT_WEBHOOK": f"{url}/old-hook",
         "MENDARI_REGISTRY_URL": url,
         "MENDARI_PAS_PAYER_URL": url,
     }

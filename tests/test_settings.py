@@ -304,7 +304,7 @@ def test_the_vercel_app_runs_the_jev_defaults(
     for name in ("VERCEL", "DATABASE_URL", "MENDARI_PROVIDERS"):
         monkeypatch.delenv(name, raising=False)
     # A process of its own does not see the tests' fixture packs unless told where they are.
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT / "tests" / "fixtures" / "reference-agents"))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT / "tests" / "fixtures" / "reference-agents"))
     script = (
         _SET_DEFAULTS + "import json; from fastapi.testclient import TestClient; "
         "from mendari.server.vercel import app; "

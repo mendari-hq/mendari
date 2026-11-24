@@ -69,7 +69,7 @@ def _env(monkeypatch: pytest.MonkeyPatch, *, store: str | None = "on") -> None:
     encrypt_mode(monkeypatch)
     monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
     if store is not None:
-        monkeypatch.setenv("MENDARI_PACK_STORE", store)
+        monkeypatch.setenv("MENDARI_AGENT_STORE", store)
 
 
 @pytest.fixture
@@ -155,8 +155,8 @@ def test_the_store_refuses_to_start_outside_memberships_mode_or_with_a_prerequis
     monkeypatch.setattr(origin, "NOT_OWNED", frozenset({"hub"}))
     with pytest.raises(MendariError, match="LP-16"):
         create_app(db_path=db_target)
-    monkeypatch.setenv("MENDARI_PACK_STORE", "maybe")
-    with pytest.raises(MendariError, match="MENDARI_PACK_STORE is on or off"):
+    monkeypatch.setenv("MENDARI_AGENT_STORE", "maybe")
+    with pytest.raises(MendariError, match="MENDARI_AGENT_STORE is on or off"):
         create_app(db_path=db_target)
 
 

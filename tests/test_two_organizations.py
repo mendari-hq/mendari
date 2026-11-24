@@ -195,7 +195,7 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("POST", "/api/evalsets/{set_id}/sample"),
     ("POST", "/api/evalsets/{set_id}/assignments"),
     ("POST", "/api/evalsets/{set_id}/adjudication"),
-    # An organization's pack store (LP-20f): MENDARI_PACK_STORE=on, which this world sets in
+    # An organization's pack store (LP-20f): MENDARI_AGENT_STORE=on, which this world sets in
     # memberships mode.
     ("GET", "/api/store/agents"),
     ("GET", "/api/store/agents/{namespace}/{name}"),
@@ -549,7 +549,7 @@ def world(
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
     monkeypatch.setenv("MENDARI_ACCOUNTS", accounts)
     if accounts == "memberships":  # an organization's pack store (LP-20f): memberships only
-        monkeypatch.setenv("MENDARI_PACK_STORE", "on")
+        monkeypatch.setenv("MENDARI_AGENT_STORE", "on")
     monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "required")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     # Each organization's quota, and each principal's cap, counted (health shows them).

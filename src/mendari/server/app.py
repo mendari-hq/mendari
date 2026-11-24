@@ -116,7 +116,6 @@ from mendari.evals.monitoring import MIN_DAYS as MONITOR_MIN_DAYS
 from mendari.evals.monitoring import monitor, post_alerts
 from mendari.evals.monitoring import organizations as monitored_organizations
 from mendari.evals.pack_tests import load_cases
-from mendari.legacy import current_pack_id, setting
 from mendari.providers import jev, llm, provider_allow_list, slots_without_model
 from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
 from mendari.providers.agent import AgentProvider, Connection
@@ -1069,9 +1068,8 @@ def create_app(
         mode = "open" if sign_in is None else sign_in.accounts
         unmet = prerequisites(mode)
         if unmet:
-            switch = setting("MENDARI_AGENT_STORE")[0]  # by the name it was set under
             raise MendariError(
-                f"{switch} is on, but the agent store cannot open: " + "; ".join(unmet)
+                "MENDARI_AGENT_STORE is on, but the agent store cannot open: " + "; ".join(unmet)
             )
     if evalsets is not None:  # nor a stray, retired or PHI key as an evaluation-set key (LP-11e)
         store.evalset_ready(evalsets)
@@ -1207,8 +1205,7 @@ def create_app(
     only = settings.enabled_packs()  # a per-pack image serves just its pack
     missing = only - {pack.id for pack in found.packs}
     if missing:
-        variable = setting("MENDARI_AGENTS")[0]  # by the name it was set under
-        raise MendariError(f"{variable}: agents not installed here: {sorted(missing)}")
+        raise MendariError(f"MENDARI_AGENTS: agents not installed here: {sorted(missing)}")
     # The newest version of every pack found, served or not. `discover` refuses any second
     # claim to an id a community pack takes part in, so a community pack never competes here.
     installed: dict[str, Pack] = {}
@@ -1472,9 +1469,8 @@ def create_app(
     def question_labels(pack_id: str, question: str) -> list[str] | None:
         """An installed pack's labels for one of its questions (None: not installed, or no such
         question), for decisions whose record has no answer to check a label against. Installed,
-        not only served: a per-pack instance can share a database with other packs' decisions,
-        and decisions from before the rename carry the old pack id."""
-        pack = installed.get(current_pack_id(pack_id))
+        not only served: a per-pack instance can share a database with other packs' decisions."""
+        pack = installed.get(pack_id)
         if pack is None or question not in pack.manifest.questions:
             return None
         return pack.manifest.labels(question)
