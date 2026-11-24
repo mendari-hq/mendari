@@ -101,6 +101,14 @@ const CARD_SECTIONS = [
   ["schemas", "Schemas"],
 ];
 
+// The deployment's records are its operator's (ADR-0008). In memberships mode its operators
+// alone read them (`operate`); in claims mode the server says whose they are: every
+// organization's, unless the deployment names the one that operates it, and then a 404 for the
+// others. Null: not this window's to read, and the card says so.
+const deploymentRecords = (query) => (state.accounts === "memberships" && !may("operate")
+  ? null
+  : api(`/api/deployments?${query}`).catch((error) => (error.status === 404 ? null : Promise.reject(error))));
+
 // The card is a document: a table of contents whose links are routes ("#card/policy"), prose at a
 // readable width, facts as a definition list, and the machine-facing schemas folded away.
 views.card = async (main, params) => {
@@ -110,7 +118,7 @@ views.card = async (main, params) => {
   const query = `pack_id=${encodeURIComponent(state.packId)}`;
   const [governance, deployments, holds, registry] = await Promise.all([
     api(`/api/governance?${query}`),
-    state.accounts === "memberships" ? null : api(`/api/deployments?${query}`),
+    deploymentRecords(query),
     api("/api/holds"),
     fromRegistry(d) ? api(`/api/registry-approvals?${query}`) : null,
   ]);

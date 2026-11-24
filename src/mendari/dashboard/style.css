@@ -1290,6 +1290,7 @@ ol.rules p { margin: var(--space-1) 0; }
   .nav a[data-view="card"] { order: 7; }
   .nav a[data-view="try"] { order: 8; }
   .nav a[data-view="admin"],
+  .nav a[data-view="system"],
   .nav a[data-view="evalsets"],
   .nav a[data-view="labelling"],
   .nav a[data-view="registry-review"],
@@ -1382,6 +1383,26 @@ ol.rules p { margin: var(--space-1) 0; }
 
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+
+/* System (system.js): the deployment's checks, each with its state in words, what is so, what to
+   do, and what can be done about it from here. */
+.check-list { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-2); }
+.check-row {
+  display: grid; grid-template-columns: 9.5rem minmax(0, 1fr) auto; align-items: start; gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+}
+.check-row[data-state="attention"] { border-color: var(--color-warning); }
+.check-row.target { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.check-row :is(h3, p) { margin: 0; }
+.check-body { display: grid; gap: var(--space-1); min-width: 0; }
+.check-state { justify-self: start; }
+.check-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.check-findings { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: var(--space-2); font-size: var(--text-sm); }
+.setup + .pack-hero { margin-top: var(--space-4); }
+@media (max-width: 760px) {
+  .check-row { grid-template-columns: minmax(0, 1fr); }
+  .check-actions { justify-content: flex-start; }
 }
 
 /* Adoption path (adoption.js): six steps, the next one marked. */
