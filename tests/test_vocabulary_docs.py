@@ -50,7 +50,14 @@ _FOLDERS = ("docs", "docs_theme", ".github", "deploy")
 # Each README beside the code, at any depth; `examples/` one level down only (a starter's own
 # virtual environment, made as its README says, holds other projects' READMEs).
 _READMES = ("agents", "community-agents", "sandbox", "web")
-_TEXT = {".md", ".yml", ".yaml", ".json", ".html", ".css", ".js", ".txt", ".conf", ".example", ""}
+_TEXT = {
+    *(".md", ".yml", ".yaml", ".json", ".html", ".css", ".js", ".txt", ".conf", ".example"),
+    ".sh",  # the one-machine install's daily jobs, whose comments are an operator's reading
+    "",  # a file named without one: CODEOWNERS, the install's own script
+}
+# What an install made in this copy leaves in the template's folder (`deploy/site/.gitignore`):
+# this machine's certificate and backups, never the repository's, and not text.
+_INSTALLED = ("deploy/site/tls/", "deploy/site/backups/")
 
 
 def files() -> list[str]:
@@ -60,7 +67,11 @@ def files() -> list[str]:
     A file whose name starts with a dot is one only where `_FILES` names it."""
     found: set[Path] = set()
     for folder in _FOLDERS:
-        found |= {path for path in (ROOT / folder).rglob("*") if path.is_file()}
+        found |= {
+            path
+            for path in (ROOT / folder).rglob("*")
+            if path.is_file() and not path.relative_to(ROOT).as_posix().startswith(_INSTALLED)
+        }
     for folder in _READMES:
         found |= {path for path in (ROOT / folder).rglob("README*") if path.is_file()}
     found |= set((ROOT / "examples").glob("*/README.md"))

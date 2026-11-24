@@ -22,5 +22,5 @@ htmlcov/
 .agents/
 .claude/skills/
 skills-lock.json
-# mkdocs build output
-site/
+# mkdocs build output (at the root only: deploy/site/ is a template)
+/site/

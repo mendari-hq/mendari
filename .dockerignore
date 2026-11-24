@@ -11,3 +11,9 @@ tasks
 docs
 notes
 *.db
+# An install made in this copy (deploy/site): its settings and secrets, its certificate's key
+# and its backups are never part of a build.
+deploy/site/.env
+deploy/site/.env.*
+deploy/site/tls
+deploy/site/backups

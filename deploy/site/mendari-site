@@ -1,0 +1,646 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# Mendari on one machine. This script is the whole install path for a hospital or a clinic:
+# it needs Docker (with `docker compose`) and nothing else on the machine.
+#
+#   ./mendari-site install     ask a few questions, generate every secret, start everything
+#   ./mendari-site status      what is running, whether it is ready, the last backup
+#   ./mendari-site start       start (or restart after editing .env)
+#   ./mendari-site stop        stop everything; the data stays
+#   ./mendari-site upgrade     a new version: check the audit trail, back up, migrate, restart
+#   ./mendari-site rollback    back to the version before the last upgrade
+#   ./mendari-site backup      back the database up now
+#   ./mendari-site restore F   put a backup back, verified, with all automation held
+#   ./mendari-site verify      verify the whole audit trail, read-only
+#   ./mendari-site hold WHY    stop all automation for everyone, even with the engine down
+#   ./mendari-site holds       the holds in force
+#   ./mendari-site lift ID     lift a hold set here
+#   ./mendari-site logs [S]    the last lines a service wrote (engine, proxy, jobs, postgres)
+#   ./mendari-site forget DB   drop a database a restore kept, once the incident is closed
+#
+# The engine's image, for install and upgrade: --image IMAGE@sha256:DIGEST (a release), --build
+# (built from the copy of Mendari this folder is in, the default until a release is named) or
+# --source FOLDER (built from another copy). install also takes --answers FILE (the answers,
+# for an unattended run), --self-signed (a trial certificate) and --no-start.
+#
+# Why a shell script that runs the image: the machine needs no Python. What must happen on the
+# host happens here (Docker, compose, waiting for health). Everything else (asking, checking an
+# answer as the server will, generating secrets, writing .env) runs inside the engine's own
+# image (`python -m mendari.install`), so an answer the server would refuse is refused before
+# anything starts, in the server's own words.
+#
+# It fails closed. A missing image, an unreadable .env, a setting the server refuses, a
+# migration that does not finish or a service that does not come up healthy each stop it with
+# one plain message, and nothing half-working is left serving.
+
+# A command in single quotes below is run inside a container, where its variables are the
+# container's own ($DATABASE_URL, the deployment's database): it is not to be expanded here.
+# shellcheck disable=SC2016
+
+set -eu
+
+here=$(cd "$(dirname "$0")" && pwd)
+# The copy of Mendari's repository an image is built from: the one this folder is in, unless
+# --source names another (this folder copied out of one).
+source_dir=$(cd "$here/../.." 2>/dev/null && pwd || printf '%s' "$here")
+settings=$here/.env
+READY='import json, urllib.request, urllib.error
+try:
+    answer = urllib.request.urlopen("http://127.0.0.1:8000/api/health/ready", timeout=10)
+except urllib.error.HTTPError as error:
+    answer = error
+print(json.load(answer)["status"])'
+VERIFY='mendari audit verify --db "$DATABASE_URL"'
+
+say() {
+    printf '%s\n' "$*"
+}
+
+step() {
+    printf '\n== %s\n' "$*"
+}
+
+die() {
+    printf '\nmendari-site: %s\n' "$*" >&2
+    exit 1
+}
+
+compose() {
+    docker compose --project-directory "$here" -f "$here/docker-compose.yml" "$@"
+}
+
+# The same without Compose's own progress lines, for a one-off container whose output is the
+# answer.
+quietly() {
+    COMPOSE_PROGRESS=quiet docker compose --project-directory "$here" \
+        -f "$here/docker-compose.yml" "$@"
+}
+
+# in_engine COMMAND [ARG]: COMMAND, a shell command, in a one-off container of the engine's
+# image with the deployment's settings; ARG is its "$0". What it records in the audit trail is
+# recorded as done at the command line by whoever runs this script.
+in_engine() {
+    # shellcheck disable=SC2086  # $engine_options: `-e NAME=value` options, or nothing
+    quietly run --rm --no-deps -T -e USER="$(id -un 2>/dev/null || printf unknown)" \
+        ${engine_options:-} engine sh -c "$@"
+}
+
+# in_jobs COMMAND [ARG...]: a jobs.sh command in a one-off container of the database's image.
+in_jobs() {
+    quietly run --rm --no-deps -T jobs "$@"
+}
+
+# One setting's value as .env holds it. Only for the plain ones this script reads (an image, an
+# address, a port): a secret is never read here.
+setting() {
+    sed -n "s/^$1=//p" "$settings" | tail -n 1
+}
+
+need_docker() {
+    command -v docker >/dev/null 2>&1 ||
+        die "Docker is not installed. Install Docker Engine (https://docs.docker.com/engine/install/), then run this again."
+    docker compose version >/dev/null 2>&1 ||
+        die "this Docker has no 'docker compose'. Install the Compose plugin, then run this again."
+    docker info >/dev/null 2>&1 ||
+        die "Docker is installed but does not answer. Start it, or run this as a user who may use Docker."
+}
+
+need_settings() {
+    [ -e "$settings" ] || die "there is no .env here yet: run ./mendari-site install"
+    [ -r "$settings" ] ||
+        die ".env is there but cannot be read by you. Nothing was changed. Run this as the user who installed, or fix the file's permissions."
+}
+
+# The engine's own installer, inside its image, with this folder as /site. Files it writes are
+# this user's. Its standard input is this script's: a terminal's questions, or an answers file.
+in_image() {
+    use=$1
+    shift
+    terminal=
+    if [ -t 0 ] && [ -t 1 ]; then
+        terminal=-t
+    fi
+    # shellcheck disable=SC2086  # $terminal is one option, or nothing
+    docker run --rm -i $terminal --user "$(id -u):$(id -g)" -e HOME=/tmp \
+        -v "$here:/site:z" "$use" python -m mendari.install "$@"
+}
+
+# This machine's time zone, as a name like Europe/Paris; nothing when it cannot be read (the
+# installer then asks, or stops an unattended run: a zone nobody chose is never used).
+machine_timezone() {
+    if [ -n "${TZ:-}" ]; then
+        printf '%s\n' "${TZ#:}"
+    elif [ -r /etc/timezone ]; then
+        head -n 1 /etc/timezone
+    elif [ -L /etc/localtime ]; then
+        # /etc/localtime -> .../zoneinfo/Europe/Paris
+        readlink /etc/localtime 2>/dev/null | sed 's|.*zoneinfo/||'
+    elif command -v timedatectl >/dev/null 2>&1; then
+        timedatectl show -p Timezone --value 2>/dev/null || true
+    fi
+}
+
+build_image() {
+    { [ -f "$source_dir/Dockerfile" ] && [ -f "$source_dir/pyproject.toml" ]; } ||
+        die "there is no engine image to run. Give one with --image <image>@sha256:<digest> (a release), or run this from a copy of Mendari's repository (or name one with --source), where it builds one."
+    step "Building the engine's image from $source_dir (a few minutes the first time)"
+    docker build -t mendari-engine:site "$source_dir" ||
+        die "the engine's image could not be built. Nothing was changed."
+    built=$(docker image inspect --format '{{.Id}}' mendari-engine:site)
+    image=mendari-engine:site-$(printf '%s' "${built#sha256:}" | cut -c 1-12)
+    docker tag mendari-engine:site "$image"
+    say "Built $image"
+}
+
+# The image to run, in $image: the one named (by digest), else the one .env names, else one
+# built from a copy of the repository.
+choose_image() {
+    if [ -n "$image" ]; then
+        case $image in
+        *@sha256:*) ;;
+        *) die "name the image by its digest (<image>:<tag>@sha256:<digest>): a tag can be pushed again, a digest always names what you tested. 'docker buildx imagetools inspect <image>:<tag>' shows it." ;;
+        esac
+        # A digest names one image for good: one that is here already is not asked for again
+        # (a machine without a way out is given its image with `docker load`).
+        docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image" ||
+            die "the image $image could not be pulled. Nothing was changed."
+    elif [ -z "$build" ] && [ -f "$settings" ] && [ -n "$(setting MENDARI_IMAGE)" ]; then
+        image=$(setting MENDARI_IMAGE)
+    else
+        build_image
+    fi
+    docker image inspect "$image" >/dev/null 2>&1 ||
+        die "the image $image is not on this machine. Run this again with --build, or name one with --image."
+}
+
+# wait_healthy SERVICE SECONDS
+wait_healthy() {
+    waited=0
+    while [ "$waited" -lt "$2" ]; do
+        container=$(compose ps -q "$1" 2>/dev/null || true)
+        if [ -n "$container" ]; then
+            health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)
+            if [ "$health" = healthy ]; then
+                return 0
+            fi
+        fi
+        sleep 3
+        waited=$((waited + 3))
+    done
+    return 1
+}
+
+# Whether this deployment has a database yet: its container exists, running or not.
+has_database() {
+    [ -n "$(compose ps -a -q postgres 2>/dev/null || true)" ]
+}
+
+# The database server, started if it is not running; nothing else is started or changed. What
+# works with the engine down (a hold, a verification, a backup) still needs the database.
+need_database() {
+    if [ -z "$(compose ps -q postgres 2>/dev/null || true)" ]; then
+        compose up -d postgres ||
+            die "the database server could not be started. The line above says why."
+    fi
+    wait_healthy postgres 120 ||
+        die "the database server did not come up. './mendari-site logs postgres' says why."
+}
+
+# Bring the database up to date with the engine image in use, in a container of its own,
+# before any service is replaced: when it fails, the database is left as it was and whatever
+# was serving still is. (The database server is started for it if it is not running.)
+migrate_now() {
+    quietly run --rm -T migrate
+}
+
+# The usual reasons Docker cannot start the services, said plainly. $1: what Compose wrote.
+explain() {
+    if grep -qi 'address already in use\|port is already allocated\|ports are not available' "$1"; then
+        say "A port this deployment listens on ($(setting SITE_HTTPS_PORT) for https, $(setting SITE_HTTP_PORT) for http) is in use by something else on this machine. Stop what uses it, or change the port: SITE_HTTP_PORT in .env, or for https the port in the address you give ./mendari-site install." >&2
+    elif grep -qi 'pool overlaps\|overlaps with' "$1"; then
+        say "The private network range this deployment uses is taken on this machine. Add SITE_SUBNET and SITE_PROXY_ADDRESS (an address inside it) to .env, for a range that is free, and start again." >&2
+    fi
+}
+
+# Start every service, or replace the ones whose image or settings changed, and wait for the
+# front to be healthy (it starts once the engine is). Compose's own lines are shown as they
+# come and kept: when it cannot start a service, what it said last is the reason, and it is
+# said again after what each service wrote, with the usual causes in plain words.
+up_and_wait() {
+    said=$(mktemp)
+    { compose up -d --remove-orphans 2>&1 || : >"$said.failed"; } | tee "$said"
+    if [ -e "$said.failed" ]; then
+        compose logs --no-color --tail 20 migrate engine proxy >&2 || true
+        printf '\nWhat Docker said last:\n' >&2
+        tail -n 4 "$said" >&2
+        explain "$said"
+        rm -f "$said" "$said.failed"
+        return 1
+    fi
+    rm -f "$said"
+    if ! wait_healthy proxy 240; then
+        compose ps >&2 || true
+        compose logs --no-color --tail 40 migrate engine proxy >&2 || true
+        return 1
+    fi
+}
+
+# Check the settings as the server will read them, bring the database up to date, then start
+# everything and wait for it. Each step that fails stops here, before the next.
+start_all() {
+    step "Checking the settings as the server will read them"
+    quietly run --rm --no-deps -T engine python -m mendari.install check ||
+        die "these settings do not start Mendari (the line above says why), so nothing was started or changed. Run ./mendari-site install again to correct an answer, or put .env back from the copy you keep."
+    step "Bringing the database up to date"
+    migrate_now ||
+        die "the database could not be brought up to date (the lines above say why). It was left as it was, and nothing else was started or changed."
+    step "Starting"
+    up_and_wait ||
+        die "Mendari did not come up. The lines above say why: what Docker said, and what each service wrote last."
+}
+
+cmd_install() {
+    answers=
+    image=
+    build=
+    self_signed=
+    start=yes
+    while [ $# -gt 0 ]; do
+        case $1 in
+        --answers)
+            [ $# -ge 2 ] || die "install: --answers needs a file"
+            answers=$2
+            shift 2
+            ;;
+        --image)
+            [ $# -ge 2 ] || die "install: --image needs an image"
+            image=$2
+            shift 2
+            ;;
+        --build)
+            build=yes
+            shift
+            ;;
+        --source)
+            [ $# -ge 2 ] || die "install: --source needs the folder of a copy of Mendari"
+            source_dir=$(cd "$2" 2>/dev/null && pwd) || die "install: there is no folder $2"
+            build=yes
+            shift 2
+            ;;
+        --self-signed)
+            self_signed=--self-signed
+            shift
+            ;;
+        --no-start)
+            start=no
+            shift
+            ;;
+        *) die "install: no option $1 (--answers FILE, --image IMAGE, --build, --source FOLDER, --self-signed, --no-start)" ;;
+        esac
+    done
+    need_docker
+    if [ -e "$settings" ] && [ ! -r "$settings" ]; then
+        die ".env is there but cannot be read by you. Nothing was changed: its secrets are never made again over it. Run this as the user who installed, or fix the file's permissions."
+    fi
+    if [ -n "$answers" ] && [ ! -r "$answers" ]; then
+        die "the answers file $answers cannot be read"
+    fi
+    if [ -f "$settings" ] && [ -n "$(setting MENDARI_IMAGE)" ] && has_database &&
+        { [ -n "$image" ] || [ -n "$build" ]; }; then
+        # Another version over a database that holds data is an upgrade, with its checks.
+        die "this deployment is installed already, on $(setting MENDARI_IMAGE). To run another version use ./mendari-site upgrade, which checks the audit trail and backs up first. To change an answer, run ./mendari-site install with no image option."
+    fi
+    choose_image
+    mkdir -p "$here/backups" "$here/tls"
+    chmod 700 "$here/backups"
+    if [ -n "$answers" ]; then
+        # shellcheck disable=SC2086  # $self_signed is one option, or nothing
+        in_image "$image" settings --dir /site --image "$image" --shown-dir "$here" \
+            --timezone "$(machine_timezone)" --owner "$(id -u):$(id -g)" $self_signed \
+            --answers - <"$answers" ||
+            die "the settings were not written, and nothing was started. The line above says why."
+    else
+        step "A few questions only you can answer. Everything else is generated."
+        # shellcheck disable=SC2086  # $self_signed is one option, or nothing
+        in_image "$image" settings --dir /site --image "$image" --shown-dir "$here" \
+            --timezone "$(machine_timezone)" --owner "$(id -u):$(id -g)" $self_signed ||
+            die "the settings were not written, and nothing was started. The line above says why."
+    fi
+    if [ "$start" = yes ]; then
+        start_all
+    fi
+    in_image "$image" summary --dir /site --shown-dir "$here" </dev/null
+    say ""
+    if [ "$start" = yes ]; then
+        say "Mendari is up. './mendari-site status' shows it again at any time."
+    else
+        say "Not started (--no-start). './mendari-site start' starts it."
+    fi
+}
+
+cmd_start() {
+    need_settings
+    need_docker
+    start_all
+    say ""
+    say "Mendari is up at $(setting MENDARI_PUBLIC_URL)"
+}
+
+cmd_stop() {
+    need_settings
+    need_docker
+    compose stop
+    say "Stopped. The database, the backups and the settings are as they were."
+}
+
+cmd_status() {
+    need_settings
+    need_docker
+    say "Mendari at $(setting MENDARI_PUBLIC_URL)"
+    say "Image: $(setting MENDARI_IMAGE)"
+    say ""
+    compose ps
+    say ""
+    ready=$(compose exec -T engine python -c "$READY" 2>/dev/null || true)
+    say "Readiness: ${ready:-the engine does not answer}"
+    jobs=$(cat "$here/backups/.jobs-status" 2>/dev/null || true)
+    case $jobs in
+    ok) say "Daily jobs: the last run passed" ;;
+    failed) say "Daily jobs: THE LAST RUN FAILED. './mendari-site logs jobs' says why." ;;
+    *) say "Daily jobs: not run yet" ;;
+    esac
+    newest=$(find "$here/backups" -maxdepth 1 -name 'mendari-*.dump' 2>/dev/null | sort | tail -n 1)
+    say "Newest backup: ${newest:-none yet}"
+    say ""
+    say "The System view in the console shows every check, with what to do about each."
+}
+
+cmd_backup() {
+    need_settings
+    need_docker
+    need_database
+    if [ -n "$(compose ps -q jobs 2>/dev/null || true)" ]; then
+        compose exec -T jobs /bin/sh /jobs.sh backup
+    else
+        in_jobs backup
+    fi || die "the backup failed. The lines above say why."
+}
+
+cmd_verify() {
+    need_settings
+    need_docker
+    need_database
+    # Read-only: it opens the database without writing to it, migrating it or marking it.
+    in_engine "$VERIFY" ||
+        die "the audit trail does not verify. Hold all automation (./mendari-site hold), keep the database as it is, and follow docs/operations/incident-runbook.md."
+}
+
+cmd_upgrade() {
+    image=
+    build=
+    while [ $# -gt 0 ]; do
+        case $1 in
+        --image)
+            [ $# -ge 2 ] || die "upgrade: --image needs an image"
+            image=$2
+            shift 2
+            ;;
+        --build)
+            build=yes
+            shift
+            ;;
+        --source)
+            [ $# -ge 2 ] || die "upgrade: --source needs the folder of a copy of Mendari"
+            source_dir=$(cd "$2" 2>/dev/null && pwd) || die "upgrade: there is no folder $2"
+            build=yes
+            shift 2
+            ;;
+        *) die "upgrade: no option $1 (--image IMAGE, --build from this copy of Mendari, or --source FOLDER)" ;;
+        esac
+    done
+    need_settings
+    need_docker
+    current=$(setting MENDARI_IMAGE)
+    if [ -z "$image" ]; then
+        build=yes
+    fi
+    choose_image
+    if [ "$image" = "$current" ]; then
+        say "Already on $image. Nothing to do."
+        return 0
+    fi
+    export MENDARI_IMAGE="$image" # the new version, for the checks below, before .env names it
+
+    if has_database; then
+        need_database
+        step "1 of 6. The audit trail, checked with the new version, read-only"
+        in_engine "$VERIFY" ||
+            die "the audit trail does not verify. Nothing was changed, and the version running is still $current. Do not upgrade: follow docs/operations/incident-runbook.md."
+        in_jobs forks ||
+            die "the audit trail did not pass the check for forks. Nothing was changed, and the version running is still $current. Do not upgrade: follow docs/operations/incident-runbook.md."
+    else
+        step "1 of 6. No database yet (this deployment never started): nothing to verify"
+    fi
+
+    step "2 of 6. The settings, read by the new version"
+    quietly run --rm --no-deps -T engine python -m mendari.install check ||
+        die "the new version does not start on these settings (the line above says why). Nothing was changed, and the version running is still $current."
+
+    if has_database; then
+        step "3 of 6. A backup, before anything changes"
+        cmd_backup
+    else
+        step "3 of 6. No database yet: nothing to back up"
+    fi
+
+    step "4 of 6. The database, brought up to date by the new version (the one running still serves)"
+    migrate_now ||
+        die "the new version could not bring the database up to date (the lines above say why). The version running is still $current, and .env still names it. The backup made just now is the newest in backups/."
+    unset MENDARI_IMAGE
+
+    step "5 of 6. Recording the new version (the one before is kept for a rollback)"
+    in_image "$image" image --dir /site --image "$image" </dev/null ||
+        die "the new version could not be recorded in .env. The version running is still $current."
+
+    step "6 of 6. Restarting on the new version"
+    up_and_wait ||
+        die "the new version did not come up. To go back to $current: ./mendari-site rollback. If the old version does not start on the database as it is now, restore the backup just made: ./mendari-site restore backups/<the newest file>."
+    say ""
+    say "Upgraded to $image."
+    say "To go back: ./mendari-site rollback (the version before is kept, and so is the backup"
+    say "made just now, in case the older version cannot read what the new one wrote)."
+}
+
+cmd_rollback() {
+    need_settings
+    need_docker
+    current=$(setting MENDARI_IMAGE)
+    in_image "$current" image --dir /site --back </dev/null ||
+        die "there is no earlier version to go back to. Nothing was changed."
+    step "Restarting on $(setting MENDARI_IMAGE)"
+    if ! migrate_now || ! up_and_wait; then
+        die "the earlier version did not come up on this database. Restore the backup made before the upgrade: ./mendari-site restore backups/<file>."
+    fi
+    say ""
+    say "Back on $(setting MENDARI_IMAGE). './mendari-site rollback' again returns to $current."
+}
+
+cmd_restore() {
+    sure=
+    file=
+    while [ $# -gt 0 ]; do
+        case $1 in
+        --yes) sure=yes ;;
+        *) file=$1 ;;
+        esac
+        shift
+    done
+    need_settings
+    need_docker
+    [ -n "$file" ] || die "name the backup to restore: ./mendari-site restore backups/mendari-<time>.dump"
+    name=$(basename "$file")
+    case $name in
+    mendari-*.dump) ;;
+    *) die "$name is not a backup this install made (mendari-<time>.dump, in backups/)" ;;
+    esac
+    [ -f "$here/backups/$name" ] || die "there is no $name in $here/backups"
+    stamp=$(date -u +%Y%m%d%H%M%S)
+    restored=mendari_restore_$stamp
+    before=mendari_before_$stamp
+    if [ -z "$sure" ]; then
+        say "This puts the backup $name in place of the database that is running now."
+        say "Decisions made since that backup will no longer be in the audit trail. The database"
+        say "as it is now is kept beside it (as $before), so nothing is deleted."
+        printf 'Type the word restore to go on: '
+        read -r typed || typed=
+        [ "$typed" = restore ] || die "not restored. Nothing was changed."
+    fi
+
+    step "1 of 6. Stopping the engine, the jobs and the front (the database stays up)"
+    compose stop proxy jobs engine
+    need_database
+
+    step "2 of 6. Restoring $name into a new database"
+    if ! in_jobs restore-into "$restored" "$name"; then
+        in_jobs drop "$restored" || true
+        compose up -d
+        die "the backup could not be restored. Nothing was changed, and Mendari was started again as it was."
+    fi
+
+    step "3 of 6. Verifying the restored audit trail, read-only"
+    engine_options="-e RESTORED=$restored"
+    if ! in_engine 'mendari audit verify --db "postgresql://mendari:${POSTGRES_PASSWORD}@postgres:5432/${RESTORED}"'; then
+        engine_options=
+        in_jobs drop "$restored" || true
+        compose up -d
+        die "the backup's audit trail does not verify, so it was not put in place. Nothing was changed, and Mendari was started again as it was. Try an earlier backup."
+    fi
+    engine_options=
+
+    step "4 of 6. Putting it in place (the database as it was is kept as $before)"
+    in_jobs swap "$restored" "$before" ||
+        die "the restored database could not be put in place. The database as it was is still the one named mendari, or is kept as $before: './mendari-site logs postgres' says which."
+
+    step "5 of 6. Before serving from it: all automation held, everyone signed out, a checkpoint"
+    in_engine 'mendari automation hold --all-orgs --reason "restored from a backup" --db "$DATABASE_URL" &&
+        mendari access end-sessions --kind all --reason "restored from a backup" --db "$DATABASE_URL"' ||
+        die "automation could not be held on the restored database, so Mendari was not started. Run ./mendari-site hold \"restored from a backup\", then ./mendari-site start."
+    # Without the signing key: a statement for today may be published already, and the next
+    # day's job signs the next one (docs/operations/incident-runbook.md).
+    engine_options="-e MENDARI_CHECKPOINT_KEY="
+    if ! in_engine 'mendari audit checkpoint --db "$DATABASE_URL"' >/dev/null; then
+        engine_options=
+        die "a checkpoint could not be recorded on the restored database, so Mendari was not started. './mendari-site verify' says what is wrong."
+    fi
+    engine_options=
+
+    step "6 of 6. Starting"
+    start_all
+    say ""
+    say "Restored from $name. What to do now:"
+    say "  - All automation is held: every decision goes to a person. './mendari-site holds'"
+    say "    lists the hold; './mendari-site lift <id>' lifts it once you know why you restored."
+    say "  - Everyone was signed out and signs in again."
+    say "  - If you keep the daily signed checkpoints outside this machine, verify the restored"
+    say "    trail against the last one from before the backup (the runbook says how)."
+    say "  - Do again what was done after that backup: keys and people removed since, approvals"
+    say "    revoked, inputs erased on request. docs/operations/incident-runbook.md lists them,"
+    say "    and how to read them from the database that was kept."
+    say "  - The database as it was is kept as $before. When the incident is closed:"
+    say "    ./mendari-site forget $before"
+}
+
+cmd_forget() {
+    need_settings
+    need_docker
+    case ${1:-} in
+    mendari_before_*) ;;
+    *) die "name a database a restore kept: ./mendari-site forget mendari_before_<time> (a restore says its name)" ;;
+    esac
+    need_database
+    in_jobs drop "$1" || die "$1 was not dropped."
+    say "Dropped $1. The database in use and the backups are as they were."
+}
+
+cmd_hold() {
+    need_settings
+    need_docker
+    [ -n "${1:-}" ] || die "say why, in a few words: ./mendari-site hold \"investigating a missed emergency\""
+    # Written straight to the database, so it works with the engine down (the database server
+    # is started if it is not running). Running engines see it within a few seconds.
+    need_database
+    in_engine 'mendari automation hold --all-orgs --reason "$0" --db "$DATABASE_URL"' "$1" ||
+        die "the hold was not set."
+    say "All automation is held: every decision goes to a person. './mendari-site holds' lists it."
+}
+
+cmd_holds() {
+    need_settings
+    need_docker
+    need_database
+    in_engine 'mendari automation list --db "$DATABASE_URL"'
+}
+
+cmd_lift() {
+    need_settings
+    need_docker
+    [ -n "${1:-}" ] || die "name the hold: ./mendari-site lift <id> (./mendari-site holds lists them)"
+    need_database
+    in_engine 'mendari automation lift "$0" --db "$DATABASE_URL"' "$1" ||
+        die "the hold was not lifted."
+}
+
+cmd_logs() {
+    need_settings
+    need_docker
+    compose logs --no-color --tail 200 "$@"
+}
+
+usage() {
+    sed -n '4,25p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+command=${1:-help}
+[ $# -eq 0 ] || shift
+case $command in
+install) cmd_install "$@" ;;
+status) cmd_status ;;
+start) cmd_start ;;
+stop) cmd_stop ;;
+upgrade) cmd_upgrade "$@" ;;
+rollback) cmd_rollback ;;
+backup) cmd_backup ;;
+restore) cmd_restore "$@" ;;
+verify) cmd_verify ;;
+hold) cmd_hold "$@" ;;
+holds) cmd_holds ;;
+lift) cmd_lift "$@" ;;
+logs) cmd_logs "$@" ;;
+forget) cmd_forget "$@" ;;
+help | -h | --help) usage ;;
+*)
+    usage >&2
+    die "no command '$command'"
+    ;;
+esac

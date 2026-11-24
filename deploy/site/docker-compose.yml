@@ -1,0 +1,201 @@
+# Mendari on one machine: the engine, its database, its scheduled jobs and backups, and a front
+# that terminates TLS. Everything a hospital or a clinic needs to run one deployment.
+#
+# Use ./mendari-site, not this file by hand: `./mendari-site install` asks a few questions,
+# writes .env (the settings and every generated secret) and starts everything. Without .env
+# nothing here starts, and it says so.
+#
+# What is built in, and why:
+#   - the database is never published on the host, and its data is a named volume;
+#   - a failed migration stops the start: the engine waits for `migrate` to finish well;
+#   - every service restarts with the machine, has a memory limit and bounded logs;
+#   - the front serves https only (port 80 only redirects), limits sign-in per address, and
+#     has a fixed address, the only one the engine trusts for X-Forwarded-For;
+#   - the scheduled jobs call the engine's own routes, so a broken audit trail raises the
+#     alert, and a job that fails marks its container unhealthy instead of passing unseen;
+#   - no log holds a request body, a query string or a statement's text.
+name: mendari-onsite
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+x-engine: &engine
+  image: ${MENDARI_IMAGE:?run ./mendari-site install first, which writes .env}
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://mendari:${POSTGRES_PASSWORD:?run ./mendari-site install first, which writes .env}@postgres:5432/mendari
+    # X-Forwarded-For is trusted from the front alone, at its fixed address (below).
+    FORWARDED_ALLOW_IPS: ${SITE_PROXY_ADDRESS:-172.31.87.10}
+  volumes:
+    # What the engine pulls from a registry and the registry keys it pins: kept across
+    # upgrades, and seen by every container of the engine's image.
+    - state:/data
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging: *logging
+
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    # The server's log never holds a statement's text or its parameters.
+    command:
+      - postgres
+      - -c
+      - log_statement=none
+      - -c
+      - log_min_error_statement=panic
+      - -c
+      - log_parameter_max_length_on_error=0
+    environment:
+      POSTGRES_DB: mendari
+      POSTGRES_USER: mendari
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./mendari-site install first, which writes .env}
+      POSTGRES_INITDB_ARGS: --data-checksums
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mendari -d mendari"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    shm_size: 128m
+    deploy:
+      resources:
+        limits:
+          memory: ${SITE_POSTGRES_MEMORY:-1g}
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+
+  migrate:
+    # Brings the database up to date, as the engine would at its start, and stops. The engine
+    # starts only once this has finished well: a migration that refuses leaves the database as
+    # it was, says why here, and nothing serves from it.
+    <<: *engine
+    command: ["python", "-m", "mendari.install", "migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: ${SITE_ENGINE_MEMORY:-1g}
+
+  engine:
+    <<: *engine
+    command: ["sh", "-c", "exec mendari serve --host 0.0.0.0 --port 8000 --db \"$$DATABASE_URL\""]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Liveness, as the image's own check: it does no database work, so a database outage never
+    # restarts the engine.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${SITE_ENGINE_MEMORY:-1g}
+
+  proxy:
+    # The only service the network reaches: TLS with the certificate in tls/, http redirected to
+    # https, and a limit per address on sign-in (proxy.conf).
+    image: nginx:1.30.5-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+    depends_on:
+      engine:
+        condition: service_healthy
+    ports:
+      - "${SITE_HTTPS_PORT:-443}:443"
+      - "${SITE_HTTP_PORT:-80}:80"
+    environment:
+      SITE_HOST: ${SITE_HOST:?run ./mendari-site install first, which writes .env}
+      SITE_HTTPS_PORT: ${SITE_HTTPS_PORT:-443}
+      # Only these two names are filled into proxy.conf: nginx's own $variables stay.
+      NGINX_ENVSUBST_FILTER: ^SITE_
+    volumes:
+      # `z`: on a machine with SELinux, containers may read this install's own files.
+      - ./proxy.conf:/etc/nginx/templates/default.conf.template:ro,z
+      - ./tls:/etc/nginx/tls:ro,z
+    networks:
+      default:
+        ipv4_address: ${SITE_PROXY_ADDRESS:-172.31.87.10}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${SITE_PROXY_MEMORY:-128m}
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+
+  jobs:
+    # Once a day: delete kept inputs past their retention, verify the audit trail and record
+    # its checkpoint, check every agent for drift, then back the database up (jobs.sh). In the
+    # database's own image, for a pg_dump of its version. A run that fails marks this container
+    # unhealthy until one passes.
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    # The backups belong to whoever installed: they are in ./backups, to be copied off the machine.
+    user: "${SITE_UID:-0}:${SITE_GID:-0}"
+    entrypoint: ["/bin/sh", "/jobs.sh"]
+    command: ["daily"]
+    environment:
+      CRON_SECRET: ${CRON_SECRET:?run ./mendari-site install first, which writes .env}
+      ENGINE_URL: http://engine:8000
+      PGHOST: postgres
+      PGUSER: mendari
+      PGDATABASE: mendari
+      PGPASSWORD: ${POSTGRES_PASSWORD:?run ./mendari-site install first, which writes .env}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      HOME: /tmp
+    volumes:
+      - ./jobs.sh:/jobs.sh:ro,z
+      - ./backups:/backups:z
+    depends_on:
+      engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "[ \"$$(cat /backups/.jobs-status 2>/dev/null)\" != failed ]"]
+      interval: 60s
+      timeout: 5s
+      retries: 1
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${SITE_JOBS_MEMORY:-256m}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *logging
+
+# A subnet of its own, so that the front's address is known: the engine trusts that one address
+# for X-Forwarded-For and no other container's. If 172.31.87.0/24 is taken on this machine, set
+# SITE_SUBNET and SITE_PROXY_ADDRESS (an address inside it) in .env.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${SITE_SUBNET:-172.31.87.0/24}
+
+volumes:
+  postgres-data:
+  state:

@@ -27,6 +27,7 @@ SCRIPTED = INFERNO / "scripted"
 COMPOSE_FILES = [
     ROOT / "docker-compose.yml",
     ROOT / "deploy" / "onprem" / "docker-compose.yml",
+    ROOT / "deploy" / "site" / "docker-compose.yml",
     INFERNO / "docker-compose.yml",
     SCRIPTED / "docker-compose.yml",
 ]
@@ -600,7 +601,7 @@ def test_dependabot_watches_every_manifest() -> None:
     assert covered["uv"] == {"/"}
     assert covered["github-actions"] == {"/"}
     assert covered["docker"] == {"/"}
-    assert covered["docker-compose"] == {"/", "/deploy/onprem"}
+    assert covered["docker-compose"] == {"/", "/deploy/onprem", "/deploy/site"}
     # Every package.json in the repository (a vendored package included) has an npm entry.
     manifests = {
         "/" + str(p.parent.relative_to(ROOT))
