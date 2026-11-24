@@ -28,9 +28,10 @@ A report has two parts.
   agent, providers and seeds give byte-identical results (canonical JSON: sorted keys, no spaces),
   and anyone holding the ledger can recompute it.
 - **The run:** `run` holds what differs between two runs on the same cases: its `id`,
-  `created_at`, `latency_ms` (mean, p50, p95, max), the engine version, and a governance
-  override's approver (kept locally, never in the result). `result_sha256` is the SHA-256 of the
-  canonical result.
+  `created_at`, `latency_ms` (mean, p50, p95, max), the engine version, a governance
+  override's approver (kept locally, never in the result), and the run's operating point
+  (`operating_point`, [below](#the-operating-point-mendarioperating-point1)), which depends
+  on the options the run was given. `result_sha256` is the SHA-256 of the canonical result.
 
 `comparison`, outside the result, is the local validation against the agent's benchmark. For an
 agent pulled from a registry it is never made with the benchmark the agent carries, which is its
@@ -64,6 +65,65 @@ The result MUST carry everything a `mendari.eval/1` report carries, except case 
 Interval bounds and probabilities are stored to 6 decimal places, so a result is the same on
 every platform. Changing what a figure measures MUST change the format and say which published
 results become stale.
+
+## The operating point: `mendari.operating-point/1`
+
+`run.operating_point` says what the agent's automation threshold (`policy.thresholds.auto`)
+lets through on the run's cases and, when the run was given targets, the lowest threshold the
+cases support. It is in `run`, outside the result: it depends on the run's options (the targets
+and their confidence) and on what each decision kept in memory (answers a ledger rounds), so
+`result_sha256`, the ledger and every signed record are unchanged by it, and it cannot be
+recomputed from the ledger. It MUST NOT hold case text or a case id. It is advice: no decision
+reads it, and nothing edits a manifest from it. A report written before the block has none.
+
+It counts two risks, each as the result counts it:
+
+- a **critical miss**: a case of a critical label that is automated, so that no person reads it
+  (the result's `auto_missed`), as a share of that label's cases and as a share of all cases;
+- **false automation**: a case automated with a wrong recommendation, as a share of the cases
+  labelled for the primary question (the result's `proportions.false_automation`).
+
+Its keys, beside `format`:
+
+- `status`: `no_target` (the run was given no target: only `current` is worked out),
+  `supported` (the manifest's threshold is certified, and no certified threshold automates
+  more), `recommended` (another threshold is the one the cases support), `none_certified` (no
+  threshold that automates a case is certified), `nothing_automated` (the policy automates no
+  case at any threshold) or `no_replay` (the run did not keep what its policy decided from, so
+  the policy cannot be applied again);
+- `confidence`, the confidence the run asked for, and `level`, the one-sided level each bound
+  is taken at (with two targets the error level is split between them);
+- `targets`: `critical_miss` (`at_most`, and `of`: `critical`, each critical label's cases, or
+  `all`) and `false_automation` (`at_most`), each null when the run gave none;
+- `current`, and `recommended` (null unless a threshold is supported or recommended), each a
+  point: its `threshold`, the cases `automated` there (`k` of `n`), per critical label
+  `of_critical` and `of_all`, and `false_automation`, each as `{k, n, upper}` where `upper` is
+  the exact one-sided Clopper-Pearson bound of k of n at `level` (null when n is 0);
+- `current_supported`: whether the manifest's own threshold is at or above the lowest
+  certified one (null with no target);
+- `change`: when another threshold is recommended, `{setting, from, to, line}`, the one line of
+  the manifest an author would change (`setting` is `policy.thresholds.auto`); else null;
+- `walk`: the thresholds tested, which are fixed before a case is read (1.00 down to the review
+  threshold in hundredths): `from`, `to`, `step`, how many are `certified`, the threshold it
+  `stopped_at`, and under `tested` the counts each certified threshold, and the one it stopped
+  at, was judged on;
+- `needs`: with no threshold certified, per risk that lacks cases, how many `cases` would show
+  it within its target; `cannot_fix`: the risks whose share is above their target at every
+  threshold that automates a case, counted at the strictest such `threshold`;
+- `repeated`: how many cases have the same input as an earlier one (each still counts);
+- `summary`, `lines` (with `kinds`, what each line is, in the same order) and `guarantee`: the
+  sentences every surface shows as they are: the command line, `mendari eval --markdown` and
+  the console.
+
+A threshold is certified when every targeted risk's `upper` is within its target, tested from
+the strictest threshold down and stopping at the first that is not, so the guarantee holds
+however many thresholds were tried.
+[Choosing an automation threshold](../guides/choosing-a-threshold.md) explains the method, what
+the guarantee assumes and how many cases a target needs. Targets are options of `mendari eval`
+(`--target-critical-miss`, `--target-critical-miss-of`, `--target-false-automation`,
+`--target-confidence`). They are not limits: a limit (`--min-...`, `--max-...`,
+`--no-worse-than`) is held against the run's own counts and fails the run, and nothing about it
+is stored in the report ([Evaluate an agent on every change](../guides/evaluate-in-ci.md)).
 
 ## The ledger: `mendari.ledger/1`
 

@@ -70,12 +70,12 @@ cd mendari
 uv sync                          # the package, the server, and the test and lint tools
 ```
 
-Without uv, in the clone, into any Python 3.11+ virtual environment (the `server` extra adds
-what `mendari serve` needs):
+Without uv, in the clone, into any Python 3.11+ virtual environment. One install is enough: it
+brings the command line and the server (`mendari serve`), with no extra to name:
 
 <!-- check: run install -->
 ```bash
-pip install '.[server]'
+pip install .
 ```
 
 `mendari --help` lists the commands to start with, and `mendari help all` every one.
@@ -98,9 +98,16 @@ uv run mendari demo
 ```
 
 The demo decides six messages, works the review queue, verifies the audit chain, then evaluates
-the agent on 600 synthetic messages and says **not ready**: the canned answers miss 33 of the
-114 urgent messages, those worded as a patient might, and 9 of them would have been automated.
-That is on purpose: the evaluation is there to catch it before anything decides alone.
+the agent on 600 synthetic messages and says **not ready**: the canned answers do not detect 33
+of the 114 urgent messages, those worded as a patient might, and 9 of them would have been
+automated, so no person would have read them. That is on purpose: the evaluation is there to
+catch it before anything decides alone. Its
+[operating point](https://github.com/mendari-hq/mendari/blob/main/docs/guides/choosing-a-threshold.md)
+adds that no automation threshold keeps such critical misses to 1% with 95% confidence: the fix
+is the agent, not the threshold. And a
+[probe](https://github.com/mendari-hq/mendari/blob/main/docs/guides/finding-failures.md)
+rewrites cases in ways that keep their meaning (a typing error, a line break, an instruction
+slipped in) to find the failures nobody wrote a case for.
 
 ### 2. Scaffold, validate, test and evaluate your own
 
@@ -109,8 +116,9 @@ That is on purpose: the evaluation is there to catch it before anything decides 
 uv run mendari new my-agent --id my-clinic/my-agent     # a working copy of the demo agent, under your id
 uv run mendari validate my-agent                        # the manifest and every file it names
 uv run mendari test my-agent                            # its behaviour tests
-uv run mendari eval my-agent --dataset examples         # accuracy, calibration, outcomes
+uv run mendari eval my-agent --dataset examples         # accuracy, calibration, outcomes, the operating point
 uv run mendari eval my-agent --dataset examples --provider reader=rules   # the keyword-rules variant, same cases
+uv run mendari probe my-agent                           # its failures; --write keeps each as a test
 ```
 
 The folder is plain text:
@@ -122,7 +130,8 @@ my-agent/
 ├── fixtures/mock_agent.json   canned agent answers, used while no live agent is set
 ├── logic/rules.yaml           a keyword-rules variant to compare the agent with
 ├── data/examples.jsonl        labelled cases for `mendari eval`
-└── tests/cases.yaml           behaviour tests for `mendari test`
+├── tests/cases.yaml           behaviour tests for `mendari test`
+└── .github/workflows/mendari.yml   the same checks on every change (no part of the agent)
 ```
 
 The manifest declares **questions, not models**: each question has a fixed set of answers with
@@ -134,6 +143,13 @@ estimate). The
 explains every section, and
 [the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest-0.2.md)
 specifies it.
+
+**In CI.** The workflow uses Mendari's GitHub Action: on a pull request or a push to `main` it
+validates, tests and evaluates the agent, writes the figures and the operating point to the
+job's summary, and fails the job when a limit you state is not met or the result is worse than
+a baseline. It needs no secret, and resolves once this repository is public and a release is
+tagged
+([Evaluating an agent on every change](https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md)).
 
 ### 3. Put a real model behind it
 
@@ -258,13 +274,22 @@ mendari pull my-clinic/my-agent                             # download, verify, 
 1. **Read before you run.** An agent's page on the Hub shows its Decision Card (intended use,
    risk level, policy, known failure modes), what the registry checked, the publisher's
    evaluations of each configuration and other sites' pooled results.
-2. **Pull it and measure it on your own cases**, inside your environment:
-   [Evaluating at your site](https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-at-your-site.md).
+2. **Pull it and measure it on your own cases**, inside your environment
+   ([Evaluating at your site](https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-at-your-site.md)),
+   and ask which automation threshold those cases support: a publisher's threshold is evidence
+   about the publisher's cases
+   ([Choosing an automation threshold](https://github.com/mendari-hq/mendari/blob/main/docs/guides/choosing-a-threshold.md)).
 3. **Run it in shadow.** A decide call with `?shadow=true` (or the header
    `X-Mendari-Shadow: 1`), or a shadow pilot started in the console, holds automation: each
    decision goes to a person while the engine records what the agent would have automated.
    `GET /api/agents/{namespace}/{name}/validation-brief` sums it up, with no case text.
-4. **Let it decide, under your governance.** Your organization approves the agent's exact
+4. **Bring it to your AI governance committee.** The committee packet is one page to print per
+   agent, as your organization sees it: what the agent is and what the runtime enforces, the
+   publisher's evidence and your own, monitoring and approvals, then what nobody has stated
+   and a crosswalk to four published frameworks. A reading aid, not a certification: from the
+   console's Overview, or `mendari packet <agent> --db <the server's database>`
+   ([The committee packet](https://github.com/mendari-hq/mendari/blob/main/docs/guides/committee-packet.md)).
+5. **Let it decide, under your governance.** Your organization approves the agent's exact
    digest; at risk level 2 or 3 it automates only after a named approver records a governance
    approval, and automation can be
    [held](https://github.com/mendari-hq/mendari/blob/main/docs/operations/automation-hold.md)
@@ -275,7 +300,7 @@ mendari pull my-clinic/my-agent                             # download, verify, 
    [Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md);
    an organization's own versions of agents in
    [the agent store](https://github.com/mendari-hq/mendari/blob/main/docs/operations/agent-store.md).
-5. **Share back.** Once your site is registered with the registry,
+6. **Share back.** Once your site is registered with the registry,
    `mendari eval <agent> --dataset your-cases.jsonl --share` sends it your signed counts, never
    a case; the Hub shows them beside other sites'.
 
@@ -309,6 +334,7 @@ hosted once the repository is public.
 | If you want to | Read |
 |---|---|
 | write an agent's manifest | [the authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md) |
+| find an agent's failures, set its threshold, check every change | [Finding failures](https://github.com/mendari-hq/mendari/blob/main/docs/guides/finding-failures.md), [Choosing an automation threshold](https://github.com/mendari-hq/mendari/blob/main/docs/guides/choosing-a-threshold.md), [Evaluating an agent on every change](https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md) |
 | contribute an agent to this repository | [Contributing an agent](https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-an-agent.md) |
 | call Mendari over REST or FHIR | [Using the API](https://github.com/mendari-hq/mendari/blob/main/docs/guides/api.md) |
 | read an evaluation report | [Evaluation reports and ledgers](https://github.com/mendari-hq/mendari/blob/main/docs/spec/evaluation-reports.md) |
@@ -324,9 +350,9 @@ hosted once the repository is public.
 agents/           the bundled demo agent (portal-message-agent)
 examples/         three starters for the service behind an agent: HTTP, LangGraph, Claude
 src/mendari/
-├── core/         manifest spec and loading, digest, runtime, policy, audit, Decision Card
+├── core/         manifest spec and loading, digest, runtime, policy, audit, Decision Card, committee packet
 ├── providers/    what can fill an agent's slot: agent (HTTP), llm, jev, rules, naive_bayes, criteria, cql, dosing
-├── evals/        metrics, the evaluation harness, behaviour tests, reports, the scoreboard
+├── evals/        metrics, the evaluation harness, the operating point, the probe, behaviour tests, reports
 ├── standards/    FHIR R4, CDS Hooks, SMART on FHIR, Da Vinci
 ├── server/       the FastAPI app: REST, FHIR, CDS Hooks, review, audit, sign-in
 ├── dashboard/    the Governance Console: HTML, CSS and ES modules, no build step
@@ -342,6 +368,7 @@ hub/              the Agent Hub website (Next.js), a front end to a registry
 web/              the public page, mendari.co (static HTML and CSS)
 deploy/           on-premises, Kubernetes and Vercel templates
 scripts/          checks and generators that CI runs
+action.yml        the GitHub Action that checks an agent in its own repository's CI
 sandbox/          Inferno conformance kits against the engine (inferno/); CI's compose file for the test fixtures
 licenses/         licence texts and notices for what the images and NOTICE carry
 notes/, tasks/    project notes, plans and lessons

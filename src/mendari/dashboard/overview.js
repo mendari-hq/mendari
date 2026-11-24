@@ -299,8 +299,9 @@ const LENSES = [
   ["ehr", "EHR integration"],
 ];
 
+// A gate with nothing to measure is "no_data": said in words, in the neutral badge, never a pass.
 const GATE_TONE = { pass: "s-ok", warn: "s-warning", fail: "s-degraded" };
-const GATE_LABEL = { pass: "Pass", warn: "Review", fail: "Action needed" };
+const GATE_LABEL = { pass: "Pass", warn: "Review", fail: "Action needed", no_data: "Not enough data" };
 
 function commandCenter(brief, detail, lens) {
   return `<section class="panel command-center" aria-labelledby="cc-title">
@@ -328,7 +329,7 @@ function governanceLens(brief) {
   const shadowBar = sp.active
     ? `<div class="callout ok cc-shadow"><div class="row"><span>${icon("eye")} <b>Shadow pilot active.</b> Automation is held for clinician comparison while tracking what would automate (${vol.would_automate} of ${vol.total} cases so far).</span><span class="grow"></span>
         ${may("approve") ? `<button type="button" id="shadow-stop" data-hold="${esc(sp.hold_id)}">End shadow pilot</button>` : ""}</div></div>`
-    : `<div class="callout neutral cc-shadow"><div class="row"><span>${icon("eye")} <b>7-day shadow mode pilot:</b> score live traffic alongside clinicians with zero automation, then export a signed readiness brief.</span><span class="grow"></span>
+    : `<div class="callout neutral cc-shadow"><div class="row"><span>${icon("eye")} <b>7-day shadow mode pilot:</b> score live traffic alongside clinicians with zero automation, then download the readiness brief: your organization's own counts, computed here and not signed.</span><span class="grow"></span>
         ${may("approve") ? `<button type="button" class="primary" id="shadow-start">Start shadow pilot</button>` : ""}</div></div>`;
   const gates = `<ul class="gate-list">${brief.gates.map((g) => `<li class="gate-row">
       <span class="badge ${GATE_TONE[g.status] ?? "o-ABSTAIN"}">${esc(GATE_LABEL[g.status] ?? g.status)}</span>
@@ -345,6 +346,7 @@ function governanceLens(brief) {
     ${gates}
     <div class="row mt-3">
       <button type="button" id="brief-download">${icon("download")} Download Validation Brief (.md)</button>
+      <button type="button" id="packet-download" title="Everything a governance committee reads about this agent, as one page to print: what is known, and what nobody has stated">${icon("download")} Committee packet</button>
       <button type="button" id="brief-copy">${icon("copy")} Copy executive summary</button>
       <span class="grow"></span>
       <a class="action-link" href="#card/approval">Governance &amp; holds ${icon("arrow-right")}</a>
@@ -435,10 +437,13 @@ function wireCommandCenter(main, brief, detail) {
       whileBusy(event.currentTarget, "Building…", () =>
         download(`${packPath()}/validation-brief?days=30&minutes_per_case=${m}&format=markdown`, `${fileSlug(state.packId)}-validation-brief.md`));
     });
+    section.querySelector("#packet-download")?.addEventListener("click", (event) =>
+      whileBusy(event.currentTarget, "Building…", () =>
+        download(`${packPath()}/committee-packet?format=html`, `${fileSlug(state.packId)}-committee-packet.html`)));
     section.querySelector("#brief-copy")?.addEventListener("click", () => {
       const mins = Number(storageGet("oh.roi.mins", "3.5")) || 3.5;
       const hours = ((brief.roi.weekly_auto_cases_projected * mins) / 60).toFixed(1);
-      const summary = `${brief.pack.name} (${brief.pack.id} v${brief.pack.version}) — ${brief.volume.total} local cases (last ${brief.window_days}d), agreement ${shown(brief.figures.agreement)}, automation-ready ${shown(brief.figures.automation_readiness)}, ${brief.volume.down_on_auto} automated errors, ~${hours} clinician hrs/wk reclaimable.`;
+      const summary = `${brief.pack.name} (${brief.pack.id} v${brief.pack.version}) — ${brief.volume.total} local cases (last ${brief.window_days}d), agreement ${shown(brief.figures.agreement)}, automation-ready ${shown(brief.figures.automation_readiness)}, ${brief.volume.down_on_auto} rated wrong of ${brief.volume.automated} automated, ~${hours} clinician hrs/wk reclaimable.`;
       copyText(summary, "Executive summary copied");
     });
     section.querySelector("#export-overrides")?.addEventListener("click", (event) =>

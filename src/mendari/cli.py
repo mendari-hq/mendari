@@ -37,6 +37,11 @@ from mendari.settings import (
 
 EXIT_DEGRADED = 2
 EXIT_NOT_KEPT = 3  # `mendari improve`: no candidate was better and no less safe
+# `mendari probe`: what `--fail-on` exits with, and how many cases it probes unless told
+# (`evals/probe_report.py` EXIT_FOUND and `evals/probe.py` DEFAULT_LIMIT, which a test holds to
+# these: the parser is built without importing either).
+EXIT_FOUND = 2
+PROBE_CASES = 50
 
 
 def _decision(args: argparse.Namespace, **kwargs: Any) -> Decision:
@@ -156,6 +161,77 @@ def cmd_test(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def cmd_probe(args: argparse.Namespace) -> int:
+    """`mendari probe`: change the text of an agent's own cases in ways that keep its meaning,
+    decide each variant as the original is decided, and report what the change made worse
+    (`evals/probe.py`): ids, names and counts, never a case's text. `--write` keeps each
+    failure as a behaviour test in the agent (`evals/probe_tests.py`), and `--confirm` keeps
+    one that waited for a person. The exit code is 0 unless `--fail-on` names what was found."""
+    from mendari.evals import probe, probe_report, probe_tests
+    from mendari.evals.improve import kept_in_the_pack
+    from mendari.evals.probe_model import Writer
+    from mendari.evals.probe_variants import by_a_model, translation
+
+    decision = _decision(args, origin_cap=False)  # the agent's own policy, as its tests say
+    agent = decision.pack
+    said = sys.stderr if args.json else sys.stdout  # with --json the report alone is on stdout
+    if args.confirm:
+        for name in probe_tests.confirm(agent, args.confirm):
+            where = probe_tests.PROBE_TESTS
+            print(f"Confirmed {name}: `mendari test` runs it now ({where}).", file=said)
+        return 0
+    if args.write and (problem := probe_tests.not_writable(agent)) is not None:
+        raise MendariError(f"--write: {problem}")  # before the run, not after it
+    if args.variants_out and kept_in_the_pack(agent, args.variants_out):
+        raise MendariError(
+            "--variants-out: that file would be in the agent's own folder, where every file is "
+            "part of the agent: keep the variants outside it"
+        )
+    given = probe.load_variants(args.variants_from, agent.manifest) if args.variants_from else []
+    names = [name for listed in args.transform or [] for name in listed.split(",") if name]
+    names += [translation(language) for language in args.language or []]
+    if not names and not given:
+        names = list(probe.Options().transformations)  # every offline one
+    by_model = any(by_a_model(name) is not None for name in names)
+    if args.model and not by_model:
+        raise MendariError(
+            "--model writes paraphrase, negation and translate variants: name one with "
+            "--transform or --language"
+        )
+    options = probe.Options(
+        transformations=tuple(dict.fromkeys(names)),
+        seed=args.seed,
+        limit=args.limit,
+        variants=args.variants,
+        fields=tuple(args.field) if args.field else None,
+        workers=args.workers,
+    )
+    cases = probe.source(agent, args.dataset, tests=args.from_tests)
+    writer = Writer(args.model) if by_model else None
+    planned = probe.plan(decision, cases, options, given=given, writer=writer)
+    if args.dry_run:
+        summary = planned.summary()
+        print(json.dumps(summary, indent=2) if args.json else probe_report.planned(summary))
+        return 0
+    found = probe.run(planned)
+    report = json.dumps(found.report, indent=2)
+    for path, content in (
+        (args.out, report + "\n"),
+        (args.variants_out, probe.dump_variants(found.variants)),
+    ):
+        if path:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text(content, encoding="utf-8")
+    print(report if args.json else probe_report.text(found.report))
+    if args.write:
+        kept = probe.keep(agent, found.findings)
+        for line in probe_report.kept_lines(
+            kept.added, kept.waiting, kept.already, kept.left_out, args.pack
+        ):
+            print(line, file=said)
+    return probe_report.exit_code(found.report, args.fail_on)
+
+
 def cmd_decide(args: argparse.Namespace) -> int:
     from mendari.core.phi import phi_policy
 
@@ -193,14 +269,24 @@ def cmd_decide(args: argparse.Namespace) -> int:
 
 def cmd_eval(args: argparse.Namespace) -> int:
     from mendari.core.card import benchmark
-    from mendari.evals import compare, resolve_dataset
+    from mendari.evals import compare, gate, operating_point, resolve_dataset
     from mendari.evals.compare import FROM_REGISTRY, not_compared
     from mendari.evals.harness import evaluation
-    from mendari.evals.render import comparison_text, report_text
+    from mendari.evals.render import comparison_text, report_markdown, report_text
 
+    if args.json and args.markdown:
+        raise MendariError("choose --json or --markdown, not both")
+    stated = gate.Limits(
+        min_accuracy=args.min_accuracy,
+        max_false_automation=args.max_false_automation,
+        min_critical_detection=args.min_critical_detection,
+        max_critical_misses=args.max_critical_misses,
+    )
+    held = _held_to(args)
     sharing = bool(args.share or args.share_out)
     issued: dict[str, Any] | None = None
     publisher_key = _publishing(args, sharing)
+    targets = _targets(args)
     if sharing:
         # A site's run (LP-22f): the ticket first, bound to the whole dataset file and the
         # configuration (the deterministic arm unless --provider names one), then the run.
@@ -223,8 +309,12 @@ def cmd_eval(args: argparse.Namespace) -> int:
         if args.limit:
             dataset = dataset.head(args.limit)
     workers = args.workers or (8 if decision.is_remote else 1)
-    run = evaluation(decision, dataset, workers=workers)
+    run = evaluation(decision, dataset, workers=workers, targets=targets)
     report = run.report
+    checked = None
+    if stated.stated or held is not None:
+        tolerance = pack.manifest.evaluation.degradation_tolerance
+        checked = gate.check(report, stated, held, tolerance)
 
     comparison = None
     if args.baseline != "none":
@@ -298,15 +388,86 @@ def cmd_eval(args: argparse.Namespace) -> int:
             )
     if args.json:
         _print_json(report)
+        if checked is not None:  # beside the JSON, never in it
+            print(checked.text(), file=sys.stderr)
+    elif args.markdown:
+        from mendari.evals.ledger import case_hash
+        from mendari.evals.result import critical_cases
+
+        # Cases by their ids, which only this machine can tell from the ledger's hashes.
+        ids = {case_hash(dataset.case_key, r["id"]): r["id"] for r in dataset.records}
+        print(report_markdown(report, critical_cases(run.ledger), ids))
+        # What the automation threshold lets through, and the threshold the cases support when
+        # the run was given targets: the engine's sentences, as the terminal prints them.
+        print(operating_point.markdown(report["run"]["operating_point"]))
+        if comparison:  # as the terminal shows it, in a block that renders nothing
+            print("### Against the agent's benchmark\n")
+            print(textwrap.indent(comparison_text(comparison), "    ") + "\n")
+        if checked is not None:
+            print(checked.markdown())
     else:
         print(report_text(report))
+        print()
+        print(operating_point.text(report["run"]["operating_point"], *_no_target(targets)))
         if comparison:
             print()
             print(comparison_text(comparison))
+        if checked is not None:
+            print()
+            print(checked.text())
         if args.out:
             print(f"\nReport written to {args.out}")
     degraded = comparison is not None and comparison["status"] == "degraded"
-    return EXIT_DEGRADED if degraded and args.fail_on_degradation else 0
+    failed = checked is not None and not checked.passed
+    return EXIT_DEGRADED if failed or (degraded and args.fail_on_degradation) else 0
+
+
+def _held_to(args: argparse.Namespace) -> dict[str, Any] | None:
+    """`--no-worse-than`: the earlier result the run is held to, or None without the option. It
+    is read and checked before the run, and before a shared run asks for its ticket: a file that
+    is no result of this agent stops here, and `--out` may then write the new result over it."""
+    if not args.no_worse_than:
+        return None
+    from mendari.evals.gate import baseline_problem
+
+    held: dict[str, Any] = _read_json(args.no_worse_than, "--no-worse-than", shape=dict)
+    pack = resolve_pack(args.pack)
+    problem = baseline_problem(held, pack.id, pack.manifest.policy.primary)
+    if problem is not None:
+        raise MendariError(f"--no-worse-than {_path_shown(args.no_worse_than)}: {problem}")
+    return held
+
+
+def _targets(args: argparse.Namespace) -> Any:
+    """What a recommended automation threshold must keep to (`--target-critical-miss`,
+    `--target-false-automation`, stated with `--target-confidence`). Each was read as a share
+    by the command line (`_target`, `_confidence`), before any work."""
+    from mendari.evals.operating_point import CONFIDENCE, OF_CRITICAL, Targets
+
+    of = args.target_critical_miss_of
+    if of is not None and args.target_critical_miss is None:
+        raise MendariError(
+            "--target-critical-miss-of says what --target-critical-miss is a share of: give "
+            "that target too"
+        )
+    confidence = args.target_confidence
+    return Targets(
+        critical_miss=args.target_critical_miss,
+        critical_miss_of=OF_CRITICAL if of is None else of,
+        false_automation=args.target_false_automation,
+        confidence=CONFIDENCE if confidence is None else confidence,
+    )
+
+
+def _no_target(targets: Any) -> list[str]:
+    """What the operating point adds when the run was given no target: how to give one."""
+    if targets.given:
+        return []
+    return [
+        "No target was given. Add --target-critical-miss or --target-false-automation (for "
+        "example --target-critical-miss 1%) for the lowest automation threshold these cases "
+        "support."
+    ]
 
 
 def _publishing(args: argparse.Namespace, sharing: bool) -> Any:
@@ -959,8 +1120,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
         import uvicorn  # noqa: F401 - there before any work (_run_server runs it)
     except ImportError:
         raise MendariError(
-            "the server needs the server extra: pip install 'mendari[server]' (in a clone: "
-            "pip install '.[server]', or uv sync)"
+            "the server needs uvicorn, which installs with Mendari and is missing here: "
+            "install Mendari again (pip install mendari; in a clone: uv sync)"
         ) from None
     from mendari.server.app import create_app
 
@@ -1900,8 +2061,8 @@ def cmd_sandbox_payer(args: argparse.Namespace) -> int:
         import uvicorn  # noqa: F401 - there before any work (_run_server runs it)
     except ImportError:
         raise MendariError(
-            "the payer needs the server extra: pip install 'mendari[server]' (in a clone: "
-            "pip install '.[server]', or uv sync)"
+            "the payer needs uvicorn, which installs with Mendari and is missing here: "
+            "install Mendari again (pip install mendari; in a clone: uv sync)"
         ) from None
     from mendari.sandbox.payer import create_payer_app
     from mendari.settings import sandbox_payer_review_action
@@ -2026,8 +2187,8 @@ def cmd_registry_serve(args: argparse.Namespace) -> int:
         import uvicorn  # noqa: F401 - there before any work (_run_server runs it)
     except ImportError:
         raise MendariError(
-            "the registry needs the server extra: pip install 'mendari[server]' (in a clone: "
-            "pip install '.[server]', or uv sync)"
+            "the registry needs uvicorn, which installs with Mendari and is missing here: "
+            "install Mendari again (pip install mendari; in a clone: uv sync)"
         ) from None
     from mendari.hub.registry import create_registry_app
 
@@ -2918,6 +3079,69 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     return 1 if found_alerts else 0
 
 
+def cmd_packet(args: argparse.Namespace) -> int:
+    """The committee packet of one agent (`core/packet.py`), from the server's database: one
+    page to print, or the JSON it is made from (--json), written to --out or printed. For one
+    organization with --org, otherwise every organization of the deployment together.
+
+    Nothing is recorded: the database is opened read-only, and the command works with the
+    server down. What only a running server knows (sign-in, sessions, the schedule, the model
+    each part runs) is shown as not known; the rest is read from this environment's settings,
+    which should be the server's, and the page says it was made from the command line."""
+    from mendari.alerts import alert_settings
+    from mendari.core import packet, tenancy
+    from mendari.core.checkpoint import checkpoint_key, key_id
+    from mendari.core.phi import phi_policy
+    from mendari.evals.monitoring import recorded_providers
+    from mendari.providers import provider_allow_list
+    from mendari.providers.agent import ENDPOINT_ENV
+    from mendari.settings import retention_days
+
+    pack = resolve_pack(args.pack)
+    phi = phi_policy()  # before any work, so a bad setting fails at once
+    alerts = alert_settings()
+    signer = checkpoint_key()
+    kept_days = retention_days()
+    with _read_store(args.db) as store:
+        store.require_current("packet")
+        with tenancy.acting_for(args.org):
+            deployment = packet.Deployment(
+                phi_mode=phi.mode,
+                input_hash=phi.hash_kind,
+                retention_days=kept_days,
+                checkpoint_key=None if signer is None else key_id(signer.public_key()),
+                alert_destination=alerts is not None,
+                alerts_signed=alerts is not None and bool(alerts.secret),
+                provider_allowed_origins=provider_allow_list(),
+                agent_endpoint=bool(os.environ.get(ENDPOINT_ENV, "").strip()),
+                providers=recorded_providers(store, pack),
+                seen_from="command line",
+            )
+            built = packet.build(
+                store,
+                pack,
+                deployment=deployment,
+                days=args.days,
+                organization=args.org,
+                holds=store.holds(args.org),
+                records=store.deployments(pack.id, limit=20),
+            )
+    text = json.dumps(built, indent=2) + "\n" if args.json else packet.render_html(built)
+    if not args.out:
+        sys.stdout.write(text)
+        return 0
+    target = Path(args.out)
+    if target.is_symlink():  # the write would land wherever the link points
+        raise MendariError(f"{target} is a symbolic link; not writing through it")
+    target.write_text(text, encoding="utf-8")
+    print(
+        f"wrote {target}: {pack.id} {pack.version}, {len(built['sections'])} sections, "
+        f"{len(built['not_stated'])} items not stated",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def cmd_alerts_test(args: argparse.Namespace) -> int:
     """For the operator, after setting the webhook: one test alert (`alerts.test`) to
     $MENDARI_ALERT_WEBHOOK through `mendari.alerts`, in its format and signed with its secret,
@@ -3512,12 +3736,21 @@ AUTHORING_GUIDE = (
 COMMUNITY_GUIDE = (
     "https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-an-agent.md"
 )
+# The workflow `mendari new` writes into the agent's own `.github/workflows/`: Mendari's action
+# (action.yml) at this release's tag, which checks the agent on every change. Its template is
+# kept outside any `.github/` folder: a release holds no CI configuration of its own
+# (scripts/check_excluded.py).
+CI_TEMPLATE = Path(__file__).resolve().parent / "templates" / "ci" / "mendari.yml"
+CI_WORKFLOW = Path(".github") / "workflows" / "mendari.yml"
+CI_GUIDE = "https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md"
 
 
 def cmd_new(args: argparse.Namespace) -> int:
     """A new agent from the template: YAML only, and it validates, tests and evaluates as it is,
     on an offline mock fixture that switches to a live agent endpoint when `MENDARI_AGENT_URL`
-    is set. `--agent` asked for that when it was not the default, and is still read.
+    is set. `--agent` asked for that when it was not the default, and is still read. With it
+    comes the workflow that checks the agent on every change in its own repository
+    (`CI_WORKFLOW`), which is no part of the agent: a hidden folder is in no digest or archive.
     With `--community`, a community agent (`community-agents/<name>`, id `community/<name>`)
     that also passes `mendari community-check`, its benchmark and card written."""
     from mendari.core.origin import COMMUNITY_NAME, COMMUNITY_NAMESPACE
@@ -3568,6 +3801,11 @@ def cmd_new(args: argparse.Namespace) -> int:
             destination.write_text(text, encoding="utf-8")
     if args.community:
         _publish_benchmark(target)
+    else:  # an agent with a repository of its own: checked there on every change
+        workflow = target / CI_WORKFLOW
+        workflow.parent.mkdir(parents=True, exist_ok=True)
+        text = CI_TEMPLATE.read_text(encoding="utf-8").replace("{{version}}", __version__)
+        workflow.write_text(fill(text, yaml_values), encoding="utf-8")
     print(f"{pack_id} created in {target}. Next:")
     steps = [f"mendari validate {target}", f"mendari test {target}"]
     if args.community:
@@ -3585,12 +3823,15 @@ def cmd_new(args: argparse.Namespace) -> int:
             f"MENDARI_AGENT_URL=https://your-agent.example/decide mendari eval {target} "
             "--dataset examples",
             f"mendari eval {target} --dataset examples --provider reader=rules",
+            f"mendari probe {target}",
         ]
     for step in steps:
         print(f"  {step}")
     print(f"The guide: {AUTHORING_GUIDE}")
     if args.community:
         print(f"Contributing it: {COMMUNITY_GUIDE}")
+    else:
+        print(f"On every change: {target / CI_WORKFLOW} runs these checks on GitHub ({CI_GUIDE})")
     return 0
 
 
@@ -3685,6 +3926,50 @@ def _port(text: str) -> int:
     return port
 
 
+def _share(text: str) -> float:
+    """A limit's share as people write one, `90%` or `0.9`, from 0 to 100%: checked before any
+    work starts (argparse names the flag). A target's share is read the same way (`_target`)."""
+    from mendari.evals.operating_point import share
+
+    try:
+        return share(text, whole=True)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"{error}: {text!r}") from None
+
+
+def _target(text: str) -> float:
+    """A target's share, `1%` or `0.01`, above 0 and below 100%: what a recommended automation
+    threshold must keep a risk to. Checked before any work starts (argparse names the flag)."""
+    from mendari.evals.operating_point import Targets, share
+
+    try:
+        value = share(text)
+        Targets(critical_miss=value)  # the range a target has
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"{error}: {text!r}") from None
+    return value
+
+
+def _confidence(text: str) -> float:
+    """The confidence a target is held with, `95%` or `0.95`, checked before any work starts
+    (argparse names the flag)."""
+    from mendari.evals.operating_point import Targets, share
+
+    try:
+        value = share(text)
+        Targets(confidence=value)  # the range a confidence level has
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"{error}: {text!r}") from None
+    return value
+
+
+def _whole(text: str) -> int:
+    """A count, 0 or more, checked before any work starts (argparse names the flag)."""
+    if not (text.isascii() and text.isdigit()):
+        raise argparse.ArgumentTypeError(f"not a whole number, 0 or more: {text!r}")
+    return int(text)
+
+
 def _x12_code(text: str) -> str:
     """An X12 code value's shape, checked before any work starts (argparse names the flag)."""
     from mendari.standards.pas import X12_CODE
@@ -3706,6 +3991,15 @@ def _monitored_days(text: str) -> int:
     if not MIN_DAYS <= days <= MAX_DAYS:
         raise argparse.ArgumentTypeError(f"{days} days: give {MIN_DAYS} to {MAX_DAYS}")
     return days
+
+
+def _case_limit(text: str) -> int | None:
+    """`mendari probe --limit`: how many cases, 1 or more, or `all` (None)."""
+    if text == "all":
+        return None
+    if not text.isdigit() or int(text) < 1:
+        raise argparse.ArgumentTypeError("1 case or more, or `all`")
+    return int(text)
 
 
 def _iso_date(text: str) -> str:
@@ -3786,7 +4080,7 @@ GROUPS = (
     Group("Start", ("demo", "new"), ("help",)),
     Group(
         "Build and check",
-        ("validate", "test", "eval", "compare"),
+        ("validate", "test", "eval", "probe", "compare"),
         ("card", "schema", "community-check"),
     ),
     Group("Run", ("decide", "serve"), ("list", "mcp")),
@@ -3804,7 +4098,7 @@ GROUPS = (
         (),
         (
             *("monitor", "alerts", "usage", "audit", "automation", "access"),
-            *("phi", "notes", "store", "registry"),
+            *("phi", "notes", "store", "registry", "packet"),
         ),
     ),
     Group("Standards", (), ("smart", "bulk", "omop", "pas", "sandbox")),
@@ -3922,6 +4216,113 @@ def build_parser() -> argparse.ArgumentParser:
     pack_command("validate", cmd_validate, "validate an agent and build every provider variant")
     pack_command("test", cmd_test, "run the agent's behaviour tests", providers=True)
 
+    probing = pack_command(
+        "probe",
+        cmd_probe,
+        "find failures by rewriting its cases; keep them as tests",
+        providers=True,
+    )
+    probing.description = (
+        "Changes the text of the agent's own cases in ways that keep their meaning, decides "
+        "each variant as the original is decided, and reports the answers that changed: a "
+        "critical answer lost, or a variant that would be automated while wrong or critical, "
+        "first. The report holds ids and counts, never a case's text. Offline by default; a "
+        "model writes paraphrases, translations and denials only when asked."
+    )
+    probing.add_argument(
+        "--dataset",
+        help="the labelled cases to change: one of the agent's datasets, by name, or a JSONL "
+        "path (default: its benchmark dataset, else its first, else its behaviour tests)",
+    )
+    probing.add_argument(
+        "--from-tests",
+        action="store_true",
+        help="change the agent's own behaviour tests instead of a dataset",
+    )
+    probing.add_argument(
+        "--transform",
+        action="append",
+        metavar="NAME[,NAME]",
+        help="what to change (repeatable). Offline, the default: typos, case, punctuation, "
+        "whitespace, additions, injection. Written by a model: paraphrase, negation, "
+        "translate:<language>",
+    )
+    probing.add_argument(
+        "--language",
+        action="append",
+        metavar="LANGUAGE",
+        help="also translate into this language with a model, as es or 'haitian creole' "
+        "(repeatable): the same as --transform translate:<language>",
+    )
+    probing.add_argument(
+        "--model",
+        help="the model that writes paraphrase, negation and translate variants, asked as an "
+        "llm variant is (default: $LLM_MODEL; it is sent the cases' text and nothing else)",
+    )
+    probing.add_argument(
+        "--variants-from",
+        metavar="FILE",
+        help="also try the variants of this JSON Lines file: ones you wrote, or ones "
+        "--variants-out kept (alone, when no --transform is named)",
+    )
+    probing.add_argument(
+        "--variants-out",
+        metavar="FILE",
+        help="write every variant tried to FILE, outside the agent: to read, or to try again "
+        "with --variants-from",
+    )
+    probing.add_argument(
+        "--field",
+        action="append",
+        metavar="FIELD",
+        help="a text field to change, as message.body (repeatable; default: the text the "
+        "agent reads)",
+    )
+    probing.add_argument(
+        "--limit",
+        type=_case_limit,
+        default=PROBE_CASES,
+        metavar="N",
+        help=f"probe at most N cases, or `all` (default {PROBE_CASES})",
+    )
+    probing.add_argument(
+        "--variants",
+        type=int,
+        default=1,
+        metavar="N",
+        help="variants of each case by each transformation (default 1)",
+    )
+    probing.add_argument("--seed", type=int, default=0, help="the seed (default 0)")
+    probing.add_argument(
+        "--workers", type=int, help="parallel decisions (default: 8 for a remote agent, else 1)"
+    )
+    probing.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="say what would run and how many calls it would make; decide and call nothing",
+    )
+    probing.add_argument(
+        "--write",
+        action="store_true",
+        help="keep each failure in the agent as a behaviour test `mendari test` runs "
+        "(tests/probe.yaml), once",
+    )
+    probing.add_argument(
+        "--confirm",
+        action="append",
+        metavar="ID",
+        help="keep a test that waits in tests/probe-unconfirmed.yaml, once you have read what "
+        "it expects (repeatable; probes nothing)",
+    )
+    probing.add_argument(
+        "--fail-on",
+        choices=("critical", "any"),
+        help=f"exit {EXIT_FOUND} on a critical finding (a critical answer lost, or a variant "
+        "automated while wrong or critical), or on any answer that changed",
+    )
+    probing.add_argument("--json", action="store_true", help="print the JSON report")
+    probing.add_argument("--out", help="also write the JSON report here")
+
     decide = pack_command("decide", cmd_decide, "run one decision", providers=True)
     decide.add_argument("--input", help="JSON input file ('-' for stdin)")
     decide.add_argument("--text", help="shortcut: message body text")
@@ -3929,6 +4330,14 @@ def build_parser() -> argparse.ArgumentParser:
     decide.add_argument("--db", help="record the decision in this audit database")
 
     evaluate = pack_command("eval", cmd_eval, "evaluate on a labelled dataset", providers=True)
+    evaluate.description = (
+        "Decides every case of a labelled dataset as a live decision is decided, and reports "
+        "the agent's accuracy and calibration, the mix of outcomes (AUTO, HUMAN_REVIEW, ABSTAIN, "
+        "BLOCK), each critical label's cases (how many were detected, how many automated), and "
+        "the operating point: what the agent's automation threshold lets through, each risk "
+        "with its exact upper bound. A share is k of n with its interval. The report holds "
+        "counts, never a case's text."
+    )
     evaluate.add_argument(
         "--dataset", required=True, help="one of the agent's datasets, by name, or a JSONL path"
     )
@@ -3946,9 +4355,93 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--db", help="also store the report in this database (dashboard)")
     evaluate.add_argument("--json", action="store_true", help="print the JSON report")
     evaluate.add_argument(
+        "--markdown",
+        action="store_true",
+        help="print the result as Markdown, for a CI job summary: counts with their intervals, "
+        "and cases by id, never their text",
+    )
+    evaluate.add_argument(
         "--fail-on-degradation",
         action="store_true",
         help=f"exit {EXIT_DEGRADED} when local validation detects degradation",
+    )
+    # Two families of options that name the same figures, and differ in what they do. A limit
+    # is on what this run measured, and a result that does not meet one fails the run (the gate
+    # a CI job holds a change to, docs/guides/evaluate-in-ci.md). A target is what a recommended
+    # automation threshold must keep to, with a stated confidence: advice, which fails nothing
+    # (the operating point, docs/guides/choosing-a-threshold.md).
+    # (A group's description is printed as written; an option's help doubles its `%`.)
+    limits = evaluate.add_argument_group(
+        "limits",
+        f"What this run's result must be: one that does not meet a limit, or is worse than the "
+        f"result --no-worse-than names, is exit {EXIT_DEGRADED}. A share is written 90% or 0.9.",
+    )
+    limits.add_argument(
+        "--min-accuracy",
+        type=_share,
+        metavar="SHARE",
+        help="the least accuracy on the agent's primary question",
+    )
+    limits.add_argument(
+        "--min-critical-detection",
+        type=_share,
+        metavar="SHARE",
+        help="the least share of each critical label's cases that must be detected",
+    )
+    limits.add_argument(
+        "--max-critical-misses",
+        type=_whole,
+        metavar="N",
+        help="the most critical misses: cases of each critical label that may be automated, so "
+        "that no person reads them",
+    )
+    limits.add_argument(
+        "--max-false-automation",
+        type=_share,
+        metavar="SHARE",
+        help="the most false automation: cases automated with a wrong answer, as a share of the "
+        "labelled cases",
+    )
+    limits.add_argument(
+        "--no-worse-than",
+        metavar="RESULT",
+        help="an earlier result of this agent on the same dataset (as --out writes one) that "
+        "this run must be no worse than: no critical label detected less often, no more "
+        "critical misses, and accuracy and the share of automated cases that are wrong within "
+        "the agent's tolerance",
+    )
+    targets = evaluate.add_argument_group(
+        "targets",
+        "What a recommended automation threshold must keep to: with a target, the report's "
+        "operating point names the lowest threshold these cases support, with a stated "
+        "confidence. Advice: a target never fails the run. A share is written 1% or 0.01.",
+    )
+    targets.add_argument(
+        "--target-critical-miss",
+        type=_target,
+        metavar="SHARE",
+        help="the most critical misses the threshold may leave: critical cases that are "
+        "automated, so that no person reads them, as a share of each critical label's cases",
+    )
+    targets.add_argument(
+        "--target-critical-miss-of",
+        choices=("critical", "all"),
+        help="what --target-critical-miss is a share of: each critical label's cases (critical, "
+        "the default) or all cases (all)",
+    )
+    targets.add_argument(
+        "--target-false-automation",
+        type=_target,
+        metavar="SHARE",
+        help="the most false automation the threshold may leave: cases automated with a wrong "
+        "answer, as a share of the labelled cases",
+    )
+    targets.add_argument(
+        "--target-confidence",
+        type=_confidence,
+        metavar="LEVEL",
+        help="the confidence the targets are held with, and each bound of the operating point "
+        "is stated with (default 95%%)",
     )
     evaluate.add_argument(
         "--share",
@@ -5080,6 +5573,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     monitor_cmd.add_argument("--webhook", help="post alerts here (default: $MENDARI_ALERT_WEBHOOK)")
     monitor_cmd.set_defaults(handler=cmd_monitor)
+
+    packet_cmd = pack_command(
+        "packet",
+        cmd_packet,
+        "the committee packet: what a governance committee reads about one agent, as one page "
+        "to print",
+    )
+    packet_cmd.description = (
+        "The committee packet of one agent, at the version this deployment serves: what it is "
+        "and who made it, its risk level and what the runtime enforces, how a person stays in "
+        "the loop, the publisher's evidence and this site's, monitoring, change control, data "
+        "handling and approvals; then what nobody has stated, and a crosswalk to four published "
+        "frameworks. It is read from the server's database, which is opened read-only and may "
+        "be read with the server down. It holds counts, ids and dates, never a case's text, and "
+        "it is a reading aid: not signed, and not a certification."
+    )
+    packet_cmd.add_argument(
+        "--db",
+        default="var/mendari.db",
+        help="the server's database: a SQLite path or a postgresql:// URL (default var/mendari.db)",
+    )
+    packet_cmd.add_argument("--org", help="one organization (default: every organization together)")
+    packet_cmd.add_argument(
+        "--days",
+        type=_monitored_days,
+        default=90,
+        help="the days its counts cover, 14 to 180 (default 90)",
+    )
+    packet_cmd.add_argument("--out", metavar="FILE", help="write it here (default: print it)")
+    packet_cmd.add_argument("--json", action="store_true", help="the packet as JSON, not as a page")
 
     alerts_cmd = sub.add_parser(
         "alerts", help="the alert webhook ($MENDARI_ALERT_WEBHOOK)"

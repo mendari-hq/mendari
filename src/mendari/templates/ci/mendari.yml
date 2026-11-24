@@ -1,0 +1,42 @@
+# Mendari checks {{id}} on every change (https://github.com/mendari-hq/mendari):
+# its manifest is validated, its behaviour tests run, and it is evaluated on the labelled dataset
+# named below. The job's summary shows the counts with their intervals, the mix of outcomes, each
+# critical label and the operating point of the automation threshold, with cases named by id and
+# never by their text; the result is uploaded as an artifact; and the job fails when a check
+# fails, a limit below is not met or the evaluation is worse than a baseline. No secret is
+# needed: the agent answers from fixtures/mock_agent.json until MENDARI_AGENT_URL is set.
+#
+# How to change the limits, compare with a baseline, ask which automation threshold the cases
+# support (a target) or evaluate your live agent with a secret:
+# https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md
+#
+# GitHub reads workflows from a repository's own .github/workflows/. If this folder is the
+# repository, this file is where it must be. If the agent is a folder of a larger repository,
+# move the file to that repository's .github/workflows/ and name the folder in `agent`.
+name: mendari
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      # Mendari {{version}}, the release this agent was written with.
+      - uses: mendari-hq/mendari@v{{version}}
+        with:
+          agent: .
+          dataset: examples
+          # Each critical label is detected in at least nine cases of ten, and none of its
+          # cases is automated (a critical miss): the action's own limits, written here so they
+          # are yours to set.
+          min-critical-detection: "90%"
+          max-critical-misses: "0"

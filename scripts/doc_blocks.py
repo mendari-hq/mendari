@@ -183,7 +183,7 @@ def _run(runner: str) -> int:
             env["VIRTUAL_ENV"] = str(venv)
             if not all(_shell(block, env=env, cwd=ROOT) for block in chosen):
                 return 1
-            # The server extra is in: the documented `mendari serve` starts and answers.
+            # The one install brings the server: the documented `mendari serve` starts and answers.
             return _serves(venv / "bin" / "mendari", Path(directory), env)
     if not all(_shell(block, env=env, cwd=ROOT) for block in chosen):
         print(f"the {runner} blocks failed after {time.monotonic() - start:.0f} s")

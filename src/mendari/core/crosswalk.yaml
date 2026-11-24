@@ -1,0 +1,820 @@
+# SPDX-License-Identifier: Apache-2.0
+# The committee packet's crosswalk (core/packet.py reads it; nothing here is prose in code).
+#
+# What this file holds:
+#   frameworks  four published frameworks, each with its sources (title, address, the day it was
+#               read) and its parts, named as the source names them;
+#   rows        for each section of the packet, the parts it holds information for, and what of
+#               each part it does and does not hold;
+#   items       what a framework asks for that the packet may not have: the "Not stated" appendix
+#               lists every one of these that neither the publisher nor the site has provided.
+#
+# Rules for whoever edits it:
+#   - Every part and row is `confirmed` only when it was read in a primary source (the
+#     regulation's text, the publisher's own document) on `checked_on`. Anything else is
+#     `to_verify`, and the packet prints it that way.
+#   - A row says what the section holds, never that anything complies. The frameworks' own texts
+#     govern.
+#   - When a source changes, change the part, its `checked_on`, and the rows that name it.
+#     tests/test_packet.py holds every row to a section and a part that exist.
+format: mendari.crosswalk/1
+checked_on: "2026-11-23"
+
+disclaimer: >-
+  This crosswalk is a reading aid prepared by the software. It shows where this packet holds
+  information related to parts of four published frameworks. It is not a certification, an
+  attestation of compliance or legal advice, and it does not state that the agent, its
+  publisher, this software or your organization meets, complies with or is certified against
+  any of them. The frameworks' own texts govern.
+
+frameworks:
+  - id: chai-amc
+    name: CHAI Applied Model Card
+    short: CHAI model card
+    publisher: Coalition for Health AI (CHAI)
+    edition: Draft release; template v0.1 (November 2024), schema v0.2 (October 2025)
+    applies_to: >-
+      A template, in draft, that describes an AI solution in a health use case: its developer
+      fills it in. A site can ask a publisher for one.
+    status: confirmed
+    sources:
+      - id: template
+        title: CHAI Applied Model Card, template v0.1
+        url: https://mc.chai.org/v0.1/template.pdf
+        checked_on: "2026-11-23"
+      - id: schema
+        title: CHAI Applied Model Card, schema v0.2 (XML Schema Definition)
+        url: https://mc.chai.org/v0.2/schema.xsd
+        checked_on: "2026-11-23"
+      - id: repository
+        title: CHAI Applied Model Card repository (template, schema, documentation, examples)
+        url: https://github.com/coalition-for-health-ai/mc-schema
+        checked_on: "2026-11-23"
+    notes:
+      - text: >-
+          CHAI describes the card as a draft release: its repository and its registry page said
+          so on the day checked, and the schema's own notes say it may change.
+        status: confirmed
+    parts:
+      - id: chai-amc.header
+        ref: Header
+        title: >-
+          Name; Developer; Inquiries or to report an issue; Release Stage; Release Date;
+          Version; Global Availability; Regulatory Approval
+        source: template
+        status: confirmed
+      - id: chai-amc.summary
+        ref: Summary
+        title: Summary; Keywords
+        source: template
+        status: confirmed
+      - id: chai-amc.uses
+        ref: Uses and Directions
+        title: >-
+          Intended use and workflow; Primary intended users; How to use; Targeted patient
+          population; Cautioned out-of-scope settings and use cases
+        source: template
+        status: confirmed
+      - id: chai-amc.warnings
+        ref: Warnings
+        title: >-
+          Known risks and limitations; Known biases or ethical considerations; Clinical risk
+          level
+        source: template
+        status: confirmed
+      - id: chai-amc.facts
+        ref: "Trust Ingredients: AI System Facts"
+        title: >-
+          Outcome(s) and output(s); Model type; Foundation models used in application; Input
+          data source; Output/Input data type; Development data characterization; Bias
+          mitigation approaches; Ongoing Maintenance; Security and compliance environment
+          practices or accreditations; Transparency, Intelligibility, and Accountability
+          mechanisms
+        source: template
+        status: confirmed
+      - id: chai-amc.transparency
+        ref: "Trust Ingredients: Transparency Information"
+        title: >-
+          Funding source of the technical implementation; 3rd Party Information; Stakeholders
+          consulted during design of intervention
+        source: template
+        status: confirmed
+      - id: chai-amc.metrics
+        ref: Key Metrics
+        title: >-
+          Usefulness, Usability, and Efficacy; Fairness and Equity; Safety and Reliability
+          (each: goal of metric, result, interpretation, test type, testing data description,
+          validation process and justification)
+        source: template
+        status: confirmed
+      - id: chai-amc.resources
+        ref: Resources
+        title: >-
+          Evaluation References; Clinical Trial; Peer Reviewed Publication(s); Reimbursement
+          Status; Patient consent or disclosure required or suggested
+        source: template
+        status: confirmed
+
+  - id: hti-1
+    name: >-
+      ONC HTI-1 source attributes for predictive decision support interventions,
+      45 CFR 170.315(b)(11)
+    short: HTI-1 source attributes
+    publisher: U.S. Department of Health and Human Services, ASTP/ONC
+    edition: >-
+      45 CFR 170.315(b)(11)(iv)(B), as the eCFR gave it up to date on 20 November 2026
+    applies_to: >-
+      A certification criterion for health IT under the ONC Health IT Certification Program:
+      what a certified Health IT Module must support, and what its developer does for the
+      predictive interventions it supplies. It is addressed to developers of certified health
+      IT. The packet uses its list as a checklist of what such a description holds, and takes
+      no position on what the criterion requires of anyone.
+    status: confirmed
+    sources:
+      - id: ecfr
+        title: >-
+          45 CFR 170.315(b)(11), Decision support interventions (Electronic Code of Federal
+          Regulations)
+        url: https://www.ecfr.gov/current/title-45/section-170.315
+        checked_on: "2026-11-23"
+      - id: final-rule-2026
+        title: >-
+          Health Data, Technology, and Interoperability: ONC Deregulatory Actions To Unleash
+          Prosperity; final rule, 91 FR 67916 (28 October 2026)
+        url: https://www.federalregister.gov/documents/2026/10/28/2026-21943/health-data-technology-and-interoperability-onc-deregulatory-actions-to-unleash-prosperity
+        checked_on: "2026-11-23"
+    notes:
+      - text: >-
+          The list is leaving the regulation. A final rule published on 28 October 2026
+          (91 FR 67916), effective 28 December 2026, removes paragraphs (b)(11)(iv) through
+          (vi): the source attributes, access to them and their modification, and
+          intervention risk management. On the day checked they were still in the eCFR. From
+          that date the list is what the criterion used to ask for.
+        status: confirmed
+      - text: >-
+          The rule has a second, shorter list of 13 source attributes for evidence-based
+          interventions, (b)(11)(iv)(A). The packet maps to the list for predictive
+          interventions only. Which list would have applied to a given agent is a legal
+          question this software does not answer.
+        status: to_verify
+    parts:
+      - id: hti-1.b1
+        ref: (b)(11)(iv)(B)(1)
+        title: >-
+          Details and output of the intervention: name and contact information for the
+          developer; funding source; description of the value the intervention produces as an
+          output; whether the output is a prediction, classification, recommendation,
+          evaluation, analysis or other type
+        source: ecfr
+        status: confirmed
+      - id: hti-1.b2
+        ref: (b)(11)(iv)(B)(2)
+        title: >-
+          Purpose of the intervention: intended use; intended patient population(s); intended
+          user(s); intended decision-making role (for example informs, augments, replaces
+          clinical management)
+        source: ecfr
+        status: confirmed
+      - id: hti-1.b3
+        ref: (b)(11)(iv)(B)(3)
+        title: >-
+          Cautioned out-of-scope use of the intervention: tasks, situations or populations
+          where a user is cautioned against applying it; known risks, inappropriate settings,
+          inappropriate uses, or known limitations
+        source: ecfr
+        status: confirmed
+      - id: hti-1.b4
+        ref: (b)(11)(iv)(B)(4)
+        title: >-
+          Intervention development details and input features: exclusion and inclusion
+          criteria that influenced the training data set; use of race, ethnicity, language,
+          sexual orientation, gender identity, sex, date of birth, social determinants of
+          health and health status assessments as input features; demographic
+          representativeness; relevance of the training data to the intended deployed setting
+        source: ecfr
+        status: confirmed
+      - id: hti-1.b5
+        ref: (b)(11)(iv)(B)(5)
+        title: >-
+          Process used to ensure fairness in development of the intervention: the approach
+          taken to ensure the output is fair; approaches to manage, reduce or eliminate bias
+        source: ecfr
+        status: confirmed
+      - id: hti-1.b6
+        ref: (b)(11)(iv)(B)(6)
+        title: >-
+          External validation process: the data source, clinical setting or environment where
+          validity and fairness were assessed, other than the source of training and testing
+          data; the party that conducted the external testing; demographic representativeness
+          of the external data; the external validation process
+        source: ecfr
+        status: confirmed
+      - id: hti-1.b7
+        ref: (b)(11)(iv)(B)(7)
+        title: >-
+          Quantitative measures of performance: validity and fairness in test data from the
+          same source as the initial training data; validity and fairness in data external to
+          it; references to evaluations of the intervention's use on outcomes
+        source: ecfr
+        status: confirmed
+      - id: hti-1.b8
+        ref: (b)(11)(iv)(B)(8)
+        title: >-
+          Ongoing maintenance of intervention implementation and use: the process and
+          frequency by which validity is monitored over time; validity in local data; the
+          process and frequency by which fairness is monitored over time; fairness in local
+          data
+        source: ecfr
+        status: confirmed
+      - id: hti-1.b9
+        ref: (b)(11)(iv)(B)(9)
+        title: >-
+          Update and continued validation or fairness assessment schedule: the process and
+          frequency by which the intervention is updated; the frequency by which its
+          performance is corrected when risks related to validity and fairness are identified
+        source: ecfr
+        status: confirmed
+      - id: hti-1.vi
+        ref: (b)(11)(vi)
+        title: >-
+          Intervention risk management: risk analysis (validity, reliability, robustness,
+          fairness, intelligibility, safety, security, privacy); risk mitigation; governance,
+          including how data are acquired, managed and used
+        source: ecfr
+        status: confirmed
+
+  - id: nist-ai-rmf
+    name: NIST AI Risk Management Framework (AI RMF 1.0)
+    short: NIST AI RMF
+    publisher: National Institute of Standards and Technology (NIST)
+    edition: NIST AI 100-1, January 2023
+    applies_to: >-
+      A voluntary framework for any organization that designs, develops, deploys or uses AI
+      systems. Its four functions are GOVERN, MAP, MEASURE and MANAGE, each divided into
+      numbered categories.
+    status: confirmed
+    sources:
+      - id: publication
+        title: Artificial Intelligence Risk Management Framework (AI RMF 1.0), NIST AI 100-1
+        url: https://doi.org/10.6028/NIST.AI.100-1
+        checked_on: "2026-11-23"
+      - id: core
+        title: AI RMF Core (NIST Trustworthy and Responsible AI Resource Center)
+        url: https://airc.nist.gov/airmf-resources/airmf/5-sec-core/
+        checked_on: "2026-11-23"
+    notes:
+      - text: >-
+          The packet maps to the framework's categories, not to their subcategories. NIST said
+          on the day checked that AI RMF 1.0 is being revised; no revised version was
+          published then.
+        status: confirmed
+    parts:
+      - id: nist.govern-1
+        ref: GOVERN 1
+        title: >-
+          Policies, processes, procedures, and practices across the organization related to
+          the mapping, measuring, and managing of AI risks are in place, transparent, and
+          implemented effectively.
+        source: core
+        status: confirmed
+      - id: nist.govern-2
+        ref: GOVERN 2
+        title: >-
+          Accountability structures are in place so that the appropriate teams and individuals
+          are empowered, responsible, and trained for mapping, measuring, and managing AI
+          risks.
+        source: core
+        status: confirmed
+      - id: nist.govern-3
+        ref: GOVERN 3
+        title: >-
+          Workforce diversity, equity, inclusion, and accessibility processes are prioritized
+          in the mapping, measuring, and managing of AI risks throughout the lifecycle.
+        source: core
+        status: confirmed
+      - id: nist.govern-4
+        ref: GOVERN 4
+        title: >-
+          Organizational teams are committed to a culture that considers and communicates AI
+          risk.
+        source: core
+        status: confirmed
+      - id: nist.govern-5
+        ref: GOVERN 5
+        title: Processes are in place for robust engagement with relevant AI actors.
+        source: core
+        status: confirmed
+      - id: nist.govern-6
+        ref: GOVERN 6
+        title: >-
+          Policies and procedures are in place to address AI risks and benefits arising from
+          third-party software and data and other supply chain issues.
+        source: core
+        status: confirmed
+      - id: nist.map-1
+        ref: MAP 1
+        title: Context is established and understood.
+        source: core
+        status: confirmed
+      - id: nist.map-2
+        ref: MAP 2
+        title: Categorization of the AI system is performed.
+        source: core
+        status: confirmed
+      - id: nist.map-3
+        ref: MAP 3
+        title: >-
+          AI capabilities, targeted usage, goals, and expected benefits and costs compared
+          with appropriate benchmarks are understood.
+        source: core
+        status: confirmed
+      - id: nist.map-4
+        ref: MAP 4
+        title: >-
+          Risks and benefits are mapped for all components of the AI system including
+          third-party software and data.
+        source: core
+        status: confirmed
+      - id: nist.map-5
+        ref: MAP 5
+        title: >-
+          Impacts to individuals, groups, communities, organizations, and society are
+          characterized.
+        source: core
+        status: confirmed
+      - id: nist.measure-1
+        ref: MEASURE 1
+        title: Appropriate methods and metrics are identified and applied.
+        source: core
+        status: confirmed
+      - id: nist.measure-2
+        ref: MEASURE 2
+        title: AI systems are evaluated for trustworthy characteristics.
+        source: core
+        status: confirmed
+      - id: nist.measure-3
+        ref: MEASURE 3
+        title: Mechanisms for tracking identified AI risks over time are in place.
+        source: core
+        status: confirmed
+      - id: nist.measure-4
+        ref: MEASURE 4
+        title: Feedback about efficacy of measurement is gathered and assessed.
+        source: core
+        status: confirmed
+      - id: nist.manage-1
+        ref: MANAGE 1
+        title: >-
+          AI risks based on assessments and other analytical output from the MAP and MEASURE
+          functions are prioritized, responded to, and managed.
+        source: core
+        status: confirmed
+      - id: nist.manage-2
+        ref: MANAGE 2
+        title: >-
+          Strategies to maximize AI benefits and minimize negative impacts are planned,
+          prepared, implemented, documented, and informed by input from relevant AI actors.
+        source: core
+        status: confirmed
+      - id: nist.manage-3
+        ref: MANAGE 3
+        title: AI risks and benefits from third-party entities are managed.
+        source: core
+        status: confirmed
+      - id: nist.manage-4
+        ref: MANAGE 4
+        title: >-
+          Risk treatments, including response and recovery, and communication plans for the
+          identified and measured AI risks are documented and monitored regularly.
+        source: core
+        status: confirmed
+
+  - id: ruaih
+    name: >-
+      Joint Commission and Coalition for Health AI (CHAI) Guidance on The Responsible Use of
+      AI in Healthcare (RUAIH)
+    short: Joint Commission and CHAI guidance
+    publisher: Joint Commission and Coalition for Health AI (CHAI)
+    edition: Released 17 September 2025; the copy read is dated 10 November 2025
+    applies_to: >-
+      Guidance for healthcare organizations on how they deploy and use AI tools, which calls
+      itself an initial, high-level document. It is about what the organization does, not
+      about how a tool is built: most of what it asks for is the site's own to state.
+    status: confirmed
+    sources:
+      - id: guidance
+        title: >-
+          Joint Commission and Coalition for Health AI (CHAI) Guidance on The Responsible Use
+          of AI in Healthcare (RUAIH)
+        url: https://digitalassets.jointcommission.org/api/public/content/dcfcf4f1a0cc45cdb526b3cb034c68c2
+        checked_on: "2026-11-23"
+      - id: release
+        title: >-
+          Joint Commission and Coalition for Health AI (CHAI) Release Initial Guidance to
+          Support Responsible AI Adoption Across U.S. Health Systems (17 September 2025)
+        url: https://www.chai.org/news/joint-commission-and-coalition-for-health-ai-chai-release-initial-guidance
+        checked_on: "2026-11-23"
+      - id: playbooks
+        title: CHAI AI Governance work group, governance playbooks
+        url: https://www.chai.org/workgroup/cross-cutting/ai-governance
+        checked_on: "2026-11-23"
+    notes:
+      - text: >-
+          The guidance names seven elements. CHAI published governance playbooks that build on
+          it on 27 May 2026; the packet does not map to the playbooks.
+        status: confirmed
+      - text: >-
+          The guidance says a voluntary Joint Commission certification will follow the
+          playbooks. Whether that certification has opened, and what it asks for, was not
+          confirmed from a primary source.
+        status: to_verify
+    parts:
+      - id: ruaih.1
+        ref: Element 1
+        title: AI Policies and Governance Structures
+        source: guidance
+        status: confirmed
+      - id: ruaih.2
+        ref: Element 2
+        title: Patient Privacy and Transparency
+        source: guidance
+        status: confirmed
+      - id: ruaih.3
+        ref: Element 3
+        title: Data Security and Data Use Protections
+        source: guidance
+        status: confirmed
+      - id: ruaih.4
+        ref: Element 4
+        title: Ongoing Quality Monitoring
+        source: guidance
+        status: confirmed
+      - id: ruaih.5
+        ref: Element 5
+        title: Voluntary, Blinded Reporting of AI Safety-Related Events
+        source: guidance
+        status: confirmed
+      - id: ruaih.6
+        ref: Element 6
+        title: Risk and Bias Assessment
+        source: guidance
+        status: confirmed
+      - id: ruaih.7
+        ref: Element 7
+        title: Education and Training
+        source: guidance
+        status: confirmed
+
+# For each section of the packet (its key in core/packet.py), the parts it holds information
+# for. `holds` says what of the part is here and what is not.
+rows:
+  # 1. What it is and who made it
+  - section: identity
+    part: chai-amc.header
+    holds: Name, developer and version. Not the contact, release stage, release date, availability or regulatory status.
+  - section: identity
+    part: chai-amc.summary
+    holds: The publisher's summary. The card's keywords have no counterpart.
+  - section: identity
+    part: hti-1.b1
+    holds: The developer's name, and what the agent answers and with which labels. Not a contact or the funding source, and the type of output in the rule's own words is the publisher's to state.
+  - section: identity
+    part: nist.map-2
+    holds: The task the agent performs and the form of its output.
+
+  # 2. Intended use, users and population, and what it must not be used for
+  - section: intended_use
+    part: chai-amc.uses
+    holds: Intended use, intended users, patient population and out-of-scope uses, as the publisher wrote them. Not directions for use, nor the local workflow.
+  - section: intended_use
+    part: hti-1.b2
+    holds: Intended use, patient population and users. The decision-making role is in the section on how a person stays in the loop.
+  - section: intended_use
+    part: hti-1.b3
+    holds: The uses the publisher cautions against.
+  - section: intended_use
+    part: nist.map-1
+    holds: The intended purpose, users and setting as the publisher states them. The organization's own context is the site's to state.
+  - section: intended_use
+    part: nist.map-3
+    holds: The targeted scope of use. Not expected benefits and costs.
+
+  # 3. Risk level and what the runtime enforces because of it
+  - section: risk
+    part: chai-amc.warnings
+    holds: The risk level the publisher declared, with its rationale.
+  - section: risk
+    part: hti-1.vi
+    holds: The declared risk level and the limits the runtime applies because of it. A risk analysis by characteristic is not here.
+  - section: risk
+    part: nist.map-5
+    holds: The category of impact the publisher declared. Likelihood and magnitude of each impact are not here.
+  - section: risk
+    part: nist.manage-1
+    holds: The response the runtime applies at each risk level.
+  - section: risk
+    part: ruaih.6
+    holds: The declared risk level only. An assessment of bias is not here.
+
+  # 4. How a person stays in the loop
+  - section: oversight
+    part: chai-amc.facts
+    holds: The accountability mechanisms the runtime provides (review, override, hold, audit record), under "Transparency, Intelligibility, and Accountability mechanisms".
+  - section: oversight
+    part: hti-1.b2
+    holds: The decision-making role, as enforced, when the agent decides alone and when a person decides.
+  - section: oversight
+    part: nist.map-3
+    holds: The processes for human oversight that the runtime provides.
+  - section: oversight
+    part: nist.manage-2
+    holds: The mechanism to stop automation (the hold), and what stops it without anyone acting.
+  - section: oversight
+    part: nist.manage-4
+    holds: Review and override of the agent's recommendations.
+  - section: oversight
+    part: ruaih.1
+    holds: The controls the software gives a governance structure. The organization's own policy and structure are not here.
+
+  # 5. The publisher's evidence
+  - section: publisher_evidence
+    part: chai-amc.metrics
+    holds: The publisher's evaluation as counts with intervals, its critical cases and the configuration it ran on. Results by subgroup only where that evaluation measured them.
+  - section: publisher_evidence
+    part: chai-amc.resources
+    holds: The evidence the publisher cites, where it cites any.
+  - section: publisher_evidence
+    part: hti-1.b7
+    holds: Performance on the publisher's own test data. Not performance on external data.
+  - section: publisher_evidence
+    part: nist.measure-1
+    holds: The metrics used and the test set they were measured on.
+  - section: publisher_evidence
+    part: nist.measure-2
+    holds: Measured performance before deployment. Not security, privacy or explainability evaluations.
+  - section: publisher_evidence
+    part: ruaih.4
+    holds: How the tool was tested before deployment, which the guidance asks organizations to request during procurement.
+
+  # 6. This site's evidence
+  - section: site_evidence
+    part: hti-1.b8
+    holds: Validity in local data, as decisions, reviewer agreement, overrides and evaluations run here. Fairness in local data only where a local evaluation measured subgroups.
+  - section: site_evidence
+    part: nist.measure-2
+    holds: Performance measured in the deployment setting.
+  - section: site_evidence
+    part: nist.measure-4
+    holds: What reviewers and downstream outcomes say of the agent's recommendations.
+  - section: site_evidence
+    part: ruaih.4
+    holds: Local validation and the counts from use so far.
+
+  # 7. Known failure modes and limits
+  - section: limits
+    part: chai-amc.warnings
+    holds: Known risks and limitations as the publisher wrote them, and the limits of the evidence in this packet. Known biases only where the publisher wrote them.
+  - section: limits
+    part: hti-1.b3
+    holds: Known risks and limitations.
+  - section: limits
+    part: nist.map-2
+    holds: The limits of what the agent knows and of what was measured.
+  - section: limits
+    part: ruaih.6
+    holds: The known risks and limitations the guidance asks organizations to request from vendors.
+
+  # 8. Monitoring and what triggers an alert
+  - section: monitoring
+    part: chai-amc.facts
+    holds: The monitoring the runtime does, under "Ongoing Maintenance". The publisher's own maintenance is not here.
+  - section: monitoring
+    part: hti-1.b8
+    holds: What is monitored over time and what raises an alert. Not who reads it or how often, and fairness is not monitored.
+  - section: monitoring
+    part: nist.measure-3
+    holds: The checks that track the agent over time, with the evidence each needs.
+  - section: monitoring
+    part: nist.manage-4
+    holds: Monitoring after deployment and where its alerts go.
+  - section: monitoring
+    part: ruaih.4
+    holds: What is checked, with which thresholds, and the last weeks' counts.
+
+  # 9. Change control
+  - section: change_control
+    part: chai-amc.facts
+    holds: What happens here when the agent or its model changes, under "Ongoing Maintenance". The publisher's update process is not here.
+  - section: change_control
+    part: hti-1.b9
+    holds: What the runtime does when the agent changes or is recalled. Not the publisher's update and re-validation schedule.
+  - section: change_control
+    part: nist.manage-3
+    holds: Signed versions, verification on arrival and recalls for an agent from a third party.
+  - section: change_control
+    part: nist.manage-4
+    holds: Change management, an approval tied to one exact version, and what a recall does.
+  - section: change_control
+    part: ruaih.4
+    holds: How a change of the agent or its model is seen here, which the guidance asks organizations to stay informed of.
+
+  # 10. Data handling and privacy
+  - section: data_handling
+    part: chai-amc.facts
+    holds: What the agent reads, and the security practices of this deployment. Not accreditations.
+  - section: data_handling
+    part: nist.measure-2
+    holds: The privacy and security controls in force here. An assessment of privacy risk is not here.
+  - section: data_handling
+    part: ruaih.2
+    holds: What is kept of a case, for how long and who may read it. Not how patients are told.
+  - section: data_handling
+    part: ruaih.3
+    holds: Encryption of kept inputs, access by role, the audit trail and what leaves the deployment. Not data use agreements.
+
+  # 11. Who approved what and when
+  - section: approvals
+    part: nist.govern-2
+    holds: Who approved automation, for which exact version, when and on what reference.
+  - section: approvals
+    part: nist.manage-1
+    holds: The recorded decision that automation may proceed.
+  - section: approvals
+    part: ruaih.1
+    holds: The approvals a governance structure recorded here. The structure itself is not here.
+
+# What a framework asks for that the packet may not have. `who` could state it: the publisher
+# or the site. `stated_by` names the check in core/packet.py that finds it stated (none: no
+# record or manifest field holds it yet, so it is always listed).
+items:
+  # -- the publisher's to state -----------------------------------------------------------------
+  - key: publisher_evaluation
+    item: An evaluation of this version by its publisher
+    who: publisher
+    asked_by: [chai-amc.metrics, hti-1.b7, nist.measure-2]
+    stated_by: publisher_evaluation
+  - key: evidence_cited
+    item: Studies, trials or publications on how the agent affects outcomes
+    who: publisher
+    asked_by: [chai-amc.resources, hti-1.b7]
+    stated_by: evidence_cited
+  - key: out_of_scope
+    item: The uses the publisher cautions against
+    who: publisher
+    asked_by: [chai-amc.uses, hti-1.b3]
+    stated_by: out_of_scope
+  - key: known_failure_modes
+    item: Known risks, failure modes and limitations
+    who: publisher
+    asked_by: [chai-amc.warnings, hti-1.b3, ruaih.6]
+    stated_by: known_failure_modes
+  - key: publisher_subgroups
+    item: The publisher's results by patient subgroup
+    who: publisher
+    asked_by: [chai-amc.metrics, hti-1.b7, nist.measure-2, ruaih.6]
+    stated_by: publisher_subgroups
+  - key: developer_contact
+    item: A contact for questions, or to report an issue with the agent
+    who: publisher
+    asked_by: [chai-amc.header, hti-1.b1]
+  - key: funding_source
+    item: Who funded the agent's development
+    who: publisher
+    asked_by: [chai-amc.transparency, hti-1.b1]
+  - key: release_stage
+    item: Release stage, release date and where the agent is available
+    who: publisher
+    asked_by: [chai-amc.header]
+  - key: regulatory_status
+    item: Regulatory status, for example whether it is a medical device and any clearance
+    who: publisher
+    asked_by: [chai-amc.header]
+  - key: directions_for_use
+    item: Directions for use
+    who: publisher
+    asked_by: [chai-amc.uses]
+  - key: output_type
+    item: The type of output in the rule's words (prediction, classification, recommendation, evaluation, analysis)
+    who: publisher
+    asked_by: [hti-1.b1]
+  - key: model_type
+    item: The kind of model behind the agent, and any foundation model it uses
+    who: publisher
+    asked_by: [chai-amc.facts, nist.map-2]
+  - key: development_data
+    item: The data the agent was developed on, its inclusion and exclusion criteria, and how representative it is of the patients here
+    who: publisher
+    asked_by: [chai-amc.facts, hti-1.b4]
+  - key: demographic_inputs
+    item: Whether race, ethnicity, language, sexual orientation, gender identity, sex, date of birth, social determinants of health or health status assessments are inputs
+    who: publisher
+    asked_by: [hti-1.b4]
+  - key: fairness_approach
+    item: How fairness was addressed in development, known biases, and how bias is managed
+    who: publisher
+    asked_by: [chai-amc.facts, chai-amc.warnings, hti-1.b5, ruaih.6]
+  - key: external_validation
+    item: Validation on data from another source, and who carried it out
+    who: publisher
+    asked_by: [hti-1.b6, hti-1.b7]
+  - key: update_schedule
+    item: How often the agent is updated and validated again, and how its performance is corrected when a risk is found
+    who: publisher
+    asked_by: [chai-amc.facts, hti-1.b9]
+  - key: stakeholders
+    item: Who was consulted in designing the agent, for example patients and clinicians
+    who: publisher
+    asked_by: [chai-amc.transparency, nist.govern-5]
+  - key: third_parties
+    item: The third-party components and data the agent depends on
+    who: publisher
+    asked_by: [chai-amc.transparency, nist.map-4, nist.govern-6]
+  - key: risk_analysis
+    item: A risk analysis by characteristic (validity, reliability, robustness, fairness, intelligibility, safety, security, privacy) and how each risk is reduced
+    who: publisher
+    asked_by: [hti-1.vi, nist.map-5, nist.manage-1]
+  - key: benefits_and_costs
+    item: Expected benefits, and the costs of its errors
+    who: publisher
+    asked_by: [nist.map-3]
+  - key: consent_or_disclosure
+    item: Whether patient consent or disclosure is required or suggested
+    who: publisher
+    asked_by: [chai-amc.resources]
+  - key: reimbursement
+    item: Reimbursement status
+    who: publisher
+    asked_by: [chai-amc.resources]
+
+  # -- the site's to state ----------------------------------------------------------------------
+  - key: local_evidence
+    item: Decisions or an evaluation on this site's own cases
+    who: site
+    asked_by: [hti-1.b8, nist.measure-2, ruaih.4]
+    stated_by: local_evidence
+  - key: local_subgroups
+    item: Results by patient subgroup on this site's own cases
+    who: site
+    asked_by: [hti-1.b8, nist.measure-2, ruaih.6]
+    stated_by: local_subgroups
+  - key: approval_record
+    item: A recorded approval of this exact version
+    who: site
+    asked_by: [nist.govern-2, nist.manage-1, ruaih.1]
+    stated_by: approval_record
+  - key: governance_structure
+    item: The organization's AI policy, and the governance structure that oversees this agent
+    who: site
+    asked_by: [ruaih.1, nist.govern-1]
+  - key: accountable_owner
+    item: The named clinical and operational owner of the agent's use
+    who: site
+    asked_by: [ruaih.1, nist.govern-2]
+  - key: local_workflow
+    item: Where in the local workflow the agent is used, and who acts on its output
+    who: site
+    asked_by: [chai-amc.uses, nist.map-1]
+  - key: committee_conditions
+    item: The committee's conditions for use, and the date of its next review
+    who: site
+    asked_by: [ruaih.1, nist.govern-1]
+  - key: clinical_review
+    item: A clinician's review of this exact version
+    who: site
+    asked_by: [nist.measure-1, ruaih.4]
+  - key: monitoring_owner
+    item: Who reads the monitoring, how often, and what they do on an alert
+    who: site
+    asked_by: [hti-1.b8, nist.measure-3, ruaih.4]
+  - key: fairness_monitoring
+    item: How fairness is monitored over time
+    who: site
+    asked_by: [hti-1.b8, ruaih.6]
+  - key: staff_training
+    item: How the staff who use the agent are trained
+    who: site
+    asked_by: [ruaih.7, nist.govern-2, nist.map-3]
+  - key: patient_notice
+    item: How patients are told that AI is used in their care, and whether consent is asked
+    who: site
+    asked_by: [ruaih.2]
+  - key: data_use_agreement
+    item: The agreements that govern the data, with the publisher and with whoever runs the agent's model
+    who: site
+    asked_by: [ruaih.3]
+  - key: security_assessment
+    item: Security assessments of the environment the agent runs in, and the incident response plan
+    who: site
+    asked_by: [ruaih.3, chai-amc.facts, nist.measure-2]
+  - key: event_reporting
+    item: How AI safety events are reported inside the organization and, blinded, outside it
+    who: site
+    asked_by: [ruaih.5, nist.manage-4, nist.govern-4]
+  - key: withdrawal_plan
+    item: How the agent would be withdrawn from use
+    who: site
+    asked_by: [nist.govern-1, nist.manage-2]
+  - key: inclusive_oversight
+    item: Who takes part in decisions about the agent, and how the people it affects are heard
+    who: site
+    asked_by: [nist.govern-3, nist.govern-5, nist.measure-4]

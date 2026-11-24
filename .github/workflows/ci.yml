@@ -663,10 +663,107 @@ jobs:
         run: python3 scripts/doc_blocks.py run cli
       - name: The Python examples
         run: uv run python scripts/doc_blocks.py run python
-      - name: A new virtual environment installs from the clone, with the server extra
+      - name: A new virtual environment installs from the clone with one command, and serves
         run: python3 scripts/doc_blocks.py run install
       - name: A REST, a FHIR and a guard decision by the documented commands, and the commands on the server's database
         run: uv run python scripts/check_doc_snippets.py
+
+  action:
+    # The action other repositories check their agent with (action.yml,
+    # docs/guides/evaluate-in-ci.md), used here as they use it, on the bundled demo agent. Its
+    # canned agent leaves urgent messages undetected on purpose (81 of 114 detected, and nine of
+    # the others automated: nine critical misses). So the first use states limits the agent
+    # meets, and a target no threshold of it can keep to, which must fail nothing; the second
+    # holds it to that first result and to no limit; and the third states none of its own: the
+    # action's defaults then apply, and it must fail, for the limits and for nothing else.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The demo agent, within limits it meets, and with a target, which fails nothing
+        id: within
+        uses: ./
+        with:
+          agent: agents/portal-message-agent
+          dataset: test
+          min-critical-detection: "70%"
+          max-critical-misses: "9"
+          min-accuracy: "90%"
+          max-false-automation: "5%"
+          target-critical-miss: "1%"
+          artifact: mendari-evaluation-within
+      - name: The demo agent, no worse than that result
+        id: against
+        uses: ./
+        with:
+          agent: agents/portal-message-agent
+          dataset: test
+          baseline: ${{ steps.within.outputs.result }}
+          min-critical-detection: ""
+          max-critical-misses: ""
+          artifact: mendari-evaluation-against
+      - name: The demo agent, held to the action's own limits (expected to fail)
+        id: strict
+        continue-on-error: true
+        uses: ./
+        with:
+          agent: agents/portal-message-agent
+          dataset: test
+          artifact: mendari-evaluation-strict
+      - name: That use failed, and for the limits alone
+        env:
+          OUTCOME: ${{ steps.strict.outcome }}
+          VALIDATION: ${{ steps.strict.outputs.validation }}
+          TESTS: ${{ steps.strict.outputs.tests }}
+          EVALUATION: ${{ steps.strict.outputs.evaluation }}
+        run: |
+          test "$OUTCOME" = failure
+          test "$VALIDATION" = passed
+          test "$TESTS" = passed
+          test "$EVALUATION" = failed
+      - name: Each summary says what it found, with cases by id, and the operating point
+        env:
+          WITHIN: ${{ steps.within.outputs.summary }}
+          AGAINST: ${{ steps.against.outputs.summary }}
+          STRICT: ${{ steps.strict.outputs.summary }}
+        run: |
+          grep -q '^## Mendari agent check: passed$' "$WITHIN"
+          grep -q '^### Gate passed$' "$WITHIN"
+          grep -q '^### Operating point$' "$WITHIN"
+          grep -q '^\*\*No automation threshold can be certified for critical misses at most 1% with 95% confidence\.\*\*$' "$WITHIN"
+          grep -q '^Nothing is worse than the baseline\.$' "$AGAINST"
+          grep -q "^\*\*At the agent's automation threshold 0\.90, 326 of 600 cases are automated: " "$AGAINST"
+          grep -q '^## Mendari agent check: failed$' "$STRICT"
+          grep -q '^### Gate failed: 2 limits not met$' "$STRICT"
+          grep -q 'no person read them (9): .demo-0002., ' "$STRICT"
+
+  quickstart-wheel:
+    # One install command and a five-minute path, as a developer who installs the package gets
+    # them. The sdist is built, and the wheel from it; the wheel alone, with no extra, is
+    # installed into a new environment outside the checkout; then, in an empty folder with none
+    # of this machine's settings: the demo, an agent of one's own (scaffolded, validated, tested,
+    # evaluated and probed) and the server, until it answers and serves the console
+    # (scripts/run_quickstart.py --wheel). Timed, install included: five minutes or more fails,
+    # and it takes well under one. The wheel must also hold every tracked file of the package
+    # and of the bundled agent, and no other (scripts/check_sdist.py --wheel).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.6"
+          python-version: "3.12"
+          enable-cache: false
+      - name: Build the sdist, then the wheel from it
+        run: uv build --out-dir /tmp/dist
+      - name: The sdist holds only the build inputs, and the wheel every tracked file of the folders it is built from
+        run: python3 scripts/check_sdist.py /tmp/dist/mendari-*.tar.gz --wheel /tmp/dist/*.whl
+      - name: One install command, then the first five minutes, from the wheel in an empty folder
+        run: python3 scripts/run_quickstart.py --wheel /tmp/dist/*.whl
 
   pilot-check:
     # The v0.6 exit: a pilot organization runs a portal-message agent (the bundled demo agent)

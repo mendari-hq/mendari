@@ -4,19 +4,34 @@
 It routes a few patient portal messages through the agent under its policy, fills a review queue
 and has simulated reviewers work it, verifies the audit chain, then evaluates the agent on its
 600-case set the way a site would before going live. The demo agent answers from canned
-responses (its `mock_file`) and misses urgent messages that are worded as a patient might say
-them: the evaluation is there to catch exactly that, and the demo says what it found.
+responses (its `mock_file`) and does not detect urgent messages that are worded as a patient
+might say them: the evaluation is there to catch exactly that.
+
+Then it probes the agent (`evals/probe.py`): some of the same cases, each rewritten in ways that
+keep its meaning, to find the failures no one wrote a case for. The probe's own report says
+whose answers it read: the fixture's, on this machine, and not an agent's.
+
+It ends with what next, in three parts: the evaluation's verdict; its operating point
+(`evals/operating_point.py`), which says whether these cases support any automation threshold
+that keeps the urgent messages no person reads to `TARGETS`; and the commands to type next.
 """
 
 from __future__ import annotations
 
+import textwrap
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
-from mendari.evals import evaluate, resolve_dataset
+from mendari.evals import evaluate, probe, probe_report, resolve_dataset
+from mendari.evals.operating_point import NONE_CERTIFIED, RECOMMENDED, SUPPORTED, Targets
 from mendari.evals.render import shown
 from mendari.evals.result import counted
 
 PACK_ID = "mendari/portal-message-agent"
+PROBED = 40  # cases the probe rewrites, each in six ways
+FINDINGS_SHOWN = 3
 SAMPLES = (
     "Can you send a refill of my metformin to the pharmacy?",
     "I need to reschedule my appointment to Friday.",
@@ -26,6 +41,21 @@ SAMPLES = (
     "No chest pain or anything like that, only a question about my bill.",
 )
 REVIEWED = 200  # the first cases of the test set, decided and then reviewed
+# What the demo holds the agent to: of the urgent messages, at most 1% automated, so read by no
+# person (critical misses), shown with 95% confidence.
+TARGETS = Targets(critical_miss=0.01)
+# The demo's last words: the commands to type next, each as the command line reads it (none
+# with a flag it had before), and what each is for. They are what an installed Mendari can do.
+NEXT = (
+    ("mendari new my-agent --id my-clinic/my-agent", "an agent of your own, from a template"),
+    ("mendari probe my-agent", "its failures, found and kept as tests (--write)"),
+    ("mendari serve", "the console, at http://127.0.0.1:8000"),
+)
+# A URL, not a folder: an installed Mendari has no `examples/` beside it. The folder of every
+# starter, since product code names no model's vendor (tests/test_shipped.py).
+EXAMPLES = "https://github.com/mendari-hq/mendari/tree/main/examples"
+MODEL = f"A model answers behind MENDARI_AGENT_URL: the starters are at {EXAMPLES}"
+_WIDTH = 100
 
 
 def _section(title: str) -> None:
@@ -75,7 +105,7 @@ def _run(store: AuditStore) -> None:
     print(f"audit chain: {'verified' if chain['ok'] else 'BROKEN'} ({chain['events']} events)")
 
     _section("3. Before going live: evaluate the agent")
-    report = evaluate(Decision(pack), test)
+    report = evaluate(Decision(pack), test, targets=TARGETS)
     decisions = report["decisions"]
     request = report["questions"][m.policy.primary]
     print(f"{test.name} set, {len(test.records)} synthetic messages with labels")
@@ -90,21 +120,79 @@ def _run(store: AuditStore) -> None:
             f"critical {name}: {critical['detected']} of {critical['n']} detected, "
             f"{critical['auto_missed']} would have been automated"
         )
-    missed = sum(c["n"] - c["detected"] for c in decisions["critical"])
-    automated = sum(c["auto_missed"] for c in decisions["critical"])
-    if automated:
-        print(
-            f"\nVerdict: not ready. The agent missed {missed} urgent messages, and {automated} of "
-            "them would have gone out with no person reading them. Fix the agent (or its policy) "
-            "and evaluate again before it decides anything alone."
-        )
-    elif missed:
-        print(f"\nVerdict: review. {missed} urgent messages were missed, but a person sees each.")
-    else:
-        print("\nVerdict: every urgent message in this set was caught.")
+
+    _section("4. Find the failures nobody wrote down")
     print(
-        "\nNext: put a model behind it (the model-backed example in examples/, then "
-        "MENDARI_AGENT_URL), wrap your "
-        "own agent with `mendari new my-agent --id my-clinic/my-agent`, and run "
-        "`mendari serve` for the dashboard at http://127.0.0.1:8000."
+        "Each case is rewritten six ways that keep its meaning (a typing error, a line break, an\n"
+        "instruction slipped in): an answer that then changes is a failure."
     )
+    planned = probe.plan(Decision(pack), probe.source(pack, test.name), probe.Options(limit=PROBED))
+    found = probe.run(planned)
+    # The probe's own report, from its second line: the agent is named above.
+    print("\n".join(probe_report.text(found.report, shown=FINDINGS_SHOWN).splitlines()[1:]))
+
+    _section("What next")
+    point = report["run"]["operating_point"]
+    for line in (
+        f"Verdict: {verdict(point, decisions['critical'])}",
+        f"Operating point: {advice(point)}",
+    ):
+        print(textwrap.fill(line, _WIDTH, subsequent_indent="  ", break_on_hyphens=False))
+    print("Next:")
+    column = max(len(command) for command, _ in NEXT) + 3
+    for command, what in NEXT:
+        print(f"  {command:<{column}}{what}")
+    print(f"  {MODEL}")
+
+
+def verdict(point: Mapping[str, Any], critical: Sequence[Mapping[str, Any]]) -> str:
+    """The evaluation's verdict: whether these cases support the agent's automation threshold
+    (the operating point's status), then what the evaluation saw of the critical cases, the
+    urgent messages. A critical case that is automated is a critical miss; one that was not
+    detected and that a person reads is not."""
+    positives = sum(item["n"] for item in critical)
+    undetected = sum(item["n"] - item["detected"] for item in critical)
+    misses = sum(item["auto_missed"] for item in critical)
+    if misses:
+        seen = (
+            f"On the test set the agent did not detect {undetected} of {positives} urgent "
+            f"messages, and {misses} of them would have been automated: critical misses, which "
+            "no person reads."
+        )
+    elif undetected:
+        seen = (
+            f"On the test set the agent did not detect {undetected} of {positives} urgent "
+            "messages, and a person reads each of them."
+        )
+    else:
+        seen = f"On the test set the agent detected each of the {positives} urgent messages."
+    status = point["status"]
+    if status == SUPPORTED or (status == RECOMMENDED and point["current_supported"]):
+        return f"its automation threshold holds on this set. {seen}"
+    if status == RECOMMENDED:
+        return f"not ready at its automation threshold {point['change']['from']:.2f}. {seen}"
+    if status == NONE_CERTIFIED:
+        return f"not ready. {seen}"
+    return f"review. {seen}"
+
+
+def advice(point: Mapping[str, Any]) -> str:
+    """The operating point in a line or two: the block's own summary, then what to do about it.
+    `mendari eval` prints the counts behind it."""
+    status = point["status"]
+    then = ""
+    if status == SUPPORTED:
+        then = "Nothing to change: evaluate again when the agent or its cases change."
+    elif status == RECOMMENDED:
+        then = (
+            f"To adopt it, change one line of the agent's manifest (`{point['change']['line']}`), "
+            "then evaluate again."
+        )
+    elif status == NONE_CERTIFIED:
+        then = (
+            "No threshold fixes this: fix the agent, or add a rule or a second signal, and "
+            "evaluate again before it decides anything alone."
+            if point["cannot_fix"]
+            else "Fix the agent or add cases, and evaluate again before it decides anything alone."
+        )
+    return f"{point['summary']} {then}".rstrip()

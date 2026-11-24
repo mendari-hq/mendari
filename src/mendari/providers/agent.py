@@ -178,6 +178,20 @@ class AgentProvider(Provider):
             return env_url, True
         return None, False
 
+    @property
+    def canned(self) -> str | None:
+        """Why its answers are canned now (`CANNED`): no live endpoint is set, and its
+        `mock_file` answers. None when it calls an agent, or has no mock file to answer from."""
+        if self._mock is None or self._resolve_endpoint()[0] is not None:
+            return None
+        return CANNED
+
+    @property
+    def canned_answers_vary(self) -> bool:
+        """Whether its mock file can answer two inputs differently: it has `cases` to match
+        against an input. With a `default` alone, every input gets the same answers."""
+        return bool(self._mock and self._mock.get("cases"))
+
     def preflight(self) -> None:
         url, _ = self._resolve_endpoint()
         if url is not None:

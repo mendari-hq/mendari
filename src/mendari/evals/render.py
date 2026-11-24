@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Plain-text rendering of evaluation reports and comparisons for the terminal, and the
-scoreboard's tables in Markdown (`scoreboard_markdown`)."""
+"""Plain-text rendering of evaluation reports and comparisons for the terminal, a report in
+Markdown for a CI job summary (`report_markdown`), and the scoreboard's tables in Markdown
+(`scoreboard_markdown`)."""
 
 from __future__ import annotations
 
@@ -154,6 +155,99 @@ def report_text(report: dict[str, Any]) -> str:
             + ", ".join(f"{k}: {v}" for k, v in report["errors"].items())
         )
     return "\n".join(lines)
+
+
+CODE_CHARS = 80  # the most of a name from outside that a Markdown summary shows
+NAMED_CASES = 20  # the most case ids a Markdown summary lists for one kind of critical case
+
+
+def code(value: Any, limit: int = CODE_CHARS) -> str:
+    """A name that comes from outside the manifest (a dataset, a model, a case's id) as inline
+    code in Markdown: shown as it is, never rendered. It stays on one line and under `limit`
+    characters, and holds no backtick that would end the code."""
+    text = " ".join(str(value).split())
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    text = text.replace("`", "'")
+    return f"`{text}`" if text else "(empty)"
+
+
+def md_row(*cells: str) -> str:
+    """A Markdown table's row: no cell ends early at a `|` of its own or breaks the line."""
+    return "| " + " | ".join(_cell(cell) for cell in cells) + " |"
+
+
+def report_markdown(
+    report: Mapping[str, Any],
+    critical: Sequence[Mapping[str, Sequence[str]]] = (),
+    ids: Mapping[str, Any] | None = None,
+) -> str:
+    """An evaluation report as Markdown, for a CI job summary: the figures `report_text` gives
+    first (the primary question's accuracy, the mix of outcomes, automation, each critical
+    label), each k of n with its interval. With `critical` (`result.critical_cases`, from the
+    run's ledger), the critical cases that went wrong are named: by the id `ids` gives for a
+    ledger hash (known only where the dataset is), else by the hash, and never by their text.
+    A name the manifest does not hold to a pattern (the dataset's, a model's, an id) is shown
+    as code, never rendered."""
+    pack, primary = report["pack"], report["primary"]
+    question = report["questions"].get(primary)
+    decisions = report["decisions"]
+    counts = decisions["outcome_counts"]
+    total = sum(counts.values())
+    automation = decisions["automation"]
+    providers = ", ".join(
+        code(f"{slot}={provider['variant']}") for slot, provider in report["providers"].items()
+    )
+    models = sorted({model for by_model in report["models"].values() for model in by_model})
+    answered = f" Answered by {', '.join(code(model) for model in models)}." if models else ""
+    rows = []
+    if question:
+        accuracy = shown(counted(question["accuracy"], question["n"]))
+        rows.append((f"{primary.capitalize()} accuracy", accuracy))
+    rows += [
+        (f"Outcome {code(outcome)}", shown(stats.proportion(count, total)))
+        for outcome, count in counts.items()
+    ]
+    rows += [
+        ("Automated, correct", shown(counted(automation["accuracy"], automation["n"]))),
+        ("False automation", f"{shown(false_automation(report))} of labelled cases"),
+    ]
+    names = [code(f"{item['question']}={item['label']}") for item in decisions["critical"]]
+    for name, item in zip(names, decisions["critical"], strict=True):
+        detected = shown(stats.proportion(item["detected"], item["n"])) + evidence(item["n"])
+        rows.append((f"Critical {name} detected", detected))
+        automated = shown(stats.proportion(item["auto_missed"], item["n"]))
+        rows.append((f"Critical {name} automated", automated))
+    if report["errors"]:
+        errors = ", ".join(f"{code(error)}: {count}" for error, count in report["errors"].items())
+        rows.append(("Provider errors", errors))
+    lines = [
+        f"### Evaluation of {code(pack['id'])} {code(pack['version'])} on "
+        f"{code(report['dataset']['name'])} ({total} cases)",
+        "",
+        f"Providers: {providers}.{answered} Proportions are {INTERVALS}.",
+        "",
+        md_row("Figure", "Result"),
+        "|---|---|",
+        *(md_row(*row) for row in rows),
+    ]
+    # The two ways a critical case goes wrong, each under the name it has everywhere: a critical
+    # miss is a case that was automated (the row "automated" above, and what a limit or a target
+    # on critical misses counts); a case that was not detected and that a person still read is
+    # no miss, and is said in those words.
+    kinds = (
+        ("automated", "Critical misses: {name} cases automated, so no person read them"),
+        ("undetected", "Critical {name} cases not detected, and read by a person"),
+    )
+    for name, cases in zip(names, critical, strict=False):
+        for kind, words in kinds:
+            found = cases.get(kind, ())
+            if found:
+                named = [code((ids or {}).get(case, case)) for case in found[:NAMED_CASES]]
+                more = len(found) - len(named)
+                listed = ", ".join(named) + (f" and {more} more" if more else "")
+                lines += ["", f"{words.format(name=name)} ({len(found)}): {listed}"]
+    return "\n".join(lines) + "\n"
 
 
 def comparison_text(comparison: dict[str, Any], max_findings: int = 6) -> str:

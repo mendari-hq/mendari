@@ -39,6 +39,7 @@ _FILES = (
     "SECURITY.md",
     "CODE_OF_CONDUCT.md",
     "mkdocs.yml",
+    "action.yml",  # the action another repository uses: its name, description and inputs
     "hub/README.md",
     "docker-compose.yml",  # the sandbox, as an operator starts it
     "deploy/onprem/.env.example",  # a template whose name starts with a dot: named here
@@ -207,7 +208,12 @@ def test_the_files_are_found() -> None:
     for expected in (
         "README.md",
         "mkdocs.yml",
+        "action.yml",
         "docs/index.md",
+        "docs/guides/choosing-a-threshold.md",
+        "docs/guides/evaluate-in-ci.md",
+        "docs/guides/finding-failures.md",
+        "docs/guides/committee-packet.md",
         "docs/spec/agent-manifest-0.2.md",
         "docs/decisions/ADR-0001-questions-as-the-core-abstraction.md",
         "docs_theme/main.html",

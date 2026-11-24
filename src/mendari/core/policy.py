@@ -208,6 +208,40 @@ def apply_policy(
     return PolicyResult(outcome, recommendation, priority, tuple(reasons), rule_name)
 
 
+@dataclass(frozen=True)
+class PolicyInputs:
+    """Everything `apply_policy` decides from besides the manifest, as one decision gave it. A
+    decision keeps its own in memory (`DecisionResult.policy_inputs`), so its policy can be
+    applied again to the same answers under a manifest that differs in one setting, with no
+    new call to a provider (`evals/operating_point.py`: another automation threshold)."""
+
+    answers: Mapping[str, Answer]
+    failures: Mapping[str, str]
+    governance: GovernanceOverride | None = None
+    variants: Mapping[str, str] | None = None
+    community: bool = False
+    hold: str | None = None
+    blocks_to_person: str | None = None
+    site_code: Sequence[str] = ()
+    not_offered: Sequence[str] = ()
+    canned: str | None = None
+
+    def apply(self, manifest: PackManifest) -> PolicyResult:
+        return apply_policy(
+            manifest,
+            self.answers,
+            self.failures,
+            self.governance,
+            self.variants,
+            community=self.community,
+            hold=self.hold,
+            blocks_to_person=self.blocks_to_person,
+            site_code=self.site_code,
+            not_offered=self.not_offered,
+            canned=self.canned,
+        )
+
+
 def canned_reason(canned: str) -> str:
     """The `canned` cap's reason: why the answers are canned, and that a person decides."""
     return f"{canned}; a person decides"

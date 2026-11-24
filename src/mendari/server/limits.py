@@ -122,8 +122,11 @@ DEFAULT_RATES: dict[str, Rate] = {
 # Each names a route's current path; `Limiter.classify` and `DailyCap.counts` read a renamed
 # route's former path as its current one first (`server/paths.py`), so both count alike.
 _GUARD = re.compile(r"^/api/agents/[^/]+/[^/]+/guard$")
+# What is made to be kept: the exports, and the committee packet (one document of every
+# aggregate read about an agent, made for a meeting and not for polling).
 _EXPORTS = re.compile(
-    r"^/api/(audit/(administrative/)?export/fhir|agents/[^/]+/[^/]+/feedback/export)$"
+    r"^/api/(audit/(administrative/)?export/fhir"
+    r"|agents/[^/]+/[^/]+/(feedback/export|committee-packet))$"
 )
 
 

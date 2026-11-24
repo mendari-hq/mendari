@@ -48,7 +48,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mendari import __version__, guard, notices, settings
 from mendari.alerts import AlertSettings, alert_settings, check_webhook, deliver, retry_due
-from mendari.core import accounts, checkpoint, clock, tenancy, validation_brief
+from mendari.core import accounts, checkpoint, clock, packet, tenancy, validation_brief
 from mendari.core.audit import (
     ADMINISTRATIVE_KINDS,
     OFF_DECISION_KINDS,
@@ -114,6 +114,7 @@ from mendari.evals.monitoring import organizations as monitored_organizations
 from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id, setting
 from mendari.providers import jev, llm, provider_allow_list, slots_without_model
+from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
 from mendari.providers.credentials import key_source
 from mendari.server import api_docs, landing, paths, security_log, sessions
 from mendari.server.auth import (
@@ -1998,7 +1999,12 @@ def create_app(
     ) -> Any:
         """Aggregate clinical and operational validation brief for an agent (zero PHI): readiness
         gates, exact Clopper-Pearson confidence intervals, shadow-pilot status, reclaimable
-        clinician hours, and clustered human-override patterns for closed-loop improvement."""
+        clinician hours, and clustered human-override patterns for closed-loop improvement.
+
+        Computed from your organization's audit trail when asked; it is not signed (`signed` is
+        `false`, and `about` says what it is). A gate's `status` is `pass`, `warn`, `fail` or
+        `no_data`: a gate with nothing to measure (no decision automated, as in every shadow
+        pilot; too few decisions for the monitor to compare) says so and never passes."""
         pack = pack_or_404(f"{namespace}/{name}")
         days = max(1, min(days, MONITOR_MAX_DAYS))
         minutes_per_case = max(0.5, min(minutes_per_case, 60.0))
@@ -2030,7 +2036,7 @@ def create_app(
             holds=held,
             governance_active=gov,
             registry_approval=reg,
-            monitoring_alerts=mon.get("alerts", ()),
+            monitoring=mon,
         )
         if format == "markdown":
             return Response(
@@ -2041,6 +2047,82 @@ def create_app(
                 },
             )
         return brief
+
+    @app.get(
+        "/api/agents/{namespace}/{name}/committee-packet",
+        tags=["Governance"],
+        summary="Committee packet",
+        name="agent_committee_packet",
+    )
+    def committee_packet(
+        request: Request,
+        namespace: str,
+        name: str,
+        days: int = packet.DEFAULT_DAYS,
+        format: Literal["json", "html"] = "json",
+    ) -> Any:
+        """Everything an AI governance committee reads about one agent, at the version served
+        here, as your organization sees it (`mendari.committee-packet/1`): what it is and who
+        made it; its intended use and what it must not be used for; its risk level and what the
+        runtime enforces; how a person stays in the loop; the publisher's evidence; your
+        organization's own decisions, shadow pilot, overrides and the validation brief's gates;
+        known failure modes; monitoring; change control; data handling; and who approved what.
+        Then two appendices: `not_stated`, every item a framework asks for that neither the
+        publisher nor your organization has stated (never filled with a guess), and
+        `crosswalk`, where each section relates to the CHAI Applied Model Card, the HTI-1
+        source attributes, the NIST AI Risk Management Framework and the Joint Commission and
+        CHAI guidance, each entry with its source, an address and the day it was checked.
+
+        Counts, ids, label codes, names of configurations and dates only: never case text or
+        patient data, and no person's name but an approver's. It is a reading aid prepared by
+        the software: not signed, and not a certification, an attestation of compliance or
+        legal advice. `days` is held to 14 to 180. `format=html` answers one self-contained
+        page to print, as a download; `sha256` is the hash of the JSON packet without it."""
+        pack = pack_or_404(f"{namespace}/{name}")
+        days = max(packet.MIN_DAYS, min(days, packet.MAX_DAYS))
+        org = org_of(auth.acting(request))
+        held = store.holds(org)
+        if auth.memberships:  # an operator's hold: what it covers, never its reason (ADR-0008)
+            held = [h if h["org"] is not None else operators_hold(h) for h in held]
+        deployment = packet.Deployment(
+            phi_mode=phi.mode,
+            input_hash=phi.hash_kind,
+            retention_days=retention_days,
+            scheduled=bool(cron_secret),
+            sign_in=auth.enabled,
+            accounts=None if sign_in is None else sign_in.accounts,
+            session_idle_minutes=session_lifetime.idle // 60,
+            session_max_hours=session_lifetime.absolute // 3600,
+            checkpoint_key=(
+                key_id(checkpoint_signer.public_key()) if checkpoint_signer is not None else None
+            ),
+            alert_destination=alerts is not None,
+            alerts_signed=alerts is not None and bool(alerts.secret),
+            provider_allowed_origins=provider_origins,
+            agent_endpoint=bool(os.environ.get(AGENT_ENDPOINT_ENV, "").strip()),
+            providers=health_providers.get(pack.id),
+            models=running_models.get(pack.id),
+        )
+        built = packet.build(
+            store,
+            pack,
+            deployment=deployment,
+            days=days,
+            organization=org if auth.enabled else None,
+            holds=held,
+            # Which version ran where is the deployment operator's in memberships mode.
+            records=None if auth.memberships else store.deployments(pack.id, limit=20),
+            recall=recall_watch.held(pack),
+        )
+        if format == "html":
+            return Response(
+                packet.render_html(built),
+                media_type="text/html; charset=utf-8",
+                headers={
+                    "content-disposition": f'attachment; filename="{name}-committee-packet.html"'
+                },
+            )
+        return built
 
     # -- monitoring ------------------------------------------------------------------------------
 

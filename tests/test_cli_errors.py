@@ -68,6 +68,7 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "usage": (["--db", "{missing_db}"], {}),
     "validate": (["no/such-agent"], {}),
     "test": (["mendari/patient-inbox-router", "--provider", "routr=llm"], {}),
+    "probe": (["no/such-agent"], {}),
     "decide": (["mendari/ai-guard", "--input", "{missing}"], {}),
     "eval": (["mendari/ai-guard", "--dataset", "{missing}"], {}),
     "data coverage": (["mendari/ai-guard", "--dataset", "{missing}"], {}),
@@ -204,6 +205,8 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "registry checkpoint": (["--db", "{missing_db}"], {}),
     "yank": (["site-a/inbox", "--reason", "x", "--severity", "low", "--key", "{missing}"], {}),
     "monitor": (["--db", "{missing_db}"], {}),
+    # The committee packet reads the server's database and makes none.
+    "packet": (["mendari/ai-guard", "--db", "{missing_db}"], {}),
     # No webhook (the tests clear MENDARI_ALERT_WEBHOOK); in CI, refused before that.
     "alerts test": ([], {}),
     "smart check": ([DEAD], {}),

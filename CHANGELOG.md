@@ -9,6 +9,68 @@ no section, or whose section is not the newest. Changes to an agent are in the a
 
 The first release (not yet published).
 
+- **The automation threshold the cases support, with a stated guarantee** (2026-11-23; nothing
+  changes how an agent decides). Every evaluation now reports its operating point: what the
+  agent's automation threshold (`policy.thresholds.auto`) lets through on the cases, as two
+  risks, each k of n with its exact one-sided upper bound (Clopper-Pearson). A **critical
+  miss** is a case of a critical label that is automated, so that no person reads it; **false
+  automation** is a case automated with a wrong answer, as a share of the labelled cases.
+  Given a target (`mendari eval --target-critical-miss 1%`, `--target-false-automation 2%`,
+  with `--target-critical-miss-of` and `--target-confidence`), the report recommends the lowest
+  threshold at which each targeted risk stays within its target with that confidence, however
+  many thresholds were tried (fixed-sequence testing), or says why none can be certified: how
+  many cases are missing, or that no threshold fixes it. The recommendation is what the
+  agent's own policy would do at each threshold, worked out from the answers the run recorded;
+  it is advice, and nothing edits a manifest. The block is `run.operating_point`
+  (`mendari.operating-point/1`), outside the result that `result_sha256` covers; the console
+  shows it under each evaluation, a Decision Card shows the bound at the threshold its
+  benchmark ran with, and `mendari demo` ends on it
+  ([Choosing an automation threshold](docs/guides/choosing-a-threshold.md)).
+- **An agent checked on every change, in its own repository's CI** (2026-11-23). `mendari eval`
+  takes limits, held against what the run measured: `--min-accuracy`,
+  `--min-critical-detection`, `--max-critical-misses`, `--max-false-automation` and
+  `--no-worse-than RESULT` (an earlier result of the same agent on the same cases). A result
+  that does not meet one is exit 2. A limit is not a target: a target (above) never fails a
+  run. A share is written `90%` or `0.9` for both. `mendari eval --markdown` writes the result
+  for a CI job's summary: the figures with their intervals, critical cases named by id and
+  never by their text, the operating point, and what each limit found. Mendari's GitHub Action
+  (`action.yml`) runs `mendari validate`, `mendari test` and that evaluation, takes the limits
+  and the targets as inputs under the options' names, uploads the result and fails the job when
+  a check fails; it needs no secret, and installs Mendari with the dependencies the release
+  locked. `mendari new` writes the workflow that uses it into a new agent's folder (no part
+  of the agent), and Mendari's own CI runs the action on the demo agent
+  ([Evaluating an agent on every change](docs/guides/evaluate-in-ci.md)).
+- **`mendari probe`: the failures nobody wrote a case for** (2026-11-23). It changes the text of
+  an agent's own cases in ways that keep their meaning (typing errors, letter case,
+  punctuation, white space, a greeting or a signature, an instruction slipped into the
+  message), decides each variant as the original is decided, and reports the answers that
+  changed, worst first: a variant that would be automated while wrong or critical, then a
+  critical answer lost. Offline by default and the same on every machine for a seed; with a
+  model, when asked, it also writes paraphrases, translations and denials. The report holds
+  ids and counts, never a case's text. `--write` keeps each failure as a behaviour test in the
+  agent's `tests/probe.yaml`, which `mendari test` and `mendari validate` read after the
+  agent's own tests; a test whose expected answer a model changed waits in
+  `tests/probe-unconfirmed.yaml` until a person confirms it. `--fail-on critical` is exit 2
+  for a CI job ([Finding failures](docs/guides/finding-failures.md)).
+- **The committee packet** (2026-11-23). One document per agent for a hospital's AI governance
+  committee, at the version the deployment serves and as the organization sees it: what the
+  agent is, its risk level and what the runtime enforces, how a person stays in the loop, the
+  publisher's evidence, the site's own (decisions, the shadow pilot, reviewers' overrides, the
+  validation brief's gates, evaluations run there), monitoring, change control, data handling
+  and approvals. An appendix lists what a framework asks for and nobody has stated, never
+  filled in; another is a crosswalk, kept as data, to the CHAI Applied Model Card, HTI-1's
+  source attributes, the NIST AI Risk Management Framework and the Joint Commission and CHAI
+  guidance. It holds counts, ids and dates, never case text; it is a reading aid, not signed
+  and not a certification. From the console's Overview, `mendari packet <agent>` or
+  `GET /api/agents/{namespace}/{name}/committee-packet`. With it, a gate of the validation
+  brief that has nothing to measure says "Not enough data" and is never a pass, and the brief
+  says it is not signed ([The committee packet](docs/guides/committee-packet.md)).
+- **One install command** (2026-11-23). The plain install (`pip install mendari` once it is
+  published; `pip install .` or `uv sync` in a clone) is enough for the demo, an agent of
+  one's own and the server: uvicorn is a dependency. The `server` extra stays, empty, so
+  instructions and images that name it keep working. CI and a release build the wheel, check
+  that it holds every file it is built from, and run the first five minutes from it in an
+  empty folder, timed.
 - **One vocabulary: what Mendari governs is an agent** (2026-11-23). "Pack" and "Decision Pack"
   are no longer written where a person reads or types: the command line's help and messages,
   the API descriptions, the README and the docs, the console, the Agent Hub and mendari.co, and

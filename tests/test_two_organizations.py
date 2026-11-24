@@ -1481,6 +1481,14 @@ def reads(world: World, x: Org) -> dict[str, str]:
             f"/api/agents/{INBOX}/validation-brief",
             {},
         ),
+        # The committee packet: every aggregate read about an agent in one answer, so the
+        # differential holds each of them to its own organization at once.
+        (
+            viewer,
+            ("GET", "/api/agents/{namespace}/{name}/committee-packet"),
+            f"/api/agents/{INBOX}/committee-packet",
+            {},
+        ),
         (viewer, ("GET", "/api/feedback"), "/api/feedback", {}),
         (viewer, ("GET", "/api/feedback"), "/api/feedback", {**pack, "rating": "down"}),
         (viewer, ("GET", "/api/holds"), "/api/holds", {}),
@@ -1565,6 +1573,8 @@ def steady(text: str) -> str:
     text = re.sub(r'"calls_today":\s*\d+', "", text)  # FIELDS["calls_today"]
     text = re.sub(r'"timestamp":\s*"[^"]*"', "", text)
     text = re.sub(r'"generated_at":\s*"[^"]*"', "", text)
+    # A committee packet's own hash, its last key: it covers the time it was generated.
+    text = re.sub(r',"sha256":"sha256:[0-9a-f]{64}"\}$', "}", text)
     return re.sub(r'"resourceType":"Bundle","id":"[^"]*"', '"resourceType":"Bundle"', text)
 
 

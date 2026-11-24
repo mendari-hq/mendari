@@ -20,9 +20,13 @@ governed agent is a folder of plain text:
 | If you want to | Read |
 |---|---|
 | wrap your agent: its manifest (`agent.yaml`) and HTTP contract | [Authoring an agent](guides/authoring-an-agent.md) |
+| find the failures nobody wrote a case for, and keep them as tests | [Finding failures](guides/finding-failures.md) |
+| know which automation threshold your cases support | [Choosing an automation threshold](guides/choosing-a-threshold.md) |
+| check an agent on every change, in CI | [Evaluating an agent on every change](guides/evaluate-in-ci.md) |
 | call Mendari from your code, over REST or FHIR | [Using the API](guides/api.md) (on a running server: `/docs`) |
 | let an EHR call the CDS Hooks services with its own signed token | [Connecting an EHR](guides/connecting-an-ehr.md) |
 | evaluate an agent on your own site's cases | [Evaluating at your site](guides/evaluate-at-your-site.md) |
+| give your AI governance committee one document about an agent | [The committee packet](guides/committee-packet.md) |
 | run Mendari at your organization | [Deploying with real patient data](deploying-with-phi.md) |
 | publish and pull signed agents | [Running a registry](operations/registry.md) |
 | know exactly what a manifest may contain | [The spec](spec/agent-manifest-0.2.md), and the FHIR mapping of [0.3](spec/agent-manifest-0.3.md) |
@@ -52,9 +56,12 @@ set `MENDARI_AGENT_URL` to your agent's endpoint and the same commands call the 
 an agent that fails or times out never automates. On a server with sign-in on, canned answers
 never automate either: without `MENDARI_AGENT_URL`, its decisions go to a person.
 
-`uv sync` installs the server too (without uv: `pip install '.[server]'` in the clone); then
-`uv run mendari serve` serves the demo agent, with the dashboard, on `http://127.0.0.1:8000`, and
-`MENDARI_AGENTS_PATH` names the folders of your own agents to serve them as well.
+One install brings the command line and the server (`uv sync`, or without uv `pip install .` in
+the clone): `uv run mendari serve` serves the demo agent, with the dashboard, on
+`http://127.0.0.1:8000`, and `MENDARI_AGENTS_PATH` names the folders of your own agents to serve
+them as well. `uv run mendari demo` shows the whole loop in a minute: decisions, the review
+queue, the audit trail, an evaluation with its operating point, and a probe for the failures
+nobody wrote a case for.
 
 The code, the demo agent and the contribution guide are in the
 [repository](https://github.com/mendari-hq/mendari).

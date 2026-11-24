@@ -28,7 +28,7 @@ from mendari.core.origin import (
 )
 from mendari.core.pack import Pack, load_pack
 from mendari.core.patterns import OutOfTime, budget_active, check_time, search, time_budget
-from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy, limitation
+from mendari.core.policy import GovernanceOverride, PolicyInputs, PolicyResult, limitation
 from mendari.core.registry import origin_of, resolve_pack
 from mendari.core.site_codes import SiteCodeMap, SiteCodeMaps
 from mendari.core.spec import Outcome, Priority
@@ -114,6 +114,10 @@ class DecisionResult:
     # as its reasons begin (`policy.limitation`), whatever the list is called. In memory only,
     # like `rejected`; the reasons and `ehr_declaration` say the same in the record.
     limitations: tuple[str, ...] = field(default=(), compare=False)
+    # What the policy decided from (`policy.PolicyInputs`), so it can be applied again under
+    # another automation threshold (`evals/operating_point.py`). None when no policy ran: an
+    # input refused, or a record that could not be read. In memory only, like `rejected`.
+    policy_inputs: PolicyInputs | None = field(default=None, compare=False, repr=False)
 
     @property
     def abstained_unreadable(self) -> bool:
@@ -495,6 +499,7 @@ class Decision:
         tokens_in = tokens_out = 0
         cost: float | None = 0.0
         canned: str | None = None  # why an answer is canned (`ProviderOutput.canned`), if one is
+        policy_inputs: PolicyInputs | None = None  # what the policy decides from, when it does
         meter = Meter()  # its remote calls, as they are made
 
         governance = self.governance
@@ -614,8 +619,7 @@ class Decision:
                     hold = "; ".join(
                         filter(None, ["this organization's daily decisions quota is used up", hold])
                     )
-                policy = apply_policy(
-                    manifest,
+                policy_inputs = PolicyInputs(
                     answers,
                     failures,
                     governance,
@@ -623,10 +627,11 @@ class Decision:
                     community=self.pack.community,
                     hold=hold,
                     blocks_to_person="; ".join(origin_holds) or None,
-                    site_code=translated,
-                    not_offered=not_offered,
+                    site_code=tuple(translated),
+                    not_offered=tuple(not_offered),
                     canned=canned if self.canned_cap else None,
                 )
+                policy = policy_inputs.apply(manifest)
                 primary = manifest.questions[manifest.policy.primary]
                 if primary.derive is not None:
                     policy = replace(policy, reasons=(*policy.reasons, *explain(primary, answers)))
@@ -665,6 +670,7 @@ class Decision:
             unreadable=unread,
             limitations=tuple(dict.fromkeys(not_offered)),
             promotion=self.promotion,
+            policy_inputs=policy_inputs,
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)

@@ -2,7 +2,9 @@
 """An evaluation report's result (`mendari.eval/2`, LP-10), computed only from its ledger and
 seeds, so two runs on the same cases give byte-identical results and anyone holding the ledger can
 recompute them. What changes from run to run (its id, when it ran, how long decisions took) is in
-the report's separate `run` block, outside the result.
+the report's separate `run` block, outside the result; so is the run's operating point
+(mendari.evals.operating_point), which depends on the run's options and on what each decision
+kept in memory, never on the ledger alone.
 
 Over `mendari.eval/1`, the result keeps every figure and adds: each proportion as k of n with its
 exact Clopper-Pearson interval (`proportions`, and `proportion` beside each question's accuracy and
@@ -214,6 +216,25 @@ def result_from_ledger(
             if predicted(c, primary) != truth(c)
         ][:50],
     }
+
+
+def critical_cases(ledger: Ledger) -> list[dict[str, list[str]]]:
+    """For each critical label, in the order of a result's `decisions.critical`: the ledger
+    hashes of its cases that were `automated` (critical misses: no person read them, whatever
+    the agent answered), and of those `undetected` that a person still read. A result counts
+    them (`auto_missed`; `missed_cases`, which holds both kinds that were not detected); this
+    says which, for whoever holds the dataset."""
+    found = []
+    for index, (question, label) in enumerate(ledger.header["critical"]):
+        positives = [case for case in ledger.cases if index in case["k"]]
+        automated = [case["c"] for case in positives if case["o"] == "AUTO"]
+        undetected = [
+            case["c"]
+            for case in positives
+            if case["o"] != "AUTO" and (case["q"].get(question) or [None, None])[PREDICTED] != label
+        ]
+        found.append({"automated": automated, "undetected": undetected})
+    return found
 
 
 def _subgroups(

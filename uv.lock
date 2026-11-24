@@ -1200,18 +1200,13 @@ dependencies = [
     { name = "pyjwt", extra = ["crypto"] },
     { name = "pyyaml" },
     { name = "tzdata" },
-    { name = "vercel-oidc" },
-]
-
-[package.optional-dependencies]
-server = [
     { name = "uvicorn" },
+    { name = "vercel-oidc" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "hypothesis" },
-    { name = "mendari", extra = ["server"] },
     { name = "mypy" },
     { name = "pip-audit" },
     { name = "pytest" },
@@ -1241,7 +1236,7 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.1,<3" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "tzdata", specifier = ">=2026.4" },
-    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.29" },
+    { name = "uvicorn", specifier = ">=0.29" },
     { name = "vercel-oidc", specifier = ">=0.9" },
 ]
 provides-extras = ["server"]
@@ -1249,7 +1244,6 @@ provides-extras = ["server"]
 [package.metadata.requires-dev]
 dev = [
     { name = "hypothesis", specifier = ">=6.100" },
-    { name = "mendari", extras = ["server"] },
     { name = "mypy", specifier = ">=1.11" },
     { name = "pip-audit", specifier = "==2.10.1" },
     { name = "pytest", specifier = ">=8.0" },

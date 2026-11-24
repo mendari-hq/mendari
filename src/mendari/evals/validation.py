@@ -122,22 +122,24 @@ def _manifest_problem(pack: Pack, kind: Kind, text: str) -> Problem:
 def input_problems(pack: Pack) -> list[Problem]:
     """Behaviour-test inputs must match the input schema, unless the test expects a BLOCK;
     otherwise the test decides a BLOCK and fails confusingly (e.g. unquoted YAML flow-mapping
-    text split into extra keys). Each problem names the case by number and name, the place in
-    the input and the schema's rule, never the input's value."""
-    from mendari.evals.pack_tests import load_cases
+    text split into extra keys). Every test `mendari test` runs is checked: the agent's own, and
+    those the probe found (`pack_tests.every_case`). Each problem names the case by its file,
+    number and name, the place in the input and the schema's rule, never the input's value."""
+    from mendari.evals.pack_tests import every_case
 
     bounded = pack.bounded  # on the community engine, as in a decision
     reader = bounded_reader(pack.id, pack.origin)
     validator = input_schema.validator(pack.input_schema, formats=False, community=bounded)
-    tests = str(pack.manifest.tests)
     found: list[Problem] = []
-    for number, case in enumerate(load_cases(pack), start=1):
+    for tests, number, case in every_case(pack):
         if (case.get("expect") or {}).get("outcome") == "BLOCK":
             continue  # a test of the input contract itself
         place = f"case {number}"
         where = f"{tests} {place} ({case.get('name', 'unnamed')})"
 
-        def problem(text: str, place: str = place, where: str = where) -> Problem:
+        def problem(
+            text: str, place: str = place, where: str = where, tests: str = tests
+        ) -> Problem:
             return Problem("tests", tests, place, f"{where}: {text}")
 
         shape = shape_problem(case.get("input"), reader) if bounded else None

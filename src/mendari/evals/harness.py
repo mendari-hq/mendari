@@ -15,6 +15,9 @@ is not published.
 Reports never contain case inputs or ids: a case is named by its ledger hash
 (mendari.evals.ledger), so a report on local data can be shared without sharing the data. A
 report's result is computed from its ledger (mendari.evals.result); `evaluation` keeps both.
+Its `run` block also holds the run's operating point (mendari.evals.operating_point): what the
+automation threshold lets through, and the threshold the cases support when the run is given
+targets. That is worked out from what each decision kept in memory, so it is not in the result.
 """
 
 from __future__ import annotations
@@ -33,8 +36,9 @@ from mendari.core.pack import Pack, not_json
 from mendari.core.spec import PackManifest
 from mendari.errors import MendariError
 from mendari.evals import ledger as ledgers
-from mendari.evals import metrics
+from mendari.evals import metrics, operating_point
 from mendari.evals.ledger import Ledger
+from mendari.evals.operating_point import Targets
 from mendari.evals.result import FORMAT, result_from_ledger, result_sha256
 from mendari.parallel import parallel_map
 from mendari.providers.base import Metered
@@ -154,10 +158,13 @@ def resolve_dataset(pack: Pack, ref: str) -> Dataset:
     raise MendariError(f"dataset {ref!r} is neither a file nor an agent dataset ({known})")
 
 
-def evaluate(decision: Decision, dataset: Dataset, *, workers: int = 1) -> dict[str, Any]:
+def evaluate(
+    decision: Decision, dataset: Dataset, *, workers: int = 1, targets: Targets | None = None
+) -> dict[str, Any]:
     """Run every case. `workers > 1` overlaps network-bound providers; order is preserved. A
-    dataset whose records the pack cannot evaluate (`record_problems`) is refused first."""
-    return evaluation(decision, dataset, workers=workers).report
+    dataset whose records the pack cannot evaluate (`record_problems`) is refused first.
+    `targets` are what a recommended automation threshold must keep to (`operating_point`)."""
+    return evaluation(decision, dataset, workers=workers, targets=targets).report
 
 
 @dataclass(frozen=True)
@@ -170,19 +177,26 @@ class Evaluation:
     usage: dict[str, Metered] = field(default_factory=dict)
 
 
-def evaluation(decision: Decision, dataset: Dataset, *, workers: int = 1) -> Evaluation:
+def evaluation(
+    decision: Decision, dataset: Dataset, *, workers: int = 1, targets: Targets | None = None
+) -> Evaluation:
     """Run every case (as `evaluate`), keeping the ledger to store beside the report."""
     problems = record_problems(decision.pack.manifest, dataset)
     if problems:
         more = f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""
         raise MendariError(f"{problems[0]}{more}")
+    operating_point.check(decision.pack.manifest, targets)  # before a provider is asked
     inputs = [record["input"] for record in dataset.records]
     results = parallel_map(decision.decide, inputs, workers)
-    return build_evaluation(decision, dataset, results)
+    return build_evaluation(decision, dataset, results, targets=targets)
 
 
 def build_evaluation(
-    decision: Decision, dataset: Dataset, results: list[DecisionResult]
+    decision: Decision,
+    dataset: Dataset,
+    results: list[DecisionResult],
+    *,
+    targets: Targets | None = None,
 ) -> Evaluation:
     ledger = ledgers.build(decision, dataset, results)
     found = result_from_ledger(ledger)
@@ -191,6 +205,9 @@ def build_evaluation(
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "latency_ms": metrics.percentiles([res.latency_ms for res in results]),
         "engine": __version__,
+        # Advice on the automation threshold, from what each decision kept in memory: in the
+        # run, never in the result, which is computed from the ledger alone.
+        "operating_point": operating_point.build(decision.pack.manifest, ledger, results, targets),
     }
     if decision.governance is not None:  # who approved it: local, never in the result
         run["governance_override"] = decision.governance.to_dict()

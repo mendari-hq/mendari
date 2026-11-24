@@ -233,8 +233,11 @@ def _prepare(files: Mapping[str, bytes]) -> Prepared:
 def _cases_of(pack: Pack, kept: Mapping[str, bytes]) -> list[Any]:
     """Every case input the pack carries, whatever a file is called: each line of any file that
     reads as a JSON object with an `input` object (a dataset may have any name), and each
-    behaviour test's input, read case by case (one malformed case hides no other). A line that
-    does not read is skipped: the validation names it."""
+    behaviour test's input, read case by case (one malformed case hides no other): the pack's
+    own tests, and those `mendari probe` wrote, run or still waiting to be confirmed
+    (`evals/pack_tests.py`). A line that does not read is skipped: the validation names it."""
+    from mendari.evals.pack_tests import PROBE_TESTS, PROBE_UNCONFIRMED
+
     found: list[Any] = []
     for _, data in sorted(kept.items()):
         for line in data.decode("utf-8", "replace").split("\n"):
@@ -246,10 +249,11 @@ def _cases_of(pack: Pack, kept: Mapping[str, bytes]) -> list[Any]:
                 continue
             if isinstance(record, dict) and isinstance(record.get("input"), dict):
                 found.append(record["input"])
-    if pack.manifest.tests is not None:
+    tests = dict.fromkeys(filter(None, (pack.manifest.tests, PROBE_TESTS, PROBE_UNCONFIRMED)))
+    for relative in tests:
         try:
-            cases = pack.read_yaml(pack.manifest.tests)
-        except MendariError:
+            cases = pack.read_yaml(relative)
+        except MendariError:  # not there (the probe's files need not be), or it does not read
             cases = None
         for case in cases if isinstance(cases, list) else []:
             if isinstance(case, dict) and isinstance(case.get("input"), dict):

@@ -5221,6 +5221,7 @@ class AuditStore(RateBuckets):
         overrides = 0
         labelled = 0
         agreed = 0
+        auto_labelled = 0
         clusters: dict[tuple[str, str], int] = {}
         latencies: list[float] = []
         costs: list[float | None] = []
@@ -5258,10 +5259,14 @@ class AuditStore(RateBuckets):
                 labelled += 1
                 if truth == row["recommendation"]:
                     agreed += 1
+            if truth and out == Outcome.AUTO.value:
+                auto_labelled += 1  # an automated decision whose outcome someone recorded
         latencies.sort()
         down_on_auto = sum(
             r["rating"] == "down" and r["outcome"] == Outcome.AUTO.value for r in ratings
         )
+        # Whether anyone looked at an automated decision at all: its current ratings, up or down.
+        auto_rated = sum(r["outcome"] == Outcome.AUTO.value for r in ratings)
         top_clusters = [
             {
                 "recommended": rec,
@@ -5286,6 +5291,8 @@ class AuditStore(RateBuckets):
             "labelled": labelled,
             "agreed": agreed,
             "down_on_auto": down_on_auto,
+            "auto_rated": auto_rated,
+            "auto_labelled": auto_labelled,
             "p95_latency_ms": _percentile(latencies, 95),
             "cost_per_decision_usd": (
                 None

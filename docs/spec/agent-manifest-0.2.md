@@ -31,6 +31,8 @@ resolve outside it.
 | `logic/`, `models/` | per provider | Provider configuration and artifacts |
 | `data/*.jsonl` | no | Evaluation datasets (§8) |
 | `tests/cases.yaml` | SHOULD | Behaviour tests (§10) |
+| `tests/probe.yaml` | MAY | Regression tests `mendari probe --write` keeps, run with the behaviour tests (§10) |
+| `tests/probe-unconfirmed.yaml` | MAY | Tests the probe found whose expected answer a model changed: never run until a person confirms each (§10) |
 | `evals/benchmark.json` | SHOULD | Published evaluation report (§8) |
 | `evals/leaderboard.json` | MAY | Provider configurations compared on the same datasets (§8) |
 | `CHANGELOG.md` | SHOULD | Version history |
@@ -737,6 +739,24 @@ loader with its line and column, binary, a set or a string with a lone surrogate
 tests invalid, named by the case's number (and name) and what is wrong. Running an agent's tests
 when it has none is a failure, not a pass.
 
+An agent MAY also hold `tests/probe.yaml`: the failures `mendari probe --write` found by
+changing the text of the agent's own cases
+([Finding failures](../guides/finding-failures.md)), kept as regression tests. The file has
+this one place in every agent and no manifest names it. Each of its cases is a behaviour test
+as above with one more key, `probe`: a mapping that says where the case came from and holds at
+least an `id` (text), which no two cases of the file share. Where the file exists, a runtime
+MUST read it after the agent's own tests: its cases run with them (`mendari test`, a draft's
+tests in an agent store), are held to the same shape and to the input schema
+(`mendari validate`), and are named by file and number. A manifest whose `tests` names this
+file reads it once, as the agent's own tests. An engine from before the probe leaves the file
+unread, and the agent is still valid to it.
+
+`tests/probe-unconfirmed.yaml` holds, in the same shape, the tests whose expected answer a
+model changed (a denial the model wrote). They MUST NOT run, and the agent is held to nothing
+by them, until a person has read each and `mendari probe --confirm <id>` moves it into
+`tests/probe.yaml`. Both files are part of the agent: its digest covers them (§11), so writing
+one makes another version.
+
 `mendari validate` also reads every dataset `evaluation.datasets` declares: each line is JSON
 with an `input` that matches the input schema as a decision checks it, and each record's
 `labels` (if any) map the agent's questions to their labels (§8).
@@ -808,6 +828,7 @@ of these.
 | Provider configs are closed (the published JSON Schema) and checked at load for every variant: a community or registry agent with a problem is invalid, any other is warned; such an agent's model variants name their `state_fields`, and its model, `max_tokens`, `timeout_ms` and `reasoning_effort` are the deployment's to choose or cap (every spec version) | §5 |
 | An owned agent's input schema nests at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one value, referring back to itself only as a recursive list or tree, with no `unevaluatedProperties` or `unevaluatedItems` below another; an agent from a registry with a bundled agent's id and an equal version is that agent (every spec version) | §3, §5 |
 | A prefetch template is a read or search relative to the EHR's FHIR server, a wording template's placeholders are bare names, and every text a card summary can give with display names is under 140 characters: a community or registry agent with one that is not is invalid (its FHIR Task text included), any other is warned of its prefetch and card summaries, and `mendari validate` refuses both (every spec version) | §9 |
+| `tests/probe.yaml`, the regression tests `mendari probe` keeps: behaviour tests with a `probe` key, read after the agent's own where the file exists; and `tests/probe-unconfirmed.yaml`, the ones that wait for a person and never run (every spec version) | §10 |
 
 To migrate an agent:
 
