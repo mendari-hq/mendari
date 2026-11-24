@@ -445,6 +445,61 @@ def _package_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterat
     yield "mendari: the package's docstring", mendari.__doc__ or ""
 
 
+def _committee_packets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[str, str]]:
+    """The committee packet as a committee reads it: the page a release serves of the bundled
+    agent, once it has decided and been evaluated there (so the sections on a site's evidence
+    are filled), and the crosswalk it is made with, which is a data file no other surface
+    reads (`core/crosswalk.yaml`)."""
+    from fastapi.testclient import TestClient
+
+    crosswalk = PRODUCT / "core" / "crosswalk.yaml"
+    yield "src/mendari/core/crosswalk.yaml", crosswalk.read_text(encoding="utf-8")
+    app = create_app(db_path=tmp_path / "packet.db", packs_paths=[ROOT / "agents"])
+    with TestClient(app) as client:
+        for folder in _bundled():
+            agent = load_pack(folder)
+            body = {"message": {"body": "Please send a refill of my metformin."}}
+            assert client.post(f"/api/agents/{agent.id}/decide", json=body).status_code == 200
+            ran = client.post(f"/api/agents/{agent.id}/evals", json={"dataset": "examples"})
+            assert ran.status_code == 200, ran.text
+            answer = client.get(f"/api/agents/{agent.id}/committee-packet?format=html")
+            assert answer.status_code == 200, answer.text
+            assert "Evaluations run here" in answer.text  # the evaluation is in it
+            yield f"agents/{folder.name}: its committee packet, as a page", answer.text
+
+
+def _evaluations_and_probes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[str, str]]:
+    """What `mendari eval`, `mendari probe` and `mendari demo` print of the bundled agent: the
+    report with its operating point, held to a target and to limits, as text and as the
+    Markdown a CI job's summary is made of; a probe's report; and the demo, whole."""
+    import contextlib
+    import io
+
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT / "agents"))
+    agent = str(DEMO_AGENT_DIR)
+    evaluate = ["eval", agent, "--dataset", "test", "--baseline", "none", "--limit", "150"]
+    held = ["--target-critical-miss", "1%", "--target-false-automation", "2%"]
+    held += ["--min-critical-detection", "90%", "--max-critical-misses", "0"]
+    held += ["--min-accuracy", "95%", "--max-false-automation", "1%"]
+    for shown, argv in {
+        "mendari eval": evaluate,
+        "mendari eval, held to targets and limits": [*evaluate, *held],
+        "mendari eval --markdown": [*evaluate, *held, "--markdown"],
+        "mendari probe": ["probe", agent, "--limit", "10"],
+        "mendari probe --dry-run": ["probe", agent, "--limit", "10", "--dry-run"],
+        "mendari demo": ["demo"],
+    }.items():
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said), contextlib.redirect_stderr(said):
+            assert main(argv) in (0, 2), shown  # 2: a limit not met, which is said too
+        assert len(said.getvalue()) > 200, shown
+        yield shown, said.getvalue()
+
+
 SURFACES = [
     *(_api_surface(name) for name in API_DOCUMENTS),
     Surface("the Python product's messages", _product_words),
@@ -452,6 +507,8 @@ SURFACES = [
     Surface("what `mendari new` scaffolds", _scaffolds),
     Surface("the bundled agent's files", _bundled_agent),
     Surface("a Decision Card, as rendered", _decision_cards),
+    Surface("the committee packet, as rendered", _committee_packets),
+    Surface("an evaluation, a probe and the demo, as printed", _evaluations_and_probes),
     Surface("the package's metadata", _package_metadata),
 ]
 
