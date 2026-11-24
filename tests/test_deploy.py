@@ -668,15 +668,27 @@ class Script:
         self.tools.mkdir()
         self.calls = folder / "calls"
         self.calls.write_text("")
+        self.system = f"/usr/bin{os.pathsep}/bin"
         if docker:
             tool = self.tools / "docker"
             tool.write_text(DOCKER)
             tool.chmod(0o755)
+        elif shutil.which("docker", path=self.system):
+            # A machine with Docker among the system's own tools (a CI runner): every one of
+            # them but that, by link, so the script finds no Docker here either.
+            bare = folder / "system"
+            bare.mkdir()
+            for directory in ("/bin", "/usr/bin"):
+                for found in Path(directory).iterdir():
+                    link = bare / found.name
+                    if not found.name.startswith("docker") and not link.is_symlink():
+                        link.symlink_to(found)
+            self.system = str(bare)
 
     def run(self, *command: str, stdin: str = "", **more: str) -> subprocess.CompletedProcess[str]:
         # Only the stand-in and the system's own tools: never a real Docker.
         environment = {
-            "PATH": f"{self.tools}{os.pathsep}/usr/bin{os.pathsep}/bin",
+            "PATH": f"{self.tools}{os.pathsep}{self.system}",
             "CALLS": str(self.calls),
             "HOME": str(self.site.parent),
             "TMPDIR": str(self.site.parent),
