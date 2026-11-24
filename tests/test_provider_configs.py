@@ -76,6 +76,7 @@ VALID: dict[str, dict[str, Any]] = {
     },
     "cascade": {"type": "cascade", "accept_at": 0.9, "members": {"a": NB, "b": RULES}},
     "vote": {"type": "vote", "weights": {"a": 1, "b": 2}, "members": {"a": RULES, "b": NB}},
+    "check": {"type": "check", "members": {"a": NB, "b": RULES}},
 }
 DOSE_TYPES = {"dosing"}
 
@@ -94,6 +95,7 @@ def manifest(
     defaults, and the variants given."""
     data = yaml.safe_load((SORTER / "agent.yaml").read_text())
     data["id"] = pack_id
+    data["spec_version"] = "0.4"  # the `check` composite is spec 0.4's (ADR-0022)
     data["questions"]["too_much"] = {
         "instructions": "Does a stated dose go above the medicine's daily maximum?",
         "criteria": {"yes": "Above it.", "no": "Within it.", "unknown": "Cannot tell."},
@@ -684,7 +686,7 @@ def config_of(
     return st.one_of(leaf, st.sampled_from(composites).flatmap(composite))
 
 
-COMPOSITES = ["any_of", "cascade", "vote"]
+COMPOSITES = ["any_of", "cascade", "vote", "check"]
 LEAVES = sorted(set(VALID) - set(COMPOSITES))
 # Every key a provider config may have, the variables a pack may not name, and a few others.
 FIELD_NAMES = sorted(
