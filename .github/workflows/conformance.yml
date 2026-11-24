@@ -61,6 +61,7 @@ jobs:
       - name: The suite's inputs, made over HTTP against the engine (synthetic data)
         run: >-
           uv run python scripts/inferno_dtr_inputs.py --engine http://127.0.0.1:8090
+          --agent tests/fixtures/reference-agents/prior-auth-preflight
           --out var/inferno/dtr_payer_server_v220_preset.json
       - name: The run's tests, with their short ids and requirement ids
         run: >-

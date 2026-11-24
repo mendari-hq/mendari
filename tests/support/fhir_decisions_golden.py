@@ -13,8 +13,8 @@ read the same input, byte for byte. LP-23 changes the FHIR path in steps (failur
 mapping syntax 0.3, linked reads, a site code map) that are each to leave these decisions as
 they are, until a pack adopts the new syntax (23k), whose pull request explains each change.
 
-    uv run python scripts/fhir_decisions_golden.py          # write the golden
-    uv run python scripts/fhir_decisions_golden.py --check  # the file is what the packs decide
+    uv run python -m tests.support.fhir_decisions_golden          # write the golden
+    uv run python -m tests.support.fhir_decisions_golden --check  # it is what the packs decide
 """
 
 from __future__ import annotations
@@ -28,21 +28,14 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))  # tests.support: the fixture agents' builders
+from mendari.core import clock
+from mendari.core.decision import Decision
+from mendari.errors import FhirError
+from mendari.evals.harness import load_dataset
+from mendari.sandbox.fhir_records import message_entries
+from tests.support.fhir_records import prior_auth_entries, referral_entries, trial_entries
 
-from tests.support.fhir_records import (  # noqa: E402
-    prior_auth_entries,
-    referral_entries,
-    trial_entries,
-)
-
-from mendari.core import clock  # noqa: E402
-from mendari.core.decision import Decision  # noqa: E402
-from mendari.errors import FhirError  # noqa: E402
-from mendari.evals.harness import load_dataset  # noqa: E402
-from mendari.sandbox.fhir_records import message_entries  # noqa: E402
-
+ROOT = Path(__file__).resolve().parents[2]
 PACKS = ROOT / "tests" / "fixtures" / "reference-agents"  # the fixture packs the golden pins
 GOLDEN = ROOT / "tests" / "fixtures" / "fhir" / "decisions-golden.json"
 FORMAT = "mendari.fhir-decisions-golden/1"
@@ -134,7 +127,8 @@ def main(argv: list[str]) -> int:
         if not GOLDEN.is_file() or GOLDEN.read_text(encoding="utf-8") != render(golden()):
             print(
                 f"{GOLDEN.relative_to(ROOT)} is not what the packs decide: if the change is "
-                "meant, run scripts/fhir_decisions_golden.py and explain each changed case",
+                "meant, run `python -m tests.support.fhir_decisions_golden` and explain each "
+                "changed case",
                 file=sys.stderr,
             )
             return 1

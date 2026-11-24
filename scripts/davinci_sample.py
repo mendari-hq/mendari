@@ -20,11 +20,17 @@
   carrying the DTR QuestionnaireResponse a clinician completed (`dtr-package.json`'s, with the
   gap documented) in `Claim.supportingInfo`.
 
-    uv run python scripts/davinci_sample.py var/fhir-samples/davinci
+The product bundles no prior-authorization agent, so the one that decides is given: `--agent`,
+an id or a directory, whose requirements cover the orders written here (the sandbox's
+fictional procedures for its two synthetic payers, `mendari.sandbox.code_systems`).
+
+    uv run python scripts/davinci_sample.py var/fhir-samples/davinci \\
+      --agent path/to/a-prior-authorization-agent
 """
 
 from __future__ import annotations
 
+import argparse
 import base64
 import functools
 import json
@@ -169,10 +175,18 @@ def completed(form: dict[str, Any], response: dict[str, Any], authored: str) -> 
     return {**response, "status": "completed", "authored": authored, "item": items}
 
 
-def main(out: Path) -> None:
+NEEDS_AGENT = (
+    "--agent is needed: a prior-authorization agent (its order-sign answers carry CRD's "
+    "coverage information, and it serves a DTR questionnaire), by id or directory. The bundled "
+    "demo agent reads a portal message, which the Da Vinci guides do not cover"
+)
+
+
+def main(out: Path, agent: str | Path) -> None:
+    """`agent`: the prior-authorization agent that decides, by id or directory."""
     with tempfile.TemporaryDirectory() as scratch:
         store = AuditStore(Path(scratch) / "audit.db")
-        write(out, Decision.from_hub("mendari/prior-auth-preflight", store=store), store)
+        write(out, Decision.from_hub(str(agent), store=store), store)
         store.close()
 
 
@@ -344,5 +358,16 @@ def write(out: Path, decision: Decision, store: AuditStore) -> None:
     print(f"{len(samples)} PAS requests and responses written to {out}")
 
 
+def cli(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
+    parser.add_argument("out", nargs="?", type=Path, default=Path("var/fhir-samples/davinci"))
+    parser.add_argument("--agent", help="the prior-authorization agent: an id or a directory")
+    args = parser.parse_args(argv)
+    if args.agent is None:
+        parser.error(NEEDS_AGENT)
+    main(args.out, args.agent)
+    return 0
+
+
 if __name__ == "__main__":
-    main(Path(sys.argv[1] if len(sys.argv) > 1 else "var/fhir-samples/davinci"))
+    sys.exit(cli())

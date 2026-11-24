@@ -98,6 +98,7 @@ From the repository root, with Docker (check `docker ps` first: the engine is pu
 docker compose -f sandbox/inferno/docker-compose.yml build engine inferno
 docker compose -f sandbox/inferno/docker-compose.yml up -d --wait engine
 uv run python scripts/inferno_dtr_inputs.py --engine http://127.0.0.1:8090 \
+  --agent tests/fixtures/reference-agents/prior-auth-preflight \
   --out var/inferno/dtr_payer_server_v220_preset.json
 docker compose -f sandbox/inferno/docker-compose.yml run --rm -T --no-deps inferno \
   bundle exec ruby /opt/mendari/list_tests.rb dtr_payer_server_v220 1 3 4 \
@@ -156,15 +157,17 @@ this sandbox only.
 
 Groups 1 (discovery, with authentication), 2 (one hook call), 3.4 (`order-sign`) and 4 (the
 specific coverage answers) run. The requests are the vendor-shaped EHR profile's five
-prior-authorization patients (`sandbox/ehr_profile.py`), each `order-sign` as an EHR sends it:
+prior-authorization patients (`tests/support/ehr_profile.py`), each `order-sign` as an EHR sends it:
 the draft orders, no prefetch, and the FHIR authorization Inferno completes with its own token,
 so the engine reads each record from Inferno's Mock EHR, which holds those patients. Group 4's
 Technical Issues call is the first patient's order with its Patient and Coverage prefetched, as
 the kit's own example sends them: Inferno's FHIR server then fails every read (a `500` to the
 token that call carries), and the engine abstains with `indeterminate` coverage for a
 `technical` reason. Group 4 also adds three patients made from the first: no member id, no
-Coverage, a cancelled Coverage. The trial, referral and inbox services are on the discovery
-ignore list: theirs are not CRD hooks.
+Coverage, a cancelled Coverage. Every other service the engine lists is on the discovery
+ignore list (`ignored_services`: the other test-fixture agents', and the bundled demo agent's):
+none is a CRD service, and the suite fails a service it is not told to leave out that declares
+no CRD version.
 
 Not run:
 - Groups 3.1 to 3.3, 3.5 and 3.6: hooks Mendari does not serve (`appointment-book`,

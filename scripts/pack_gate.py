@@ -2,7 +2,7 @@
 """The eval gate for one changed pack (workflow `packs`): its metrics against `main`'s benchmark
 as Markdown for the job summary; exit 1 on a regression (mendari.evals.gate).
 
-    uv run python scripts/pack_gate.py packs/NAME --report new.json [--main main.json]
+    uv run python scripts/pack_gate.py agents/NAME --report new.json [--main main.json]
 """
 
 from __future__ import annotations

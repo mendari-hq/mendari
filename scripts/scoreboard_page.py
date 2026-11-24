@@ -56,7 +56,7 @@ WITHHELD = "withheld: disclosure pending"
 
 
 def repository_pack(ref: str) -> Pack:
-    """The pack `ref` names, from the repository's packs/ alone (`maintained_pack`)."""
+    """The agent `ref` names, from the repository's agents/ alone (`maintained_pack`)."""
     return results_store.maintained_pack(ref, PACKS)
 
 

@@ -169,7 +169,9 @@ jobs:
     env:
       VALIDATOR_VERSION: "6.10.4"
       VALIDATOR_SHA256: 1106b9d58f9e363e47bea7c4fc065841e5fc91fe9d062775c3bfdd212bd653cc
-      # The sample scripts decide with the agents of the test fixtures (FHIR, PAS, DTR).
+      # The terminology and the sandbox's samples are also the test fixtures' agents', beside
+      # the bundled demo agent's: they are on the search path here. A step that needs one of
+      # them to decide names its directory.
       MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
       MENDARI_DATASETS_PATH: tests/fixtures/datasets
     steps:
@@ -216,13 +218,23 @@ jobs:
       - run: uv run python scripts/audit_fhir_sample.py var/fhir-samples/audit-export.json
       - run: uv run python scripts/task_fhir_sample.py var/fhir-samples
       - run: uv run python scripts/sandbox_fhir_sample.py var/fhir-samples
-      - run: uv run python scripts/fhir_output_sample.py var/fhir-samples
+      - name: What Mendari makes of FHIR input, for the demo agent and for each test-fixture agent on its US Core fixture
+        run: >-
+          uv run python scripts/fhir_output_sample.py var/fhir-samples
+          --fixture inbox=tests/fixtures/reference-agents/patient-inbox-router
+          --fixture prior-auth=tests/fixtures/reference-agents/prior-auth-preflight
+          --fixture referral=tests/fixtures/reference-agents/referral-router
+          --fixture trial=tests/fixtures/reference-agents/clinical-trial-prescreener
+          --record tests/fixtures/reference-agents/clinical-trial-prescreener/data/test.jsonl
       - run: >-
           uv run python scripts/fhir_validate.py --offline
           --ig var/fhir-terminology
           --valid tests/fixtures/us-core/*.json var/fhir-samples/*.json var/fhir-terminology/*.json
           --invalid tests/fixtures/us-core/invalid/*.json
-      - run: uv run python scripts/davinci_sample.py var/fhir-samples/davinci
+      - name: The Da Vinci samples (CRD, DTR, PAS), decided by the test fixtures' prior-authorization agent
+        run: >-
+          uv run python scripts/davinci_sample.py var/fhir-samples/davinci
+          --agent tests/fixtures/reference-agents/prior-auth-preflight
       - name: Da Vinci resources conform to their implementation guides
         # With the CapabilityStatement (scripts/fhir_output_sample.py), which cites DTR's operation.
         run: >-
@@ -463,8 +475,6 @@ jobs:
       # Port 18090 stays outside Linux's 32768-60999 ephemeral range (58090 collided with
       # outbound sockets during image pull).
       MENDARI_CQL_URL: http://127.0.0.1:18090/fhir
-      # The agent with CQL beside its criteria is served from the test fixtures.
-      MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
       MENDARI_FHIR_ALLOWED_SERVERS: http://127.0.0.1:18090
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -491,17 +501,21 @@ jobs:
       - run: uv sync --locked
       - name: Wait for the CQL engine
         run: for i in $(seq 1 90); do curl -sf "$MENDARI_CQL_URL/metadata" > /dev/null && exit 0; sleep 3; done; exit 1
-      - name: CQL agrees with criteria on the pack's tests and datasets
+      # The agent with CQL beside its criteria is a test fixture, named by its directory: the
+      # product bundles no agent that reads a patient's record.
+      - name: CQL agrees with criteria on the agent's tests and datasets
         run: >-
-          uv run mendari agreement mendari/clinical-trial-prescreener
+          uv run mendari agreement tests/fixtures/reference-agents/clinical-trial-prescreener
           --slot structured --variants criteria cql
       - name: and on the local-site example (other units, codes and languages)
         run: >-
-          uv run mendari agreement mendari/clinical-trial-prescreener
+          uv run mendari agreement tests/fixtures/reference-agents/clinical-trial-prescreener
           --slot structured --variants criteria cql
           --dataset tests/fixtures/datasets/trial-local-site-example.jsonl
-      - name: The pack's behaviour tests pass with the CQL variant deployed
-        run: uv run mendari test mendari/clinical-trial-prescreener --provider structured=cql
+      - name: The agent's behaviour tests pass with the CQL variant deployed
+        run: >-
+          uv run mendari test tests/fixtures/reference-agents/clinical-trial-prescreener
+          --provider structured=cql
       - if: failure()
         run: docker logs --tail 100 mendari-cql
 

@@ -16,7 +16,9 @@ from typing import Any
 
 import pytest
 import yaml
+from fastapi.testclient import TestClient
 
+from mendari.server.app import create_app
 from tests.support import ehr_profile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,11 +59,32 @@ def test_crd_calls_the_signed_in_engine_at_its_public_url_with_authentication() 
     # the kit splits the list.
     assert values["crd_discovery_service_ignore_list"].split(", ") == [
         "mendari.clinical-trial-prescreener",
-        "mendari.referral-router",
         "mendari.patient-inbox-router",
+        "mendari.referral-router",
     ]
     for name in ("any_hook", "order_sign", "technical_issues", "no_member_found"):
         assert values[f"{name}_service_ids"] == "mendari.prior-auth-preflight"
+
+
+def test_crd_leaves_out_every_service_the_engine_lists_but_the_one_it_tests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The suite fails a service it is not told to leave out that declares no CRD version, so
+    the list is every service discovery gives but the prior-authorization agent's: read from
+    the agents the engines serve, never written out. The compose project's engines serve the
+    test fixtures' agents, mounted, and the agent the image bundles, whose service was missing
+    from the list while it was written by hand."""
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT / "agents"))  # as the image's bundled one
+    for engine in ("engine", "engine-signin"):
+        mounted = yaml.safe_load(COMPOSE.read_text())["services"][engine]["volumes"]
+        assert "../../../tests/fixtures/reference-agents:/sandbox/agents:ro" in mounted
+        assert _environment(engine)["MENDARI_AGENTS_PATH"] == "/sandbox/agents"
+    ignored = _values(inputs.crd(TODAY))["crd_discovery_service_ignore_list"].split(", ")
+    assert "mendari.portal-message-agent" in ignored
+    with TestClient(create_app(db_path=tmp_path / "engine.db")) as client:
+        listed = {service["id"] for service in client.get("/cds-services").json()["services"]}
+    assert listed - set(ignored) == {inputs.SERVICE} == {"mendari.prior-auth-preflight"}
+    assert set(ignored) <= listed and ignored == sorted(ignored)
 
 
 def _bodies(values: dict[str, str]) -> list[dict[str, Any]]:

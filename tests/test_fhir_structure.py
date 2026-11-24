@@ -223,7 +223,9 @@ def samples(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     documents["sandbox-referral"] = seed_bundle(REFERRAL, 40)
     documents["sandbox-ehr-profile"] = seed_bundle(EHR_PROFILE, 0)  # LP-23e
     davinci = tmp_path_factory.mktemp("davinci")
-    load_script("davinci_sample").main(davinci)
+    # As CI gives it: the prior-authorization agent of the test fixtures, by its directory.
+    agent = ROOT / "tests" / "fixtures" / "reference-agents" / "prior-auth-preflight"
+    load_script("davinci_sample").main(davinci, agent)
     for path in sorted(davinci.glob("*.json")):
         documents[path.stem] = json.loads(path.read_text(encoding="utf-8"))
     return documents

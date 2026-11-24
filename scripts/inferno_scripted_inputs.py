@@ -11,8 +11,8 @@
   EHR: `mock_ehr_bundle`, those patients and what they refer to); and the specific coverage
   answers of group 4: one patient's order with Inferno's FHIR server failing (Technical Issues),
   and patients without a member id, without a Coverage, and with a cancelled Coverage, made
-  here from the first patient. The other test-fixture agents' services are on the
-  ignore list: their hooks are not CRD's order hooks.
+  here from the first patient. Every other service the engine lists (the other test-fixture
+  agents', and the bundled demo agent's) is on the ignore list: none is a CRD service.
 - `smart` (`smart_client_stu2_2`, public client, Inferno as the EHR): the engine's client id,
   launch URL and redirect URI, and a synthetic patient as the launch's context, which Inferno's
   FHIR server serves to the launch's token.
@@ -42,7 +42,7 @@ sys.path.insert(0, str(ROOT))  # tests.support: the vendor-shaped EHR profile
 from tests.support import ehr_profile  # noqa: E402
 from tests.support.sandbox import hook_request  # noqa: E402
 
-from mendari.core.registry import resolve_pack  # noqa: E402
+from mendari.core.registry import discover, resolve_pack  # noqa: E402
 from mendari.standards.cds_hooks import service_id  # noqa: E402
 
 CRD_SUITE = "crd_server_v221"
@@ -57,14 +57,6 @@ OPEN_ENGINE = "http://engine:8000"
 CRD_FHIR = "http://nginx/custom/crd_server_v221/fhir"
 PLACEHOLDER_TOKEN = "replaced-by-inferno"  # not a secret: Inferno writes its own over it
 SERVICE = service_id(resolve_pack(ehr_profile.PRIOR_AUTH))
-# The packs whose services discovery lists beside the prior-authorization pack's: not CRD
-# services (patient-view, and two order-sign services for referrals and messages), so the CRD
-# suite leaves them out. Inferno splits this list on ", ".
-IGNORED_PACKS = (
-    "mendari/clinical-trial-prescreener",
-    "mendari/referral-router",
-    "mendari/patient-inbox-router",
-)
 # The SMART scopes an EHR grants a CDS service for its reads (CDS Hooks' fhirAuthorization),
 # one for each resource type the prior-authorization pack's prefetch reads, and its links.
 CRD_SCOPES = " ".join(
@@ -97,6 +89,17 @@ BULK_UNUSED_GROUP = "1a"  # the suite's "US Core Data" Group, unused by a patien
 
 class InputsError(RuntimeError):
     """The profile does not hold what the suite needs: no preset is written."""
+
+
+def ignored_services() -> list[str]:
+    """The CDS services discovery lists beside the prior-authorization agent's: every other
+    agent on the search path that has one. The engines of sandbox/inferno/scripted serve the
+    agents this script finds (the test fixtures', mounted, and the one the image bundles). None
+    is a CRD service (a patient-view service, an order-sign service for referrals, services for
+    portal messages), and the CRD suite fails a service it is not told to leave out that does
+    not declare a CRD version."""
+    listed = {service_id(agent) for agent in discover().packs if agent.manifest.cds_hooks}
+    return sorted(listed - {SERVICE})
 
 
 def preset(suite: str, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -219,9 +222,7 @@ def crd(today: date | None = None) -> dict[str, Any]:
         "base_url": SIGNIN_ENGINE,
         "authentication_required": "yes",
         "encryption_method": "ES384",
-        "crd_discovery_service_ignore_list": ", ".join(
-            service_id(resolve_pack(pack)) for pack in IGNORED_PACKS
-        ),
+        "crd_discovery_service_ignore_list": ", ".join(ignored_services()),  # split on ", "
         "any_hook_service_ids": SERVICE,
         "any_hook_request_body": signed[0],
         "order_sign_service_ids": SERVICE,

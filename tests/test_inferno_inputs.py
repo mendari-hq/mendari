@@ -17,11 +17,15 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from mendari.core.registry import resolve_pack
 from mendari.server.app import create_app
 from mendari.standards import davinci, fhir_structure
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "inferno_dtr_inputs.py"
+# The prior-authorization agent the suite runs on, as conformance.yml names it: a test
+# fixture, by its directory (the product bundles no agent of the kind).
+AGENT_DIR = ROOT / "tests" / "fixtures" / "reference-agents" / "prior-auth-preflight"
 
 
 def _script() -> Any:
@@ -55,7 +59,7 @@ def engine(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
 
 @pytest.fixture(scope="module")
 def preset(engine: TestClient) -> dict[str, Any]:
-    built: dict[str, Any] = inputs.build(engine, FHIR_BASE)
+    built: dict[str, Any] = inputs.build(engine, FHIR_BASE, resolve_pack(str(AGENT_DIR)))
     return built
 
 
@@ -194,7 +198,14 @@ def test_an_engine_that_does_not_answer_as_the_suite_needs_writes_no_preset(
     monkeypatch.setenv("MENDARI_PACKS", "mendari/referral-router")
     refused = pytest.raises(inputs.InputsError, match="order-sign needs-attention: HTTP 404")
     with TestClient(create_app(db_path=tmp_path / "other.db")) as other, refused:
-        inputs.build(other, FHIR_BASE)
+        inputs.build(other, FHIR_BASE, resolve_pack(str(AGENT_DIR)))
     out = tmp_path / "preset.json"
-    assert inputs.main(["--engine", "http://127.0.0.1:9", "--out", str(out)]) == 1
+    unreachable = ["--engine", "http://127.0.0.1:9", "--out", str(out)]
+    assert inputs.main([*unreachable, "--agent", str(AGENT_DIR)]) == 1
+    assert not out.exists() and "inferno inputs:" in capsys.readouterr().err
+    # The agent is named, never assumed: the product bundles no prior-authorization agent.
+    with pytest.raises(SystemExit):
+        inputs.main(unreachable)
+    assert "--agent" in capsys.readouterr().err
+    assert inputs.main([*unreachable, "--agent", str(tmp_path / "no-agent-here")]) == 1
     assert not out.exists() and "inferno inputs:" in capsys.readouterr().err

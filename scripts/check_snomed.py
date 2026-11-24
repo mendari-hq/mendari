@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """No SNOMED CT content in a package (LP-14). The wheel and the sdist (and the images, which copy
-the same src/, packs/ and datasets/, and carry in /licenses LICENSE, NOTICE and what the build
+the same src/ and agents/, and carry in /licenses LICENSE, NOTICE and what the build
 writes from licenses/image) carry no SNOMED CT concept id, no SNOMED CT concept URI, and
 SNOMED CT's url or OID only in the modules that must name the system (`NAMES_THE_SYSTEM`, none
 holding a code). A concept id is any id the repository has used (`CONCEPT_IDS`), in any file, and
-in Mendari's own files (src/mendari, the packs, the datasets) any other number written as one:
+in Mendari's own files (src/mendari and the bundled agents) any other number written as one:
 6 to 18 digits ending in a concept's partition and SNOMED CT's check digit. A bare id names no
 system, which is how the codes once came into the packs. The agents, their data and the
 sandbox use fictional codes instead. The tests keep SNOMED CT (the US Core fixtures code
@@ -72,10 +72,10 @@ _VERHOEFF_P = (
     "2793806415",
     "7046913258",
 )
-# Mendari's own files, by their path in a package (the wheel's mendari/_packs and _datasets, the
-# sdist's packs/ and datasets/), where any number written as a concept id is read as one. Not the
-# packages' metadata (a wheel's RECORD lists file sizes) nor the vendored third-party code, shipped
-# as it is, whose numbers are not codes: there only `CONCEPT_IDS` are looked for.
+# Mendari's own files, by their path in a package (the wheel's mendari/, its mendari/_agents
+# included, and the sdist's agents/), where any number written as a concept id is read as one.
+# Not the packages' metadata (a wheel's RECORD lists file sizes) nor the vendored third-party
+# code, shipped as it is, whose numbers are not codes: there only `CONCEPT_IDS` are looked for.
 OWN_FILES = ("mendari/", "agents/")
 VENDORED = "mendari/dashboard/vendor/"
 # Numbers in Mendari's own files written as a concept id that are not one, each with why.
@@ -94,7 +94,7 @@ NAMES_THE_SYSTEM = {
 def package_path(name: str) -> str:
     """A member's path as installed: the sdist's root folder and `src/` dropped, so
     `mendari-0.1.0/src/mendari/core/spec.py`, the tracked `src/mendari/core/spec.py` and the
-    wheel's `mendari/core/spec.py` agree, as do `mendari-0.1.0/packs/...` and `packs/...`."""
+    wheel's `mendari/core/spec.py` agree, as do `mendari-0.1.0/agents/...` and `agents/...`."""
     return re.sub(r"^mendari-[^/]+/", "", name).removeprefix("src/")
 
 

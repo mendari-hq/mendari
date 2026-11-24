@@ -21,7 +21,12 @@ against a running engine, on synthetic data only (sandbox/inferno/README.md).
 Each request is sent once here first, and must get the answer the suite expects (a package, or
 a `422` OperationOutcome), so a preset that would test nothing is never written.
 
+The engine serves a prior-authorization agent, which the product does not bundle: `--agent`
+names it here too, by id or directory (its CDS service is called, and the blank questionnaire's
+canonical is its own).
+
     uv run python scripts/inferno_dtr_inputs.py --engine http://127.0.0.1:8090 \\
+      --agent path/to/the-prior-authorization-agent \\
       --out var/inferno/dtr_payer_server_v220_preset.json
 """
 
@@ -39,12 +44,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # davinci_sample, besi
 
 from davinci_sample import order, prefetch
 
+from mendari.core.pack import Pack
 from mendari.core.registry import resolve_pack
+from mendari.errors import MendariError
 from mendari.standards import davinci
+from mendari.standards.cds_hooks import service_id
 
 SUITE = "dtr_payer_server_v220"
-PACK = "mendari/prior-auth-preflight"
-SERVICE = PACK.replace("/", ".")
 PACKAGE = "/fhir/Questionnaire/$questionnaire-package"
 # What Inferno sends as its bearer token. The engine runs with sign-in off, where it never reads
 # the Authorization header; Backend Services (the suite's group 2) stays off until LP-23.
@@ -67,8 +73,11 @@ class InputsError(RuntimeError):
     """The engine did not answer as the suite needs: no preset is written."""
 
 
-def sign(client: httpx.Client, name: str, payer: str, note: str, draft: dict[str, Any]) -> Any:
-    """The draft order, updated with CRD's coverage information, from an `order-sign` call."""
+def sign(
+    client: httpx.Client, service: str, name: str, payer: str, note: str, draft: dict[str, Any]
+) -> Any:
+    """The draft order, updated with CRD's coverage information, from an `order-sign` call to
+    the agent's CDS `service`."""
     request = {
         "hook": "order-sign",
         "hookInstance": f"inferno-{name}",
@@ -79,7 +88,7 @@ def sign(client: httpx.Client, name: str, payer: str, note: str, draft: dict[str
         },
         "prefetch": prefetch(payer, note),
     }
-    answer = client.post(f"/cds-services/{SERVICE}", json=request)
+    answer = client.post(f"/cds-services/{service}", json=request)
     if answer.status_code != 200:
         raise InputsError(f"order-sign {name}: HTTP {answer.status_code}")
     actions = answer.json().get("systemActions") or []
@@ -118,16 +127,17 @@ def parameters(coverage: dict[str, Any], *given: dict[str, Any]) -> dict[str, An
     }
 
 
-def build(client: httpx.Client, fhir_base: str) -> dict[str, Any]:
-    """The preset, for an engine `client` reaches; `fhir_base` is its FHIR base as Inferno sees
-    it (inside the compose network)."""
-    missing = sign(client, "needs-attention", "acme", MISSING_NOTE, order("mri2", "FX101"))
-    ready = sign(client, "submit-ready", "acme", COMPLETE_NOTE, order("mri", "FX101"))
+def build(client: httpx.Client, fhir_base: str, agent: Pack) -> dict[str, Any]:
+    """The preset, for an engine `client` reaches that serves `agent`, a prior-authorization
+    agent; `fhir_base` is the engine's FHIR base as Inferno sees it (inside the compose
+    network)."""
+    service = service_id(agent)
+    missing = sign(client, service, "needs-attention", "acme", MISSING_NOTE, order("mri2", "FX101"))
+    ready = sign(client, service, "submit-ready", "acme", COMPLETE_NOTE, order("mri", "FX101"))
     linked = coverage_information(missing)
     if "questionnaire" not in linked or "questionnaire" in coverage_information(ready):
         raise InputsError("CRD links a questionnaire only when documentation is missing")
-    pack = resolve_pack(PACK)
-    blank = davinci.questionnaire_url(pack, {"service": "knee_arthroscopy", "payer": "acme"})
+    blank = davinci.questionnaire_url(agent, {"service": "knee_arthroscopy", "payer": "acme"})
     coverage = dtr_coverage(prefetch("acme", "")["coverage"]["entry"][0]["resource"])
     requests = {
         "order": parameters(coverage, {"name": "order", "resource": missing}),
@@ -201,6 +211,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--engine", required=True, help="where this script reaches the engine")
     parser.add_argument(
+        "--agent",
+        required=True,
+        help="the prior-authorization agent the engine serves, by id or directory (the "
+        "product bundles none)",
+    )
+    parser.add_argument(
         "--fhir-base",
         default="http://engine:8000/fhir",
         help="the engine's FHIR base as Inferno reaches it (default: %(default)s)",
@@ -208,9 +224,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True, help="the preset file to write")
     args = parser.parse_args(argv)
     try:
+        agent = resolve_pack(args.agent)
         with httpx.Client(base_url=args.engine, timeout=60) as client:
-            preset = build(client, args.fhir_base)
-    except (InputsError, httpx.HTTPError, ValueError) as error:  # ValueError: not JSON
+            preset = build(client, args.fhir_base, agent)
+    # MendariError: no such agent here; ValueError: an answer that is not JSON.
+    except (InputsError, MendariError, httpx.HTTPError, ValueError) as error:
         print(f"inferno inputs: {error}", file=sys.stderr)
         return 1
     args.out.parent.mkdir(parents=True, exist_ok=True)

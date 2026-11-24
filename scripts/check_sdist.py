@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The source distribution holds only what a source build needs (pyproject.toml,
-[tool.hatch.build.targets.sdist]): the package, the bundled packs and datasets, the README, the
-licence, its NOTICE and the build file. Exit 1, naming each stray entry, if it holds anything
+[tool.hatch.build.targets.sdist]): the package, the agent it bundles (`agents/`), the README,
+the licence, its NOTICE and the build file. Exit 1, naming each stray entry, if it holds anything
 else (the tests, which read repository files the sdist leaves out and so run from a clone;
 project notes, agent or CI configuration, deploy templates, the websites), or if it lacks a file
 git tracks under the included folders.

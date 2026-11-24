@@ -24,6 +24,7 @@ from mendari.errors import FhirError
 from mendari.evals.harness import load_dataset
 from mendari.standards import fhir_structure, us_core
 from mendari.standards.fhir import FhirAdapter
+from tests.support import fhir_decisions_golden as script
 from tests.support.fhir_records import prior_auth_entries, trial_entries
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,7 +41,6 @@ def _script(name: str) -> ModuleType:
     return module
 
 
-script = _script("fhir_decisions_golden")
 TODAY = script.TODAY
 BUILT = {
     "mendari/clinical-trial-prescreener": ("trial-local-site-example.jsonl", trial_entries),
@@ -59,8 +59,8 @@ def records(dataset: str) -> list[dict[str, Any]]:
 def test_every_mapped_pack_decides_its_synthetic_fhir_as_the_golden_says() -> None:
     """Every reference pack with a FHIR mapping is in the golden, with every case of its
     local-site example, and decides each as the golden says. If a change is meant (LP-23k, a
-    pack adopting mapping syntax 0.3), rerun scripts/fhir_decisions_golden.py and explain each
-    changed case in the pull request."""
+    pack adopting mapping syntax 0.3), rerun `python -m tests.support.fhir_decisions_golden` and
+    explain each changed case in the pull request."""
     mapped = {
         pack.id
         for pack in (

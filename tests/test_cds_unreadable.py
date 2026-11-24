@@ -31,6 +31,7 @@ from mendari.standards import cds_hooks, davinci, fhir_client
 from mendari.standards.data_coverage import READ_REASONS, source_type
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from tests.conftest import DASHBOARD, ROOT
+from tests.support import fhir_decisions_golden as script
 from tests.test_fhir_client import EHR, TOKEN, Handler, fhir_json, referral_ehr
 from tests.test_prior_auth_pack import _order, _prefetch
 from tests.test_smart import APP, CLIENT, REFERRAL, FakeEhr, full_launch
@@ -428,7 +429,6 @@ def test_rejected_input_still_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
 def _cases() -> list[tuple[str, dict[str, Any]]]:
     """One synthetic FHIR case per pack with a FHIR mapping (the 23a golden's builders), the
     one it automates if it automates any."""
-    script = _golden_script()
     found = []
     with script.on_the_day():
         for pack_id, (directory, dataset, build) in script.CASES.items():
@@ -454,25 +454,10 @@ def _cases() -> list[tuple[str, dict[str, Any]]]:
     return found
 
 
-@functools.cache
-def _golden_script() -> Any:
-    import importlib.util
-    import sys
-
-    path = ROOT / "scripts" / "fhir_decisions_golden.py"
-    spec = importlib.util.spec_from_file_location("fhir_decisions_golden_unreadable", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 def test_an_unreadable_record_never_raises_automation() -> None:
     """Every pack with a FHIR mapping, every reason, every one of its prefetch keys: a case it
     decides (the one it automates, where it automates one) abstains or is blocked, never
     automated, never sent for review as if the record were whole."""
-    script = _golden_script()
     with script.on_the_day():
         for pack_id, bundle in _cases():
             decision = Decision.from_hub(pack_id)
