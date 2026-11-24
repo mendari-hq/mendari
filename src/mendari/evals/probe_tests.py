@@ -193,11 +193,30 @@ def confirm(pack: Pack, ids: Sequence[str]) -> tuple[str, ...]:
     return wanted
 
 
+class _Dumper(yaml.SafeDumper):
+    """YAML as the probe writes it: a text whose white space a reader would not see otherwise
+    (a line break, a tab, two spaces in a row, a space at either end) is written in double
+    quotes, each of those an escape or a space between the quotes. Any other text is written as
+    YAML writes it."""
+
+
+def _visible(dumper: yaml.SafeDumper, text: str) -> yaml.ScalarNode:
+    hidden = text != " ".join(text.split())
+    return dumper.represent_scalar("tag:yaml.org,2002:str", text, style='"' if hidden else None)
+
+
+_Dumper.add_representer(str, _visible)
+# Wide enough that a text of a few thousand characters stays on one line: a quoted text broken
+# across lines is exact, and unreadable.
+_WIDTH = 100_000
+
+
 def _write(pack: Pack, relative: str, heading: str, cases: list[dict[str, Any]]) -> None:
     """One of the probe's files, whole: checked first to read back as the very cases it was
     given (a variant's text is white space, typography and line breaks: what is run must be
     what was found), then put in place in one step."""
-    text = heading + yaml.safe_dump(cases, sort_keys=False, allow_unicode=True, width=100)
+    dumped = yaml.dump(cases, Dumper=_Dumper, sort_keys=False, allow_unicode=True, width=_WIDTH)
+    text = heading + dumped
     if parse_yaml(text.encode("utf-8"), relative, pack.id) != cases:
         raise MendariError(
             f"{relative}: a test's text does not read back from YAML as it was found; nothing "

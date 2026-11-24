@@ -725,6 +725,32 @@ def test_a_tests_id_comes_from_the_case_the_transformation_and_the_seed(tmp_path
     assert ids(build_agent(tmp_path / "renamed", cases=renamed), "typos", "case") == first
 
 
+def test_a_variants_white_space_is_written_where_a_person_can_see_it(tmp_path: Path) -> None:
+    """A variant's text is its white space, too: line breaks, a tab, two spaces, a space at
+    the end. The file shows each as an escape on one line, where a folded YAML text would hide
+    them; and what is read back is the text exactly."""
+    root = build_agent(tmp_path / "agent")
+    wrapped = "Bad chest\npain  since last\nnight\n"  # as the white-space transformation leaves it
+    edged = "  Bad chest pain\tnow "
+    quoted = "Bad \N{LEFT DOUBLE QUOTATION MARK}chest\N{RIGHT DOUBLE QUOTATION MARK} pain"
+    bodies = [wrapped, edged, "Bad chset pain now", quoted, "yes"]
+    cases = [
+        found_test(number, input={"message": {"body": body}})
+        for number, body in enumerate(bodies, start=1)
+    ]
+    kept = probe_tests.write(load_pack(root), cases)
+    assert len(kept.added) == 5
+    written = (root / PROBE_TESTS).read_text(encoding="utf-8")
+    assert '      body: "Bad chest\\npain  since last\\nnight\\n"\n' in written
+    assert '      body: "  Bad chest pain\\tnow "\n' in written
+    assert "      body: Bad chset pain now\n" in written  # nothing hidden: written plainly
+    assert f"      body: {quoted}\n" in written
+    assert "      body: 'yes'\n" in written  # the text, not a YAML true
+    assert [case["input"]["message"]["body"] for case in kept_tests(root)] == bodies
+    assert written.startswith("# Regression tests that `mendari probe` found")
+    assert len(probe_cases(load_pack(root))) == 5
+
+
 def test_an_agent_that_is_not_the_authors_own_is_not_written_into(tmp_path: Path) -> None:
     root = build_agent(tmp_path / "agent")
     found = probed(root, "typos")

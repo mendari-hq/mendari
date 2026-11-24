@@ -17,7 +17,9 @@ changes, and what it promises never to change:
   error a word. Never in anything with a digit (a dose, a date, a time, a telephone number, a
   lab value: a mistyped number is another number, and no reader can tell what was meant), in a
   word under four letters (`no`, `not`, `mg`: one slip makes `no` into `on`), in a word in
-  capitals (an abbreviation) or in one with an apostrophe or a hyphen inside it.
+  capitals (an abbreviation) or in one with an apostrophe or a hyphen inside it. The rate is of
+  the order of what people leave uncorrected typing on a phone: 2.3% of characters, about one
+  word in nine (Palin and others, "How do people type on mobile devices?", MobileHCI 2019).
 - `case`: the whole text in capitals, or in lower case but for short words in capitals
   (abbreviations). Nothing but the case of letters changes.
 - `punctuation`: the marks a phone or a word processor writes for a keyboard's (a curly
