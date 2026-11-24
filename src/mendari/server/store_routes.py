@@ -445,15 +445,16 @@ def add_store_routes(
 
     @app.post("/api/store/versions/{digest}/tests", tags=[TAG], summary="Run a draft's tests")
     def test_version(request: Request, digest: str) -> dict[str, Any]:
-        """Run the version's behaviour tests on the engine it runs on, as `mendari test` does:
-        each case's name, whether it passed and why not. Nothing is recorded."""
-        from mendari.evals.pack_tests import load_cases, run_pack_tests
+        """Run the version's behaviour tests on the engine it runs on, as `mendari test` does
+        (its own, and those `mendari probe` found): each case's name, whether it passed and why
+        not. Nothing is recorded."""
+        from mendari.evals.pack_tests import every_case, run_pack_tests
 
         _, org = person(request)
         owned(org, digest, states=(DRAFT, "promoted", "retired"))
         try:
             pack = store.load(org, digest)
-            cases = load_cases(pack)
+            cases = every_case(pack)
             if len(cases) > MAX_TEST_CASES:
                 raise HTTPException(422, f"a version has at most {MAX_TEST_CASES} tests here")
             outcomes = run_pack_tests(Decision(pack, origin_cap=False, deadline_s=deadline_s))

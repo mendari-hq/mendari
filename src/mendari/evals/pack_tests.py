@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Run the behaviour tests a pack ships in `tests/cases.yaml`."""
+"""Run the behaviour tests a pack ships in `tests/cases.yaml`, and the regression tests
+`mendari probe` wrote beside them (`PROBE_TESTS`)."""
 
 from __future__ import annotations
 
@@ -17,6 +18,16 @@ from mendari.errors import PackValidationError
 # EXPECT_KEYS and nothing else, so a typo or an empty expectation cannot pass by accident (LP-15).
 CASE_KEYS = ("name", "input", "expect")
 EXPECT_KEYS = ("outcome", "outcome_in", "not_outcome", "recommendation", "priority", "answers")
+# Where `mendari probe --write` keeps the failures it found, as behaviour tests
+# (`evals/probe_tests.py`). The file has this one place in every agent and no manifest names it:
+# an agent that holds it is still an agent to an engine from before the probe, which runs the
+# agent's own tests and leaves this file unread. Each of its cases is a behaviour test with one
+# more key, `probe`: where the case came from, its `id` at least.
+PROBE_TESTS = "tests/probe.yaml"
+PROBE_KEY = "probe"
+# And where it keeps the tests whose expected answer a model changed, until a person confirms
+# each (`mendari probe --confirm`): the same cases, never run and held to nothing while here.
+PROBE_UNCONFIRMED = "tests/probe-unconfirmed.yaml"
 
 
 @dataclass(frozen=True)
@@ -27,37 +38,80 @@ class CaseOutcome:
 
 
 def load_cases(pack: Pack) -> list[dict[str, Any]]:
-    """The pack's behaviour tests. Each is a mapping with an `input` mapping, an optional `name`
-    (text) and an `expect` mapping saying what the pack must decide: at least one of
-    `EXPECT_KEYS` and nothing else, each value one the pack can decide (an outcome, a priority,
-    the primary question's label, a question's label), all JSON. Any other case is a
-    `PackValidationError` naming the case by number and name and what is wrong (never its
-    input)."""
+    """The pack's own behaviour tests: the file its manifest names. Each is a mapping with an
+    `input` mapping, an optional `name` (text) and an `expect` mapping saying what the pack must
+    decide: at least one of `EXPECT_KEYS` and nothing else, each value one the pack can decide
+    (an outcome, a priority, the primary question's label, a question's label), all JSON. Any
+    other case is a `PackValidationError` naming the case by number and name and what is wrong
+    (never its input)."""
     if pack.manifest.tests is None:
         return []
-    cases = pack.read_yaml(pack.manifest.tests) or []
+    return _load(pack, pack.manifest.tests, CASE_KEYS)
+
+
+def probe_cases(pack: Pack) -> list[dict[str, Any]]:
+    """The regression tests the probe found and a person or the probe kept (`PROBE_TESTS`), or
+    none: each a behaviour test as `load_cases` reads one, with a `probe` mapping that holds its
+    `id` (text, one case's only). A test still waiting for a person to confirm what it expects
+    is in another file, and is never read here."""
+    if not pack.path(PROBE_TESTS).is_file():
+        return []
+    own = pack.manifest.tests
+    if own is not None and pack.path(own) == pack.path(PROBE_TESTS):
+        return []  # the manifest names this file as the agent's own tests: read once, as those
+    cases = _load(pack, PROBE_TESTS, (*CASE_KEYS, PROBE_KEY))
+    first: dict[str, int] = {}
+    for number, case in enumerate(cases, start=1):
+        found = first.setdefault(case[PROBE_KEY]["id"], number)
+        if found != number:
+            where = f"{PROBE_TESTS} case {number}{_named(case)}"
+            problem = f"{where}: its id {case[PROBE_KEY]['id']} is case {found}'s too"
+            raise PackValidationError(pack.id, [problem])
+    return cases
+
+
+def every_case(pack: Pack) -> list[tuple[str, int, dict[str, Any]]]:
+    """Every behaviour test `mendari test` runs, as (the file it is in, its number there, the
+    case): the pack's own (`load_cases`), then the ones the probe found (`probe_cases`)."""
+    own = [(str(pack.manifest.tests), case) for case in load_cases(pack)]
+    found = [(PROBE_TESTS, case) for case in probe_cases(pack)]
+    return [
+        (file, number, case)
+        for cases in (own, found)
+        for number, (file, case) in enumerate(cases, start=1)
+    ]
+
+
+def _load(pack: Pack, relative: str, keys: tuple[str, ...]) -> list[dict[str, Any]]:
+    """The cases of one file of behaviour tests, each holding `keys` and no other."""
+    cases = pack.read_yaml(relative) or []
     if not isinstance(cases, list):
-        raise PackValidationError(pack.id, [f"{pack.manifest.tests}: expected a list of cases"])
+        raise PackValidationError(pack.id, [f"{relative}: expected a list of cases"])
     problems = []
     for number, case in enumerate(cases, start=1):
-        problem = _case_problem(case)
+        problem = _case_problem(case, keys)
         if problem is None:
             problem = _value_problem(pack.manifest, case["expect"])
         if problem is not None:
-            name = case.get("name") if isinstance(case, dict) else None
-            named = f" ({name})" if isinstance(name, str) and name else ""
-            problems.append(f"{pack.manifest.tests} case {number}{named}: {problem}")
+            problems.append(f"{relative} case {number}{_named(case)}: {problem}")
     if problems:
         raise PackValidationError(pack.id, problems)
     return cases
 
 
-def _case_problem(case: Any) -> str | None:
+def _named(case: Any) -> str:
+    """A case's name as a problem shows it after the case's number, if it has one."""
+    name = case.get("name") if isinstance(case, dict) else None
+    return f" ({name})" if isinstance(name, str) and name else ""
+
+
+def _case_problem(case: Any, keys: tuple[str, ...] = CASE_KEYS) -> str | None:
     if not isinstance(case, dict):
         return "not a mapping (a case has an `input`, an `expect` and may have a `name`)"
-    extra = sorted(str(key) for key in case if key not in CASE_KEYS)
+    extra = sorted(str(key) for key in case if key not in keys)
     if extra:
-        return f"unknown key {extra[0]!r} (a case has `name`, `input` and `expect`)"
+        listed = ", ".join(f"`{key}`" for key in keys[:-1]) + f" and `{keys[-1]}`"
+        return f"unknown key {extra[0]!r} (a case has {listed})"
     if not isinstance(case.get("input"), dict):
         return "`input` must be a mapping"
     if not isinstance(case.get("name", ""), str):
@@ -80,6 +134,15 @@ def _case_problem(case: Any) -> str | None:
         return "`expect.outcome_in` must be a list"
     if "outcome_in" in expect and not expect["outcome_in"]:
         return "`expect.outcome_in` is empty: list the outcomes the test accepts"
+    if PROBE_KEY in keys:
+        if PROBE_KEY not in case:
+            return (
+                f"no `{PROBE_KEY}`: a test in this file says where `mendari probe` found it "
+                "(its `id` at least)"
+            )
+        found = case[PROBE_KEY]
+        if not isinstance(found, dict) or not isinstance(found.get("id"), str) or not found["id"]:
+            return f"`{PROBE_KEY}` must be a mapping with an `id`"
     what = not_json(case)
     return None if what is None else f"not JSON, it holds {what}"
 
@@ -133,7 +196,7 @@ def input_problems(pack: Pack) -> list[str]:
 
 
 def run_pack_tests(decision: Decision) -> list[CaseOutcome]:
-    return [_run(decision, case) for case in load_cases(decision.pack)]
+    return [_run(decision, case) for _, _, case in every_case(decision.pack)]
 
 
 def _run(decision: Decision, case: dict[str, Any]) -> CaseOutcome:
