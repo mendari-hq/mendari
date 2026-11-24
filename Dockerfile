@@ -3,7 +3,7 @@
 # Base images are pinned by digest and the Python packages come from uv.lock (every artifact
 # hash-checked), so the image holds what CI tested. To bump a pin, see CONTRIBUTING.md
 # ("Pinned actions and images").
-FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS build
 COPY --from=uv /uv /usr/local/bin/uv
