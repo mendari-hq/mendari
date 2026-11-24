@@ -1,0 +1,118 @@
+{
+  "model": "mock-actions-agent",
+  "agent_version": "0.1.0",
+  "cases": [
+    {
+      "match": "abusive",
+      "response": {
+        "answers": {
+          "request": {"value": "other", "confidence": 0.95},
+          "abusive": {"value": "yes", "confidence": 0.97}
+        },
+        "actions": [
+          {"name": "look_up_medications"},
+          {"name": "draft_reply", "arguments": {"message": "We read your message."}}
+        ]
+      }
+    },
+    {
+      "match": "undeclared",
+      "response": {
+        "answers": {
+          "request": {"value": "refill", "confidence": 0.95},
+          "abusive": {"value": "no", "confidence": 0.97}
+        },
+        "actions": [
+          {"name": "draft_reply", "arguments": {"message": "Your refill request is with the pharmacy."}},
+          {"name": "delete_chart_sentinel", "arguments": {"why": "SENTINEL-ARGUMENT-TEXT"}}
+        ]
+      }
+    },
+    {
+      "match": "malformed",
+      "response": {
+        "answers": {
+          "request": {"value": "refill", "confidence": 0.95},
+          "abusive": {"value": "no", "confidence": 0.97}
+        },
+        "actions": [
+          {"name": "send_reply", "arguments": {"message": 5, "SENTINEL-EXTRA-KEY": true}}
+        ]
+      }
+    },
+    {
+      "match": "renew",
+      "response": {
+        "answers": {
+          "request": {"value": "refill", "confidence": 0.95},
+          "abusive": {"value": "no", "confidence": 0.97}
+        },
+        "actions": [
+          {"name": "look_up_medications"},
+          {"name": "renew_prescription"}
+        ]
+      }
+    },
+    {
+      "match": "queue",
+      "response": {
+        "answers": {
+          "request": {"value": "refill", "confidence": 0.95},
+          "abusive": {"value": "no", "confidence": 0.97}
+        },
+        "actions": [
+          {"name": "draft_reply", "arguments": {"message": "Your refill request is with the pharmacy."}},
+          {"name": "queue_refill", "arguments": {"medication": "lisinopril 10 mg", "days_supply": 30}}
+        ]
+      }
+    },
+    {
+      "match": "refill",
+      "response": {
+        "answers": {
+          "request": {"value": "refill", "confidence": 0.95},
+          "abusive": {"value": "no", "confidence": 0.97}
+        },
+        "actions": [
+          {"name": "draft_reply", "arguments": {"message": "Your refill request is with the pharmacy."}},
+          {"name": "send_reply", "arguments": {"message": "We received your refill request."}},
+          {"name": "draft_reply", "arguments": {"message": "Your refill request is with the pharmacy."}}
+        ]
+      }
+    },
+    {
+      "match": "appointment",
+      "response": {
+        "answers": {
+          "request": {"value": "appointment", "confidence": 0.7},
+          "abusive": {"value": "no", "confidence": 0.97}
+        },
+        "actions": [
+          {"name": "look_up_medications"},
+          {"name": "file_note", "arguments": {"note": "Asked to move a visit."}},
+          {"name": "send_reply", "arguments": {"message": "We received your request about a visit."}}
+        ]
+      }
+    },
+    {
+      "match": "unclear",
+      "response": {
+        "answers": {
+          "request": {"value": "other", "confidence": 0.4},
+          "abusive": {"value": "no", "confidence": 0.97}
+        },
+        "actions": [
+          {"name": "look_up_medications"},
+          {"name": "file_note", "arguments": {"note": "Could not tell what was asked."}},
+          {"name": "renew_prescription"}
+        ]
+      }
+    }
+  ],
+  "default": {
+    "answers": {
+      "request": {"value": "other", "confidence": 0.95},
+      "abusive": {"value": "no", "confidence": 0.97}
+    }
+  }
+}

@@ -94,6 +94,16 @@ class PhiPolicy:
         digest = hmac.new(self.hash_key, INPUT_HASH_PREFIX + canonical, hashlib.sha256)
         return f"hmac-sha256:{key_id(self.hash_key)}:{digest.hexdigest()}"
 
+    def arguments_hash(self, arguments: Any) -> str:
+        """The hash of a proposed action's arguments (spec 0.4), as `input_hash` hashes an
+        input: keyed under the hash key, with its own prefix so it never equals the input hash
+        of the same value, else the plain `sha256:<64 hex>`."""
+        canonical = _canonical(arguments).encode()
+        if not self.hash_key:
+            return "sha256:" + hashlib.sha256(canonical).hexdigest()
+        digest = hmac.new(self.hash_key, ACTION_HASH_PREFIX + canonical, hashlib.sha256)
+        return f"hmac-sha256:{key_id(self.hash_key)}:{digest.hexdigest()}"
+
     def encrypt(self, decision_id: str, inputs: Any) -> str:
         return self.seal("input", inputs, decision_id)
 
@@ -182,6 +192,8 @@ DATASET_AAD = b"mendari-store-dataset-v1\x00"
 CONNECTION_AAD = b"mendari-agent-connection-v1\x00"
 # What the input hash's HMAC covers before the input, so the hash key signs nothing else alike.
 INPUT_HASH_PREFIX = b"mendari-input-v1\x00"
+# What the hash of a proposed action's arguments covers before them (`arguments_hash`).
+ACTION_HASH_PREFIX = b"mendari-action-v1\x00"
 GENERATE = '`python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`'
 _GENERATE = GENERATE
 

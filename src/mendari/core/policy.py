@@ -23,6 +23,15 @@ Order of evaluation:
    (final at once) become HUMAN_REVIEW, and the reason says so whatever the outcome. Nothing
    lifts it, governance included. Without sign-in (`mendari demo`, tests, a local dashboard)
    the server passes none and nothing changes.
+7. The `actions` cap (spec 0.4, ADR-0022): a proposed action that could not be released with an
+   AUTO decision (one the manifest does not declare, arguments that do not match their schema, a
+   composite member's proposal, or an action never released without a person) turns AUTO into
+   HUMAN_REVIEW, with the reason; a decision already going to a person keeps its outcome and
+   gets the same reason, and a BLOCK stands (it blocks every action). Nothing lifts it.
+
+What a declared action needs before it is released is here too, beside the risk caps and never
+in a manifest: `EFFECT_GATES` (an effect's gate), `gate_of` (a manifest and the agent's origin
+may only tighten it) and `disposition` (the gate, by the decision's state).
 """
 
 from __future__ import annotations
@@ -30,8 +39,11 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
+from enum import StrEnum
+from typing import Literal
 
-from mendari.core.spec import Condition, Outcome, PackManifest, Priority, RiskLevel
+from mendari.core.actions import Checked, Disposition, Reason
+from mendari.core.spec import Condition, Effect, Outcome, PackManifest, Priority, RiskLevel
 from mendari.providers.base import Answer
 
 # Highest risk level at which AUTO is permitted without a governance override.
@@ -86,6 +98,7 @@ def apply_policy(
     site_code: Sequence[str] = (),
     not_offered: Sequence[str] = (),
     canned: str | None = None,
+    actions: Sequence[str] = (),
 ) -> PolicyResult:
     """`variants` is the running variant of each provider slot, for `automation_requires`;
     without it, a pack that sets `automation_requires` never automates. A `community` pack
@@ -98,7 +111,9 @@ def apply_policy(
     nothing else changes. `not_offered` names each limitation of a list read without a source the
     site declared its EHR does not offer (`limitation`): the same cap, its own reason. `canned`
     says why the answers are canned (`ProviderOutput.canned`): AUTO and a rule's BLOCK become
-    HUMAN_REVIEW, and the reason is given whatever the outcome."""
+    HUMAN_REVIEW, and the reason is given whatever the outcome. `actions` says, for each
+    proposed action that could not be released with an AUTO decision, why (`action_stops`): AUTO
+    becomes HUMAN_REVIEW, and nothing else changes."""
     translated = tuple(sorted(set(site_code)))
     limits = tuple(dict.fromkeys(not_offered))
     policy = manifest.policy
@@ -193,6 +208,7 @@ def apply_policy(
             limits,
             canned,
         )
+    outcome = _action_cap(outcome, actions, reasons)
     if canned is not None and not any(reason.startswith(canned) for reason in reasons):
         reasons.append(canned_reason(canned))  # already not AUTO: the reason only
     site_reason = f"site code translated ({', '.join(translated)}): a person decides"
@@ -225,6 +241,8 @@ class PolicyInputs:
     site_code: Sequence[str] = ()
     not_offered: Sequence[str] = ()
     canned: str | None = None
+    # Why each proposed action could not be released with an AUTO decision (`action_stops`).
+    actions: Sequence[str] = ()
 
     def apply(self, manifest: PackManifest) -> PolicyResult:
         return apply_policy(
@@ -239,7 +257,153 @@ class PolicyInputs:
             site_code=self.site_code,
             not_offered=self.not_offered,
             canned=self.canned,
+            actions=self.actions,
         )
+
+
+def _action_cap(outcome: Outcome, stops: Sequence[str], reasons: list[str]) -> Outcome:
+    """The `actions` cap: with any stop, AUTO becomes HUMAN_REVIEW, and a decision already going
+    to a person keeps its outcome; either way each stop is a reason, once. A BLOCK stands and
+    says nothing more: it blocks every action. Never raises an outcome."""
+    if not stops or outcome is Outcome.BLOCK:
+        return outcome
+    for stop in dict.fromkeys(stops):
+        reason = f"{stop}: a person decides"
+        if reason not in reasons:
+            reasons.append(reason)
+    return Outcome.HUMAN_REVIEW if outcome is Outcome.AUTO else outcome
+
+
+# -- actions (spec 0.4, ADR-0022) -----------------------------------------------------------------
+# What a declared action needs before it is released. The runtime's, as the risk caps are
+# (ADR-0002): a manifest names an action's effect and may tighten its gate (`allow_auto:
+# false`); nothing in a manifest, and nothing an agent proposes, loosens one.
+
+
+class Gate(StrEnum):
+    """What an action needs before it is released, loosest first (`GATES`)."""
+
+    DECISION = "decision"  # a decision that is not BLOCK
+    AUTO = "auto"  # an AUTO decision, or else the decision's reviewer confirming it
+    PERSON = "person"  # the decision's reviewer confirming it: never released without a person
+
+
+GATES = (Gate.DECISION, Gate.AUTO, Gate.PERSON)  # loosest first
+EFFECT_GATES: Mapping[Effect, Gate] = {
+    Effect.READ: Gate.DECISION,
+    Effect.DRAFT: Gate.DECISION,
+    Effect.WRITE: Gate.AUTO,
+    Effect.CONTACT: Gate.AUTO,
+    Effect.ORDER: Gate.PERSON,
+}
+# A gate in words: the Decision Card's and the console's, from here only.
+GATE_TEXT: Mapping[Gate, str] = {
+    Gate.DECISION: "With any decision that is not blocked.",
+    Gate.AUTO: "Only with an automated decision; otherwise when a reviewer confirms it.",
+    Gate.PERSON: "Never without a person: when a reviewer confirms the decision.",
+}
+# Where a decision's review stands: none is needed, one is awaited, or a reviewer confirmed or
+# overrode the recommendation.
+Review = Literal["none", "pending", "confirmed", "overridden"]
+
+
+def stricter(one: Gate, other: Gate) -> Gate:
+    """The stricter of two gates."""
+    return max(one, other, key=GATES.index)
+
+
+def gate_of(effect: Effect, *, allow_auto: bool = True, vouched: bool = True) -> Gate:
+    """A declared action's gate: its effect's (`EFFECT_GATES`), and never looser. The manifest
+    tightens it with `allow_auto: false` (never without a person). For an agent the deployment
+    has not `vouched` for (a community agent, or one from a registry whose digest its
+    organization has not approved, or that is recalled), an effect is a claim nobody here
+    checked: nothing it proposes is released without a person, so `read` and `draft` take the
+    gate of `write`."""
+    gate = EFFECT_GATES[effect]
+    if not vouched:
+        gate = stricter(gate, Gate.AUTO)
+    if not allow_auto:
+        gate = Gate.PERSON
+    return gate
+
+
+def risk_permits_auto(level: RiskLevel, governance: GovernanceOverride | None) -> bool:
+    """Whether an agent of this risk level may automate at all, as `_caps` decides it: levels 0
+    and 1 always, 2 and 3 with a governance approval in force, 4 never. So an action released
+    only with an AUTO decision is released without a person only where this holds."""
+    if level <= MAX_AUTONOMOUS_RISK:
+        return True
+    return level in OVERRIDABLE_RISK and governance is not None and governance.allow_auto
+
+
+def action_stops(checked: Sequence[Checked], *, vouched: bool = True) -> tuple[str, ...]:
+    """Why each proposed action could not be released with an AUTO decision, in order and once
+    each: what `apply_policy` takes as `actions`. An agent that proposes what it never declared,
+    or arguments its own schema refuses, is not trusted to automate; an action never released
+    without a person gets one only if the decision goes to a person. A reason names a declared
+    action only: any other name is the agent's text."""
+    stops: list[str] = []
+    for item in checked:
+        name = item.proposed.name
+        if item.refusal == "invalid_arguments" and item.spec is not None:
+            stops.append(f"action {name!r}: its arguments do not match its schema")
+        elif item.refusal == "composite_member":
+            stops.append(
+                "a composite's member proposed an action, which this version does not take"
+            )
+        elif item.refusal is not None or item.spec is None:
+            stops.append("the agent proposed an action its manifest does not declare")
+        elif not item.spec.allow_auto:
+            stops.append(f"action {name!r} is never released without a person (allow_auto: false)")
+        elif gate_of(item.spec.effect, vouched=vouched) is Gate.PERSON:
+            effect = item.spec.effect.value
+            stops.append(f"action {name!r} ({effect}) is never released without a person")
+    return tuple(dict.fromkeys(stops))
+
+
+def disposition(
+    gate: Gate,
+    *,
+    outcome: Outcome,
+    recommendation: str | None,
+    review: Review,
+    automating: bool = True,
+    refused_before: bool = False,
+) -> tuple[Disposition, Reason]:
+    """What may be done with a declared, well-formed action, by its gate and its decision's
+    state (the table of spec 0.4 section 5, its rules in this order):
+
+    1. A BLOCK decision blocks every action.
+    2. The gate `decision` needs nothing more: released.
+    3. Without a recommendation (an abstention, or a review that has none) there is nothing for
+       a reviewer to confirm: blocked.
+    4. A review that is awaited holds the action for the reviewer.
+    5. A review already resolved is closed: an action asked for afterwards is blocked (the
+       reviewer never saw it).
+    6. An AUTO decision releases the gate `auto`, unless an earlier proposal on the decision was
+       refused (`refused_before`) or the agent may not automate now (`automating`: a hold, an
+       approval no longer in force, a recall); the gate `person` has nobody to wait for.
+    7. Anything else has no reviewer: blocked.
+
+    `held` is returned only for a decision that awaits review and has a recommendation, and
+    `released` only by rules 2 and 6."""
+    if outcome is Outcome.BLOCK:
+        return "blocked", "decision_blocked"
+    if gate is Gate.DECISION:
+        return "released", "with_decision"
+    if recommendation is None:
+        return "blocked", "no_recommendation"
+    if review == "pending":
+        return "held", "awaiting_review"
+    if review in ("confirmed", "overridden"):
+        return "blocked", "review_closed"
+    if outcome is Outcome.AUTO and gate is Gate.AUTO:
+        if refused_before:
+            return "blocked", "earlier_refusal"
+        if not automating:
+            return "blocked", "not_automated"
+        return "released", "automated"
+    return "blocked", "no_reviewer"
 
 
 def canned_reason(canned: str) -> str:

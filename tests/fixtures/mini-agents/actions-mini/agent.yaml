@@ -1,0 +1,96 @@
+# Test fixture for actions (spec 0.4): the five actions of the spec's example, one of each
+# effect, and an `agent` variant whose canned answers propose them. Not a real agent.
+spec_version: "0.4"
+id: mendari-test/actions-mini
+version: 0.1.0
+name: Actions Mini (test fixture)
+summary: Toy portal agent that proposes actions, used to test how the runtime gates them.
+publisher: {name: Mendari tests, type: community}
+license: Apache-2.0
+risk:
+  level: 0
+  category: administrative
+  rationale: Test fixture.
+card:
+  intended_use: Test fixture only.
+  intended_users: [Mendari developers]
+  patient_population: Synthetic.
+  provenance: synthetic
+inputs:
+  schema: schemas/input.schema.json
+questions:
+  request:
+    instructions: What does the patient ask for?
+    criteria:
+      refill: A refill of a medication they already take.
+      appointment: To book, move or cancel a visit.
+      other: Anything else.
+  abusive:
+    type: boolean
+    instructions: Is the message abusive?
+    criteria: {"yes": It is., "no": It is not.}
+providers:
+  reader:
+    answers: [request, abusive]
+    use: agent
+    variants:
+      agent:
+        type: agent
+        agent_id: actions-mini-agent
+        state_fields: [message.body]
+        mock_file: fixtures/mock_agent.json
+policy:
+  primary: request
+  thresholds: {auto: 0.9, review: 0.5}
+  rules:
+    - name: abusive-message
+      when: {question: abusive, labels: ["yes"], min_confidence: 0.9}
+      outcome: BLOCK
+      reason: The message is abusive and is not routed.
+  fallback: The front desk reads the message.
+tests: tests/cases.yaml
+actions:
+  look_up_medications:
+    description: Read the patient's active medication list.
+    effect: read
+  draft_reply:
+    description: Draft a reply for staff to read and send themselves.
+    effect: draft
+    schema:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message: {type: string, minLength: 1, maxLength: 2000}
+  send_reply:
+    description: Send a reply to the patient through the portal.
+    effect: contact
+    schema:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message: {type: string, minLength: 1, maxLength: 2000}
+  queue_refill:
+    description: Put a refill request in the pharmacy queue for a prescriber to sign.
+    effect: write
+    allow_auto: false
+    schema:
+      type: object
+      additionalProperties: false
+      required: [medication]
+      properties:
+        medication: {type: string, minLength: 1, maxLength: 200}
+        days_supply: {type: integer, minimum: 1, maximum: 90}
+  file_note:
+    description: File a note of the request in the patient's chart.
+    effect: write
+    schema:
+      type: object
+      additionalProperties: false
+      required: [note]
+      properties:
+        note: {type: string, minLength: 1, maxLength: 500}
+  renew_prescription:
+    description: Renew the prescription as it was last written.
+    effect: order

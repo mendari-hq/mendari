@@ -164,6 +164,13 @@ class CompositeProvider(Provider):
             if failed
             else {},
             canned=next((o.canned for o in outputs.values() if o.canned is not None), None),
+            # A member's proposals are not taken in this version (spec 0.4 section 4.2): each
+            # is carried refused, so it is blocked and the decision goes to a person.
+            actions=tuple(
+                replace(action, refused="composite_member")
+                for output in outputs.values()
+                for action in output.actions
+            ),
         )
 
 

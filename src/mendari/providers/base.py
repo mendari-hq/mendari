@@ -15,6 +15,7 @@ from typing import Any, ClassVar, TypeVar
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from mendari.core.actions import Proposed
 from mendari.core.pack import Pack
 from mendari.core.spec import Question
 from mendari.core.text import plain
@@ -79,6 +80,9 @@ class ProviderOutput:
     # Why the answers are canned rather than a live call's (an agent's `mock_file`, read while
     # `MENDARI_AGENT_URL` is unset), or None. A server with sign-in never automates on them.
     canned: str | None = None
+    # The actions an agent proposed with its answers (spec 0.4): asked for, never run. Only an
+    # `agent` variant of a 0.4 agent proposes any.
+    actions: tuple[Proposed, ...] = ()
 
 
 # A decision over its organization's daily quota (`CallBudget.admit_decision`): its remote
