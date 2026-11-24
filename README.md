@@ -144,12 +144,11 @@ explains every section, and
 [the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest-0.2.md)
 specifies it.
 
-**In CI.** The workflow uses Mendari's GitHub Action: on every pull request, and every push to
-`main`, it validates, tests and evaluates the agent, writes the figures and the operating point
-to the job's summary, and fails the job when a limit you state is not met (by default: a
-critical label detected in under nine cases of ten, or any critical miss) or the result is
-worse than a baseline. It needs no secret. The action resolves from another repository once
-this one is public and a release is tagged
+**In CI.** The workflow uses Mendari's GitHub Action: on a pull request or a push to `main` it
+validates, tests and evaluates the agent, writes the figures and the operating point to the
+job's summary, and fails the job when a limit you state is not met or the result is worse than
+a baseline. It needs no secret, and resolves once this repository is public and a release is
+tagged
 ([Evaluating an agent on every change](https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md)).
 
 ### 3. Put a real model behind it
@@ -285,11 +284,10 @@ mendari pull my-clinic/my-agent                             # download, verify, 
    decision goes to a person while the engine records what the agent would have automated.
    `GET /api/agents/{namespace}/{name}/validation-brief` sums it up, with no case text.
 4. **Bring it to your AI governance committee.** The committee packet is one page to print per
-   agent, as your organization sees it: intended use, risk level and what the runtime
-   enforces, the publisher's evidence and your own, monitoring, change control, data handling
-   and approvals; then everything a framework asks for that nobody has stated, and a crosswalk
-   to four published frameworks. It is a reading aid, not a certification. Get it from the
-   console's Overview or with `mendari packet <agent> --db <the server's database>`
+   agent, as your organization sees it: what the agent is and what the runtime enforces, the
+   publisher's evidence and your own, monitoring and approvals, then what nobody has stated
+   and a crosswalk to four published frameworks. A reading aid, not a certification: from the
+   console's Overview, or `mendari packet <agent> --db <the server's database>`
    ([The committee packet](https://github.com/mendari-hq/mendari/blob/main/docs/guides/committee-packet.md)).
 5. **Let it decide, under your governance.** Your organization approves the agent's exact
    digest; at risk level 2 or 3 it automates only after a named approver records a governance
