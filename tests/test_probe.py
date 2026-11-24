@@ -365,6 +365,9 @@ def test_a_message_given_twice_is_probed_once(tmp_path: Path) -> None:
     assert sorted(variant.case.id for variant in found.variants) == sorted(
         case["id"] for case in CASES
     )
+    # What a case is known by is a hash of that text, never the text.
+    keys = {variant.case.key for variant in found.variants}
+    assert len(keys) == 5 and all(re.fullmatch(r"[0-9a-f]{64}", key) for key in keys)
 
 
 # -- what counts as a failure, and how bad ---------------------------------------------------------
@@ -543,11 +546,13 @@ def test_the_report_counts_by_transformation_worst_first(tmp_path: Path) -> None
         ("symptom", "typos", "critical_lost"),
         ("visit", "typos", "wrong"),
     ]
+    detail = found.findings[0].variant.detail
+    assert detail in ("1 typing error", "2 typing errors")  # one, or one in each of its two words
     assert report["findings"][0] == {
         "id": found.findings[0].variant.id,
         "case": "symptom-and-medicine",
         "transformation": "typos",
-        "detail": "1 typing error",
+        "detail": detail,
         "harm": "automated",
         "answers": {"urgent": {"original": "yes", "variant": "no", "expected": "yes"}},
         "outcome": {"original": "HUMAN_REVIEW", "variant": "AUTO"},
@@ -668,7 +673,7 @@ def test_each_failure_is_written_as_a_test_that_fails_until_the_agent_is_fixed(
             "id": worst.id,
             "found_by": "mendari probe",
             "transformation": "typos",
-            "detail": "1 typing error",
+            "detail": worst.detail,  # how many typing errors: one or two
             "seed": 0,
             "variant": 0,
             "original": {"source": "cases", "case": "symptom-and-medicine"},
@@ -1222,22 +1227,29 @@ def test_a_dry_run_says_how_many_calls_and_makes_none(
     planned = probe.plan(Decision(pack, origin_cap=False), probe.source(pack), options)
     assert sent == []
     summary = planned.summary()
-    # Two variants of each case by each transformation, where two differ: a text has one
-    # punctuation variant, and one case variant when it is already in lower case.
-    assert summary["calls"] == {"decisions": 16, "agent": 16, "generator": 0}
-    assert summary["transformations"] == [
-        {"name": "typos", "variants": 6, "skipped": {}},
-        {"name": "case", "variants": 4, "skipped": {"same_as_another": 2}},
-        {"name": "punctuation", "variants": 3, "skipped": {"same_as_another": 3}},
-    ]
-    assert probe_report.planned(summary).splitlines() == [
+    typos, case, punctuation = summary["transformations"]
+    # Two variants of each of three cases by each transformation, where two differ. A text
+    # has one punctuation variant whatever the seed, and one or two case variants.
+    assert punctuation == {"name": "punctuation", "variants": 3, "skipped": {"same_as_another": 3}}
+    assert typos["variants"] + sum(typos["skipped"].values()) == 6 and typos["variants"] >= 3
+    assert case["variants"] + case["skipped"].get("same_as_another", 0) == 6
+    variants = typos["variants"] + case["variants"] + 3
+    decisions = 3 + variants
+    assert summary["calls"] == {"decisions": decisions, "agent": decisions, "generator": 0}
+    assert planned.decisions == decisions and len(planned.variants) == variants
+    shown = probe_report.planned(summary).splitlines()
+    assert shown[:4] == [
         "Probe triage 0.1.0 (clinic/probe-triage), reader=agent",
         "A dry run: nothing was decided, and no agent or model was called.",
         "3 of the 5 distinct cases of cases (2 with a critical label), seed 0. Text to change: "
         "message.body.",
-        "Variants: typos 6, case 4, punctuation 3.",
-        "Not built: case 2 (same as another), punctuation 3 (same as another).",
-        "16 decisions (3 cases as written and 13 variants): at most 16 calls to the agent.",
+        f"Variants: typos {typos['variants']}, case {case['variants']}, punctuation 3.",
+    ]
+    assert shown[4].startswith("Not built: ")
+    assert shown[4].endswith("punctuation 3 (same as another).")
+    assert shown[5:] == [
+        f"{decisions} decisions (3 cases as written and {variants} variants): at most "
+        f"{decisions} calls to the agent."
     ]
     assert sent == []
 

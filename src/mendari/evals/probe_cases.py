@@ -18,6 +18,7 @@ the caller names take the place of all that.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -165,7 +166,7 @@ def distinct_cases(
             refused += 1
             continue
         state = record.input if read is None else select_fields(record.input, list(read))
-        key = canonical_input(state)
+        key = hashlib.sha256(canonical_input(state).encode("ascii")).hexdigest()
         places = text_places(record.input, schema, read, named=fields is not None)
         if key not in by_key and places:
             by_key[key] = Case(
