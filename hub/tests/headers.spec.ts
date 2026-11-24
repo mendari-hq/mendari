@@ -15,7 +15,22 @@ const EXPECTED: Record<string, string> = {
 const CSP =
   /^default-src 'self'; script-src 'self' 'nonce-([A-Za-z0-9+/=]+)' 'strict-dynamic'; style-src 'self' 'nonce-\1'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'$/;
 
-const PAGES = ["/", "/?q=portal", "/packs/mendari/portal-message-agent", "/packs/hub-test/hostile-text", "/publishers/mendari", "/packs/mendari/no-such-pack", "/no-such-page"];
+const PAGES = ["/", "/?q=portal", "/agents/mendari/portal-message-agent", "/agents/hub-test/hostile-text", "/publishers/mendari", "/agents/mendari/no-such-agent", "/no-such-page"];
+// Where an agent's page was before, and where its redirect leads.
+const MOVED = [
+  ["/packs/mendari/portal-message-agent", "/agents/mendari/portal-message-agent"],
+  ["/packs/hub-test/hostile-text", "/agents/hub-test/hostile-text"],
+] as const;
+
+// The policy's nonce, once every header of an answer is as expected.
+function checked(headers: Record<string, string>, path: string): string {
+  for (const [name, value] of Object.entries(EXPECTED)) expect(headers[name], `${path} ${name}`).toBe(value);
+  const policy = CSP.exec(headers["content-security-policy"] ?? "");
+  expect(policy, path).not.toBeNull();
+  // This machine: no HSTS (browsers ignore it over plain http, and it would bind localhost).
+  expect(headers["strict-transport-security"], path).toBeUndefined();
+  return policy?.[1] ?? "";
+}
 
 test("every page and asset carries the headers, each nonce fresh", async ({ page, request }) => {
   await page.goto("/");
@@ -26,15 +41,18 @@ test("every page and asset carries the headers, each nonce fresh", async ({ page
   const nonces = new Set<string>();
   for (const path of [...PAGES, ...assets.slice(0, 3)]) {
     const answer = await request.get(path);
-    const headers = answer.headers();
-    for (const [name, value] of Object.entries(EXPECTED)) expect(headers[name], `${path} ${name}`).toBe(value);
-    const policy = CSP.exec(headers["content-security-policy"] ?? "");
-    expect(policy, path).not.toBeNull();
-    nonces.add(policy?.[1] ?? "");
-    // This machine: no HSTS (browsers ignore it over plain http, and it would bind localhost).
-    expect(headers["strict-transport-security"], path).toBeUndefined();
+    nonces.add(checked(answer.headers(), path));
   }
   expect(nonces.size).toBe(PAGES.length + Math.min(assets.length, 3));
+});
+
+test("the redirect from the address an agent's page had before carries the headers too", async ({ request }) => {
+  for (const [before, now] of MOVED) {
+    const answer = await request.get(before, { maxRedirects: 0 });
+    expect(answer.status(), before).toBe(308);
+    expect(answer.headers()["location"], before).toBe(now);
+    checked(answer.headers(), before);
+  }
 });
 
 test("a page's scripts carry its nonce and nothing breaks the policy", async ({ page }) => {
@@ -42,7 +60,7 @@ test("a page's scripts carry its nonce and nothing breaks the policy", async ({ 
   page.on("console", (message) => {
     if (/Content Security Policy|Refused to/.test(message.text())) violations.push(message.text());
   });
-  const answer = await page.goto("/packs/mendari/portal-message-agent");
+  const answer = await page.goto("/agents/mendari/portal-message-agent");
   const nonce = CSP.exec(answer?.headers()["content-security-policy"] ?? "")?.[1];
   expect(nonce).toBeTruthy();
   const inline = await page.locator("script:not([src])").evaluateAll((nodes) =>

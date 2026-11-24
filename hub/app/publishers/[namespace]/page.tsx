@@ -62,7 +62,7 @@ export default async function PublisherPage({ params }: { params: Promise<Params
             {found.packs.map((id) => {
               const [ns = found.name, ...rest] = id.split("/");
               const packName = rest.join("/");
-              const href = `/packs/${encodeURIComponent(ns)}/${encodeURIComponent(packName)}`;
+              const href = `/agents/${encodeURIComponent(ns)}/${encodeURIComponent(packName)}`;
               return (
                 <li key={id}>
                   <Link href={href} className="publisher-pack-link">

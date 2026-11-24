@@ -50,7 +50,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
   ]);
   if (packResult.status === "rejected") {
     if (packResult.reason instanceof RegistryUnavailable) {
-      return <RegistryUnavailablePage retry={`/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`} />;
+      return <RegistryUnavailablePage retry={`/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`} />;
     }
     throw packResult.reason;
   }
@@ -241,7 +241,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
             <h2 id="claimed-heading">Claimed by the publisher</h2>
             <span className="group-tag group-tag-warn">Publisher declared</span>
           </div>
-          <p className="muted group-sub">What the agent package says about itself. The registry has not checked it.</p>
+          <p className="muted group-sub">What the publisher says about the agent. The registry has not checked it.</p>
           <dl>
             {claimed.publisher ? (
               <Item term="Publisher">{claimed.publisher.name} ({claimed.publisher.type}, self-declared)</Item>

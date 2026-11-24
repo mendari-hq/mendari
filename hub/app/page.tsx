@@ -172,7 +172,7 @@ function PackCard({ item }: { item: PackSummary }) {
       <div className="card-top">
         <div className="card-heading">
           <h3>
-            <Link href={`/packs/${encodeURIComponent(item.namespace)}/${encodeURIComponent(item.name)}`}>
+            <Link href={`/agents/${encodeURIComponent(item.namespace)}/${encodeURIComponent(item.name)}`}>
               {item.pack_name}
             </Link>
           </h3>
