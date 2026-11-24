@@ -117,10 +117,15 @@ automate.
 The text changed is the fields the running variant says it reads: an agent's or a model's
 `state_fields`, the `text_fields` of rules or a trained classifier. Where a variant is sent the
 whole input, it is every string in it. Of those, a string the input schema holds to a list of
-values, a format or a pattern (`enum`, `const`, `format`, `pattern`) is a code, a date or an id,
-and is never changed. Every variant is checked against the input schema before it is decided. If
-the probe changes a field it should not, or misses one, name the text fields yourself:
-`--field message.body`.
+values or a format (`enum`, `const`, `format`), or to a `pattern` that gives it a shape
+(`^[a-z]{2}$`), is a code, a date or an id, and is never changed. A pattern that an ordinary
+sentence meets, one that only asks for something written (`\S`) or for a single line, leaves the
+field text.
+
+Every variant is checked against the input schema before it is decided. One the schema refuses (a
+line break in a field held to one line, an addition past a `maxLength`) is not tried, and the
+report says how many. If the probe changes a field it should not, or misses one, name the text
+fields yourself: `--field message.body`.
 
 ## What counts as a failure
 

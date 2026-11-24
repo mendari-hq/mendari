@@ -18,7 +18,7 @@ import pytest
 import yaml
 
 from mendari import Decision, load_pack
-from mendari.core import pack_store
+from mendari.core import pack_store, patterns
 from mendari.core.pack import pack_digest
 from mendari.errors import MendariError, PackValidationError
 from mendari.evals import probe, probe_report, probe_tests, probe_variants
@@ -257,8 +257,8 @@ def test_the_text_is_the_fields_the_agent_reads_and_nothing_else_changes(tmp_pat
 
 def test_with_no_fields_named_the_text_is_the_schemas_free_strings(tmp_path: Path) -> None:
     """An `agent` variant that sends the whole input names no field: the text is then every
-    string the input schema leaves free. One it holds to a list of values, a format or a pattern
-    is a code or a date, and never changed."""
+    string the input schema leaves free. One it holds to a list of values, a format or the shape
+    a pattern gives is a code or a date, and never changed."""
     root = build_agent(tmp_path / "agent")
     schema = json.loads((root / "schemas" / "input.schema.json").read_text())
     properties = schema["properties"]["message"]["properties"]
@@ -302,6 +302,62 @@ def test_with_no_fields_named_the_text_is_the_schemas_free_strings(tmp_path: Pat
         changed = variant.input["message"]
         assert message["subject"] in changed["subject"] != message["subject"]
         assert changed["body"] == message["body"]
+
+
+def test_a_pattern_that_any_text_meets_does_not_make_a_text_a_code(tmp_path: Path) -> None:
+    """A schema's `pattern` may give a code its shape (`^[a-z]{2,3}$`), or only ask that a
+    text hold something (`\\S`) or stay on one line. The first is never changed; the others are
+    text like any other, and a variant their pattern refuses is left out when it is built."""
+    root = agent_variant(build_agent(tmp_path / "agent"), CANNED_BY_KEYWORD)
+    schema = json.loads((root / "schemas" / "input.schema.json").read_text())
+    properties = schema["properties"]["message"]["properties"]
+    properties["body"]["pattern"] = r"\S"
+    properties["subject"] = {"type": "string", "pattern": "^[^\\n]*$"}
+    properties["language"] = {"type": "string", "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$"}
+    (root / "schemas" / "input.schema.json").write_text(json.dumps(schema))
+    message = {
+        "body": "Bad chest pain now",
+        "subject": "A question for the nurse",
+        "language": "en",
+    }
+    case = {"id": "one", "input": {"message": message}, "labels": {"urgent": "yes"}}
+    (root / "data" / "cases.jsonl").write_text(json.dumps(case) + "\n")
+
+    found = probed(root, "typos", "case", "whitespace")
+    assert found.report["fields"] == ["message.body", "message.subject"]
+    assert [variant.transformation for variant in found.variants] == ["typos", "case"]
+    for variant in found.variants:
+        changed = variant.input["message"]
+        assert changed["body"] != message["body"] and changed["subject"] != message["subject"]
+        assert changed["language"] == "en"
+    # A line break in the subject is not one line: that variant is no input of this agent.
+    lines = {line["name"]: line for line in found.report["transformations"]}
+    assert lines["whitespace"]["skipped"] == {"not_valid_input": 1}
+
+
+def test_the_patterns_of_an_agent_from_a_registry_are_asked_on_the_engine_it_runs_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whether a string is text is asked of its schema's pattern. An agent the deployment does
+    not own has its patterns run on the engine that never backtracks (`Pack.bounded`): the probe
+    asks them there too, and never on `re`, which a pattern can stall."""
+    root = build_agent(tmp_path / "agent")
+    schema = json.loads((root / "schemas" / "input.schema.json").read_text())
+    schema["properties"]["message"]["properties"]["body"]["pattern"] = r"\S"
+    (root / "schemas" / "input.schema.json").write_text(json.dumps(schema))
+    pack = load_pack(root, origin="hub")
+    assert pack.bounded
+    asked: list[bool] = []
+    search = patterns.search
+
+    def seen(pattern: str, text: str, *, community: bool = False) -> bool:
+        asked.append(community)
+        return search(pattern, text, community=community)
+
+    monkeypatch.setattr(patterns, "search", seen)
+    planned = probe.plan(Decision(pack), probe.source(pack), Options(transformations=("typos",)))
+    assert planned.summary()["fields"] == ["message.body"]
+    assert asked and all(asked)
 
 
 def test_a_variant_the_input_schema_refuses_is_never_decided(

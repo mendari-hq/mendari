@@ -11,9 +11,11 @@ would automate.
 **Which text.** The fields the running providers say they read (`read_fields`: an agent's, a
 model's or Jev's `state_fields`; the `text_fields` of rules, a trained classifier or a dosing
 table), or, when one of them is sent the whole input, every string in it. Of those, a string the
-input schema holds to a list of values, a format or a pattern (`enum`, `const`, `format`,
-`pattern`) is a code, a date or an id, not text, and is never changed (`text_places`). Fields
-the caller names take the place of all that.
+input schema holds to a list of values or a format (`enum`, `const`, `format`), or to a
+`pattern` that gives it a shape, is a code, a date or an id, not text, and is never changed
+(`text_places`). A pattern that ordinary text meets (`\\S`: not blank; one line only) gives no
+shape: the field is text, and a variant its pattern refuses is left out when it is built.
+Fields the caller names take the place of all that.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from mendari.core import site_cases
+from mendari.core import patterns, site_cases
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
 from mendari.core.spec import PackManifest
@@ -167,7 +169,13 @@ def distinct_cases(
             continue
         state = record.input if read is None else select_fields(record.input, list(read))
         key = hashlib.sha256(canonical_input(state).encode("ascii")).hexdigest()
-        places = text_places(record.input, schema, read, named=fields is not None)
+        places = text_places(
+            record.input,
+            schema,
+            read,
+            named=fields is not None,
+            community=decision.pack.bounded,
+        )
         if key not in by_key and places:
             by_key[key] = Case(
                 record.id, cases.name, record.input, record.labels, key, tuple(places), record.site
@@ -245,22 +253,29 @@ def with_text(value: Any, place: Place, text: str) -> None:
 
 
 # What makes a string a code, a date or an id, and not text: never changed.
-_NOT_TEXT = ("enum", "const", "format", "pattern")
+_NOT_TEXT = ("enum", "const", "format")
+# Ordinary text, on one line and on two. A `pattern` that neither meets gives a string a shape
+# (a code, a date, an id); one that either meets only asks for some text.
+_ORDINARY = (
+    "An ordinary sentence, with 2 numbers in it: 10 mg!",
+    "A first line.\nAnd a second one?",
+)
 
 
 def text_places(
-    value: Any, schema: Any, fields: Sequence[str] | None, *, named: bool
+    value: Any, schema: Any, fields: Sequence[str] | None, *, named: bool, community: bool = False
 ) -> list[Place]:
     """Where the text of an input is: each string in it (through mappings and lists) that holds
     something, is at or under one of `fields` when there are any, and, unless the fields were
-    `named` by the caller, is one the schema leaves free (`_NOT_TEXT`)."""
+    `named` by the caller, is one the schema leaves free (`_free`). `community`: the schema's
+    patterns are searched as the agent's own validator searches them (`Pack.bounded`)."""
     found: list[Place] = []
     stack: list[tuple[Any, Place, list[Any]]] = [(value, (), [schema])]
     while stack:
         node, place, schemas = stack.pop()
         if isinstance(node, str):
             read = fields is None or _under(place, fields)
-            if node.strip() and read and (named or _free(schemas, schema)):
+            if node.strip() and read and (named or _free(schemas, schema, community)):
                 found.append(place)
         elif isinstance(node, Mapping):
             children: list[tuple[str | int, Any]] = list(node.items())
@@ -282,9 +297,19 @@ def _under(place: Place, fields: Sequence[str]) -> bool:
     return any(names[: len(parts)] == parts for parts in (name.split(".") for name in fields))
 
 
-def _free(schemas: Sequence[Any], root: Any) -> bool:
-    applied = (node for schema in schemas for node in _applied(schema, root))
-    return not any(key in node for node in applied for key in _NOT_TEXT)
+def _free(schemas: Sequence[Any], root: Any, community: bool) -> bool:
+    """Whether the schemas of a string leave it free text: none holds it to a list of values
+    or a format (`_NOT_TEXT`), nor to a pattern that ordinary text does not meet."""
+    for schema in schemas:
+        for node in _applied(schema, root):
+            if any(key in node for key in _NOT_TEXT):
+                return False
+            pattern = node.get("pattern")
+            if isinstance(pattern, str) and not any(
+                patterns.search(pattern, text, community=community) for text in _ORDINARY
+            ):
+                return False
+    return True
 
 
 def _applied(schema: Any, root: Any) -> Iterator[Mapping[str, Any]]:
