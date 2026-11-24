@@ -3,9 +3,13 @@
 // boundary nothing of why a page failed, so a page that only threw said "Something went wrong".
 import { expect, test } from "@playwright/test";
 
-const SITE = "http://127.0.0.1:3101"; // playwright.config.ts: its REGISTRY_URL refuses
+import { UNREACHABLE as SITE } from "./sites"; // playwright.config.ts: its REGISTRY_URL refuses
 
-for (const path of ["/agents/mendari/portal-message-agent", "/publishers/mendari"]) {
+for (const path of [
+  "/agents/mendari/portal-message-agent",
+  "/agents/mendari/portal-message-agent/evaluation",
+  "/publishers/mendari",
+]) {
   test(`${path} says the registry cannot be reached`, async ({ page }) => {
     await page.goto(`${SITE}${path}`);
     const alert = page.getByRole("main").getByRole("alert");

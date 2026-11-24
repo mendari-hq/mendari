@@ -1268,6 +1268,226 @@ h3 {
   font-weight: 400;
 }
 
+.eval-more {
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-sm);
+}
+
+/* The evaluation page (app/agents/[namespace]/[name]/evaluation): the publisher's signed
+   evaluations in words, the configurations compared, and what the numbers do not show. */
+.group.eval-what,
+.group.eval-compare {
+  border-left: 4px solid var(--color-accent);
+}
+
+.group.eval-none {
+  border-left: 4px solid var(--color-warning);
+}
+
+.eval-older {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+}
+
+.eval-page .trust-strip {
+  margin-top: var(--space-4);
+}
+
+.eval-page .eval-line {
+  display: block;
+  margin-top: var(--space-1);
+}
+
+.eval-page th,
+.eval-page td {
+  white-space: normal;
+  vertical-align: top;
+}
+
+.eval-page th[scope="row"] {
+  min-width: 15rem;
+}
+
+.eval-page thead th.num {
+  min-width: 9rem;
+}
+
+.eval-interval {
+  white-space: nowrap;
+  color: var(--color-muted);
+}
+
+.eval-nowrap {
+  white-space: nowrap;
+}
+
+.eval-sub {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-muted);
+}
+
+.eval-warn,
+.eval-warn .eval-interval {
+  color: var(--color-warning-text);
+  font-weight: 600;
+}
+
+.eval-verdict {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-sm);
+  border-left: 4px solid var(--color-border-strong);
+  background: var(--color-sunken);
+  color: var(--color-text);
+}
+
+.eval-verdict-ok {
+  border-left-color: var(--color-ok);
+  background: var(--color-ok-soft);
+}
+
+.eval-verdict-warn {
+  border-left-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.eval-verdict-warn .eval-verdict-head {
+  color: var(--color-warning-text);
+}
+
+.eval-verdict p {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.eval-verdict p:last-child {
+  margin-bottom: 0;
+}
+
+.eval-verdict .eval-verdict-head {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.eval-verdict-ok .eval-verdict-head {
+  color: var(--color-ok-text);
+}
+
+.eval-critical,
+.eval-claimed,
+.eval-records {
+  list-style: none;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.eval-critical li,
+.eval-claimed li {
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--color-border-strong);
+  overflow-wrap: anywhere;
+}
+
+.eval-critical li.eval-flag {
+  border-left-color: var(--color-warning);
+  color: var(--color-warning-text);
+  font-weight: 600;
+}
+
+tr.eval-best th[scope="row"] {
+  box-shadow: inset 4px 0 0 var(--color-border-strong);
+}
+
+.eval-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.badge.eval-first {
+  background: var(--color-ok-soft);
+  color: var(--color-ok-text);
+}
+
+.eval-h3 {
+  font-family: var(--font-serif);
+  font-size: 1.2rem;
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+.eval-hints {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.eval-records {
+  margin-bottom: 0;
+}
+
+.eval-records li {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.eval-records li.eval-unverified {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+  color: var(--color-danger-text);
+}
+
+.eval-records li.eval-unverified .badge {
+  border: 1px solid var(--color-danger);
+}
+
+.eval-limits,
+.eval-links {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: var(--space-2);
+  font-size: 0.9375rem;
+  overflow-wrap: anywhere;
+}
+
+.eval-after {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.eval-next h2,
+.eval-badge h2 {
+  margin-bottom: var(--space-3);
+}
+
+.eval-badge-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 0 var(--space-3);
+}
+
+.eval-badge-how {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+
 .group dl {
   margin: 0;
   display: grid;
@@ -1849,6 +2069,54 @@ tr:last-child th {
 
   .copy-cmd {
     flex-direction: column;
+  }
+
+  /* The evaluation page's tables on a phone: each configuration is a block, each figure under
+     its column's name, so nothing is read by scrolling sideways. */
+  .eval-stack,
+  .eval-stack tbody,
+  .eval-stack tr,
+  .eval-stack th,
+  .eval-stack td {
+    display: block;
+  }
+
+  .eval-stack thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .eval-stack tbody tr {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .eval-stack tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  .eval-stack tbody th[scope="row"],
+  .eval-stack td.num {
+    min-width: 0;
+    padding: var(--space-1) 0;
+    border-bottom: none;
+    text-align: left;
+  }
+
+  .eval-stack td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--color-muted);
+  }
+
+  tr.eval-best th[scope="row"] {
+    box-shadow: none;
   }
 
   .foot-meta {

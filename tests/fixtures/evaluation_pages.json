@@ -1,0 +1,3948 @@
+{
+ "about": "Written by tests/support/evaluation_pages.py: a registry's own answers, for the Agent Hub's tests. Synthetic data only.",
+ "agents": {
+  "states/clean": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"358\" height=\"20\" viewBox=\"0 0 358 20\" role=\"img\" aria-label=\"Mendari: evaluated, 600 synthetic cases, 0 critical automated\"><title>Mendari: evaluated, 600 synthetic cases, 0 critical automated</title><rect width=\"358\" height=\"20\" rx=\"3\" fill=\"#1d4ed8\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2069\" y=\"140\" transform=\"scale(.1)\" textLength=\"2896\">evaluated, 600 synthetic cases, 0 critical automated</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:6829383ef3d6970c39121e795a753823b013e26361b37e4d4be3af25c5d87a6f",
+     "name": "Fixture agent: clean",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 600 synthetic cases, 0 critical automated",
+     "state": "evaluated",
+     "tone": "info"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": null,
+       "figures": null,
+       "first": null,
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": null,
+       "separated": null,
+       "status": "one_configuration",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "careful"
+        },
+        "critical_automated": 0,
+        "critical_cases": 114,
+        "critical_missed": 0,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.03184065408347414,
+            "k": 0,
+            "low": 0.0,
+            "n": 114
+           },
+           "automated_misses": 0,
+           "detected": {
+            "high": 1.0,
+            "k": 114,
+            "low": 0.9681593459165259,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 600,
+           "share": {
+            "high": 1.0,
+            "k": 600,
+            "low": 0.9938707286693308,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "95570b5f4520a9ebf9b39306730ceb62de5abfdc30bc56ce9503480a4109a640",
+        "label": "reader=careful",
+        "models": [
+         "rules@efbe439fa104"
+        ],
+        "position": null,
+        "providers": {
+         "reader": {
+          "model": "rules@efbe439fa104",
+          "type": "rules",
+          "variant": "careful"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 114,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [
+       "The script that wrote the cases (scripts/demo_agent_data.py)"
+      ],
+      "n": 600,
+      "name": "test",
+      "provenance": "synthetic",
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/clean",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/clear": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"481\" height=\"20\" viewBox=\"0 0 481 20\" role=\"img\" aria-label=\"Mendari: evaluated, 2 configurations, 600 synthetic cases, 0 to 9 critical automated\"><title>Mendari: evaluated, 2 configurations, 600 synthetic cases, 0 to 9 critical automated</title><rect width=\"481\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2683\" y=\"140\" transform=\"scale(.1)\" textLength=\"4124\">evaluated, 2 configurations, 600 synthetic cases, 0 to 9 critical automated</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:cf00392f9e28914b4eef8cdf4b045b76e357efa79d7eb6e4c3da3f255309b1c9",
+     "name": "Fixture agent: clear",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 2 configurations, 600 synthetic cases, 0 to 9 critical automated",
+     "state": "evaluated",
+     "tone": "warn"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": "critical_automated",
+       "figures": {
+        "first": {
+         "high": 0.03184065408347414,
+         "k": 0,
+         "low": 0.0,
+         "n": 114
+        },
+        "second": {
+         "high": 0.1445801219406786,
+         "k": 9,
+         "low": 0.036735306701181206,
+         "n": 114
+        }
+       },
+       "first": "b33fb708078bd08a6cacaa98ae141d1e8c8500c18d2ab71de8492e0be02a6243",
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": "16a2d13a8f4fb16ffd7c82085e5c739c953b7ad85ba5248f4e3b86da8b583247",
+       "separated": true,
+       "status": "ordered",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "careful"
+        },
+        "critical_automated": 0,
+        "critical_cases": 114,
+        "critical_missed": 0,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.03184065408347414,
+            "k": 0,
+            "low": 0.0,
+            "n": 114
+           },
+           "automated_misses": 0,
+           "detected": {
+            "high": 1.0,
+            "k": 114,
+            "low": 0.9681593459165259,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 600,
+           "share": {
+            "high": 1.0,
+            "k": 600,
+            "low": 0.9938707286693308,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "b33fb708078bd08a6cacaa98ae141d1e8c8500c18d2ab71de8492e0be02a6243",
+        "label": "reader=careful",
+        "models": [
+         "rules@efbe439fa104"
+        ],
+        "position": 1,
+        "providers": {
+         "reader": {
+          "model": "rules@efbe439fa104",
+          "type": "rules",
+          "variant": "careful"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       },
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "rules"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 9,
+           "share": {
+            "high": 0.028283028358010665,
+            "k": 9,
+            "low": 0.0068812945967882564,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 317,
+           "share": {
+            "high": 0.5688855584508927,
+            "k": 317,
+            "low": 0.487500954841223,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "16a2d13a8f4fb16ffd7c82085e5c739c953b7ad85ba5248f4e3b86da8b583247",
+        "label": "reader=rules",
+        "models": [
+         "rules@33463eddba9c"
+        ],
+        "position": 2,
+        "providers": {
+         "reader": {
+          "model": "rules@33463eddba9c",
+          "type": "rules",
+          "variant": "rules"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 114,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [
+       "The script that wrote the cases (scripts/demo_agent_data.py)"
+      ],
+      "n": 600,
+      "name": "test",
+      "provenance": "synthetic",
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/clear",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/failed": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"358\" height=\"20\" viewBox=\"0 0 358 20\" role=\"img\" aria-label=\"Mendari: evaluated, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 600 synthetic cases, 9 critical automated</title><rect width=\"358\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2069\" y=\"140\" transform=\"scale(.1)\" textLength=\"2896\">evaluated, 600 synthetic cases, 9 critical automated</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:60515ba33274e90477c1594d21f9463ccfd1a851408aab1305fb8fe2b9ece2af",
+     "name": "Fixture agent: failed",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 600 synthetic cases, 9 critical automated",
+     "state": "evaluated",
+     "tone": "warn"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": null,
+       "figures": null,
+       "first": null,
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": null,
+       "separated": null,
+       "status": "one_configuration",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0062,
+         "failed_cases": 3,
+         "latency_ms_p50": 1840.0,
+         "latency_ms_p95": 3920.5
+        },
+        "configuration": {
+         "reader": "agent"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9360585801779702,
+          "k": 549,
+          "low": 0.8897540169486022,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.028283028358010665,
+          "k": 9,
+          "low": 0.0068812945967882564,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 326,
+           "share": {
+            "high": 0.5837255002508432,
+            "k": 326,
+            "low": 0.5025126722260347,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "119b2b811a37b14bf6362471b39325b64844bd705acc98f54213d79f4233281e",
+        "label": "reader=agent",
+        "models": [
+         "mock-portal-agent"
+        ],
+        "position": null,
+        "providers": {
+         "reader": {
+          "model": "starter-portal-agent",
+          "type": "agent",
+          "variant": "agent"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "calls_a_model",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 114,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [
+       "The script that wrote the cases (scripts/demo_agent_data.py)"
+      ],
+      "n": 600,
+      "name": "test",
+      "provenance": "synthetic",
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/failed",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/first-format": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"358\" height=\"20\" viewBox=\"0 0 358 20\" role=\"img\" aria-label=\"Mendari: evaluated, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 600 synthetic cases, 9 critical automated</title><rect width=\"358\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2069\" y=\"140\" transform=\"scale(.1)\" textLength=\"2896\">evaluated, 600 synthetic cases, 9 critical automated</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:1650179787c0118921caccc2fc956e7eda725588af33fbb32844b61022029dea",
+     "name": "Fixture agent: first-format",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 600 synthetic cases, 9 critical automated",
+     "state": "evaluated",
+     "tone": "warn"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": null,
+       "figures": null,
+       "first": null,
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": null,
+       "separated": null,
+       "status": "one_configuration",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0062,
+         "latency_ms_p50": 1840.0,
+         "latency_ms_p95": 3920.5
+        },
+        "configuration": {
+         "reader": "agent"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": null,
+        "figures": {
+         "accuracy": {
+          "high": 0.9360585801779702,
+          "k": 549,
+          "low": 0.8897540169486022,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.028283028358010665,
+          "k": 9,
+          "low": 0.0068812945967882564,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 326,
+           "share": {
+            "high": 0.5837255002508432,
+            "k": 326,
+            "low": 0.5025126722260347,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "fa01153592d4429702c2800a7a2d32893f233068031a7baaac4ab1925fad9538",
+        "label": "reader=agent",
+        "models": [
+         "mock-portal-agent"
+        ],
+        "position": null,
+        "providers": {
+         "reader": {
+          "model": "starter-portal-agent",
+          "type": "agent",
+          "variant": "agent"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/1",
+        "rerun": "calls_a_model",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 114,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [],
+      "n": 600,
+      "name": "test",
+      "provenance": null,
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/first-format",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/hostile": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"358\" height=\"20\" viewBox=\"0 0 358 20\" role=\"img\" aria-label=\"Mendari: evaluated, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 600 synthetic cases, 9 critical automated</title><rect width=\"358\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2069\" y=\"140\" transform=\"scale(.1)\" textLength=\"2896\">evaluated, 600 synthetic cases, 9 critical automated</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:cd69a18dcd85a115bb1fad4d2c541ac78e3000e57e5048f4230dcf47e622f908",
+     "name": "Hostile <script>window.__hostile = 5</script> Agent",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 600 synthetic cases, 9 critical automated",
+     "state": "evaluated",
+     "tone": "warn"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": null,
+       "figures": null,
+       "first": null,
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": null,
+       "separated": null,
+       "status": "one_configuration",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0062,
+         "failed_cases": 0,
+         "latency_ms_p50": 1840.0,
+         "latency_ms_p95": 3920.5
+        },
+        "configuration": {
+         "reader": "agent"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9360585801779702,
+          "k": 549,
+          "low": 0.8897540169486022,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.028283028358010665,
+          "k": 9,
+          "low": 0.0068812945967882564,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 326,
+           "share": {
+            "high": 0.5837255002508432,
+            "k": 326,
+            "low": 0.5025126722260347,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "188679da37047ec659aafc1c241d5f38dfb2d28cbf2cd4184b5571355f85761d",
+        "label": "reader=agent",
+        "models": [
+         "mock-portal-agent"
+        ],
+        "position": null,
+        "providers": {
+         "reader": {
+          "model": "starter-portal-agent",
+          "type": "agent",
+          "variant": "agent"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "calls_a_model",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 114,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [
+       "<img src=x onerror=\"window.__hostile = 6\"> \"two\" & <b>nurses</b>"
+      ],
+      "n": 600,
+      "name": "test",
+      "provenance": "synthetic",
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/hostile",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/insufficient": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"455\" height=\"20\" viewBox=\"0 0 455 20\" role=\"img\" aria-label=\"Mendari: evaluated, 2 configurations, 300 synthetic cases, 7 critical automated\"><title>Mendari: evaluated, 2 configurations, 300 synthetic cases, 7 critical automated</title><rect width=\"455\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2554\" y=\"140\" transform=\"scale(.1)\" textLength=\"3866\">evaluated, 2 configurations, 300 synthetic cases, 7 critical automated</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:4c206ce554fd2c26969eddae0fe56dd9e931a9504de7cf6941e2479e61be71ca",
+     "name": "Fixture agent: insufficient",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 2 configurations, 300 synthetic cases, 7 critical automated",
+     "state": "evaluated",
+     "tone": "warn"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": null,
+       "figures": null,
+       "first": null,
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": null,
+       "separated": null,
+       "status": "insufficient_evidence",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0062,
+         "failed_cases": 0,
+         "latency_ms_p50": 1840.0,
+         "latency_ms_p95": 3920.5
+        },
+        "configuration": {
+         "reader": "agent"
+        },
+        "critical_automated": 7,
+        "critical_cases": 60,
+        "critical_missed": 17,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9666466884833154,
+          "k": 283,
+          "low": 0.910819595565837,
+          "n": 300
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.2257161531456483,
+            "k": 7,
+            "low": 0.048214841871341924,
+            "n": 60
+           },
+           "automated_misses": 7,
+           "detected": {
+            "high": 0.8254947164856249,
+            "k": 43,
+            "low": 0.58556393105017,
+            "n": 60
+           },
+           "insufficient_evidence": true,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.03378489626191783,
+          "k": 4,
+          "low": 0.0036445140520665227,
+          "n": 300
+         },
+         "format": "mendari.figures/1",
+         "n": 300,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 0,
+           "share": {
+            "high": 0.012220974694293507,
+            "k": 0,
+            "low": 0.0,
+            "n": 300
+           }
+          },
+          "AUTO": {
+           "count": 172,
+           "share": {
+            "high": 0.6299974469282766,
+            "k": 172,
+            "low": 0.5152063833835546,
+            "n": 300
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.012220974694293507,
+            "k": 0,
+            "low": 0.0,
+            "n": 300
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 128,
+           "share": {
+            "high": 0.4847936166164454,
+            "k": 128,
+            "low": 0.37000255307172336,
+            "n": 300
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "3f76fecba7675f7786adc1419b1383c568b72ecf92588eef38c2d977010b4379",
+        "label": "reader=agent",
+        "models": [
+         "mock-portal-agent"
+        ],
+        "position": null,
+        "providers": {
+         "reader": {
+          "model": "starter-portal-agent",
+          "type": "agent",
+          "variant": "agent"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "calls_a_model",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       },
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "rules"
+        },
+        "critical_automated": 7,
+        "critical_cases": 60,
+        "critical_missed": 17,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9839018324373807,
+          "k": 290,
+          "low": 0.9395546777987345,
+          "n": 300
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.2257161531456483,
+            "k": 7,
+            "low": 0.048214841871341924,
+            "n": 60
+           },
+           "automated_misses": 7,
+           "detected": {
+            "high": 0.8254947164856249,
+            "k": 43,
+            "low": 0.58556393105017,
+            "n": 60
+           },
+           "insufficient_evidence": true,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.012220974694293507,
+          "k": 0,
+          "low": 0.0,
+          "n": 300
+         },
+         "format": "mendari.figures/1",
+         "n": 300,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 4,
+           "share": {
+            "high": 0.03378489626191783,
+            "k": 4,
+            "low": 0.0036445140520665227,
+            "n": 300
+           }
+          },
+          "AUTO": {
+           "count": 168,
+           "share": {
+            "high": 0.6169984834544247,
+            "k": 168,
+            "low": 0.5018048083724926,
+            "n": 300
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.012220974694293507,
+            "k": 0,
+            "low": 0.0,
+            "n": 300
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 128,
+           "share": {
+            "high": 0.4847936166164454,
+            "k": 128,
+            "low": 0.37000255307172336,
+            "n": 300
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "ccc173f9e718de390f679f492f002ecdfd3aa109f70e30f0e0c0924e5a47c649",
+        "label": "reader=rules",
+        "models": [
+         "rules@33463eddba9c"
+        ],
+        "position": null,
+        "providers": {
+         "reader": {
+          "model": "rules@33463eddba9c",
+          "type": "rules",
+          "variant": "rules"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 60,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [
+       "The script that wrote the cases (scripts/demo_agent_data.py)"
+      ],
+      "n": 300,
+      "name": "short",
+      "provenance": "synthetic",
+      "sha256": "49d720dc2ef581987c310c0c8549797c51c175b3e6d44163c120f5ad9f05868e"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/insufficient",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/no-critical": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"337\" height=\"20\" viewBox=\"0 0 337 20\" role=\"img\" aria-label=\"Mendari: evaluated, 2 configurations, 600 synthetic cases\"><title>Mendari: evaluated, 2 configurations, 600 synthetic cases</title><rect width=\"337\" height=\"20\" rx=\"3\" fill=\"#1d4ed8\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"1962\" y=\"140\" transform=\"scale(.1)\" textLength=\"2682\">evaluated, 2 configurations, 600 synthetic cases</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:379cb84e6a27335c1862b7f332e9d5d1392e3133a8ae55aeecad6487d16f8fd6",
+     "name": "Fixture agent: no-critical",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 2 configurations, 600 synthetic cases",
+     "state": "evaluated",
+     "tone": "info"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": null,
+       "figures": null,
+       "first": null,
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": null,
+       "separated": null,
+       "status": "no_critical_label",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0062,
+         "failed_cases": 0,
+         "latency_ms_p50": 1840.0,
+         "latency_ms_p95": 3920.5
+        },
+        "configuration": {
+         "reader": "agent"
+        },
+        "critical_automated": 0,
+        "critical_cases": 0,
+        "critical_missed": 0,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9360585801779702,
+          "k": 549,
+          "low": 0.8897540169486022,
+          "n": 600
+         },
+         "critical": [],
+         "false_automation": {
+          "high": 0.028283028358010665,
+          "k": 9,
+          "low": 0.0068812945967882564,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 326,
+           "share": {
+            "high": 0.5837255002508432,
+            "k": 326,
+            "low": 0.5025126722260347,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "39c51af94a4ba26cd133fe75660085d172c5710eb143c8a1ae2e9cf8f02132c4",
+        "label": "reader=agent",
+        "models": [
+         "mock-portal-agent"
+        ],
+        "position": null,
+        "providers": {
+         "reader": {
+          "model": "starter-portal-agent",
+          "type": "agent",
+          "variant": "agent"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "calls_a_model",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       },
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "rules"
+        },
+        "critical_automated": 0,
+        "critical_cases": 0,
+        "critical_missed": 0,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 9,
+           "share": {
+            "high": 0.028283028358010665,
+            "k": 9,
+            "low": 0.0068812945967882564,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 317,
+           "share": {
+            "high": 0.5688855584508927,
+            "k": 317,
+            "low": 0.487500954841223,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "4e73c50628600960414f2793db30eb6ac648ef03504497f7e9a25321c404889e",
+        "label": "reader=rules",
+        "models": [
+         "rules@33463eddba9c"
+        ],
+        "position": null,
+        "providers": {
+         "reader": {
+          "model": "rules@33463eddba9c",
+          "type": "rules",
+          "variant": "rules"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [],
+      "labelled_by": [
+       "The script that wrote the cases (scripts/demo_agent_data.py)"
+      ],
+      "n": 600,
+      "name": "test",
+      "provenance": "synthetic",
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/no-critical",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/none": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"20\" viewBox=\"0 0 200 20\" role=\"img\" aria-label=\"Mendari: no evaluation published\"><title>Mendari: no evaluation published</title><rect width=\"200\" height=\"20\" rx=\"3\" fill=\"#64748b\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"1280\" y=\"140\" transform=\"scale(.1)\" textLength=\"1318\">no evaluation published</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:7eb3b2332b46194acf3c9830467e2c60df42314c35e1cde21132155c2ba983da",
+     "name": "Fixture agent: none",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "no evaluation published",
+     "state": "none",
+     "tone": "plain"
+    },
+    "datasets": [],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/none",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "none",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/older": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"20\" viewBox=\"0 0 200 20\" role=\"img\" aria-label=\"Mendari: no evaluation published\"><title>Mendari: no evaluation published</title><rect width=\"200\" height=\"20\" rx=\"3\" fill=\"#64748b\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"1280\" y=\"140\" transform=\"scale(.1)\" textLength=\"1318\">no evaluation published</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:a91fa488d3885fcf8d8cd00779f8ce044f4d3c76fafb63a79f87aae011230a74",
+     "name": "Fixture agent: older",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "2.0.0"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "no evaluation published",
+     "state": "none",
+     "tone": "plain"
+    },
+    "datasets": [],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/older",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "none",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "1.0.0"
+     ],
+     "latest": "2.0.0",
+     "shown": "2.0.0"
+    }
+   }
+  },
+  "states/older@1.0.0": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"20\" viewBox=\"0 0 200 20\" role=\"img\" aria-label=\"Mendari: no evaluation published\"><title>Mendari: no evaluation published</title><rect width=\"200\" height=\"20\" rx=\"3\" fill=\"#64748b\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"1280\" y=\"140\" transform=\"scale(.1)\" textLength=\"1318\">no evaluation published</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:f7f85dfb02dd5bfaf249392ec2bee91afde10a24e27b85292e3afcb785f32278",
+     "name": "Fixture agent: older",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "1.0.0"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 2 configurations, 600 synthetic cases, 9 critical automated",
+     "state": "evaluated",
+     "tone": "warn"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": "false_automation",
+       "figures": {
+        "first": {
+         "high": 0.006129271330669206,
+         "k": 0,
+         "low": 0.0,
+         "n": 600
+        },
+        "second": {
+         "high": 0.028283028358010665,
+         "k": 9,
+         "low": 0.0068812945967882564,
+         "n": 600
+        }
+       },
+       "first": "b568081823ab61a7c5121952197207b9c5cc4a9be0d70015e97c080ba082d108",
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": "bef29c2fd1d9c97e917ac4b9abca5977807db5391b56862cc9c0642ffe46f78b",
+       "separated": true,
+       "status": "ordered",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "rules"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 9,
+           "share": {
+            "high": 0.028283028358010665,
+            "k": 9,
+            "low": 0.0068812945967882564,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 317,
+           "share": {
+            "high": 0.5688855584508927,
+            "k": 317,
+            "low": 0.487500954841223,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "b568081823ab61a7c5121952197207b9c5cc4a9be0d70015e97c080ba082d108",
+        "label": "reader=rules",
+        "models": [
+         "rules@33463eddba9c"
+        ],
+        "position": 1,
+        "providers": {
+         "reader": {
+          "model": "rules@33463eddba9c",
+          "type": "rules",
+          "variant": "rules"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       },
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0062,
+         "failed_cases": 0,
+         "latency_ms_p50": 1840.0,
+         "latency_ms_p95": 3920.5
+        },
+        "configuration": {
+         "reader": "agent"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9360585801779702,
+          "k": 549,
+          "low": 0.8897540169486022,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.028283028358010665,
+          "k": 9,
+          "low": 0.0068812945967882564,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 326,
+           "share": {
+            "high": 0.5837255002508432,
+            "k": 326,
+            "low": 0.5025126722260347,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "bef29c2fd1d9c97e917ac4b9abca5977807db5391b56862cc9c0642ffe46f78b",
+        "label": "reader=agent",
+        "models": [
+         "mock-portal-agent"
+        ],
+        "position": 2,
+        "providers": {
+         "reader": {
+          "model": "starter-portal-agent",
+          "type": "agent",
+          "variant": "agent"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "calls_a_model",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 114,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [
+       "The script that wrote the cases (scripts/demo_agent_data.py)"
+      ],
+      "n": 600,
+      "name": "test",
+      "provenance": "synthetic",
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/older",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "1.0.0"
+     ],
+     "latest": "2.0.0",
+     "shown": "1.0.0"
+    }
+   }
+  },
+  "states/one": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"358\" height=\"20\" viewBox=\"0 0 358 20\" role=\"img\" aria-label=\"Mendari: evaluated, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 600 synthetic cases, 9 critical automated</title><rect width=\"358\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2069\" y=\"140\" transform=\"scale(.1)\" textLength=\"2896\">evaluated, 600 synthetic cases, 9 critical automated</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:d44f71629441428f6721c55690faa452faa7c7a165401478297ba8f18fcede7d",
+     "name": "Fixture agent: one",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 600 synthetic cases, 9 critical automated",
+     "state": "evaluated",
+     "tone": "warn"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": null,
+       "figures": null,
+       "first": null,
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": null,
+       "separated": null,
+       "status": "one_configuration",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "rules"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 9,
+           "share": {
+            "high": 0.028283028358010665,
+            "k": 9,
+            "low": 0.0068812945967882564,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 317,
+           "share": {
+            "high": 0.5688855584508927,
+            "k": 317,
+            "low": 0.487500954841223,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "49988634809f676d2cd5a9d2b7f59a3ec39480dadf1c1a84946f052d32d13e8c",
+        "label": "reader=rules",
+        "models": [
+         "rules@33463eddba9c"
+        ],
+        "position": null,
+        "providers": {
+         "reader": {
+          "model": "rules@33463eddba9c",
+          "type": "rules",
+          "variant": "rules"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 114,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [
+       "The script that wrote the cases (scripts/demo_agent_data.py)"
+      ],
+      "n": 600,
+      "name": "test",
+      "provenance": "synthetic",
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/one",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/overlap": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"481\" height=\"20\" viewBox=\"0 0 481 20\" role=\"img\" aria-label=\"Mendari: evaluated, 2 configurations, 600 synthetic cases, 6 to 9 critical automated\"><title>Mendari: evaluated, 2 configurations, 600 synthetic cases, 6 to 9 critical automated</title><rect width=\"481\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2683\" y=\"140\" transform=\"scale(.1)\" textLength=\"4124\">evaluated, 2 configurations, 600 synthetic cases, 6 to 9 critical automated</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:46751e83e6f3213f333e0b9e4d0685f762f96c186e8918fd78287d370fd3824f",
+     "name": "Fixture agent: overlap",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 2 configurations, 600 synthetic cases, 6 to 9 critical automated",
+     "state": "evaluated",
+     "tone": "warn"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": "critical_automated",
+       "figures": {
+        "first": {
+         "high": 0.11104016710828313,
+         "k": 6,
+         "low": 0.019557203885543318,
+         "n": 114
+        },
+        "second": {
+         "high": 0.1445801219406786,
+         "k": 9,
+         "low": 0.036735306701181206,
+         "n": 114
+        }
+       },
+       "first": "7d33fd6950209fda2031f85d9cca277033023fe8567034d3286fa518d65fa396",
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": "bdc39a7bba3a6864e911a040b99a5a06c4a771dd4135d2647b4b0e2a9146168f",
+       "separated": false,
+       "status": "ordered",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "wider"
+        },
+        "critical_automated": 6,
+        "critical_cases": 114,
+        "critical_missed": 24,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.11104016710828313,
+            "k": 6,
+            "low": 0.019557203885543318,
+            "n": 114
+           },
+           "automated_misses": 6,
+           "detected": {
+            "high": 0.86021028491365,
+            "k": 90,
+            "low": 0.7031417349422877,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 9,
+           "share": {
+            "high": 0.028283028358010665,
+            "k": 9,
+            "low": 0.0068812945967882564,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 314,
+           "share": {
+            "high": 0.5639308915717849,
+            "k": 314,
+            "low": 0.4825050636859553,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 277,
+           "share": {
+            "high": 0.5024952487307951,
+            "k": 277,
+            "low": 0.42121712896589064,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "7d33fd6950209fda2031f85d9cca277033023fe8567034d3286fa518d65fa396",
+        "label": "reader=wider",
+        "models": [
+         "rules@c269c58d0a7e"
+        ],
+        "position": 1,
+        "providers": {
+         "reader": {
+          "model": "rules@c269c58d0a7e",
+          "type": "rules",
+          "variant": "wider"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       },
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "rules"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 9,
+           "share": {
+            "high": 0.028283028358010665,
+            "k": 9,
+            "low": 0.0068812945967882564,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 317,
+           "share": {
+            "high": 0.5688855584508927,
+            "k": 317,
+            "low": 0.487500954841223,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "bdc39a7bba3a6864e911a040b99a5a06c4a771dd4135d2647b4b0e2a9146168f",
+        "label": "reader=rules",
+        "models": [
+         "rules@33463eddba9c"
+        ],
+        "position": 2,
+        "providers": {
+         "reader": {
+          "model": "rules@33463eddba9c",
+          "type": "rules",
+          "variant": "rules"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 114,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [
+       "The script that wrote the cases (scripts/demo_agent_data.py)"
+      ],
+      "n": 600,
+      "name": "test",
+      "provenance": "synthetic",
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/overlap",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/recalled": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"112\" height=\"20\" viewBox=\"0 0 112 20\" role=\"img\" aria-label=\"Mendari: recalled\"><title>Mendari: recalled</title><rect width=\"112\" height=\"20\" rx=\"3\" fill=\"#b3261e\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"836\" y=\"140\" transform=\"scale(.1)\" textLength=\"431\">recalled</text></g></svg>",
+   "evaluation": {
+    "agent": null,
+    "badge": {
+     "label": "Mendari",
+     "message": "recalled",
+     "state": "recalled",
+     "tone": "bad"
+    },
+    "datasets": [],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/recalled",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "recalled",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [],
+     "latest": null,
+     "shown": null
+    }
+   }
+  },
+  "states/revoked": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"193\" height=\"20\" viewBox=\"0 0 193 20\" role=\"img\" aria-label=\"Mendari: evaluation not verified\"><title>Mendari: evaluation not verified</title><rect width=\"193\" height=\"20\" rx=\"3\" fill=\"#b3261e\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"1242\" y=\"140\" transform=\"scale(.1)\" textLength=\"1243\">evaluation not verified</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:836bf1cd20ee32fa0d09cf394064c385c4e1f33a701f8284c56253559f63e32c",
+     "name": "Fixture agent: revoked",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluation not verified",
+     "state": "not_verified",
+     "tone": "bad"
+    },
+    "datasets": [],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/revoked",
+    "links": {
+     "page": null
+    },
+    "not_shown": [
+     {
+      "configuration": "reader=agent",
+      "dataset": "test",
+      "id": "44116f61a092640adf795fb7becee6840035e8b838806d64da76297ad31ea2c9",
+      "key_id": "ed25519:24f6ed6acbfe1009",
+      "reason": "key_revoked"
+     }
+    ],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "not_verified",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/several": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"481\" height=\"20\" viewBox=\"0 0 481 20\" role=\"img\" aria-label=\"Mendari: evaluated, 3 configurations, 600 synthetic cases, 5 to 9 critical automated\"><title>Mendari: evaluated, 3 configurations, 600 synthetic cases, 5 to 9 critical automated</title><rect width=\"481\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2683\" y=\"140\" transform=\"scale(.1)\" textLength=\"4124\">evaluated, 3 configurations, 600 synthetic cases, 5 to 9 critical automated</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:8e27e23ce572993582be948fc0d659caa1f8a58bf8105dbe01d4744d2c1c04eb",
+     "name": "Fixture agent: several",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 3 configurations, 600 synthetic cases, 5 to 9 critical automated",
+     "state": "evaluated",
+     "tone": "warn"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": "critical_automated",
+       "figures": {
+        "first": {
+         "high": 0.09938865280032205,
+         "k": 5,
+         "low": 0.014392308867052013,
+         "n": 114
+        },
+        "second": {
+         "high": 0.1445801219406786,
+         "k": 9,
+         "low": 0.036735306701181206,
+         "n": 114
+        }
+       },
+       "first": "c024d37c23a03398adcd266e0289b82c9a0e5d58566a470b736bf48a81902da5",
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": "ea38ddf475b1b48756a7e61a9a5f738b434a20dccbf90ba48a48a581817a111d",
+       "separated": false,
+       "status": "ordered",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "cautious"
+        },
+        "critical_automated": 5,
+        "critical_cases": 114,
+        "critical_missed": 14,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.09938865280032205,
+            "k": 5,
+            "low": 0.014392308867052013,
+            "n": 114
+           },
+           "automated_misses": 5,
+           "detected": {
+            "high": 0.9312056743180521,
+            "k": 100,
+            "low": 0.8025409854581999,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 8,
+           "share": {
+            "high": 0.026102233624288762,
+            "k": 8,
+            "low": 0.005773490994735941,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 288,
+           "share": {
+            "high": 0.5208233099352014,
+            "k": 288,
+            "low": 0.4393744412004189,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 304,
+           "share": {
+            "high": 0.5473864869310991,
+            "k": 304,
+            "low": 0.46588093058646146,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "c024d37c23a03398adcd266e0289b82c9a0e5d58566a470b736bf48a81902da5",
+        "label": "reader=cautious",
+        "models": [
+         "rules@ea11a62d3d30"
+        ],
+        "position": 1,
+        "providers": {
+         "reader": {
+          "model": "rules@ea11a62d3d30",
+          "type": "rules",
+          "variant": "cautious"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       },
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "rules"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 9,
+           "share": {
+            "high": 0.028283028358010665,
+            "k": 9,
+            "low": 0.0068812945967882564,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 317,
+           "share": {
+            "high": 0.5688855584508927,
+            "k": 317,
+            "low": 0.487500954841223,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "ea38ddf475b1b48756a7e61a9a5f738b434a20dccbf90ba48a48a581817a111d",
+        "label": "reader=rules",
+        "models": [
+         "rules@33463eddba9c"
+        ],
+        "position": 2,
+        "providers": {
+         "reader": {
+          "model": "rules@33463eddba9c",
+          "type": "rules",
+          "variant": "rules"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       },
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0062,
+         "failed_cases": 0,
+         "latency_ms_p50": 1840.0,
+         "latency_ms_p95": 3920.5
+        },
+        "configuration": {
+         "reader": "agent"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9360585801779702,
+          "k": 549,
+          "low": 0.8897540169486022,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.028283028358010665,
+          "k": 9,
+          "low": 0.0068812945967882564,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 326,
+           "share": {
+            "high": 0.5837255002508432,
+            "k": 326,
+            "low": 0.5025126722260347,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "16669aec939153e2fb75af9cdf9651139fcdcaadf94d9da0e7efc135c4dda9bf",
+        "label": "reader=agent",
+        "models": [
+         "mock-portal-agent"
+        ],
+        "position": 3,
+        "providers": {
+         "reader": {
+          "model": "starter-portal-agent",
+          "type": "agent",
+          "variant": "agent"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "calls_a_model",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 114,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [
+       "The script that wrote the cases (scripts/demo_agent_data.py)"
+      ],
+      "n": 600,
+      "name": "test",
+      "provenance": "synthetic",
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/several",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/tampered": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"358\" height=\"20\" viewBox=\"0 0 358 20\" role=\"img\" aria-label=\"Mendari: evaluated, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 600 synthetic cases, 9 critical automated</title><rect width=\"358\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2069\" y=\"140\" transform=\"scale(.1)\" textLength=\"2896\">evaluated, 600 synthetic cases, 9 critical automated</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:9543a24a21106ecb4e488978039acd7974369eda069433a2aca9a3312fe19c67",
+     "name": "Fixture agent: tampered",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 600 synthetic cases, 9 critical automated",
+     "state": "evaluated",
+     "tone": "warn"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": null,
+       "figures": null,
+       "first": null,
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": null,
+       "separated": null,
+       "status": "one_configuration",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0062,
+         "failed_cases": 0,
+         "latency_ms_p50": 1840.0,
+         "latency_ms_p95": 3920.5
+        },
+        "configuration": {
+         "reader": "agent"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9360585801779702,
+          "k": 549,
+          "low": 0.8897540169486022,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.028283028358010665,
+          "k": 9,
+          "low": 0.0068812945967882564,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 326,
+           "share": {
+            "high": 0.5837255002508432,
+            "k": 326,
+            "low": 0.5025126722260347,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "6c8375cf1dd0c3bbb5b2f2ef2193b6180da1e89db62667cb56d3caa2c4ce7240",
+        "label": "reader=agent",
+        "models": [
+         "mock-portal-agent"
+        ],
+        "position": null,
+        "providers": {
+         "reader": {
+          "model": "starter-portal-agent",
+          "type": "agent",
+          "variant": "agent"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "calls_a_model",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 114,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [
+       "The script that wrote the cases (scripts/demo_agent_data.py)"
+      ],
+      "n": 600,
+      "name": "test",
+      "provenance": "synthetic",
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/tampered",
+    "links": {
+     "page": null
+    },
+    "not_shown": [
+     {
+      "configuration": "reader=rules",
+      "dataset": "test",
+      "id": "e46de31fb38d26233d05cda26034a45644715439527ceeecb250d8218d32b06e",
+      "key_id": "ed25519:56475aa75463474c",
+      "reason": "record"
+     }
+    ],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/tied": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"455\" height=\"20\" viewBox=\"0 0 455 20\" role=\"img\" aria-label=\"Mendari: evaluated, 2 configurations, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 2 configurations, 600 synthetic cases, 9 critical automated</title><rect width=\"455\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2554\" y=\"140\" transform=\"scale(.1)\" textLength=\"3866\">evaluated, 2 configurations, 600 synthetic cases, 9 critical automated</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:c5419dc01043a8df7fe5a7ffa05c44a75db734c94499c07d6cceb20b4998d134",
+     "name": "Fixture agent: tied",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 2 configurations, 600 synthetic cases, 9 critical automated",
+     "state": "evaluated",
+     "tone": "warn"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": null,
+       "figures": null,
+       "first": null,
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": null,
+       "separated": null,
+       "status": "tied",
+       "tied": [
+        "bc02fb977c069285b9866079e908775c403803ba9c6f1b448809f429760b6eee",
+        "f36650b459d2b321782759b150dea02331a821b5b7be474a2ec93ef7a212b8d4"
+       ]
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "rules"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 9,
+           "share": {
+            "high": 0.028283028358010665,
+            "k": 9,
+            "low": 0.0068812945967882564,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 317,
+           "share": {
+            "high": 0.5688855584508927,
+            "k": 317,
+            "low": 0.487500954841223,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "bc02fb977c069285b9866079e908775c403803ba9c6f1b448809f429760b6eee",
+        "label": "reader=rules",
+        "models": [
+         "rules@33463eddba9c"
+        ],
+        "position": 1,
+        "providers": {
+         "reader": {
+          "model": "rules@33463eddba9c",
+          "type": "rules",
+          "variant": "rules"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       },
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "same"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 9,
+           "share": {
+            "high": 0.028283028358010665,
+            "k": 9,
+            "low": 0.0068812945967882564,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 317,
+           "share": {
+            "high": 0.5688855584508927,
+            "k": 317,
+            "low": 0.487500954841223,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "f36650b459d2b321782759b150dea02331a821b5b7be474a2ec93ef7a212b8d4",
+        "label": "reader=same",
+        "models": [
+         "rules@72e4ba704521"
+        ],
+        "position": 2,
+        "providers": {
+         "reader": {
+          "model": "rules@72e4ba704521",
+          "type": "rules",
+          "variant": "same"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 114,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [
+       "The script that wrote the cases (scripts/demo_agent_data.py)"
+      ],
+      "n": 600,
+      "name": "test",
+      "provenance": "synthetic",
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/tied",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/two": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"455\" height=\"20\" viewBox=\"0 0 455 20\" role=\"img\" aria-label=\"Mendari: evaluated, 2 configurations, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 2 configurations, 600 synthetic cases, 9 critical automated</title><rect width=\"455\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2554\" y=\"140\" transform=\"scale(.1)\" textLength=\"3866\">evaluated, 2 configurations, 600 synthetic cases, 9 critical automated</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:8f0859a770aa4493a21dc92a874d7cbb9feca198da15118ef71725bb106666f1",
+     "name": "Fixture agent: two",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluated, 2 configurations, 600 synthetic cases, 9 critical automated",
+     "state": "evaluated",
+     "tone": "warn"
+    },
+    "datasets": [
+     {
+      "comparison": {
+       "decided_by": "false_automation",
+       "figures": {
+        "first": {
+         "high": 0.006129271330669206,
+         "k": 0,
+         "low": 0.0,
+         "n": 600
+        },
+        "second": {
+         "high": 0.028283028358010665,
+         "k": 9,
+         "low": 0.0068812945967882564,
+         "n": 600
+        }
+       },
+       "first": "4ae581016abba1d2b5f98af761c06c6ea09990d664a904e2ccd4086e630886a4",
+       "measures": [
+        "critical_automated",
+        "critical_detection",
+        "false_automation",
+        "accuracy"
+       ],
+       "method": "mendari.rank/1",
+       "second": "8e7718be96c742effd580036d1b8188634c350105dd088902450cdec841bc0e3",
+       "separated": true,
+       "status": "ordered",
+       "tied": []
+      },
+      "configurations": [
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0,
+         "failed_cases": 0,
+         "latency_ms_p50": 0.05,
+         "latency_ms_p95": 0.07
+        },
+        "configuration": {
+         "reader": "rules"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9660144527846245,
+          "k": 570,
+          "low": 0.9293885939673254,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.006129271330669206,
+          "k": 0,
+          "low": 0.0,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 9,
+           "share": {
+            "high": 0.028283028358010665,
+            "k": 9,
+            "low": 0.0068812945967882564,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 317,
+           "share": {
+            "high": 0.5688855584508927,
+            "k": 317,
+            "low": 0.487500954841223,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "4ae581016abba1d2b5f98af761c06c6ea09990d664a904e2ccd4086e630886a4",
+        "label": "reader=rules",
+        "models": [
+         "rules@33463eddba9c"
+        ],
+        "position": 1,
+        "providers": {
+         "reader": {
+          "model": "rules@33463eddba9c",
+          "type": "rules",
+          "variant": "rules"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "matched",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       },
+       {
+        "claimed": {
+         "cost_usd_per_decision": 0.0062,
+         "failed_cases": 0,
+         "latency_ms_p50": 1840.0,
+         "latency_ms_p95": 3920.5
+        },
+        "configuration": {
+         "reader": "agent"
+        },
+        "critical_automated": 9,
+        "critical_cases": 114,
+        "critical_missed": 33,
+        "engine": "0.1.0",
+        "figures": {
+         "accuracy": {
+          "high": 0.9360585801779702,
+          "k": 549,
+          "low": 0.8897540169486022,
+          "n": 600
+         },
+         "critical": [
+          {
+           "automated": {
+            "high": 0.1445801219406786,
+            "k": 9,
+            "low": 0.036735306701181206,
+            "n": 114
+           },
+           "automated_misses": 9,
+           "detected": {
+            "high": 0.7916425715285965,
+            "k": 81,
+            "low": 0.6181437391142989,
+            "n": 114
+           },
+           "insufficient_evidence": false,
+           "label": "yes",
+           "question": "urgent_symptoms"
+          }
+         ],
+         "false_automation": {
+          "high": 0.028283028358010665,
+          "k": 9,
+          "low": 0.0068812945967882564,
+          "n": 600
+         },
+         "format": "mendari.figures/1",
+         "n": 600,
+         "outcomes": {
+          "ABSTAIN": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "AUTO": {
+           "count": 326,
+           "share": {
+            "high": 0.5837255002508432,
+            "k": 326,
+            "low": 0.5025126722260347,
+            "n": 600
+           }
+          },
+          "BLOCK": {
+           "count": 0,
+           "share": {
+            "high": 0.006129271330669206,
+            "k": 0,
+            "low": 0.0,
+            "n": 600
+           }
+          },
+          "HUMAN_REVIEW": {
+           "count": 274,
+           "share": {
+            "high": 0.4974873277739653,
+            "k": 274,
+            "low": 0.4162744997491568,
+            "n": 600
+           }
+          }
+         },
+         "primary": "request"
+        },
+        "id": "8e7718be96c742effd580036d1b8188634c350105dd088902450cdec841bc0e3",
+        "label": "reader=agent",
+        "models": [
+         "mock-portal-agent"
+        ],
+        "position": 2,
+        "providers": {
+         "reader": {
+          "model": "starter-portal-agent",
+          "type": "agent",
+          "variant": "agent"
+         }
+        },
+        "record_format": "mendari.publisher-evaluation/2",
+        "rerun": "calls_a_model",
+        "signed": {
+         "at": "2026-11-23T12:00:00Z",
+         "key_id": "ed25519:56475aa75463474c",
+         "verified": true
+        },
+        "tokens": {
+         "input": 0,
+         "output": 0
+        }
+       }
+      ],
+      "critical": [
+       {
+        "label": "yes",
+        "n": 114,
+        "question": "urgent_symptoms"
+       }
+      ],
+      "labelled_by": [
+       "The script that wrote the cases (scripts/demo_agent_data.py)"
+      ],
+      "n": 600,
+      "name": "test",
+      "provenance": "synthetic",
+      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
+     }
+    ],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/two",
+    "links": {
+     "page": null
+    },
+    "not_shown": [],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "evaluated",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  },
+  "states/unverified": {
+   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"193\" height=\"20\" viewBox=\"0 0 193 20\" role=\"img\" aria-label=\"Mendari: evaluation not verified\"><title>Mendari: evaluation not verified</title><rect width=\"193\" height=\"20\" rx=\"3\" fill=\"#b3261e\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"1242\" y=\"140\" transform=\"scale(.1)\" textLength=\"1243\">evaluation not verified</text></g></svg>",
+   "evaluation": {
+    "agent": {
+     "digest": "sha256:525383076b34d3e925eeb206b9e2ab324a624785a01d6d0866e2272d5700c440",
+     "name": "Fixture agent: unverified",
+     "primary": "request",
+     "published_at": "2026-11-23T11:00:00+00:00",
+     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
+     "synthetic": true,
+     "version": "0.1.2"
+    },
+    "badge": {
+     "label": "Mendari",
+     "message": "evaluation not verified",
+     "state": "not_verified",
+     "tone": "bad"
+    },
+    "datasets": [],
+    "format": "mendari.agent-evaluation/1",
+    "id": "states/unverified",
+    "links": {
+     "page": null
+    },
+    "not_shown": [
+     {
+      "configuration": "reader=rules",
+      "dataset": "test",
+      "id": "ec7eea8d420e56bae7292473c0b4686b3763dc9beb27551aab707f043fefc1ea",
+      "key_id": "ed25519:56475aa75463474c",
+      "reason": "record"
+     }
+    ],
+    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
+    "publisher": {
+     "display_name": "States (synthetic)",
+     "namespace": "states",
+     "publisher_type": "verified"
+    },
+    "state": "not_verified",
+    "superseded": 0,
+    "versions": {
+     "evaluated": [
+      "0.1.2"
+     ],
+     "latest": "0.1.2",
+     "shown": "0.1.2"
+    }
+   }
+  }
+ }
+}

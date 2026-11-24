@@ -3,6 +3,8 @@
 // row per configuration, apart from what the registry checked and from site evidence. Every
 // share is k of n with its exact interval, as the registry worked it out from the counts; no row
 // is ranked or marked best. Latency, cost and models are the publisher's own word, labelled so.
+import Link from "next/link";
+
 import { type Figure, shown } from "@/lib/figures";
 import type { PublisherEvaluation, PublisherEvaluations } from "@/lib/registry";
 
@@ -111,6 +113,8 @@ export function PublishedEvaluationsSection({
   const named = critical.length !== 1;
   const only = critical.length === 1 ? critical[0] : undefined;
   const criticalHead = only ? ` (${criticalLabel(only)})` : "";
+  const [namespace = "", ...rest] = packId.split("/");
+  const evaluationHref = `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(rest.join("/"))}/evaluation`;
   return (
     <section className="group published-evals" aria-labelledby="published-evaluations-heading">
       <div className="group-head">
@@ -150,7 +154,7 @@ export function PublishedEvaluationsSection({
       ) : (
         <p className="evidence-empty">
           The publisher has published no evaluation of version {version}. A publisher signs one per configuration
-          with <code>mendari eval {packId} --dataset test --publish --key publisher.key</code>.
+          with <code>mendari push {packId} --key publisher.key --evaluate DATASET</code>.
         </p>
       )}
       {excluded.length ? (
@@ -159,11 +163,22 @@ export function PublishedEvaluationsSection({
             <li key={evaluation.id}>
               Left out of the comparison: <span className="mono">{configurationWords(evaluation.configuration)}</span>,
               signed with <span className="mono">{evaluation.key_id}</span>
-              {evaluation.excluded === "key revoked" ? ", a key revoked since" : `, ${evaluation.excluded}`}.
+              {evaluation.excluded === "key revoked"
+                ? ", a key revoked since"
+                : evaluation.excluded === "not verified"
+                  ? ": the stored record no longer verifies, so none of its numbers are shown"
+                  : `, ${evaluation.excluded}`}
+              .
             </li>
           ))}
         </ul>
       ) : null}
+      {unavailable || evaluations === null ? null : (
+        <p className="eval-more">
+          <Link href={evaluationHref}>Read the evaluation page</Link>: what was evaluated and on what data, how the
+          configurations compare, whose key signed each result, and what the numbers do not show.
+        </p>
+      )}
     </section>
   );
 }
