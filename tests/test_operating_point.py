@@ -44,6 +44,7 @@ from mendari.sandbox.demo import run_demo
 from tests.conftest import DEMO_AGENT_DIR, ROOT
 
 EXACT = 1e-12
+GUIDE = ROOT / "docs" / "guides" / "choosing-a-threshold.md"
 URGENT = [("urgent_symptoms", "yes")]  # the demo agent's one critical label
 
 
@@ -1525,3 +1526,75 @@ def test_the_card_works_its_figures_out_and_reads_none_from_the_runs_block(
     broken["decisions"]["critical"][0]["n"] = 3  # fewer cases than it says were automated
     shown = render_card(with_a_benchmark(a_copy(tmp_path / "broken"), broken))
     assert "At this threshold" not in shown and "## Validation" in shown
+
+
+# -- the guide ------------------------------------------------------------------------------------
+
+
+def _table(text: str, heading: str) -> list[list[str]]:
+    """The cells of the first table of `text` whose header starts with `heading`, row by row,
+    without the header."""
+    lines = text.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith(f"| {heading} |"))
+    rows = []
+    for line in lines[start + 2 :]:
+        if not line.startswith("|"):
+            break
+        rows.append([cell.strip() for cell in line.strip("|").split("|")])
+    return rows
+
+
+def test_the_guides_numbers_of_cases_are_the_ones_worked_out() -> None:
+    text = GUIDE.read_text(encoding="utf-8")
+    targets = ["at most 5%", "at most 2%", "at most 1%", "at most 0.5%", "at most 0.1%"]
+    by_level = _table(text, "Target")
+    assert [row[0] for row in by_level] == targets
+    for row in by_level:  # 90%, 95%, 95% with two targets (each at 97.5%), 99%
+        target = op.share(row[0].removeprefix("at most "))
+        needed = [op.cases_needed(target, level) for level in (0.9, 0.95, 0.975, 0.99)]
+        assert [int(cell) for cell in row[1:]] == needed
+    by_count = _table(text[text.index("Every case that does have the risk") :], "Target")
+    assert [row[0] for row in by_count] == targets
+    for row in by_count:  # at 95%, with none, 1, 2 and 5 cases that have the risk
+        target = op.share(row[0].removeprefix("at most "))
+        needed = [op.cases_needed(target, 0.95, k) for k in (0, 1, 2, 5)]
+        assert [int(cell) for cell in row[1:]] == needed
+
+
+def test_the_guide_shows_what_the_command_prints(
+    demo: Pack, demo_run: tuple[Any, list[Any]]
+) -> None:
+    """Each example in the guide is the tool's own output, word for word: the demo agent's, and
+    the graded cases'."""
+    text = GUIDE.read_text(encoding="utf-8")
+    run, results = demo_run
+    assert op.text(run.report["run"]["operating_point"]) in text
+    recommended = _block(demo.manifest, graded(demo.manifest), Targets(critical_miss=0.02))
+    assert op.text(recommended) in text
+    flat = " ".join(text.split())
+    assert recommended["summary"] in flat  # the page's opening example
+    held = op.build(demo.manifest, run.ledger, results, Targets(critical_miss=0.01))
+    for line in held["lines"][1:3]:  # too few cases, and what no threshold fixes
+        assert line in flat, line
+
+
+def test_the_guide_names_the_options_the_command_takes() -> None:
+    from mendari.cli import build_parser
+
+    text = GUIDE.read_text(encoding="utf-8")
+    assert set(re.findall(r"`(--[a-z-]+)", text)) == {
+        "--max-critical-miss",
+        "--critical-miss-of",
+        "--max-false-automation",
+        "--confidence-level",
+    }
+    parsed = build_parser().parse_args(
+        [
+            *("eval", "an-agent", "--dataset", "d", "--max-critical-miss", "1%"),
+            *("--critical-miss-of", "all", "--max-false-automation", "2%"),
+            *("--confidence-level", "95%"),
+        ]
+    )
+    assert (parsed.max_critical_miss, parsed.critical_miss_of) == ("1%", "all")
+    assert (parsed.max_false_automation, parsed.confidence_level) == ("2%", "95%")
+    assert not re.search(r"\bpacks?\b", text, re.IGNORECASE)  # one vocabulary: an agent
