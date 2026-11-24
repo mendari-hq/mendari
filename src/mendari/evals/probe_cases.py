@@ -264,12 +264,26 @@ def _together(named: Iterable[list[str] | None]) -> tuple[str, ...] | None:
     return tuple(dict.fromkeys(fields)) or None
 
 
-def shown(place: Place) -> str:
-    """`message.body`, `notes[0].text`."""
+def shown(place: Place, item: str = "[{}]") -> str:
+    """A place, written out: `message.body`, `notes[0].text`. `item` is how the number of a
+    list's item is written."""
     said = ""
     for part in place:
-        said += f"[{part}]" if isinstance(part, int) else (f".{part}" if said else part)
+        said += item.format(part) if isinstance(part, int) else (f".{part}" if said else part)
     return said
+
+
+def field_of(place: Place) -> str:
+    """The field a place is in, whichever item of a list it is: `message.body`,
+    `notes[].text`. What a report names."""
+    return shown(place, "[]")
+
+
+def sent_as(place: Place) -> str:
+    """The name a text is sent to a model under, and the key its answer comes back under:
+    `message.body`, `notes.0.text`. No bracket: an endpoint may hold the keys of the schema
+    it answers to letters, digits, `_`, `.` and `-`."""
+    return shown(place, ".{}")
 
 
 def text_at(value: Any, place: Place) -> str:

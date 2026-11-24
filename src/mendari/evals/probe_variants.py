@@ -32,7 +32,15 @@ from mendari.core.spec import LabelPolicy, PackManifest
 from mendari.errors import MendariError, ProviderError
 from mendari.evals import probe_model, probe_tests
 from mendari.evals.canonical import canonical_input
-from mendari.evals.probe_cases import Case, critical, shown, shown_id, text_at, with_text
+from mendari.evals.probe_cases import (
+    Case,
+    critical,
+    sent_as,
+    shown,
+    shown_id,
+    text_at,
+    with_text,
+)
 from mendari.evals.probe_transforms import OFFLINE, Stream
 from mendari.providers.llm import MODEL_PATTERN
 
@@ -246,14 +254,14 @@ def written(job: Job, writer: probe_model.Writer, seed: int) -> Variant | str:
     """The variant a model wrote for a job, or the code of why it wrote none. The model is sent
     the case's texts under their fields' names, and nothing else of the case."""
     places = job.case.places
-    texts = {shown(place): text_at(job.case.input, place) for place in places}
+    texts = {sent_as(place): text_at(job.case.input, place) for place in places}
     try:
         rewritten = writer.write(job.prompt, texts)
     except ProviderError as error:
         return error.code
     changed = copy.deepcopy(dict(job.case.input))
     for place in places:
-        with_text(changed, place, rewritten[shown(place)])
+        with_text(changed, place, rewritten[sent_as(place)])
     labels = {job.denies[0]: job.denies[2]} if job.denies is not None else None
     return Variant(
         job.case, job.transformation, job.detail, changed, seed, job.index, labels, writer.model

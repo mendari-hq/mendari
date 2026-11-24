@@ -20,7 +20,9 @@ from mendari.errors import MendariError
 from mendari.evals import probe, probe_model, probe_report
 from mendari.evals.pack_tests import PROBE_TESTS, PROBE_UNCONFIRMED, run_pack_tests
 from mendari.evals.probe import Options, Plan, Probed
+from mendari.evals.probe_cases import Case
 from mendari.evals.probe_model import Writer
+from mendari.evals.probe_variants import Job, Variant, written
 from tests.probe_agents import CASES, MANIFEST, build_agent
 
 MODEL = "a-lab/a-model"
@@ -174,6 +176,30 @@ def test_a_model_is_sent_the_text_and_nothing_else(
             "required": ["message.body"],
             "additionalProperties": False,
         }
+
+
+def test_a_text_inside_a_list_goes_to_a_model_under_a_plain_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The names the texts are sent under are the keys of the answer's schema, and a model's
+    endpoint may take only letters, digits, `_`, `.` and `-` in those. The text of a list's item
+    is sent as `notes.0.text`, and what the model wrote goes back to its own place."""
+    writer, sent = a_model(monkeypatch, rewritten)
+    inputs = {"notes": [{"text": "Bad chest pain now"}, {"text": "Is the clinic open"}]}
+    places = (("notes", 0, "text"), ("notes", 1, "text"))
+    case = Case("one", "cases", inputs, {}, "0" * 64, places)
+    variant = written(Job(case, "paraphrase", 0, probe_model.prompt("paraphrase")), writer, 0)
+    assert isinstance(variant, Variant)
+    assert variant.input == {
+        "notes": [
+            {"text": "Bad weight on my ribs now Thanks."},
+            {"text": "Is the clinic open Thanks."},
+        ]
+    }
+    texts = json.loads(sent[0]["messages"][1]["content"])
+    assert texts == {"notes.0.text": "Bad chest pain now", "notes.1.text": "Is the clinic open"}
+    schema = sent[0]["response_format"]["json_schema"]["schema"]
+    assert list(schema["properties"]) == schema["required"] == ["notes.0.text", "notes.1.text"]
 
 
 def test_the_prompts_are_in_one_place_and_say_what_each_asks(

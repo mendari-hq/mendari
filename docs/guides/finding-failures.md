@@ -118,11 +118,12 @@ answers a miss is costly on and the cases a wrong answer would automate.
 
 The text changed is the fields the running variant says it reads: an agent's or a model's
 `state_fields`, the `text_fields` of rules or a trained classifier. Where a variant is sent the
-whole input, it is every string in it. Of those, a string the input schema holds to a list of
-values or a format (`enum`, `const`, `format`), or to a `pattern` that gives it a shape
-(`^[a-z]{2}$`), is a code, a date or an id, and is never changed. A pattern that an ordinary
-sentence meets, one that only asks for something written (`\S`) or for a single line, leaves the
-field text.
+whole input, it is every string in it, those of a list's items too (the report names
+`notes[].text` once, however many notes a case has). Of those, a string the input schema holds
+to a list of values or a format (`enum`, `const`, `format`), or to a `pattern` that gives it a
+shape (`^[a-z]{2}$`), is a code, a date or an id, and is never changed. A pattern that an
+ordinary sentence meets, one that only asks for something written (`\S`) or for a single line,
+leaves the field text.
 
 Every variant is checked against the input schema before it is decided. One the schema refuses (a
 line break in a field held to one line, an addition past a `maxLength`) is not tried, and the

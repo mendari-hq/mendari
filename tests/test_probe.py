@@ -304,6 +304,35 @@ def test_with_no_fields_named_the_text_is_the_schemas_free_strings(tmp_path: Pat
         assert changed["body"] == message["body"]
 
 
+def test_the_texts_of_a_list_are_each_changed_and_their_field_is_named_once(
+    tmp_path: Path,
+) -> None:
+    """An input may hold its text in a list (notes, documents). The text of each item is
+    changed, the code beside it is not, and the report names the field once, however many
+    items a case has."""
+    root = agent_variant(build_agent(tmp_path / "agent"), CANNED_BY_KEYWORD)
+    note = {
+        "type": "object",
+        "properties": {"text": {"type": "string"}, "kind": {"enum": ["nurse", "patient"]}},
+    }
+    message_fields(root, notes={"type": "array", "items": note})
+    notes = [
+        {"text": "Called the patient about tablets", "kind": "nurse"},
+        {"text": "Thank you for calling me back", "kind": "patient"},
+    ]
+    message = {"body": "Bad chest pain now", "notes": notes}
+    case = {"id": "one", "input": {"message": message}, "labels": {"urgent": "yes"}}
+    (root / "data" / "cases.jsonl").write_text(json.dumps(case) + "\n")
+
+    found = probed(root, "typos", "case")
+    assert found.report["fields"] == ["message.body", "message.notes[].text"]
+    assert len(found.variants) == 2
+    for variant in found.variants:
+        changed = variant.input["message"]["notes"]
+        assert [item["kind"] for item in changed] == ["nurse", "patient"]
+        assert all(new["text"] != old["text"] for new, old in zip(changed, notes, strict=True))
+
+
 def test_a_pattern_that_any_text_meets_does_not_make_a_text_a_code(tmp_path: Path) -> None:
     """A schema's `pattern` may give a code its shape (`^[a-z]{2,3}$`), or only ask that a
     text hold something (`\\S`) or stay on one line. The first is never changed; the others are

@@ -52,10 +52,10 @@ from mendari.evals.probe_cases import (
     Source,
     critical,
     distinct_cases,
+    field_of,
     in_turn,
     is_critical,
     leaves,
-    shown,
     source,
 )
 from mendari.evals.probe_model import Writer
@@ -345,7 +345,9 @@ def plan(
     for variant in given:
         if variant.case not in by_id or by_id[variant.case].key not in probed:
             counts[variant.transformation].skip(CASE_NOT_PROBED)
-    planned.fields = tuple(dict.fromkeys(shown(place) for case in chosen for place in case.places))
+    planned.fields = tuple(
+        dict.fromkeys(field_of(place) for case in chosen for place in case.places)
+    )
     planned.cases, planned.variants, planned.jobs = tuple(chosen), tuple(variants), tuple(asked)
     planned.distinct = len(by_key)
     return planned
