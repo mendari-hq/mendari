@@ -29,6 +29,7 @@ from mendari.core.connections import ALLOWED as ALLOWED_BY_AN_OPERATOR
 from mendari.core.connections import (
     KEEP,
     LISTED,
+    NOT_LISTED_NOBODY,
     SWITCH_ENV,
     ConnectionRefused,
     ConnectionStore,
@@ -1487,7 +1488,9 @@ def test_where_nobody_operates_the_deployment_through_the_web_nobody_allows_an_o
     asked = put(lite, token=TOKEN, allow_origin=True)
     assert asked.status_code == 403
     assert asked.json()["detail"] == connection_routes.NO_OPERATOR_NAMED  # what to set
-    assert put(lite, token=TOKEN).status_code == 422
+    plain = put(lite, token=TOKEN)
+    assert plain.status_code == 422
+    assert plain.json()["detail"] == NOT_LISTED_NOBODY.format(origin=origin_of(ELSEWHERE))
     assert rows(lite.db) == [] and events(lite.db) == []
 
 

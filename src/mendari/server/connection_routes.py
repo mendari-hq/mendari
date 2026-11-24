@@ -50,7 +50,13 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from mendari.core.connections import KEEP, SWITCH_ENV, ConnectionRefused, ConnectionStore
+from mendari.core.connections import (
+    KEEP,
+    NOT_LISTED_NOBODY,
+    SWITCH_ENV,
+    ConnectionRefused,
+    ConnectionStore,
+)
 from mendari.core.pack import Pack
 from mendari.core.spec import is_pack_id
 from mendari.errors import MendariError, ProviderError
@@ -60,6 +66,7 @@ from mendari.providers.deadline import decision_deadline
 from mendari.providers.http import allowed_origins
 from mendari.server import security_log
 from mendari.server.auth import Auth, Principal, org_of
+from mendari.standards.fhir_client import origin_of
 
 TAG = "Agents"
 CHECK_DEADLINE_S = 20.0  # one check, each of its calls: a person is waiting
@@ -341,7 +348,11 @@ def add_connection_routes(
                 org=org,
                 ids=[pack_id],
             )
-            raise HTTPException(error.status, str(error)) from None
+            said = str(error)
+            if error.code == "origin_not_listed" and auth.enabled and auth.operator_org is None:
+                # Nobody here may allow it: say what to set, not who to ask.
+                said = NOT_LISTED_NOBODY.format(origin=origin_of(body.endpoint))
+            raise HTTPException(error.status, said) from None
         changed()
         if made["origin_allowed_at"] and made["origin_allowed_at"] != (before or {}).get(
             "origin_allowed_at"
