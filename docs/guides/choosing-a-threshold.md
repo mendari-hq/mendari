@@ -181,8 +181,10 @@ the confidence. A second signal is another check on the same case, for example a
 or a keyword screen, that only ever sends more cases to a person.
 
 **The policy automates nothing.** At risk levels 2 and 3 every decision goes to a person unless
-your organization records a governance approval, and at level 4 always. With nothing automated
-there is no threshold to recommend, and the report says so.
+your organization records a governance approval, and at level 4 always. A rule, or a label that
+is never automated, can do the same to every case of a set. With nothing automated at any
+threshold there is no threshold to recommend, and the report says so instead of asking for
+more cases.
 
 ## How many cases a target needs
 

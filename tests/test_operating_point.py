@@ -483,8 +483,21 @@ def test_a_risk_cap_holds_at_every_threshold(demo: Pack) -> None:
     found = op.recommend(risky, cases, Targets(false_automation=0.05))
     assert found.status == op.NOTHING_AUTOMATED and found.threshold is None
     block = op.block_of(risky, URGENT, Targets(false_automation=0.05), _current(cases), found)
-    assert block["summary"].startswith("The policy automates no case at any threshold")
+    assert block["summary"] == (
+        "The policy automates no case at any threshold (a rule, a label's limit or a cap sends "
+        "each to a person), so there is no threshold to recommend."
+    )
     assert block["recommended"] is None and block["change"] is None
+    assert block["needs"] == [] and block["current_supported"] is None
+    # The same with too few cases to show the target: there is still nothing to hold to it,
+    # and the run does not ask for cases that could change nothing.
+    few = cases[:20]
+    assert not op.certified(_current(few), Targets(false_automation=0.05))
+    assert op.recommend(risky, few, Targets(false_automation=0.05)).status == op.NOTHING_AUTOMATED
+    # A label that is never automated, alike: every case of this set is `other`.
+    others = [a_case(demo.manifest, "other", 0.99) for _ in range(30)]
+    found = op.recommend(demo.manifest, others, Targets(false_automation=0.05))
+    assert found.status == op.NOTHING_AUTOMATED
 
 
 def test_a_label_with_a_threshold_of_its_own_keeps_it(demo: Pack) -> None:

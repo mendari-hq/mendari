@@ -430,13 +430,15 @@ def recommend(manifest: PackManifest, cases: Sequence[Case], targets: Targets) -
         if supported and current.automated >= most:
             return Found(SUPPORTED, tested, passed, walked, now, current, supported)
         return Found(RECOMMENDED, tested, passed, walked, tested[pick], at(pick), supported)
-    if passed == len(tested):  # every risk within its target, with nothing automated to hold
+    everywhere = [at(index) for index in range(len(tested))]
+    automating = [index for index, found in enumerate(everywhere) if found.automated]
+    if cases and not automating:
+        # No threshold automates any of these cases (a cap, a rule or a label's limit sends each
+        # to a person): there is nothing to hold to a target, whatever the cases could show.
         return Found(NOTHING_AUTOMATED, tested, passed, walked)
     failed = [risk for risk in held(at(passed), targets) if not risk.passes(targets.level)]
     # A risk whose share is above its target at every threshold that automates a case is one
     # no threshold fixes: said with its counts at the strictest of those thresholds.
-    everywhere = [at(index) for index in range(len(tested))]
-    automating = [index for index, found in enumerate(everywhere) if found.automated]
     first = None
     beyond: list[Held] = []
     if automating:
