@@ -64,7 +64,10 @@ reviewer's id, the review organization, and the namespace or `namespace/name@ver
 `export.audit|audit.administrative|feedback`, `phi.inputs.read` (decision ids and a count),
 `evalset.case.read` (a labeller shown their next case of a hidden evaluation set, LP-11j: the
 set's id) and `evalset.labelled` (their label recorded: the set's id; or refused as
-`no_assignment`, with no id), `evalset.sampled`, `evalset.assigned` and
+`no_assignment`, with no id), `written.item.read` (a grader shown their next text of a grading
+round of written output, ADR-0025: the round's id) and `written.graded` (their grades recorded:
+the round's id; or refused as `no_assignment`, with no id), `evalset.sampled`,
+`evalset.assigned` and
 `evalset.adjudication.assigned` (an organization's curator drawing a set's cases, assigning them
 and adjudicating disputes, LP-11k: the set's id and how many were drawn or assigned; or refused
 as `no_set`, an unknown set or another organization's, with no id), `evalset.graded` (a grading

@@ -94,7 +94,7 @@ server is open, as before (production sits behind Vercel Authentication). When c
 | governance | read, approve automation |
 | admin | the rest: evaluations, exports; people only: keys, members, invitations, `curate` |
 | admin of the organization that operates the deployment (people only) | also `operate` |
-| labeller (people, memberships mode) | `label`: labelling hidden evaluation sets |
+| labeller (people, memberships mode) | `label`: hidden evaluation sets, and written output |
 | registry_reviewer (people, memberships mode, the review organization only) | `registry_review` |
 | a grading key (the operator's, not a role a person holds) | `grade`, and nothing else |
 
@@ -259,15 +259,17 @@ PERSON = "person"
 ORG_PIN = "x-mendari-org"
 auth_logger = logging.getLogger("mendari.auth")
 
-# Memberships mode's own paths: a person's own routes, an organization's people, and a labeller's
+# Memberships mode's own paths: a person's own routes, an organization's people, a labeller's
 # and its curators' routes over hidden evaluation sets (LP-11j, LP-11k, mounted with the
-# evaluation-set keys too). Not mounted in claims mode, where they read as any route no rule
+# evaluation-set keys too), and the grading rounds of written output (ADR-0025, mounted under
+# PHI mode `encrypt`). Not mounted in claims mode, where they read as any route no rule
 # lists, `admin` (`Auth.permission`). The grading route (LP-11l, `GRADING_PATH`) is under the
 # curators' path but mounted with the keys in both account modes: it is not one of them.
 GRADING_PATH = r"^/api/evalsets/[^/]+/runs$"
 _MEMBERSHIPS_ONLY = re.compile(
     rf"^(?!{GRADING_PATH.removeprefix('^')})"
-    r"/api/(auth/(organization|access-requests|invitations|members)|labelling|evalsets)(/|$)"
+    r"/api/(auth/(organization|access-requests|invitations|members)|labelling|evalsets|written)"
+    r"(/|$)"
 )
 # The registry's paths (LP-19d): where it is mounted, and its people's routes. Without
 # `MENDARI_REGISTRY=on` nothing is mounted at either and their rules are skipped, so both read
@@ -375,6 +377,11 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # mounted otherwise): a labeller's own counts, next case and label, people only. Every
         # method and path under it, before the reads below: the next case is a hidden case.
         ("*", r"^/api/labelling(/|$)", "label"),
+        # Written output (ADR-0025; memberships mode under PHI mode `encrypt`, not mounted
+        # otherwise): a grader's own counts, next item and grades, people only, as a labeller's
+        # routes are. Every method and path under it, before the reads below: the next item is
+        # a text an agent wrote about a case. A round's report is any reader's (below).
+        ("*", r"^/api/written/labelling(/|$)", "label"),
         # A grading run over one of an organization's hidden sets (LP-11l; mounted with the
         # evaluation-set keys in both account modes): its grading key only, which holds nothing
         # else. Every method on its path, before the curators' rule below, which would take it.
