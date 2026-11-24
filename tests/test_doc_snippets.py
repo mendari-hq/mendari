@@ -86,7 +86,7 @@ def test_every_readme_curl_block_is_a_snippet_step_or_the_demo_agents_decision(
     assert len(own) == 1, "a README curl block is neither a snippet step nor the quickstart's call"
     (call,) = own
     found = re.fullmatch(
-        r"curl -sS -X POST http://127\.0\.0\.1:8000(/api/packs/mendari/portal-message-agent/decide)"
+        r"curl -sS -X POST http://127\.0\.0\.1:8000(/api/agents/mendari/portal-message-agent/decide)"
         r" \\\n  -H 'content-type: application/json' \\\n  -d '(\{.+\})'",
         call,
     )
