@@ -1,0 +1,30 @@
+# Behaviour tests of the synthetic test fixture, on its default provider (the keyword rules):
+# `mendari test` runs each one. Every note is synthetic. At risk level 2 nothing is automated
+# without a governance approval, which no behaviour test has.
+- name: mild pain of two days is care at home, which a person confirms at risk level 2
+  input: {note: {text: "Patient reports mild throat pain for two days."}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: self_care, priority: routine, answers: {severity: mild}}
+
+- name: severe pain is for today, at priority urgent
+  input: {note: {text: "Patient reports severe head pain since this morning."}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: see_today, priority: urgent, answers: {severity: severe}}
+
+- name: a symptom getting worse is for a visit, at priority urgent
+  input: {note: {text: "Patient reports coughing for two days, and it has been getting worse."}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: book_visit, priority: urgent, answers: {severity: moderate}}
+
+- name: a mild symptom for weeks is for a visit
+  input: {note: {text: "Patient reports mild itching for three weeks."}}
+  expect: {recommendation: book_visit, priority: routine, answers: {severity: mild}}
+
+- name: no symptom is care at home
+  input: {note: {text: "Patient asks for travel advice and has no symptoms today."}}
+  expect: {recommendation: self_care, priority: routine, answers: {severity: none}}
+
+- name: severe pain told in other words is missed by the rules, and a person reads it
+  input: {note: {text: "Patient reports stomach pain since this morning that makes them double over, and they cannot keep water down."}}
+  expect: {not_outcome: AUTO}
+
+- name: a blank note is refused
+  input: {note: {text: "   "}}
+  expect: {outcome: BLOCK, recommendation: null}

@@ -1,0 +1,125 @@
+# Decision Card: Synthetic Triage (test fixture)
+
+**Synthetic example. Not clinically reviewed. Not for patient care.**
+
+*Research preview. Not a medical device. Not for emergencies: patients should call 911.*
+
+`mendari-test/triage` · version **1.0.0** · Apache-2.0 · published by Mendari tests (community, self-declared)
+
+> Synthetic test fixture. Routes a synthetic patient message to the team that reads it first and flags same-day symptoms. Not clinically reviewed. Not for patient care.
+
+| | |
+|---|---|
+| Source | Maintained by Mendari |
+| Risk level | **1**, clinical information processing (clinical information) |
+| Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `screen` is `agent` or `checked`; otherwise a person reviews. |
+| Agent digest | `sha256:03c271b9caec81c1e863727b8691ffc944ccec0100710a45702a16b1fb6da26c` |
+
+## Intended use
+
+Tests of the engine. A synthetic test fixture, not clinically reviewed.
+
+**Why risk level 1:** Test fixture. It suggests which team reads a synthetic message first and flags possible same-day symptoms for a nurse. Nothing is automated unless its urgency screen runs an agent.
+
+## Intended users
+
+- Mendari developers
+
+## Patient population
+
+Synthetic messages made by a generator. No patient wrote any of them.
+
+## Out of scope
+
+- Any real message, any real patient and any decision about care.
+
+## Inputs
+
+| Field | Type | Required |
+|---|---|---|
+| `message` | object | yes |
+| `message.subject` | string | no |
+| `message.body` | string | yes |
+| `message.channel` | `portal` \| `sms` \| `email` | no |
+
+FHIR R4 mapping: `fhir/mapping.yaml`.
+
+## Outputs
+
+**`destination`** (primary): Which team should read this synthetic patient message first?
+
+| Label | Criteria |
+|---|---|
+| `front_desk` | Appointments, records, forms, opening hours and anything administrative that is not about a bill. |
+| `nurse` | Symptoms, side effects and other questions about health, and every message that may describe symptoms that need attention today. |
+| `pharmacy` | Refills and renewals of a medication the patient already takes. |
+| `billing` | Bills, charges, payments and insurance. |
+
+**`urgency`** *(boolean)*: Does the message describe symptoms that may need attention today?
+
+| Label | Criteria |
+|---|---|
+| `yes` | For example chest pain, trouble breathing, signs of a stroke, coughing up blood or fainting, however the message words them. |
+| `no` | No such symptoms, or symptoms the message says are not there. |
+
+**`abusive`** *(boolean)*: Is the message abusive towards the people who read it?
+
+| Label | Criteria |
+|---|---|
+| `yes` | It insults the people who read it. |
+| `no` | It does not, even when it complains. |
+
+Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a priority (`routine`, `urgent`, `asap`, `stat`) and an audit record.
+
+## Decision policy
+
+- AUTO when `destination` confidence ≥ **0.90**; human review ≥ **0.50**; abstain below.
+- `billing` is never automated.
+- `front_desk` needs ≥ **0.95** for AUTO.
+- AUTO only while `screen` is `agent` or `checked`; otherwise a person reviews.
+- Rule **possible-emergency**: P(`urgency` is `yes`) ≥ 0.35 ⇒ `HUMAN_REVIEW` → `nurse`, priority `stat`. Possible same-day symptoms. A nurse reads the message now.
+- Rule **abusive-message**: `abusive` is `yes` (p ≥ 0.90) ⇒ `BLOCK`. The message is abusive and is not routed.
+- Fallback (ABSTAIN / BLOCK): The front desk reads the message.
+
+## Providers
+
+| Slot | Answers | Default | Alternatives |
+|---|---|---|---|
+| `router` | destination | `rules` (rules) | `agent` (agent), `llm` (llm) |
+| `screen` | urgency, abusive | `rules` (rules) | `agent` (agent), `checked` (check), `repeated` (agent), `llm` (llm) |
+
+## Confidence
+
+- `router` / `agent`: **not calibrated**. Its confidence is the agent's own report, and the automation threshold cuts on it as reported.
+- `screen` / `agent`: **not calibrated**. Its confidence is the agent's own report, and the automation threshold cuts on it as reported.
+- `screen` / `checked.agent`: **not calibrated**. Its confidence is the agent's own report, and the automation threshold cuts on it as reported.
+- `screen` / `checked`: `agent` answers and `second` checks; where they disagree, the decision is never automated.
+- `screen` / `repeated`: **not calibrated**. Its confidence is the agent's own report, and the automation threshold cuts on it as reported.
+- `screen` / `repeated`: asks each case 3 times; the answer is the majority's with the lowest confidence among the runs that agree, and a disagreement is never automated.
+
+## Validation
+
+No published benchmark.
+
+## Known failure modes
+
+- Its keyword rules miss same-day symptoms worded as a patient might, on purpose: the critical set shows the miss, and nothing is automated while the screen is the rules alone.
+- Its canned agents match words as typed, and miss other symptoms on purpose too.
+
+## Evidence and provenance
+
+- **Synthetic data only**: Generated by tests/support/fixture_agents.py.
+
+## Version history
+
+A synthetic test fixture of Mendari's engine tests. Not clinically reviewed. Not for patient care.
+
+#### 1.0.0
+
+- First version: a router and a screen, each with keyword rules (the default), a canned agent and
+  a model; a check of the screen's agent by its rules, and a repeated screen; four synthetic
+  datasets written by `tests/support/fixture_agents.py`.
+
+---
+
+*Generated by `mendari card`. A Decision Card describes validation on the data named above. It is not evidence of performance at your site; run local validation first.*

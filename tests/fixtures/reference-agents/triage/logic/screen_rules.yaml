@@ -1,0 +1,26 @@
+# Keyword rules for the screen (synthetic test fixture): same-day symptoms as a keyword list
+# words them, and insults. A symptom said not to be there ("no chest pain") is not one: the
+# patterns marked `negatable` do not count after a negation cue in the same sentence. Symptoms
+# worded as a patient might ("an elephant sitting on my chest") are missed on purpose.
+# Every pattern means the same on RE2 as on Python's `re`: no lookaround, no back reference.
+text_fields: [message.subject, message.body]
+negation_cues: ["no", "not", "never", "without", "denies"]
+negation_window: 30
+
+questions:
+  urgency:
+    default: "no"
+    default_score: 2.0
+    labels:
+      "yes":
+        - {name: chest-pain, pattern: "chest (pain|pressure|tightness)", weight: 6, negatable: true}
+        - {name: breathing, pattern: "short of breath|trouble breathing|cannot breathe", weight: 6, negatable: true}
+        - {name: stroke-signs, pattern: "slurred|drooping|suddenly (weak|numb)", weight: 6, negatable: true}
+        - {name: bleeding, pattern: "coughing up blood|vomiting blood", weight: 6, negatable: true}
+        - {name: fainting, pattern: "fainted|passed out", weight: 6, negatable: true}
+  abusive:
+    default: "no"
+    default_score: 1.0
+    labels:
+      "yes":
+        - {name: insult, pattern: "\\b(useless|idiots?|incompetent|fools?|morons?)\\b", weight: 5}
