@@ -100,7 +100,7 @@ def test_one_fixture_keeps_the_old_name_and_works_as_any_other(tmp_path: Path) -
         for path in sorted((ROOT / "tests" / "fixtures").rglob("*.yaml"))
         if path.name.casefold() in MANIFEST_NAMES
     ]
-    assert len(manifests) == 10
+    assert len(manifests) == 11
     assert [path for path in manifests if path.name != MANIFEST] == [KEPT / LEGACY_MANIFEST]
     pack = load_pack(KEPT)
     assert (pack.id, pack.manifest_file) == ("mendari-test/referral-mini", LEGACY_MANIFEST)

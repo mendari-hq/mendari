@@ -36,6 +36,7 @@ from mendari.server.app import create_app
 from mendari.standards import audit_fhir
 from tests.conftest import (
     INBOX_DIR,
+    ROOT,
     encrypt_mode,
     evalset_keys_for_test,
     hand_written,
@@ -47,6 +48,10 @@ KEY = os.urandom(32)
 EVALSETS = evalset_keys_for_test()  # hidden evaluation sets' throwaway keys (LP-11e)
 NEXT_EVALSET_KEY = evalset_keys_for_test().key  # what they rotate to (LP-11f)
 URGENT = "Crushing chest pain and my left arm is numb"  # HUMAN_REVIEW: waits for a reviewer
+# An agent that proposes actions (spec 0.4): this message's decision waits for a reviewer with an
+# action held (`action.proposed`), which its review resolves (`action.resolved`).
+PROPOSING = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
+HELD = "Please renew my prescription."
 INBOX = "mendari/patient-inbox-router"
 CLINIC = "clinic-a"
 
@@ -110,6 +115,10 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
     of what was made."""
     made: dict[str, Any] = {}
     with acting(org):
+        proposing = Decision.from_path(PROPOSING, store=store)
+        held = proposing(message(HELD)).id  # `action.proposed`, with the answer
+        proposing.authorize_action(held, "file_note", {"note": "asked"})  # and when asked
+        store.resolve_review(held, final_label="refill", reviewer="rn-1")  # `action.resolved`
         first = Decision(pack, store=store)(message(URGENT)).id
         store.resolve_review(first, final_label="nurse", reviewer="rn-1", note="a note")
         rating = store.record_feedback(first, rating="down", reporter="rn-2", note="a note")
@@ -608,8 +617,12 @@ def test_a_decision_from_before_tenancy_is_bound_as_default(
     with keeping(db_target) as store:
         first = Decision(inbox_pack, store=store)(message(URGENT)).id
         Decision(inbox_pack, store=store)(message(URGENT))
+        held = Decision.from_path(PROPOSING, store=store)(message(HELD)).id
         tamper(store, "UPDATE decisions SET org = NULL")
     with keeping(db_target, bind_org=True) as store, acting(tenancy.DEFAULT_ORG):
+        proposing = Decision.from_path(PROPOSING, store=store)
+        proposing.authorize_action(held, "file_note", {"note": "asked"})  # `action.proposed`
+        store.resolve_review(held, final_label="refill", reviewer="rn-1")  # `action.resolved`
         store.resolve_review(first, final_label="nurse", reviewer="rn-1", note="a note")
         rating = store.record_feedback(first, rating="down", reporter="rn-2", note="a note")
         store.record_outcome(first, final_label="nurse", source="ehr", recorded_by="ehr-feed")

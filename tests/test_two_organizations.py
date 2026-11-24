@@ -1202,6 +1202,15 @@ def refusals(world: World, x: Org, o: Org) -> None:
         404,
         json=pas,
     )
+    # Authorizing an action for their decision (spec 0.4): unknown here, and nothing is chained.
+    refused(
+        service,
+        ("POST", "/api/agents/{namespace}/{name}/actions"),
+        f"/api/agents/{PA}/actions",
+        o.one("prior"),
+        404,
+        json={"decision_id": o.one("prior"), "name": "send_reply", "arguments": {}},
+    )
     # Feedback on their card (its uuid is their decision's id): the one answer an unknown card
     # gets, and nothing chained (LP-23f).
     refused(
@@ -1781,6 +1790,16 @@ def served(world: World, x: Org) -> None:
         json=pas,
         expect=200,
     )
+    # An action for its own decision: answered (blocked: this agent declares none), and chained.
+    asked = world.call(
+        x,
+        service,
+        ("POST", "/api/agents/{namespace}/{name}/actions"),
+        f"/api/agents/{PA}/actions",
+        json={"decision_id": x.one("prior"), "name": "send_reply", "arguments": {}},
+        expect=200,
+    ).json()
+    assert (asked["disposition"], asked["reason"]) == ("blocked", "undeclared")
     world.call(
         x,
         service,

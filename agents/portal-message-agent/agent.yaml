@@ -110,7 +110,8 @@ tests: tests/cases.yaml
 # What the agent may ask to have done besides answer (spec 0.4). The agent proposes an action
 # with its answers; Mendari answers `released`, `held` or `blocked`, and runs none: your caller
 # runs an action only when it was released. What each effect needs is the runtime's rule, not
-# this file's (docs/guides/governing-actions.md): an action here may only tighten it.
+# this file's: an action here may only tighten it. The guide:
+# https://github.com/mendari-hq/mendari/blob/main/docs/guides/governing-actions.md
 actions:
   assign_queue:
     description: Put the message in the refill, scheduling or front-desk queue.

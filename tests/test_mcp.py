@@ -61,12 +61,12 @@ def test_initialize_agrees_a_protocol_version_and_offers_tools_only(server: McpS
     assert unknown is not None and unknown["result"]["protocolVersion"] == PROTOCOL_VERSIONS[0]
 
 
-def test_the_tools_listed_are_the_four_with_closed_schemas(server: McpServer) -> None:
+def test_the_tools_listed_are_the_five_with_closed_schemas(server: McpServer) -> None:
     answer = server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     assert answer is not None
     tools = answer["result"]["tools"]
     assert [tool["name"] for tool in tools] == [
-        "list_agents", "decide", "review_queue", "verify_audit",
+        "list_agents", "decide", "authorize_action", "review_queue", "verify_audit",
     ]  # fmt: skip
     for tool in tools:
         assert tool["inputSchema"]["type"] == "object"
