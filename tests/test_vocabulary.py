@@ -479,7 +479,11 @@ def _evaluations_and_probes(
     import contextlib
     import io
 
-    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT / "agents"))
+    from mendari.core import reference, registry
+
+    # The demo runs the agent this release bundles: `agents/`, as a release has it.
+    monkeypatch.setattr(reference, "BUNDLED_DIRS", (ROOT / "agents",))
+    monkeypatch.setattr(registry, "_BUNDLED_DIRS", (ROOT / "agents",))
     agent = str(DEMO_AGENT_DIR)
     evaluate = ["eval", agent, "--dataset", "test", "--baseline", "none", "--limit", "150"]
     held = ["--target-critical-miss", "1%", "--target-false-automation", "2%"]

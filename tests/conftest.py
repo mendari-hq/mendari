@@ -163,6 +163,19 @@ def _no_vercel_oidc_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(llm, "vercel_oidc_token", refused)
 
 
+@pytest.fixture
+def release_agents(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """The bundled agents as a release has them, the repository's `agents/`, where the tests
+    otherwise stand their fixtures: for what runs the bundled agent itself (`mendari demo`)."""
+    monkeypatch.setattr(_reference, "BUNDLED_DIRS", (ROOT / "agents",))
+    monkeypatch.setattr(_registry, "_BUNDLED_DIRS", (ROOT / "agents",))
+    _reference.reference_packs.cache_clear()
+    _reference.reference_digests.cache_clear()
+    yield
+    _reference.reference_packs.cache_clear()  # read again from the fixtures by the next test
+    _reference.reference_digests.cache_clear()
+
+
 @pytest.fixture(autouse=True)
 def _own_hub_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test has its own Hub config and pack cache, never the developer's (the cache is on

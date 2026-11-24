@@ -1497,8 +1497,31 @@ def test_nothing_edits_the_manifest(tmp_path: Path, capsys: pytest.CaptureFixtur
 DISPOSITIONS = ("released", "held", "blocked", "denied")
 
 
+@pytest.mark.usefixtures("release_agents")
+def test_the_demo_runs_the_bundled_agent_where_a_pulled_copy_is_cached(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], demo: Pack
+) -> None:
+    """A copy pulled from a registry comes first on the search path and never automates until
+    an organization approves it. The demo is the bundled agent's: its first message is still
+    automated, and its actions are the four the story shows."""
+    cached = tmp_path / "hub-cache" / "agents" / demo.id / demo.version
+    shutil.copytree(DEMO_AGENT_DIR, cached)
+    assert Decision.from_hub(demo.id).pack.origin == "hub"  # the copy, wherever it is asked for
+    run_demo()
+    out = capsys.readouterr().out
+    first = out.split("\n== 1. ")[1].splitlines()[1]
+    assert first.split()[0] == "AUTO"
+    asked = out.split("\n== 2. ")[1].split("\n== 3. ")[0]
+    assert [line.split()[0] for line in asked.splitlines()[2:] if line.strip()] == [
+        "released",
+        "held",
+        "released",
+        "blocked",
+    ]
+
+
+@pytest.mark.usefixtures("release_agents")
 def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_next(
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     demo: Pack,
     demo_run: tuple[Any, list[Any]],
@@ -1506,7 +1529,6 @@ def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_nex
     """The demo is one story: five numbered sections, then its closing. The closing, after the
     evaluation and the probe: the evaluation's verdict, the operating point (the block's own
     summary, then what to do), then the commands. Short, and in that order."""
-    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT / "agents"))  # as a release finds it
     run_demo()
     out = capsys.readouterr().out
     before, heading, closing = out.partition("\n== What next ")

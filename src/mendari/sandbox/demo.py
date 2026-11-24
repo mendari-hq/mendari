@@ -31,6 +31,9 @@ from typing import Any
 
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision, DecisionResult
+from mendari.core.pack import Pack
+from mendari.core.reference import bundled_dir
+from mendari.core.registry import SearchPath, resolve_pack
 from mendari.evals import evaluate, probe, probe_report, resolve_dataset
 from mendari.evals.operating_point import NONE_CERTIFIED, RECOMMENDED, SUPPORTED, Targets
 from mendari.evals.render import shown
@@ -75,13 +78,21 @@ def _section(title: str) -> None:
     print(f"\n== {title} {'=' * max(0, 72 - len(title))}")
 
 
+def bundled() -> Pack:
+    """The demo agent this release bundles, and never a copy of it pulled from a registry: a
+    pulled copy comes first on the search path, and it automates nothing until an organization
+    approves it, so the demo would show every message waiting for a person."""
+    root = bundled_dir()
+    return resolve_pack(PACK_ID, [] if root is None else [SearchPath(root, "maintained")])
+
+
 def run_demo() -> None:
     with AuditStore(":memory:") as store:
         _run(store)
 
 
 def _run(store: AuditStore) -> None:
-    agent = Decision.from_hub(PACK_ID, store=store)
+    agent = Decision(bundled(), store=store)
     pack = agent.pack
     m = pack.manifest
     providers = ", ".join(f"{slot}={info.variant}" for slot, info in agent.provider_info.items())

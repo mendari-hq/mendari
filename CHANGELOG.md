@@ -31,6 +31,9 @@ The first release (not yet published).
   - the demo agent is 0.2.0 on spec 0.4 and declares two actions; `mendari demo` shows a write
     released, a message to a patient held until a reviewer confirms, and an undeclared action
     blocked.
+  - `mendari demo` runs the agent the release bundles, also where a copy pulled from a
+    registry is in the cache: the copy comes first on the search path and automates nothing
+    until an organization approves it, so the demo showed every message waiting for a person.
 - **A confidence that was checked, and a second signal** (2026-11-24, spec 0.4,
   [ADR-0024](docs/decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md)).
   `mendari calibrate` fits an external agent's confidence on labelled cases (an `agent`
