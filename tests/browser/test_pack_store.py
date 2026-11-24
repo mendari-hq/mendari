@@ -270,9 +270,9 @@ def test_the_agents_tab_opens_from_the_address_it_had_before(site: Site) -> None
     expect(page).to_have_url(re.compile(r"#store/agents$"))
     expect(page.get_by_role("heading", name="Copy an agent")).to_be_visible()
     expect(page.locator("#upload-form")).to_contain_text("Built with mendari archive build")
-    # The file chooser offers an archive by the extension it is written with, and by the one it
-    # had before (`hub/archive.py` `EXTENSION`, `FORMER_EXTENSION`): either is the same file.
-    offered = f"{archive.EXTENSION},{archive.FORMER_EXTENSION},application/gzip"
+    # The file chooser offers an archive by the extension it is written with
+    # (`hub/archive.py` `EXTENSION`).
+    offered = f"{archive.EXTENSION},application/gzip"
     expect(page.locator("#upload-file")).to_have_attribute("accept", offered)
 
 

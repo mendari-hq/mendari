@@ -112,13 +112,13 @@ def test_pack_verify_checks_an_archive_as_a_puller_loads_it(
     root = changed_referral(tmp_path, "9.9.9")
     public = tmp_path / "publisher.pub"
     public.write_bytes(archive.public_pem(key.public_key()))
-    changed = tmp_path / "changed.ohpack"
+    changed = tmp_path / "changed.mendari"
     changed.write_bytes(archive.build(load_pack(root), key))
     assert main(["pack", "verify", str(changed), "--public-key", str(public)]) != 0
     err = capsys.readouterr().err
     assert "lookahead" in err and "not the copy of it in this release" in err
     assert "Traceback" not in err
-    reference = tmp_path / "reference.ohpack"
+    reference = tmp_path / "reference.mendari"
     reference.write_bytes(archive.build(REFERRAL, key))
     assert main(["pack", "verify", str(reference), "--public-key", str(public)]) == 0
     assert f"OK {REFERRAL.id}@{REFERRAL.version} {REFERRAL.digest}" in capsys.readouterr().out
@@ -131,7 +131,7 @@ def test_pack_verify_refuses_a_shadow_without_a_traceback(
     version would take its place where it is pulled: `mendari pack verify` fails, saying why."""
     public = tmp_path / "publisher.pub"
     public.write_bytes(archive.public_pem(key.public_key()))
-    shadow = tmp_path / "shadow.ohpack"
+    shadow = tmp_path / "shadow.mendari"
     shadow.write_bytes(archive.build(load_pack(changed_referral(tmp_path)), key))
     assert main(["pack", "verify", str(shadow), "--public-key", str(public)]) != 0
     err = capsys.readouterr().err
@@ -237,7 +237,7 @@ def test_names_that_are_one_file_where_case_is_not_significant_are_refused(
     data = signed_with_all(key, [(name, b"x: 1\n") for name in names])
     with pytest.raises(HubError, match="where case and Unicode normalization"):
         archive.verify(data, trusted(key))
-    built, public = tmp_path / "odd.ohpack", tmp_path / "publisher.pub"
+    built, public = tmp_path / "odd.mendari", tmp_path / "publisher.pub"
     built.write_bytes(data)
     public.write_bytes(archive.public_pem(key.public_key()))
     assert main(["pack", "verify", str(built), "--public-key", str(public)]) == 1
@@ -484,12 +484,3 @@ def test_the_cli_generates_keys_builds_and_verifies(
     )
     shown = f"OK mendari/referral-router@{REFERRAL.version} {REFERRAL.digest}"
     assert shown in capsys.readouterr().out
-    # One written before the rename, as `.ohpack`, is still read: the same bytes under the
-    # name they had verify the same (an archive is never read by its name).
-    former = built.with_suffix(archive.FORMER_EXTENSION)
-    assert former.name == f"mendari-referral-router-{REFERRAL.version}.ohpack"
-    former.write_bytes(built.read_bytes())
-    for command in ("archive", "pack"):
-        argv = [command, "verify", str(former), "--public-key", str(tmp_path / "publisher.pub")]
-        assert main(argv) == 0
-        assert shown in capsys.readouterr().out

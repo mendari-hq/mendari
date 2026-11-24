@@ -120,7 +120,7 @@ async function showPacks(body) {
       <h2>Upload a signed archive</h2>
       <p class="muted">Built with <code>mendari archive build</code> and signed with one of your organization's author keys. Files that read as a person's details are refused.</p>
       <label for="upload-file">Archive</label>
-      <input id="upload-file" name="file" type="file" required accept=".mendari,.ohpack,application/gzip">
+      <input id="upload-file" name="file" type="file" required accept=".mendari,application/gzip">
       <progress id="upload-progress" max="1" value="0" hidden aria-label="Upload progress"></progress>
       <button type="submit" class="primary">Upload</button>
     </form>

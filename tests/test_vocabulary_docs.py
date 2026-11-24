@@ -152,8 +152,8 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("*", "`pack/`"): _ARCHIVE,
     ("docs/security/threat-model.md", "`pack//<absolute path>`"): _ARCHIVE,
     ("*", "`packs/<namespace>/<name>/<version>`"): "the folder the registry cache had until "
-    "2026-11, where a version pulled then is still read (`hub/client.py` `former_cache`): an "
-    "operator removes one by that path",
+    "2026-11, which nothing reads any more: the pages that still name it are rewritten with the "
+    "docs",
     (
         "docs/guides/connecting-an-ehr.md",
         "/smart/launch?pack=<agent id>",

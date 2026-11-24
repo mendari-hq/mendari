@@ -40,9 +40,7 @@ nothing from a revoked key and still verifies what the key signed before (ADR-00
 
 Pulled packs are cached under `~/.cache/mendari/agents/<namespace>/<name>/<version>`, which is
 on the pack search path, so `mendari test`, `Decision.from_hub` and the server find them like
-any local pack. Until 2026-11 the folder was `packs/`: a version pulled then is still found
-there (`caches`), still recalled and removed there, and written under `agents/` when a pull
-has to fetch it again. Credentials and pinned keys live in `~/.config/mendari` (files mode 0600,
+any local pack. Credentials and pinned keys live in `~/.config/mendari` (files mode 0600,
 written whole and moved in). Pins are filed per registry address, scheme and host in lower
 case and without the default port; a pin file that is there and cannot be read is refused,
 never read as empty.
@@ -107,19 +105,6 @@ def cache_dir() -> Path:
 def packs_cache() -> Path:
     """The registry cache: where `pull` writes an agent, `<namespace>/<name>/<version>`."""
     return cache_dir() / "agents"
-
-
-def former_cache() -> Path:
-    """The folder the registry cache had until 2026-11. Nothing is written there any more, and
-    what a pull left there is read as before (`caches`): an operator's cache outlives a rename."""
-    return cache_dir() / "packs"
-
-
-def caches() -> tuple[Path, Path]:
-    """The registry cache as it is read: its folder, then the one it had before. A version in
-    both is the first's (the search path lists them in this order, and the newest of an id is
-    the first found of its version)."""
-    return packs_cache(), former_cache()
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -534,28 +519,23 @@ def pull(
     (the one shipped with this package unless given)."""
     pack_id, version, meta = _named(ref, client)
     namespace = pack_id.split("/")[0]
-    target, former = (_cached_at(cache, pack_id, version) for cache in caches())
-    # The copy in use: this version in the cache, or, with none there, the one a pull left in
-    # the folder the cache had before (`former_cache`). It is the copy that is used as is,
-    # recalled or removed; a version fetched again is written to the cache, and replaces it.
-    held = former if former.is_dir() and not target.exists() else target
+    target = _cached_at(packs_cache(), pack_id, version)
     deleted = meta.get("deleted")
     if isinstance(deleted, Mapping):
-        # Deleted by the registry: never served, and every copy cached before is removed.
-        for copy in (target, former):
-            if copy.exists():
-                shutil.rmtree(copy)
+        # Deleted by the registry: never served, and the copy cached before is removed.
+        if target.exists():
+            shutil.rmtree(target)
         raise HubError(
             f"{pack_id}@{version} was deleted from the registry: {deleted.get('reason')}", 410
         )
     # The registry's key is pinned on first contact, before any recall it signs is read; and the
     # version's counter-signature is checked before the archive is fetched or a cached copy used.
     accepted = _accepted(client, pack_id, meta, registry_keys)
-    if pulled_record(held).get("archive_sha256") == meta["archive_sha256"]:
-        pack = load_pack(held, origin="hub")
+    if pulled_record(target).get("archive_sha256") == meta["archive_sha256"]:
+        pack = load_pack(target, origin="hub")
         if pack.digest == meta["digest"]:
             # Cached: what the registry says of it now (a recall since) is written beside it.
-            _write_origin(held, client, namespace, meta, accepted)
+            _write_origin(target, client, namespace, meta, accepted)
             return pack
     verified = _verified(client, pack_id, version, meta, accepted, accept_new_key)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -570,8 +550,6 @@ def pull(
         if target.exists():
             shutil.rmtree(target)
         staged.rename(target)
-    if held != target:
-        shutil.rmtree(held)  # the copy in the former folder, which this one replaces
     return load_pack(target, origin="hub")
 
 

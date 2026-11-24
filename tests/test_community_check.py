@@ -303,9 +303,6 @@ MAINTAINED = [
         ("Patient-Inbox Router.", "is the name of mendari/patient-inbox-router"),
         ("Mendari reference packs", "names Mendari"),
         ("\uff2d\uff45ndari", "names Mendari"),  # fullwidth: NFKC makes it ASCII
-        ("Open-Health refills", "names OpenHealth"),
-        ("Open Health Alliance", "names OpenHealth"),
-        ("OpenHealthHub", "names OpenHealth"),
         ("MendariCare", "names Mendari"),
         ("MENDARI care", "names Mendari"),
         ("Men dari care", "names Mendari"),  # two words that join to it
@@ -318,9 +315,6 @@ MAINTAINED = [
         "maintained-name-punctuated",
         "mendari",
         "fullwidth",
-        "old-name",
-        "old-name-spaced",
-        "camel-case",
         "joined-word",
         "capitals",
         "split-word",
@@ -345,7 +339,6 @@ def test_a_copy_or_mendaris_name_as_whole_words_is_an_error(text: str, expected:
         ("Al Guard", "looks like 'AI Guard', the name of mendari/ai-guard"),
         ("Patient lnbox Router", "looks like 'Patient Inbox Router'"),
         ("Mendar1 packs", "looks like it names Mendari"),
-        ("0penHealth refills", "looks like it names OpenHealth"),
         ("\ua4df\ua4f0\ua4e0\ua4d3\ua4ee\ua4e3\ua4f2", "looks like it names Mendari"),  # Lisu
         ("\ua4eeI Guard", "looks like 'AI Guard'"),
         ("\U0001f17c\U0001f174ndari", "looks like it names Mendari"),  # negative squared
@@ -360,7 +353,6 @@ def test_a_copy_or_mendaris_name_as_whole_words_is_an_error(text: str, expected:
         "l-for-i",
         "l-for-i-inside",
         "digit-for-letter",
-        "zero-for-o",
         "lisu",
         "lisu-mixed",
         "negative-squared",

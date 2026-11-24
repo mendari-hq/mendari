@@ -64,9 +64,10 @@ def search_paths() -> list[SearchPath]:
     ]
     # Off means off: `MENDARI_AGENTS_PATH` naming community-agents/ does not serve them either.
     paths = [entry for entry in paths if community or entry.origin != "community"]
-    from mendari.hub.client import caches  # packs pulled from a registry, verified
+    from mendari.hub.client import packs_cache  # packs pulled from a registry, verified
 
-    paths += [SearchPath(cache, "hub") for cache in caches() if cache.is_dir()]
+    if packs_cache().is_dir():
+        paths.append(SearchPath(packs_cache(), "hub"))
     bundled = bundled_dir()
     if bundled is not None:
         paths.append(SearchPath(bundled, "maintained"))
@@ -78,16 +79,15 @@ def search_paths() -> list[SearchPath]:
 def origin_of(path: str | Path) -> Origin:
     """The origin of a directory (a search directory, or a pack's) given without one: in the
     bundled packs, maintained; in the repository's community-agents/, community; in the
-    registry cache (either of its folders, `hub/client.py` `caches`), hub; anywhere else,
-    local."""
-    from mendari.hub.client import caches
+    registry cache (`hub/client.py` `packs_cache`), hub; anywhere else, local."""
+    from mendari.hub.client import packs_cache
 
     resolved = Path(path).resolve()
     if any(_inside(resolved, bundled) for bundled in _BUNDLED_DIRS):
         return "maintained"
     if _inside(resolved, _COMMUNITY_DIR):
         return "community"
-    if any(_inside(resolved, cache) for cache in caches()):
+    if _inside(resolved, packs_cache()):
         return "hub"
     return "local"
 
@@ -130,7 +130,7 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
     problems: dict[str, str] = {}
     seen: set[Path] = set()
     community_on: bool | None = None
-    for order, (base, base_origin) in zip(_search_order(bases), bases, strict=True):
+    for order, (base, base_origin) in enumerate(bases):
         for manifest in manifests_under(Path(base)):
             root = manifest.parent.resolve()
             depth = len(manifest.relative_to(base).parts)
@@ -178,25 +178,6 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
             except Exception as error:
                 problems[str(root)] = f"the agent could not be loaded ({type(error).__name__})"
     return Discovery(packs=_one_pack_per_id(found, problems), problems=problems)
-
-
-def _search_order(bases: Sequence[SearchPath]) -> list[int]:
-    """Each search directory's place in the order ids are claimed in (`_one_pack_per_id`): its
-    position, but for the registry cache, which is one place in whichever of its two folders a
-    version sits (`hub/client.py` `caches`). Versions of one agent pulled before and after the
-    cache's folder was renamed are then one claim to its id, as in one folder."""
-    from mendari.hub.client import caches
-
-    cached = {cache.resolve() for cache in caches()}
-    orders: list[int] = []
-    cache_order: int | None = None
-    for position, (base, origin) in enumerate(bases):
-        if origin == "hub" and Path(base).resolve() in cached:
-            cache_order = position if cache_order is None else cache_order
-            orders.append(cache_order)
-        else:
-            orders.append(position)
-    return orders
 
 
 def performer_system(pack: Pack) -> str | None:
