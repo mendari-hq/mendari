@@ -16,6 +16,18 @@
           "default": null,
           "title": "Agent Id"
         },
+        "calibration": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Calibration"
+        },
         "endpoint": {
           "anyOf": [
             {
@@ -52,6 +64,20 @@
           ],
           "default": null,
           "title": "Mock File"
+        },
+        "repeat": {
+          "anyOf": [
+            {
+              "maximum": 5,
+              "minimum": 2,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repeat"
         },
         "state_fields": {
           "anyOf": [
@@ -156,6 +182,29 @@
         "type"
       ],
       "title": "cascade provider config",
+      "type": "object"
+    },
+    "check": {
+      "additionalProperties": false,
+      "properties": {
+        "members": {
+          "additionalProperties": {
+            "$ref": "#/$defs/member"
+          },
+          "maxProperties": 2,
+          "minProperties": 2,
+          "title": "Members",
+          "type": "object"
+        },
+        "type": {
+          "const": "check"
+        }
+      },
+      "required": [
+        "members",
+        "type"
+      ],
+      "title": "check provider config",
       "type": "object"
     },
     "cql": {
@@ -353,6 +402,20 @@
           "default": null,
           "title": "Reasoning Effort"
         },
+        "repeat": {
+          "anyOf": [
+            {
+              "maximum": 5,
+              "minimum": 2,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repeat"
+        },
         "state_fields": {
           "anyOf": [
             {
@@ -531,6 +594,9 @@
     },
     {
       "$ref": "#/$defs/cascade"
+    },
+    {
+      "$ref": "#/$defs/check"
     },
     {
       "$ref": "#/$defs/cql"

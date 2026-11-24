@@ -212,6 +212,12 @@ def calibration(
         # rescaled on them, and none was automated.
         "agent_changed": changed,
     }
+    # One clause per variant, for the report's own row (`render.confidence_rows`); then what
+    # a calibration did on these cases, for the section under the report.
+    block["summary"] = [
+        {"variant": f"{entry['slot']}/{entry['variant']}", "words": _words(entry)}
+        for entry in variants
+    ]
     block["lines"] = _calibration_lines(block)
     return block
 
@@ -242,22 +248,30 @@ def _fitted_words(entry: Mapping[str, Any]) -> str:
     return f"calibrated on {counted} of {fitted['dataset']}{when}{whom}"
 
 
+def _words(entry: Mapping[str, Any]) -> str:
+    """A variant's state in one clause: what it was calibrated on, or that it is not."""
+    if entry["status"] == CALIBRATED:
+        return _fitted_words(entry)
+    why = entry.get("why_not")
+    return NOT_CALIBRATED + (f" ({why})" if why else "")
+
+
 def _calibration_lines(block: Mapping[str, Any]) -> list[str]:
+    """What each calibration did on these cases. A variant that is not calibrated has one
+    clause in the report's own row and nothing here: the report's calibration row is its
+    figure."""
     lines: list[str] = []
     for entry in block["variants"]:
-        name = f"{entry['slot']}/{entry['variant']}"
-        if entry["status"] == CALIBRATED:
-            lines.append(f"{name}: {_fitted_words(entry)}")
-            if entry.get("same_cases"):
-                lines.append(
-                    "  these are the cases it was fitted on, so the figures after it are "
-                    "optimistic: evaluate on a set of its own"
-                )
-            for key, why in entry["fitted"]["not_fitted"].items():
-                lines.append(f"  {key}: {NOT_CALIBRATED} ({why})")
-        else:
-            why = entry.get("why_not") or "the confidence is the model's own report"
-            lines.append(f"{name}: {NOT_CALIBRATED} ({why})")
+        if entry["status"] != CALIBRATED:
+            continue
+        lines.append(f"{entry['slot']}/{entry['variant']}: {_fitted_words(entry)}")
+        if entry.get("same_cases"):
+            lines.append(
+                "  these are the cases it was fitted on, so the figures after it are "
+                "optimistic: evaluate on a set of its own"
+            )
+        for key, why in entry["fitted"]["not_fitted"].items():
+            lines.append(f"  {key}: {NOT_CALIBRATED} ({why})")
         for key, found in (entry.get("questions") or {}).items():
             before, after = found.get("before"), found["after"]
             lines.append(
@@ -433,8 +447,10 @@ def _titled(title: str, lines: Sequence[str]) -> str:
 
 
 def text(run: Mapping[str, Any]) -> str:
-    """Both blocks of a report's `run` as the terminal prints them, or "" for a run that has
-    neither a model variant nor a second signal (and for a report from before them)."""
+    """Both blocks of a report's `run` as the terminal prints them under the report: what a
+    calibration did on these cases, and what a second signal did. "" for a run with neither
+    (and for a report from before them): whether a variant is calibrated at all is a row of
+    the report itself (`render.confidence_rows`)."""
     parts = []
     found = run.get("calibration")
     if isinstance(found, Mapping) and found.get("lines"):

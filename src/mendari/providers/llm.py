@@ -294,13 +294,13 @@ class LlmProvider(Provider):
             first = provider is lead
             answered_by = replace(provider.info, model=reported or provider.info.model)
             answers = {}
-            reported = {}  # each calibrated question's distribution as the model gave it
+            as_given = {}  # each calibrated question's distribution as the model gave it
             for key in provider.questions:
                 probabilities = distributions[key]
                 evidence: tuple[str, ...] = ()
                 temperature = provider.temperatures.get(key)
                 if temperature is not None:
-                    reported[key] = probabilities
+                    as_given[key] = probabilities
                     probabilities = rescale(probabilities, temperature)
                     evidence = (f"calibrated T={temperature:.2f}",)
                 answer = provider.make_answer(key, probabilities, evidence)
@@ -313,7 +313,7 @@ class LlmProvider(Provider):
                     output_tokens=usage["output_tokens"] if first else 0,
                     cost_usd=None if cost is None else (cost if first else 0.0),
                     extra=extra,
-                    signals=Signals(reported=reported),
+                    signals=Signals(reported=as_given),
                 )
             )
         return outputs

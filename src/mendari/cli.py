@@ -408,13 +408,12 @@ def cmd_eval(args: argparse.Namespace) -> int:
             print(checked.markdown())
     else:
         print(report_text(report))
-        if said := confidence.text(report["run"]):
-            # Whether the confidence the policy cuts on is calibrated, and a second signal's
-            # effect on these cases.
-            print()
-            print(said)
         print()
         print(operating_point.text(report["run"]["operating_point"], *_no_target(targets)))
+        if said := confidence.text(report["run"]):
+            # What a calibration did on these cases, and what a second signal did.
+            print()
+            print(said)
         if comparison:
             print()
             print(comparison_text(comparison))
