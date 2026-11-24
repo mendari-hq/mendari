@@ -206,11 +206,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         min_critical_detection=args.min_critical_detection,
         max_critical_automated=args.max_critical_automated,
     )
-    # The result the run must be no worse than, read before the run: a file that is not one
-    # stops here, and `--out` may then write the new result over it.
-    held = None
-    if args.no_worse_than:
-        held = _read_json(args.no_worse_than, "--no-worse-than", shape=dict)
+    held = _held_to(args)
     sharing = bool(args.share or args.share_out)
     issued: dict[str, Any] | None = None
     publisher_key = _publishing(args, sharing)
@@ -236,10 +232,6 @@ def cmd_eval(args: argparse.Namespace) -> int:
         dataset = resolve_dataset(pack, args.dataset)
         if args.limit:
             dataset = dataset.head(args.limit)
-    if held is not None:
-        problem = gate.baseline_problem(held, pack.id, pack.manifest.policy.primary)
-        if problem is not None:
-            raise MendariError(f"--no-worse-than {_path_shown(args.no_worse_than)}: {problem}")
     workers = args.workers or (8 if decision.is_remote else 1)
     run = evaluation(decision, dataset, workers=workers, targets=targets)
     report = run.report
@@ -349,6 +341,22 @@ def cmd_eval(args: argparse.Namespace) -> int:
     degraded = comparison is not None and comparison["status"] == "degraded"
     failed = checked is not None and not checked.passed
     return EXIT_DEGRADED if failed or (degraded and args.fail_on_degradation) else 0
+
+
+def _held_to(args: argparse.Namespace) -> dict[str, Any] | None:
+    """`--no-worse-than`: the earlier result the run is held to, or None without the option. It
+    is read and checked before the run, and before a shared run asks for its ticket: a file that
+    is no result of this agent stops here, and `--out` may then write the new result over it."""
+    if not args.no_worse_than:
+        return None
+    from mendari.evals.gate import baseline_problem
+
+    held: dict[str, Any] = _read_json(args.no_worse_than, "--no-worse-than", shape=dict)
+    pack = resolve_pack(args.pack)
+    problem = baseline_problem(held, pack.id, pack.manifest.policy.primary)
+    if problem is not None:
+        raise MendariError(f"--no-worse-than {_path_shown(args.no_worse_than)}: {problem}")
+    return held
 
 
 def _targets(args: argparse.Namespace) -> Any:

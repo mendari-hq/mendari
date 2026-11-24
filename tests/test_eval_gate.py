@@ -139,6 +139,11 @@ def test_limits_on_critical_cases_say_so_when_the_agent_declares_none() -> None:
     checked = check(result(critical=None), Limits(min_critical_detection=0.9))
     assert checked.passed and checked.limits == [] and checked.notes == [NO_CRITICAL_LABEL]
     assert NO_CRITICAL_LABEL in checked.markdown() and NO_CRITICAL_LABEL in checked.text()
+    # It passed, and says that it checked nothing: never that a limit was met.
+    assert "No stated limit applies and no baseline was given: nothing was checked." in (
+        checked.markdown()
+    )
+    assert "limit is met" not in checked.markdown()
     assert check(result(critical=None), Limits(min_accuracy=0.5)).notes == []
 
 
@@ -413,3 +418,21 @@ def test_eval_refuses_what_cannot_be_a_limit_or_a_baseline(
         assert main([*command, *extra]) == 1, extra
         (line,) = capsys.readouterr().err.splitlines()
         assert said in line, line
+
+
+def test_a_baseline_is_refused_before_a_shared_run_asks_for_its_ticket(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ticket with no report stays counted against a site for good: a run that cannot go on
+    takes none."""
+    agent = scaffold(tmp_path)
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps({**result(), "pack": {"id": "other/agent"}}))
+    asked = []
+    monkeypatch.setattr("mendari.cli._ticket_for", lambda *args: asked.append(args))
+    monkeypatch.setattr("mendari.cli._site_configuration", lambda *args, **kw: asked.append(args))
+    capsys.readouterr()
+    command = ["eval", str(agent), "--dataset", "examples", "--share"]
+    assert main([*command, "--no-worse-than", str(other)]) == 1
+    (line,) = capsys.readouterr().err.splitlines()
+    assert "a result of another agent" in line and asked == []

@@ -404,12 +404,14 @@ class Checked:
         return "\n".join(lines) + "\n"
 
 
-# What a passed gate says, by what it held the result to: (limits stated, a baseline given).
+# What a passed gate says, by what it held the result to: (a limit applied, a baseline given).
+# A limit that was stated applies to nothing when it is on critical cases and the agent declares
+# no critical label (`NO_CRITICAL_LABEL`, among the notes).
 _PASSED = {
     (True, True): "Every stated limit is met, and nothing is worse than the baseline.",
     (True, False): "Every stated limit is met.",
     (False, True): "Nothing is worse than the baseline.",
-    (False, False): "No limit was stated and no baseline given: nothing was checked.",
+    (False, False): "No stated limit applies and no baseline was given: nothing was checked.",
 }
 
 
