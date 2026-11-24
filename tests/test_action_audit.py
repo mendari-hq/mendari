@@ -7,8 +7,8 @@ the manifest does not declare: both are the agent's text and are kept apart, as 
 input is. Recognizable text is seeded in both and searched for in every table, under each PHI
 mode. A review releases or denies the held actions; a caller may ask again; and a database made
 before this change (`tests/fixtures/audit/before-actions.sqlite.gz`, written by the code of
-commit 948c7194 with `make_before_actions.py` beside it) verifies, unchanged, and takes the new
-events. SQLite and Postgres."""
+commit e40fcecc, wave 3's last, with `make_before_actions.py` beside it) verifies, unchanged,
+and takes the new events. SQLite and Postgres."""
 
 from __future__ import annotations
 
@@ -633,8 +633,8 @@ def test_an_agent_older_than_0_4_authorizes_nothing(store: AuditStore) -> None:
 
 @pytest.fixture
 def before(tmp_path: Path) -> Path:
-    """The fixture database, as the code of 948c7194 left it: five decisions of the inbox
-    agent, a review, a rating and a follow-up, each with a note."""
+    """The fixture database, as the code of e40fcecc (wave 3's last commit) left it: five
+    decisions of the inbox agent, a review, a rating and a follow-up, each with a note."""
     path = tmp_path / "before.sqlite"
     path.write_bytes(gzip.decompress(BEFORE.read_bytes()))
     return path
@@ -667,7 +667,7 @@ def test_a_database_made_before_actions_verifies_and_is_not_changed_by_opening_i
         found = store.verify(notes=True)
         assert found["ok"] and found["events"] == 10
         assert found["notes"] == {"checked": 3, "erased": 0, "unchecked": 0}
-        assert found["head"] == "c9bf1c883df1c574fa3725e1916d2b77335a7c6b6ad3eccd34bdd50674ab946c"
+        assert found["head"] == "e5a6b48b06d9aa25820a231b2fe73929208bc99cadf066b2a124f7c8af8bec16"
         for item in store.query(limit=50):  # read as before: no action on any of them
             got = store.get(item["id"])
             assert got is not None and "actions" not in got

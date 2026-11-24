@@ -416,6 +416,8 @@ def disposition(
             return "blocked", "not_automated"
         return "released", "automated"
     return "blocked", "no_reviewer"
+
+
 PERSON_DECIDES = "; a person decides"
 
 

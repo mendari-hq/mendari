@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Make `before-actions.sqlite.gz`: an audit database written by the code as it was before
-actions (commit 948c7194), which `tests/test_action_audit.py` opens with the code as it is.
+actions (commit e40fcecc, the last of wave 3: before the calibration of an agent's confidence
+and the second signal too), which `tests/test_action_audit.py` opens with the code as it is.
 
 Run it with that commit's sources first on the path (an export of the commit into a folder of
 its own, `<copy>`), then compress what it writes:
