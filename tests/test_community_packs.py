@@ -686,11 +686,11 @@ def test_cds_discovery_and_cards_say_a_community_pack_is_not_clinically_reviewed
 
 def test_the_docs_landing_labels_community_packs_in_open_mode(labelled: TestClient) -> None:
     text = labelled.get("/docs").text
-    link = f'<a href="/?pack={SORTER_ID}#card">'
+    link = f'<a href="/?agent={SORTER_ID}#card">'
     assert link in text
     item = text[text.index(link) : text.index("</li>", text.index(link))]
     assert COMMUNITY_LABEL in item
-    inbox = f'<a href="/?pack={INBOX_ID}#card">'
+    inbox = f'<a href="/?agent={INBOX_ID}#card">'
     assert COMMUNITY_LABEL not in text[text.index(inbox) : text.index("</li>", text.index(inbox))]
 
 

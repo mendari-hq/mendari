@@ -4,11 +4,12 @@ README, every page and file of the docs site, its navigation and theme, the comm
 changelog and the READMEs beside the code say agent, never pack.
 
 **The rule** is `tests/test_vocabulary.py`'s `offences` (no whole word "pack" or "packs", no
-"Decision Pack" however it is joined; a wire name written as code, and a name kept until a later
-step moves it, are let through there, each with its reason), held on every line of every file in
-`files()` and on each file's own path. Beside it, `FORMER_NAMES`: the names the plan's table
-renamed that the rule cannot see (a setting's name is one word to it) or lets through (a file's
-name written as code reads like a chain event's).
+"Decision Pack" however it is joined; a wire name written as code, and a canonical URL that
+stored FHIR resources carry, are let through there, each with its reason), held on every line of
+every file in `files()` and on each file's own path. Beside it, `FORMER_NAMES`: the names the
+plan's table renamed that the rule cannot see (a setting's name is one word to it) or lets
+through (a file's name written as code reads like a chain event's). A folder's former name
+(`community-packs/`) needs no entry there: the rule sees the word in it.
 
 **What is left alone** is said here and nowhere else, each entry with its reason: `NOT_READ` (a
 file, whole), `PARTS` (a file from one line to another) and `ALLOWED` (a text, in the files a
@@ -65,8 +66,6 @@ FORMER_NAMES = (
     "MENDARI_PACKS",
     "MENDARI_PACK_STORE",
     "MENDARI_COMMUNITY_PACKS",
-    "community-packs",
-    "reference-packs",
 )
 _FORMER = re.compile("|".join(rf"(?<![\w.-]){re.escape(name)}(?![\w-])" for name in FORMER_NAMES))
 
@@ -215,7 +214,8 @@ def test_what_is_held_and_what_is_left_alone() -> None:
     assert problems("a pack and `pack_id`") == ["pack"]
     assert problems("`MENDARI_PACKS_PATH`, then `MENDARI_AGENTS_PATH`") == ["MENDARI_PACKS_PATH"]
     assert problems("MENDARI_PACKS=a/b") == ["MENDARI_PACKS"]
-    assert problems("in `community-packs/<name>/`") == ["community-packs"]
+    assert problems("in `community-packs/<name>/`") == ["packs"]  # a folder's name: the rule's
+    assert problems("`tests/fixtures/reference-packs`") == ["packs"]
     assert problems("the manifest, `pack.yaml`") == ["pack.yaml"]
     assert not problems("`agent.yaml`, `community-agents/`, `/api/agents`, unpack a package")
     assert len(found_in("docs/x.md", "An agent.\nA pack.\nSee `--pack`.")) == 2
