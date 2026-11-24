@@ -16,6 +16,8 @@ import pytest
 
 from mendari import Decision, load_pack
 from mendari.cli import main
+from mendari.core import packet
+from mendari.core.card import render_card
 from mendari.core.pack import Pack
 from mendari.core.spec import Effect
 from mendari.evals import resolve_dataset, written
@@ -228,3 +230,45 @@ def test_the_command_reports_the_demo_agent_with_its_own_grades(
     # A slot that runs its rules variant writes nothing: refused, in one line.
     assert main([*args, "--provider", "reader=rules"]) == 1
     assert "only an agent writes" in capsys.readouterr().err
+
+
+def test_the_decision_card_and_the_committee_packet_say_what_it_writes(demo: Pack) -> None:
+    """Text only, from the manifest: each output, each criterion with its instructions and its
+    levels' anchors, and the floors. No figure of a judge is on either."""
+    card = render_card(demo)
+    section = card.split("## Written outputs")[1].split("## Decision policy")[0]
+    assert "### `acknowledgement`" in section and "Rubric `acknowledgement_quality`" in section
+    assert "It is written by the agent behind slot `reader`, at most 600 characters." in section
+    rubric = demo.manifest.rubrics[RUBRIC]
+    for key, criterion in rubric.criteria.items():
+        (row,) = [line for line in section.splitlines() if line.startswith(f"| `{key}` |")]
+        assert " ".join(criterion.instructions.split()) in row
+        for level, _ in criterion.scale():
+            assert f"`{level}`: " in row
+        assert row.rstrip().endswith("| yes |" if criterion.must_pass else "| no |")
+    assert "is at least 0.6 and" in section and "is at least 0.8, on at least 50 outputs" in section
+    assert "kappa 0." not in card and "validated" not in section  # no figure, no verdict
+    # An agent that writes nothing has no such section: its card is what it always was.
+    inbox = render_card(load_pack(ROOT / "tests/fixtures/reference-agents/patient-inbox-router"))
+    assert "## Written outputs" not in inbox
+    alone = packet.build_alone(demo)
+    assert packet.problems(alone) == []
+    (oversight,) = [s["content"] for s in alone["sections"] if s["key"] == "oversight"]
+    (output,) = oversight["written"]
+    assert (output["name"], output["source"], output["max_chars"]) == (
+        "acknowledgement",
+        "slot:reader",
+        600,
+    )
+    (found,) = output["rubrics"]
+    assert found["name"] == RUBRIC and found["judge_model"] is None
+    assert [c["key"] for c in found["criteria"]] == list(rubric.criteria)
+    assert found["floors"] == {
+        "agreement": 0.6,
+        "must_pass_recall": 0.8,
+        "min_paired": 50,
+        "min_each_side": 10,
+    }
+    page = packet.render_html(alone)
+    assert "<h3>What the agent writes</h3>" in page and "acknowledgement_quality" in page
+    assert "This packet shows no figure of a judge" in page

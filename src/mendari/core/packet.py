@@ -512,6 +512,49 @@ def _actions(pack: Pack) -> list[dict[str, Any]]:
     return declared
 
 
+def _written(pack: Pack) -> list[dict[str, Any]]:
+    """What the agent writes besides its answers (spec 0.4), from the manifest: each output,
+    where its text comes from, and each rubric it is graded against, with its criteria, whether
+    a model judge is named, and the floors a judge is held to. Empty: it declares none."""
+    from mendari.evals import written
+
+    manifest = pack.manifest
+    found = []
+    for name, output in manifest.outputs.items():
+        rubrics = [
+            {
+                "name": key,
+                "context_fields": list(rubric.context_fields),
+                "criteria": [
+                    {
+                        "key": criterion_key,
+                        "instructions": criterion.instructions,
+                        "levels": [level for level, _ in criterion.scale()],
+                        "pass_from": criterion.passing(),
+                        "must_pass": criterion.must_pass,
+                    }
+                    for criterion_key, criterion in rubric.criteria.items()
+                ],
+                # None: no judge model is named in the agent's files (the deployment's default
+                # model, or the rubric's canned grades, which show nothing).
+                "judge_model": rubric.judge.model,
+                "floors": written.floors_of(manifest, key),
+            }
+            for key, rubric in manifest.rubrics.items()
+            if rubric.output == name
+        ]
+        found.append(
+            {
+                "name": name,
+                "description": output.description,
+                "source": output.source,
+                "max_chars": output.max_chars,
+                "rubrics": rubrics,
+            }
+        )
+    return found
+
+
 def _confidence(pack: Pack) -> list[dict[str, Any]]:
     """Whether each `agent` variant's confidence (a composite's member too) is calibrated, from
     the manifest and the calibration file the digest covers: on how many cases of which set,
@@ -619,6 +662,8 @@ def _oversight(
         "actions": _actions(pack),
         "confidence": _confidence(pack),
         "second_signal": _second_signal(pack),
+        # What it writes and how that is graded (spec 0.4): empty where it declares none.
+        "written": _written(pack),
         "review_queue": (
             None
             if stats is None
@@ -1542,6 +1587,7 @@ _REQUIRED = {
         "actions",
         "confidence",
         "second_signal",
+        "written",
         "review_queue",
         "holds",
     ],
@@ -1993,6 +2039,7 @@ def _html_oversight(c: Mapping[str, Any]) -> str:
         else _none("The agent's policy has no such rule.")
     )
     out += _html_actions(c["actions"]) + _html_confidence(c["confidence"], c["second_signal"])
+    out += _html_written(c["written"])
     queue = c["review_queue"]
     out += "<h3>The review queue</h3>"
     out += (
@@ -2033,6 +2080,66 @@ def _html_oversight(c: Mapping[str, Any]) -> str:
             ]
             for hold in c["holds"]
         ],
+    )
+
+
+def _html_written(outputs: Sequence[Mapping[str, Any]]) -> str:
+    out = "<h3>What the agent writes</h3>"
+    if not outputs:
+        return out + _none(
+            "Not stated: the agent declares no written output. It answers its questions, and "
+            "nothing it writes is graded."
+        )
+    out += (
+        "<p>Besides answering, the agent writes these texts. A text is returned with the "
+        "decision and is not kept with it. Each is graded against a rubric in the agent's "
+        "files: clinicians grade a sample blind, a model judge grades every text in the same "
+        "words, and the judge's grades are reported for the texts no clinician graded only "
+        "where its agreement with clinicians clears the floors stated here. Otherwise they are "
+        "withheld. This packet shows no figure of a judge: a grading round's report does.</p>"
+    )
+    rows = []
+    for output in outputs:
+        source = str(output["source"])
+        kind, _, where = source.partition(":")
+        came = ("written by the agent behind " if kind == "slot" else "read from the input's ") + (
+            _code(where)
+        )
+        if not output["rubrics"]:
+            rows.append(
+                [_code(output["name"]), _e(output["description"]), came, "none", "not graded", ""]
+            )
+        for rubric in output["rubrics"]:
+            floors = rubric["floors"]
+            criteria = ", ".join(
+                _code(c["key"]) + (" " + _label("must not fail") if c["must_pass"] else "")
+                for c in rubric["criteria"]
+            )
+            rows.append(
+                [
+                    _code(output["name"]),
+                    _e(output["description"]),
+                    came,
+                    _code(rubric["name"]),
+                    criteria,
+                    _e(
+                        f"kappa with clinicians at least {floors['agreement']} by its lower "
+                        f"bound; failures found at least {floors['must_pass_recall']} on a "
+                        f"criterion that must not fail; {floors['min_paired']} outputs graded "
+                        f"by both, {floors['min_each_side']} on each side of the pass line"
+                    ),
+                ]
+            )
+    return out + _table(
+        [
+            "Output",
+            "What it is, in the publisher's words",
+            "Where its text comes from",
+            "Rubric",
+            "Criteria",
+            "A judge is believed when",
+        ],
+        rows,
     )
 
 

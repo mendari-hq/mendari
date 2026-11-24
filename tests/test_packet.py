@@ -1090,6 +1090,8 @@ def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Pa
     assert "Not stated: the agent declares no action." in said
     assert "Not stated: no part of this agent is an agent's own service" in said
     assert "Not stated: no part of this agent is asked a case more than once" in said
+    assert oversight["written"] == []
+    assert "Not stated: the agent declares no written output." in said
 
 
 def test_a_calibration_and_a_second_signal_are_read_from_the_manifest(tmp_path: Path) -> None:
