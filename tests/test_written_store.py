@@ -802,6 +802,22 @@ def test_the_operators_commands_make_assign_show_and_close_a_round(
     assert code != 0 and "--seed" in err
     code, _, err = run_cli(capsys, *assign, "--seed", "7")
     assert code != 0 and "--seed" in err
+
+    # A closing that stops half way leaves the round `closing`, and both commands say so, with
+    # what finishes it.
+    def interrupted(*args: Any, **kwargs: Any) -> Any:
+        raise MendariError("interrupted")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(written, "report", interrupted)
+        code, _, err = run_cli(capsys, *close)
+        assert code == 1 and "interrupted" in err
+    code, out, err = run_cli(capsys, "written", "round", "progress", round_id, "--db", db)
+    assert json.loads(out)["state"] == "closing" and f"note: {CLOSING_NOTE}" in err
+    code, out, err = run_cli(capsys, "written", "round", "list", "--org", CLINIC, "--db", db)
+    (listed,) = json.loads(out)
+    assert listed["state"] == "closing" and listed["note"] == CLOSING_NOTE
+    assert f"note: round {round_id}: {CLOSING_NOTE}" in err
     code, out, err = run_cli(capsys, *close)
     assert code == 0 and "Written output: rubric reply_quality" in out
     assert "bootstrap seed 0, 2000 resamples" in out
