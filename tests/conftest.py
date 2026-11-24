@@ -335,7 +335,7 @@ def share_signed(
     )
     pack = report["pack"]
     return registry.client.post(
-        f"/v1/packs/{pack['id']}/{pack['version']}/reports",
+        f"/v1/agents/{pack['id']}/{pack['version']}/reports",
         json=record,
         headers={"authorization": f"Bearer {issued['submit_secret']}"},
     )
@@ -468,7 +468,7 @@ class Registry:
         data = archive.build(pack, key or self.key)
         namespace, name = pack.id.split("/")
         return self.client.put(
-            f"/v1/packs/{namespace}/{name}/{version or pack.version}",
+            f"/v1/agents/{namespace}/{name}/{version or pack.version}",
             content=data,
             headers={"authorization": f"Bearer {token or self.token}"},
         )
