@@ -490,6 +490,11 @@ def load_pack(
     from mendari.providers import config_problems  # `providers/base.py` imports this module
 
     problems = config_problems(pack, trained=not missing_models_ok)
+    if manifest.rubrics:
+        # Each rubric's canned judge, as `mendari validate` checks it (spec 0.4 section 18.2).
+        from mendari.providers.judge import rubric_problems  # imports this module
+
+        problems += rubric_problems(pack)
     if bounded:
         if problems:
             raise PackValidationError(manifest.id, problems)

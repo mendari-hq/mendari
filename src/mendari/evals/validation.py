@@ -78,6 +78,11 @@ def _collect(pack: Pack, *, raising: bool) -> list[Problem]:
         _manifest_problem(pack, "manifest", text)
         for text in manifest_template_problems(pack.manifest)
     ] + [_manifest_problem(pack, "provider", text) for text in config_problems(pack)]
+    if pack.manifest.rubrics:
+        from mendari.providers.judge import rubric_problems
+
+        # Each rubric's canned judge: its fixture's shape, criteria and levels.
+        found += [_manifest_problem(pack, "provider", text) for text in rubric_problems(pack)]
     if found:
         return found
     for slot, spec in pack.manifest.providers.items():
