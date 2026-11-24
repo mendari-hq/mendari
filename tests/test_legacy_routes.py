@@ -183,6 +183,11 @@ def _routes(app: Any) -> dict[RouteKey, Route]:
     }
 
 
+# Routes added under a renamed prefix after the rename: each is served at its one path, and
+# nothing answers where a former spelling of it would be.
+ADDED_SINCE: set[RouteKey] = {("GET", "/api/agents/{namespace}/{name}/governance-packet")}
+
+
 def _held_to_one_handler(app: Any, renamed: dict[RouteKey, RouteKey]) -> None:
     found = _routes(app)
     for old, now in renamed.items():
@@ -202,9 +207,12 @@ def _held_to_one_handler(app: Any, renamed: dict[RouteKey, RouteKey]) -> None:
             assert getattr(before, what) == getattr(after, what), (old, what)
         # The same path parameters, in the same places.
         assert re.findall(r"\{[^}]+\}", before.path) == re.findall(r"\{[^}]+\}", after.path)
-    # Nothing else answers at a former path, and nothing renamed is left without its twin.
+    # Nothing else answers at a former path, and nothing renamed is left without its twin. A
+    # route added since the rename (`ADDED_SINCE`) never had another path, and has no twin.
     assert {route for route in found if paths.is_former(route[1])} == set(renamed)
-    assert {route for route in found if paths.former(route[1]) is not None} == set(renamed.values())
+    current = {route for route in found if paths.former(route[1]) is not None}
+    assert current - ADDED_SINCE == set(renamed.values())
+    assert not {paths.former(path) for _, path in ADDED_SINCE & current} & {p for _, p in found}
     # The former paths are tried in the order the current ones are (`…/tickets` before
     # `…/{version}`), so the same request matches the same route under either.
     tried = [route for route in found if route in renamed or route in renamed.values()]

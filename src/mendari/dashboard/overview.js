@@ -346,6 +346,7 @@ function governanceLens(brief) {
     ${gates}
     <div class="row mt-3">
       <button type="button" id="brief-download">${icon("download")} Download Validation Brief (.md)</button>
+      <button type="button" id="packet-download" title="Everything a governance committee reads about this agent, as one page to print: what is known, and what nobody has stated">${icon("download")} Committee packet</button>
       <button type="button" id="brief-copy">${icon("copy")} Copy executive summary</button>
       <span class="grow"></span>
       <a class="action-link" href="#card/approval">Governance &amp; holds ${icon("arrow-right")}</a>
@@ -436,6 +437,9 @@ function wireCommandCenter(main, brief, detail) {
       whileBusy(event.currentTarget, "Building…", () =>
         download(`${packPath()}/validation-brief?days=30&minutes_per_case=${m}&format=markdown`, `${fileSlug(state.packId)}-validation-brief.md`));
     });
+    section.querySelector("#packet-download")?.addEventListener("click", (event) =>
+      whileBusy(event.currentTarget, "Building…", () =>
+        download(`${packPath()}/governance-packet?format=html`, `${fileSlug(state.packId)}-committee-packet.html`)));
     section.querySelector("#brief-copy")?.addEventListener("click", () => {
       const mins = Number(storageGet("oh.roi.mins", "3.5")) || 3.5;
       const hours = ((brief.roi.weekly_auto_cases_projected * mins) / 60).toFixed(1);

@@ -3078,6 +3078,69 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     return 1 if found_alerts else 0
 
 
+def cmd_packet(args: argparse.Namespace) -> int:
+    """The committee packet of one agent (`core/packet.py`), from the server's database: one
+    page to print, or the JSON it is made from (--json), written to --out or printed. For one
+    organization with --org, otherwise every organization of the deployment together.
+
+    Nothing is recorded: the database is opened read-only, and the command works with the
+    server down. What only a running server knows (sign-in, sessions, the schedule, the model
+    each part runs) is shown as not known; the rest is read from this environment's settings,
+    which should be the server's, and the page says it was made from the command line."""
+    from mendari.alerts import alert_settings
+    from mendari.core import packet, tenancy
+    from mendari.core.checkpoint import checkpoint_key, key_id
+    from mendari.core.phi import phi_policy
+    from mendari.evals.monitoring import recorded_providers
+    from mendari.providers import provider_allow_list
+    from mendari.providers.agent import ENDPOINT_ENV
+    from mendari.settings import retention_days
+
+    pack = resolve_pack(args.pack)
+    phi = phi_policy()  # before any work, so a bad setting fails at once
+    alerts = alert_settings()
+    signer = checkpoint_key()
+    kept_days = retention_days()
+    with _read_store(args.db) as store:
+        store.require_current("packet")
+        with tenancy.acting_for(args.org):
+            deployment = packet.Deployment(
+                phi_mode=phi.mode,
+                input_hash=phi.hash_kind,
+                retention_days=kept_days,
+                checkpoint_key=None if signer is None else key_id(signer.public_key()),
+                alert_destination=alerts is not None,
+                alerts_signed=alerts is not None and bool(alerts.secret),
+                provider_allowed_origins=provider_allow_list(),
+                agent_endpoint=bool(os.environ.get(ENDPOINT_ENV, "").strip()),
+                providers=recorded_providers(store, pack),
+                seen_from="command line",
+            )
+            built = packet.build(
+                store,
+                pack,
+                deployment=deployment,
+                days=args.days,
+                organization=args.org,
+                holds=store.holds(args.org),
+                records=store.deployments(pack.id, limit=20),
+            )
+    text = json.dumps(built, indent=2) + "\n" if args.json else packet.render_html(built)
+    if not args.out:
+        sys.stdout.write(text)
+        return 0
+    target = Path(args.out)
+    if target.is_symlink():  # the write would land wherever the link points
+        raise MendariError(f"{target} is a symbolic link; not writing through it")
+    target.write_text(text, encoding="utf-8")
+    print(
+        f"wrote {target}: {pack.id} {pack.version}, {len(built['sections'])} sections, "
+        f"{len(built['not_stated'])} items not stated",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def cmd_alerts_test(args: argparse.Namespace) -> int:
     """For the operator, after setting the webhook: one test alert (`alerts.test`) to
     $MENDARI_ALERT_WEBHOOK through `mendari.alerts`, in its format and signed with its secret,
@@ -4007,7 +4070,7 @@ GROUPS = (
         (),
         (
             *("monitor", "alerts", "usage", "audit", "automation", "access"),
-            *("phi", "notes", "store", "registry"),
+            *("phi", "notes", "store", "registry", "packet"),
         ),
     ),
     Group("Standards", (), ("smart", "bulk", "omop", "pas", "sandbox")),
@@ -5458,6 +5521,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     monitor_cmd.add_argument("--webhook", help="post alerts here (default: $MENDARI_ALERT_WEBHOOK)")
     monitor_cmd.set_defaults(handler=cmd_monitor)
+
+    packet_cmd = pack_command(
+        "packet",
+        cmd_packet,
+        "the committee packet: what a governance committee reads about one agent, as one page "
+        "to print (what is known, what nobody has stated, and a crosswalk to four frameworks)",
+    )
+    packet_cmd.add_argument(
+        "--db", default="var/mendari.db", help="SQLite path or postgresql:// URL"
+    )
+    packet_cmd.add_argument("--org", help="one organization (default: every organization together)")
+    packet_cmd.add_argument(
+        "--days", type=_monitored_days, default=90, help="14 to 180 (default 90)"
+    )
+    packet_cmd.add_argument("--out", metavar="FILE", help="write it here (default: print it)")
+    packet_cmd.add_argument("--json", action="store_true", help="the packet as JSON, not as a page")
 
     alerts_cmd = sub.add_parser(
         "alerts", help="the alert webhook ($MENDARI_ALERT_WEBHOOK)"
