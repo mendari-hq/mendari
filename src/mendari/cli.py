@@ -193,7 +193,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
 
 def cmd_eval(args: argparse.Namespace) -> int:
     from mendari.core.card import benchmark
-    from mendari.evals import compare, resolve_dataset
+    from mendari.evals import compare, operating_point, resolve_dataset
     from mendari.evals.compare import FROM_REGISTRY, not_compared
     from mendari.evals.harness import evaluation
     from mendari.evals.render import comparison_text, report_text
@@ -201,6 +201,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
     sharing = bool(args.share or args.share_out)
     issued: dict[str, Any] | None = None
     publisher_key = _publishing(args, sharing)
+    targets = _targets(args)
     if sharing:
         # A site's run (LP-22f): the ticket first, bound to the whole dataset file and the
         # configuration (the deterministic arm unless --provider names one), then the run.
@@ -223,7 +224,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         if args.limit:
             dataset = dataset.head(args.limit)
     workers = args.workers or (8 if decision.is_remote else 1)
-    run = evaluation(decision, dataset, workers=workers)
+    run = evaluation(decision, dataset, workers=workers, targets=targets)
     report = run.report
 
     comparison = None
@@ -300,6 +301,8 @@ def cmd_eval(args: argparse.Namespace) -> int:
         _print_json(report)
     else:
         print(report_text(report))
+        print()
+        print(operating_point.text(report["run"]["operating_point"], *_no_target(targets)))
         if comparison:
             print()
             print(comparison_text(comparison))
@@ -307,6 +310,39 @@ def cmd_eval(args: argparse.Namespace) -> int:
             print(f"\nReport written to {args.out}")
     degraded = comparison is not None and comparison["status"] == "degraded"
     return EXIT_DEGRADED if degraded and args.fail_on_degradation else 0
+
+
+def _targets(args: argparse.Namespace) -> Any:
+    """What a recommended automation threshold must keep to (`--max-critical-miss`,
+    `--max-false-automation`, stated with `--confidence-level`): each a share, refused in one
+    line that names its option when it is not one. Read before the run."""
+    from mendari.evals.operating_point import Targets, share
+
+    given: dict[str, Any] = {"critical_miss_of": args.critical_miss_of}
+    for name, option in (
+        ("critical_miss", "--max-critical-miss"),
+        ("false_automation", "--max-false-automation"),
+        ("confidence", "--confidence-level"),
+    ):
+        typed = getattr(args, option.removeprefix("--").replace("-", "_"))
+        if typed is None:
+            continue
+        try:
+            given[name] = share(typed)
+            Targets(**given)  # each is checked as it is read, so the line names its option
+        except ValueError as error:
+            raise MendariError(f"{option}: {error}") from None
+    return Targets(**given)
+
+
+def _no_target(targets: Any) -> list[str]:
+    """What the operating point adds when the run was given no target: how to give one."""
+    if targets.given:
+        return []
+    return [
+        "No target was given. Add --max-critical-miss or --max-false-automation (for example "
+        "--max-critical-miss 1%) for the lowest automation threshold these cases support."
+    ]
 
 
 def _publishing(args: argparse.Namespace, sharing: bool) -> Any:
@@ -3949,6 +3985,31 @@ def build_parser() -> argparse.ArgumentParser:
         "--fail-on-degradation",
         action="store_true",
         help=f"exit {EXIT_DEGRADED} when local validation detects degradation",
+    )
+    evaluate.add_argument(
+        "--max-critical-miss",
+        metavar="SHARE",
+        help="recommend the lowest automation threshold at which the critical cases that are "
+        "automated, so no person sees them, are at most this share (1%% or 0.01) of each "
+        "critical label's cases",
+    )
+    evaluate.add_argument(
+        "--critical-miss-of",
+        choices=("critical", "all"),
+        default="critical",
+        help="what --max-critical-miss is a share of: each critical label's cases (the default) "
+        "or all cases",
+    )
+    evaluate.add_argument(
+        "--max-false-automation",
+        metavar="SHARE",
+        help="recommend the lowest automation threshold at which the cases automated with a "
+        "wrong answer are at most this share (2%% or 0.02) of the labelled cases",
+    )
+    evaluate.add_argument(
+        "--confidence-level",
+        metavar="LEVEL",
+        help="the confidence the recommendation and each bound are stated with (default 95%%)",
     )
     evaluate.add_argument(
         "--share",

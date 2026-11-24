@@ -2,7 +2,9 @@
 """An evaluation report's result (`mendari.eval/2`, LP-10), computed only from its ledger and
 seeds, so two runs on the same cases give byte-identical results and anyone holding the ledger can
 recompute them. What changes from run to run (its id, when it ran, how long decisions took) is in
-the report's separate `run` block, outside the result.
+the report's separate `run` block, outside the result; so is the run's operating point
+(mendari.evals.operating_point), which depends on the run's options and on what each decision
+kept in memory, never on the ledger alone.
 
 Over `mendari.eval/1`, the result keeps every figure and adds: each proportion as k of n with its
 exact Clopper-Pearson interval (`proportions`, and `proportion` beside each question's accuracy and

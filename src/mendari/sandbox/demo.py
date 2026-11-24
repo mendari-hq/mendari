@@ -5,14 +5,19 @@ It routes a few patient portal messages through the agent under its policy, fill
 and has simulated reviewers work it, verifies the audit chain, then evaluates the agent on its
 600-case set the way a site would before going live. The demo agent answers from canned
 responses (its `mock_file`) and misses urgent messages that are worded as a patient might say
-them: the evaluation is there to catch exactly that, and the demo says what it found.
+them: the evaluation is there to catch exactly that, and the demo says what it found. Its
+verdict is the evaluation's operating point (`evals/operating_point.py`): whether these cases
+support any automation threshold that keeps the urgent messages no person reads to `TARGETS`.
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
-from mendari.evals import evaluate, resolve_dataset
+from mendari.evals import evaluate, operating_point, resolve_dataset
+from mendari.evals.operating_point import NONE_CERTIFIED, RECOMMENDED, SUPPORTED, Targets
 from mendari.evals.render import shown
 from mendari.evals.result import counted
 
@@ -26,6 +31,9 @@ SAMPLES = (
     "No chest pain or anything like that, only a question about my bill.",
 )
 REVIEWED = 200  # the first cases of the test set, decided and then reviewed
+# What the demo holds the agent to: of the urgent messages, at most 1% automated, so read by no
+# person, shown with 95% confidence.
+TARGETS = Targets(critical_miss=0.01)
 
 
 def _section(title: str) -> None:
@@ -75,7 +83,7 @@ def _run(store: AuditStore) -> None:
     print(f"audit chain: {'verified' if chain['ok'] else 'BROKEN'} ({chain['events']} events)")
 
     _section("3. Before going live: evaluate the agent")
-    report = evaluate(Decision(pack), test)
+    report = evaluate(Decision(pack), test, targets=TARGETS)
     decisions = report["decisions"]
     request = report["questions"][m.policy.primary]
     print(f"{test.name} set, {len(test.records)} synthetic messages with labels")
@@ -90,21 +98,54 @@ def _run(store: AuditStore) -> None:
             f"critical {name}: {critical['detected']} of {critical['n']} detected, "
             f"{critical['auto_missed']} would have been automated"
         )
+    # Whether any automation threshold holds the agent to TARGETS on this evidence: what it
+    # found and what to do, without the counts printed just above (`mendari eval` prints all).
+    point = report["run"]["operating_point"]
+    print()
+    print(operating_point.text(point, kinds=operating_point.WHAT_NEXT))
     missed = sum(c["n"] - c["detected"] for c in decisions["critical"])
     automated = sum(c["auto_missed"] for c in decisions["critical"])
-    if automated:
-        print(
-            f"\nVerdict: not ready. The agent missed {missed} urgent messages, and {automated} of "
-            "them would have gone out with no person reading them. Fix the agent (or its policy) "
-            "and evaluate again before it decides anything alone."
-        )
-    elif missed:
-        print(f"\nVerdict: review. {missed} urgent messages were missed, but a person sees each.")
-    else:
-        print("\nVerdict: every urgent message in this set was caught.")
+    print(f"\nVerdict: {_verdict(point, missed, automated)}")
     print(
         "\nNext: put a model behind it (the model-backed example in examples/, then "
         "MENDARI_AGENT_URL), wrap your "
         "own agent with `mendari new my-agent --id my-clinic/my-agent`, and run "
         "`mendari serve` for the dashboard at http://127.0.0.1:8000."
     )
+
+
+def _verdict(point: dict[str, Any], missed: int, automated: int) -> str:
+    """What the evaluation says of going live, from its operating point: whether these cases
+    support the agent's automation threshold, another one, or none."""
+    if automated:
+        seen = (
+            f"The agent missed {missed} urgent messages, and {automated} of them would have gone "
+            "out with no person reading them."
+        )
+    elif missed:
+        seen = f"The agent missed {missed} urgent messages, and a person sees each of them."
+    else:
+        seen = "Every urgent message in this set was caught."
+    status = point["status"]
+    if status == SUPPORTED:
+        return f"its automation threshold holds on this set. {seen} {point['guarantee']}"
+    if status == RECOMMENDED:
+        now, to = (f"{point['change'][key]:.2f}" for key in ("from", "to"))
+        if point["current_supported"]:
+            return (
+                f"its automation threshold holds on this set, and these cases support {to} too, "
+                f"which automates more. {seen} {point['guarantee']}"
+            )
+        return (
+            f"not ready at its automation threshold {now}. {seen} These cases support {to}: "
+            "change that one line of its manifest, and evaluate again before it decides "
+            "anything alone."
+        )
+    if status == NONE_CERTIFIED:
+        why = (
+            "No automation threshold fixes that: fix the agent, or add a rule or a second signal,"
+            if point["cannot_fix"]
+            else "No automation threshold can be certified on this set: fix the agent or add cases,"
+        )
+        return f"not ready. {seen} {why} and evaluate again before it decides anything alone."
+    return f"review. {seen} {point['summary']}"

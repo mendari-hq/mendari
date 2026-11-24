@@ -13,7 +13,7 @@ from mendari.core import clock
 from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
 from mendari.core.spec import Condition, DeriveRow, Outcome, PackManifest, Question
-from mendari.evals import leaderboard, ranking, stats
+from mendari.evals import leaderboard, operating_point, ranking, stats
 from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
 from mendari.evals.result import (
     counted,
@@ -529,6 +529,7 @@ def _validation(report: dict[str, Any]) -> list[str]:
             f"{shown(stats.proportion(item['detected'], item['n']))} detected, "
             f"{item['auto_missed']} automated{evidence(item['n'])} |"
         )
+    rows += _operating_point(report)
     confusion = q["confusion"]
     rows += [
         "",
@@ -583,6 +584,36 @@ def _validation(report: dict[str, Any]) -> list[str]:
         correct = None if chosen is None else stats.proportion(chosen - row["errors"], chosen)
         rows.append(f"| {row['threshold']:.2f} | {shown(automated)} | {shown(correct)} |")
     return rows
+
+
+def _operating_point(report: Mapping[str, Any]) -> list[str]:
+    """What the benchmark shows at the automation threshold it ran with: how many cases it
+    automated, and each risk as k of n with its exact one-sided bound
+    (`evals/operating_point.py`). Every figure is worked out here from the counts the report's
+    result states, never read from the run's own block, which only says that the run worked one
+    out: a card rendered from a benchmark written before that is as it was. A threshold the
+    cases would support is advice for the agent's author (`mendari eval`), not the card's."""
+    try:
+        if not isinstance(report["run"].get("operating_point"), Mapping):
+            return []
+        point = operating_point.of_report(report)
+        if point is None:
+            return []
+        automated = point["automated"]
+        rows = [
+            "",
+            "Operating point, at the automation threshold "
+            f"**{operating_point.threshold_text(point['threshold'])}** this benchmark ran with. "
+            'Each "at most" is an exact one-sided bound (Clopper-Pearson) at '
+            f"{operating_point.CONFIDENCE:.0%} confidence, for cases like the benchmark's:",
+            "",
+            "| At this threshold | Cases | Bound |",
+            "|---|---|---|",
+            f"| Automated | {automated['k']} of {automated['n']} | |",
+        ]
+        return rows + [f"| {' | '.join(row)} |" for row in operating_point.table(point)]
+    except _SHAPE_ERRORS:  # a report whose counts are not counts shows none
+        return []
 
 
 def _brier_interval(question: Mapping[str, Any]) -> str:
