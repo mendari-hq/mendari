@@ -143,7 +143,7 @@ A finding is what the change made worse, ranked by harm:
 
 | Harm | What happened |
 |---|---|
-| `automated` | The variant would be automated (`AUTO`) while its recommendation is wrong or its case critical, and the original was not. Among these, the ones that also lost a critical answer come first. |
+| `automated` | The variant would be automated (`AUTO`) while its recommendation is wrong (false automation, as an evaluation counts it) or its case critical (a critical miss), and the original was not. Among these, the ones that also lost a critical answer come first. |
 | `critical lost` | An answer the manifest calls critical (`evaluation.critical`) was given on the original and not on the variant. A person still reads the case, without the flag. |
 | `wrong` | Another answer went from the expected one to another, or the agent did not follow a denial. |
 | `changed` | An answer changed, to no worse: the original was wrong already. |
@@ -262,6 +262,12 @@ mendari probe my-agent --fail-on critical --out probe.json
 | 0 | The probe ran. Without `--fail-on` it only reports, whatever it found. |
 | 2 | `--fail-on critical`: a critical answer was lost, or a variant would be automated while wrong or critical. `--fail-on any`: any answer changed. |
 | 1 | The probe could not run, or probed nothing: asked to fail on findings, a probe that tried nothing is an error, not a pass. |
+
+These are `mendari eval`'s exit codes too: 2 for what was found, 1 for what could not run.
+[Mendari's GitHub Action](evaluate-in-ci.md) validates, tests and evaluates an agent on every
+change. The tests `--write` kept run there with the agent's own, since `mendari test` runs
+them, and a step after the action can probe with the command it installed (its `mendari`
+output).
 
 `--json` prints the report (`mendari.probe/1`) alone on standard output; `--out` writes it to a
 file as well. It holds, by transformation, `tried`, `changed`, `critical_lost`, `automated`,

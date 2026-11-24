@@ -375,6 +375,12 @@ least one of `outcome`, `outcome_in`, `not_outcome`, `recommendation`, `priority
 agent can never decide, and fail when there are no tests. The tests run against whichever
 variant is in use: offline, the fixture; with `MENDARI_AGENT_URL` set, your live agent.
 
+`mendari probe my-agent` finds the failures nobody wrote a test for: it rewrites the text of
+your cases in ways that keep their meaning (a typing error, a line break, an instruction
+slipped into the message) and reports the answers that change. With `--write` it keeps each
+failure as a test in `tests/probe.yaml`, which `mendari test` runs after yours:
+[Finding failures](finding-failures.md).
+
 ## 11. Measure it
 
 `data/examples.jsonl` has one labelled case per line: an `id`, the `input`, and the right
@@ -405,6 +411,13 @@ Critical urgent_symptoms=yes 3 of 3 [29.2-100.0%] detected, 0 automated (insuffi
 (lines taken from the full report, which also gives calibration, latency and cost). Twelve
 synthetic cases are a smoke test, not a performance estimate. `evaluation.critical` names the
 answers a miss is costly on; the report counts how many were detected and how many automated.
+
+After the report comes its operating point: what the automation threshold (`thresholds.auto`
+in the policy) lets through on these cases, each risk with its exact upper bound. Give a
+target (`--target-critical-miss 1%`) and it names the lowest threshold your cases support, or
+says why none is: [Choosing an automation threshold](choosing-a-threshold.md). To run the
+checks of this guide on every change, with limits that fail the job:
+[Evaluating an agent on every change](evaluate-in-ci.md).
 
 Compare the agent with another variant of the same slot, on the same cases and under the same
 policy:
@@ -548,7 +561,10 @@ stronger evidence.
 - [ ] The risk level is the highest that could apply.
 - [ ] `state_fields` sends the agent only what it needs.
 - [ ] Every policy rule has a behaviour test, and the tests pass against the live agent.
-- [ ] Local evaluation shows no missed critical cases, and you read every misclassified case.
+- [ ] Local evaluation shows every critical case detected and none automated (no critical
+      miss), and you read every misclassified case.
+- [ ] `mendari probe` reports no critical finding against the live agent, and each failure it
+      found is kept as a test.
 - [ ] A clinician other than the author reviewed the criteria.
 - [ ] At level 2 or 3, the committee's approval is recorded.
 

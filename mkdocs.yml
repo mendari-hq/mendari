@@ -56,11 +56,17 @@ validation:
 nav:
   - Home: index.md
   - Guides:
+      # A developer's path: write the agent, find its failures, set its threshold, check it
+      # on every change, contribute it. Then a hospital's: connect, evaluate, decide, deploy.
       - Authoring an agent: guides/authoring-an-agent.md
+      - Finding failures: guides/finding-failures.md
+      - Choosing an automation threshold: guides/choosing-a-threshold.md
+      - Evaluating an agent on every change: guides/evaluate-in-ci.md
       - Contributing an agent: guides/contributing-an-agent.md
       - Using the API: guides/api.md
       - Connecting an EHR: guides/connecting-an-ehr.md
       - Evaluating an agent at your site: guides/evaluate-at-your-site.md
+      - The committee packet: guides/committee-packet.md
       - Deploying with real patient data: deploying-with-phi.md
       - Holding automation: operations/automation-hold.md
       - Revoking access: operations/revoking-access.md

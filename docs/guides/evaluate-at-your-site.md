@@ -6,7 +6,11 @@ its own environment, and share the result with a registry as signed counts
 dataset name leaves your machines, and nothing is shared that a registry could not check.
 
 This page is for the person who runs the evaluation at the site. The registry's side is in
-[Running a registry](../operations/registry.md#sites).
+[Running a registry](../operations/registry.md#sites). The same run, given a target, says which
+automation threshold your own cases support
+([Choosing an automation threshold](choosing-a-threshold.md#at-a-hospital-run-it-again-on-your-own-cases)),
+and what your AI governance committee reads about the agent is
+[the committee packet](committee-packet.md).
 
 ## What leaves your site, and what stays
 

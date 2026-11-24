@@ -15,8 +15,9 @@ so they keep their names until a versioned change of format.
 
 ## Before you start
 
-In a clone, `uv sync` installs Mendari with the server (without uv: `pip install '.[server]'`;
-the `server` extra brings uvicorn, which `mendari serve` needs). The server serves the bundled
+In a clone, `uv sync` installs Mendari, and the server with it (without uv: `pip install .`; no
+extra is needed, and the `server` extra older instructions name is still accepted and adds
+nothing). The server serves the bundled
 demo agent (`mendari/portal-message-agent`); to serve your own too, set `MENDARI_AGENTS_PATH` to their folders (`:`-separated, searched
 first). `MENDARI_AGENTS` (comma-separated ids) then narrows what is served to those agents, which
 must be on the path.

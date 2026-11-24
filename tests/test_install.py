@@ -11,6 +11,7 @@ themselves are tested here; the run is CI's, since it installs from the package 
 from __future__ import annotations
 
 import importlib.util
+import re
 import shlex
 import sys
 import tomllib
@@ -67,10 +68,23 @@ def test_the_server_extra_is_still_accepted_and_adds_nothing() -> None:
     locked = _locked()
     assert locked["metadata"]["provides-extras"] == ["server"]
     assert "optional-dependencies" not in locked
-    # Who still asks for it: the image, the release's check of what TestPyPI serves, the README.
+    # Who still asks for it: the image, and the release's check of what TestPyPI serves.
     assert "--extra server" in (ROOT / "Dockerfile").read_text()
     assert "--extra server" in (ROOT / ".github" / "workflows" / "release.yml").read_text()
-    assert "pip install '.[server]'" in (ROOT / "README.md").read_text()
+
+
+def test_no_page_tells_a_reader_to_install_the_server_extra() -> None:
+    """The README and the docs name one install command, with no extra: the one the README's
+    install check runs (`scripts/doc_blocks.py run install`), which then starts the server."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "<!-- check: run install -->\n```bash\npip install .\n```" in readme
+    pages = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
+    asking = [
+        page.relative_to(ROOT).as_posix()
+        for page in pages
+        if re.search(r"pip install ['\"]?(mendari|\.)\[server\]", page.read_text(encoding="utf-8"))
+    ]
+    assert asking == []
 
 
 def test_the_demo_ends_with_what_an_installed_mendari_can_do() -> None:
@@ -147,6 +161,7 @@ def test_the_first_commands_are_the_ones_a_new_developer_types() -> None:
         "validate my-agent",
         "test my-agent",
         "eval my-agent --dataset examples",
+        "probe my-agent",
     ]
     parser = build_parser()
     for command in quickstart.FIRST_COMMANDS:

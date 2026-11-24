@@ -663,7 +663,7 @@ jobs:
         run: python3 scripts/doc_blocks.py run cli
       - name: The Python examples
         run: uv run python scripts/doc_blocks.py run python
-      - name: A new virtual environment installs from the clone, with the server extra
+      - name: A new virtual environment installs from the clone with one command, and serves
         run: python3 scripts/doc_blocks.py run install
       - name: A REST, a FHIR and a guard decision by the documented commands, and the commands on the server's database
         run: uv run python scripts/check_doc_snippets.py
@@ -742,8 +742,8 @@ jobs:
     # One install command and a five-minute path, as a developer who installs the package gets
     # them. The sdist is built, and the wheel from it; the wheel alone, with no extra, is
     # installed into a new environment outside the checkout; then, in an empty folder with none
-    # of this machine's settings: the demo, an agent of one's own (scaffolded, validated, tested
-    # and evaluated) and the server, until it answers and serves the console
+    # of this machine's settings: the demo, an agent of one's own (scaffolded, validated, tested,
+    # evaluated and probed) and the server, until it answers and serves the console
     # (scripts/run_quickstart.py --wheel). Timed, install included: five minutes or more fails,
     # and it takes well under one. The wheel must also hold every tracked file of the package
     # and of the bundled agent, and no other (scripts/check_sdist.py --wheel).

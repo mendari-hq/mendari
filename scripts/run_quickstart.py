@@ -10,7 +10,7 @@ more (the v1.0 exit: from the README to your own local validation in under 10 mi
 
 With `--wheel`, the first five minutes of a developer who installed the package instead (CI job
 `quickstart-wheel`): one install command, then the demo, an agent of their own (scaffolded,
-validated, tested and evaluated) and the server.
+validated, tested, evaluated and probed) and the server.
 
     uv build --out-dir /tmp/dist && python3 scripts/run_quickstart.py --wheel /tmp/dist/*.whl
 
@@ -49,6 +49,7 @@ FIRST_COMMANDS = (
     ("validate", AGENT),
     ("test", AGENT),
     ("eval", AGENT, "--dataset", "examples"),
+    ("probe", AGENT),
 )
 # What `mendari new` must have written from the wheel's templates: the agent, and the workflow
 # that evaluates it on every change (docs/guides/evaluate-in-ci.md).
