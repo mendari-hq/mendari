@@ -211,14 +211,7 @@ class LlmProvider(Provider):
         return self.model
 
     def _token(self) -> str | None:
-        if self.base_url == GATEWAY_URL:
-            return os.environ.get(API_KEY_ENV, "").strip() or vercel_oidc_token()
-        if is_local(self.base_url):
-            return os.environ.get(LOCAL_KEY_ENV, "").strip() or None
-        key = os.environ.get(LOCAL_KEY_ENV, "").strip()
-        if not key:
-            raise ProviderError("credential_unavailable", f"set {LOCAL_KEY_ENV}")
-        return key
+        return bearer_token(self.base_url)
 
     def batch_key(self) -> Hashable | None:
         if not self.settings.batch:
@@ -344,6 +337,78 @@ class LlmProvider(Provider):
         return body
 
 
+def bearer_token(base_url: str) -> str | None:
+    """The key a call to the deployment's model endpoint carries, or None when it needs none:
+    the AI Gateway's (`AI_GATEWAY_API_KEY`, then the deployment's Vercel OIDC token), or
+    `LLM_API_KEY` for any other endpoint, which a server on this machine may do without."""
+    if base_url == GATEWAY_URL:
+        return os.environ.get(API_KEY_ENV, "").strip() or vercel_oidc_token()
+    if is_local(base_url):
+        return os.environ.get(LOCAL_KEY_ENV, "").strip() or None
+    key = os.environ.get(LOCAL_KEY_ENV, "").strip()
+    if not key:
+        raise ProviderError("credential_unavailable", f"set {LOCAL_KEY_ENV}")
+    return key
+
+
+def can_complete() -> None:
+    """Whether `complete_json` could be called now, without calling: the endpoint is https (or
+    this machine) and on the provider allow-list when there is one, and its key can be had.
+    A `ProviderError` says which is not so."""
+    base_url = _base_url()
+    require_secure(base_url, "LLM")
+    bearer_token(base_url)
+
+
+def complete_json(
+    model: str,
+    system: str,
+    user: str,
+    schema: Mapping[str, Any],
+    *,
+    name: str,
+    client: httpx.Client | None = None,
+    timeout_s: float = 60.0,
+    max_tokens: int = 4096,
+) -> tuple[Any, dict[str, Any]]:
+    """One chat completion that answers a JSON value of `schema`, asked of the deployment's
+    model endpoint exactly as an `llm` variant asks it: `LLM_BASE_URL` or the AI Gateway, https
+    only, on the provider allow-list when there is one, with the same key. Returns the parsed
+    value and the call's usage (`input_tokens`, `output_tokens`, `cost_usd`: None when the
+    endpoint gives no price). Any failure is a `ProviderError`, as a provider's is.
+
+    For what asks a model outside a decision (`mendari probe`'s variants): nothing here is
+    charged to a budget or metered, and no decision's deadline applies."""
+    base_url = _base_url()
+    require_secure(base_url, "LLM")
+    token = bearer_token(base_url)
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": name, "schema": schema, "strict": True},
+        },
+        "max_tokens": max_tokens,
+        "stream": False,
+    }
+    if len(json.dumps(body)) > MAX_REQUEST_CHARS:
+        raise ProviderError("invalid_input", "request exceeds the size limit")
+    headers = {"authorization": f"Bearer {token}"} if token else {}
+    raw = post_json(
+        client,
+        f"{base_url}/chat/completions",
+        body,
+        headers=headers,
+        timeout_s=timeout_s,
+        retries=1,
+    )
+    return _answered(raw), _usage(raw)
+
+
 def system_prompt(questions: Mapping[str, Question]) -> str:
     lines = []
     for key, question in questions.items():
@@ -386,32 +451,9 @@ def parse_response(
     """(distributions, usage, problems per question). A malformed response raises
     `invalid_response`; a malformed answer to one question is reported in `problems`, and the
     other questions keep their answers."""
-
-    def invalid(detail: str) -> ProviderError:
-        return ProviderError("invalid_response", detail)
-
-    choices = raw.get("choices") if isinstance(raw, dict) else None
-    if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
-        raise invalid("expected exactly one choice")
-    choice = choices[0]
-    if choice.get("finish_reason") not in ("stop", None):
-        raise invalid(f"generation ended with {choice.get('finish_reason')!r}")
-    message = choice.get("message")
-    if not isinstance(message, dict) or message.get("refusal"):
-        raise invalid("the model refused or returned no message")
-    content = message.get("content")
-    if not isinstance(content, str):
-        raise invalid("no content")
-    cleaned = content.strip()
-    if cleaned.startswith("```") and cleaned.endswith("```"):
-        inner = cleaned.split("\n", 1)[1] if "\n" in cleaned else ""
-        cleaned = inner.rsplit("```", 1)[0].strip()
-    try:
-        parsed = json.loads(cleaned)
-    except (ValueError, RecursionError):  # not JSON, over 4,300 digits, or nested too deep
-        raise invalid("content is not JSON") from None
+    parsed = _answered(raw)
     if not isinstance(parsed, dict) or set(parsed) != set(questions):
-        raise invalid("answers do not match the questions asked")
+        raise _invalid("answers do not match the questions asked")
 
     distributions: dict[str, dict[str, float]] = {}
     problems: dict[str, str] = {}
@@ -428,22 +470,58 @@ def parse_response(
             total = sum(values.values())
             distributions[key] = {label: float(p) / total for label, p in values.items()}
 
+    return distributions, _usage(raw), problems
+
+
+def _invalid(detail: str) -> ProviderError:
+    return ProviderError("invalid_response", detail)
+
+
+def _answered(raw: Any) -> Any:
+    """The JSON value a chat completion answered with: its one choice's content, parsed.
+    Anything else (no choice or several, a generation cut short, a refusal, content that is
+    not JSON) is an `invalid_response`."""
+    choices = raw.get("choices") if isinstance(raw, dict) else None
+    if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
+        raise _invalid("expected exactly one choice")
+    choice = choices[0]
+    if choice.get("finish_reason") not in ("stop", None):
+        raise _invalid(f"generation ended with {choice.get('finish_reason')!r}")
+    message = choice.get("message")
+    if not isinstance(message, dict) or message.get("refusal"):
+        raise _invalid("the model refused or returned no message")
+    content = message.get("content")
+    if not isinstance(content, str):
+        raise _invalid("no content")
+    cleaned = content.strip()
+    if cleaned.startswith("```") and cleaned.endswith("```"):
+        inner = cleaned.split("\n", 1)[1] if "\n" in cleaned else ""
+        cleaned = inner.rsplit("```", 1)[0].strip()
+    try:
+        return json.loads(cleaned)
+    except (ValueError, RecursionError):  # not JSON, over 4,300 digits, or nested too deep
+        raise _invalid("content is not JSON") from None
+
+
+def _usage(raw: Any) -> dict[str, Any]:
+    """A chat completion's usage: its tokens, and its cost when the endpoint gives one that
+    can be believed (None otherwise: unknown, never zero). Malformed or out of range, it is an
+    `invalid_response`."""
     usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
     tokens_in, tokens_out = usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
     if not all(
         isinstance(t, int) and not isinstance(t, bool) and t >= 0 for t in (tokens_in, tokens_out)
     ):
-        raise invalid("usage is malformed")
+        raise _invalid("usage is malformed")
     if tokens_in + tokens_out > MAX_CALL_TOKENS:
-        raise invalid("usage is out of range")
+        raise _invalid("usage is out of range")
     cost = usage.get("cost")  # reported by the AI Gateway; absent on most local servers
     cost_usd = (
         float(cost)
         if isinstance(cost, int | float) and _nonnegative(cost) and cost <= MAX_CALL_COST_USD
         else None  # no price, or none to believe: unknown
     )
-    usage_out = {"input_tokens": tokens_in, "output_tokens": tokens_out, "cost_usd": cost_usd}
-    return distributions, usage_out, problems
+    return {"input_tokens": tokens_in, "output_tokens": tokens_out, "cost_usd": cost_usd}
 
 
 def _probability(value: Any) -> bool:
