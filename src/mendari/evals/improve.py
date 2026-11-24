@@ -247,12 +247,13 @@ def improve(
     )
 
 
-def not_writable(pack: Pack) -> str | None:
+def not_writable(pack: Pack, then: str = "improve the copy") -> str | None:
     """Why a run is never kept in this pack, or None: `apply` writes only into a pack of the
     caller's own. A pack among those this release bundles (its data comes from its generator),
     in the repository's community packs (what it learned from would be published with it) or
     in the registry's cache (a verified copy) is not changed in place, by where it is on disk
-    (`core.registry.origin_of`), whatever it was loaded as."""
+    (`core.registry.origin_of`), whatever it was loaded as. `then` is what to do with the copy
+    the reason says to make (`mendari probe --write` holds to the same rule)."""
     where = {pack.origin, origin_of(pack.root)} - {"local"}
     if not where:
         return None
@@ -262,7 +263,7 @@ def not_writable(pack: Pack) -> str | None:
         "hub": "an agent pulled from a registry",
         "store": "a version in an agent store",
     }[sorted(where)[0]]
-    return f"{what} is not changed in place: copy it, and improve the copy"
+    return f"{what} is not changed in place: copy it, and {then}"
 
 
 def kept_in_the_pack(pack: Pack, cases: str | Path) -> bool:

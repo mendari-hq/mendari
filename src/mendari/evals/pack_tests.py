@@ -82,6 +82,14 @@ def every_case(pack: Pack) -> list[tuple[str, int, dict[str, Any]]]:
     ]
 
 
+def probe_case_problem(manifest: PackManifest, case: Any) -> str | None:
+    """Why `case` is not a test `probe_cases` reads (its shape, its `probe` mapping, a value
+    the agent can never decide), or None: what a test must be before it is moved among those
+    that run."""
+    problem = _case_problem(case, (*CASE_KEYS, PROBE_KEY))
+    return problem if problem is not None else _value_problem(manifest, case["expect"])
+
+
 def _load(pack: Pack, relative: str, keys: tuple[str, ...]) -> list[dict[str, Any]]:
     """The cases of one file of behaviour tests, each holding `keys` and no other."""
     cases = pack.read_yaml(relative) or []
