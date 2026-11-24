@@ -290,6 +290,39 @@ def test_new_writes_an_agent_with_or_without_the_flag_that_asked_for_one(tmp_pat
     assert not (tmp_path / "both").exists()
 
 
+def test_the_flag_new_once_needed_is_shown_nowhere() -> None:
+    """`mendari new NAME` writes an agent with no flag. `--agent` is still read (above) and no
+    longer shown where a person learns the command: what the product prints (the demo's last
+    line named it), the console, the site, the Agent Hub, the README, the docs, the examples
+    and what GitHub shows a contributor."""
+    root = Path(cli.__file__).resolve().parents[2]
+    flagged = re.compile(r"mendari new\b[^\n`|;&,<]*--agent(?![\w-])")  # within one command
+    assert flagged.search("uv run mendari new --agent my-agent --id my-clinic/my-agent")
+    assert flagged.search("with `mendari new my-agent --agent`")
+    assert not flagged.search("mendari new my-agent --id my-clinic/my-agent")
+    assert not flagged.search("`mendari new x --community`, then `mendari sandbox seed --agent x`")
+    read = [root / "README.md", root / "CONTRIBUTING.md"]
+    for folder, patterns in {
+        "src/mendari": ("*.py", "*.js", "*.html", "*.md", "*.yaml"),
+        "web": ("*.html",),
+        "hub/app": ("*.tsx", "*.ts"),
+        "docs": ("*.md",),
+        "examples": ("*.md",),
+        "agents": ("*.md", "*.yaml"),
+        ".github": ("*.md", "*.yml"),
+    }.items():
+        read += [path for pattern in patterns for path in (root / folder).rglob(pattern)]
+    assert len(read) > 250 and root / "src" / "mendari" / "sandbox" / "demo.py" in read
+    shown = [
+        f"{path.relative_to(root)}:{number}: {line.strip()[:120]}"
+        for path in sorted(read)
+        if "node_modules" not in path.parts and "vendor" not in path.parts
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if flagged.search(line)
+    ]
+    assert shown == [], "\n".join(shown)
+
+
 # -- a short help --------------------------------------------------------------------------------
 
 

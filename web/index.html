@@ -203,7 +203,7 @@
           </div>
           <div class="terminal">
             <p class="terminal-bar"><span>Wrap, eval &amp; publish your agent</span><span>CLI</span></p>
-            <pre><code><span class="prompt" aria-hidden="true">$ </span>mendari new --agent triage-agent --id my-org/triage-agent
+            <pre><code><span class="prompt" aria-hidden="true">$ </span>mendari new triage-agent --id my-org/triage-agent
 <span class="prompt" aria-hidden="true">$ </span>mendari test triage-agent
 <span class="prompt" aria-hidden="true">$ </span>mendari eval triage-agent --dataset examples
 <span class="prompt" aria-hidden="true">$ </span>mendari push triage-agent --key keys/publisher.key</code></pre>
@@ -260,7 +260,7 @@
       <div class="wrap split">
         <div class="intro">
           <h2>Try the demo agent, or launch the Governance Console.</h2>
-          <p><code>mendari test</code> and <code>mendari eval</code> run the bundled demo agent offline. Scaffold your own HTTP or LLM agent with <code>mendari new --agent</code>, or start <code>mendari serve</code> for the local API and Governance Console.</p>
+          <p><code>mendari test</code> and <code>mendari eval</code> run the bundled demo agent offline. Scaffold your own HTTP or LLM agent with <code>mendari new</code>, or start <code>mendari serve</code> for the local API and Governance Console.</p>
           <p class="small">The source opens to the public at launch. Until then, cloning needs access to the repository.</p>
         </div>
         <div class="terminal">
@@ -270,7 +270,7 @@
 <span class="prompt" aria-hidden="true">$ </span>uv sync
 <span class="prompt" aria-hidden="true">$ </span>uv run mendari test agents/portal-message-agent
 <span class="prompt" aria-hidden="true">$ </span>uv run mendari eval agents/portal-message-agent --dataset examples
-<span class="prompt" aria-hidden="true">$ </span>uv run mendari new --agent my-agent --id my-org/my-agent
+<span class="prompt" aria-hidden="true">$ </span>uv run mendari new my-agent --id my-org/my-agent
 <span class="prompt" aria-hidden="true">$ </span>uv run mendari serve   <span class="comment"># http://127.0.0.1:8000</span></code></pre>
         </div>
       </div>

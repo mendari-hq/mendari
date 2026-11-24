@@ -69,7 +69,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
                   <span className="prompt" aria-hidden="true">$ </span>mendari pull mendari/portal-message-agent{"\n"}
                   <span className="prompt" aria-hidden="true">$ </span>mendari eval mendari/portal-message-agent --dataset your-cases.jsonl{"\n"}
                   <span className="comment"># AI Builders: wrap an agent &amp; publish scorecard</span>{"\n"}
-                  <span className="prompt" aria-hidden="true">$ </span>mendari new --agent my-agent --id my-org/my-agent{"\n"}
+                  <span className="prompt" aria-hidden="true">$ </span>mendari new my-agent --id my-org/my-agent{"\n"}
                   <span className="prompt" aria-hidden="true">$ </span>mendari push my-agent --key keys/publisher.key
                 </code>
               </pre>

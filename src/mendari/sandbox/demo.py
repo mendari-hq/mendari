@@ -105,6 +105,6 @@ def _run(store: AuditStore) -> None:
     print(
         "\nNext: put a model behind it (the model-backed example in examples/, then "
         "MENDARI_AGENT_URL), wrap your "
-        "own agent with `mendari new my-agent --agent --id my-clinic/my-agent`, and run "
+        "own agent with `mendari new my-agent --id my-clinic/my-agent`, and run "
         "`mendari serve` for the dashboard at http://127.0.0.1:8000."
     )
