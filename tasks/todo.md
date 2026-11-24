@@ -95,7 +95,7 @@ README or the front ends, outside an explicit list of those names.
   only by an administrator of a named operator organization (ADR-0021, narrowed).
 - [x] **Wave 5. Written output.** Rubrics a clinician grades, a model judge, and the judge's
   measured agreement with clinicians before its scores are reported.
-  **Built (branch `wave5/written-output`, on wave 4 and not yet merged):** the manifest declares
+  **Built (#358):** the manifest declares
   an agent's written outputs and the rubrics clinicians grade them by (spec 0.4, §16 to §20);
   the model judge that grades every output with the same rubric (`providers/judge.py`);
   `mendari written eval` and its report (`evals/written.py`): per criterion, the judge's kappa
@@ -115,7 +115,29 @@ README or the front ends, outside an explicit list of those names.
   are erased when it closes); a better interval than the percentile bootstrap, which is slightly
   liberal on small samples (ADR-0025, Consequences).
 - [ ] **Wave 6 (the owner's go).** The wire and storage names, as a versioned format change.
-- [ ] **Last.** The README and the docs caught up with every wave; the grade taken again.
+- [x] **Last.** The README and the docs caught up with every wave; the grade taken again.
+  **Grade, 2026-11-24, against the north star: B-** (it was C+ on 2026-11-23). Measured, not
+  assumed: the repository is private with no stars or forks, `mendari` is not on PyPI, the live
+  registry lists one agent (the demo agent, at 0.1.1 while the repository's is 0.3.0), and no
+  developer or hospital outside the project has used any of it.
+  - *Engine: A* (was A-). The threshold is recommended with a stated guarantee, an external
+    agent's confidence is checked and bound to its version, a second signal only lowers
+    automation, failures are found and kept as tests, actions are gated, and a judge of written
+    output is believed only as far as it agrees with clinicians. Not A+: every figure is on
+    synthetic data, nothing gates written output at run time, the percentile bootstrap is
+    slightly liberal on small samples, the wire still says `pack` (wave 6), and there has been
+    no external security review.
+  - *Product: B+* (was C). One vocabulary, a short command line, `pip install .` and a
+    five-minute path, a CI action, an evaluation page and a badge, the console's adopt path,
+    a one-command site install, a committee packet. Not A: nobody outside the project has
+    walked any of it, the one install command is from a clone until a release exists, the CI
+    action resolves only once the repository is public and tagged, and the project's own CI
+    takes about 70 minutes a run.
+  - *Ecosystem: D* (unchanged). It moves only with what the owner holds: going public and
+    PyPI, the external security review, a design-partner site, clinicians labelling the hidden
+    set, and publishing the demo agent's current version and evaluation to the live registry.
+  **Engineering still open:** wave 6 (the owner's go); written output's phase 2 (above); the
+  CI run time; one walk through the console and the install by a person who did not build it.
 
 ## Plan: agents only (2026-11-21, owner decision), superseded by wave 1 above
 
