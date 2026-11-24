@@ -460,6 +460,32 @@ def parsed(text: str) -> Page:
     return page
 
 
+class _Words(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.words: list[str] = []
+        self._in_style = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._in_style = tag == "style"
+
+    def handle_endtag(self, tag: str) -> None:
+        self._in_style = False
+
+    def handle_data(self, data: str) -> None:
+        if not self._in_style:
+            self.words.append(data)
+
+
+def html_text(text: str) -> str:
+    """A page's words as a reader sees them: each element's text on its own line, with no tag
+    and no style."""
+    words = _Words()
+    words.feed(text)
+    words.close()
+    return "\n".join(words.words)
+
+
 def test_the_page_is_self_contained_and_holds_no_script(open_client: TestClient) -> None:
     decide(open_client, REFILL)
     answer = open_client.get(f"{PACKET}?format=html&days=30")
@@ -704,3 +730,289 @@ def test_the_command_writes_the_page_or_the_json_and_records_nothing(
     # A window the monitor does not cover is refused as a usage error, in one line.
     assert main(["packet", agent, "--db", str(db), "--days", "3"]) == 1
     assert "give 14 to 180" in capsys.readouterr().err
+
+
+class _Noon(datetime):
+    """The clock the packet reads, stopped: a packet made twice is then the same bytes."""
+
+    @classmethod
+    def now(cls, tz: Any = None) -> _Noon:
+        return cls(2026, 11, 23, 12, 0, tzinfo=tz)
+
+
+def test_with_a_database_the_command_writes_what_the_deployment_holds_as_before(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--db` is the packet it always was: `packet.build` over that database, with this
+    environment's settings, 90 days unless told, byte for byte, as JSON and as a page. Nothing
+    of the packet made without a deployment is in it."""
+    from mendari.core.phi import phi_policy
+    from mendari.evals.monitoring import recorded_providers
+    from mendari.providers import provider_allow_list
+    from mendari.settings import retention_days
+
+    monkeypatch.setattr(packet, "datetime", _Noon)
+    db = tmp_path / "audit.db"
+    pack = load_pack(DEMO_AGENT_DIR)
+    with AuditStore(db) as store:
+        for body in (REFILL, URGENT, FRONT_DESK):
+            Decision(pack, store=store).decide(body)
+    phi = phi_policy()
+    with AuditStore(db, read_only=True) as store:
+        expected = packet.build(
+            store,
+            pack,
+            deployment=packet.Deployment(
+                phi_mode=phi.mode,
+                input_hash=phi.hash_kind,
+                retention_days=retention_days(),
+                provider_allowed_origins=provider_allow_list(),
+                agent_endpoint=False,
+                providers=recorded_providers(store, pack),
+                seen_from="command line",
+            ),
+            days=90,
+            holds=store.holds(None),
+            records=store.deployments(pack.id, limit=20),
+        )
+    agent = str(DEMO_AGENT_DIR)
+    assert main(["packet", agent, "--db", str(db), "--json"]) == 0
+    printed = capsys.readouterr()
+    assert printed.out == json.dumps(expected, indent=2) + "\n"
+    assert "no --db" not in printed.err
+    assert main(["packet", agent, "--db", str(db)]) == 0
+    assert capsys.readouterr().out == packet.render_html(expected)
+    # A deployment's packet says nothing of "no deployment", in its document or on its page.
+    assert set(expected) == set(packet.SCHEMA["required"])
+    assert expected["window_days"] == 90
+    assert not any("no_deployment" in s["content"] for s in expected["sections"])
+    page = packet.render_html(expected)
+    assert "without a deployment" not in page and "Deployment: none" not in page
+    # The two kinds are told apart by the schema: neither passes as the other.
+    assert packet.problems({**expected, "no_deployment": packet.NO_DEPLOYMENT})
+    assert packet.problems({**expected, "window_days": None})
+
+
+def test_without_a_database_the_command_makes_the_packet_from_the_agents_files_alone(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A publisher's packet, before any deployment exists: made in a folder with no database,
+    it creates none, reads no setting of the machine (a broken one does not stop it), and says
+    beside the document that it holds no deployment's data."""
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("MENDARI_PHI_MODE", "not-a-mode")  # the server would refuse to start
+    monkeypatch.setenv("DATABASE_URL", "postgresql://nobody@127.0.0.1:9/none")  # never opened
+    agent = str(DEMO_AGENT_DIR)
+    assert main(["packet", agent, "--out", "packet.html"]) == 0
+    printed = capsys.readouterr()
+    assert printed.out == "" and "11 sections" in printed.err
+    assert "note: no --db: made from the agent's files alone" in printed.err
+    assert sorted(path.name for path in work.iterdir()) == ["packet.html"]  # no var/, no database
+    text = (work / "packet.html").read_text(encoding="utf-8")
+    assert text.startswith("<!doctype html>") and "<script" not in text
+    assert "Deployment: none, made from the agent's files alone" in text
+    assert main(["packet", agent, "--json"]) == 0
+    printed = capsys.readouterr()
+    built = json.loads(printed.out)
+    assert packet.problems(built) == [] and built["no_deployment"] == packet.NO_DEPLOYMENT
+    assert "note: no --db" in printed.err
+    assert sorted(path.name for path in work.iterdir()) == ["packet.html"]
+    # --org and --days count a deployment's decisions: without one they are refused, in a line.
+    for extra in (["--org", "st-marys"], ["--days", "30"]):
+        assert main(["packet", agent, *extra]) == 1
+        assert "give --db, the server's database, with them" in capsys.readouterr().err
+
+
+def test_a_database_that_is_there_is_not_read_unless_it_is_named(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`var/mendari.db` in the folder the command runs in is a deployment's only when --db
+    names it: the packet never takes on a database's decisions by where it was run."""
+    monkeypatch.chdir(tmp_path)
+    db = tmp_path / "var" / "mendari.db"
+    db.parent.mkdir()
+    with AuditStore(db) as store:
+        Decision(demo(), store=store).decide(REFILL)
+    before = db.read_bytes()
+    agent = str(DEMO_AGENT_DIR)
+    assert main(["packet", agent, "--json"]) == 0
+    alone = json.loads(capsys.readouterr().out)
+    assert alone["no_deployment"] and section(alone, "site_evidence")["decisions"] is None
+    assert db.read_bytes() == before
+    assert main(["packet", agent, "--db", "var/mendari.db", "--json"]) == 0
+    held = json.loads(capsys.readouterr().out)
+    assert "no_deployment" not in held
+    assert section(held, "site_evidence")["decisions"]["all_time"] == 1
+
+
+# -- without a deployment --------------------------------------------------------------------------
+
+# What only a deployment holds, by section: null in a packet made without one.
+DEPLOYMENT_ONLY = {
+    "oversight": ["review_queue", "holds"],
+    "site_evidence": [
+        "window_days",
+        "decisions",
+        "shadow_pilot",
+        "review",
+        "ratings",
+        "gates",
+        "gates_line",
+        "evaluations",
+        "evaluations_saved",
+    ],
+    "monitoring": [
+        "days",
+        "benchmark",
+        "last_7_days",
+        "weeks",
+        "alerts",
+        "other_versions",
+        "alert_destination",
+        "scheduled",
+    ],
+    "change_control": ["records"],
+    "data_handling": [
+        "phi_mode",
+        "phi_mode_meaning",
+        "input_hash",
+        "retention",
+        "allowed_origins",
+        "access",
+        "audit",
+    ],
+    "approvals": ["governance", "registry", "in_force"],
+}
+
+
+def test_a_packet_made_without_a_deployment_says_so_wherever_one_would_be_read(
+    store: AuditStore,
+) -> None:
+    """From the agent's files alone: the publisher's sections are those of any packet, and
+    every section that reads a deployment says in words that none was read. What it did not
+    read is null, never a zero: a zero would say that nothing happened."""
+    pack = demo()
+    now = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
+    alone = packet.build_alone(pack, now=now)
+    assert packet.problems(alone) == []
+    assert alone == packet.build_alone(pack, now=now)  # the same files, the same packet
+    assert alone["no_deployment"] == packet.NO_DEPLOYMENT and alone["about"] == packet.ABOUT_ALONE
+    assert alone["organization"] is None and alone["window_days"] is None
+    assert [s["key"] for s in alone["sections"]] == SECTIONS
+    assert set(DEPLOYMENT_ONLY) == set(packet.WITHOUT_DEPLOYMENT)
+    for key in SECTIONS:
+        content = section(alone, key)
+        if key not in DEPLOYMENT_ONLY:
+            assert "no_deployment" not in content
+            continue
+        assert content["no_deployment"] == packet.WITHOUT_DEPLOYMENT[key]
+        assert "without a deployment" in content["no_deployment"]
+        assert {name: content[name] for name in DEPLOYMENT_ONLY[key]} == dict.fromkeys(
+            DEPLOYMENT_ONLY[key]
+        )
+    assert section(alone, "site_evidence")["empty"] == packet.WITHOUT_DEPLOYMENT["site_evidence"]
+    # What the agent's files say is what a deployment's packet says of the same agent.
+    Decision(pack, store=store).decide(REFILL)
+    served = packet.build(store, pack, deployment=local_deployment(), now=now)
+    for key in ("identity", "intended_use", "publisher_evidence"):
+        assert section(alone, key) == section(served, key)
+    for name in ("outcomes", "primary", "thresholds", "never_automated", "rules", "fallback"):
+        assert section(alone, "oversight")[name] == section(served, "oversight")[name]
+    assert section(alone, "monitoring")["checks"] == section(served, "monitoring")["checks"]
+    assert section(alone, "risk")["level"] == section(served, "risk")["level"]
+    assert section(alone, "data_handling")["inputs"] == section(served, "data_handling")["inputs"]
+    # What runs is the agent's own default, known to no deployment; nothing is said to be canned.
+    control = section(alone, "change_control")
+    assert control["running_known"] is False and control["digest"] == pack.digest
+    assert [(slot["slot"], slot["variant"], slot["known"]) for slot in control["running"]] == [
+        ("reader", "agent", False)
+    ]
+    assert not any(slot["canned"] for slot in control["running"])
+    assert section(alone, "limits")["of_the_evidence"][0].startswith(
+        "This packet was made without a deployment"
+    )
+    assert "a deployment records none" in section(alone, "approvals")["required"][0]
+    # Appendix A: what a site's records could state was not read, and says so.
+    missing = {item["key"]: item for item in alone["not_stated"]}
+    for key in ("local_evidence", "local_subgroups", "approval_record"):
+        assert missing[key]["who"] == "site"
+        assert missing[key]["note"] == (
+            "Not read: this packet was made without a deployment's database."
+        )
+    assert {item["key"] for item in served["not_stated"]} <= set(missing)
+    # A section that lost its sentence, or a window of days, is not this kind of packet.
+    cut = json.loads(json.dumps(alone))
+    del cut["sections"][5]["content"]["no_deployment"]
+    assert packet.problems({**cut, "sha256": packet._digest_of(cut)})
+    assert packet.problems({**alone, "window_days": 90})
+
+
+def test_the_page_made_without_a_deployment_shows_no_figure_of_one(store: AuditStore) -> None:
+    pack = demo()
+    alone = packet.build_alone(pack)
+    text = packet.render_html(alone)
+    page = parsed(text)
+    assert not [tag for tag, _ in page.tags if tag in ("script", "img", "link", "iframe")]
+    assert "Deployment: none, made from the agent's files alone" in text
+    assert "covering the last" not in text and "Organization:" not in text
+    said = html_text(text)
+    assert packet.NO_DEPLOYMENT in said and packet.ABOUT_ALONE in said
+    for why in packet.WITHOUT_DEPLOYMENT.values():
+        assert why in said
+    # Nothing a deployment's packet shows of its own data: no count, no empty list, no setting.
+    for words in (
+        "Waiting for review now",
+        "No hold covers this agent now",
+        "Decisions made here",
+        "The validation brief's gates",
+        "Alerts now",
+        "Compared with a benchmark",
+        "no alert destination is set",
+        "No decision of this version in these weeks",
+        "How an input is recognized again",
+        "How long a kept input stays",
+        "Browser sessions",
+        "Daily signed checkpoint",
+        "None recorded for this agent in this organization",
+        "Made from the command line",
+        "This site has not stated",
+    ):
+        assert words not in said, words
+    # What the agent's files and the software say is all there.
+    for words in (
+        "Every decision ends in one of four outcomes",
+        "What is checked, and what raises an alert",
+        "What happens when the agent or its model changes",
+        "Fields the agent reads",
+        "What this agent needs before it automates",
+        "For the committee",
+        "A site that adopts it has yet to state",
+        "The publisher has not stated",
+    ):
+        assert words in said, words
+    # A deployment's page keeps its own words.
+    Decision(pack, store=store).decide(REFILL)
+    served = html_text(packet.render_html(packet.build(store, pack, deployment=local_deployment())))
+    assert "This site has not stated" in served and "Waiting for review now" in served
+    assert "without a deployment" not in served
+
+
+@pytest.mark.parametrize("origin", ["community", "hub"])
+def test_a_packet_without_a_deployment_keeps_what_the_runtime_enforces(origin: str) -> None:
+    """Where an agent came from still decides what the runtime enforces, with no deployment
+    read: a community agent never decides alone, and one from a registry needs approval."""
+    alone = packet.build_alone(demo(origin))
+    assert packet.problems(alone) == []
+    enforced = " ".join(section(alone, "risk")["enforced"])
+    needs = " ".join(section(alone, "approvals")["required"])
+    if origin == "community":
+        assert "A community agent never decides alone" in enforced
+        assert "A community agent never automates" in needs
+    else:
+        assert "It came from a registry" in enforced
+        assert "An agent from a registry needs the organization's approval" in needs
+        signed = section(alone, "change_control")["signed"]
+        assert signed["held_now"] is None and signed["recall_checked"] is False
+        assert "none standing" not in packet.render_html(alone)  # no registry was asked
