@@ -165,12 +165,14 @@ def test_a_labeller_labels_case_after_case_blind_until_nothing_waits(
     expect(case(bo).locator(".case-input")).to_contain_text(MARKUP)
     assert case(bo).locator(".case-input").inner_text().strip() in {FIRST, SECOND}
     expect(bo.locator("#label-form input:checked")).to_have_count(0)
-    # Ada's page asked for nothing but who she is, health and her own labelling, each for her
-    # organization; and kept nothing in the browser.
+    # Ada's page asked for nothing but who she is, health, her own labelling and, once, her own
+    # counts of written output to grade (ADR-0025: none here), each for her organization; and
+    # kept nothing in the browser.
     paths = {path for _, path, _ in seen}
     assert {p for p in paths if not p.startswith("/api/labelling")} <= {
         "/api/health",
         "/api/auth/me",
+        "/api/written/labelling",
     }
     assert {org for _, path, org in seen if path.startswith("/api/labelling")} == {CLINIC}
     assert page.evaluate("localStorage.length + sessionStorage.length") == 0

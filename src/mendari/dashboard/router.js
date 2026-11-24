@@ -29,7 +29,7 @@ export function route() {
   }
   // A labeller (LP-11m), a registry reviewer (LP-19f), or both, and nothing else: their screens,
   // the first of them for any other address.
-  const only = [state.labelOnly && "labelling", state.reviewOnly && "registry-review", state.storeOnly && "store"].filter(Boolean);
+  const only = [state.labelOnly && state.labelling && "labelling", state.labelOnly && state.written && "written", state.reviewOnly && "registry-review", state.storeOnly && "store"].filter(Boolean);
   if (only.length) return only.includes(name) ? { view: name, params: named } : { view: only[0], params: [] };
   // A view someone may not use (`available()` says no: the administrators' Access view in open
   // mode, or for anyone but an administrator who signed in) is not there: the overview, with no
