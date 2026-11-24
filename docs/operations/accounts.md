@@ -29,7 +29,10 @@ claims mode too (for an administrator who signed in). Claims mode never reads or
   gives themself the role), and `labeller`, which
   grants `label` alone: labelling the cases of hidden evaluation sets (LP-11; memberships mode
   only: a labeller's routes under `/api/labelling`, mounted only with both evaluation-set keys,
-  [evalsets](evalsets.md#how-a-labeller-labels)). A member who only labels sees a page saying
+  [evalsets](evalsets.md#how-a-labeller-labels)), and grading what an agent wrote against its
+  rubric (memberships mode under PHI mode `encrypt`: a grader's routes under
+  `/api/written/labelling`, [written output](../guides/written-output.md)). A member who only
+  labels sees a page saying
   so, and no agents or review queue. It may also hold `registry_reviewer`, which
   grants `registry_review` alone, and only in the one organization
   `MENDARI_REGISTRY_REVIEW_ORG` names: reviewing the agent registry served under the engine (its

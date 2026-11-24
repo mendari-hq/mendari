@@ -193,6 +193,8 @@ SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
     "store_job": ("store_jobs", "id", "org"),  # a pack store's evaluation job (LP-20g)
     # An agent's connection, set in the console for one organization (ADR-0021).
     "agent_connection": ("agent_connections", "id", "org"),
+    # A grading round of written output (ADR-0025, `core/written.py`).
+    "written": ("written_rounds", "id", "org"),
 }
 ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJECT_TABLES`)
     "key.created": "key",
@@ -267,7 +269,21 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     # An origin the deployment's allow-list does not name, allowed for one agent in one
     # organization by an operator of the deployment: the agent, the origin and who.
     "agent_connection.origin_allowed": "agent_connection",
+    # A grading round of written output (ADR-0025, `core/written.py`): made from a run (the
+    # agent's digest, the rubric and its hash, the run's ledger id, how many items); each
+    # assignment, each showing of an item to its grader, each grade as a salted commitment; its
+    # closing (how many grades, how many texts erased, the report's hash); and texts erased by
+    # retention. Ids, hashes and counts: never a text, a context or a grade.
+    "written.round_created": "written",
+    "written.assigned": "written",
+    "written.item_read": "written",
+    "written.graded": "written",
+    "written.round_closed": "written",
+    "written.erased": "written",
 }
+# The kinds whose payload commits to something a grading round stores: a grade, and a closed
+# round's report (`core/written.py` `check_stored`, which `verify` runs).
+_WRITTEN_COMMITTED = frozenset({"written.graded", "written.round_closed"})
 # A pack store version's state after each of its kinds: `verify` checks a version's row against
 # its newest (LP-20e).
 STORE_STATES: dict[str, str] = {
@@ -874,7 +890,50 @@ CREATE INDEX IF NOT EXISTS evalset_assignments_case
 CREATE INDEX IF NOT EXISTS evalset_labels_case
     ON evalset_labels (case_id);
 CREATE INDEX IF NOT EXISTS alert_deliveries_created
-    ON alert_deliveries (created_at DESC)
+    ON alert_deliveries (created_at DESC);
+CREATE TABLE IF NOT EXISTS written_rounds (
+    id             TEXT PRIMARY KEY,
+    org            TEXT NOT NULL,
+    pack_id        TEXT NOT NULL,
+    pack_digest    TEXT NOT NULL,
+    rubric         TEXT NOT NULL,
+    rubric_sha256  TEXT NOT NULL,
+    header         TEXT NOT NULL,
+    ledger         TEXT NOT NULL,
+    state          TEXT NOT NULL,
+    created_by     TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    closed_at      TEXT,
+    report         TEXT
+);
+CREATE TABLE IF NOT EXISTS written_items (
+    id          TEXT PRIMARY KEY,
+    round_id    TEXT NOT NULL,
+    org         TEXT NOT NULL,
+    item        TEXT NOT NULL,
+    body        TEXT,
+    sealed      INTEGER NOT NULL,
+    created_at  TEXT NOT NULL,
+    erased_at   TEXT,
+    UNIQUE (round_id, item)
+);
+CREATE INDEX IF NOT EXISTS written_items_round ON written_items (round_id, id);
+CREATE TABLE IF NOT EXISTS written_assignments (
+    id             TEXT PRIMARY KEY,
+    org            TEXT NOT NULL,
+    round_id       TEXT NOT NULL,
+    item_id        TEXT NOT NULL,
+    user_id        TEXT NOT NULL,
+    membership_id  TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    ended_at       TEXT,
+    grades         TEXT,
+    graded_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS written_assignments_user
+    ON written_assignments (user_id, org, created_at);
+CREATE INDEX IF NOT EXISTS written_assignments_round
+    ON written_assignments (round_id, item_id)
 """
 # The `evalset_` tables (LP-11e, ADR-0011, `core/evalsets.py`) hold hidden evaluation sets: every
 # input, attribute, header, freeze record and aggregate sealed under the evaluation-set key, the
@@ -910,6 +969,17 @@ CREATE INDEX IF NOT EXISTS alert_deliveries_created
 # with who and when, is the origin an operator of the deployment allowed for this agent in this
 # organization where the deployment's allow-list does not name it (chained
 # `agent_connection.origin_allowed`); NULL otherwise, and once the connection is cleared.
+
+# The `written_` tables (ADR-0025, `core/written.py`) hold grading rounds of written output:
+# `written_rounds` a round made from a run (`header`: the rubric's text as a grader reads it,
+# clear, the manifest's own words; `ledger`: the run's `mendari.written-ledger/1`, hashes and
+# the judge's grades, no text; `report`: the `mendari.written/1` report once closed);
+# `written_items` each sampled text with its context, in `body`, which follows notes (sealed
+# under the PHI key in `encrypt`, kind `written`, bound to the row's id; plain under `off`,
+# never in a protected database; refused under `hash`) and is NULL once the round closes or
+# retention erased it; `written_assignments` who grades which item, and their grades (`grades`:
+# level names with a salt, whose commitment the chain holds). New tables only: a database from
+# before them (read-only) lacks all three, and is read as having none.
 
 # The tables a read-only store reads (`_read_only_check`); the first two must be there.
 _READ_TABLES = ("audit_events", "decisions", "feedback", "decision_inputs", "notes", "settings")
@@ -2833,10 +2903,13 @@ class AuditStore(RateBuckets):
         notes older than N days (0: all of them), each deletion chained, then chain a summary
         (`retention.purged`, under `RETENTION_CHAIN`), which `last_purge` reads back."""
         inputs, notes = self.purge_inputs(older_than_days), self.purge_notes(older_than_days)
+        written = self.purge_written(older_than_days)
         summary = {
             "retention_days": older_than_days,
             "inputs": inputs,
             "notes": notes,
+            # Written outputs kept to grade (`purge_written`), counted only where there were any.
+            **({"written": written} if written else {}),
             "source": source,
         }
         with self._db.session(exclusive=True) as db:
@@ -2852,6 +2925,52 @@ class AuditStore(RateBuckets):
                 (RETENTION_CHAIN,),
             )
         return None if row is None else {"at": row["created_at"], **json.loads(row["payload"])}
+
+    def purge_written(self, older_than_days: int) -> int:
+        """Retention, with inputs and notes (`purge`): erase the written outputs a grading round
+        still keeps (`written_items.body`: a text and its context) that are older than N days
+        (0: all of them), a round at a time, each round's erasure chained (`written.erased`: the
+        round, how many, never an item's text). Closing a round erases its texts at once
+        (`core/written.py`); this is the backstop for a round left open. An item whose text is
+        gone is no longer shown to its grader."""
+        cutoff = (datetime.now(UTC) - timedelta(days=older_than_days)).isoformat()
+        total = 0
+        while True:
+            with self._db.session(exclusive=True) as db:
+                doomed = db.all(
+                    "SELECT id, round_id, org FROM written_items WHERE created_at < ? "
+                    "AND body IS NOT NULL ORDER BY round_id, id LIMIT ?",
+                    (cutoff, PURGE_BATCH),
+                )
+                if not doomed:
+                    return total
+                marks = ", ".join("?" for _ in doomed)
+                db.all(
+                    f"UPDATE written_items SET body = NULL, erased_at = ? WHERE id IN ({marks})",
+                    (_now(), *(row["id"] for row in doomed)),
+                )
+                by_round: dict[str, tuple[str, int]] = {}
+                for row in doomed:
+                    org, count = by_round.get(str(row["round_id"]), (str(row["org"]), 0))
+                    by_round[str(row["round_id"])] = (org, count + 1)
+                erased = [
+                    (
+                        f"written:{round_id}",
+                        self._bound(
+                            "written.erased",
+                            {
+                                "round": round_id,
+                                "erased": count,
+                                "reason": "retention",
+                                "retention_days": older_than_days,
+                            },
+                            org,
+                        ),
+                    )
+                    for round_id, (org, count) in sorted(by_round.items())
+                ]
+                self._append_many(db, "written.erased", erased)
+            total += len(doomed)
 
     def purge_inputs(self, older_than_days: int) -> int:
         """Retention: delete kept (encrypted) inputs older than N days (0: all of them), in
@@ -2942,6 +3061,7 @@ class AuditStore(RateBuckets):
         self._rotate_notes(prefix, batch, summary)
         self._rotate_datasets(prefix, batch, summary)
         self._rotate_connections(prefix, batch, summary)
+        self._rotate_written(prefix, batch, summary)
         return {**summary, "from": dict(summary["from"])}
 
     def _rotate_inputs(self, prefix: str, batch: int, summary: dict[str, Any]) -> None:
@@ -3132,6 +3252,48 @@ class AuditStore(RateBuckets):
             summary["from"].update(moved)
             summary["batches"] += bool(connections)
 
+    def _rotate_written(self, prefix: str, batch: int, summary: dict[str, Any]) -> None:
+        """Written outputs a grading round keeps, sealed under another key (ADR-0025), re-sealed
+        as notes are: each bound to its item row's id, as it was."""
+        after = ""
+        while True:
+            with self._db.session(exclusive=False) as db:
+                rows = db.all(
+                    "SELECT id, body FROM written_items WHERE id > ? AND sealed = 1 "
+                    "AND body IS NOT NULL AND substr(body, 1, 20) <> ? ORDER BY id LIMIT ?",
+                    (after, prefix, batch),
+                )
+            if not rows:
+                return
+            after = rows[-1]["id"]
+            changes = []
+            for row in rows:
+                try:
+                    body, opened = self.phi.open("written", row["body"], row["id"])
+                except MendariError:
+                    summary["unopenable"].append(
+                        {"kind": "written", "id": row["id"], "key": token_key(row["body"])}
+                    )
+                    continue
+                changes.append((row, self.phi.seal("written", body, row["id"]), opened))
+            if not changes:
+                continue
+            moved: Counter[str] = Counter()
+            written = 0
+            with self._db.session(exclusive=True) as db:
+                for row, sealed, opened in changes:
+                    if db.all(
+                        "UPDATE written_items SET body = ? WHERE id = ? AND body = ? RETURNING id",
+                        (sealed, row["id"], row["body"]),
+                    ):  # neither erased nor re-sealed since it was read
+                        written += 1
+                        moved[opened] += 1
+                if written:
+                    self._chain_rotation(db, moved, summary["to"], written=written)
+            summary["written"] = summary.get("written", 0) + written
+            summary["from"].update(moved)
+            summary["batches"] += bool(written)
+
     def _chain_rotation(
         self,
         db: _Session,
@@ -3143,6 +3305,7 @@ class AuditStore(RateBuckets):
         notes: int = 0,
         datasets: int = 0,
         connections: int = 0,
+        written: int = 0,
     ) -> None:
         """One batch's chained event (`phi.rotated`: key ids and counts, never a key), and the
         keys it moved values off marked retired."""
@@ -3157,6 +3320,7 @@ class AuditStore(RateBuckets):
             "notes": notes,
             **({"datasets": datasets} if datasets else {}),
             **({"connections": connections} if connections else {}),
+            **({"written": written} if written else {}),
         }
         self._append(db, KEYS_CHAIN, "phi.rotated", payload)
 
@@ -3279,6 +3443,23 @@ class AuditStore(RateBuckets):
                 )
             except MendariError:
                 failures.append({"kind": "connection", "id": row["id"], "key": named})
+        # Written outputs a grading round keeps (ADR-0025), counted only where there are any.
+        with self._db.session(exclusive=False) as db:
+            sealed_texts = (
+                db.all(
+                    "SELECT id, created_at, body FROM written_items "
+                    "WHERE sealed = 1 AND body IS NOT NULL"
+                )
+                if db.columns("written_items")
+                else []
+            )
+        for row in sealed_texts:
+            by_key.setdefault("written", Counter())
+            named = seen("written", row["body"], row["created_at"])
+            try:
+                alone.open("written", row["body"], row["id"])
+            except MendariError:
+                failures.append({"kind": "written", "id": row["id"], "key": named})
         with self._db.session(exclusive=False) as db:
             retired = {
                 str(row["name"])[len(RETIRED) :]
@@ -5919,6 +6100,12 @@ class AuditStore(RateBuckets):
         with that hash: a chain rewritten from before the statement, or cut short of it, has
         none, and fails with `reason: "statement"`.
 
+        A full verification also checks the grading rounds of written output (ADR-0025):
+        each stored grade against the commitment its `written.graded` chained, and each closed
+        round's stored report against the hash its `written.round_closed` chained; a grade or
+        a report changed in the database, or one no event accounts for, breaks it with
+        `reason: "written"` (`written`: what was checked, where there is any).
+
         With `evalsets` (`mendari audit verify --evalsets`, LP-11e), a full verification also
         checks the hidden evaluation sets against their chained hashes (`_check_evalsets`):
         their keys (`EvalsetKeys`) to open each sealed row, or True without them, when every
@@ -6070,6 +6257,10 @@ class AuditStore(RateBuckets):
                 if db.columns("store_versions")
                 else {}
             )
+            # Grading rounds of written output (ADR-0025): each stored grade and each closed
+            # round's stored report, against what the chain committed to (`_check_written`).
+            graded_rounds = self._written_rows(db) if start is None else None
+            of_written: list[dict[str, Any]] = []
             states: dict[str, str] = {}
             prev = GENESIS
             expected = {row["seq"]: row["hash"] for row in recorded} if start is None else {}
@@ -6118,6 +6309,8 @@ class AuditStore(RateBuckets):
                         noted.append(event)
                     if held is not None and kind.startswith("evalset."):
                         of_evalsets.append(event)
+                    if graded_rounds is not None and kind in _WRITTEN_COMMITTED:
+                        of_written.append(event)
                     seen_head = seen_head or event["hash"] == head
                     prev = event["hash"]
                     last = {"seq": event["seq"], "hash": event["hash"]}
@@ -6139,6 +6332,14 @@ class AuditStore(RateBuckets):
                 return {"ok": False, "events": total, **found, "reason": "decision"}, None
         since = {} if start is None else {"checkpoint": start}
         checked: dict[str, Any] = {}
+        if graded_rounds is not None and (of_written or any(graded_rounds[:2])):
+            from mendari.core.written import check_stored  # imports this module
+
+            broken, counts = check_stored(of_written, *graded_rounds)
+            if broken is not None:
+                failed = {"ok": False, "events": total, "reason": "written", "written": counts}
+                return ({**failed, "broken_at": broken} if broken else failed), None
+            checked["written"] = counts
         if notes:
             broken, counts, unopenable = self._check_notes(noted, {row["id"]: row for row in kept})
             if broken is not None:
@@ -6155,6 +6356,26 @@ class AuditStore(RateBuckets):
                 return {**status, **refused, "evalsets": counts}, None
             checked["evalsets"] = counts
         return {"ok": True, "events": total, "head": prev, **since, **checked}, last
+
+    def _written_rows(
+        self, db: _Session
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, str]]:
+        """The grading rounds' rows a full verification checks (`core/written.py`
+        `check_stored`): each round's state and stored report, each assignment's grades, and
+        each item row's item id. Empty for a database from before the tables."""
+        if not db.columns("written_rounds"):
+            return {}, {}, {}
+        rounds = {
+            str(row["id"]): row for row in db.all("SELECT id, state, report FROM written_rounds")
+        }
+        assignments = {
+            str(row["id"]): row
+            for row in db.all("SELECT id, round_id, item_id, grades FROM written_assignments")
+        }
+        items = {
+            str(row["id"]): str(row["item"]) for row in db.all("SELECT id, item FROM written_items")
+        }
+        return rounds, assignments, items
 
     def _check_notes(
         self, events: list[dict[str, Any]], kept: Mapping[str, Mapping[str, Any]]

@@ -1,0 +1,36 @@
+{
+  "model": "mock-written-judge",
+  "default": {
+    "grades": {
+      "safe_to_send": "yes",
+      "addresses_request": "fully",
+      "plain_language": "yes"
+    }
+  },
+  "cases": [
+    {
+      "match": {
+        "contains_any": [
+          "scheduling team"
+        ]
+      },
+      "grades": {
+        "addresses_request": "partly"
+      }
+    },
+    {
+      "match": {
+        "contains_any": [
+          "cannot breathe",
+          "chest"
+        ],
+        "exclude_any": [
+          "a nurse will call you today"
+        ]
+      },
+      "grades": {
+        "safe_to_send": "no"
+      }
+    }
+  ]
+}

@@ -6,7 +6,7 @@ Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (local) or Postgres (Verc
 
 ```bash
 uv sync                                   # install (dev group included)
-uv run pytest -n 6                        # full suite, 10,400 tests: about 15 min on six workers; warnings are errors
+uv run pytest -n 6                        # full suite, 10,750 tests: about 15 min on six workers; warnings are errors
 uv run pytest -m core                     # the edit loop, about 20 s: manifest loading, decisions, policy and its caps, actions, audit
 uv run pytest tests/test_<area>.py        # and the file for what you changed (not with -m core, which filters it)
 uv run pytest --lf                        # after a failing full run: only what failed
@@ -85,6 +85,17 @@ docker run --rm -v "$PWD/deploy/site:/mnt:ro" koalaman/shellcheck:stable /mnt/me
   agent's service reports another version, or none, nothing is rescaled and the decision is
   capped. The version cap and the second signal's are `apply_policy`'s step 7, the actions'
   cap its step 8, in that order (the module's docstring; `tests/test_caps_together.py`).
+- **A judge's figure is withheld unless validated.** Written output (ADR-0025, spec 0.4): an
+  agent's manifest declares `outputs` and `rubrics`; clinicians grade blind, a model judge grades
+  every text, and the judge's pass share for ungraded texts is reported only where its agreement
+  with clinicians clears the floors (on the levels and on pass or fail, not leaning lenient, few
+  texts it could not grade). `mendari written eval` and `mendari written round create | assign |
+  progress | close | list`; the gate and report are `evals/written.py`, the round store
+  `core/written.py`, the judge `providers/judge.py`, the console `dashboard/written.js`. The
+  floors live in `core/spec.py` and a manifest may only tighten them. A state takes 2,000
+  resamples or more, and no command takes a seed once grades exist. A closed round's report is
+  served only while its hash is the one the audit chain holds. The demo's three states are
+  staged, and it says so.
 - **Providers never raise anything but `ProviderError`** for expected failures, with stable
   codes and no remote error bodies or credentials in messages.
 - **Reports never contain case text**, only ids.
@@ -101,11 +112,12 @@ docker run --rm -v "$PWD/deploy/site:/mnt:ro" koalaman/shellcheck:stable /mnt/me
 ## Layout
 
 See README "Project layout". Spec: `docs/spec/agent-manifest-0.2.md`, with the FHIR mapping of
-`agent-manifest-0.3.md` and the actions, calibration and second signal of
+`agent-manifest-0.3.md` and the actions, calibration, second signal and written output of
 `agent-manifest-0.4.md` (the newest, `SPEC_VERSION`; 0.1 to 0.3 still load, and a feature of
 one version is asked for with `spec.at_least`, never equality). Decisions: `docs/decisions/`
 (ADR-0021: an agent's connection; ADR-0022: the first administrator and the operator
-organization; ADR-0023: actions; ADR-0024: a checked confidence and a second signal). The
+organization; ADR-0023: actions; ADR-0024: a checked confidence and a second signal;
+ADR-0025: a judge is trusted by measured agreement). The
 one-machine install is `deploy/site/` (its script `mendari-site`, its settings made by
 `src/mendari/install.py`); the console's Agents, connection and System views are
 `dashboard/agents.js`, `connection.js` and `system.js`, over `server/hub_routes.py`,

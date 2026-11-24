@@ -1297,6 +1297,7 @@ ol.rules p { margin: var(--space-1) 0; }
   .nav a[data-view="system"],
   .nav a[data-view="evalsets"],
   .nav a[data-view="labelling"],
+  .nav a[data-view="written"],
   .nav a[data-view="registry-review"],
   .nav a[data-view="store"],
   .nav a.external { order: 9; }

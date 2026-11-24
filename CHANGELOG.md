@@ -34,6 +34,36 @@ The first release (not yet published).
   - `mendari demo` runs the agent the release bundles, also where a copy pulled from a
     registry is in the cache: the copy comes first on the search path and automates nothing
     until an organization approves it, so the demo showed every message waiting for a person.
+- **Written output: clinician rubrics, and a judge whose agreement is measured** (2026-11-24,
+  spec 0.4, [ADR-0025](docs/decisions/ADR-0025-a-judge-is-trusted-by-measured-agreement.md)).
+  A manifest declares what an agent writes (`outputs:`) and how it is graded (`rubrics:`:
+  yes/no and scored criteria, each with instructions and an anchor for every level). Clinicians
+  grade a sample blind, a model judge grades every text in the same words, and the report
+  gives, per criterion, the judge's weighted kappa with clinicians beside clinician with
+  clinician, and one of three states: validated, not validated, insufficient evidence. The
+  judge's grades for the texts no clinician graded are reported only where the criterion is
+  validated; below the floors they are withheld, not shown with a caveat. To be validated a
+  judge must also agree with clinicians on pass or fail, not lean lenient (an exact McNemar
+  test), and have graded all but 5% of the outputs; a state is decided on 2,000 resamples or
+  more, with a seed nobody chooses afterwards
+  ([Evaluating written output](docs/guides/written-output.md)). With it:
+  - `mendari written eval` runs an agent on a dataset and reports it, with clinicians' grades
+    from a file; `mendari written round create | assign | progress | close | list` runs a
+    grading round in a server's database;
+  - the agent contract carries `outputs` in a request and in a response, the agent kit asks
+    and answers them, and `POST …/decide` returns what was written without keeping it;
+  - in memberships mode under PHI mode `encrypt`, four routes under `/api/written`: a grader's
+    counts, next text and grades (the `labeller` role), and the rounds with each closed one's
+    report. The console's labelling screen grades written output, and the Evaluations view
+    shows the rounds of an agent that declares a rubric;
+  - three tables (`written_rounds`, `written_items`, `written_assignments`) and six audit
+    events (`written.*`); no existing table changes. A round's texts are sealed under the PHI
+    key, re-sealed by a key rotation, erased by retention and erased when the round closes.
+    A closed round's report is served only while it is the one the audit trail committed to,
+    and `mendari audit verify` checks every closed round's report and every stored grade;
+  - the Decision Card and the committee packet say what an agent writes and how it is graded;
+  - the demo agent is 0.3.0: it writes the text of its acknowledgement, with a rubric, a canned
+    judge and simulated graders, each marked as such. `mendari demo` gains a sixth section.
 - **A confidence that was checked, and a second signal** (2026-11-24, spec 0.4,
   [ADR-0024](docs/decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md)).
   `mendari calibrate` fits an external agent's confidence on labelled cases (an `agent`

@@ -27,7 +27,10 @@
         ],
         "actions": [
           {"name": "assign_queue", "arguments": {"queue": "refill"}}
-        ]
+        ],
+        "outputs": {
+          "acknowledgement": "Thank you for your message. We have received it. Because of the symptoms you describe, a nurse will call you today. If they get worse, call 911 or go to the nearest emergency department."
+        }
       }
     },
     {
@@ -53,7 +56,10 @@
         ],
         "actions": [
           {"name": "assign_queue", "arguments": {"queue": "front_desk"}}
-        ]
+        ],
+        "outputs": {
+          "acknowledgement": "Thank you for your message. We have received it. Because of the symptoms you describe, a nurse will call you today. If they get worse, call 911 or go to the nearest emergency department."
+        }
       }
     },
     {
@@ -78,7 +84,10 @@
         ],
         "actions": [
           {"name": "assign_queue", "arguments": {"queue": "refill"}}
-        ]
+        ],
+        "outputs": {
+          "acknowledgement": "Thank you for your message. We have received your refill request. The pharmacy team will review it, and you will hear back within two business days."
+        }
       }
     },
     {
@@ -103,7 +112,10 @@
         ],
         "actions": [
           {"name": "assign_queue", "arguments": {"queue": "scheduling"}}
-        ]
+        ],
+        "outputs": {
+          "acknowledgement": "Thank you for your message. We have received it, and the scheduling team will be in touch about your appointment."
+        }
       }
     }
   ],
@@ -126,6 +138,9 @@
     "actions": [
       {"name": "assign_queue", "arguments": {"queue": "front_desk"}},
       {"name": "send_acknowledgement", "arguments": {"template": "received"}}
-    ]
+    ],
+    "outputs": {
+      "acknowledgement": "Thank you for your message. We have received it. The front desk will read it and reply within two business days."
+    }
   }
 }

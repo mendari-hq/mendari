@@ -64,6 +64,7 @@ nav:
       - Calibration and a second signal: guides/calibration-and-a-second-signal.md
       - Choosing an automation threshold: guides/choosing-a-threshold.md
       - Governing actions: guides/governing-actions.md
+      - Evaluating written output: guides/written-output.md
       - Evaluating an agent on every change: guides/evaluate-in-ci.md
       - Publishing an agent's evaluations: guides/publishing-evaluations.md
       - Contributing an agent: guides/contributing-an-agent.md
@@ -84,7 +85,7 @@ nav:
       - Agent store: operations/agent-store.md
       - Incident runbook: operations/incident-runbook.md
   - Reference:
-      - Agent manifest spec 0.4 (actions, calibration, a second signal): spec/agent-manifest-0.4.md
+      - Agent manifest spec 0.4 (actions, calibration, a second signal, written output): spec/agent-manifest-0.4.md
       - Agent manifest spec 0.3 (FHIR mapping): spec/agent-manifest-0.3.md
       - Agent manifest spec 0.2: spec/agent-manifest-0.2.md
       - Evaluation reports and ledgers: spec/evaluation-reports.md
@@ -121,5 +122,6 @@ nav:
       - "ADR-0022: The first administrator and the operator organization": decisions/ADR-0022-the-first-administrator-and-the-operator-organization.md
       - "ADR-0023: An agent proposes actions, the runtime releases them": decisions/ADR-0023-an-agent-proposes-actions.md
       - "ADR-0024: A checked confidence, and a second signal that only lowers automation": decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md
+      - "ADR-0025: A judge of written output is trusted by its measured agreement": decisions/ADR-0025-a-judge-is-trusted-by-measured-agreement.md
   - Project:
       - Roadmap: roadmap.md

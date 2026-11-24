@@ -242,6 +242,20 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     ),
     "evalset retire": ([SET_ID, "--db", "{not_db}"], {}),
     "evalset show": ([SET_ID, "--db", "{missing_db}"], {}),
+    # Written output (wave 5): an agent with no rubric has none to grade against.
+    "written eval": (["mendari/ai-guard", "--rubric", "tone", "--dataset", "test"], {}),
+    # Its grading rounds: each reads a missing database or one that is not one.
+    "written round create": (
+        [
+            *("mendari/ai-guard", "--rubric", "tone", "--dataset", "test"),
+            *("--org", "a", "--sample", "5", "--db", "{not_db}"),
+        ],
+        {},
+    ),
+    "written round assign": ([SET_ID, "--grader", "user:0123456789abcdef", "--db", "{not_db}"], {}),
+    "written round progress": ([SET_ID, "--db", "{missing_db}"], {}),
+    "written round close": ([SET_ID, "--db", "{not_db}"], {}),
+    "written round list": (["--db", "{missing_db}"], {}),
     # The agent store (LP-20e, LP-20f): each reads a missing database or one that is not one.
     "store versions": (["--org", "a", "--db", "{missing_db}"], {}),
     "store verify": (["--db", "{not_db}"], {}),

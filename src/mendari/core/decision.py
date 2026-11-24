@@ -142,6 +142,10 @@ class DecisionResult:
     # agent changed since its confidence was calibrated, a second signal disagreed), with what
     # an evaluation counts from. In memory only, like `rejected`: the reasons say it in the record.
     signals: Signals = field(default_factory=Signals, compare=False, repr=False)
+    # What the agent wrote with its answers (spec 0.4 section 17), by the output's name. In
+    # memory only, like `rejected`: not in `to_dict` or `to_record`, so the audit record keeps
+    # its shape and no stored record holds a written text. The caller's answer carries it.
+    outputs: Mapping[str, str] = field(default_factory=dict, compare=False, repr=False)
 
     @property
     def abstained_unreadable(self) -> bool:
@@ -699,6 +703,7 @@ class Decision:
         canned: str | None = None  # why an answer is canned (`ProviderOutput.canned`), if one is
         policy_inputs: PolicyInputs | None = None  # what the policy decides from, when it does
         proposed: list[Proposed] = []  # the actions the agent asks for (spec 0.4), in order
+        written: dict[str, str] = {}  # what the agent wrote (spec 0.4), by the output's name
         checked: list[Checked] = []  # each held against the manifest, once the providers answered
         vouched = True
         signals = Signals()  # what its providers found that can only lower automation
@@ -796,6 +801,7 @@ class Decision:
                             failures.update(output.failures)
                             canned = canned or output.canned
                             proposed.extend(output.actions)
+                            written.update(output.outputs)
                             signals = signals.merge(output.signals)
                             tokens_in += output.input_tokens
                             tokens_out += output.output_tokens
@@ -892,6 +898,7 @@ class Decision:
             policy_inputs=policy_inputs,
             actions=acted,
             signals=signals,
+            outputs=written,
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)

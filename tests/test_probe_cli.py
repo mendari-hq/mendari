@@ -388,13 +388,15 @@ def test_the_bundled_demo_agent_is_probed_as_canned_answers(
 def test_the_demo_probes_its_agent_and_says_whose_answers_those_are(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """`mendari demo` ends by probing the demo agent, and is plain about what that shows: its
-    answers are a fixture's, read on this machine, and so are the failures."""
+    """`mendari demo` probes the demo agent, and is plain about what that shows: its answers
+    are a fixture's, read on this machine, and so are the failures."""
     assert main(["demo"]) == 0
     out = capsys.readouterr().out
     before, _, rest = out.partition("\n== 5. Find the failures nobody wrote down ")
     assert "== 4. Before going live: evaluate the agent " in before and rest
-    section, _, closing = rest.partition("\n== What next ")
+    section, _, after = rest.partition("\n== 6. What the agent wrote ")
+    _, _, closing = after.partition("\n== What next ")
+    assert after and closing
     lines = section.splitlines()[1:]
     # What a variant is, in a sentence; then the probe's own report, from its second line.
     assert " ".join(lines[:2]) == (

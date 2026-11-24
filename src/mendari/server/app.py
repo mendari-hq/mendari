@@ -71,6 +71,7 @@ from mendari.core.phi import phi_policy, require_protection
 from mendari.core.policy import GATE_TEXT, GovernanceOverride, gate_of
 from mendari.core.registry import SearchPath, discover, version_key
 from mendari.core.site_codes import site_codes
+from mendari.core.written import WrittenStore
 from mendari.errors import (
     AuthError,
     CdsHooksError,
@@ -515,6 +516,59 @@ class LabelRecorded(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     remaining: int = Field(description="your cases still waiting")
+
+
+# A grader's routes over written output (ADR-0025): closed answers, as a labeller's are, so a
+# judge's grade or another grader's added to what the store returns fails the answer rather
+# than reaching a grader. A grader sends a `LabelRequest` and is answered a `LabelRecorded`.
+class WrittenText(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(description="the output's name, as the agent's manifest declares it")
+    description: str = Field(description="what the text is, in the manifest's words")
+    text: str = Field(description="the text to grade, as the agent wrote it")
+
+
+class CriterionGuidance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    instructions: str = Field(description="what the criterion asks")
+    display: str | None = Field(description="its name as a person reads it, if it has one")
+    levels: dict[str, str] = Field(description="each level, with what it means")
+
+
+class WrittenCase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    assignment: str = Field(description="what to send your grades to")
+    questions: dict[str, list[str]] = Field(description="each criterion, with its levels")
+    guidance: dict[str, CriterionGuidance] = Field(description="each criterion's own words")
+    written: WrittenText
+    input: Any = Field(description="what the agent was given: the fields the rubric names")
+
+
+class WrittenRound(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    pack_id: str = Field(title="Agent id")
+    pack_digest: str = Field(title="Agent digest")
+    rubric: str
+    rubric_sha256: str = Field(description="the rubric's wording its grades are bound to")
+    state: Literal["open", "closing", "closed"]
+    created_at: str
+    closed_at: str | None
+    items: int = Field(description="the outputs kept to grade")
+    graded: int = Field(description="grades given so far")
+    open: int = Field(description="assignments still waiting for their grader")
+    note: str | None = Field(
+        description="what its state needs said: a round left closing, with how to finish it; "
+        "or that its stored report does not match the audit trail, and is not shown"
+    )
+    report: dict[str, Any] | None = Field(
+        description="the round's report (`mendari.written/1`), once it is closed and while it "
+        "is the one the audit trail committed to; null otherwise"
+    )
 
 
 # An organization's curators' routes over its hidden evaluation sets (LP-11k): what they send,
@@ -2060,11 +2114,15 @@ def create_app(
 
         The answer is complete, with each answer's `evidence`; the audit record keeps it only as
         the PHI mode allows (`GET /api/audit/{id}`). `input_hash` is `hmac-sha256:<key id>:<hex>`
-        where the deployment has an input hash key (always with PHI), else `sha256:<hex>`."""
+        where the deployment has an input hash key (always with PHI), else `sha256:<hex>`.
+
+        An agent whose manifest declares written outputs (spec 0.4) answers with `outputs` too:
+        what it wrote, by name. They are returned here and are not kept with the decision."""
         decided = decision_for(f"{namespace}/{name}").decide(
             payload, shadow=_is_shadow(request, shadow)
         )
-        return {**decided.to_dict(), **NOTICE}
+        written = {"outputs": dict(decided.outputs)} if decided.outputs else {}
+        return {**decided.to_dict(), **written, **NOTICE}
 
     @paths.route(
         app.post,
@@ -4161,6 +4219,12 @@ def create_app(
             add_evalset_routes(app, auth, hidden)
         add_grading_routes(app, auth, hidden, grading_decision)
 
+    # Written output (ADR-0025): a grader's routes and the rounds' reports. Memberships mode
+    # (graders are members holding `labeller`) under PHI mode `encrypt` (a round's texts are
+    # sealed under the PHI key; `hash` keeps none, and sign-in never runs `off`).
+    if auth.memberships and phi.mode == "encrypt":
+        add_written_routes(app, auth, WrittenStore(store))
+
     # The status page (LP-21b): public and static, the same for everyone; it reads readiness
     # (`/api/health/ready`) in the browser, so serving it does no database work. Its own policy
     # allows its inline scripts (the theme, the import map) and no inline style.
@@ -4281,6 +4345,112 @@ def add_labelling_routes(app: FastAPI, auth: Auth, hidden: EvalsetStore) -> None
         set_id = hidden.assignment_set(assignment_id, user, org=org)
         log_event(request, "evalset.labelled", ids=[set_id] if set_id else None)
         return LabelRecorded.model_validate(recorded)
+
+
+def add_written_routes(app: FastAPI, auth: Auth, rounds: WrittenStore) -> None:
+    """A grader's routes over written output, and the rounds' reports (ADR-0025). Mounted only
+    in memberships mode under PHI mode `encrypt` (`create_app`). The guard lets through to a
+    grader's routes only a person whose membership holds the `labeller` role (`label`: never a
+    key, a token, an EHR launch, an administrator or open mode), and each route acts for that
+    person and the organization they act for, never one a body, a query or a path names; the
+    store refuses anyone who also manages the organization's sets. Not gated by the notice, as
+    a labeller's are not. The security log names round ids only; the access line names the
+    route's template, never an assignment's id."""
+
+    def grader(request: Request) -> tuple[str, str]:
+        """The person the guard let through (their user id), and the organization they act
+        for."""
+        principal = auth.acting(request)
+        if principal.kind != "user":  # the guard lets people only through: fail closed
+            raise AuthError("only a person who signed in may do this", 403)
+        return principal.id, org_of(principal)
+
+    @app.get(
+        "/api/written/labelling", tags=["Written output"], summary="Your grading, round by round"
+    )
+    def written_labelling(request: Request) -> LabellingCounts:
+        """Your items in each grading round of written output for this organization: how many
+        wait (`open`) and how many you graded (`labelled`), by the round's id (`set`); and how
+        many wait in all (`remaining`). Counts only: no text is opened, and nothing is
+        recorded."""
+        user, org = grader(request)
+        return LabellingCounts.model_validate(rounds.labelling(user, org=org))
+
+    @app.get(
+        "/api/written/labelling/next",
+        tags=["Written output"],
+        summary="Your next text to grade",
+        response_model=WrittenCase,
+        responses={204: {"description": "Nothing waits for you"}},
+    )
+    def written_next(request: Request) -> Response | WrittenCase:
+        """Your oldest open item, in a round still being graded: the text an agent wrote
+        (`written`), what it was given (`input`: the fields the rubric names, nothing else of
+        the case), and the rubric: each criterion's levels (`questions`) and its own words
+        (`guidance`). Nothing else: no judge's grade, no one else's grade, none of the agent's
+        answers. Each time it is shown, the audit chain records that you read it
+        (`written.item_read`) before it is sent. `204` when nothing waits for you. Answer it
+        with `POST /api/written/labelling/{assignment}`."""
+        user, org = grader(request)
+        shown = rounds.next_item(user, org=org)
+        if shown is None:
+            return Response(status_code=204)
+        round_id = rounds.assignment_round(str(shown["assignment"]), user, org=org)
+        log_event(request, "written.item.read", ids=[round_id] if round_id else None)
+        return WrittenCase.model_validate(shown)
+
+    @app.post(
+        "/api/written/labelling/{assignment_id}",
+        tags=["Written output"],
+        summary="Grade your text",
+    )
+    def written_grade(request: Request, assignment_id: str, body: LabelRequest) -> LabelRecorded:
+        """Your grades of the text `GET /api/written/labelling/next` gave you (its
+        `assignment`), as `labels`: every criterion of the rubric, each with one of its levels.
+        One answer per item, never changed; the audit chain records a salted commitment to it
+        (`written.graded`), never a grade. The answer is how many of your items still wait,
+        never how yours compares with anyone's or with a judge's. An assignment that is unknown,
+        someone else's, another organization's or no longer open (graded, withdrawn, or in a
+        round that closed) is one answer: `404`. Grades that do not answer each criterion with
+        one of its levels are a `422` naming the criterion, never the value."""
+        user, org = grader(request)
+        try:
+            recorded = rounds.record_grades(assignment_id, user, body.labels, org=org)
+        except NoAssignment:
+            log_event(request, "written.graded", outcome="refused", reason="no_assignment")
+            raise
+        round_id = rounds.assignment_round(assignment_id, user, org=org)
+        log_event(request, "written.graded", ids=[round_id] if round_id else None)
+        return LabelRecorded.model_validate(recorded)
+
+    @app.get(
+        "/api/written/rounds",
+        tags=["Written output"],
+        summary="Your organization's grading rounds, and each closed one's report",
+    )
+    def written_rounds(
+        request: Request,
+        pack_id: Annotated[
+            str | None, Query(max_length=200, title="Agent id", description="only this agent's")
+        ] = None,
+    ) -> list[WrittenRound]:
+        """The grading rounds of written output of the organization you act for, oldest
+        first: each one's agent, rubric and state, how many items it holds, how many grades
+        were given and how many assignments still wait; and, once it is closed, its report
+        (`mendari.written/1`): per criterion, the judge's agreement with clinicians beside
+        clinician with clinician, the state (validated, not validated, insufficient evidence),
+        and the judge's grades for ungraded outputs only where validated. While a round is
+        open there is no report: nothing compares anyone before it closes. A stored report is
+        served only while its hash is the one the round's closing recorded in the audit trail;
+        otherwise `report` is null and `note` says so. Counts, coefficients, hashes and
+        graders' user ids: never a text or a single grade."""
+        org = org_of(auth.acting(request))
+        return [
+            WrittenRound.model_validate(
+                {key: value for key, value in found.items() if key not in ("org", "created_by")}
+            )
+            for found in rounds.rounds(org, pack_id)
+        ]
 
 
 def add_evalset_routes(app: FastAPI, auth: Auth, hidden: EvalsetStore) -> None:

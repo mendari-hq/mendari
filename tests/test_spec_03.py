@@ -253,7 +253,8 @@ def test_every_0_1_and_0_2_pack_still_loads_and_maps_identically() -> None:
             assert newer_keys(FhirAdapter.for_pack(pack, bare=True).mapping), root
             mapped += 1
             continue
-        if pack.id == "mendari-test/actions-mini":  # the 0.4 fixture (tests/test_spec_04.py)
+        # The 0.4 fixtures (tests/test_spec_04.py, tests/test_spec_04_written.py).
+        if pack.id in ("mendari-test/actions-mini", "mendari-test/written-mini"):
             assert pack.manifest.spec_version == "0.4" and pack.manifest.inputs.fhir is None
             continue
         assert pack.manifest.spec_version in ("0.1", "0.2"), root

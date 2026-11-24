@@ -232,7 +232,7 @@ def test_the_summary_the_guide_shows_is_the_one_the_action_writes(tmp_path: Path
     headings = [line for line in shown.splitlines() if line.startswith("#")]
     assert headings == [
         "## Mendari agent check: failed",
-        "### Evaluation of mendari/portal-message-agent 0.2.0 on test (600 cases)",
+        "### Evaluation of mendari/portal-message-agent 0.3.0 on test (600 cases)",
         "### Operating point",
         "### Gate failed: 2 limits not met",
     ]

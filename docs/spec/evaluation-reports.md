@@ -1200,3 +1200,81 @@ otherwise. What no ledger is kept to recompute is kept as it is: each k and n, a
 ranks, intervals, bands and tests are the owner's attestation once signed. Its signature
 (LP-17e) covers its body and its run block, so its run's number cannot change unnoticed. The
 early scoreboard, of public sets, does not show it.
+
+## Written output: `mendari.written/1`, its ledger and its grades
+
+What an evaluation of an agent's written output writes
+([agent manifest spec 0.4](agent-manifest-0.4.md), sections 16 to 20;
+[ADR-0025](../decisions/ADR-0025-a-judge-is-trusted-by-measured-agreement.md)). The reference
+implementation is `mendari.evals.written`.
+
+**The ledger, `mendari.written-ledger/1`.** Canonical JSON Lines, its id the SHA-256 of its
+bytes. Line 1 is the header: the agent (`pack`: id, version, digest), the dataset (name,
+SHA-256, size), the case-hash scheme, the rubric (its name, the SHA-256 of the rubric as a
+grader reads it, its output and each criterion's levels, scores, pass line and whether it must
+not fail), the floors, the providers, the judge (its model, whether its grades are canned, and
+the SHA-256 of its prompt) and the models. Then one line a case, in the dataset's order:
+
+```json
+{"c": "<case hash>", "i": "<item id or null>", "n": "none | refused | error | null",
+ "j": {"<criterion>": ["<level>", 0.93]}, "e": {"<criterion>": "<error code>"},
+ "m": [0, 1], "u": [null, 0, 0]}
+```
+
+`i` is the item's id: an HMAC-SHA256, under the dataset's case key, of the case's id, the
+output's name and the exact text, cut to 128 bits. `n` says why a case has no output. `j` holds
+the judge's grade and its confidence for each criterion it graded, `e` the code of each it
+could not. `m` is the agent's and the judge's model, as indices into the header's `models`; `u`
+is the judge's cost and tokens. No text, no context and no case id is in a ledger.
+
+**Grades, `mendari.written-grades/1`.** JSON Lines. Line 1:
+`{"format", "rubric": {"name", "sha256"}, "dataset": {"name", "sha256"}}`, with
+`"simulated": true` when the graders are no clinicians (a demonstration's). Then one line for
+each item and grader: `{"item", "grader", "grades": {"<criterion>": "<level>"}}`. A grader's id
+matches `^[A-Za-z0-9][A-Za-z0-9._:@-]{0,99}$`; every criterion is graded with one of its
+levels; an item and grader appear once. A problem names the file and the line, never a value.
+
+**The report, `mendari.written/1`.** Computed from the ledger, the grades and the seeds alone,
+so a second run gives the same bytes; `result_sha256` covers everything but `run`.
+
+| Key | Holds |
+|---|---|
+| `pack`, `dataset`, `providers` | as the ledger's header |
+| `rubric` | its name, SHA-256 and output |
+| `ledger` | the ledger's id and how many cases it holds |
+| `judge` | its model, `canned`, `prompt_sha256`, and `same_model_as_agent` |
+| `seeds` | the bootstrap's seed, its resamples and the level (0.95) |
+| `floors` | `agreement`, `must_pass_recall`, `max_judge_errors`, `min_paired`, `min_each_side`: the five the report was decided on |
+| `cases` | `n`; `with_output`; `no_output` by reason; `judged`; `judge_errors` by code; `graded`; `graded_twice`; `stale_grades` (grades of a text the run did not produce: counted, never used) |
+| `graders` | each grader's id, with how many grades they gave |
+| `simulated_graders` | whether the grades file says its graders are simulated |
+| `criteria` | per criterion, the block below |
+| `cost` | the judge's cost (null when a call was not priced) and tokens |
+
+Per criterion: `scale` (levels, scores, `pass_from`); `must_pass`; `clinicians` (`passing` as k
+of n with its exact interval, `levels` counted, `disputed`); `clinician_agreement` (`cases`,
+`agreement`, `kappa`); `judge_agreement`; `judge_errors` (the outputs the judge could not grade:
+`paired`, of those clinicians graded, and `ungraded`, of the rest, each `{k, n}`); `validation`
+(`state`: `validated`, `not validated` or `insufficient evidence`, with its `reasons`); `judged`
+(the judge's `passing` share and `levels` for the outputs no clinician graded, and
+`could_not_grade`, how many of them it could not: present only when the state is `validated`,
+null otherwise); and `cases` (ledger hashes of the outputs clinicians failed, of those the
+judge passed all the same, and of the disputed ones, at most 50 each).
+
+`judge_agreement`, on the outputs both graded: `cases`; `agreement`; `kappa` (weighted, over
+the levels); `pass_fail_kappa` (plain kappa on pass or fail: what a pass share is about, and
+the same as `kappa` on a yes/no criterion); `pass_fail` (the four counts); `passing` (the
+`clinicians`' pass share and the `judge`'s on those same outputs); `symmetry` (`p`, the exact
+two-sided McNemar p-value on the discordant pairs; `alpha`, 0.05; `leaning`: `lenient`,
+`strict` or null); and `failures_found` for a criterion that must not fail, where an output
+the judge could not grade counts as not found.
+
+A report is never computed on fewer than 2,000 resamples, and `seeds` states the seed and the
+resamples it was decided on. The judged share is withheld from the report, not from the
+ledger: a ledger holds each grade the judge gave, by case hash, since a result is recomputed
+from it.
+
+A `kappa` is stored as `mendari.agreement/1` stores a coefficient: its estimate and its
+interval to six places, or `not_estimable` with its reason. The gate is decided on the
+bootstrap's bound as computed and on the exact interval's, never on a stored six-place figure,
+so a bound just under a floor never rounds up to meet it.

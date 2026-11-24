@@ -638,3 +638,147 @@ def _counted_text(found: Mapping[str, Any]) -> str:
     if found.get("status") == scoreboard.TOO_FEW:
         return f"{scoreboard.TOO_FEW} ({found['n']} cases)"
     return shown(found)
+
+
+# -- written output (`mendari.written/1`, evals/written.py) ---------------------------------------
+
+# What a report made from canned grades says wherever it is shown.
+DEMONSTRATION = "demonstration only: canned grades, nothing may be concluded from them"
+# And one whose grades file says its graders are simulated.
+SIMULATED = (
+    "the graders are SIMULATED, not clinicians: where this report says clinicians, read "
+    "simulated graders, and conclude nothing from it"
+)
+_LISTED = 8  # the cases a terminal names under each heading
+
+
+def written_report_text(report: Mapping[str, Any], ids: Mapping[str, Any] | None = None) -> str:
+    """A written-output report for a terminal: each criterion's clinician figures, the two
+    agreements, the gate's state in words with its reasons, and the judged share only where the
+    criterion is validated (otherwise "withheld"). Every share is k of n with its exact
+    interval. Counts, coefficients and case hashes only; with `ids` (hash to case id, for
+    whoever holds the dataset) the cases are named by id, as `mendari compare` names them."""
+    pack, rubric, cases = report["pack"], report["rubric"], report["cases"]
+    judge, floors, seeds = report["judge"], report["floors"], report["seeds"]
+    missing = cases["no_output"]
+    lines = [
+        f"Written output: rubric {rubric['name']} of {pack['id']}@{pack['version']} "
+        f"({report['format']})",
+        f"  output {rubric['output']['name']} ({rubric['output']['source']}), dataset "
+        f"{report['dataset']['name']}",
+        f"  judge: {judge['model'] or 'no model named'}"
+        + (f" ({DEMONSTRATION})" if judge["canned"] else "")
+        + (
+            "; the same model as the agent it grades, and models favour their own text"
+            if judge["same_model_as_agent"]
+            else ""
+        ),
+        f"  {cases['n']} cases: {cases['with_output']} with an output (none written "
+        f"{missing['none']}, input refused {missing['refused']}, slot failed {missing['error']}); "
+        f"{cases['judged']} judged; {cases['graded']} graded by clinicians, "
+        f"{cases['graded_twice']} of them by two or more",
+    ]
+    if cases["judge_errors"]:
+        failed = ", ".join(f"{code} {count}" for code, count in cases["judge_errors"].items())
+        lines.append(f"  the judge could not grade: {failed} (never counted as a pass)")
+    if cases["stale_grades"]:
+        lines.append(
+            f"  {cases['stale_grades']} grades are of texts this run did not produce: stale, "
+            "counted and not used"
+        )
+    if report["graders"]:
+        graders = ", ".join(f"{grader} {count}" for grader, count in report["graders"].items())
+        lines.append(f"  graders: {graders}")
+    if report.get("simulated_graders"):
+        lines.append(f"  {SIMULATED}")
+    lines.append(
+        f"  floors: kappa's lower bound at least {floors['agreement']}; on a must-not-fail "
+        f"criterion, the failures the judge finds at least {floors['must_pass_recall']} by their "
+        f"lower bound; {floors['min_paired']} outputs graded by both, {floors['min_each_side']} "
+        "on each side of the pass line; and the judge may fail to grade at most "
+        f"{floors['max_judge_errors']} of the outputs"
+    )
+    lines.append(
+        f"  {round(seeds['level'] * 100)}% intervals; bootstrap seed {seeds['bootstrap']}, "
+        f"{seeds['resamples']} resamples"
+    )
+    for key, measured in report["criteria"].items():
+        clinicians, between = measured["clinicians"], measured["clinician_agreement"]
+        judged, validation = measured["judge_agreement"], measured["validation"]
+        kind = "must not fail; " if measured["must_pass"] else ""
+        lines.append("")
+        lines.append(f"  {key} ({kind}passes from {measured['scale']['pass_from']})")
+        lines.append(
+            f"    clinicians, passing: {shown(clinicians['passing'])}; "
+            f"{clinicians['disputed']} disputed (the less favourable grade stands)"
+        )
+        lines.append(
+            f"    clinician with clinician, {between['cases']} outputs: agree "
+            f"{shown(between['agreement'])}; kappa {_kappa_text(between['kappa'])}"
+        )
+        lines.append(
+            f"    judge with clinicians, {judged['cases']} outputs: agree "
+            f"{shown(judged['agreement'])}; kappa {_kappa_text(judged['kappa'])}"
+        )
+        # What a pass share is about: the same outputs as pass or fail.
+        symmetry, sides = judged["symmetry"], judged["pass_fail"]
+        leaning = f"; the judge leans {symmetry['leaning']}" if symmetry["leaning"] else ""
+        lines.append(
+            f"    on pass or fail: kappa {_kappa_text(judged['pass_fail_kappa'])}; clinicians "
+            f"passed {shown(judged['passing']['clinicians'])}, the judge "
+            f"{shown(judged['passing']['judge'])}; the judge alone passed "
+            f"{sides['judge_only_pass']} and alone failed {sides['judge_only_fail']} (exact "
+            f"McNemar p {symmetry['p']:.4f}){leaning}"
+        )
+        if judged["failures_found"] is not None:
+            lines.append(
+                f"    failures the judge found, of those clinicians found: "
+                f"{shown(judged['failures_found'])}"
+            )
+        could_not = measured["judge_errors"]
+        if could_not["paired"]["k"] or could_not["ungraded"]["k"]:
+            lines.append(
+                f"    the judge could not grade {could_not['paired']['k']} of the "
+                f"{could_not['paired']['n']} outputs clinicians graded, and "
+                f"{could_not['ungraded']['k']} of the {could_not['ungraded']['n']} others "
+                "(never a pass, and on a must-not-fail criterion never a failure found)"
+            )
+        lines.append(f"    the judge on this criterion: {validation['state']}")
+        lines.extend(f"      - {reason}" for reason in validation["reasons"])
+        if measured["judged"] is None:
+            lines.append("    judged, outputs no clinician graded: withheld")
+        else:
+            lines.append(
+                "    judged, outputs no clinician graded, passing: "
+                f"{shown(measured['judged']['passing'])}; it could not grade "
+                f"{measured['judged']['could_not_grade']} more (its interval covers sampling "
+                "only; the agreement above says how far to trust it)"
+            )
+        for heading, name in (
+            ("failed by clinicians", "failed_by_clinicians"),
+            ("failed by clinicians, passed by the judge", "judge_missed"),
+            ("disputed", "disputed"),
+        ):
+            listed = measured["cases"][name]
+            if listed:
+                named = [str((ids or {}).get(case, case)) for case in listed[:_LISTED]]
+                more = f" (and {len(listed) - _LISTED} more)" if len(listed) > _LISTED else ""
+                lines.append(f"    {heading}: {', '.join(named)}{more}")
+    cost = report["cost"]["judge_usd"]
+    lines.append("")
+    lines.append(
+        "  judge cost: "
+        + ("not priced" if cost is None else f"${cost:.4f}")
+        + f" ({report['cost']['input_tokens']} input tokens, "
+        f"{report['cost']['output_tokens']} output tokens)"
+    )
+    return "\n".join(lines)
+
+
+def _kappa_text(measured: Mapping[str, Any]) -> str:
+    if measured.get("estimate") is None:
+        return f"not estimable ({measured.get('reason')})"
+    interval = measured["interval"]
+    if interval["status"] != "ok":
+        return f"{measured['estimate']:.3f}, interval not estimable ({interval['reason']})"
+    return f"{measured['estimate']:.3f} ({interval['low']:.3f} to {interval['high']:.3f})"

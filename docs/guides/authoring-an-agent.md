@@ -264,6 +264,10 @@ the commands to run it, point Mendari at it and deploy it:
 | [`examples/langgraph-agent`](https://github.com/mendari-hq/mendari/tree/main/examples/langgraph-agent) | Your agent is a workflow of steps: a LangGraph `StateGraph` whose nodes are marked where a model call goes. |
 | [`examples/claude-agent`](https://github.com/mendari-hq/mendari/tree/main/examples/claude-agent) | You want a model-backed agent now: Claude with structured output, its cost and usage reported. |
 
+An agent that also writes (a draft reply, a summary) declares the text as an output and a
+rubric to grade it by, and returns it with its answers:
+[Evaluating written output](written-output.md).
+
 ## 7. Run it offline
 
 While no live agent is set, an `agent` variant with a `mock_file` answers from it, so the

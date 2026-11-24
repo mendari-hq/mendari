@@ -54,6 +54,14 @@ TAGS = [
         "questions, never another label, the case's attributes or a model's output.",
     },
     {
+        "name": "Written output",
+        "description": "What an agent wrote, graded blind against its rubric (memberships mode): "
+        "a grader's next text, their grades and their own counts; and, for anyone who may read, "
+        "each grading round's state and, once it is closed, its report. A grader sees the text, "
+        "the context the rubric names and the rubric's own words, never a judge's grade or "
+        "another grader's. A report holds counts, coefficients and hashes, never a text.",
+    },
+    {
         "name": "Evaluation sets",
         "description": "Hidden evaluation sets, managed by the organization's administrators "
         "(memberships mode): its sets listed and read (state, labelling progress by user id, "

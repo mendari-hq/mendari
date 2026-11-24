@@ -126,7 +126,7 @@ class PhiPolicy:
     def seal(self, kind: Sealed, value: Any, *ids: str) -> str:
         """Seal one value of a kind (`input` and `details`: a decision's id; `note`: the note's
         id, then its decision's; `dataset`: its id; `connection`: its row's id, its
-        organization and its agent) under the current key."""
+        organization and its agent; `written`: its item row's id) under the current key."""
         return self._seal(_aad(kind, ids), value)
 
     def open(self, kind: Sealed, token: str, *ids: str) -> tuple[Any, str]:
@@ -190,6 +190,8 @@ DATASET_AAD = b"mendari-store-dataset-v1\x00"
 # An agent's connection token (ADR-0021): its row's id, its organization and its agent after
 # this, NUL-separated, so a token never opens for another row, organization or agent.
 CONNECTION_AAD = b"mendari-agent-connection-v1\x00"
+# A written output to grade, with its context (`core/written.py`): its item row's id after this.
+WRITTEN_AAD = b"mendari-written-v1\x00"
 # What the input hash's HMAC covers before the input, so the hash key signs nothing else alike.
 INPUT_HASH_PREFIX = b"mendari-input-v1\x00"
 # What the hash of a proposed action's arguments covers before them (`arguments_hash`).
@@ -205,13 +207,14 @@ _V2 = re.compile(r"v2:([0-9a-f]{16}):")
 _MIN_SEALED = 12 + 16
 LEGACY = "legacy"  # a token sealed before key ids: the ring is tried
 READ_KEYS_MAX = 4
-Sealed = Literal["input", "details", "note", "dataset", "connection"]
+Sealed = Literal["input", "details", "note", "dataset", "connection", "written"]
 _WHAT: dict[str, str] = {
     "input": "a stored input",
     "details": "a stored record's details",
     "note": "a stored note",
     "dataset": "a stored dataset",
     "connection": "an agent connection's token",
+    "written": "a stored written output",
 }
 
 
@@ -237,6 +240,9 @@ def _aad(kind: Sealed, ids: tuple[str, ...]) -> bytes:
     if kind == "dataset":
         (dataset_id,) = ids
         return DATASET_AAD + dataset_id.encode()
+    if kind == "written":
+        (item_row_id,) = ids
+        return WRITTEN_AAD + item_row_id.encode()
     if kind == "connection":
         connection_id, org, pack_id = ids
         return CONNECTION_AAD + b"\x00".join(

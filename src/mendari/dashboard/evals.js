@@ -6,6 +6,7 @@ import { providerWords, remoteModels } from "./pack.js";
 import { reportView, runOf } from "./report.js";
 import { views, wire } from "./router.js";
 import { $, announce, api, emptyState, esc, may, packPath, reducedMotion, slotText, state, time, toastError, whileBusy } from "./ui.js";
+import { roundsPanel } from "./written.js";
 
 const evalsState = { reports: [] };
 
@@ -14,10 +15,13 @@ const EVAL_TABS = [
   ["report", "Benchmark report"],
   ["run", "Run on a dataset"],
   ["history", "History"],
+  ["written", "Written output"],
 ];
 
-// A leaderboard with no configurations (no sets of records) is no comparison to show.
-const evalTabs = () => EVAL_TABS.filter(([key]) => key !== "compare" || state.detail.leaderboard?.groups?.length);
+// A leaderboard with no configurations (no sets of records) is no comparison to show, and an
+// agent that declares no rubric writes nothing to grade (written.js).
+const evalTabs = () => EVAL_TABS.filter(([key]) => (key !== "compare" || state.detail.leaderboard?.groups?.length)
+  && (key !== "written" || Object.keys(state.detail.manifest.rubrics ?? {}).length));
 
 views.evals = async (main, params) => {
   evalsState.reports = await api(`/api/evals?pack_id=${encodeURIComponent(state.packId)}`);
@@ -54,6 +58,9 @@ function showEvalsTab(requested) {
     showRunTab(body, empty).catch((error) => {
       if (body.dataset.tab === "run") body.innerHTML = empty(`Could not load the datasets: ${esc(error.message)}`);
     });
+  } else if (tab === "written") {
+    body.innerHTML = empty("Loading the rounds…");
+    roundsPanel(body, state.packId);
   } else {
     const reports = evalsState.reports;
     body.innerHTML = reports.length ? `

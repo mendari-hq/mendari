@@ -490,6 +490,11 @@ def load_pack(
     from mendari.providers import config_problems  # `providers/base.py` imports this module
 
     problems = config_problems(pack, trained=not missing_models_ok)
+    if manifest.rubrics:
+        # Each rubric's canned judge, as `mendari validate` checks it (spec 0.4 section 18.2).
+        from mendari.providers.judge import rubric_problems  # imports this module
+
+        problems += rubric_problems(pack)
     if bounded:
         if problems:
             raise PackValidationError(manifest.id, problems)
@@ -663,6 +668,15 @@ def _referenced_files(m: PackManifest, *, models: bool = True) -> list[tuple[str
         files.append(("inputs.fhir", m.inputs.fhir))
     if m.tests:
         files.append(("tests", m.tests))
+    files += [
+        (f"rubrics.{name}.judge.mock_file", rubric.judge.mock_file)
+        for name, rubric in m.rubrics.items()
+        if rubric.judge.mock_file is not None
+    ]
+    files += [
+        (f"evaluation.grades.{name}.file", grades.file)
+        for name, grades in m.evaluation.grades.items()
+    ]
     keys = [key for key in _PROVIDER_FILE_KEYS if models or key not in _TRAINED_FILE_KEYS]
     for slot_name, slot in m.providers.items():
         for variant_name, variant in slot.variants.items():

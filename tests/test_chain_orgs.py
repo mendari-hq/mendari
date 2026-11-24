@@ -446,6 +446,27 @@ def _connection(store: AuditStore, _: Pack) -> str:
         return f"agent_connection:{db.one('SELECT id FROM agent_connections')['id']}"
 
 
+def _written_round(store: AuditStore, _: Pack) -> str:
+    """A grading round of written output (wave 5), from a run of the fixture that writes."""
+    from mendari import load_pack
+    from mendari.core.written import WrittenStore
+    from mendari.evals import resolve_dataset, written
+    from mendari.providers.judge import Judge
+
+    writer = load_pack(ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini")
+    judge = Judge(writer, "reply_quality", mode="canned")
+    run = written.run(
+        Decision(writer, origin_cap=False),
+        resolve_dataset(writer, "written"),
+        "reply_quality",
+        judge=judge,
+    )
+    made = WrittenStore(store).create_round(
+        CLINIC, writer, "reply_quality", run, sample=3, created_by="t"
+    )
+    return f"written:{made['round']}"
+
+
 SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what makes a row
     "decisions": ("decisions", "id", _decision),
     "api_keys": ("api_keys", "id", _key),
@@ -464,6 +485,7 @@ SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what mak
     "store_datasets": ("store_datasets", "id", _store_dataset),
     "store_jobs": ("store_jobs", "id", _store_job),
     "agent_connections": ("agent_connections", "id", _connection),
+    "written_rounds": ("written_rounds", "id", _written_round),
 }
 
 

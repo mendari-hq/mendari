@@ -16,6 +16,7 @@ import "./admin.js";
 import "./system.js";
 import "./registry.js";
 import "./labelling.js";
+import "./written.js";
 import "./evalsets.js";
 import "./store.js";
 import "./agents.js";
@@ -83,7 +84,13 @@ async function boot() {
   // alone (labelling.js); without the routes, the access page says labelling is not on here.
   state.labelling = Boolean(person && me.principal.org && me.principal.permissions.includes("label"))
     && await api("/api/labelling").then(() => true, () => false);
-  if (state.noAccess === "label" && state.labelling) [state.noAccess, state.labelOnly] = [null, true];
+  // And they grade what an agent wrote (ADR-0025, written.js) where the deployment serves a
+  // grader's routes (memberships mode under PHI mode encrypt) and a round holds work of
+  // theirs, waiting or done: their counts say both, read once. Those routes need no key of
+  // their own, so a labeller no round was ever assigned to sees what they saw before.
+  state.written = Boolean(person && me.principal.org && me.principal.permissions.includes("label"))
+    && await api("/api/written/labelling").then((counts) => counts.sets.length > 0, () => false);
+  if (state.noAccess === "label" && (state.labelling || state.written)) [state.noAccess, state.labelOnly] = [null, true];
   if (state.noAccess === "label" && state.reviewOnly) state.noAccess = null; // no labelling here: reviewing
   // Labelling and reviewing the registry are not notice-gated.
   if (me?.signed_in && !state.noAccess && !state.labelOnly && !state.reviewOnly && !state.storeOnly) await acknowledgeNotice();
@@ -100,6 +107,7 @@ async function boot() {
   showSystem();
   showEvalsets();
   showLabelling();
+  showWritten();
   showRegistryReview();
   showStore();
   const pickPack = async (packId) => {
@@ -112,7 +120,7 @@ async function boot() {
     $(".pack-picker").hidden = true;
     // The docs stay; a labeller or a registry reviewer and nothing else keeps their screens'
     // links.
-    const kept = [state.labelOnly && "labelling", state.reviewOnly && "registry-review", state.storeOnly && "store"];
+    const kept = [state.labelOnly && state.labelling && "labelling", state.labelOnly && state.written && "written", state.reviewOnly && "registry-review", state.storeOnly && "store"];
     document.querySelectorAll(".nav a[data-view]").forEach((a) => (a.hidden = !kept.includes(a.dataset.view)));
     syncNavGroups();
     window.addEventListener("hashchange", onHashChange);
@@ -246,6 +254,11 @@ function showEvalsets() {
 // Someone holding `label` where the labelling routes are served (LP-11m): the labelling screen.
 function showLabelling() {
   $('.nav a[data-view="labelling"]').hidden = Boolean(state.noAccess) || !views.labelling.available();
+}
+
+// And where a grader's routes are served (ADR-0025): the grader's screen (written.js).
+function showWritten() {
+  $('.nav a[data-view="written"]').hidden = Boolean(state.noAccess) || !views.written.available();
 }
 
 // A reviewer of the pack registry, in its review organization, where the registry is served here

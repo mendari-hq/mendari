@@ -78,6 +78,11 @@ def _collect(pack: Pack, *, raising: bool) -> list[Problem]:
         _manifest_problem(pack, "manifest", text)
         for text in manifest_template_problems(pack.manifest)
     ] + [_manifest_problem(pack, "provider", text) for text in config_problems(pack)]
+    if pack.manifest.rubrics:
+        from mendari.providers.judge import rubric_problems
+
+        # Each rubric's canned judge: its fixture's shape, criteria and levels.
+        found += [_manifest_problem(pack, "provider", text) for text in rubric_problems(pack)]
     if found:
         return found
     for slot, spec in pack.manifest.providers.items():
@@ -101,7 +106,18 @@ def _collect(pack: Pack, *, raising: bool) -> list[Problem]:
             if raising:
                 raise
             return [Problem("fhir", str(pack.manifest.inputs.fhir), "", _said(error))]
-    return input_problems(pack) + dataset_problems(pack)
+    return input_problems(pack) + dataset_problems(pack) + grades_problems(pack)
+
+
+def grades_problems(pack: Pack) -> list[Problem]:
+    """Each grades file the agent declares (`evaluation.grades`, spec 0.4 section 19) reads as
+    one, grades the rubric's criteria with their levels, and names the rubric's wording and its
+    dataset as they are now (`evals/written.py` `grades_problems`)."""
+    if not pack.manifest.evaluation.grades:
+        return []
+    from mendari.evals.written import grades_problems as found
+
+    return [Problem("dataset", text.split(":", 1)[0], "", text) for text in found(pack)]
 
 
 def _said(error: Exception) -> str:

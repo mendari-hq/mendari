@@ -623,6 +623,10 @@ MEMBERSHIPS_CLASSES = {
     ("GET", "/api/labelling"): "label",
     ("GET", "/api/labelling/next"): "label",
     ("POST", "/api/labelling/{assignment_id}"): "label",
+    # A grader's routes over written output (ADR-0025), per person, as a labeller's.
+    ("GET", "/api/written/labelling"): "label",
+    ("GET", "/api/written/labelling/next"): "label",
+    ("POST", "/api/written/labelling/{assignment_id}"): "label",
 }
 
 

@@ -59,8 +59,10 @@ from mendari.standards.search import encode_cursor
 from tests.conftest import (
     DASHBOARD,
     DEMO_AGENT_DIR,
+    ROOT,
     calm_jev,
     encrypt_mode,
+    encrypted_store,
     evalset_on,
     evalsets_are_on,
     hand_written,
@@ -181,6 +183,12 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("GET", "/api/labelling"),
     ("GET", "/api/labelling/next"),
     ("POST", "/api/labelling/{assignment_id}"),
+    # A grader's routes over written output and the rounds' reports (ADR-0025): mounted under
+    # PHI mode `encrypt`, which this world runs.
+    ("GET", "/api/written/labelling"),
+    ("GET", "/api/written/labelling/next"),
+    ("POST", "/api/written/labelling/{assignment_id}"),
+    ("GET", "/api/written/rounds"),
     # And an organization's curators' (LP-11k), likewise.
     ("GET", "/api/evalsets"),
     ("GET", "/api/evalsets/{set_id}"),
@@ -242,6 +250,9 @@ WRITTEN = (
     "evalset_assignments",  # their blind labelling (LP-11h): a curator's (LP-11k)
     "evalset_labels",  # a labeller's label (LP-11j)
     "agent_connections",  # an agent's connection, set in the console (ADR-0021)
+    "written_rounds",  # grading rounds of written output (ADR-0025): the operator's command's
+    "written_items",
+    "written_assignments",  # a grader's grades
     "audit_events",
 )
 
@@ -597,6 +608,8 @@ def world(
                 seed(world, org)
                 hidden_set(world, org, keys)
                 graded_set(world, org, keys)
+                if world.accounts == "memberships":
+                    written_round(world, org, db_target)
             evalsets_are_on(orgs[ORGS[0]].people["admin"], {})
             yield world
 
@@ -926,6 +939,71 @@ def hidden_set(world: World, org: Org, keys: EvalsetKeys) -> None:
     with world.store._db.session(exclusive=False) as db:
         for row in db.all("SELECT id FROM evalset_labels WHERE set_id = ?", (set_id,)):
             org.made("evalset label", row["id"])
+
+
+def written_round(world: World, org: Org, db_target: str) -> None:
+    """A grading round of written output of `org`'s (ADR-0025), as the operator's command makes
+    one: two texts the fixture agent wrote for messages carrying `org`'s marker, each given to
+    its first two labellers. The round's id, each item's id and each assignment's are `org`'s,
+    which the other never sees. Left open, for phase 2's grader to grade through the routes."""
+    from mendari import Decision, load_pack
+    from mendari.core.written import WrittenStore
+    from mendari.evals import written
+    from mendari.evals.harness import load_dataset
+    from mendari.providers.judge import Judge
+
+    m = org.marker
+    pack = load_pack(ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini")
+    lines = [
+        {"id": f"written-{m}-{n}", "input": {"message": {"body": f"Where do I park {m} {n}?"}}}
+        for n in range(2)
+    ]
+    raw = "".join(json.dumps(line) + "\n" for line in lines).encode()
+    run = written.run(
+        Decision(pack, origin_cap=False),
+        load_dataset("written.jsonl", name="written", raw=raw),
+        "reply_quality",
+        judge=Judge(pack, "reply_quality", mode="canned"),
+    )
+    # The operator's command opens the database under the deployment's PHI mode and keys.
+    with encrypted_store(db_target) as sealing:
+        rounds = WrittenStore(sealing)
+        made = rounds.create_round(
+            org.name, pack, "reply_quality", run, sample=2, created_by="operator"
+        )
+        round_id = org.made("written round", made["round"])
+        for item in run.items:
+            org.made("written item", item.item)
+        rounds.assign(round_id, org.ids["labeller"][:2], double=1.0)
+    with world.store._db.session(exclusive=False) as db:
+        for row in db.all(
+            "SELECT id FROM written_assignments WHERE round_id = ? ORDER BY id", (round_id,)
+        ):
+            org.made("written assignment", row["id"])
+
+
+def served_written(world: World, x: Org) -> None:
+    """Memberships mode: `x`'s grader reads their own counts, is shown their own next text and
+    grades it (ADR-0025); and a reader of `x` lists its rounds, never the other's."""
+    assert x.labeller is not None
+    counts = ("GET", "/api/written/labelling")
+    nxt = ("GET", "/api/written/labelling/next")
+    grade = ("POST", "/api/written/labelling/{assignment_id}")
+    counted = world.call(x, x.labeller, counts, counts[1], expect=200).json()
+    assert [found["set"] for found in counted["sets"]] == [x.one("written round")]
+    shown = world.call(x, x.labeller, nxt, nxt[1], expect=200).json()
+    assert shown["assignment"] in x.ids["written assignment"]
+    assert x.marker in json.dumps(shown["input"])
+    body = {
+        "labels": {"safe_to_send": "yes", "addresses_request": "fully", "plain_language": "yes"}
+    }
+    url = f"/api/written/labelling/{shown['assignment']}"
+    told = world.call(x, x.labeller, grade, url, json=body, expect=200)
+    assert told.json() == {"remaining": 1}
+    listed = world.call(
+        x, x.people["viewer"], ("GET", "/api/written/rounds"), "/api/written/rounds", expect=200
+    ).json()
+    assert [found["id"] for found in listed] == [x.one("written round")]
 
 
 def graded_set(world: World, org: Org, keys: EvalsetKeys) -> None:
@@ -1393,6 +1471,21 @@ def refusals(world: World, x: Org, o: Org) -> None:
                 assignment,
                 404,
                 json={"labels": {"destination": "nurse", "urgency": "routine"}},
+            )
+        for assignment in o.ids["written assignment"]:  # another organization's grader's
+            refused(
+                x.labeller,
+                ("POST", "/api/written/labelling/{assignment_id}"),
+                f"/api/written/labelling/{assignment}",
+                assignment,
+                404,
+                json={
+                    "labels": {
+                        "safe_to_send": "yes",
+                        "addresses_request": "fully",
+                        "plain_language": "yes",
+                    }
+                },
             )
         refused_curating(world, x, o, refused)
 
@@ -1890,6 +1983,7 @@ def served(world: World, x: Org) -> None:
     if world.accounts == "memberships":
         served_people(world, x)
         served_labelling(world, x)
+        served_written(world, x)
         served_curating(world, x)
         served_store(world, x)
     served_agents(world, x)

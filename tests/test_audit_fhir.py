@@ -255,6 +255,13 @@ NOT_ON_A_DECISION = {
     "agent_connection.set",
     "agent_connection.cleared",
     "agent_connection.origin_allowed",
+    # A grading round of written output (`written:<id>`, ADR-0025).
+    "written.round_created",
+    "written.assigned",
+    "written.item_read",
+    "written.graded",
+    "written.round_closed",
+    "written.erased",
     "governance.approved",
     "governance.revoked",
     "registry_pack.approved",

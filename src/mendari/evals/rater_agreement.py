@@ -64,6 +64,41 @@ def kappa(pairs: Sequence[tuple[str, str]]) -> Fraction | None:
     return Fraction(n * agree - chance, n * n - chance)
 
 
+def weighted_kappa(
+    pairs: Sequence[tuple[str, str]], scores: Mapping[str, float]
+) -> Fraction | None:
+    """Cohen's kappa with linear weights on the levels' declared `scores` (Cicchetti-Allison), of
+    two raters' levels on the same cases, exact:
+
+        1 - n * sum_i |s(a_i) - s(b_i)|  /  sum_l sum_m |s(l) - s(m)| * r(l) * c(m)
+
+    with r and c the first and the second rater's counts of each level. On two levels it is
+    `kappa`. None for no pairs, or when the denominator is zero: both raters gave every case one
+    and the same level. A level `scores` does not hold is a KeyError: the caller checks levels."""
+    n = len(pairs)
+    if n == 0:
+        return None
+    exact = {level: Fraction(score) for level, score in scores.items()}
+    cells = Counter(pairs)
+    observed = sum(
+        (count * abs(exact[first] - exact[second]) for (first, second), count in cells.items()),
+        Fraction(0),
+    )
+    firsts = Counter(first for first, _ in pairs)
+    seconds = Counter(second for _, second in pairs)
+    expected = sum(
+        (
+            abs(exact[first] - exact[second]) * rows * columns
+            for first, rows in firsts.items()
+            for second, columns in seconds.items()
+        ),
+        Fraction(0),
+    )
+    if expected == 0:
+        return None
+    return 1 - n * observed / expected
+
+
 def alpha(units: Sequence[Sequence[str]]) -> Fraction | None:
     """Krippendorff's alpha, nominal, over units (one per case: its ratings, any number); a unit
     with fewer than two ratings counts for nothing. Exact; None when no unit has two ratings or
@@ -213,16 +248,33 @@ def _question(ratings: list[Ratings], seed: int, resamples: int) -> dict[str, An
     }
 
 
-def _coefficient(
+def coefficient(
     estimate: Fraction | None,
     statistic: Any,
-    ratings: list[Ratings],
+    ratings: Sequence[Any],
     seed: int,
     resamples: int,
     reason: str,
 ) -> dict[str, Any]:
+    """A coefficient as a report stores it: its estimate and its percentile-bootstrap interval
+    over `ratings` (the cases), each to six places; `not_estimable` with its reason when the
+    cases leave it undefined, and an interval `not_estimable` when any resample does."""
+    return measured(estimate, statistic, ratings, seed, resamples, reason)[0]
+
+
+def measured(
+    estimate: Fraction | None,
+    statistic: Any,
+    ratings: Sequence[Any],
+    seed: int,
+    resamples: int,
+    reason: str,
+) -> tuple[dict[str, Any], float | None]:
+    """`coefficient`, and its interval's lower bound as the bootstrap gave it, before rounding
+    (None when the coefficient or its interval is not estimable): a floor is held against this,
+    never against the stored six places, so a bound just under a floor never rounds up to it."""
     if estimate is None:
-        return {"estimate": None, "status": "not_estimable", "reason": reason}
+        return {"estimate": None, "status": "not_estimable", "reason": reason}, None
     _, low, high, dropped = stats.bootstrap_defined(ratings, statistic, resamples, seed)
     interval: dict[str, Any]
     if dropped or low is None or high is None:
@@ -238,7 +290,15 @@ def _coefficient(
             "high": round(high, stats.DIGITS),
             "dropped": 0,
         }
-    return {"estimate": round(float(estimate), stats.DIGITS), "status": "ok", "interval": interval}
+    stored = {
+        "estimate": round(float(estimate), stats.DIGITS),
+        "status": "ok",
+        "interval": interval,
+    }
+    return stored, (low if interval["status"] == "ok" else None)
+
+
+_coefficient = coefficient
 
 
 def agreement_text(report: Mapping[str, Any]) -> str:

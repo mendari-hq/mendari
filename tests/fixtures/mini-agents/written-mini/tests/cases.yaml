@@ -1,0 +1,8 @@
+# Behaviour tests for the written-output fixture: its answers only (what it writes is
+# tests/test_agent_outputs.py's).
+- name: a refill request is automated
+  input: {message: {body: "Could you refill my lisinopril?"}}
+  expect: {outcome: AUTO, recommendation: refill}
+- name: anything else goes to the front desk
+  input: {message: {body: "Where do I park?"}}
+  expect: {outcome: AUTO, recommendation: other}

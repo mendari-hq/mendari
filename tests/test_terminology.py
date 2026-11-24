@@ -85,7 +85,9 @@ PINNED = {
         # they were: the chain holds them).
         # Moved in wave 3, before 0.1.0's release: an agent's connection set, cleared, and its
         # origin allowed by an operator (ADR-0021), with their `agent_connection:` subject.
-        "CodeSystem/audit-administrative-event": "fddcb1ee98be01e4",
+        # Moved in wave 5, before 0.1.0's release: the six events of a grading round of written
+        # output (`written.*`, ADR-0025).
+        "CodeSystem/audit-administrative-event": "b4810c63b85e06ab",
         "NamingSystem/audit-subject": "1c75c7fb62504dc2",
     }
 }

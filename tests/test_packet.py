@@ -1077,6 +1077,8 @@ def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Pa
     shutil.copytree(DEMO_AGENT_DIR, folder)
     manifest = yaml.safe_load((folder / "agent.yaml").read_text())
     del manifest["actions"]
+    # What it writes goes with its agent variant: only an agent writes (spec 0.4).
+    del manifest["outputs"], manifest["rubrics"], manifest["evaluation"]["grades"]
     manifest["providers"]["reader"]["use"] = "rules"
     del manifest["providers"]["reader"]["variants"]["agent"]
     (folder / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
@@ -1088,6 +1090,8 @@ def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Pa
     assert "Not stated: the agent declares no action." in said
     assert "Not stated: no part of this agent is an agent's own service" in said
     assert "Not stated: no part of this agent is asked a case more than once" in said
+    assert oversight["written"] == []
+    assert "Not stated: the agent declares no written output." in said
 
 
 def test_a_calibration_and_a_second_signal_are_read_from_the_manifest(tmp_path: Path) -> None:

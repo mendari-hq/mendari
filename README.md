@@ -139,7 +139,11 @@ adds that no automation threshold keeps such critical misses to 1% with 95% conf
 is the agent, not the threshold. And a
 [probe](https://github.com/mendari-hq/mendari/blob/main/docs/guides/finding-failures.md)
 rewrites cases in ways that keep their meaning (a typing error, a line break, an instruction
-slipped in) to find the failures nobody wrote a case for.
+slipped in) to find the failures nobody wrote a case for. Last, it grades
+[what the agent wrote](https://github.com/mendari-hq/mendari/blob/main/docs/guides/written-output.md)
+against a rubric: a judge's grades are shown only for the criterion on which it agrees with
+the graders, and withheld for the rest. The demo's graders are simulated and its judge's grades
+are canned, and it says so.
 
 ### 2. Scaffold, validate, test and evaluate your own
 
@@ -388,6 +392,7 @@ hosted once the repository is public.
 | write an agent's manifest | [the authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md) |
 | find an agent's failures, set its threshold, check every change | [Finding failures](https://github.com/mendari-hq/mendari/blob/main/docs/guides/finding-failures.md), [Choosing an automation threshold](https://github.com/mendari-hq/mendari/blob/main/docs/guides/choosing-a-threshold.md), [Evaluating an agent on every change](https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md) |
 | check an agent's confidence, add a second signal, gate what it does | [Calibration and a second signal](https://github.com/mendari-hq/mendari/blob/main/docs/guides/calibration-and-a-second-signal.md), [Governing actions](https://github.com/mendari-hq/mendari/blob/main/docs/guides/governing-actions.md), [spec 0.4](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest-0.4.md) |
+| grade what an agent writes, with clinicians and a judge whose agreement is measured | [Evaluating written output](https://github.com/mendari-hq/mendari/blob/main/docs/guides/written-output.md) |
 | contribute an agent to this repository | [Contributing an agent](https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-an-agent.md) |
 | call Mendari over REST or FHIR | [Using the API](https://github.com/mendari-hq/mendari/blob/main/docs/guides/api.md) |
 | read an evaluation report | [Evaluation reports and ledgers](https://github.com/mendari-hq/mendari/blob/main/docs/spec/evaluation-reports.md) |
@@ -406,8 +411,8 @@ agents/           the bundled demo agent (portal-message-agent)
 examples/         three starters for the service behind an agent: HTTP, LangGraph, Claude
 src/mendari/
 ├── core/         manifest spec and loading, digest, runtime, policy, audit, Decision Card, committee packet
-├── providers/    what can fill an agent's slot: agent (HTTP), llm, jev, rules, naive_bayes, criteria, cql, dosing
-├── evals/        metrics, the evaluation harness, the operating point, the probe, behaviour tests, reports
+├── providers/    what can fill an agent's slot: agent (HTTP), llm, jev, rules, naive_bayes, criteria, cql, dosing; the judge
+├── evals/        metrics, the evaluation harness, the operating point, the probe, written output, behaviour tests, reports
 ├── standards/    FHIR R4, CDS Hooks, SMART on FHIR, Da Vinci
 ├── server/       the FastAPI app: REST, FHIR, CDS Hooks, review, audit, sign-in
 ├── dashboard/    the Governance Console: HTML, CSS and ES modules, no build step

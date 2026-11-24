@@ -78,6 +78,10 @@ LABELLING_ROUTES = {
     ("GET", "/api/labelling"),
     ("GET", "/api/labelling/next"),
     ("POST", "/api/labelling/{assignment_id}"),
+    # A grader's, over written output (ADR-0025).
+    ("GET", "/api/written/labelling"),
+    ("GET", "/api/written/labelling/next"),
+    ("POST", "/api/written/labelling/{assignment_id}"),
 }
 # An organization's curators' (`curate`, LP-11k): likewise.
 CURATING_ROUTES = {
@@ -893,6 +897,14 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
             if (method, path) in labelling:
                 assert attempt(by_records, method, path, as_member)[0] == 403, (role, path)
                 assert attempt(by_records, method, path, labeller)[0] == 200, path
+                claims_answer = attempt(by_claims, method, path, as_person)[0]
+                assert claims_answer == (200 if role == "admin" else 403), (role, path)
+                continue
+            if (method, path) == ("GET", "/api/written/rounds"):
+                # The rounds of written output (ADR-0025) are mounted in memberships mode only:
+                # there any reader's, and every role reads; in claims mode the path reads as
+                # any route no rule lists, an administrator's.
+                assert attempt(by_records, method, path, as_member)[0] == 200, (role, path)
                 claims_answer = attempt(by_claims, method, path, as_person)[0]
                 assert claims_answer == (200 if role == "admin" else 403), (role, path)
                 continue

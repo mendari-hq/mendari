@@ -271,6 +271,9 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/agents/{namespace}/{name}/evals"): ("eval.recorded",),
     # Memberships mode with the evaluation-set keys: a labeller's label, as its commitment.
     (ENGINE, "POST", "/api/labelling/{assignment_id}"): ("evalset.labelled",),
+    # Memberships mode under PHI mode encrypt: a grader's grades of a written output, as their
+    # commitment (ADR-0025).
+    (ENGINE, "POST", "/api/written/labelling/{assignment_id}"): ("written.graded",),
     # And an organization's curators' (LP-11k): a draw (counts and the seed), each assignment.
     (ENGINE, "POST", "/api/evalsets/{set_id}/sample"): ("evalset.sampled",),
     (ENGINE, "POST", "/api/evalsets/{set_id}/assignments"): ("evalset.assigned",),
@@ -345,6 +348,8 @@ CHAINED_READS: dict[Route, tuple[str, ...]] = {
     (ENGINE, "GET", "/api/agents/{namespace}/{name}/feedback/export"): ("input.read",),
     # A labeller shown their next hidden case, each time, before it is sent (LP-11j).
     (ENGINE, "GET", "/api/labelling/next"): ("evalset.case_read",),
+    # A grader shown their next written output, each time, before it is sent (ADR-0025).
+    (ENGINE, "GET", "/api/written/labelling/next"): ("written.item_read",),
 }
 NOT_CHAINED: dict[Route, str] = {
     (ENGINE, "POST", "/auth/logout"): "sign-out: ends a session (security log: auth.logout)",

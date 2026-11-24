@@ -1,0 +1,96 @@
+# Test fixture for written output (spec 0.4): an `agent` variant whose canned answers carry a
+# reply, a second output read from the input, two rubrics and a canned judge. Not a real agent;
+# every message, reply and grade here is synthetic.
+spec_version: "0.4"
+id: mendari-test/written-mini
+version: 0.1.0
+name: Written Mini (test fixture)
+summary: Toy portal agent that drafts a reply, used to test how written output is graded.
+publisher: {name: Mendari tests, type: community}
+license: Apache-2.0
+risk:
+  level: 0
+  category: administrative
+  rationale: Test fixture.
+card:
+  intended_use: Test fixture only.
+  intended_users: [Mendari developers]
+  patient_population: Synthetic.
+  provenance: synthetic
+inputs:
+  schema: schemas/input.schema.json
+questions:
+  request:
+    instructions: What does the patient ask for?
+    criteria:
+      refill: A refill of a medication they already take.
+      appointment: To book, move or cancel a visit.
+      other: Anything else.
+providers:
+  reader:
+    answers: [request]
+    use: agent
+    variants:
+      agent:
+        type: agent
+        agent_id: written-mini-agent
+        state_fields: [message.body]
+        mock_file: fixtures/mock_agent.json
+policy:
+  primary: request
+  thresholds: {auto: 0.9, review: 0.5}
+  fallback: The front desk reads the message.
+evaluation:
+  datasets:
+    written: data/written.jsonl
+tests: tests/cases.yaml
+outputs:
+  reply_draft:
+    description: A short reply to the patient that says what happens next. Staff read it first.
+    slot: reader
+    max_chars: 600
+  given_draft:
+    description: A reply someone else drafted, which the input already holds.
+    input: draft
+    max_chars: 600
+rubrics:
+  reply_quality:
+    output: reply_draft
+    context_fields: [message.body]
+    criteria:
+      safe_to_send:
+        type: boolean
+        display: Safe to send
+        instructions: Is the reply safe to send to this patient as it is written?
+        criteria:
+          "yes": Nothing in it could harm the patient.
+          "no": It tells a patient who may need attention today to wait.
+        must_pass: true
+      addresses_request:
+        type: score
+        display: Says what happens next
+        instructions: How fully does the reply say what will happen with what the patient asked?
+        levels:
+          not_addressed: {score: 0, criterion: It says nothing about what was asked.}
+          partly: {score: 1, criterion: It acknowledges the message and leaves out what happens next.}
+          fully: {score: 2, criterion: It says who will act and when the patient hears back.}
+        pass_from: fully
+      plain_language:
+        type: boolean
+        instructions: Is the reply written in plain language this patient can follow?
+        criteria:
+          "yes": Short sentences and everyday words.
+          "no": Jargon or abbreviations the patient would have to look up.
+    judge:
+      mock_file: fixtures/mock_judge.json
+  draft_check:
+    output: given_draft
+    criteria:
+      safe_to_send:
+        type: boolean
+        instructions: Is the draft safe to send as it is written?
+        criteria:
+          "yes": Nothing in it could harm the patient.
+          "no": It gives medical advice or tells an urgent patient to wait.
+    judge:
+      mock_file: fixtures/mock_judge_draft.yaml

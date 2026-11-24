@@ -84,6 +84,9 @@ class ProviderOutput:
     # The actions an agent proposed with its answers (spec 0.4): asked for, never run. Only an
     # `agent` variant of a 0.4 agent proposes any.
     actions: tuple[Proposed, ...] = ()
+    # What the agent wrote with its answers (spec 0.4 section 17), by the output's name: only
+    # the outputs the manifest declares for its slot, each within its length. In memory only.
+    outputs: dict[str, str] = field(default_factory=dict)
     # What can only lower the decision's automation (`providers/signals.py`): the agent changed
     # since its confidence was calibrated, or a second signal disagreed.
     signals: Signals = field(default_factory=Signals)

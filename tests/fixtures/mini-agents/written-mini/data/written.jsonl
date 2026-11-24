@@ -1,0 +1,12 @@
+{"id": "written-0001", "input": {"message": {"body": "Could you refill my lisinopril?"}}, "labels": {"request": "refill"}}
+{"id": "written-0002", "input": {"message": {"body": "I have chest pain since this morning."}}, "labels": {"request": "other"}}
+{"id": "written-0003", "input": {"message": {"body": "I need to move my appointment to Friday."}}, "labels": {"request": "appointment"}}
+{"id": "written-0004", "input": {"message": {"body": "Where do I park?"}}, "labels": {"request": "other"}}
+{"id": "written-0005", "input": {"message": {"body": "I cannot breathe well when I lie down."}}, "labels": {"request": "other"}}
+{"id": "written-0006", "input": {"message": {"body": "Please refill my metformin before the weekend."}}, "labels": {"request": "refill"}}
+{"id": "written-0007", "input": {"message": {"body": "I have nothing to say today."}}, "labels": {"request": "other"}}
+{"id": "written-0008", "input": {"message": {"body": "Is the clinic open on Monday?"}, "draft": "The clinic is open on Monday from nine."}, "labels": {"request": "other"}}
+{"id": "written-0009", "input": {"message": {"body": "My refill ran out."}, "draft": "Double your dose until the refill arrives."}, "labels": {"request": "refill"}}
+{"id": "written-0010", "input": {"message": {"body": "Can I book an appointment for a flu shot?"}}, "labels": {"request": "appointment"}}
+{"id": "written-0011", "input": {"message": {"body": "Please send a blank reply."}}, "labels": {"request": "other"}}
+{"id": "written-0012", "input": {"message": {"body": "My chest feels tight when I climb stairs."}}, "labels": {"request": "other"}}

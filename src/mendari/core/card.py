@@ -205,6 +205,7 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
         "Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a priority "
         "(`routine`, `urgent`, `asap`, `stat`) and an audit record.",
         "",
+        *_written(pack),
         "## Decision policy",
         "",
     ]
@@ -334,6 +335,76 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
 _PLAIN: ContextVar[bool] = ContextVar("card_plain_text", default=False)
 _PUNCTUATION = re.compile(r"([!-/:-@\[-`{-~])")  # every ASCII punctuation character
 _LINK = re.compile(r"^https?://[^\s()<>\[\]`\\|*_]+$")
+
+
+def _written(pack: Pack) -> list[str]:
+    """The card's Written outputs section (spec 0.4 sections 16 to 19): each text the agent
+    writes, each rubric it is graded against (every criterion's instructions and every level's
+    anchor, as a clinician and the judge read them) and the floors a judge is held to. Text
+    only: the card shows no figure of a judge. Nothing for an agent that declares none, so its
+    card is what it always was."""
+    from mendari.evals import written
+
+    manifest = pack.manifest
+    if not manifest.outputs:
+        return []
+    out = [
+        "## Written outputs",
+        "",
+        "What the agent writes besides its answers. A text is returned with the decision and "
+        "is not kept with it. Each is graded against a rubric: clinicians grade a sample "
+        "blind, a model judge grades every text in the same words, and the judge's grades are "
+        "reported for the texts no clinician graded only where its agreement with clinicians "
+        "clears the floors below. Otherwise they are withheld.",
+        "",
+    ]
+    for name, output in manifest.outputs.items():
+        source = (
+            f"written by the agent behind slot {_c(output.slot)}"
+            if output.slot is not None
+            else f"read from the input's field {_c(output.input)}"
+        )
+        out += [
+            f"### {_c(name)}",
+            "",
+            f"{_t(output.description)} It is {source}, at most {output.max_chars:,} characters.",
+            "",
+        ]
+        rubrics = {key: r for key, r in manifest.rubrics.items() if r.output == name}
+        if not rubrics:
+            out += ["No rubric: it is not graded.", ""]
+        for key, rubric in rubrics.items():
+            beside = ", ".join(_c(field) for field in rubric.context_fields) or "nothing else"
+            out += [
+                f"Rubric {_c(key)}. Beside the text, a grader reads: {beside}.",
+                "",
+                "| Criterion | Asks | Levels, lowest first | Passes from | Must not fail |",
+                "|---|---|---|---|---|",
+            ]
+            for criterion_key, criterion in rubric.criteria.items():
+                levels = "; ".join(
+                    f"{_c(level)}: {_t(criterion.criteria[level])}"
+                    for level, _ in criterion.scale()
+                )
+                out.append(
+                    f"| {_c(criterion_key)} | {_t(criterion.instructions)} | {levels} | "
+                    f"{_c(criterion.passing())} | {'yes' if criterion.must_pass else 'no'} |"
+                )
+            floors = written.floors_of(manifest, key)
+            out += [
+                "",
+                "A judge is believed on a criterion when the lower bound of its kappa with "
+                f"clinicians is at least {floors['agreement']}, over the levels and on pass or "
+                "fail alike; it does not pass more outputs than clinicians do by more than "
+                "chance; it could grade all but "
+                f"{floors['max_judge_errors']} of the outputs; and, on a criterion that must "
+                "not fail, the lower bound of the share of clinician-found failures it finds "
+                f"is at least {floors['must_pass_recall']}. That is decided on at least "
+                f"{floors['min_paired']} outputs graded by both, with {floors['min_each_side']} "
+                "on each side of the pass line. On less, the evidence is insufficient.",
+                "",
+            ]
+    return out
 
 
 def _actions(pack: Pack) -> list[str]:

@@ -520,6 +520,11 @@ EVALSET_ROUTES = {
     ("GET", "/api/labelling"): "label",
     ("GET", "/api/labelling/next"): "label",
     ("POST", "/api/labelling/{assignment_id}"): "label",
+    # A grader's routes over written output (ADR-0025) need `label` too, and are held to the
+    # same rule: never read or discover, whatever the catch-all says.
+    ("GET", "/api/written/labelling"): "label",
+    ("GET", "/api/written/labelling/next"): "label",
+    ("POST", "/api/written/labelling/{assignment_id}"): "label",
     ("GET", "/api/evalsets"): "curate",
     ("GET", "/api/evalsets/{set_id}"): "curate",
     ("POST", "/api/evalsets/{set_id}/sample"): "curate",
