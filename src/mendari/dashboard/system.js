@@ -322,7 +322,7 @@ function wireSystem(root, holds) {
     const notes = erased.notes?.length ?? 0;
     const what = [erased.input ? "its sealed input and evidence" : "", notes ? plural(notes, "note") : ""].filter(Boolean).join(" and ");
     out.innerHTML = `<div class="callout ok"><b>Erased:</b> ${esc(what || "what it kept")}.
-      ${erased.still_in_chain ? "Its record in the audit trail itself still holds text from before inputs were kept apart: nothing erases that without breaking the trail." : "Its record and the audit trail stay."}</div>`;
+      ${erased.still_in_chain ? "Its record in the audit trail itself still holds its input, kept there under PHI mode off: nothing erases that without breaking the trail." : "Its record and the audit trail stay."}</div>`;
     toast("Erased");
     $("#erase-decision").value = "";
   });

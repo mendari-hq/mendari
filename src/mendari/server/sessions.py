@@ -11,21 +11,19 @@ and an EHR launch's (`/smart/launch`) follow the same rules.
   kept in the row) and never back: one conditional UPDATE, right across any number of instances
   with nothing in memory. So a session ends between 25 and 30 minutes after its last request:
   early, never late. The cookies have no `Max-Age`, so closing the browser ends them too; the
-  server decides when a session is over.
-- **Rows from before this release** have no `absolute_at`: their own `expires_at` (8 hours after
-  sign-in) is their absolute limit, and the idle limit starts at their first request after the
-  deploy. Nobody is signed out by it.
+  server decides when a session is over. A row without its `absolute_at` (none is made so) has
+  ended.
 - **Cookie names.** `__Host-mendari_session` and `__Host-mendari_smart`: a browser accepts a
   `__Host-` cookie only from this exact host, Secure, with `Path=/` and no `Domain`, so a sibling
   subdomain cannot set or shadow one. Loopback and dotless hosts (`localhost`, `127.0.0.1`, a
   compose service) keep the plain names, which browsers may refuse the prefix on over plain http.
   On any other host the plain name is never read: a cookie a sibling subdomain planted under it
-  names nothing here (the names from before Phase 4b, read for one release, ended 2026-11-22).
+  names nothing here.
 - **Sign-in and launch binding** (RFC 6749 §10.12: login CSRF). `/auth/login` and `/smart/launch`
   set a random `__Host-mendari_signin` (or `__Host-mendari_launch`) cookie for ten minutes and
   keep its SHA-256 in the pending row; the callback compares them in constant time. A callback URL
   sent to someone else's browser then fails there, instead of signing them in as the sender.
-  A pending sign-in without a digest (none is made so since Phase 4b) is refused.
+  A pending sign-in without a digest (none is made so) is refused.
   The cookie is host-only, so both start on `MENDARI_PUBLIC_URL`, where the callback comes back:
   started on another name (a `*.vercel.app` alias, a second DNS name), they first send the
   browser there (`to_public_url`).
@@ -176,17 +174,11 @@ def resume(
     data, expires_at = row
     now = int(time.time())
     absolute_at = data.get("absolute_at")
-    if isinstance(absolute_at, int) and now >= absolute_at:
+    if not isinstance(absolute_at, int) or now >= absolute_at:
         # The row's clear `expires_at` never passes it; a sealed row's `absolute_at` cannot be
-        # changed, so this holds even against a database writer who moves `expires_at`.
+        # changed, so this holds even against a database writer who moves `expires_at`. A row
+        # without one was not made by `begin`: ended.
         return None, True
-    if not isinstance(absolute_at, int):
-        # From before this release: its expiry is its absolute limit, and the idle limit starts
-        # with this request (the one time a session's expiry moves back).
-        store.smart_replace(
-            value, kind, {**data, "absolute_at": expires_at}, min(now + lifetime.idle, expires_at)
-        )
-        return data, True
     until = lifetime.extended(now, expires_at, absolute_at)
     if until is not None:
         store.smart_touch(value, kind, until)

@@ -94,23 +94,21 @@ def reviewed_dataset(
     `labels` holds its primary question's label (`truth_label`: the outcome when there is one,
     else the reviewer's), `attributes.source` says which (`outcome` or `review`), and `review`
     and `outcome` what each said. A decision whose input was stored only as a hash is counted in
-    `skipped`, and so are an encrypted input without a `reader` and a record from before records
-    named their primary question. A record names no person: not the reviewer, not who recorded
-    the outcome, and no note."""
+    `skipped`, and so is an encrypted input without a `reader`. A record names no person: not
+    the reviewer, not who recorded the outcome, and no note."""
     records = []
     skipped = 0
     for item in store.labelled(pack_id=pack_id, limit=limit, reader=reader):
         if only_overrides and not item.get("human_override"):
             continue
         record = item["record"]
-        primary = record.get("primary")
-        if record.get("input") is None or not isinstance(primary, str):
+        if record.get("input") is None:
             skipped += 1
             continue
         entry: dict[str, Any] = {
             "id": f"reviewed-{item['id']}",
             "input": record["input"],
-            "labels": {primary: truth_label(item)},
+            "labels": {record["primary"]: truth_label(item)},
             "system": _system(record),
         }
         if item["final_label"] is not None:

@@ -35,8 +35,8 @@ every decision of the version.
   confidences and the reference's (its calibration bins), in tenths from 0 to 1. It needs a
   comparable reference.
 - **Operational health** (LP-21d), from stored columns: the share of decisions with a provider
-  error recorded (`decisions.provider_errors`, counted from LP-21d on; older rows are left out),
-  the abstention share, and latency (p50, p95, mean of each decide).
+  error recorded (`decisions.provider_errors`), the abstention share, and latency (p50, p95,
+  mean of each decide).
 - **Alerts**, each with a minimum amount of evidence:
   - a stratum's accuracy below the reference's by more than the pack's degradation tolerance,
     beyond doubt: even the top of its exact 95% interval is below (20 decisions or more);
@@ -76,9 +76,9 @@ MIN_REVIEWED = 20
 DRIFT_ALERT = 0.25
 # Operational health (LP-21d), week over week, over 50 decisions or more this week: a provider
 # error share at least ERROR_SHARE beyond doubt and doubled (on its level alone when the week
-# before had fewer than 50 counted, as just after upgrading); with 50 or more the week before
-# too, an abstention share doubled and up ABSTAIN_RISE beyond doubt, and a p95 latency past
-# twice the week before's and SLOW_MS beyond doubt (SLOW_SHARE of decisions or more past it).
+# before had fewer than 50); with 50 or more the week before too, an abstention share doubled
+# and up ABSTAIN_RISE beyond doubt, and a p95 latency past twice the week before's and SLOW_MS
+# beyond doubt (SLOW_SHARE of decisions or more past it).
 MIN_FOR_OPERATIONS = 50
 ERROR_SHARE = 0.05
 ABSTAIN_RISE = 0.05
@@ -404,10 +404,9 @@ def _summary(rows: Sequence[Row]) -> dict[str, Any]:
     auto_right = sum(truth_label(r) == r["recommendation"] for r in auto_labelled)
     costs = [r["cost_usd"] for r in made]
     unknown = sum(cost is None for cost in costs)
-    # Operational health: decisions whose providers failed (rows from before the count, NULL,
-    # are left out), abstentions, and how long a decision took (its whole decide).
-    counted = [r for r in made if r["provider_errors"] is not None]
-    failed = sum(r["provider_errors"] > 0 for r in counted)
+    # Operational health: decisions whose providers failed, abstentions, and how long a decision
+    # took (its whole decide).
+    failed = sum(r["provider_errors"] > 0 for r in made)
     abstained = sum(r["outcome"] == "ABSTAIN" for r in made)
     took = sorted(float(r["latency_ms"]) for r in made if r["latency_ms"] is not None)
     return {
@@ -436,7 +435,7 @@ def _summary(rows: Sequence[Row]) -> dict[str, Any]:
             "accuracy": figures.of(agreed, len(labelled)),
             "reviewed_accuracy": figures.of(kept, len(sent)),
             "automated_accuracy": figures.of(auto_right, len(auto_labelled)),
-            "provider_errors": figures.of(failed, len(counted)),
+            "provider_errors": figures.of(failed, len(made)),
             "abstained": figures.of(abstained, len(made)),
         },
     }
