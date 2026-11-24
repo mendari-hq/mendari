@@ -163,7 +163,8 @@ test("the address an agent's page had before leads to the page", async ({ page, 
 
 test("pages fit a phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const path of ["/", DEMO, "/agents/hub-test/hostile-text", "/publishers/mendari"]) {
+  const pages = ["/", DEMO, `${DEMO}/evaluation`, "/agents/hub-test/hostile-text", "/agents/hub-test/hostile-text/evaluation", "/publishers/mendari"];
+  for (const path of pages) {
     await page.goto(path);
     const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
     expect(fits, path).toBe(true);

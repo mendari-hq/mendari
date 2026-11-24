@@ -133,6 +133,9 @@ def _listed(row: Mapping[str, Any]) -> dict[str, Any]:
         "created_by": row["created_by"],
         "created_at": row["created_at"],
         "state_at": row["state_at"],
+        # A version added from a registry (`source` `hub`): where it came from and what was
+        # checked when it was (the registry, the namespace, the signing key, when).
+        **({"pulled": row["pulled"]} if row.get("pulled") else {}),
     }
 
 

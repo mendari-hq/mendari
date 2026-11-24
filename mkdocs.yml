@@ -57,13 +57,17 @@ nav:
   - Home: index.md
   - Guides:
       # A developer's path: write the agent, find its failures, set its threshold, check it
-      # on every change, contribute it. Then a hospital's: connect, evaluate, decide, deploy.
+      # on every change, publish its evaluations, contribute it. Then a hospital's: install,
+      # adopt, connect, evaluate, decide, deploy.
       - Authoring an agent: guides/authoring-an-agent.md
       - Finding failures: guides/finding-failures.md
       - Choosing an automation threshold: guides/choosing-a-threshold.md
       - Evaluating an agent on every change: guides/evaluate-in-ci.md
+      - Publishing an agent's evaluations: guides/publishing-evaluations.md
       - Contributing an agent: guides/contributing-an-agent.md
       - Using the API: guides/api.md
+      - Install Mendari at your site: guides/install-at-your-site.md
+      - Adopting an agent from the console: guides/adopting-an-agent.md
       - Connecting an EHR: guides/connecting-an-ehr.md
       - Evaluating an agent at your site: guides/evaluate-at-your-site.md
       - The committee packet: guides/committee-packet.md
@@ -110,5 +114,7 @@ nav:
       - "ADR-0018: Local providers read text in its plain form": decisions/ADR-0018-local-providers-read-plain-text.md
       - "ADR-0019: The engine learns from review, and a person promotes": decisions/ADR-0019-the-engine-learns-and-a-person-promotes.md
       - "ADR-0020: Publisher evaluations, signed and checked": decisions/ADR-0020-publisher-evaluations.md
+      - "ADR-0021: An agent's connection, set in the console by its organization": decisions/ADR-0021-an-agents-connection-set-in-the-console.md
+      - "ADR-0022: The first administrator and the operator organization": decisions/ADR-0022-the-first-administrator-and-the-operator-organization.md
   - Project:
       - Roadmap: roadmap.md

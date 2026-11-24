@@ -5,17 +5,20 @@ import { adoptionPath } from "./adoption.js";
 import { chartHtml, sparkline } from "./charts.js";
 import { holdNotice, originBadge, providerWords, statusNotice } from "./pack.js";
 import { render, views, wire } from "./router.js";
+import { setupChecks, setupPanel } from "./system.js";
 import { $, actionDialog, api, copyText, download, emptyState, esc, figureHtml, fileSlug, focusHeading, icon, may, money, num, OUTCOMES, outcomeText, packPath, shown, slotText, stat, state, storageGet, storageSet, toast, toastError, today, whileBusy, zoneName } from "./ui.js";
 
 views.overview = async (main) => {
   const packId = state.packId;
-  const [stats, chain, holds, brief] = await Promise.all([
+  const [stats, chain, holds, brief, setup] = await Promise.all([
     api(`/api/stats?pack_id=${encodeURIComponent(packId)}`),
-    // Verifying the chain reads every event: administrators only (the server says the same),
-    // and in memberships mode the operator's alone (ADR-0008).
-    may("admin") && state.accounts !== "memberships" ? api("/api/audit/verify") : null,
+    // Verifying the chain reads every event: the deployment's operators alone (the server says
+    // the same; ADR-0008): an administrator of the organization that operates it.
+    may("operate") ? api("/api/audit/verify") : null,
     api("/api/holds").catch(() => []),
     api(`${packPath()}/validation-brief?days=30`).catch(() => null),
+    // A new deployment's operator sees what is left to set up first (system.js).
+    setupChecks(),
   ]);
   if (state.packId !== packId) return;
   const d = state.detail;
@@ -23,6 +26,7 @@ views.overview = async (main) => {
   const period = PERIODS.some(([key]) => key === storageGet("oh.period")) ? storageGet("oh.period") : "30";
   const lens = LENSES.some(([key]) => key === storageGet("oh.lens")) ? storageGet("oh.lens") : "governance";
   main.innerHTML = `
+    ${setupPanel(setup)}
     <section class="pack-hero pack-header" aria-label="Agent overview">
       <div class="pack-hero-top">
         <div class="pack-hero-title">

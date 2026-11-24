@@ -1,0 +1,6 @@
+# What an install makes here is this machine's own, never the repository's: its settings and
+# secrets, its certificate and key, and its backups.
+.env
+.env.*
+tls/
+backups/

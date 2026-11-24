@@ -428,6 +428,15 @@ def _store_job(store: AuditStore, _: Pack) -> str:
     return f"store_job:{job['id']}"
 
 
+def _connection(store: AuditStore, _: Pack) -> str:
+    from mendari.core.connections import ConnectionStore
+
+    # An address by its number: nothing is looked up, and nothing is called.
+    ConnectionStore(store).set(CLINIC, INBOX, endpoint="https://1.1.1.1/decide", by="ops")
+    with store._db.session(exclusive=False) as db:
+        return f"agent_connection:{db.one('SELECT id FROM agent_connections')['id']}"
+
+
 SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what makes a row
     "decisions": ("decisions", "id", _decision),
     "api_keys": ("api_keys", "id", _key),
@@ -445,6 +454,7 @@ SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what mak
     "store_keys": ("store_keys", "id", _store_key),
     "store_datasets": ("store_datasets", "id", _store_dataset),
     "store_jobs": ("store_jobs", "id", _store_job),
+    "agent_connections": ("agent_connections", "id", _connection),
 }
 
 

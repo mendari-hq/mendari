@@ -57,7 +57,7 @@ views.audit = async (main, params) => {
       <span id="audit-count" class="muted audit-count" aria-live="polite"></span>
       <span class="grow"></span>
       ${may("admin") ? `<button type="button" id="export-fhir">${icon("download")} Export as FHIR</button>` : ""}
-      ${may("admin") && state.accounts !== "memberships" ? `<button type="button" id="verify">Verify chain</button>
+      ${may("operate") ? `<button type="button" id="verify">Verify chain</button>
       <span id="verify-result"></span>` : ""}
     </div>
     <p class="muted checkpoint" id="checkpoint"></p>
@@ -273,6 +273,7 @@ async function openRecord(id) {
       ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a, r.answers)).join("")}
       ${may("review") ? `<h3>Was this right?</h3>${feedbackControls(r, myRating(found.events))}` : ""}
       <h3>Events</h3>${timeline(found.events)}
+      ${eraseLink(id)}
       <details><summary>Full record (JSON)</summary><pre class="json">${esc(JSON.stringify(r, null, 2))}</pre></details>`,
   });
   if (!shown) return;
@@ -291,6 +292,13 @@ async function openRecord(id) {
   }));
   wire(shown.querySelector(".drawer-body"));  // this drawer's charts, not one still closing
 }
+
+// Where what a decision keeps of its input is erased, on a patient's request or for a case
+// recorded by mistake: the System view's form (system.js), with this decision's id in it. For
+// those who may erase and have that view, where the deployment keeps inputs at all.
+const eraseLink = (id) => (may("admin") && state.phiMode === "encrypt" && views.system?.available?.()
+  ? `<p class="mt-3"><a href="#system/erase/${encodeURIComponent(id)}" data-erase>Erase what this decision keeps of its input…</a></p>`
+  : "");
 
 // What a FHIR decision looked for in the record and found (its data-coverage record, LP-23d):
 // per mapped field and list, the resources read and the values found, as counts, and what could

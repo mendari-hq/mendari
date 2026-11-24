@@ -2,17 +2,21 @@
 """Publisher evaluations, signed and checked (ADR-0020).
 
 A publisher publishes an evaluation of one listed version, one per configuration and public
-dataset, as a `mendari.publisher-evaluation/1` record it signs with one of its namespace's keys
-(the keys of `mendari keys register`) and sends with the namespace's publisher token
-(`mendari eval AGENT --dataset NAME --publish --key publisher.key`):
+dataset, as a `mendari.publisher-evaluation/2` record it signs with one of its namespace's keys
+(the keys of `mendari keys register`) and sends with the namespace's publisher token (`mendari
+push AGENT --key publisher.key --evaluate NAME` for every configuration, or `mendari eval AGENT
+--dataset NAME --publish --key publisher.key` for one):
 
-    {"format": "mendari.publisher-evaluation/1",
+    {"format": "mendari.publisher-evaluation/2",
      "pack": {"id": "mendari/portal-message-agent", "version": "0.1.2", "digest": "sha256:…"},
      "configuration": {"reader": "rules"},          # a variant for every slot
-     "dataset": {"name": "test", "sha256": "<64 hex>", "n": 600},
+     "dataset": {"name": "test", "sha256": "<64 hex>", "n": 600,
+                 "provenance": "synthetic", "labelled_by": "the script that wrote the cases"},
      "report": {...mendari.site-report/2 counts...},
-     "claimed": {"latency_ms_p50": 1.2, "latency_ms_p95": 3.4, "cost_usd_per_decision": null},
+     "claimed": {"latency_ms_p50": 1.2, "latency_ms_p95": 3.4, "cost_usd_per_decision": null,
+                 "failed_cases": 0},                 # cases a provider failed on
      "models": ["mock-portal-agent"],
+     "engine": "0.1.0",                              # the Mendari release that ran it
      "created_at": "2026-11-22T12:00:00Z", "key_id": "ed25519:<16 hex>",
      "signature": "<base64>"}
 
@@ -20,31 +24,48 @@ Counts in, rates out: `report` is the run's counts (`evals/share.py` `counted_re
 never suppressed (a public dataset holds no patient, so nothing in it is a small cell to hide)
 and never a rate: the registry computes every figure it shows (`figures`). `remote_consent`
 says whether the configuration calls a provider off the machine; a public set may go to one.
-`claimed` (latency, cost) and `models` are the publisher's own word, shown labelled so.
+`claimed` (latency, cost), `models`, `engine` and `dataset.labelled_by` are the publisher's own
+word, shown labelled so. `dataset.provenance` is what the manifest's `card.provenance` says
+the agent's data was built from (null: it does not say), and the registry refuses any other.
+
+`mendari.publisher-evaluation/1` is the same record without `engine`, `dataset.provenance`,
+`dataset.labelled_by` and `claimed.failed_cases`. A registry still takes one, and one it
+stored verifies and is shown as before: what it does not state is shown as not stated.
+Nothing here rewrites a stored record.
 
 The signature is Ed25519 over `PREFIX`, the format and a zero byte, then the canonical JSON of
-every field but the signature (sorted keys, no spaces, ASCII). No other Mendari signature is over
-bytes that start so: an archive's manifest, a yank and the registry's records sign bare JSON, a
-site and the grading key their own prefixes (`hub/site_signing.py`, `evals/signing.py`).
+every field but the signature (sorted keys, no spaces, ASCII). The format is in the signed
+bytes twice (after the prefix, and as a field), so a record of one format never verifies as the
+other. No other Mendari signature is over bytes that start so: an archive's manifest, a yank
+and the registry's records sign bare JSON, a site and the grading key their own prefixes
+(`hub/site_signing.py`, `evals/signing.py`).
 
 The registry (`EvaluationStore.publish_evaluation`) checks, in order, and refuses naming the
 field, never echoing a value: the record's shape; its time (within `MAX_SKEW_S`); that it is this
 route's agent and version; the key (one of the namespace's, not revoked) and the signature;
 that the version is listed (not recalled or deleted); the digest; the configuration (every slot,
 a variant the version declares, and the report's providers); the dataset (one the manifest
-declares, in the signed archive, with that SHA-256 and n); the counts (whole, adding up, the
-agent's own policy, consent as the configuration calls). A configuration whose every provider is
-local is then run again in the regression check's isolated child (`hub/regression.py` `rerun`),
-and its counts must be the publisher's, exactly; with re-runs off (`MENDARI_REGISTRY_REGRESSION
-=off`) such a configuration is refused, never taken unchecked. One that calls a model (an agent,
-Jev, an LLM; an agent answered offline from its `mock_file` too: the registry goes by the
-provider's type) is not re-run, and says so.
+declares, in the signed archive, with that SHA-256 and n, and of the provenance the manifest
+states); the counts (whole, adding up, the agent's own policy, consent as the configuration
+calls). A configuration whose every provider is local is then run again in the regression
+check's isolated child (`hub/regression.py` `rerun`), and its counts must be the publisher's,
+exactly; with re-runs off (`MENDARI_REGISTRY_REGRESSION=off`) such a configuration is refused,
+never taken unchecked. One that calls a model (an agent, Jev, an LLM; an agent answered offline
+from its `mock_file` too: the registry goes by the provider's type) is not re-run, and says so.
 
 One live evaluation per version, configuration and dataset: a later one supersedes it (both stay
 stored and chained, `evaluation.published`, `evaluation.superseded`). The same signed record sent
 again is idempotent while it is live (nothing written, nothing chained) and refused once
 superseded; a record signed before the live one is refused. Its id is the SHA-256 of the
 record's canonical JSON.
+
+**Checked again on every read** (`checked`). What was checked at publish is a row in a database
+since, so a read trusts none of it: the stored record must still be the closed record its
+format names, with the id, agent, version, configuration, dataset and time of its row, signed
+by one of the namespace's keys with a signature that holds; and the row must say of the
+registry's re-run what follows from the record (run again, where it calls no model). One that
+is not is listed as not verified (`signature.verified` false, `excluded`), with no figure,
+model or claim of its own shown.
 """
 
 from __future__ import annotations
@@ -61,12 +82,14 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
 
+from mendari import __version__
 from mendari.core.origin import is_local
+from mendari.core.spec import Provenance
 from mendari.errors import HubError, MendariError
 from mendari.evals import figures as served_figures
-from mendari.evals.result import MIN_POSITIVES
+from mendari.evals.result import ERROR, MIN_POSITIVES
 from mendari.evals.share import (
     MIN_DATASET,
     Name,
@@ -77,18 +100,25 @@ from mendari.evals.share import (
 )
 from mendari.evals.share import where as share_where
 from mendari.hub import archive
+from mendari.hub.yank import printable_line
 
 if TYPE_CHECKING:
     from mendari.core.db import Backend
     from mendari.core.pack import Pack
     from mendari.evals.harness import Evaluation
 
-FORMAT = "mendari.publisher-evaluation/1"
+FORMAT_V1 = "mendari.publisher-evaluation/1"
+FORMAT_V2 = "mendari.publisher-evaluation/2"
+FORMAT = FORMAT_V2  # what `build` signs; a registry takes either, and shows what it stored
+FORMATS = (FORMAT_V1, FORMAT_V2)
 LISTING_FORMAT = "mendari.publisher-evaluations/1"
+# The signature scheme's own name, the same for both formats: the format follows it in the
+# signed bytes (`signed_bytes`), so a record of one never verifies as the other.
 PREFIX = b"mendari-publisher-evaluation-v1\x00"
 MAX_SKEW_S = 600  # as a recall's (`yank.MAX_SKEW_S`): sign it again
 MAX_BYTES = 256_000  # a record of the demo agent is about 4 KB
 MAX_MODELS = 16
+MAX_LABELLED_BY = 200  # who labelled the dataset, in the publisher's words: one line
 MATCHED = "matched"
 CALLS_A_MODEL = "calls_a_model"
 RERUN_WORDS = {
@@ -96,6 +126,11 @@ RERUN_WORDS = {
     CALLS_A_MODEL: "signed by the publisher; not re-run: calls a model",
 }
 REVOKED = "key revoked"
+NOT_VERIFIED = "not verified"
+# Why a stored evaluation does not verify (`checked`), as `signature.problem` names it.
+NOT_THE_RECORD = "record"  # not the closed record of its format, or not its row's
+NOT_A_KEY = "key"  # signed with a key that is not one of the namespace's
+NOT_SIGNED = "signature"  # the signature does not hold
 NOTE = (
     "The publisher's own evaluations, on its own public dataset: a configuration can be tuned "
     "to it. Site evidence and hidden sets are stronger evidence. Not a ranking."
@@ -148,6 +183,37 @@ class Claimed(_Closed):
     cost_usd_per_decision: Number | None = None
 
 
+def _one_line(text: str) -> str:
+    """One line of printable text that is not only spaces (`yank.printable_line`)."""
+    why = printable_line(text, MAX_LABELLED_BY)
+    if why or not text.strip():
+        raise ValueError(why or "not only spaces")
+    return text
+
+
+class DescribedDataset(EvaluatedDataset):
+    """A dataset as `mendari.publisher-evaluation/2` names it: also what its cases were built
+    from, as the agent's manifest says it (null: the manifest does not say), and who labelled
+    them, in the publisher's own words (null: not said)."""
+
+    provenance: Provenance | None
+    labelled_by: (
+        Annotated[str, Field(min_length=1, max_length=MAX_LABELLED_BY), AfterValidator(_one_line)]
+        | None
+    )
+
+
+class ClaimedV2(Claimed):
+    """As `Claimed`, and how many of the dataset's cases a provider failed on: there the engine
+    sent the case to a person, so those cases say nothing of the configuration. A whole count,
+    of the dataset's n."""
+
+    failed_cases: Annotated[int, Field(ge=0, le=10**9)]
+
+
+Models = Annotated[list[Annotated[str, Field(pattern=_MODEL_NAME)]], Field(max_length=MAX_MODELS)]
+
+
 class PublisherEvaluation(_Closed):
     format: Literal["mendari.publisher-evaluation/1"]
     pack: SharedPack
@@ -155,16 +221,36 @@ class PublisherEvaluation(_Closed):
     dataset: EvaluatedDataset
     report: SiteReportV2
     claimed: Claimed
-    models: Annotated[
-        list[Annotated[str, Field(pattern=_MODEL_NAME)]], Field(max_length=MAX_MODELS)
-    ]
+    models: Models
     created_at: Annotated[str, Field(pattern=_TIME)]
     key_id: Annotated[str, Field(pattern=_KEY_ID)]
     signature: Annotated[str, Field(min_length=1, max_length=200)]
 
 
-_FIELDS = frozenset(PublisherEvaluation.model_fields) | {
-    name for model in (EvaluatedDataset, Claimed) for name in model.model_fields
+class PublisherEvaluationV2(_Closed):
+    """`mendari.publisher-evaluation/2`: as `/1`, with the dataset's provenance and who labelled
+    it, and the Mendari release that ran the evaluation."""
+
+    format: Literal["mendari.publisher-evaluation/2"]
+    pack: SharedPack
+    configuration: Annotated[dict[Name, Name], Field(min_length=1, max_length=64)]
+    dataset: DescribedDataset
+    report: SiteReportV2
+    claimed: ClaimedV2
+    models: Models
+    engine: Annotated[str, Field(pattern=r"^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$")]
+    created_at: Annotated[str, Field(pattern=_TIME)]
+    key_id: Annotated[str, Field(pattern=_KEY_ID)]
+    signature: Annotated[str, Field(min_length=1, max_length=200)]
+
+
+Evaluated = PublisherEvaluation | PublisherEvaluationV2
+_MODELS: dict[str, type[PublisherEvaluation] | type[PublisherEvaluationV2]] = {
+    FORMAT_V1: PublisherEvaluation,
+    FORMAT_V2: PublisherEvaluationV2,
+}
+_FIELDS = frozenset(PublisherEvaluationV2.model_fields) | {
+    name for model in (DescribedDataset, ClaimedV2) for name in model.model_fields
 }
 
 
@@ -233,31 +319,51 @@ def calls_a_model(pack: Pack, configuration: Mapping[str, str]) -> bool:
 
 
 def build(
-    pack: Pack, run: Evaluation, *, key: Ed25519PrivateKey, at: str | None = None
+    pack: Pack,
+    run: Evaluation,
+    *,
+    key: Ed25519PrivateKey,
+    at: str | None = None,
+    labelled_by: str | None = None,
 ) -> dict[str, Any]:
-    """The signed record of one run of `pack` (`mendari eval --publish`): its counts from the
-    run's ledger, its configuration, its dataset by name, SHA-256 and size, the models that
-    answered, and the run's latency and cost as the publisher's own figures."""
+    """The signed record of one run of `pack` (`mendari push --evaluate`, `mendari eval
+    --publish`): its counts from the run's ledger, its configuration, its dataset by name,
+    SHA-256 and size, with what the manifest says its data was built from and, when the
+    publisher says it (`labelled_by`, one line), who labelled it; the models that answered, the
+    release that ran it, and the run's latency and cost as the publisher's own figures."""
     header = run.ledger.header
     configuration = {slot: str(p["variant"]) for slot, p in header["providers"].items()}
     dataset = header["dataset"]
     if dataset.get("limit") is not None:
         raise MendariError("a published evaluation covers the whole dataset: drop --limit")
     report = run.report
-    latency = (report.get("run") or {}).get("latency_ms") or {}
+    ran = report.get("run") or {}
+    latency = ran.get("latency_ms") or {}
     cost = (report.get("cost") or {}).get("per_decision_usd")
     fields = {
         "format": FORMAT,
         "pack": dict(header["pack"]),
         "configuration": configuration,
-        "dataset": {"name": dataset["name"], "sha256": dataset["sha256"], "n": dataset["n"]},
+        "dataset": {
+            "name": dataset["name"],
+            "sha256": dataset["sha256"],
+            "n": dataset["n"],
+            "provenance": pack.manifest.card.provenance,
+            "labelled_by": labelled_by,
+        },
         "report": counted_report(run.ledger, remote_consent=calls_a_model(pack, configuration)),
         "claimed": {
             "latency_ms_p50": _number(latency.get("p50")),
             "latency_ms_p95": _number(latency.get("p95")),
             "cost_usd_per_decision": _number(cost),
+            # The cases with an answer a provider failed to give (the ledger's error column).
+            "failed_cases": sum(
+                any(answer[ERROR] is not None for answer in case["q"].values())
+                for case in run.ledger.cases
+            ),
         },
         "models": [str(m) for m in header.get("models") or []][:MAX_MODELS],
+        "engine": str(ran.get("engine") or __version__),
         "created_at": at or now(),
     }
     record = sign(fields, key)
@@ -271,19 +377,22 @@ def _number(value: Any) -> float | None:
     return round(float(value), 3)
 
 
-def parse(record: Any) -> PublisherEvaluation:
-    """The record as the closed model, or a `HubError` naming its fields (never their values)."""
-    if not isinstance(record, Mapping) or record.get("format") != FORMAT:
+def parse(record: Any) -> Evaluated:
+    """The record as the closed model of the format it names (`FORMATS`), or a `HubError`
+    naming its fields (never their values)."""
+    named = record.get("format") if isinstance(record, Mapping) else None
+    model = _MODELS.get(named) if isinstance(named, str) else None
+    if model is None:
         raise HubError(f"not a {FORMAT} record: format")
     try:
-        return PublisherEvaluation.model_validate(dict(record))
+        return model.model_validate(dict(record))
     except ValidationError as error:
         fields = sorted({_where(e["loc"]) for e in error.errors()})
         shown = ", ".join(fields[:5]) + (f" and {len(fields) - 5} more" if len(fields) > 5 else "")
-        raise HubError(f"not a {FORMAT} record: {shown}") from None
+        raise HubError(f"not a {named} record: {shown}") from None
 
 
-def verify(record: Mapping[str, Any], public: Ed25519PublicKey) -> PublisherEvaluation:
+def verify(record: Mapping[str, Any], public: Ed25519PublicKey) -> Evaluated:
     """The record, parsed, once its signature holds with `public` (a `HubError` otherwise)."""
     parsed = parse(record)
     if not signature_holds(record, public):
@@ -412,6 +521,11 @@ class EvaluationStore:
             raise HubError(f"report: it names {unknown} the agent does not have")
         if report.dataset.n != evaluation.dataset.n:
             raise HubError("report.dataset.n: it is not the dataset's n")
+        if (
+            isinstance(evaluation, PublisherEvaluationV2)
+            and evaluation.claimed.failed_cases > evaluation.dataset.n
+        ):
+            raise HubError("claimed.failed_cases: it is more than the dataset's n")
         shared = report.model_dump(mode="json")
         if _has_null(shared):
             raise HubError("report: a public dataset's counts are whole (no null cell)")
@@ -452,6 +566,14 @@ class EvaluationStore:
                 raise HubError("dataset.sha256: it is not the archived dataset's")
             if len(dataset.records) != evaluation.dataset.n:
                 raise HubError("dataset.n: it is not the archived dataset's")
+            if (
+                isinstance(evaluation, PublisherEvaluationV2)
+                and evaluation.dataset.provenance != pack.manifest.card.provenance
+            ):
+                raise HubError(
+                    "dataset.provenance: it is not what the agent's manifest says its data was "
+                    "built from (`card.provenance`)"
+                )
             rerun = CALLS_A_MODEL
             if local:
                 with regression.slot():  # at most a few at once; else 503, try again
@@ -575,7 +697,7 @@ class EvaluationStore:
             "id": row["id"],
             "pack": f"{row['namespace']}/{row['name']}",
             "version": row["version"],
-            "configuration": json.loads(row["configuration"]),
+            "configuration": held_configuration(row),
             "dataset": row["dataset"],
             "status": row["status"],
             "rerun": row["rerun"],
@@ -583,52 +705,216 @@ class EvaluationStore:
             "key_id": row["key_id"],
         }
 
-    def evaluations(self, namespace: str, name: str, version: str) -> dict[str, Any]:
-        """A version's live evaluations, with the figures worked out here from their counts.
-        One signed with a key revoked since is listed and left out of the comparison
-        (`excluded`). Ordered by configuration and dataset: never by a figure."""
+    def evaluation_keys(self, namespace: str) -> dict[str, Ed25519PublicKey]:
+        """Every key the namespace registered, by id, a revoked one too: what it signed before
+        stays signed (`revoked_keys` says which leave the comparison). A stored key that is not
+        the key its id names is left out, so nothing verifies with it."""
         with self._db.session(exclusive=False) as db:
-            rows = []
-            if db.columns("hub_evaluations"):
-                rows = db.all(
-                    "SELECT * FROM hub_evaluations WHERE namespace = ? AND name = ? AND "
-                    "version = ? AND status = 'live' ORDER BY configuration, dataset, id",
-                    (namespace, name, version),
-                )
-                superseded = db.one(
-                    "SELECT COUNT(*) AS n FROM hub_evaluations WHERE namespace = ? AND name = ? "
-                    "AND version = ? AND status = 'superseded'",
-                    (namespace, name, version),
-                )
-            else:
-                superseded = None
-        revoked = self.revoked_keys(namespace)
-        listed = []
-        for row in rows:
-            record = json.loads(row["body"])
-            listed.append(
-                {
-                    **self._answer(row),
-                    "dataset": {
-                        "name": record["dataset"]["name"],
-                        "n": record["dataset"]["n"],
-                        "sha256": record["dataset"]["sha256"],
-                    },
-                    "models": list(record.get("models") or []),
-                    "claimed": dict(record.get("claimed") or {}),
-                    "created_at": row["created_at"],
-                    "excluded": REVOKED if str(row["key_id"]) in revoked else None,
-                    "figures": _figures_of(record),
-                }
+            listed = db.all(
+                "SELECT key_id, public_pem FROM hub_keys WHERE namespace = ?", (namespace,)
             )
+        keys: dict[str, Ed25519PublicKey] = {}
+        for row in listed:
+            try:
+                key = archive.load_public_key(str(row["public_pem"]).encode())
+            except HubError:
+                continue
+            if archive.key_id(key) == row["key_id"]:
+                keys[str(row["key_id"])] = key
+        return keys
+
+    def live_evaluations(
+        self, namespace: str, name: str, version: str
+    ) -> tuple[list[dict[str, Any]], int]:
+        """A version's live rows, by configuration and dataset, and how many it superseded."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("hub_evaluations"):
+                return [], 0
+            rows = db.all(
+                "SELECT * FROM hub_evaluations WHERE namespace = ? AND name = ? AND "
+                "version = ? AND status = 'live' ORDER BY configuration, dataset, id",
+                (namespace, name, version),
+            )
+            superseded = db.one(
+                "SELECT COUNT(*) AS n FROM hub_evaluations WHERE namespace = ? AND name = ? "
+                "AND version = ? AND status = 'superseded'",
+                (namespace, name, version),
+            )
+        return rows, int(superseded["n"]) if superseded else 0
+
+    def evaluation_record(
+        self, namespace: str, name: str, version: str, evaluation_key: str
+    ) -> dict[str, Any]:
+        """One evaluation of a version as it is stored, live or superseded: the publisher's
+        signed record, for anyone to check against the namespace's key (`signed_bytes` says
+        what the signature is over), with whether it verifies here now."""
+        row = self._evaluation_row(evaluation_key)
+        if row is None or (row["namespace"], row["name"], row["version"]) != (
+            namespace,
+            name,
+            version,
+        ):
+            raise HubError("no such evaluation", 404)
+        record, problem = checked(row, self.evaluation_keys(namespace))
+        try:
+            stored = json.loads(row["body"])
+        except ValueError:
+            stored = None
+        return {
+            "id": row["id"],
+            "status": row["status"],
+            "signature": {
+                "key_id": row["key_id"],
+                "verified": record is not None,
+                "problem": problem,
+            },
+            "revoked": str(row["key_id"]) in self.revoked_keys(namespace),
+            "record": stored,
+        }
+
+    def evaluated_versions(self, namespace: str, name: str) -> set[str]:
+        """The versions of an agent that hold a live evaluation."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("hub_evaluations"):
+                return set()
+            rows = db.all(
+                "SELECT DISTINCT version FROM hub_evaluations WHERE namespace = ? AND name = ? "
+                "AND status = 'live'",
+                (namespace, name),
+            )
+        return {str(row["version"]) for row in rows}
+
+    def evaluations(self, namespace: str, name: str, version: str) -> dict[str, Any]:
+        """A version's live evaluations, each checked again as it is read (`checked`), with the
+        figures worked out here from its counts. One that no longer verifies is listed with no
+        figure of its own, and one signed with a key revoked since with its figures: both are
+        left out of the comparison (`excluded`). Ordered by configuration and dataset: never by
+        a figure."""
+        rows, superseded = self.live_evaluations(namespace, name, version)
+        keys = self.evaluation_keys(namespace)
+        revoked = self.revoked_keys(namespace)
         return {
             "format": LISTING_FORMAT,
             "pack": f"{namespace}/{name}",
             "version": version,
             "note": NOTE,
-            "evaluations": listed,
-            "superseded": int(superseded["n"]) if superseded else 0,
+            "evaluations": [as_listed(row, keys, revoked) for row in rows],
+            "superseded": superseded,
         }
+
+
+def held_configuration(row: Mapping[str, Any]) -> dict[str, str]:
+    """A row's configuration column as the mapping it holds (slot to variant); nothing when it
+    holds no mapping (a row changed since it was written): never an error."""
+    try:
+        held = json.loads(row["configuration"])
+    except (TypeError, ValueError, RecursionError):
+        return {}
+    if not isinstance(held, dict):
+        return {}
+    return {str(slot): str(variant) for slot, variant in held.items()}
+
+
+def checked(
+    row: Mapping[str, Any], keys: Mapping[str, Ed25519PublicKey]
+) -> tuple[dict[str, Any] | None, str | None]:
+    """A stored evaluation as it verifies now, with the namespace's `keys`: its record and
+    None, or None and why it is not one to show (`NOT_THE_RECORD`, `NOT_A_KEY`, `NOT_SIGNED`).
+
+    The row was checked when it was written; this trusts none of that. The body must read as
+    the closed record of its format; the record's own id (the SHA-256 of its canonical JSON),
+    agent, version, configuration, dataset, key and time must be the row's; and its signature
+    must hold with that key of the namespace's. A body changed by one digit fails the id and
+    the signature both.
+
+    Whether the registry ran it again is the row's word, and it follows from the record too: a
+    configuration that calls no model is stored only once its re-run counted the same, and one
+    that calls a model is never run (`publish_evaluation`). A row that says otherwise of its
+    record is not that record's row, so "re-run by the registry" is never read off a row
+    alone."""
+    try:
+        record = json.loads(row["body"])
+        parsed = parse(record)
+        named = (
+            evaluation_id(record),
+            parsed.pack.id,
+            parsed.pack.version,
+            _canonical_text(dict(parsed.configuration)),
+            parsed.dataset.name,
+            parsed.key_id,
+            parsed.created_at,
+            CALLS_A_MODEL if parsed.report.remote_consent else MATCHED,
+        )
+    except (HubError, ValueError, TypeError, RecursionError):
+        return None, NOT_THE_RECORD
+    held = (
+        row["id"],
+        f"{row['namespace']}/{row['name']}",
+        row["version"],
+        row["configuration"],
+        row["dataset"],
+        row["key_id"],
+        row["created_at"],
+        row["rerun"],
+    )
+    if named != held:
+        return None, NOT_THE_RECORD
+    public = keys.get(parsed.key_id)
+    if public is None:
+        return None, NOT_A_KEY
+    if not signature_holds(record, public):
+        return None, NOT_SIGNED
+    return dict(record), None
+
+
+def as_listed(
+    row: Mapping[str, Any], keys: Mapping[str, Ed25519PublicKey], revoked: set[str]
+) -> dict[str, Any]:
+    """One live evaluation as a listing serves it. Verified: what its signed record states,
+    and the figures worked out from its counts. Not verified: the row's own names and nothing
+    the record says, marked `excluded`."""
+    record, problem = checked(row, keys)
+    answer = EvaluationStore._answer(row)
+    signature = {"key_id": row["key_id"], "verified": record is not None, "problem": problem}
+    if record is None:
+        return {
+            **answer,
+            "record_format": None,
+            "dataset": {
+                "name": row["dataset"],
+                "n": None,
+                "sha256": None,
+                "provenance": None,
+                "labelled_by": None,
+            },
+            "models": [],
+            "claimed": {},
+            "engine": None,
+            "created_at": row["created_at"],
+            "signature": signature,
+            "excluded": NOT_VERIFIED,
+            "figures": None,
+        }
+    dataset = record["dataset"]
+    return {
+        **answer,
+        "record_format": record["format"],
+        "dataset": {
+            "name": dataset["name"],
+            "n": dataset["n"],
+            "sha256": dataset["sha256"],
+            # What `mendari.publisher-evaluation/1` does not state is null: not stated.
+            "provenance": dataset.get("provenance"),
+            "labelled_by": dataset.get("labelled_by"),
+        },
+        "models": list(record.get("models") or []),
+        "claimed": dict(record.get("claimed") or {}),
+        "engine": record.get("engine"),
+        "created_at": row["created_at"],
+        "signature": signature,
+        "excluded": REVOKED if str(row["key_id"]) in revoked else None,
+        "figures": _figures_of(record),
+    }
 
 
 def _figures_of(record: Mapping[str, Any]) -> dict[str, Any] | None:

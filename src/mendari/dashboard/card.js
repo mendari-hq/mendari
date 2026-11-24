@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Decision Card: the pack as a document, sections linked as routes ("#card/policy").
 
+import { cardConnection } from "./connection.js";
 import { communityNotice, holdsFor, isCommunity, originBadge, providerWords, rowLabels, statusNotice } from "./pack.js";
 import { render, views } from "./router.js";
 import { $, actionDialog, api, copyText, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError, whileBusy } from "./ui.js";
@@ -96,8 +97,17 @@ const CARD_SECTIONS = [
   ["approval", "Automation approval"],
   ["deployments", "Deployments"],
   ["providers", "Providers"],
+  ["connection", "Connection"],
   ["schemas", "Schemas"],
 ];
+
+// The deployment's records are its operator's (ADR-0008). In memberships mode its operators
+// alone read them (`operate`); in claims mode the server says whose they are: every
+// organization's, unless the deployment names the one that operates it, and then a 404 for the
+// others. Null: not this window's to read, and the card says so.
+const deploymentRecords = (query) => (state.accounts === "memberships" && !may("operate")
+  ? null
+  : api(`/api/deployments?${query}`).catch((error) => (error.status === 404 ? null : Promise.reject(error))));
 
 // The card is a document: a table of contents whose links are routes ("#card/policy"), prose at a
 // readable width, facts as a definition list, and the machine-facing schemas folded away.
@@ -108,7 +118,7 @@ views.card = async (main, params) => {
   const query = `pack_id=${encodeURIComponent(state.packId)}`;
   const [governance, deployments, holds, registry] = await Promise.all([
     api(`/api/governance?${query}`),
-    state.accounts === "memberships" ? null : api(`/api/deployments?${query}`),
+    deploymentRecords(query),
     api("/api/holds"),
     fromRegistry(d) ? api(`/api/registry-approvals?${query}`) : null,
   ]);
@@ -189,6 +199,12 @@ views.card = async (main, params) => {
       </table></div>
     </section>
 
+    <section class="card-section" id="card-connection" aria-labelledby="card-connection-title">
+      <h2 id="card-connection-title">Connection</h2>
+      <p class="prose muted">The service that answers for this agent in your organization.</p>
+      <div id="card-connection-body" aria-live="polite"><p class="muted">Reading…</p></div>
+    </section>
+
     <section class="card-section" id="card-schemas" aria-labelledby="card-schemas-title">
       <h2 id="card-schemas-title">Schemas</h2>
       <details><summary>Input schema (JSON)</summary><pre class="json">${esc(JSON.stringify(d.input_schema, null, 2))}</pre></details>
@@ -197,6 +213,7 @@ views.card = async (main, params) => {
   wireApproval(main);
   if (registry) wireRegistry(main, registry, d);
   wireHolds(main, holds, d);
+  cardConnection(state.packId); // read apart: the card never waits for it (connection.js)
   main.querySelector("[data-copy]").addEventListener("click", (event) =>
     copyText(event.currentTarget.dataset.copy, "Digest copied", "Copying isn't available here: select the digest and copy it"));
   return cardSection(params[0]);

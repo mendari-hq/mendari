@@ -15,3 +15,23 @@ condition = "AND"
 paths = ['''^deploy/onprem/\.env\.example$''']
 regexTarget = "match"
 regexes = ['''^MENDARI_PHI_KEY=\r?\n''']
+
+[[allowlists]]
+description = """src/mendari/server/connection_routes.py passes a variable and the signed-in \
+actor's name as keyword arguments (`token=token, by=principal.actor`). The generic-api-key rule \
+took the second argument for the first one's value (commit f12650c2, line 261)."""
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^src/mendari/server/connection_routes\.py$''']
+regexTarget = "match"
+regexes = ['''^token, by=principal\.actor$''']
+
+[[allowlists]]
+description = """tests/support/evaluation_pages.py annotates a parameter with its type \
+(`key: Ed25519PrivateKey = KEY`). The generic-api-key rule took the class's name for a key \
+(commit 9a14c8c5, line 153)."""
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^tests/support/evaluation_pages\.py$''']
+regexTarget = "match"
+regexes = ['''^key: Ed25519PrivateKey\s*$''']

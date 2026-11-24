@@ -131,6 +131,17 @@ _APPEND_BATCH = 500
 # it, the command line's and a claims-mode server's included, names in each event the
 # organization of the row it is about (`_bound`), and `verify` checks that name against the row.
 ORG_BOUND = "org_bound"
+# The first administrator (`AuditStore.first_administrator`). A database on which the
+# first-administrator setting was honoured is marked (`FIRST_ADMIN`, a `settings` row holding the
+# membership it made, never removed): from then on the setting gives nothing here, whatever it
+# names. The membership it makes is chained as made by `FIRST_ADMIN_BY`, no person's id.
+FIRST_ADMIN = "first_admin"
+FIRST_ADMIN_BY = "first-administrator setting"
+# What the operator's checks read of the work a schedule or an operator does (`system_runs`,
+# outside the chain, as `alert_deliveries` is): each job's last run, when, and how it ended.
+# `detail` is a fixed code, never a message or a count of anyone's data.
+RUN_JOBS = ("retention", "checkpoint", "monitor", "backup", "audit.verify", "ehr.check")
+RUN_OUTCOMES = ("ok", "failed")
 # What a CDS Hooks card's feedback chains (LP-23f, `record_card_feedback`).
 CARD_FEEDBACK = "card.feedback"
 # Each kind of event by what it is about. On a decision: the kinds the FHIR export reads
@@ -170,6 +181,8 @@ SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
     "store_key": ("store_keys", "id", "org"),  # an author's key for a pack store (LP-20f)
     "store_dataset": ("store_datasets", "id", "org"),  # a pack store's dataset (LP-20g)
     "store_job": ("store_jobs", "id", "org"),  # a pack store's evaluation job (LP-20g)
+    # An agent's connection, set in the console for one organization (ADR-0021).
+    "agent_connection": ("agent_connections", "id", "org"),
 }
 ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJECT_TABLES`)
     "key.created": "key",
@@ -236,6 +249,14 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     # (LP-20i): the dataset, the case (a decision's id) and the digest, never an input.
     "store_dataset.proposal_accepted": "store_dataset",
     "store_dataset.proposal_dismissed": "store_dataset",
+    # An agent's connection for one organization (ADR-0021, `core/connections.py`): set or
+    # changed (the agent, the endpoint's origin and whether it carries a token), and cleared.
+    # Never the token, nor the endpoint's path.
+    "agent_connection.set": "agent_connection",
+    "agent_connection.cleared": "agent_connection",
+    # An origin the deployment's allow-list does not name, allowed for one agent in one
+    # organization by an operator of the deployment: the agent, the origin and who.
+    "agent_connection.origin_allowed": "agent_connection",
 }
 # A pack store version's state after each of its kinds: `verify` checks a version's row against
 # its newest (LP-20e).
@@ -589,6 +610,12 @@ CREATE TABLE IF NOT EXISTS checkpoint_statements (
     seq         BIGINT NOT NULL,
     statement   TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS system_runs (
+    job      TEXT PRIMARY KEY,
+    ran_at   TEXT NOT NULL,
+    outcome  TEXT NOT NULL,
+    detail   TEXT
+);
 CREATE TABLE IF NOT EXISTS evalset_sets (
     id            TEXT PRIMARY KEY,
     org           TEXT NOT NULL,
@@ -670,9 +697,34 @@ CREATE TABLE IF NOT EXISTS store_versions (
     created_at     TEXT NOT NULL,
     state          TEXT NOT NULL,
     state_at       TEXT NOT NULL,
+    pulled         TEXT,
     UNIQUE (org, digest)
 );
 CREATE INDEX IF NOT EXISTS store_versions_pack ON store_versions (org, pack_id, created_at);
+CREATE TABLE IF NOT EXISTS store_pins (
+    org        TEXT NOT NULL,
+    registry   TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    pinned_by  TEXT NOT NULL,
+    pinned_at  TEXT NOT NULL,
+    PRIMARY KEY (org, registry, name)
+);
+CREATE TABLE IF NOT EXISTS agent_connections (
+    id            TEXT PRIMARY KEY,
+    org           TEXT NOT NULL,
+    pack_id       TEXT NOT NULL,
+    endpoint      TEXT,
+    token         TEXT,
+    token_set_by  TEXT,
+    token_set_at  TEXT,
+    changed_by    TEXT NOT NULL,
+    changed_at    TEXT NOT NULL,
+    allowed_origin TEXT,
+    allowed_by    TEXT,
+    allowed_at    TEXT,
+    UNIQUE (org, pack_id)
+);
 CREATE TABLE IF NOT EXISTS store_usage (
     org      TEXT NOT NULL,
     day      TEXT NOT NULL,
@@ -833,7 +885,21 @@ CREATE INDEX IF NOT EXISTS alert_deliveries_created
 # organization, chained `store_key.*`), `store_matches` (which hidden cases a held version
 # matched, by set and case id: read by the operator's command only, never chained or served),
 # and `store_uploads` with `store_upload_parts` (an archive sent in parts, kept until it is
-# joined or a day old, outside the chain). Empty unless the store is on.
+# joined or a day old, outside the chain). Empty unless the store is on. A version pulled from
+# a registry in the console (`source` `hub`) keeps where it came from in `pulled` (the registry,
+# the namespace, the signing key, the archive's SHA-256 and what was checked), hashed into its
+# `pack_version.created` event with the rest of its row; `store_pins` keeps the registry keys an
+# organization pinned on first use (per registry: a namespace's key ids, the registry's own key
+# id), outside the chain, as the command line keeps them in a file (`hub/client.py`).
+
+# `agent_connections` (ADR-0021, `core/connections.py`): the service that answers for an agent
+# in one organization, set in the console: one row per organization and agent, kept when the
+# connection is cleared (`endpoint` NULL then), since its events name it. `token` is the bearer
+# token sealed under the PHI key (`core/phi.py`, kind `connection`), bound to the row's id, its
+# organization and its agent; never in an event, an answer or a log line. `allowed_origin`,
+# with who and when, is the origin an operator of the deployment allowed for this agent in this
+# organization where the deployment's allow-list does not name it (chained
+# `agent_connection.origin_allowed`); NULL otherwise, and once the connection is cleared.
 
 # The tables a read-only store reads (`_read_only_check`); the first two must be there.
 _READ_TABLES = ("audit_events", "decisions", "feedback", "decision_inputs", "notes", "settings")
@@ -879,6 +945,14 @@ _ADDED_COLUMNS = (
     # it, counted by their length).
     ("store_usage", "datasets", "INTEGER"),
     ("store_datasets", "size", "INTEGER"),
+    # Where a version pulled from a registry came from (`core/pack_store.py`, source `hub`);
+    # NULL for every other version, and on rows from before it.
+    ("store_versions", "pulled", "TEXT"),
+    # The origin an operator allowed for an agent's connection, by whom and when
+    # (`core/connections.py`); NULL where none was, and on rows from before it.
+    ("agent_connections", "allowed_origin", "TEXT"),
+    ("agent_connections", "allowed_by", "TEXT"),
+    ("agent_connections", "allowed_at", "TEXT"),
 )
 # API keys (ADR-0004): machines are viewer or service; a key lives 90 days unless asked
 # otherwise, 365 at most; keys made before keys expired get 30 days from the first start of
@@ -2057,6 +2131,72 @@ class AuditStore(RateBuckets):
                 "SELECT * FROM alert_deliveries ORDER BY created_at DESC LIMIT ?", (limit,)
             )
 
+    def last_alerts(self) -> dict[str, dict[str, Any] | None]:
+        """For the operator's checks: the newest alert sent (`last`) and the newest one the
+        webhook took (`delivered`), each as its event, status, when it was last tried, the
+        webhook's HTTP status and the fixed error code. Never a body, a URL or a secret. None
+        for none, and in a database from before alerts were recorded (read-only)."""
+        columns = "event, status, updated_at, last_status, last_error"
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("alert_deliveries"):
+                return {"last": None, "delivered": None}
+            last = db.one(
+                f"SELECT {columns} FROM alert_deliveries ORDER BY updated_at DESC LIMIT 1"
+            )
+            delivered = db.one(
+                f"SELECT {columns} FROM alert_deliveries WHERE status = 'delivered' "
+                "ORDER BY updated_at DESC LIMIT 1"
+            )
+        return {"last": last, "delivered": delivered}
+
+    # -- the operator's checks (`server/system.py`): outside the chain, times and codes only ----
+
+    def record_run(self, job: str, outcome: str, detail: str | None = None) -> dict[str, Any]:
+        """Record that `job` (one of `RUN_JOBS`) just ran and how it ended (`RUN_OUTCOMES`),
+        over its last run: the operator's checks show each job's last run, never a history
+        (what must last is in the chain: a purge's summary, a checkpoint). `detail` is a fixed
+        code (a verification's reason, a job's step), at most 64 characters."""
+        if job not in RUN_JOBS:
+            raise ValueError(f"no job named {job!r} (one of {', '.join(RUN_JOBS)})")
+        if outcome not in RUN_OUTCOMES:
+            raise ValueError(f"a run ends {' or '.join(RUN_OUTCOMES)}")
+        if detail is not None and not re.fullmatch(r"[a-z0-9_.:-]{1,64}", detail):
+            raise ValueError("a run's detail is a code: lower-case letters, digits, _ . : -")
+        run = {"job": job, "ran_at": _now(), "outcome": outcome, "detail": detail}
+        with self._db.session(exclusive=False) as db:
+            db.all(
+                "INSERT INTO system_runs (job, ran_at, outcome, detail) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (job) DO UPDATE SET ran_at = excluded.ran_at, "
+                "outcome = excluded.outcome, detail = excluded.detail",
+                tuple(run.values()),
+            )
+        return run
+
+    def runs(self) -> dict[str, dict[str, Any]]:
+        """Each job's last recorded run, by job (`record_run`); none in a database from before
+        runs were recorded (read-only)."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("system_runs"):
+                return {}
+            rows = db.all("SELECT job, ran_at, outcome, detail FROM system_runs")
+        return {str(row["job"]): dict(row) for row in rows}
+
+    def any_decision(self) -> bool:
+        """Whether this deployment has ever made a decision, for any organization: what tells a
+        fresh install from one in use (the operator's checks). One indexed read, no count."""
+        with self._db.session(exclusive=False) as db:
+            return db.one("SELECT id FROM decisions LIMIT 1") is not None
+
+    def last_checkpoint(self) -> dict[str, Any] | None:
+        """The newest recorded checkpoint (`record_checkpoint`): its event's place, its hash and
+        when it was recorded; None without one, and in a database from before them."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("audit_checkpoints"):
+                return None
+            return db.one(
+                "SELECT seq, hash, created_at FROM audit_checkpoints ORDER BY seq DESC LIMIT 1"
+            )
+
     def consume_principal(self, principal: str, *, daily_limit: int, cost: int = 1) -> int | None:
         """Count `cost` decisions for `principal` (its opaque id, `Principal.id`) today, all or
         none: the count it reached, or None when they would pass its daily cap (nothing is
@@ -2663,6 +2803,7 @@ class AuditStore(RateBuckets):
         self._rotate_inputs(prefix, batch, summary)
         self._rotate_notes(prefix, batch, summary)
         self._rotate_datasets(prefix, batch, summary)
+        self._rotate_connections(prefix, batch, summary)
         return {**summary, "from": dict(summary["from"])}
 
     def _rotate_inputs(self, prefix: str, batch: int, summary: dict[str, Any]) -> None:
@@ -2809,6 +2950,50 @@ class AuditStore(RateBuckets):
             summary["from"].update(moved)
             summary["batches"] += bool(datasets)
 
+    def _rotate_connections(self, prefix: str, batch: int, summary: dict[str, Any]) -> None:
+        """Agents' connection tokens sealed under another key (ADR-0021), re-sealed as notes
+        are: each bound to its row, its organization and its agent, as it was."""
+        after = ""
+        while True:
+            with self._db.session(exclusive=False) as db:
+                rows = db.all(
+                    "SELECT id, org, pack_id, token FROM agent_connections WHERE id > ? "
+                    "AND token IS NOT NULL AND substr(token, 1, 20) <> ? ORDER BY id LIMIT ?",
+                    (after, prefix, batch),
+                )
+            if not rows:
+                return
+            after = rows[-1]["id"]
+            changes = []
+            for row in rows:
+                ids = (str(row["id"]), str(row["org"]), str(row["pack_id"]))
+                try:
+                    token, opened = self.phi.open("connection", row["token"], *ids)
+                except MendariError:
+                    summary["unopenable"].append(
+                        {"kind": "connection", "id": row["id"], "key": token_key(row["token"])}
+                    )
+                    continue
+                changes.append((row, self.phi.seal("connection", token, *ids), opened))
+            if not changes:
+                continue
+            moved: Counter[str] = Counter()
+            connections = 0
+            with self._db.session(exclusive=True) as db:
+                for row, sealed, opened in changes:
+                    if db.all(
+                        "UPDATE agent_connections SET token = ? WHERE id = ? AND token = ? "
+                        "RETURNING id",
+                        (sealed, row["id"], row["token"]),
+                    ):  # neither replaced nor cleared since it was read
+                        connections += 1
+                        moved[opened] += 1
+                if connections:
+                    self._chain_rotation(db, moved, summary["to"], connections=connections)
+            summary["connections"] = summary.get("connections", 0) + connections
+            summary["from"].update(moved)
+            summary["batches"] += bool(connections)
+
     def _chain_rotation(
         self,
         db: _Session,
@@ -2819,6 +3004,7 @@ class AuditStore(RateBuckets):
         details: int = 0,
         notes: int = 0,
         datasets: int = 0,
+        connections: int = 0,
     ) -> None:
         """One batch's chained event (`phi.rotated`: key ids and counts, never a key), and the
         keys it moved values off marked retired."""
@@ -2832,6 +3018,7 @@ class AuditStore(RateBuckets):
             "details": details,
             "notes": notes,
             **({"datasets": datasets} if datasets else {}),
+            **({"connections": connections} if connections else {}),
         }
         self._append(db, KEYS_CHAIN, "phi.rotated", payload)
 
@@ -2935,6 +3122,25 @@ class AuditStore(RateBuckets):
                 alone.open("dataset", row["data"], row["id"])
             except MendariError:
                 failures.append({"kind": "dataset", "id": row["id"], "key": named})
+        # Agents' connection tokens (ADR-0021), counted only where there are any.
+        with self._db.session(exclusive=False) as db:
+            sealed_tokens = (
+                db.all(
+                    "SELECT id, org, pack_id, token, token_set_at FROM agent_connections "
+                    "WHERE token IS NOT NULL"
+                )
+                if db.columns("agent_connections")
+                else []
+            )
+        for row in sealed_tokens:
+            by_key.setdefault("connections", Counter())
+            named = seen("connections", row["token"], row["token_set_at"] or "")
+            try:
+                alone.open(
+                    "connection", row["token"], str(row["id"]), str(row["org"]), str(row["pack_id"])
+                )
+            except MendariError:
+                failures.append({"kind": "connection", "id": row["id"], "key": named})
         with self._db.session(exclusive=False) as db:
             retired = {
                 str(row["name"])[len(RETIRED) :]
@@ -4965,6 +5171,80 @@ class AuditStore(RateBuckets):
                 )
         return done
 
+    def first_admin(self) -> str | None:
+        """The membership the first-administrator setting made on this database (`FIRST_ADMIN`),
+        or None while it has made none. Once it has, the setting is ignored here."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("settings"):
+                return None
+            row = db.one("SELECT value FROM settings WHERE name = ?", (FIRST_ADMIN,))
+        return None if row is None else str(row["value"])
+
+    def first_administrator(
+        self, *, issuer: str, subject: str, email: str, name: str | None, org: str, org_name: str
+    ) -> dict[str, Any] | None:
+        """Make the person signing in now (`issuer` and `subject`; `email` the address their
+        identity provider verified at this sign-in) the first administrator of `org`, as the
+        first-administrator setting asks (`server/auth.py`, which checked that `email` is the
+        setting's): `org`'s record when it has none (`organization.created`), theirs when they
+        have none (`user.recorded`), and an administrator's membership (`membership.created`,
+        or `membership.roles_changed` on one they hold already), each chained as made by
+        `FIRST_ADMIN_BY`. The database is marked in the same transaction (`FIRST_ADMIN`).
+
+        Once, and for an organization nobody administers yet: None, with nothing written, when
+        this database is marked already or `org` has an administrator who signed in. An
+        organization never loses its last one (`_keep_an_admin`), so the setting can never give
+        a second administrator, even on a database restored from before its mark."""
+        user_id = accounts.person_id(issuer, subject)
+        address = accounts.normalise_email(email)
+        accounts.check_org_id(org)
+        with self._db.session(exclusive=True) as db:
+            if db.one("SELECT value FROM settings WHERE name = ?", (FIRST_ADMIN,)) is not None:
+                return None
+            held = db.all(
+                "SELECT id, user_id, roles FROM memberships WHERE org = ? AND removed_at IS NULL "
+                "AND user_id IS NOT NULL",
+                (org,),
+            )
+            if any(accounts.ADMIN in json.loads(row["roles"]) for row in held):
+                return None
+            new_org = db.one("SELECT id FROM organizations WHERE id = ?", (org,)) is None
+            if new_org:
+                self._insert_organization(db, org=org, name=org_name, created_by=FIRST_ADMIN_BY)
+            if db.one("SELECT id FROM users WHERE id = ?", (user_id,)) is None:
+                self._insert_user(
+                    db,
+                    user_id=user_id,
+                    issuer=issuer,
+                    subject=subject,
+                    email=address,
+                    name=name,
+                    signed_in=_now(),
+                )
+            theirs = next((row for row in held if row["user_id"] == user_id), None)
+            if theirs is None:
+                made = self._insert_membership(
+                    db, org=org, roles=[accounts.ADMIN], created_by=FIRST_ADMIN_BY, user_id=user_id
+                )
+                membership_id = str(made["id"])
+            else:  # a member already, of another role: an administrator from now on
+                membership_id = str(theirs["id"])
+                previous = json.loads(theirs["roles"])
+                chosen = accounts.check_roles([*previous, accounts.ADMIN])
+                db.all(
+                    "UPDATE memberships SET roles = ? WHERE id = ?",
+                    (json.dumps(chosen), membership_id),
+                )
+                self._append(
+                    db,
+                    f"membership:{membership_id}",
+                    "membership.roles_changed",
+                    {"id": membership_id, "org": org, "roles": chosen, "previous": previous,
+                     "changed_by": FIRST_ADMIN_BY},
+                )  # fmt: skip
+            _mark(db, FIRST_ADMIN, membership_id)
+        return {"org": org, "membership": membership_id, "organization_created": new_org}
+
     def organizations_in_use(self) -> list[dict[str, Any]]:
         """The preflight before memberships mode (`mendari access check`): each organization
         that keys, clients, approvals, holds, decisions or evaluation reports name (a NULL is
@@ -6656,9 +6936,14 @@ def _sha(value: Any) -> str:
 
 def store_version_sha256(row: Mapping[str, Any]) -> str:
     """The hash a pack store version's `pack_version.created` event chains of its row: the
-    columns that never change (`STORE_VERSION_COLUMNS`), so a row changed past the store fails
-    `verify` (LP-20e)."""
-    return _sha({column: row[column] for column in STORE_VERSION_COLUMNS})
+    columns that never change (`STORE_VERSION_COLUMNS`, and `pulled` where a version has it), so
+    a row changed past the store fails `verify` (LP-20e)."""
+    hashed = {column: row[column] for column in STORE_VERSION_COLUMNS}
+    if row.get("pulled") is not None:
+        # A version pulled from a registry: where it came from is part of what never changes.
+        # Every other version's hash is as it was before there was such a column.
+        hashed["pulled"] = row["pulled"]
+    return _sha(hashed)
 
 
 def _commitment(salt: bytes, text: str) -> str:

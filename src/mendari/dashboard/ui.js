@@ -171,9 +171,10 @@ function refusal(path, response, body) {
   if (response.status === 401 && path.startsWith("/api/smart/")) throw launchEnded();
   if (response.status === 409 && path.startsWith("/api/smart/")) throw launchReplaced();
   if (response.status === 401 && signedIn()) throw sessionEnded();
-  // Anything else: its words, with its status and error code for a view that tells refusals apart.
+  // Anything else: its words, with its status and error code for a view that tells refusals apart,
+  // and what else the answer held (a refusal that names keys, or where a problem was found).
   if (!response.ok) {
-    throw Object.assign(new Error(refusalText(body) || response.statusText), { status: response.status, code: body?.error ?? null });
+    throw Object.assign(new Error(refusalText(body) || response.statusText), { status: response.status, code: body?.error ?? null, body });
   }
 }
 

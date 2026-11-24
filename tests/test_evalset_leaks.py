@@ -420,12 +420,31 @@ NOT_ANSWERED: dict[Route, str] = {
     "(tests/test_auth.py)",
     ("GET", "/smart/callback"): "a launch's return: needs the EHR's code (tests/test_smart.py)",
     ("GET", "/api/providers/jev/models"): "Jev's model list: needs Jev set up",
+    # An agent's connection (ADR-0021): no agent served here asks a service of its own, so
+    # there is none to set, clear or check. tests/test_agent_connections.py answers the three,
+    # and searches every answer, log line and chained payload for the connection's token.
+    ("PUT", "/api/connections/{namespace}/{name}"): "sets an agent's connection: no agent "
+    "served here has a service to connect (tests/test_agent_connections.py answers it)",
+    ("DELETE", "/api/connections/{namespace}/{name}"): "clears such a connection; none is set "
+    "here (tests/test_agent_connections.py answers it)",
+    ("POST", "/api/connections/{namespace}/{name}/check"): "checks such a connection; no agent "
+    "here has a service to check (tests/test_agent_connections.py answers it)",
+    # The operator's actions (ADR-0022) that need what this deployment does not have: an alert
+    # webhook, and a body naming a registered EHR, read over the network. Each shows the
+    # deployment's own state and no organization's data (tests/test_system_routes.py seeds each
+    # secret and searches the answers for it).
+    ("POST", "/api/system/alerts/test"): "sends a test alert: no alert webhook is set here "
+    "(tests/test_system_routes.py answers it)",
+    ("POST", "/api/system/ehr-check"): "checks a registered EHR's connection: needs a body "
+    "naming one, and reads it over the network (tests/test_system_routes.py answers it)",
 }
 # Calls that end the caller's session: made last.
 LAST = (("POST", "/auth/logout"), ("POST", "/api/smart/logout"))
-# Query strings the reads need to answer.
+# Query strings a route needs to answer.
 QUERIES: dict[str, dict[str, str]] = {
     "/api/audit/administrative": {"limit": "500"},  # every event of the organization's
+    # The schedule that made a backup reports how it ended (the scheduled jobs' own route).
+    "/api/internal/backup": {"outcome": "ok"},
     "/api/monitoring": {"pack_id": INBOX},
     "/api/smart/focus": {"pack_id": REFERRAL},
 }

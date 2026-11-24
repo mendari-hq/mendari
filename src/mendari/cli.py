@@ -24,7 +24,7 @@ from mendari.core.audit import SYSTEM_ID, AuditStore, break_glass_reason
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
 from mendari.core.registry import discover, resolve_pack, version_key
-from mendari.errors import MendariError, PackValidationError
+from mendari.errors import HubError, MendariError, PackValidationError
 from mendari.sandbox import DEMO_AGENT, example_datasets_dir
 from mendari.settings import (
     applies_to,
@@ -344,20 +344,19 @@ def cmd_eval(args: argparse.Namespace) -> int:
     if args.db:
         AuditStore(args.db).save_report(report, ledger=run.ledger.dumps(), usage=run.usage)
     if publisher_key is not None:
-        from mendari.hub import evaluations
-
-        # Counts only (mendari.publisher-evaluation/1), signed with a namespace key, sent with
+        # Counts only (mendari.publisher-evaluation/2), signed with a namespace key, sent with
         # its publisher token: the registry re-runs a local configuration and refuses counts
         # that are not its own (ADR-0020).
-        record = evaluations.build(pack, run, key=publisher_key)
         with _registry_client(args) as registry:
-            published = registry.publish_evaluation(record)
-        print(
-            f"published evaluation {published['id']} of {published['pack']}@"
-            f"{published['version']} ({_configuration_words(published['configuration'])}, "
-            f"dataset {published['dataset']}): {published['rerun_words']}",
-            file=sys.stderr,
-        )
+            published = _publish_run(registry, pack, run, publisher_key, args.labelled_by)
+            print(
+                f"published evaluation {published['id']} of {published['pack']}@"
+                f"{published['version']} ({_configuration_words(published['configuration'])}, "
+                f"dataset {published['dataset']}): {published['rerun_words']}",
+                file=sys.stderr,
+            )
+            for line in _where_it_shows(registry, pack.id):
+                print(line, file=sys.stderr)
     if issued is not None:
         from mendari.evals.share import shareable
         from mendari.hub import site_signing
@@ -478,6 +477,8 @@ def _publishing(args: argparse.Namespace, sharing: bool) -> Any:
     if not args.publish:
         if args.key:
             raise MendariError("--key signs a published evaluation: add --publish")
+        if args.labelled_by:
+            raise MendariError("--labelled-by is said of a published evaluation: add --publish")
         return None
     from mendari.hub import archive
 
@@ -487,19 +488,123 @@ def _publishing(args: argparse.Namespace, sharing: bool) -> Any:
         raise MendariError("a published evaluation covers the whole dataset: drop --limit")
     if not args.key:
         raise MendariError("--publish signs with a namespace's publisher key: --key FILE")
-    pack = resolve_pack(args.pack)
+    _published_dataset(resolve_pack(args.pack), args.dataset, "--publish")
+    _labelled_by(args.labelled_by)
+    return archive.load_private_key(Path(args.key).read_bytes())
+
+
+def _published_dataset(pack: Pack, dataset: str, flag: str) -> None:
+    """A published evaluation's dataset is one the agent's manifest declares: a public set in
+    its signed archive, which the registry holds too, never a file; and one large enough to
+    publish. Refused here, before anything is run or sent."""
+    from mendari.evals import resolve_dataset
+    from mendari.evals.share import MIN_DATASET
+
     declared = pack.manifest.evaluation.datasets
-    if args.dataset not in declared:
+    if dataset not in declared:
         named = ", ".join(declared) or "none"
         raise MendariError(
-            "--publish: the dataset is one the agent's manifest declares, in its signed archive "
+            f"{flag}: the dataset is one the agent's manifest declares, in its signed archive "
             f"({named}), never a file"
         )
-    return archive.load_private_key(Path(args.key).read_bytes())
+    cases = len(resolve_dataset(pack, dataset).records)
+    if cases < MIN_DATASET:
+        raise MendariError(
+            f"{flag}: a published evaluation is of at least {MIN_DATASET} cases, and {dataset} "
+            f"has {cases}"
+        )
+
+
+def _labelled_by(said: str | None) -> None:
+    """`--labelled-by`: who labelled the dataset, in the publisher's words. It is signed and
+    shown as written, so it is one line a page can print."""
+    from mendari.hub.evaluations import MAX_LABELLED_BY
+    from mendari.hub.yank import printable_line
+
+    if said is None:
+        return
+    if not said.strip() or printable_line(said, MAX_LABELLED_BY):
+        raise MendariError(
+            f"--labelled-by is one line of printable text, at most {MAX_LABELLED_BY} characters"
+        )
 
 
 def _configuration_words(configuration: Mapping[str, str]) -> str:
     return ", ".join(f"{slot}={variant}" for slot, variant in sorted(configuration.items()))
+
+
+def _publish_run(
+    registry: Any, pack: Pack, run: Any, key: Any, labelled_by: str | None
+) -> dict[str, Any]:
+    """Sign one run as the publisher's evaluation and send it; the registry's answer. A run in
+    which a provider failed is published with how many cases that was (where an answer is
+    missing the engine sends the case to a person, so those cases say nothing of the
+    configuration), and this says so here too."""
+    from mendari.hub import evaluations
+
+    record = evaluations.build(pack, run, key=key, labelled_by=labelled_by)
+    failed = record["claimed"]["failed_cases"]
+    if failed:
+        print(
+            f"note: a provider failed on {failed} of {record['dataset']['n']} cases of this "
+            "run; the evaluation says so. Run it again for one with none",
+            file=sys.stderr,
+        )
+    try:
+        return dict(registry.publish_evaluation(record))
+    except HubError as error:
+        if f"not a {evaluations.FORMAT_V1} record: format" not in str(error):
+            raise
+        # A registry from before `mendari.publisher-evaluation/2` names the one format it takes.
+        raise HubError(
+            f"{error}. This registry is from a release before {evaluations.FORMAT}: it takes "
+            "this evaluation once it is upgraded",
+            error.status,
+        ) from None
+
+
+def _linkable(url: Any, ends: str) -> str | None:
+    """An address a registry gave, when it is one to print and to paste into a README: https
+    (http on this machine), ending as this agent's page does, and holding nothing that would
+    end a Markdown link or move a terminal's cursor. Anything else is no address."""
+    from mendari.core.https_only import is_https_or_local
+
+    if not isinstance(url, str) or len(url) > 500 or not url.endswith(ends):
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9._~:/%+-]+", url) or not is_https_or_local(url):
+        return None
+    return url
+
+
+def _where_it_shows(registry: Any, pack_id: str) -> list[str]:
+    """After a publish: where the Agent Hub shows the agent's evaluation, and the Markdown
+    line that puts its badge in a README, linked to that page. The badge is the registry's own
+    answer, so its address is the registry's; the page's is whatever Hub the registry names
+    (`MENDARI_REGISTRY_HUB_URL`). A registry from before evaluation pages says so."""
+    namespace, name = pack_id.split("/")
+    try:
+        found = registry.evaluation(namespace, name)
+    except HubError:
+        return ["this registry serves no evaluation page or badge (it is from before them)"]
+    answer = registry.evaluation_url(namespace, name)
+    links = found.get("links") if isinstance(found.get("links"), Mapping) else {}
+    page = _linkable(links.get("page"), f"/agents/{namespace}/{name}/evaluation")
+    lines = []
+    if page is None:
+        lines.append(
+            "page:  this registry names no Agent Hub (its operator sets "
+            f"MENDARI_REGISTRY_HUB_URL); its own answer is {answer}"
+        )
+    else:
+        lines.append(f"page:  {page}")
+    badge = registry.badge_url(namespace, name)
+    lines.append(f"badge: [![Mendari evaluation]({badge})]({page or answer})")
+    said = found.get("badge") if isinstance(found.get("badge"), Mapping) else {}
+    if isinstance(said.get("message"), str) and re.fullmatch(
+        r"[\x20-\x7e]{1,200}", said["message"]
+    ):
+        lines.append(f"       it reads: Mendari | {said['message']}")
+    return lines
 
 
 def _character_ngrams(given: str | None) -> Any:
@@ -2906,15 +3011,124 @@ def cmd_login(args: argparse.Namespace) -> int:
     return 0
 
 
+# The most configurations `mendari push --evaluate` runs without being told which: an agent's
+# configurations multiply with its slots, and each is a run of the whole dataset.
+MAX_EVALUATED = 8
+
+
 def cmd_push(args: argparse.Namespace) -> int:
+    """Sign an agent and publish it. With `--evaluate DATASET`, then evaluate each of its
+    configurations on that dataset of its own and publish every one, signed with the same key
+    (ADR-0020): the one step from a version to its evaluation page. A version the registry
+    already holds, the same build, is not pushed again, so the command can be run again."""
     from mendari.hub import archive
 
     pack = resolve_pack(args.pack)
     key = archive.load_private_key(Path(args.key).read_bytes())
+    if args.evaluate is None:
+        for flag, given in (
+            ("--configuration", args.configuration),
+            ("--labelled-by", args.labelled_by),
+            ("--workers", args.workers),
+        ):
+            if given:
+                raise MendariError(f"{flag} is for --evaluate DATASET: add it")
+        configurations: list[dict[str, str]] = []
+    else:  # refused before anything is sent
+        _published_dataset(pack, args.evaluate, "--evaluate")
+        _labelled_by(args.labelled_by)
+        configurations = _evaluated_configurations(pack, args.configuration)
     with _registry_client(args) as registry:
-        published = registry.push(pack, key)
-    print(f"published {published['id']}@{published['version']} {published['digest']}")
-    return 0
+        try:
+            published = registry.push(pack, key)
+        except HubError as error:
+            if error.status != 409 or args.evaluate is None:
+                raise
+            namespace, name = pack.id.split("/")
+            held = registry.version(namespace, name, pack.version)
+            if held.get("digest") != pack.digest:
+                raise MendariError(
+                    f"{pack.id}@{pack.version} is published as another build "
+                    f"({held.get('digest')}): versions are immutable, so give this one a new "
+                    "version and push again"
+                ) from None
+            print(f"already published: {pack.id}@{pack.version} {pack.digest}")
+        else:
+            print(f"published {published['id']}@{published['version']} {published['digest']}")
+        if args.evaluate is None:
+            return 0
+        return _publish_evaluations(args, registry, pack, key, configurations)
+
+
+def _evaluated_configurations(pack: Pack, named: Sequence[str]) -> list[dict[str, str]]:
+    """The configurations `mendari push --evaluate` runs: those named (`--configuration`, each
+    a slot's variant or several, as `mendari leaderboard --run` takes them; a slot left out
+    keeps its default), or every configuration the agent declares, when they are few."""
+    from mendari.evals import arms
+
+    if named:
+        chosen = [_providers(pack, parse_providers(given.split(","))) for given in named]
+    else:
+        every = arms.configurations(pack)
+        if len(every) > MAX_EVALUATED:
+            raise MendariError(
+                f"{pack.id} has {len(every)} configurations: name the ones to evaluate, each "
+                "with --configuration SLOT=VARIANT[,SLOT=VARIANT...] (`mendari scoreboard arms` "
+                "lists them)"
+            )
+        chosen = [dict(configuration.providers) for configuration in every]
+    distinct: list[dict[str, str]] = []
+    for configuration in chosen:
+        if configuration not in distinct:
+            distinct.append(configuration)
+    return distinct
+
+
+def _publish_evaluations(
+    args: argparse.Namespace,
+    registry: Any,
+    pack: Pack,
+    key: Any,
+    configurations: Sequence[Mapping[str, str]],
+) -> int:
+    """Evaluate each configuration on the agent's own dataset and publish it, one line each;
+    then where the Agent Hub shows them and the README's badge line. Exit 1 when one was not
+    published: the others are, and running the command again sends what is missing."""
+    from mendari.evals import resolve_dataset
+    from mendari.evals.harness import evaluation
+
+    dataset = resolve_dataset(pack, args.evaluate)
+    refused = 0
+    for configuration in configurations:
+        decision = Decision(
+            pack, providers=dict(configuration), fhir_validation=fhir_validation(), origin_cap=False
+        )
+        run = evaluation(
+            decision, dataset, workers=args.workers or (8 if decision.is_remote else 1)
+        )
+        ran = {slot: str(p["variant"]) for slot, p in run.ledger.header["providers"].items()}
+        try:
+            published = _publish_run(registry, pack, run, key, args.labelled_by)
+        except HubError as error:
+            refused += 1
+            print(f"  {_configuration_words(ran)}: not published: {error}", file=sys.stderr)
+            continue
+        print(f"  {_configuration_words(ran)}: {published['rerun_words']}")
+    sent = len(configurations) - refused
+    print(
+        f"published {sent} of {len(configurations)} evaluations of {pack.id}@{pack.version} "
+        f"on {dataset.name} ({len(dataset.records)} cases), counts only, signed"
+    )
+    if refused:
+        print(
+            "an evaluation the registry did not take is named above with why. A version in a "
+            "namespace the registry has not listed yet takes none: run this again once it is",
+            file=sys.stderr,
+        )
+    if sent:
+        for line in _where_it_shows(registry, pack.id):
+            print(line)
+    return 1 if refused else 0
 
 
 def cmd_pull(args: argparse.Namespace) -> int:
@@ -3080,14 +3294,63 @@ def cmd_monitor(args: argparse.Namespace) -> int:
 
 
 def cmd_packet(args: argparse.Namespace) -> int:
-    """The committee packet of one agent (`core/packet.py`), from the server's database: one
-    page to print, or the JSON it is made from (--json), written to --out or printed. For one
-    organization with --org, otherwise every organization of the deployment together.
+    """The committee packet of one agent (`core/packet.py`): one page to print, or the JSON it
+    is made from (--json), written to --out or printed.
 
-    Nothing is recorded: the database is opened read-only, and the command works with the
-    server down. What only a running server knows (sign-in, sessions, the schedule, the model
-    each part runs) is shown as not known; the rest is read from this environment's settings,
-    which should be the server's, and the page says it was made from the command line."""
+    **With --db**, from the server's database: for one organization with --org, otherwise every
+    organization of the deployment together. Nothing is recorded: the database is opened
+    read-only, and the command works with the server down. What only a running server knows
+    (sign-in, sessions, the schedule, the model each part runs) is shown as not known; the rest
+    is read from this environment's settings, which should be the server's, and the page says
+    it was made from the command line.
+
+    **Without --db**, from the agent's files alone (`packet.build_alone`): what a publisher
+    hands a hospital before any deployment exists. No database is opened or made, and no
+    setting of this machine is read; the sections on a deployment's data say that none was
+    read, and why. --org and --days count a deployment's decisions, so they are refused."""
+    from mendari.core import packet
+
+    pack = resolve_pack(args.pack)
+    if args.db is None:
+        if args.org is not None or args.days is not None:
+            raise MendariError(
+                "--org and --days count a deployment's decisions: give --db, the server's "
+                "database, with them. Without --db the packet is made from the agent's files "
+                "alone"
+            )
+        built = packet.build_alone(pack)
+    else:
+        built = _deployment_packet(args, pack)
+    text = json.dumps(built, indent=2) + "\n" if args.json else packet.render_html(built)
+    # Said beside the document, never in it twice: the packet says the same on its cover.
+    alone = (
+        "no --db: made from the agent's files alone, so it holds no deployment's data, and "
+        "says so in each section that would. A site adds --db with its server's database"
+        if args.db is None
+        else ""
+    )
+    if not args.out:
+        sys.stdout.write(text)
+        if alone:
+            print(f"note: {alone}", file=sys.stderr)
+        return 0
+    target = Path(args.out)
+    if target.is_symlink():  # the write would land wherever the link points
+        raise MendariError(f"{target} is a symbolic link; not writing through it")
+    target.write_text(text, encoding="utf-8")
+    print(
+        f"wrote {target}: {pack.id} {pack.version}, {len(built['sections'])} sections, "
+        f"{len(built['not_stated'])} items not stated",
+        file=sys.stderr,
+    )
+    if alone:
+        print(f"note: {alone}", file=sys.stderr)
+    return 0
+
+
+def _deployment_packet(args: argparse.Namespace, pack: Pack) -> dict[str, Any]:
+    """`mendari packet --db`: the packet of `pack` as the deployment whose database this is
+    holds it (`packet.build`), read with this environment's settings."""
     from mendari.alerts import alert_settings
     from mendari.core import packet, tenancy
     from mendari.core.checkpoint import checkpoint_key, key_id
@@ -3097,7 +3360,6 @@ def cmd_packet(args: argparse.Namespace) -> int:
     from mendari.providers.agent import ENDPOINT_ENV
     from mendari.settings import retention_days
 
-    pack = resolve_pack(args.pack)
     phi = phi_policy()  # before any work, so a bad setting fails at once
     alerts = alert_settings()
     signer = checkpoint_key()
@@ -3117,29 +3379,15 @@ def cmd_packet(args: argparse.Namespace) -> int:
                 providers=recorded_providers(store, pack),
                 seen_from="command line",
             )
-            built = packet.build(
+            return packet.build(
                 store,
                 pack,
                 deployment=deployment,
-                days=args.days,
+                days=packet.DEFAULT_DAYS if args.days is None else args.days,
                 organization=args.org,
                 holds=store.holds(args.org),
                 records=store.deployments(pack.id, limit=20),
             )
-    text = json.dumps(built, indent=2) + "\n" if args.json else packet.render_html(built)
-    if not args.out:
-        sys.stdout.write(text)
-        return 0
-    target = Path(args.out)
-    if target.is_symlink():  # the write would land wherever the link points
-        raise MendariError(f"{target} is a symbolic link; not writing through it")
-    target.write_text(text, encoding="utf-8")
-    print(
-        f"wrote {target}: {pack.id} {pack.version}, {len(built['sections'])} sections, "
-        f"{len(built['not_stated'])} items not stated",
-        file=sys.stderr,
-    )
-    return 0
 
 
 def cmd_alerts_test(args: argparse.Namespace) -> int:
@@ -4467,10 +4715,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--publish",
         action="store_true",
         help="publish this run as the publisher's signed evaluation (counts only) of the listed "
-        "version, on one of the agent's own datasets (ADR-0020)",
+        "version, on one of the agent's own datasets (ADR-0020); `mendari push --evaluate` "
+        "publishes one for every configuration",
     )
     evaluate.add_argument(
         "--key", metavar="FILE", help="the namespace's publisher key that signs --publish"
+    )
+    evaluate.add_argument(
+        "--labelled-by",
+        metavar="TEXT",
+        help="with --publish: who labelled the dataset, in one line (it is signed and public)",
     )
     evaluate.add_argument(
         "--share-out",
@@ -5223,10 +5477,42 @@ def build_parser() -> argparse.ArgumentParser:
     login_cmd.add_argument("--registry", required=True, help="registry URL")
     login_cmd.add_argument("--token", help="publisher token (omit for read-only)")
     login_cmd.set_defaults(handler=cmd_login)
-    push_cmd = sub.add_parser("push", help="sign an agent and publish it to the registry")
+    push_cmd = sub.add_parser(
+        "push",
+        help="sign and publish an agent (with --evaluate, its evaluations too)",
+        description="Sign an agent and publish it to the registry. With --evaluate DATASET, "
+        "then evaluate each of its configurations on that dataset of its own and publish "
+        "every one, signed with the same key: what the agent's evaluation page on the Agent "
+        "Hub and its README badge show.",
+    )
     _agent_argument(push_cmd, "namespace/name[@version] or a directory")
     push_cmd.add_argument("--key", required=True, help="publisher private key (PEM)")
     push_cmd.add_argument("--registry", help="registry URL (default: the one logged into)")
+    push_cmd.add_argument(
+        "--evaluate",
+        metavar="DATASET",
+        help="then evaluate each configuration on this dataset of the agent's own and publish "
+        "every one, signed with --key (counts only): what the agent's evaluation page and its "
+        "badge show. A version already published, the same build, is not pushed again",
+    )
+    push_cmd.add_argument(
+        "--configuration",
+        action="append",
+        default=[],
+        metavar="SLOT=VARIANT",
+        help="with --evaluate: a configuration to evaluate, e.g. reader=rules (repeat; a slot "
+        f"left out keeps its default). Default: every configuration, up to {MAX_EVALUATED}",
+    )
+    push_cmd.add_argument(
+        "--labelled-by",
+        metavar="TEXT",
+        help="with --evaluate: who labelled the dataset, in one line (it is signed and public)",
+    )
+    push_cmd.add_argument(
+        "--workers",
+        type=int,
+        help="with --evaluate: parallel decisions (default: 8 for remote providers, else 1)",
+    )
     push_cmd.set_defaults(handler=cmd_push)
     pull_cmd = sub.add_parser("pull", help="download, verify and cache an agent from the registry")
     pull_cmd.add_argument("ref", help="namespace/name[@version]")
@@ -5581,25 +5867,29 @@ def build_parser() -> argparse.ArgumentParser:
         "to print",
     )
     packet_cmd.description = (
-        "The committee packet of one agent, at the version this deployment serves: what it is "
-        "and who made it, its risk level and what the runtime enforces, how a person stays in "
-        "the loop, the publisher's evidence and this site's, monitoring, change control, data "
-        "handling and approvals; then what nobody has stated, and a crosswalk to four published "
-        "frameworks. It is read from the server's database, which is opened read-only and may "
-        "be read with the server down. It holds counts, ids and dates, never a case's text, and "
-        "it is a reading aid: not signed, and not a certification."
+        "The committee packet of one agent: what it is and who made it, its risk level and "
+        "what the runtime enforces, how a person stays in the loop, the publisher's evidence "
+        "and a site's, monitoring, change control, data handling and approvals; then what "
+        "nobody has stated, and a crosswalk to four published frameworks. With --db it is the "
+        "version that deployment serves, read from the server's database, which is opened "
+        "read-only and may be read with the server down. Without --db it is made from the "
+        "agent's files alone, as a publisher makes it before any deployment exists: the "
+        "sections on a deployment's data then say that none was read, and no database is "
+        "opened or made. It holds counts, ids and dates, never a case's text, and it is a "
+        "reading aid: not signed, and not a certification."
     )
     packet_cmd.add_argument(
         "--db",
-        default="var/mendari.db",
-        help="the server's database: a SQLite path or a postgresql:// URL (default var/mendari.db)",
+        help="the server's database: a SQLite path or a postgresql:// URL (default: none, and "
+        "the packet is made from the agent's files alone)",
     )
-    packet_cmd.add_argument("--org", help="one organization (default: every organization together)")
+    packet_cmd.add_argument(
+        "--org", help="with --db: one organization (default: every organization together)"
+    )
     packet_cmd.add_argument(
         "--days",
         type=_monitored_days,
-        default=90,
-        help="the days its counts cover, 14 to 180 (default 90)",
+        help="with --db: the days its counts cover, 14 to 180 (default 90)",
     )
     packet_cmd.add_argument("--out", metavar="FILE", help="write it here (default: print it)")
     packet_cmd.add_argument("--json", action="store_true", help="the packet as JSON, not as a page")

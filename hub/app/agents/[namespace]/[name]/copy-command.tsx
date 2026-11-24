@@ -3,7 +3,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export function CopyCommand({ command }: { command: string }) {
+// A line to copy: a shell command (with its `$`), or any other line, such as Markdown (`prompt` false).
+export function CopyCommand({ command, prompt = true }: { command: string; prompt?: boolean }) {
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -27,7 +28,7 @@ export function CopyCommand({ command }: { command: string }) {
   return (
     <div className="copy-cmd">
       <div className="cmd-shell">
-        <span className="cmd-prompt" aria-hidden="true">$</span>
+        {prompt ? <span className="cmd-prompt" aria-hidden="true">$</span> : null}
         <code className="pull">{command}</code>
       </div>
       <button type="button" onClick={onCopy} aria-live="polite">

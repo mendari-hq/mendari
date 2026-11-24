@@ -263,9 +263,14 @@ a regression, never rank. An agent whose default providers call a model is not m
 ## Publisher evaluations
 
 A publisher publishes its evaluations of a listed version, one per configuration and public
-dataset ([ADR-0020](../decisions/ADR-0020-publisher-evaluations.md)): `mendari eval AGENT
---dataset NAME --publish --key publisher.key` sends a `mendari.publisher-evaluation/1` record
-([the format](../spec/evaluation-reports.md#publisher-evaluations-mendaripublisher-evaluation1))
+dataset ([ADR-0020](../decisions/ADR-0020-publisher-evaluations.md)): `mendari push AGENT --key
+publisher.key --evaluate NAME` publishes the version and every configuration's evaluation in
+one step, and `mendari eval AGENT --dataset NAME --publish --key publisher.key` one
+configuration ([Publishing an agent's evaluations](../guides/publishing-evaluations.md)). Each
+sends a `mendari.publisher-evaluation/2` record
+([the format](../spec/evaluation-reports.md#publisher-evaluations-mendaripublisher-evaluation2);
+a `/1` record from an older client is still taken, and shown with what it does not state as
+not stated)
 to `POST /v1/agents/{namespace}/{name}/{version}/evaluations` with the namespace's publisher
 token, which is checked before the body is read (at most 256 KB; writes count against the
 namespace's `registry_write` rate). Then, in order, each refusal naming the field and never a
@@ -278,7 +283,8 @@ value:
 3. the version: listed (not recalled, deleted, or in a namespace whose claim is not approved),
    the evaluation's digest the version's; every slot with a variant the version declares, and
    the counts' names the agent's;
-4. the dataset: one the manifest declares, in the signed archive, with the SHA-256 and n given;
+4. the dataset: one the manifest declares, in the signed archive, with the SHA-256 and n given,
+   and, in a `/2` record, the provenance the manifest states (`card.provenance`) and no other;
    the counts whole (no null cell: a public set is not suppressed), adding up, under the
    agent's own policy, and `remote_consent` exactly whether the configuration calls a model;
 5. a configuration whose every provider is local is run again in the regression check's
@@ -301,6 +307,47 @@ the registry re-ran it, and the figures the registry works out from the counts, 
 its exact interval: each critical label's detection and automated misses, the primary question's
 accuracy, false automation, and the outcomes. The Agent Hub shows them as "Published
 evaluations", apart from what the registry checked and from site evidence.
+
+**Every stored record is checked again on every read.** What was checked at publication is a
+row in a database afterwards, so each listing verifies each record as it serves it: the body is
+still the closed record of its format, its id, agent, version, configuration, dataset, key and
+time are its row's, and its signature holds with a key of the namespace's. One that fails is
+listed as not verified, with no figure, model or claim of its own, and takes part in nothing
+below.
+
+**The evaluation page and the badge.** Three more reads, each public and counted against the
+read limit. They are newer than the routes' renaming, so each answers at this one path only:
+
+- `GET /v1/agents/{namespace}/{name}/evaluation` (`mendari.agent-evaluation/1`,
+  [the format](../spec/evaluation-reports.md#an-agents-evaluation-in-public-mendariagent-evaluation1)),
+  of the agent's newest version that is not recalled, or `?version=`: its `state` (`evaluated`,
+  `none`, `not_verified`, `recalled`), each dataset with its configurations and their figures,
+  the `comparison`, and `not_shown`: each stored evaluation that does not verify or whose key
+  was revoked since, by its row's names. The Agent Hub's page
+  `/agents/<namespace>/<name>/evaluation` is built from it and decides nothing itself.
+- `GET /v1/agents/{namespace}/{name}/badge.svg`: the same in one line, for a README. Its words
+  are the registry's and its numbers whole counts: no name anyone chose, no rate, never green.
+  It holds no script, style, link or reference; it alone is served as `image/svg+xml`, may be
+  kept for five minutes and shown by another site's page, and sets no cookie. An agent that is
+  not there is a `404` with a badge that says so.
+- `GET /v1/agents/{namespace}/{name}/{version}/evaluations/{id}`: one signed record as stored,
+  for anyone to check against the namespace's key.
+
+**Which configuration did best.** The comparison lists a dataset's configurations in the order
+of `mendari.rank/1`, without its cost. That order always lists one first; the registry says a
+configuration did best (`comparison.best`) only when it is alone in the first band, that is,
+when every other configuration is behind it by more than their intervals explain, and names
+none otherwise (several in `comparison.first_band`, a tie, one configuration, or no critical
+label with 100 positive cases). ADR-0020, as amended on 2026-11-24, says why.
+
+**Naming the Hub.** Set `MENDARI_REGISTRY_HUB_URL` on the registry to the Agent Hub's public
+address (`https://hub.example`; https, or http on this machine, with no user, password, query
+or fragment). The evaluation's answer then carries `links.page`, and `mendari push --evaluate`
+prints it with the badge's Markdown. Unset, the command prints the badge linked to the
+registry's own answer and says the registry names no Hub. A value that is not such an address
+stops the registry at start-up, naming the setting and never the value. The Hub itself reads
+`REGISTRY_URL`, and `REGISTRY_PUBLIC_URL` where it reaches the registry at an address the
+public cannot ([`hub/README.md`](https://github.com/mendari-hq/mendari/blob/main/hub/README.md)).
 
 A publisher key that is lost is revoked by the operator: `mendari registry revoke-key NAMESPACE
 KEY_ID --reason "..." --db …` (chained `key.revoked`). It signs no archive, recall or evaluation

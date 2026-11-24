@@ -1,16 +1,16 @@
 # Mendari: project notes for Claude
 
-Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (local) or Postgres (Vercel) · no frontend build step.
+Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (local) or Postgres (Vercel, the one-machine install) · no frontend build step.
 
 ## Commands
 
 ```bash
 uv sync                                   # install (dev group included)
-uv run pytest -n 6                        # full suite, 8,700 tests: about 15 min on six workers; warnings are errors
+uv run pytest -n 6                        # full suite, 9,800 tests: about 15 min on six workers; warnings are errors
 uv run pytest -m core                     # the edit loop, about 20 s: manifest loading, decisions, policy, audit
 uv run pytest tests/test_<area>.py        # and the file for what you changed (not with -m core, which filters it)
 uv run pytest --lf                        # after a failing full run: only what failed
-uv run pytest -m browser                  # dashboard in Chromium, 430 tests, about 7 min (once: uv run playwright install chromium)
+uv run pytest -m browser                  # dashboard in Chromium, 470 tests, about 7 min (once: uv run playwright install chromium)
 uv run pytest -m slow                     # the structural R4 gate over HL7's 5,309 R4 examples (if cached)
 # Postgres backend tests (Mendari's own container; never reuse another project's database).
 # "too many clients" there is the container's connection limit, not a bug: rerun that file alone.
@@ -25,6 +25,10 @@ uv run python scripts/demo_agent_data.py  # regenerate the demo agent's test set
 uv run python -m tests.support.fixture_data --kind inbox  # regenerate a test-fixture agent's data
 uv run python scripts/fhir_r4_schema.py   # regenerate the R4 structure rules from HL7's pinned schema
 docker compose up --build                 # HAPI FHIR + engine + worker sandbox, on the demo agent
+# The one-machine install (deploy/site), run for real with Docker: builds the image, a few minutes.
+MENDARI_SITE_E2E=1 uv run pytest tests/test_site_e2e.py -n0 -p no:cacheprovider
+docker run --rm -v "$PWD/deploy/site:/mnt:ro" koalaman/shellcheck:stable /mnt/mendari-site /mnt/jobs.sh
+# The Hub (hub/, Next.js) against a seeded local registry, as CI's hub-site job: npm ci, lint, typecheck, build, test.
 ```
 
 ## Rules of the codebase
@@ -63,8 +67,8 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox,
   (`hub/client.py` `caches`). The console's address names the agent as `?agent=` and still
   reads `?pack=` (`dashboard/main.js`); the Hub's page is `/agents/<namespace>/<name>`, and
   `/packs/...` redirects. Not renamed yet: JSON keys (`pack`, `pack_id`), the `pack`
-  parameter of `/smart/launch`, database columns, Python identifiers, and the paths the Hub
-  asks the registry at (`hub/lib/registry.ts` says when); a model whose class holds the old
+  parameter of `/smart/launch`, database columns and Python identifiers (the Hub asks the
+  registry at `/v1/agents/...` since wave 3); a model whose class holds the old
   word is listed in the API description under the title it sets (`server/api_docs.py`
   `TITLED`).
 - **The demo agent's data is derived.** `scripts/demo_agent_data.py` writes its `test.jsonl`;
@@ -89,7 +93,12 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox,
 ## Layout
 
 See README "Project layout". Spec: `docs/spec/agent-manifest-0.2.md`, with the FHIR mapping of
-`agent-manifest-0.3.md` (0.1 and 0.2 still load). Decisions: `docs/decisions/`. Lessons:
+`agent-manifest-0.3.md` (0.1 and 0.2 still load). Decisions: `docs/decisions/` (ADR-0021: an
+agent's connection; ADR-0022: the first administrator and the operator organization). The
+one-machine install is `deploy/site/` (its script `mendari-site`, its settings made by
+`src/mendari/install.py`); the console's Agents, connection and System views are
+`dashboard/agents.js`, `connection.js` and `system.js`, over `server/hub_routes.py`,
+`connection_routes.py` and `system_routes.py`. Lessons:
 `tasks/lessons.md`. Plan and status: `tasks/todo.md` (the current plan at its top, "the
 engineering to A+", with the table of names every wave follows; the vision plan below it,
 whose Definition of shipped and build prompts are in `notes/vision-audit.md`, Phase 4). Plans,

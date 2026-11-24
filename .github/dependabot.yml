@@ -46,7 +46,7 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: docker-compose
-    directories: [/, /deploy/onprem]
+    directories: [/, /deploy/onprem, /deploy/site]
     schedule:
       interval: monthly
     cooldown:

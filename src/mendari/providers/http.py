@@ -147,6 +147,7 @@ def post_json(
     timeout_s: float,
     max_bytes: int = MAX_RESPONSE_BYTES,
     retries: int = 0,
+    allowed: bool = False,
 ) -> Any:
     """POST `body` and return the parsed JSON response, or raise an audit-safe ProviderError.
 
@@ -156,8 +157,12 @@ def post_json(
     that would end at or after the decision's deadline, whose remaining time also bounds each
     attempt's timeout (`timeout` once it has passed). Off the deployment's provider allow-list,
     when it has one, nothing is opened (`invalid_endpoint`; each caller checks before its key).
+    `allowed` is the one exception, an agent's connection whose origin an operator allowed for
+    it (`providers/agent.py` `_secure`, which read the list and gives the client that opens
+    public addresses only): the list is not asked again here.
     """
-    require_allowed(endpoint, "Provider")
+    if not allowed:
+        require_allowed(endpoint, "Provider")
     timeout = httpx.Timeout(deadline.clamp(timeout_s))  # past the deadline: nothing is opened
     use_pool = client is None and httpx.Client is _ORIGINAL_CLIENT
     own = client is None and not use_pool

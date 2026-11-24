@@ -47,6 +47,12 @@ written whole and moved in). Pins are filed per registry address, scheme and hos
 case and without the default port; a pin file that is there and cannot be read is refused,
 never read as empty.
 `MENDARI_CONFIG_DIR` and `MENDARI_CACHE_DIR` move them.
+
+A server that adds an agent for an organization from its console (`server/hub_routes.py`) has no
+cache to keep: `fetch` makes the same checks as `pull`, by the same code, and hands back the
+verified archive and the record of where it came from (`origin_record`), for the organization's
+agent store to keep in the database. Its keys are pinned there too, per organization, not in
+this machine's file (`pinned_in`), so they outlive the machine.
 """
 
 from __future__ import annotations
@@ -56,10 +62,13 @@ import json
 import os
 import shutil
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
@@ -140,10 +149,60 @@ def _pins_path() -> Path:
     return config_dir() / "trusted_keys.json"
 
 
+class Pins(Protocol):
+    """Where pinned keys are kept, when it is not this machine's file: every registry's pins,
+    by its address, read and written whole (`{address: {namespace: [key ids], "@registry": key
+    id}}`). `where` says where that is, for a refusal that tells a person what to clear."""
+
+    where: str
+
+    def read(self) -> dict[str, Any]: ...
+
+    def write(self, pins: Mapping[str, Any]) -> None: ...
+
+
+_PINS: ContextVar[Pins | None] = ContextVar("mendari_hub_pins", default=None)
+
+
+@contextmanager
+def pinned_in(pins: Pins) -> Iterator[None]:
+    """Within this block, keys are pinned in `pins` and read from there, never this machine's
+    file: a server pins for one organization in its database (`core/pack_store.py`), so a pin
+    outlives the machine and one organization's is never another's."""
+    token = _PINS.set(pins)
+    try:
+        yield
+    finally:
+        _PINS.reset(token)
+
+
+def pinned_keys(pins: Pins, registry: str, namespace: str) -> list[str]:
+    """The key ids `pins` holds for a namespace of a registry, sorted: what a changed key is
+    refused against, for a refusal to show beside the new one."""
+    held = _pins_of(pins.read(), registry).get(namespace, [])
+    return sorted(str(key) for key in held) if isinstance(held, list) else []
+
+
+def _pins_where() -> str:
+    held = _PINS.get()
+    return str(_pins_path()) if held is None else held.where
+
+
+def _write_pins(pins: dict[str, Any]) -> None:
+    held = _PINS.get()
+    if held is None:
+        _write_private(_pins_path(), pins)
+    else:
+        held.write(pins)
+
+
 def _read_pins() -> dict[str, Any]:
-    """The pinned keys (`trusted_keys.json`): nothing when the file is not there, and refused
-    when it is there and cannot be read as one. A pin file read as empty would make this
-    machine trust, as on first use, whatever a registry shows next."""
+    """The pinned keys (`trusted_keys.json`, or where `pinned_in` says): nothing when the file
+    is not there, and refused when it is there and cannot be read as one. A pin file read as
+    empty would make this machine trust, as on first use, whatever a registry shows next."""
+    held = _PINS.get()
+    if held is not None:
+        return held.read()
     path = _pins_path()
     try:
         text = path.read_text(encoding="utf-8")
@@ -224,7 +283,12 @@ def default_registry() -> tuple[str, str | None]:
 
 class RegistryClient:
     def __init__(
-        self, url: str, token: str | None = None, transport: httpx.BaseTransport | None = None
+        self,
+        url: str,
+        token: str | None = None,
+        transport: httpx.BaseTransport | None = None,
+        *,
+        timeout: float = TIMEOUT,
     ):
         self.url = url.rstrip("/")
         if not is_https_or_local(self.url):
@@ -239,7 +303,7 @@ class RegistryClient:
         self._http = httpx.Client(
             base_url=self.url,
             headers=headers,
-            timeout=TIMEOUT,
+            timeout=timeout,
             follow_redirects=False,
             transport=transport,
         )
@@ -289,10 +353,15 @@ class RegistryClient:
     def namespace(self, namespace: str) -> dict[str, Any]:
         return dict(self._get(f"/v1/namespaces/{namespace}"))
 
+    def agent(self, namespace: str, name: str) -> dict[str, Any]:
+        """An agent as the registry lists it: its versions, the recalled ones apart, and its
+        newest version that is not recalled (`latest`, null when every version is)."""
+        return dict(self._get(f"/v1/agents/{namespace}/{name}"))
+
     def version(self, namespace: str, name: str, version: str | None = None) -> dict[str, Any]:
         if version:
             return dict(self._get(f"/v1/agents/{namespace}/{name}/{version}"))
-        latest = self._get(f"/v1/agents/{namespace}/{name}").get("latest")
+        latest = self.agent(namespace, name).get("latest")
         if not isinstance(latest, dict):
             raise HubError(
                 f"every version of {namespace}/{name} is recalled: pull an exact version to "
@@ -394,9 +463,9 @@ class RegistryClient:
         return str(self._json(response)["key_id"])
 
     def publish_evaluation(self, record: Mapping[str, Any]) -> dict[str, Any]:
-        """Send a signed `mendari.publisher-evaluation/1` (ADR-0020, `mendari eval --publish`)
-        with this namespace's publisher token: the registry's answer names its id and whether
-        it re-ran it."""
+        """Send a signed publisher evaluation (ADR-0020: `mendari push --evaluate`, `mendari
+        eval --publish`) with this namespace's publisher token: the registry's answer names its
+        id and whether it re-ran it."""
         from mendari.hub.evaluations import parse
 
         pack = parse(record).pack  # the path is built from it: only the record's own pack
@@ -409,6 +478,38 @@ class RegistryClient:
     def evaluations(self, namespace: str, name: str, version: str) -> dict[str, Any]:
         """A version's live publisher evaluations, with the registry's figures."""
         return dict(self._get(f"/v1/agents/{namespace}/{name}/{version}/evaluations"))
+
+    def evaluation_record(
+        self, namespace: str, name: str, version: str, evaluation_id: str
+    ) -> dict[str, Any]:
+        """One publisher evaluation as the registry stores it: the signed record, to check
+        against the namespace's key (`evaluations.signature_holds`)."""
+        if not is_pack_id(f"{namespace}/{name}") or not is_version(version):
+            raise HubError(f"{namespace}/{name}@{version} is not namespace/name@version")
+        if len(evaluation_id) != 64 or not set(evaluation_id) <= set("0123456789abcdef"):
+            raise HubError("an evaluation's id is 64 hex digits")
+        path = f"/v1/agents/{namespace}/{name}/{version}/evaluations/{evaluation_id}"
+        return dict(self._get(path))
+
+    def evaluation(self, namespace: str, name: str, version: str | None = None) -> dict[str, Any]:
+        """An agent's published evaluation as its page shows it (`mendari.agent-evaluation/1`):
+        of its newest version, or of `version`."""
+        return dict(self._get(self._evaluation_path(namespace, name), version=version))
+
+    @staticmethod
+    def _evaluation_path(namespace: str, name: str) -> str:
+        if not is_pack_id(f"{namespace}/{name}"):  # a path is built from it
+            raise HubError(f"{namespace}/{name} is not namespace/name")
+        return f"/v1/agents/{namespace}/{name}/evaluation"
+
+    def evaluation_url(self, namespace: str, name: str) -> str:
+        """The address of that answer at this registry."""
+        return f"{self.url}{self._evaluation_path(namespace, name)}"
+
+    def badge_url(self, namespace: str, name: str) -> str:
+        """The address of an agent's evaluation badge at this registry: the image a README
+        shows (`hub/badge.py`)."""
+        return self.evaluation_url(namespace, name).removesuffix("/evaluation") + "/badge.svg"
 
     def push(self, pack: Pack, key: Ed25519PrivateKey) -> dict[str, Any]:
         namespace, name = pack.id.split("/")
@@ -431,14 +532,8 @@ def pull(
     """Download, verify and cache a pack (`namespace/name[@version]`); a verified copy in the
     cache is used as is. `registry_keys` is the file of registry keys trusted without first use
     (the one shipped with this package unless given)."""
-    pack_id, _, wanted = ref.partition("@")
-    if not is_pack_id(pack_id) or (wanted and not is_version(wanted)):
-        raise HubError(f"{ref!r} is not namespace/name[@version]")
-    namespace, name = pack_id.split("/")
-    meta = client.version(namespace, name, wanted or None)
-    version = meta.get("version")
-    if not is_version(version) or (wanted and version != wanted):
-        raise HubError(f"the registry answered a version that is not one of {pack_id}")
+    pack_id, version, meta = _named(ref, client)
+    namespace = pack_id.split("/")[0]
     target, former = (_cached_at(cache, pack_id, version) for cache in caches())
     # The copy in use: this version in the cache, or, with none there, the one a pull left in
     # the folder the cache had before (`former_cache`). It is the copy that is used as is,
@@ -462,6 +557,59 @@ def pull(
             # Cached: what the registry says of it now (a recall since) is written beside it.
             _write_origin(held, client, namespace, meta, accepted)
             return pack
+    verified = _verified(client, pack_id, version, meta, accepted, accept_new_key)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=target.parent) as scratch:
+        staged = Path(scratch) / "pack"
+        # On the engine it will run on: a pack it refuses is never cached, nor marked verified.
+        pack = archive.extract(verified, staged, origin="hub")
+        if accepted and pack.digest != meta["digest"]:
+            raise HubError("the agent is not the build the registry counter-signed")
+        marked = {**meta, "archive_sha256": verified.sha256}
+        _write_origin(staged, client, namespace, marked, accepted)
+        if target.exists():
+            shutil.rmtree(target)
+        staged.rename(target)
+    if held != target:
+        shutil.rmtree(held)  # the copy in the former folder, which this one replaces
+    return load_pack(target, origin="hub")
+
+
+# What the registry's record of a version must hold for anything to be checked against it.
+_RECORDED = ("key_id", "archive_sha256", "digest")
+
+
+def _named(ref: str, client: RegistryClient) -> tuple[str, str, dict[str, Any]]:
+    """The agent and version `ref` names (`namespace/name[@version]`; the newest that is not
+    recalled without one) and the registry's record of it. Refused unless what the registry
+    answers is that agent's own version, with the key, archive and digest everything else is
+    checked against."""
+    pack_id, _, wanted = ref.partition("@")
+    if not is_pack_id(pack_id) or (wanted and not is_version(wanted)):
+        raise HubError(f"{ref!r} is not namespace/name[@version]")
+    namespace, name = pack_id.split("/")
+    meta = client.version(namespace, name, wanted or None)
+    version = meta.get("version")
+    if not is_version(version) or (wanted and version != wanted):
+        raise HubError(f"the registry answered a version that is not one of {pack_id}")
+    if not all(isinstance(meta.get(field), str) and meta[field] for field in _RECORDED):
+        raise HubError(f"the registry's record of {pack_id}@{version} is incomplete")
+    return pack_id, str(version), meta
+
+
+def _verified(
+    client: RegistryClient,
+    pack_id: str,
+    version: str,
+    meta: Mapping[str, Any],
+    accepted: bool | None,
+    accept_new_key: bool,
+) -> archive.Verified:
+    """A version's archive, downloaded and checked: its SHA-256 is the one the registry
+    recorded, every file matches the signed manifest, the signature is by a key of its
+    namespace this machine trusts, and it is the agent and version the registry named (and,
+    where the registry counter-signed, signed by the key it counter-signed)."""
+    namespace, name = pack_id.split("/")
     # Signed when the registry received it (it takes nothing from a revoked key): a key revoked
     # since still verifies it, one revoked before does not.
     keys = _trusted_keys(
@@ -479,21 +627,48 @@ def pull(
         raise HubError(f"the archive is not {pack_id}@{version}, which the registry named")
     if accepted and verified.key_id != meta["key_id"]:
         raise HubError("the archive is not signed by the key the registry counter-signed")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=target.parent) as scratch:
-        staged = Path(scratch) / "pack"
-        # On the engine it will run on: a pack it refuses is never cached, nor marked verified.
-        pack = archive.extract(verified, staged, origin="hub")
-        if accepted and pack.digest != meta["digest"]:
-            raise HubError("the agent is not the build the registry counter-signed")
-        marked = {**meta, "archive_sha256": verified.sha256}
-        _write_origin(staged, client, namespace, marked, accepted)
-        if target.exists():
-            shutil.rmtree(target)
-        staged.rename(target)
-    if held != target:
-        shutil.rmtree(held)  # the copy in the former folder, which this one replaces
-    return load_pack(target, origin="hub")
+    return verified
+
+
+@dataclass(frozen=True)
+class Fetched:
+    """A version as `fetch` verified it: the agent and version, the registry's record of it,
+    its archive checked (`archive.Verified`: its files and the signed manifest), whether the
+    registry's counter-signature was checked (true, or None for a registry with no key), and
+    the record of where it came from (`origin_record`)."""
+
+    pack_id: str
+    version: str
+    meta: dict[str, Any]
+    verified: archive.Verified
+    accepted: bool | None
+    origin: dict[str, Any]
+
+
+def fetch(
+    ref: str,
+    client: RegistryClient,
+    *,
+    accept_new_key: bool = False,
+    registry_keys: Path | None = None,
+) -> Fetched:
+    """Download and verify a version (`namespace/name[@version]`) as `pull` does, by the same
+    checks in the same order, and write nothing: for a caller that keeps what it verified
+    somewhere other than this machine's cache (an organization's agent store). A version the
+    registry deleted is refused (410), as `pull` refuses it; a recalled one is the caller's to
+    refuse, from `meta` (`recall_of`). The caller still loads the agent on the engine it will
+    run on and checks its digest against the signed manifest's and the registry's."""
+    pack_id, version, meta = _named(ref, client)
+    deleted = meta.get("deleted")
+    if isinstance(deleted, Mapping):
+        raise HubError(
+            f"{pack_id}@{version} was deleted from the registry: {deleted.get('reason')}", 410
+        )
+    accepted = _accepted(client, pack_id, meta, registry_keys)
+    verified = _verified(client, pack_id, version, meta, accepted, accept_new_key)
+    marked = {**meta, "archive_sha256": verified.sha256}
+    origin = origin_record(client, pack_id.split("/")[0], marked, accepted)
+    return Fetched(pack_id, version, dict(meta), verified, accepted, origin)
 
 
 def _cached_at(cache: Path, pack_id: str, version: str) -> Path:
@@ -514,11 +689,26 @@ def _write_origin(
     meta: Mapping[str, Any],
     accepted: bool | None = None,
 ) -> None:
-    """The verified marker (`core/origin.py` `pulled_record`): where the pack came from, the
-    recall the registry served for it at this pull, if any, and whether the registry's
-    counter-signature was checked (`accepted`: true, or null for a registry with no key).
+    """The verified marker (`core/origin.py` `pulled_record`), which holds `origin_record`.
     Written whole, then moved in."""
-    record = {
+    record = origin_record(client, namespace, meta, accepted)
+    staged = root / f"{MARKER}.new"
+    staged.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+    staged.replace(root / MARKER)
+
+
+def origin_record(
+    client: RegistryClient,
+    namespace: str,
+    meta: Mapping[str, Any],
+    accepted: bool | None = None,
+) -> dict[str, Any]:
+    """Where a verified agent came from, as it is kept beside it (`mendari.origin/1`): the
+    registry, the namespace and its publisher type, the signing key, the archive's SHA-256 and
+    the digest, when it was pulled, the recall the registry served for it then, if any, and
+    whether the registry's counter-signature was checked (`accepted`: true, or null for a
+    registry with no key)."""
+    return {
         "format": ORIGIN_FORMAT,
         "registry": _shown_url(client.url),
         "namespace": namespace,
@@ -530,9 +720,6 @@ def _write_origin(
         "yank": meta.get("yank") if isinstance(meta.get("yank"), Mapping) else None,
         "accepted": accepted,
     }
-    staged = root / f"{MARKER}.new"
-    staged.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
-    staged.replace(root / MARKER)
 
 
 def _shown_url(url: str) -> str:
@@ -631,7 +818,7 @@ def _published_key(
     pinned = mine.get(_REGISTRY_PIN)
     if pinned is None:
         pins[_pin_url(client.url)] = {**mine, _REGISTRY_PIN: published["key_id"]}
-        _write_private(_pins_path(), pins)
+        _write_pins(pins)
     elif pinned != published["key_id"]:
         return published, key, None
     return published, key, key
@@ -679,7 +866,7 @@ def _accepted(
         raise HubError(
             f"{version} is refused: the registry's signing key is not the one this machine "
             "pinned for it. If its operator confirms the new key, remove the registry's "
-            f"'{_REGISTRY_PIN}' entry from {_pins_path()} and pull again"
+            f"'{_REGISTRY_PIN}' entry from {_pins_where()} and pull again"
         )
     checked = meta.get("checked")
     record = checked.get("accepted") if isinstance(checked, Mapping) else None
@@ -763,7 +950,7 @@ def _trusted_keys(
     if not pinned or accept_new_key:
         pinned |= set(found)
         pins[_pin_url(client.url)] = {**mine, namespace: sorted(pinned)}
-        _write_private(_pins_path(), pins)
+        _write_pins(pins)
     elif signer not in pinned:
         raise HubError(
             f"{namespace} is signed by {signer}, which this machine has not seen before; "

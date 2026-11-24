@@ -159,6 +159,14 @@ class RecallWatch:
             if pack.origin == "hub" and isinstance(url := pack.pulled.get("registry"), str)
         }
 
+    def watch(self, registry: str) -> None:
+        """Watch a registry this server did not know when it started: one a version an
+        organization added from the console came from (`core/pack_store.py`), read from then on
+        as the others are. What it recalls is unknown until its first read: until then every
+        agent from it is held."""
+        with self._lock:
+            self.registries.setdefault(registry, _Registry())
+
     def refresh(self, registry: str) -> None:
         """Read one registry's recalls, and whether it has a signing key, now (the background
         thread calls this)."""
@@ -215,8 +223,10 @@ class RecallWatch:
         if pack.origin != "hub":
             return None
         registry = pack.pulled.get("registry")
-        if not isinstance(registry, str) or registry not in self.registries:
+        if not isinstance(registry, str):
             return "its registry is not recorded beside it: pull it again"
+        if registry not in self.registries:
+            self.watch(registry)  # an organization added it since this server started
         self._due(registry)
         state = self.registries[registry]
         with self._lock:
@@ -231,6 +241,21 @@ class RecallWatch:
         if signs and pack.pulled.get("accepted") is not True:
             return UNSIGNED
         return None
+
+    def recalled(self, pack: Pack) -> str | None:
+        """Why its registry recalled this served version (`recalled (<severity>)` or `deleted`),
+        as the last read listed it, or None: for the operator's banner (`server/system.py`),
+        which names a recall and not the other reasons an agent from a registry is held (a
+        registry not read yet, a missing counter-signature). Starts a read when one is due, as a
+        decision does."""
+        if pack.origin != "hub":
+            return None
+        registry = pack.pulled.get("registry")
+        if not isinstance(registry, str) or registry not in self.registries:
+            return None
+        self._due(registry)
+        with self._lock:
+            return self.registries[registry].recalled.get((pack.id, pack.version))
 
     def status(self) -> dict[str, Any]:
         """For health: each registry's last read's age in seconds and how many it recalls."""

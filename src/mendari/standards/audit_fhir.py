@@ -414,6 +414,15 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
         "Proposed test dismissed for an agent store version",
         None,
     ),
+    # An agent's connection for an organization (ADR-0021): the agent and who acted; never the
+    # token, nor where it leads (the origin stays in the chain's own payload).
+    "agent_connection.set": ("U", "Agent connection set", _CONFIGURATION),
+    "agent_connection.cleared": ("D", "Agent connection cleared", _CONFIGURATION),
+    "agent_connection.origin_allowed": (
+        "U",
+        "Agent connection's address allowed by an operator",
+        _CONFIGURATION,
+    ),
 }
 # Who acted, by the first of these a payload has (ids: a principal's chain name or an id).
 _ACTORS = (

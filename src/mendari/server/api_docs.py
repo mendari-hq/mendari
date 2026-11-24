@@ -32,7 +32,12 @@ TAGS = [
         "Da Vinci DTR and PAS. Mendari is not a FHIR data server: it stores and serves no "
         "clinical resources.",
     },
-    {"name": "Agents", "description": "The agents this deployment serves."},
+    {
+        "name": "Agents",
+        "description": "The agents this deployment serves, the registry more are found in and "
+        "added from, and each agent's connection: the service that answers for it in your "
+        "organization.",
+    },
     {"name": "Review and feedback", "description": "The human review queue, outcomes, ratings."},
     {"name": "Audit", "description": "The hash-chained audit trail of every decision."},
     {"name": "Evaluation and monitoring", "description": "Evaluations, drift, deployments."},
@@ -69,6 +74,13 @@ TAGS = [
     },
     {"name": "SMART on FHIR", "description": "Mendari launched as a SMART app from an EHR."},
     {"name": "Service", "description": "Health and settings of this deployment."},
+    {
+        "name": "System",
+        "description": "Running the deployment, for its operators: its readiness as a list of "
+        "checks (each with its state, what it means and what to do), a verification of the audit "
+        "chain, a test alert and a check of an EHR's connection. Its settings are read from its "
+        "configuration when it starts, and are never changed here.",
+    },
 ]
 
 # A synthetic patient message as FHIR: what the demo agent's FHIR mapping reads.
@@ -564,6 +576,15 @@ def _secure(
             "the organization's grading key (`grade`), which only the operator makes "
             "(`mendari access grader-key`); never a person, an administrator, another key or a "
             "token"
+        )
+        operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
+        return
+    if permission == "operate":  # people only, the deployment's operators (server/auth.py)
+        operation["security"] = [{"session": []}]
+        needed = (
+            "a person who signed in as an administrator of the organization that operates this "
+            "deployment (`operate`: the one `MENDARI_OPERATOR_ORG` names; in claims mode without "
+            "it, any administrator; never a key, a token or another organization's administrator)"
         )
         operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
         return

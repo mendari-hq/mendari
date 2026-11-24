@@ -107,6 +107,21 @@ REGISTRY_CLASS = {
 }
 
 
+# Routes made after the rename, under a prefix that was renamed: they never had another path,
+# so none answers at a former spelling (a former path is for a caller from before, and these
+# have none). Written out here, as the renamed routes are in `tests/conftest.py`: the engine's
+# and the registry's, as those are.
+ENGINE_SINCE_THE_RENAME: set[RouteKey] = {
+    ("GET", "/api/agents/{namespace}/{name}/committee-packet"),
+}
+REGISTRY_SINCE_THE_RENAME: set[RouteKey] = {
+    ("GET", "/v1/agents/{namespace}/{name}/evaluation"),
+    ("GET", "/v1/agents/{namespace}/{name}/badge.svg"),
+    ("GET", "/v1/agents/{namespace}/{name}/{version}/evaluations/{evaluation_id}"),
+}
+SINCE_THE_RENAME = ENGINE_SINCE_THE_RENAME | REGISTRY_SINCE_THE_RENAME
+
+
 def concrete(template: str, **values: str) -> str:
     """A route's template as a path a request has, each `{name}` filled in."""
     given = {"namespace": "acme", "name": "inbox", "version": SHIPPED, "report_id": "r1", **values}
@@ -183,11 +198,6 @@ def _routes(app: Any) -> dict[RouteKey, Route]:
     }
 
 
-# Routes added under a renamed prefix after the rename: each is served at its one path, and
-# nothing answers where a former spelling of it would be.
-ADDED_SINCE: set[RouteKey] = {("GET", "/api/agents/{namespace}/{name}/committee-packet")}
-
-
 def _held_to_one_handler(app: Any, renamed: dict[RouteKey, RouteKey]) -> None:
     found = _routes(app)
     for old, now in renamed.items():
@@ -207,12 +217,15 @@ def _held_to_one_handler(app: Any, renamed: dict[RouteKey, RouteKey]) -> None:
             assert getattr(before, what) == getattr(after, what), (old, what)
         # The same path parameters, in the same places.
         assert re.findall(r"\{[^}]+\}", before.path) == re.findall(r"\{[^}]+\}", after.path)
-    # Nothing else answers at a former path, and nothing renamed is left without its twin. A
-    # route added since the rename (`ADDED_SINCE`) never had another path, and has no twin.
+    # Nothing else answers at a former path, and nothing renamed is left without its twin: every
+    # other route under a renamed prefix is one made since (`SINCE_THE_RENAME`). Such a route
+    # never had another path: it has no twin, and no route is where a former spelling would be.
     assert {route for route in found if paths.is_former(route[1])} == set(renamed)
     current = {route for route in found if paths.former(route[1]) is not None}
-    assert current - ADDED_SINCE == set(renamed.values())
-    assert not {paths.former(path) for _, path in ADDED_SINCE & current} & {p for _, p in found}
+    assert current - SINCE_THE_RENAME == set(renamed.values())
+    assert not SINCE_THE_RENAME & set(renamed.values())
+    former = {paths.former(path) for _, path in SINCE_THE_RENAME & current}
+    assert not former & {path for _, path in found}
     # The former paths are tried in the order the current ones are (`…/tickets` before
     # `…/{version}`), so the same request matches the same route under either.
     tried = [route for route in found if route in renamed or route in renamed.values()]
@@ -229,6 +242,31 @@ def test_every_renamed_route_is_served_at_both_paths_by_one_handler(world: World
 
 def test_the_registry_alone_serves_both_paths_by_one_handler(registry: Registry) -> None:
     _held_to_one_handler(registry.client.app, REGISTRY_FORMER_ROUTES)
+
+
+def test_a_route_made_since_the_rename_has_no_former_path(registry: Registry) -> None:
+    """Each is served by the registry at its one path, and its former spelling is no route:
+    it answers as any path nothing serves, with the registry's own headers."""
+    found = _routes(registry.client.app)
+    assert set(found) >= REGISTRY_SINCE_THE_RENAME
+    assert registry.publish().status_code == 201
+    values = {"namespace": "mendari", "name": "referral-router", "evaluation_id": "0" * 64}
+    for method, path in sorted(REGISTRY_SINCE_THE_RENAME):
+        now = registry.client.request(method, concrete(path, **values))
+        assert now.status_code in (200, 404) and now.content != b'{"detail":"Not Found"}', path
+        before = paths.former(path)
+        assert before is not None and (method, before) not in found
+        gone = registry.client.request(method, concrete(before, **values))
+        if path.endswith("/{name}/evaluation") or path.endswith("/badge.svg"):
+            # Read by the former `/{version}` route as a version, which it is not.
+            assert gone.status_code == 404 and "no agent" in gone.json()["detail"], path
+        else:
+            assert (gone.status_code, gone.json()) == (404, {"detail": "Not Found"}), path
+        assert gone.headers["cache-control"] == "no-store", path
+    # A limit counts them as it counts every read, at any spelling.
+    for method, path in sorted(REGISTRY_SINCE_THE_RENAME):
+        asked = _rate_class(_registry_request(method, concrete(path, **values)), lambda _: None)
+        assert asked == ("registry_read", "ip:203.0.113.9")
 
 
 def test_a_former_path_is_listed_nowhere(world: World, registry: Registry) -> None:
@@ -813,17 +851,24 @@ def test_the_mounted_registry_answers_the_same_at_both_paths(world: World) -> No
 
 
 def test_the_dashboard_and_the_client_ask_at_the_current_paths() -> None:
-    """Every caller in the repository moved: the dashboard's scripts, the API examples and the
-    registry client ask at the current paths (a former path is for callers outside the
-    repository, and for the Hub until the registry it reads is deployed with both)."""
+    """Every caller in the repository moved: the dashboard's scripts, the API examples, the
+    registry client and the Agent Hub ask at the current paths (a former path is for callers
+    outside the repository). The Hub deploys apart from the registry it reads, so a registry
+    that answers the current paths is deployed before a Hub that asks at them."""
     root = Path(__file__).resolve().parents[1]
+    hub = [
+        path
+        for folder in ("app", "lib")
+        for suffix in ("*.ts", "*.tsx")
+        for path in sorted((root / "hub" / folder).rglob(suffix))
+    ]
+    assert root / "hub" / "lib" / "registry.ts" in hub and len(hub) >= 10
     callers = [
         *sorted((root / "src" / "mendari" / "dashboard").glob("*.js")),
         *sorted((root / "src" / "mendari" / "dashboard").glob("*.html")),
         *sorted((root / "src" / "mendari" / "dashboard" / "snippets").glob("*")),
         root / "src" / "mendari" / "hub" / "client.py",
-        # The Hub (`hub/lib/registry.ts`) deploys apart from the registry, so it keeps the former
-        # paths for one release: it moves once every deployed registry answers the current ones.
+        *hub,
         root / "deploy" / "status" / "checks.yaml",
         *sorted((root / "scripts").glob("*.py")),
         *sorted((root / ".github" / "workflows").glob("*.yml")),
@@ -836,4 +881,7 @@ def test_the_dashboard_and_the_client_ask_at_the_current_paths() -> None:
         if former.search(line)
     ]
     assert not found, found
+    # Not vacuous: the Hub's reads of the registry are there, at the current paths.
+    asked = (root / "hub" / "lib" / "registry.ts").read_text(encoding="utf-8")
+    assert "`/v1/agents/${" in asked and "/v1/search" in asked
     assert DASHBOARD  # the dashboard's own header, sent by every session above

@@ -167,14 +167,14 @@ export async function search(filters: SearchFilters): Promise<PackSummary[]> {
   return (await get<PackSummary[]>(`/v1/search?${params}`)) ?? [];
 }
 
-// The registry also answers at /v1/agents/...; the Hub moves to it once every deployed registry does.
-export const pack = (namespace: string, name: string) =>
-  get<PackDetail>(`/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+// An agent's reads, under the registry's /v1/agents/<namespace>/<name>.
+const agentPath = (namespace: string, name: string) =>
+  `/v1/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+
+export const pack = (namespace: string, name: string) => get<PackDetail>(agentPath(namespace, name));
 
 export const packVersion = (namespace: string, name: string, version: string) =>
-  get<PackVersion>(
-    `/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
-  );
+  get<PackVersion>(`${agentPath(namespace, name)}/${encodeURIComponent(version)}`);
 
 export const namespace = (name: string) => get<Namespace>(`/v1/namespaces/${encodeURIComponent(name)}`);
 
@@ -247,7 +247,7 @@ export type EvidenceGroup = {
 export type SiteEvidence = { format: string; pack: string; note: string; alpha: number; groups: EvidenceGroup[] };
 
 export const siteEvidence = (namespace: string, name: string) =>
-  get<SiteEvidence>(`/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/site-evidence`);
+  get<SiteEvidence>(`${agentPath(namespace, name)}/site-evidence`);
 
 // Publisher evaluations (mendari.publisher-evaluations/1, ADR-0020): the publisher's signed
 // evaluations of one version, one per configuration and public dataset. Every share is the
@@ -269,17 +269,29 @@ export type EvaluationFigures = {
   false_automation: Figure | null;
   outcomes: Record<string, { count: number; share: Figure | null }>;
 };
+// The publisher's own figures of a run, never a count: `failed_cases` (the cases a provider
+// failed on) only in a record that states it.
+export type EvaluationClaimed = {
+  latency_ms_p50?: number | null;
+  latency_ms_p95?: number | null;
+  cost_usd_per_decision?: number | null;
+  failed_cases?: number;
+};
 export type PublisherEvaluation = {
   id: string;
   configuration: Record<string, string>;
-  dataset: { name: string; n: number; sha256: string };
+  // n and sha256 are null for a record that no longer verifies: nothing it says is shown.
+  dataset: { name: string; n: number | null; sha256: string | null };
   rerun: "matched" | "calls_a_model";
   rerun_words: string;
   key_id: string;
   models: string[];
-  claimed: { latency_ms_p50?: number | null; latency_ms_p95?: number | null; cost_usd_per_decision?: number | null };
+  claimed: EvaluationClaimed;
   created_at: string;
-  excluded: string | null; // "key revoked": listed, left out of the comparison
+  // "key revoked" or "not verified": listed, left out of the comparison. A registry from before
+  // it checked a record again on every read sends no `signature`.
+  excluded: string | null;
+  signature?: { key_id: string; verified: boolean; problem: string | null };
   figures: EvaluationFigures | null;
 };
 export type PublisherEvaluations = {
@@ -293,6 +305,125 @@ export type PublisherEvaluations = {
 
 // null: no such version, or a registry from before publisher evaluations (no such route).
 export const publisherEvaluations = (namespace: string, name: string, version: string) =>
-  get<PublisherEvaluations>(
-    `/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/evaluations`,
+  get<PublisherEvaluations>(`${agentPath(namespace, name)}/${encodeURIComponent(version)}/evaluations`);
+
+// An agent's published evaluation (mendari.agent-evaluation/1, src/mendari/hub/evaluation_page.py):
+// what the evaluation page shows. The registry works it out on every read from the publisher's
+// signed evaluations that still verify; this site only prints it.
+export type EvaluationState = "evaluated" | "none" | "not_verified" | "recalled";
+export type ComparisonStatus = "ordered" | "tied" | "one_configuration" | "no_critical_label" | "insufficient_evidence";
+export type Measure = "critical_automated" | "critical_detection" | "false_automation" | "accuracy";
+export type MeasuredFigure = Figure & { question?: string; label?: string };
+export type Comparison = {
+  method: string;
+  measures: Measure[];
+  status: ComparisonStatus;
+  first: string | null;
+  second: string | null;
+  tied: string[];
+  decided_by: Measure | null;
+  figures: { first: MeasuredFigure; second: MeasuredFigure } | null;
+  separated: boolean | null; // whether the two intervals keep apart; false: it could be chance
+  // The first configuration and every other the counts cannot tell from it, in the order shown;
+  // and the one that did best, which the registry names only when it is alone there (ADR-0020,
+  // amended 2026-11-24). A registry from before that amendment sends neither: this site then
+  // names none as best.
+  first_band?: string[];
+  best?: string | null;
+};
+export type EvaluatedConfiguration = {
+  id: string; // the signed record's id: the SHA-256 of its canonical JSON
+  configuration: Record<string, string>;
+  label: string; // "slot=variant, slot=variant"
+  providers: Record<string, { variant: string; type: string; model: string | null }>;
+  models: string[];
+  engine: string | null; // null: the record's format does not state it
+  record_format: string;
+  signed: { key_id: string; at: string; verified: true };
+  rerun: "matched" | "calls_a_model";
+  figures: EvaluationFigures;
+  critical_cases: number;
+  critical_missed: number;
+  critical_automated: number;
+  tokens: { input: number; output: number };
+  claimed: EvaluationClaimed;
+  position: number | null; // its place in the comparison's order; null where nothing is ordered
+};
+export type EvaluatedDataset = {
+  name: string;
+  sha256: string;
+  n: number;
+  provenance: "synthetic" | "de_identified" | "site_records" | null; // null: no record states it
+  labelled_by: string[]; // the publisher's own words
+  critical: { question: string; label: string; n: number }[];
+  comparison: Comparison;
+  configurations: EvaluatedConfiguration[];
+};
+export type NotShown = {
+  id: string;
+  configuration: string;
+  dataset: string;
+  key_id: string;
+  reason: "record" | "key" | "signature" | "key_revoked";
+};
+export type BadgeWords = { state: string; label: string; message: string; tone: "info" | "warn" | "bad" | "plain" };
+export type AgentEvaluation = {
+  format: string;
+  id: string;
+  state: EvaluationState;
+  note: string;
+  publisher: { namespace: string; display_name: string; publisher_type: string };
+  versions: { shown: string | null; latest: string | null; evaluated: string[] };
+  agent: {
+    name: string | null;
+    version: string;
+    digest: string | null;
+    published_at: string | null;
+    status_label: string | null;
+    synthetic: boolean;
+    primary: string | null;
+  } | null; // null: recalled
+  datasets: EvaluatedDataset[];
+  not_shown: NotShown[];
+  superseded: number;
+  links: { page: string | null };
+  badge: BadgeWords;
+};
+
+// null: no such agent (or version), or a registry from before evaluation pages.
+export const agentEvaluation = (namespace: string, name: string, version?: string) =>
+  get<AgentEvaluation>(
+    `${agentPath(namespace, name)}/evaluation${version ? `?version=${encodeURIComponent(version)}` : ""}`,
   );
+
+// The badge as the registry serves it (an SVG of words and numbers, src/mendari/hub/badge.py), for
+// this site to show as an image. null when it cannot be read as one: the page shows none.
+export async function agentBadge(namespace: string, name: string): Promise<string | null> {
+  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  const headers: Record<string, string> = bypassSecret ? { "x-vercel-protection-bypass": bypassSecret } : {};
+  try {
+    const response = await fetch(`${BASE}${agentPath(namespace, name)}/badge.svg`, {
+      cache: "no-store",
+      redirect: "error",
+      headers,
+      signal: AbortSignal.timeout(10_000),
+    });
+    const type = response.headers.get("content-type") ?? "";
+    if (!response.ok || !type.startsWith("image/svg+xml")) return null;
+    const image = await response.text();
+    return image.length <= 8_000 && image.startsWith("<svg ") ? image : null;
+  } catch {
+    return null;
+  }
+}
+
+// The registry's address as a README can use it: REGISTRY_PUBLIC_URL when the site reaches the
+// registry at an address the public cannot (a container's name), else REGISTRY_URL when it is
+// https or the site itself is opened on this machine. null: the page gives no badge address.
+export function publicRegistry(siteIsLocal: boolean): string | null {
+  const given = (process.env.REGISTRY_PUBLIC_URL ?? "").replace(/\/$/, "");
+  if (given) return /^https:\/\/[^\s"'<>()]+$/.test(given) || siteIsLocal ? given : null;
+  return BASE.startsWith("https://") || siteIsLocal ? BASE : null;
+}
+
+export const badgePath = (namespace: string, name: string) => `${agentPath(namespace, name)}/badge.svg`;

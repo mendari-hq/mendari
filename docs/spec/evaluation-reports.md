@@ -396,25 +396,41 @@ it verified (`hub/site_evidence.py`); nothing in it is a rate a site sent.
 - **Never in a rank.** Site evidence is shown apart (`note`): sites choose their own cases, and
   a ticket binds a dataset before its run, not how its cases were chosen.
 
-## Publisher evaluations: `mendari.publisher-evaluation/1`
+## Publisher evaluations: `mendari.publisher-evaluation/2`
 
 A publisher's signed evaluation of one listed version on one of its own public datasets, in one
 configuration ([ADR-0020](../decisions/ADR-0020-publisher-evaluations.md), `hub/evaluations.py`),
-sent by `mendari eval AGENT --dataset NAME --publish --key publisher.key`:
+sent by `mendari push AGENT --key publisher.key --evaluate NAME` (every configuration, with the
+version) or `mendari eval AGENT --dataset NAME --publish --key publisher.key` (one):
 
 ```json
-{"format": "mendari.publisher-evaluation/1",
+{"format": "mendari.publisher-evaluation/2",
  "pack": {"id": "mendari/portal-message-agent", "version": "0.1.2", "digest": "sha256:…"},
  "configuration": {"reader": "rules"},
- "dataset": {"name": "test", "sha256": "<64 hex>", "n": 600},
+ "dataset": {"name": "test", "sha256": "<64 hex>", "n": 600,
+             "provenance": "synthetic", "labelled_by": "The script that wrote the cases"},
  "report": {"format": "mendari.site-report/2", "…": "…"},
- "claimed": {"latency_ms_p50": 0.05, "latency_ms_p95": 0.06, "cost_usd_per_decision": 0.0},
+ "claimed": {"latency_ms_p50": 0.05, "latency_ms_p95": 0.06,
+             "cost_usd_per_decision": 0.0, "failed_cases": 0},
  "models": ["rules@33463eddba9c"],
+ "engine": "0.1.0",
  "created_at": "2026-11-22T12:00:00Z",
  "key_id": "ed25519:<16 hex>",
  "signature": "<base64>"}
 ```
 
+- **Two formats.** `/2` adds what an evaluation page needs beside the counts:
+  `dataset.provenance` (what the agent's manifest says its data was built from,
+  `card.provenance`: `synthetic`, `de_identified`, `site_records`, or null; the registry
+  refuses a record that says otherwise than the manifest in the signed archive),
+  `dataset.labelled_by` (who labelled the cases, in the publisher's words: one printable line
+  of at most 200 characters, or null), `engine` (the Mendari release that ran the evaluation)
+  and `claimed.failed_cases` (how many cases a provider failed on, at most the dataset's n:
+  there the engine sends the case to a person, so those cases say nothing of the
+  configuration). `mendari.publisher-evaluation/1` is the same record without those four, and
+  is not changed: the format is in the signed bytes, so a record of one never verifies as the
+  other; a registry takes either, stores what it was sent, and shows a `/1` record with what
+  it does not state as not stated. The command line signs `/2`.
 - **Closed.** No other field is taken; every name is one the agent defines.
 - **`configuration`** names a variant for every provider slot. **`dataset`** is a dataset the
   manifest declares (never a path), its file's SHA-256 and its number of cases (at least 100).
@@ -423,9 +439,9 @@ sent by `mendari eval AGENT --dataset NAME --publish --key publisher.key`:
   `remote_consent` is whether the configuration calls a provider off the machine (a type that is
   not `rules`, `criteria`, `dosing` or `naive_bayes`, or a composite with one).
   `governance_override` is false: an evaluation measures the agent's own policy.
-- **`claimed`** (the run's latency p50 and p95 in milliseconds, its cost per decision in USD)
-  and **`models`** (the models that answered, as the ledger names them) are the publisher's own
-  word, shown labelled so; they are not counts.
+- **`claimed`** (the run's latency p50 and p95 in milliseconds, its cost per decision in USD,
+  and in `/2` the cases a provider failed on) and **`models`** (the models that answered, as
+  the ledger names them) are the publisher's own word, shown labelled so; they are not counts.
 - **Signature.** Ed25519 with one of the namespace's publisher keys over
   `mendari-publisher-evaluation-v1\0`, the format, `\0`, then the canonical JSON of every other
   field (sorted keys, no spaces, ASCII). The evaluation's id is the SHA-256 of the canonical JSON
@@ -439,6 +455,53 @@ label `detected` and `automated` (k of n, with `automated_misses` the count) and
 `insufficient_evidence` under 100 positives, then `accuracy` (the primary question's right of
 n), `false_automation` (of the primary question's n) and each outcome's count and share. Every
 share is k of n with its exact 95% interval; none is a rate the publisher sent.
+
+Each stored record is verified again on every read (its closed shape, its id, what its row
+says of it, and its signature with a key of the namespace's). One that fails is listed as not
+verified (its `signature` and `excluded` fields say so), with no figure, model or claim of its
+own. `GET /v1/agents/{namespace}/{name}/{version}/evaluations/{id}` serves one signed record
+as stored, for anyone to check.
+
+### An agent's evaluation in public: `mendari.agent-evaluation/1`
+
+What the Agent Hub's evaluation page and a README's badge are built from
+(`GET /v1/agents/{namespace}/{name}/evaluation`, `hub/evaluation_page.py`): the publisher's
+live evaluations of the agent's newest version that is not recalled (or `?version=`), from the
+signed records and nothing else.
+
+- **`state`**: `evaluated`; `none` (no evaluation published for this version); `not_verified`
+  (evaluations are stored and none can be shown); `recalled`.
+- **`datasets`**: each with its name, SHA-256, size, provenance and who labelled it, and its
+  `configurations`: every figure k of n with its exact 95% interval, worked out from the
+  counts; the critical cases missed and automated; the outcome mix; the publisher's own
+  latency, cost and failed cases, labelled as claimed; the key that signed it, and whether the
+  registry ran it again.
+- **`comparison`**, for each dataset: the configurations in the order of
+  [`mendari.rank/1`](#leaderboards-mendarileaderboard2-and-mendarirank1) without its cost
+  (fewest critical cases automated, then the worst critical label's detection, then false
+  automation, then accuracy), a `status` (`ordered`, `tied`, `one_configuration`,
+  `no_critical_label`, `insufficient_evidence`), the measure that decided the first against the
+  second with both figures, and two fields that say what a page may claim:
+  - `first_band`: the configuration listed first with every other one the counts cannot tell
+    from it: one that did the same on all four measures, or one whose difference from the
+    first, on the measure where the two first differ, lies inside their exact 95% intervals;
+  - `best`: a configuration **only when it is alone in the first band**, else null. The order
+    is total, so some configuration is always listed first; being listed first is not having
+    done best. Null too for a tie, a single configuration, and when nothing ranks (no critical
+    label has 100 positive cases, or the agent names none).
+- **`not_shown`**: each stored evaluation that does not verify, or whose key was revoked
+  since, with why, by its row's names and with nothing its record says. None takes part in a
+  figure, the comparison or the badge.
+- **`links.page`**: where the Agent Hub shows it, once the registry's operator says where the
+  Hub is (`MENDARI_REGISTRY_HUB_URL`); null otherwise.
+- **`note`**: that the evaluation is the publisher's own, on a dataset it chose, compares the
+  configurations of one agent, ranks no agent against another, and is not evidence of how the
+  agent does on a site's own cases.
+
+`GET /v1/agents/{namespace}/{name}/badge.svg` says the same in one line of fixed words and
+whole counts ("evaluated, 2 configurations, 600 synthetic cases, 0 to 9 critical automated",
+"no evaluation published", "evaluation not verified", "recalled"): an image with no script,
+style, link or reference, never green, and it names no configuration as best.
 
 ## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
 

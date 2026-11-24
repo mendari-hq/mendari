@@ -1,5 +1,6 @@
 # Mendari on one server: the engine, Postgres, and the scheduled retention, checkpoint and
-# monitoring jobs.
+# monitoring jobs. You bring the TLS proxy, the certificate and the backups; `../site` is the
+# template that brings them too, with one command.
 #   cp .env.example .env   # then fill it in (see docs/deploying-with-phi.md)
 #   docker compose --env-file .env up -d
 name: mendari-site
@@ -17,6 +18,7 @@ services:
       test: ["CMD-SHELL", "pg_isready -U mendari"]
       interval: 5s
       retries: 10
+    restart: unless-stopped
 
   engine:
     image: ${MENDARI_IMAGE:?set MENDARI_IMAGE in .env}
@@ -32,10 +34,15 @@ services:
     command: ["sh", "-c", "mendari serve --host 0.0.0.0 --port 8000 --db \"$$DATABASE_URL\""]
     ports:
       - "127.0.0.1:8000:8000"  # put your TLS reverse proxy in front
+    restart: unless-stopped
 
   jobs:
-    # Daily: delete kept inputs past retention, then check every agent for drift and degradation,
-    # each organization on its own (a failed post prints its error; the loop goes on).
+    # Daily: delete kept inputs past retention, verify the audit trail and record its
+    # checkpoint, then check every agent for drift and degradation, each organization on its
+    # own. A job that fails is never passed over: it is named on stderr (`docker compose logs
+    # jobs`) and this container is unhealthy until a day's run passes; the loop goes on. With
+    # CRON_SECRET set (.env.example) the checkpoint is the engine's own scheduled route, so an
+    # audit trail that does not verify also reaches MENDARI_ALERT_WEBHOOK (`audit.broken`).
     image: ${MENDARI_IMAGE:?set MENDARI_IMAGE in .env}
     depends_on:
       postgres:
@@ -43,18 +50,39 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://mendari:${POSTGRES_PASSWORD}@postgres:5432/mendari
+      # The engine's scheduled checkpoint, asked with CRON_SECRET: exit 0 when the trail holds.
+      CHECKPOINT_BY_THE_ENGINE: >-
+        import json, os, sys, urllib.request as web;
+        asked = web.Request("http://engine:8000/api/internal/checkpoint",
+        headers={"Authorization": "Bearer " + os.environ["CRON_SECRET"]});
+        sys.exit(0 if json.load(web.urlopen(asked, timeout=900)).get("ok") else 1)
     command:
       - sh
       - -c
-      - >-
+      - |
         while true; do
-        mendari phi purge --db "$$DATABASE_URL";
-        mendari audit checkpoint --db "$$DATABASE_URL";
-        mendari monitor --db "$$DATABASE_URL" --each-org || true;
-        sleep 86400;
+          failed=
+          mendari phi purge --db "$$DATABASE_URL" || failed="$$failed retention"
+          if [ -n "$${CRON_SECRET:-}" ]; then
+            python -c "$$CHECKPOINT_BY_THE_ENGINE" || failed="$$failed checkpoint"
+          else
+            mendari audit checkpoint --db "$$DATABASE_URL" || failed="$$failed checkpoint"
+          fi
+          mendari monitor --db "$$DATABASE_URL" --each-org || failed="$$failed monitor"
+          if [ -z "$$failed" ]; then
+            rm -f /tmp/jobs-failed
+          else
+            echo "FAILED:$$failed. A failed checkpoint means the audit trail may not verify:" \
+              "run mendari audit verify and follow docs/operations/incident-runbook.md" >&2
+            touch /tmp/jobs-failed
+          fi
+          sleep 86400
         done
     healthcheck:
-      disable: true
+      test: ["CMD-SHELL", "[ ! -e /tmp/jobs-failed ]"]
+      interval: 60s
+      retries: 1
+    restart: unless-stopped
 
 # A fixed subnet, so the gateway the engine sees a proxy on the host connect from (Docker's
 # port publishing connects from it) is known: FORWARDED_ALLOW_IPS trusts it. If 172.30.0.0/24

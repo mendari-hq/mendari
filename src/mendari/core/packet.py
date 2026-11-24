@@ -24,6 +24,14 @@ an address and the day it was checked. It is a reading aid, and says so above it
 
 The caller sets the organization the store reads for (`tenancy.acting_for`), as for any other
 read, and gives the holds in force as that organization may see them.
+
+**Without a deployment** (`build_alone`): a publisher hands the packet to a hospital before any
+deployment exists, so it is also made from the agent's files alone. Everything the publisher
+states and the software enforces is there as in any packet. Whatever only a deployment holds
+(the review queue and the holds, a site's decisions and evaluations, what the monitor found,
+what runs and ran, how inputs are kept, the approvals) is null in the document, and its section
+says in words that no deployment was read (`no_deployment`, on the packet and on each such
+section): never a zero, which would read as "nothing happened".
 """
 
 from __future__ import annotations
@@ -80,6 +88,53 @@ ABOUT = (
     "case text and no patient data. It is not signed, and it is not a certification, an "
     "attestation of compliance or legal advice. Where something is not known, it says so."
 )
+# The same, for a packet made from the agent's files alone (`build_alone`).
+ABOUT_ALONE = (
+    "Prepared by the software from the agent's files alone, with no deployment's database. It "
+    "holds what the publisher states and what the software enforces, and nothing that any site "
+    "has decided, reviewed, measured or approved: no case text and no patient data. It is not "
+    "signed, and it is not a certification, an attestation of compliance or legal advice. "
+    "Where something is not known, it says so."
+)
+# Why a packet holds no deployment's data, on its cover and as its `no_deployment`.
+NO_DEPLOYMENT = (
+    "This packet was made without a deployment's database, from the agent's files alone, as a "
+    "publisher makes it before any site runs the agent. The sections on a site's review "
+    "queue, evidence, monitoring, configuration and approvals say so in place of figures: "
+    "that is not a count of zero. A site makes the packet again from its own deployment."
+)
+# What each section that reads a deployment says in place of what it did not read.
+WITHOUT_DEPLOYMENT = {
+    "oversight": (
+        "No review queue and no hold is shown: this packet was made without a deployment's "
+        "database, so there was none to read. It is not a count of zero."
+    ),
+    "site_evidence": (
+        "No site's evidence is shown: this packet was made without a deployment's database, so "
+        "no decision, review or evaluation of any site was read. It does not say that there "
+        "is none."
+    ),
+    "monitoring": (
+        "Nothing was monitored for this packet: it was made without a deployment's database, "
+        "so there are no weeks and no alerts to show. Where alerts go and how often the "
+        "monitor runs are each deployment's settings."
+    ),
+    "change_control": (
+        "What a site runs, and which version ran there since when, is not shown: this packet "
+        "was made without a deployment's database."
+    ),
+    "data_handling": (
+        "What is kept of an input and for how long, which addresses may be called, who can "
+        "read a decision and how the audit record is signed are each deployment's settings: "
+        "this packet was made without a deployment, so none is shown."
+    ),
+    "approvals": (
+        "No approval is shown: this packet was made without a deployment's database, so none "
+        "was read. It does not say that none was recorded."
+    ),
+}
+# The note of an item a site's records could state, in a packet that read none.
+_NOT_READ = "Not read: this packet was made without a deployment's database."
 CONFIRMED, TO_VERIFY = "confirmed", "to_verify"
 STATUS_WORDS = {CONFIRMED: "Checked against the source", TO_VERIFY: "To verify"}
 _STATUS_SHORT = {CONFIRMED: "Checked", TO_VERIFY: "To verify"}  # in a table's cell
@@ -138,6 +193,11 @@ class Deployment:
     providers: Mapping[str, str] | None = None
     models: Mapping[str, str | None] | None = None
     seen_from: str = "server"  # or "command line"
+
+
+# What the builders that only ask a deployment what it knows read when there is none: nothing
+# is known. Its required settings are never read from it (`build_alone` shows none of them).
+_NO_DEPLOYMENT = Deployment(phi_mode="", input_hash="", retention_days=0, seen_from="nowhere")
 
 
 # -- the crosswalk, as data ----------------------------------------------------------------------
@@ -297,10 +357,12 @@ def _covering(holds: Sequence[Mapping[str, Any]], pack: Pack) -> list[Mapping[st
     ]
 
 
-def _running(pack: Pack, deployment: Deployment) -> list[dict[str, Any]]:
+def _running(pack: Pack, deployment: Deployment | None) -> list[dict[str, Any]]:
     """Each slot as it runs here (or, where that is not known, as the agent sets it by
     default): its variant and type, its model where known, and whether it calls a service off
-    this deployment, with the input fields an agent's own service is sent."""
+    this deployment, with the input fields an agent's own service is sent. Without a
+    deployment (None) nothing is known to run: every slot is the agent's own default."""
+    deployment = deployment or _NO_DEPLOYMENT
     slots = []
     for slot, spec in pack.manifest.providers.items():
         known = deployment.providers is not None and slot in deployment.providers
@@ -373,8 +435,9 @@ def _intended_use(pack: Pack) -> dict[str, Any]:
     }
 
 
-def _risk(pack: Pack, deployment: Deployment) -> dict[str, Any]:
+def _risk(pack: Pack, deployment: Deployment | None) -> dict[str, Any]:
     m = pack.manifest
+    deployment = deployment or _NO_DEPLOYMENT
     level = int(m.risk.level)
     enforced = []
     if pack.community:
@@ -426,11 +489,13 @@ def _risk(pack: Pack, deployment: Deployment) -> dict[str, Any]:
 
 
 def _oversight(
-    pack: Pack, stats: Mapping[str, Any], holds: Sequence[Mapping[str, Any]]
+    pack: Pack, stats: Mapping[str, Any] | None, holds: Sequence[Mapping[str, Any]] | None
 ) -> dict[str, Any]:
+    """`stats` and `holds` None: no deployment was read, so the review queue and the holds
+    are null, not empty."""
     policy = pack.manifest.policy
     covering = []
-    for hold in _covering(holds, pack):
+    for hold in _covering(holds or (), pack):
         reason = str(hold.get("reason") or "")
         covers = "this version" if hold.get("pack_digest") else "this agent"
         covering.append(
@@ -465,12 +530,16 @@ def _oversight(
             for rule in policy.rules
         ],
         "fallback": policy.fallback,
-        "review_queue": {
-            "waiting": int(stats["pending_reviews"]),
-            "resolved": int(stats["reviews_resolved"]),
-            "decisions": int(stats["decisions"]),
-        },
-        "holds": covering,
+        "review_queue": (
+            None
+            if stats is None
+            else {
+                "waiting": int(stats["pending_reviews"]),
+                "resolved": int(stats["reviews_resolved"]),
+                "decisions": int(stats["decisions"]),
+            }
+        ),
+        "holds": None if holds is None else covering,
     }
 
 
@@ -636,19 +705,32 @@ def _site_evidence(
     }
 
 
-def _limits(pack: Pack, running: Sequence[Mapping[str, Any]], publisher: Mapping[str, Any]) -> dict:
+def _limits(
+    pack: Pack,
+    running: Sequence[Mapping[str, Any]],
+    publisher: Mapping[str, Any],
+    *,
+    deployed: bool = True,
+) -> dict:
+    """`deployed` False: the packet read no deployment, and says that first among its limits."""
     m = pack.manifest
     of_evidence = []
+    if not deployed:
+        of_evidence.append(
+            "This packet was made without a deployment: it shows no site's decisions, reviews "
+            "or evaluations, and so says nothing of how the agent does at any site."
+        )
     if m.card.provenance == "synthetic":
         of_evidence.append(
             "The agent's own data is synthetic: an evaluation on it says how the agent does on "
-            "written examples, not on this site's patients."
+            "written examples, not on "
+            + ("this site's patients." if deployed else "a site's patients.")
         )
     measured = (publisher.get("evaluation") or {}).get("measured_on")
     if measured and not measured["this_version"]:
         of_evidence.append(
             "The publisher's evaluation measured another version of the agent than the one "
-            "served here."
+            + ("served here." if deployed else "this packet describes.")
         )
     if any(slot["canned"] for slot in running):
         of_evidence.append(
@@ -789,11 +871,14 @@ def _monitoring(mon: Mapping[str, Any], deployment: Deployment) -> dict[str, Any
 
 def _change_control(
     pack: Pack,
-    deployment: Deployment,
+    deployment: Deployment | None,
     running: Sequence[Mapping[str, Any]],
     records: Sequence[Mapping[str, Any]] | None,
     recall: str | None,
 ) -> dict[str, Any]:
+    """Without a deployment (None): nothing is known to run, and no registry was asked."""
+    deployed = deployment is not None
+    deployment = deployment or _NO_DEPLOYMENT
     pulled = pack.pulled
     signed = None
     if pack.origin == "hub":
@@ -828,11 +913,17 @@ def _change_control(
             "When the registry recalls this version, it stops automating here, and what its "
             "rules would block goes to a person.",
         ]
-    else:
+    elif deployed:
         on_change.append(
             "This agent is served from the deployment's own files: no signature is checked, "
             "and whoever can change those files can change the agent. The digest shows that "
             "they did."
+        )
+    else:
+        on_change.append(
+            "This packet read the agent from files, not from a registry's signed archive: no "
+            "signature was checked. A site that pulls it from a registry has its signature "
+            "checked; one that serves it from its own files can compare the digest above."
         )
     if any(slot["type"] == "agent" for slot in running):
         on_change.append(
@@ -923,13 +1014,9 @@ def _data_handling(
     }
 
 
-def _approvals(
-    pack: Pack,
-    governance: Sequence[Mapping[str, Any]],
-    registry: Sequence[Mapping[str, Any]],
-    active: Mapping[str, Any] | None,
-    registry_active: Mapping[str, Any] | None,
-) -> dict[str, Any]:
+def _approvals_required(pack: Pack, *, deployed: bool = True) -> list[str]:
+    """What this agent needs before it automates, by its risk level and where it came from: the
+    runtime's rules, the same with or without a deployment to read."""
     level = int(pack.manifest.risk.level)
     required = []
     if pack.community:
@@ -944,13 +1031,25 @@ def _approvals(
     else:
         required.append(
             f"At risk level {level} the runtime asks for no approval before automation, and "
-            "this deployment records none for it."
+            + ("this deployment" if deployed else "a deployment")
+            + " records none for it."
         )
     if pack.origin == "hub":
         required.append(
             "An agent from a registry needs the organization's approval of its exact version "
             "before it automates anything."
         )
+    return required
+
+
+def _approvals(
+    pack: Pack,
+    governance: Sequence[Mapping[str, Any]],
+    registry: Sequence[Mapping[str, Any]],
+    active: Mapping[str, Any] | None,
+    registry_active: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    required = _approvals_required(pack)
 
     def shown(row: Mapping[str, Any], *, expires: bool) -> dict[str, Any]:
         this_version = row["pack_digest"] == pack.digest
@@ -976,6 +1075,26 @@ def _approvals(
             "governance": active is not None,
             "registry": registry_active is not None if pack.origin == "hub" else None,
         },
+    }
+
+
+def _publisher_stated(pack: Pack, publisher: Mapping[str, Any]) -> dict[str, bool | str]:
+    """Which of the items a publisher can state it has stated, for the "Not stated" appendix:
+    True, or why not (`_not_stated`)."""
+    evaluation = publisher["evaluation"]
+    card = pack.manifest.card
+    return {
+        "publisher_evaluation": (
+            True
+            if evaluation is not None
+            else "Held by the registry, if its publisher published one: not read here."
+            if pack.origin == "hub"
+            else False
+        ),
+        "evidence_cited": bool(card.evidence),
+        "out_of_scope": bool(card.out_of_scope),
+        "known_failure_modes": bool(card.known_failure_modes),
+        "publisher_subgroups": bool(evaluation and evaluation["subgroups"]),
     }
 
 
@@ -1048,20 +1167,8 @@ def build(
         "data_handling": _data_handling(pack, deployment, running),
         "approvals": approvals,
     }
-    evaluation = publisher["evaluation"]
-    card = pack.manifest.card
     stated: dict[str, bool | str] = {
-        "publisher_evaluation": (
-            True
-            if evaluation is not None
-            else "Held by the registry, if its publisher published one: not read here."
-            if from_registry
-            else False
-        ),
-        "evidence_cited": bool(card.evidence),
-        "out_of_scope": bool(card.out_of_scope),
-        "known_failure_modes": bool(card.known_failure_modes),
-        "publisher_subgroups": bool(evaluation and evaluation["subgroups"]),
+        **_publisher_stated(pack, publisher),
         "local_evidence": site["empty"] is None,
         "local_subgroups": any(found["subgroups"] for found in site["evaluations"]),
         "approval_record": (
@@ -1081,6 +1188,119 @@ def build(
         "about": ABOUT,
         "organization": organization,
         "window_days": days,
+        "agent": {
+            "id": pack.id,
+            "name": pack.manifest.name,
+            "version": pack.version,
+            "digest": pack.digest,
+            "status": pack.status_label,
+        },
+        "sections": [
+            {"key": key, "number": number, "title": title, "content": content[key]}
+            for number, (key, title) in enumerate(SECTIONS, start=1)
+        ],
+        "not_stated": _not_stated(stated),
+        "crosswalk": _crosswalk(),
+    }
+    return {**packet, "sha256": _digest_of(packet)}
+
+
+def build_alone(pack: Pack, *, now: datetime | None = None) -> dict[str, Any]:
+    """The packet for `pack` from its files alone, with no deployment to read: what a publisher
+    hands a hospital before any deployment exists.
+
+    The sections the agent's own files fill (what it is, its intended use, its risk level and
+    what the runtime enforces, its policy, the publisher's evidence, its known limits, what
+    the monitor checks, how a change shows, what it reads and sends) are as in any packet.
+    Everything only a deployment holds is null, and each such section carries `no_deployment`,
+    the sentence the page shows in its place (`WITHOUT_DEPLOYMENT`); the packet's own
+    `no_deployment` says it once for the whole document, and it names no organization and no
+    window of days. Reads the agent's files only: no database, no setting of this machine."""
+    now = now or datetime.now(UTC)
+    running = _running(pack, None)
+    publisher = _publisher_evidence(pack)
+    content: dict[str, dict[str, Any]] = {
+        "identity": _identity(pack),
+        "intended_use": _intended_use(pack),
+        "risk": _risk(pack, None),
+        "oversight": _oversight(pack, None, None),
+        "publisher_evidence": publisher,
+        "site_evidence": {
+            "empty": WITHOUT_DEPLOYMENT["site_evidence"],
+            "window_days": None,
+            "decisions": None,
+            "shadow_pilot": None,
+            "review": None,
+            "ratings": None,
+            "gates": None,
+            "gates_line": None,
+            "evaluations": None,
+            "evaluations_saved": None,
+        },
+        "limits": _limits(pack, running, publisher, deployed=False),
+        "monitoring": {
+            "days": None,
+            "checks": _checks(float(pack.manifest.evaluation.degradation_tolerance)),
+            "benchmark": None,
+            "last_7_days": None,
+            "weeks": None,
+            "alerts": None,
+            "other_versions": None,
+            "alert_destination": None,
+            "scheduled": None,
+        },
+        "change_control": _change_control(pack, None, running, None, None),
+        "data_handling": {
+            "inputs": {
+                "fields": _schema_fields(pack.input_schema),
+                "fhir": pack.manifest.inputs.fhir is not None,
+                "kept": pack.manifest.audit.store_input,
+            },
+            "phi_mode": None,
+            "phi_mode_meaning": None,
+            "input_hash": None,
+            "retention": None,
+            "calls_out": [
+                {
+                    "slot": slot["slot"],
+                    "variant": slot["variant"],
+                    "type": slot["type"],
+                    "model": slot["model"],
+                    "sends": slot["sends"],
+                    "canned": slot["canned"],
+                }
+                for slot in running
+                if slot["calls_out"]
+            ],
+            "allowed_origins": None,
+            "access": None,
+            "audit": None,
+            "seen_from": "agent files",
+        },
+        "approvals": {
+            "required": _approvals_required(pack, deployed=False),
+            "governance": None,
+            "registry": None,
+            "in_force": None,
+        },
+    }
+    for key, why in WITHOUT_DEPLOYMENT.items():
+        content[key]["no_deployment"] = why
+    stated: dict[str, bool | str] = {
+        **_publisher_stated(pack, publisher),
+        "local_evidence": _NOT_READ,
+        "local_subgroups": _NOT_READ,
+        "approval_record": _NOT_READ,
+    }
+    packet = {
+        "format": FORMAT,
+        "generated_at": now.isoformat(timespec="seconds"),
+        "generated_by": {"software": "Mendari", "version": __version__},
+        "notice": notices.NOTICE,
+        "about": ABOUT_ALONE,
+        "no_deployment": NO_DEPLOYMENT,
+        "organization": None,
+        "window_days": None,
         "agent": {
             "id": pack.id,
             "name": pack.manifest.name,
@@ -1160,8 +1380,11 @@ SCHEMA: dict[str, Any] = {
         "generated_by": {"type": "object", "required": ["software", "version"]},
         "notice": _TEXT,
         "about": _TEXT,
+        # Only on a packet made from the agent's files alone (`build_alone`): why it holds no
+        # deployment's data. Such a packet names no organization and no window of days.
+        "no_deployment": _TEXT,
         "organization": {"type": ["string", "null"]},
-        "window_days": {"type": "integer", "minimum": MIN_DAYS, "maximum": MAX_DAYS},
+        "window_days": {"type": ["integer", "null"], "minimum": MIN_DAYS, "maximum": MAX_DAYS},
         "agent": {
             "type": "object",
             "required": ["id", "name", "version", "digest", "status"],
@@ -1265,6 +1488,28 @@ SCHEMA: dict[str, Any] = {
         },
         "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     },
+    # A deployment's packet covers a window of days. One made without a deployment says so on
+    # the packet and on each section that would have read one, and names no window.
+    "if": {"required": ["no_deployment"]},
+    "then": {
+        "properties": {
+            "organization": {"type": "null"},
+            "window_days": {"type": "null"},
+            "sections": {
+                "prefixItems": [
+                    {
+                        "properties": {
+                            "content": {
+                                "required": ["no_deployment"] if key in WITHOUT_DEPLOYMENT else []
+                            }
+                        }
+                    }
+                    for key, _ in SECTIONS
+                ]
+            },
+        }
+    },
+    "else": {"properties": {"window_days": {"type": "integer"}}},
     "$defs": {"figure": _FIGURE, "texts": _TEXTS},
 }
 
@@ -1546,21 +1791,24 @@ def _html_oversight(c: Mapping[str, Any]) -> str:
         "recommendation or chooses another answer, and that choice is recorded with the "
         "decision.</p>"
     )
-    out += _facts(
-        [
-            ("Waiting for review now", _e(queue["waiting"])),
-            (
-                "Reviews resolved so far",
-                f"{_e(queue['resolved'])} of {_e(queue['decisions'])} decisions",
-            ),
-        ]
-    )
+    if queue is not None:
+        out += _facts(
+            [
+                ("Waiting for review now", _e(queue["waiting"])),
+                (
+                    "Reviews resolved so far",
+                    f"{_e(queue['resolved'])} of {_e(queue['decisions'])} decisions",
+                ),
+            ]
+        )
     out += "<h3>The automation hold</h3>"
     out += (
         "<p>Anyone who may approve automation can hold it at once, for one version, one agent "
         "or every agent of the organization. While a hold is in force, every decision that "
         "would be automated goes to a person instead. A shadow pilot is such a hold.</p>"
     )
+    if c.get("no_deployment"):
+        return out + "<h3>The queue and the holds at a site</h3>" + _none(c["no_deployment"])
     if not c["holds"]:
         return out + _none("No hold covers this agent now.")
     return out + _table(
@@ -1682,6 +1930,11 @@ def _html_publisher_evidence(c: Mapping[str, Any]) -> str:
 
 
 def _html_site_evidence(c: Mapping[str, Any]) -> str:
+    if c.get("no_deployment"):
+        return _none(c["no_deployment"]) + _by(
+            "A site fills this section: its decisions so far, its shadow pilot, what its "
+            "reviewers changed, the validation brief's gates and the evaluations it ran."
+        )
     if c["empty"]:
         return _none(c["empty"]) + _html_gates(c)
     decisions, review, ratings = c["decisions"], c["review"], c["ratings"]
@@ -1782,6 +2035,12 @@ def _html_monitoring(c: Mapping[str, Any]) -> str:
         ["Check", "An alert is raised when", "It needs", "Severity"],
         [[_e(x["check"]), _e(x["alert"]), _e(x["needs"]), _e(x["severity"])] for x in c["checks"]],
     )
+    if c.get("no_deployment"):
+        return (
+            out
+            + _by("These are the checks a deployment's monitor runs on this agent's decisions.")
+            + _none(c["no_deployment"])
+        )
     benchmark = c["benchmark"]
     destination = c["alert_destination"]
     out += _facts(
@@ -1884,8 +2143,14 @@ def _html_change_control(c: Mapping[str, Any]) -> str:
                 ),
             ]
         )
-    out += "<h3>What runs here</h3>"
-    if not c["running_known"]:
+    alone = c.get("no_deployment")
+    out += "<h3>What runs, by the agent's own defaults</h3>" if alone else "<h3>What runs here</h3>"
+    if alone:
+        out += _by(
+            "No deployment was read: these are the parts as the agent sets them. A site can "
+            "run another of the agent's variants, and its own packet shows which."
+        )
+    elif not c["running_known"]:
         out += _by(
             "What runs is not known from here: these are the agent's own defaults. A server's "
             "packet shows what it runs."
@@ -1903,8 +2168,12 @@ def _html_change_control(c: Mapping[str, Any]) -> str:
             for slot in c["running"]
         ],
     )
-    out += "<h3>What ran here, since when</h3>"
-    if c["records"] is None:
+    out += (
+        "<h3>What ran at a site, since when</h3>" if alone else "<h3>What ran here, since when</h3>"
+    )
+    if alone:
+        out += _none(alone)
+    elif c["records"] is None:
         out += _none(
             "Not shown: the deployment's records belong to its operator, who serves several "
             "organizations."
@@ -1932,7 +2201,68 @@ def _html_change_control(c: Mapping[str, Any]) -> str:
     )
 
 
+def _html_calls_out(calls: Sequence[Mapping[str, Any]]) -> str:
+    return _table(
+        ["Part", "Calls", "Is sent"],
+        [
+            [
+                _code(call["slot"]),
+                (
+                    "nothing here: it answers from canned examples"
+                    if call["canned"]
+                    else f"a {_e(call['type'])} service"
+                )
+                + (f", model {_code(call['model'])}" if call["model"] else ""),
+                ", ".join(_code(name) for name in call["sends"])
+                if call["sends"]
+                else "the agent's input",
+            ]
+            for call in calls
+        ],
+    )
+
+
+def _html_data_alone(c: Mapping[str, Any]) -> str:
+    """Data handling in a packet made without a deployment: what the agent reads and what its
+    own defaults call, and that everything else is each deployment's setting."""
+    inputs = c["inputs"]
+    rows = [
+        (
+            "Fields the agent reads",
+            ", ".join(_code(name) for name in inputs["fields"]) or "none declared",
+        ),
+        ("Reads FHIR resources", "yes, through the agent's mapping" if inputs["fhir"] else "no"),
+    ]
+    if inputs["kept"] == "hash":
+        rows.append(
+            (
+                "What the agent asks of a deployment",
+                "That its inputs are never kept, whatever the deployment's own setting.",
+            )
+        )
+    out = "<h3>What it reads</h3>" + _facts(rows)
+    out += "<h3>What leaves a deployment that runs it, by the agent's own defaults</h3>"
+    out += (
+        _html_calls_out(c["calls_out"])
+        if c["calls_out"]
+        else _none("Nothing: by its defaults, every part of the agent runs inside a deployment.")
+    )
+    out += "<h3>What is kept, what may be called, and who can read it</h3>"
+    out += _none(c["no_deployment"])
+    return out + _facts(
+        [
+            (
+                "This packet",
+                "Counts, ids, label codes, names of configurations and dates. No case text and "
+                "no patient data.",
+            )
+        ]
+    )
+
+
 def _html_data_handling(c: Mapping[str, Any]) -> str:
+    if c.get("no_deployment"):
+        return _html_data_alone(c)
     inputs, retention, access = c["inputs"], c["retention"], c["access"]
     kept = c["phi_mode_meaning"]
     if inputs["kept"] == "hash":
@@ -1969,24 +2299,7 @@ def _html_data_handling(c: Mapping[str, Any]) -> str:
     if not c["calls_out"]:
         out += _none("Nothing: every part of the agent runs inside this deployment.")
     else:
-        out += _table(
-            ["Part", "Calls", "Is sent"],
-            [
-                [
-                    _code(call["slot"]),
-                    (
-                        "nothing here: it answers from canned examples"
-                        if call["canned"]
-                        else f"a {_e(call['type'])} service"
-                    )
-                    + (f", model {_code(call['model'])}" if call["model"] else ""),
-                    ", ".join(_code(name) for name in call["sends"])
-                    if call["sends"]
-                    else "the agent's input",
-                ]
-                for call in c["calls_out"]
-            ],
-        )
+        out += _html_calls_out(c["calls_out"])
     origins = c["allowed_origins"]
     out += _facts(
         [
@@ -2039,8 +2352,25 @@ def _html_data_handling(c: Mapping[str, Any]) -> str:
     return out
 
 
+_COMMITTEE_BLOCK = (
+    ("Decision", "&nbsp;"),
+    ("Conditions", "&nbsp;"),
+    ("Next review", "&nbsp;"),
+    ("Signed, and date", "&nbsp;"),
+)
+
+
 def _html_approvals(c: Mapping[str, Any]) -> str:
     out = "<h3>What this agent needs before it automates</h3>" + _items(c["required"])
+    if c.get("no_deployment"):
+        out += "<h3>Approvals recorded</h3>" + _none(c["no_deployment"])
+        out += "<h3>For the committee</h3>"
+        out += (
+            "<p>A deployment records the approvals of automation. It has no record for a "
+            "committee's own decision, its conditions or its next review date: write them "
+            "here.</p>"
+        )
+        return out + _facts(_COMMITTEE_BLOCK)
 
     def rows(found: Sequence[Mapping[str, Any]], *, expires: bool) -> list[list[str]]:
         listed = []
@@ -2094,14 +2424,7 @@ def _html_approvals(c: Mapping[str, Any]) -> str:
         "<p>The software records the approvals above. It has no record for a committee's own "
         "decision, its conditions or its next review date: write them here.</p>"
     )
-    return out + _facts(
-        [
-            ("Decision", "&nbsp;"),
-            ("Conditions", "&nbsp;"),
-            ("Next review", "&nbsp;"),
-            ("Signed, and date", "&nbsp;"),
-        ]
-    )
+    return out + _facts(_COMMITTEE_BLOCK)
 
 
 _RENDER = {
@@ -2119,16 +2442,30 @@ _RENDER = {
 }
 
 
-def _html_not_stated(listed: Sequence[Mapping[str, Any]]) -> str:
-    out = (
-        "<p>Each line below is something one of the four frameworks in Appendix B asks for and "
-        "that neither the publisher nor this site has stated. Nothing here is a finding "
-        "against the agent: it is what a committee would have to ask for. The software never "
-        "fills one in with a guess.</p>"
-    )
+def _html_not_stated(listed: Sequence[Mapping[str, Any]], *, deployed: bool = True) -> str:
+    """`deployed` False: no site was read, so the second table is what a site that adopts the
+    agent has yet to state, not what one has failed to."""
+    if deployed:
+        out = (
+            "<p>Each line below is something one of the four frameworks in Appendix B asks "
+            "for and that neither the publisher nor this site has stated. Nothing here is a "
+            "finding against the agent: it is what a committee would have to ask for. The "
+            "software never fills one in with a guess.</p>"
+        )
+    else:
+        out = (
+            "<p>Each line below is something one of the four frameworks in Appendix B asks "
+            "for. The first table is what the publisher has not stated. The second is what "
+            "only a site can state: this packet read no deployment, so every such line is "
+            "listed. Nothing here is a finding against the agent: it is what a committee "
+            "would have to ask for. The software never fills one in with a guess.</p>"
+        )
     for who, words in WHO_WORDS.items():
         found = [item for item in listed if item["who"] == who]
-        out += f"<h3>{_e(words)} has not stated ({len(found)})</h3>"
+        if deployed or who != "site":
+            out += f"<h3>{_e(words)} has not stated ({len(found)})</h3>"
+        else:
+            out += f"<h3>A site that adopts it has yet to state ({len(found)})</h3>"
         if not found:
             out += _none("Nothing.")
             continue
@@ -2213,19 +2550,32 @@ def render_html(packet: Mapping[str, Any]) -> str:
         f'<li><a href="#s-{key}">Appendix {letter}. {_e(title)}</a></li>'
         for letter, (key, title) in zip("AB", APPENDICES, strict=True)
     )
+    # A packet made from the agent's files alone names no organization and covers no days: it
+    # says so on its cover, once, before anything else is read.
+    alone = packet.get("no_deployment")
+    if alone:
+        covering = (
+            "Deployment: none, made from the agent's files alone<br>"
+            f"Generated {_when(packet['generated_at'])}<br>"
+        )
+    else:
+        covering = (
+            f"Organization: {_e(packet['organization'] or _EVERY_ORGANIZATION)}<br>"
+            f"Generated {_when(packet['generated_at'])}, covering the last "
+            f"{_e(packet['window_days'])} days<br>"
+        )
+    told = f'<p class="notice">{_e(alone)}</p>' if alone else ""
     cover = (
         '<header class="cover">'
         '<p class="meta">Committee packet</p>'
         f"<h1>{_e(agent['name'])}</h1>"
         f'<p class="meta">{_code(agent["id"])} version {_code(agent["version"])}<br>'
         f"Digest {_code(agent['digest'])}<br>"
-        f"Organization: {_e(packet['organization'] or _EVERY_ORGANIZATION)}<br>"
-        f"Generated {_when(packet['generated_at'])}, covering the last "
-        f"{_e(packet['window_days'])} days<br>"
+        f"{covering}"
         f"By {_e(packet['generated_by']['software'])} {_e(packet['generated_by']['version'])}</p>"
         f'<p class="status">{_e(agent["status"])}</p>'
         f"<p>{_e(packet['notice'])}</p>"
-        f"<p>{_e(packet['about'])}</p>"
+        f"<p>{_e(packet['about'])}</p>{told}"
         "<p>How to read it: sections 1 to 4 say what the agent is and how it is held, 5 and 6 "
         "what has been measured and by whom, 7 to 11 how it is watched, changed, protected and "
         "approved. Appendix A lists what nobody has stated. Appendix B shows where each "
@@ -2241,7 +2591,7 @@ def render_html(packet: Mapping[str, Any]) -> str:
         )
     body.append(
         '<section id="s-not_stated" class="appendix"><h2>Appendix A. Not stated</h2>'
-        f"{_html_not_stated(packet['not_stated'])}</section>"
+        f"{_html_not_stated(packet['not_stated'], deployed=not alone)}</section>"
     )
     body.append(
         '<section id="s-crosswalk" class="appendix">'

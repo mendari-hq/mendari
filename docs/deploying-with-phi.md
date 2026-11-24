@@ -866,6 +866,19 @@ goes to a person), and an `LLM_BASE_URL` or `JEV_API_URL` off the list stops the
 start-up. Unset, there is no such list. Signed in, `/api/health` shows it
 (`provider_allowed_origins`).
 
+**An agent's own connection** is the one call the list can be widened for without editing it.
+An organization's administrators set, per agent, the service that answers for it
+(`MENDARI_AGENT_CONNECTIONS`, on unless `off`;
+[ADR-0021](decisions/ADR-0021-an-agents-connection-set-in-the-console.md)). Without a list such
+a connection leads to the public internet only: the server looks the name up, refuses unless
+every address is public, and connects to the address it checked. With a list, the connection's
+origin is on it, or an administrator of the organization that operates the deployment
+(`MENDARI_OPERATOR_ORG`) allows that origin for that agent when setting the connection. An
+origin allowed this way is held to the public internet as well, is kept with who allowed it
+and when, and is chained (`agent_connection.origin_allowed`). Nothing set in the console
+reaches this machine or your own network: only an origin on the list does. To hold every
+agent to the deployment's own endpoint, set `MENDARI_AGENT_CONNECTIONS=off`.
+
 For PHI, prefer local providers (rules, naive Bayes, criteria, dosing), or a local model server
 (an OpenAI-compatible `base_url` on your network). Use a remote model only under an agreement
 that covers PHI. A release names no agent in the Jev defaults, so setting up Jev turns on no
@@ -1013,6 +1026,20 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   `hash` or `encrypt`: the decisions whose input or notes a reader was shown, and how many, as
   the chain's `input.read` has them) and `error.unhandled` (the exception's type and stack
   frames).
+- **Adopting, connecting and operating**, from the console's Agents and System views:
+  `store.pull.added|refused` (a version added to an organization's agent store from the
+  deployment's registry, with its digest; or refused as `not_listed`, `key_changed`,
+  `verification`, `unreachable`, `registry_answer`, `phi` or `checks`, with no id and never
+  the registry's words); `admin.connection.set|cleared|checked|refused|origin_allowed` (an
+  agent's connection: the agent's id and who acted, never its address or its token; a refusal
+  is `checks`, `origin_not_listed`, or `not_operator` for someone who asked to allow an
+  address and may not; `origin_allowed` is an operator allowing, for one agent, an address the
+  provider allow-list does not name); `auth.first_admin.granted` (the first-administrator
+  setting made its administrator, once, with the membership's id) and `auth.first_admin.ignored`
+  (its address signed in to a database that no longer takes it); `system.audit.verified`,
+  `system.alert.tested` and `system.ehr.checked` (an operator's actions in the System view,
+  each with who acted and whether it passed) and `system.run.unrecorded` (a scheduled job's
+  run could not be recorded: the error's type).
 - **Never in a line:** a credential, a token, an assertion, a query value, a request body, a
   header, a name or an email, case text, or an exception's message (fields come from an
   allow-list). Under PHI mode `hash` or `encrypt`, an unhandled exception reaches the server
@@ -1032,7 +1059,16 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   query strings: credentials are refused in URLs, and FHIR searches can send their criteria in
   a POST form (`/fhir/{type}/_search`).
 - **What must last** is in the audit chain as well: every input or note read, and key, client
-  and governance changes. The log is for finding what happened around them.
+  and governance changes. The log is for finding what happened around them. The chain's
+  events for what the console's Agents view does are `pack_version.created` (a version added
+  from the registry, with the registry, the namespace, the signing key and the archive's
+  SHA-256), `pack_version.promoted|retired`, `registry_pack.approved`, and for an agent's
+  connection `agent_connection.set` (the agent, the address's origin, whether it carries a
+  token, who), `agent_connection.cleared` and `agent_connection.origin_allowed` (an operator
+  allowed that origin for that agent: the agent, the origin, who). Never a token, nor an
+  address's path. A first administrator made by the setting is chained as every membership is
+  (`organization.created`, `user.recorded`, `membership.created`), each as made by
+  `first-administrator setting`, never by a person.
 - **The project's own Vercel deployment** (synthetic data only) keeps stdout as runtime logs:
   an hour on Hobby, a day on Pro, 30 days with Observability Plus. A log drain (Pro) keeps
   them longer; add one when the first outside developer gets a key.
@@ -1046,6 +1082,9 @@ startup, so a typo never runs with a weaker setting.
 |---|---|---|---|
 | `MENDARI_OIDC_ISSUER`, `MENDARI_OIDC_CLIENT_ID` | unset: open mode | Sign-in; every route then needs a role | 2 |
 | `MENDARI_ACCOUNTS` | `claims` | `memberships`: organizations and roles from records, not claims (needs sign-in; [runbook](operations/accounts.md)) | 2 |
+| `MENDARI_OPERATOR_ORG` | unset: in memberships mode nobody operates the deployment through the web; in claims mode every administrator does | The organization whose administrators, signed in as people, hold `operate`: the console's System view and its checks, the operator's actions (`/api/system/...`: verify the whole audit chain, send a test alert, check an EHR's connection), the whole chain's verification and the deployment records, and allowing one agent's service at a public address the provider allow-list does not name. Never an API key or a client. An id no organization could have stops the server ([ADR-0022](decisions/ADR-0022-the-first-administrator-and-the-operator-organization.md)) | 2 |
+| `MENDARI_BOOTSTRAP_ADMIN` | unset: nobody is made an administrator by a setting | Memberships mode, a fresh install: the sign-in e-mail address of its first administrator. The first person who signs in with it, verified by the identity provider, becomes an administrator of the operator organization (`default` where none is named). Once: the database is marked in the same step, and the setting gives nothing again, nor where that organization already has an administrator who signed in. Not an e-mail address: the server does not start | 2 |
+| `MENDARI_BOOTSTRAP_ORG_NAME` | unset: named after the public address's host | What the first administrator's organization is called when the setting makes its record (1 to 200 characters) | 2 |
 | `MENDARI_AGENTS_PATH` | none | Folders of your own agents (`:`-separated), searched first; when one id is found in several places the newest version is served; a relative folder is read from the working directory, and one that does not exist is skipped | 1 |
 | `MENDARI_AGENTS` | every agent found | Only these agent ids are served (comma-separated; each must be found on the path): one agent per image | 1 |
 | `MENDARI_PUBLIC_URL` | unset | The address people use; required for Backend Services and for CDS clients | 2 |
@@ -1071,6 +1110,8 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_EVALSET_INDEX_KEY` | unset: hidden evaluation sets off | 32 random bytes in base64, unlike `MENDARI_EVALSET_KEY`: keys the hidden-case index and the chained case hashes, never a label | 3 |
 | `MENDARI_EVALSET_READ_KEYS` | none | Up to 4 keys (base64, comma-separated) hidden sets open with but never seal: the previous key during a rotation; only with `MENDARI_EVALSET_KEY` | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
+| `MENDARI_REGISTRY_URL` | unset: the console offers no registry | The agent registry the console's Agents view searches and adds from, and the one `mendari pull` reads: https (plain http to this machine only), with no user or password in it; anything else stops the server, naming the setting and never its value. Adding a version from it also needs `MENDARI_AGENT_STORE=on` ([Adopting an agent](guides/adopting-an-agent.md)) | 5 |
+| `MENDARI_AGENT_CONNECTIONS` | `on` | `off`: no organization sets its agents' connections in the console; what was set before is neither shown nor called, and every agent answers through the deployment's own `MENDARI_AGENT_URL`, or from its canned examples. Anything but `on` or `off` stops the server ([ADR-0021](decisions/ADR-0021-an-agents-connection-set-in-the-console.md)) | 5 |
 | `MENDARI_REGISTRY_RECALL_CHECK_S` | 300 (1 to 604800 seconds) | How old a server's last read of the recalls of a registry its served agents came from may be before a decision for one of those agents starts another (that decision uses the last list); a recalled agent stops automating (LP-18e; [Running a registry](operations/registry.md)) | 4 |
 | `MENDARI_REGISTRY_RECALL_STALE_S` | 86400 (1 to 604800 seconds, at least twice the check) | After this long without a successful read of its registry's recalls, an agent from that registry stops automating. A serverless instance starts unread, so a pulled agent waits for its first read there; `mendari decide` sees only the recall known at its last pull. These reads go to the registry an agent came from, not through `MENDARI_PROVIDER_ALLOWED_ORIGINS` | 4 |
 | `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
@@ -1089,6 +1130,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_STATUS_ORG` | unset | The organization the status checks decide in, which the scheduled monitor leaves out | 6 |
 | `MENDARI_REGISTRY_REVIEW_ORG` | unset: nobody reviews through the web | The one organization whose members holding `registry_reviewer` review the agent registry under this engine: the claims queue, publisher types, reviews, recalls and deletions at `/api/registry/review/...`. Needs `MENDARI_REGISTRY=on`, memberships mode and an organization with a record; otherwise the server starts, logs why and leaves reviewing off ([Registry reviewers](operations/registry.md#registry-reviewers)) | 2 |
 | `MENDARI_REGISTRY` | unset: nothing mounted | `on` serves the agent registry under this engine, on its database: public reads and token-only publishing at `/registry/v1/...`, and an administrator's claims and publisher tokens at `/api/registry/...` ([Running a registry](operations/registry.md#under-the-engine)) | 2 |
+| `MENDARI_REGISTRY_HUB_URL` | unset: the registry names no page | Where a registry runs (under this engine, or `mendari registry serve`): the public address of the Agent Hub that shows it, such as `https://hub.example`. With it the registry's answer for an agent's evaluation links the Hub's page, and `mendari push --evaluate` prints that link with the badge. Not an https address with nothing after its path: the registry does not start ([Publishing evaluations](guides/publishing-evaluations.md)) | 6 |
 | `MENDARI_REGISTRY_SIGNING_KEY`, `MENDARI_REGISTRY_RATE_LIMITS`, `MENDARI_REGISTRY_REGRESSION` | no key (the registry recalls and counter-signs nothing); limits `on`; the regression check `on` | The registry's own settings, where one runs under this engine: the key that signs its recalls and counter-signs what it lists, its limits on reads and writes, and its regression check on a publish ([Starting a registry](operations/registry.md#starting-a-registry)) | 2 |
 
 ## 9. Before go-live

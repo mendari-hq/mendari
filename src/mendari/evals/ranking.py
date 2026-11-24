@@ -87,6 +87,28 @@ def _key(row: Mapping[str, Any]) -> tuple[Any, ...]:
     )
 
 
+# What a row is ordered by before cost and its name, in order: the names of `measures`' values.
+MEASURES = ("critical_automated", "critical_detection", "false_automation", "accuracy")
+
+
+def measures(row: Mapping[str, Any]) -> tuple[float, ...]:
+    """The four values `row` is ordered by before cost and name, each smaller for the row that
+    comes first (`MEASURES` names them): the critical positives it automated, then the lower
+    bound of its worst critical label's detection, the upper bound of its false automation and
+    the lower bound of its accuracy, the two that should be high negated. Two rows with the
+    same four are told apart by nothing a count says."""
+    automated, detection, false_automation, accuracy = _key(row)[:4]
+    return (float(automated), float(detection), float(false_automation), float(accuracy))
+
+
+def worst_critical(row: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """The critical label whose detection decides `measures`' second value: of those with at
+    least `MIN_POSITIVES` positives, the one with the lowest lower bound (the first of equals);
+    None when the row has none."""
+    enough = [c for c in row.get("critical", []) if c["n"] >= MIN_POSITIVES]
+    return min(enough, key=lambda c: stats.interval(c["detected"], c["n"])[0], default=None)
+
+
 def rank(rows: Sequence[Mapping[str, Any]], digest: str | None) -> list[dict[str, Any]]:
     """`rows` with `standing` and `rank` (1, 2, ... within their records; None unranked), in the
     order they are shown (`grouped`)."""

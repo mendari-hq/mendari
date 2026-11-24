@@ -40,6 +40,7 @@ from mendari.errors import (
     ProviderError,
 )
 from mendari.providers import Answer, Provider, ProviderInfo, build_provider
+from mendari.providers.agent import AgentProvider, ConnectionSource
 from mendari.providers.base import METER, OVER_QUOTA, Meter, Metered
 from mendari.providers.batch import batching
 from mendari.providers.deadline import deadline_until, decision_deadline, due
@@ -272,6 +273,7 @@ class Decision:
         site_codes: SiteCodeMaps | None = None,
         promotion: str | None = None,
         canned_cap: bool = False,
+        connection_source: ConnectionSource | None = None,
     ):
         """`governance` fixes an override for every decision; `governance_source` looks one up
         for each decision instead (a deployment's recorded approvals, per organization).
@@ -291,7 +293,13 @@ class Decision:
         `canned_cap` (a server with sign-in) never automates on canned answers (an agent's
         `mock_file` read while `MENDARI_AGENT_URL` is unset): AUTO and a rule's BLOCK become
         HUMAN_REVIEW, with the reason (`policy.apply_policy`'s `canned` cap). Off, they decide
-        as live answers do."""
+        as live answers do.
+
+        `connection_source` (a server's) gives, for an agent's id, the connection the
+        organization a decision acts for set for it in the console (ADR-0021): each `agent`
+        variant, and each composite's `agent` member, asks it before `MENDARI_AGENT_URL`
+        (`AgentProvider.live`). Without one, as for every decision the command line makes, no
+        organization's connection is read."""
         overrides = dict(providers or {})
         unknown = set(overrides) - set(pack.manifest.providers)
         if unknown:
@@ -320,6 +328,9 @@ class Decision:
         if budget is not None:
             for provider in self.providers.values():
                 provider.use_budget(budget.acquire)
+        if connection_source is not None:
+            for leaf in self.agent_providers():
+                leaf.use_connection(connection_source)
         # A pack the deployment does not own runs on the community engine (`Pack.bounded`).
         self._validator = input_schema.validator(pack.input_schema, community=pack.bounded)
         # Its input keys count toward its text only where its schema runs patterns on them;
@@ -384,6 +395,16 @@ class Decision:
         """The pack at `path`, with the origin of where it is (`core/registry.py` `origin_of`): a
         pulled pack in the registry cache is one, and runs on its engine."""
         return cls(load_pack(path, origin=origin_of(path)), **kwargs)
+
+    def agent_providers(self) -> list[AgentProvider]:
+        """The `agent` variants this Decision runs, a composite's members included: the ones a
+        connection reaches (ADR-0021)."""
+        return [
+            leaf
+            for provider in self.providers.values()
+            for leaf in provider.leaves()
+            if isinstance(leaf, AgentProvider)
+        ]
 
     @property
     def is_remote(self) -> bool:

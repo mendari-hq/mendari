@@ -13,10 +13,12 @@ import "./card.js";
 import "./try.js";
 import "./patient.js";
 import "./admin.js";
+import "./system.js";
 import "./registry.js";
 import "./labelling.js";
 import "./evalsets.js";
 import "./store.js";
+import "./agents.js";
 import { defaultPack, packOptions } from "./pack.js";
 import { setupPalette } from "./palette.js";
 import { onHashChange, render, route, views } from "./router.js";
@@ -95,6 +97,7 @@ async function boot() {
   showLaunch();
   showOrganization();
   showAdministration();
+  showSystem();
   showEvalsets();
   showLabelling();
   showRegistryReview();
@@ -227,6 +230,11 @@ function showOrganization() {
 // Backend Services clients and, in memberships mode, its people (admin.js). Never in open mode.
 function showAdministration() {
   $('.nav a[data-view="admin"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views.admin.available();
+}
+
+// The deployment's operators (system.js): its checks, and the actions that needed a terminal.
+function showSystem() {
+  $('.nav a[data-view="system"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views.system.available();
 }
 
 // An administrator who signed in, in memberships mode where hidden evaluation sets are on (LP-11n):

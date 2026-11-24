@@ -15,7 +15,18 @@ const EXPECTED: Record<string, string> = {
 const CSP =
   /^default-src 'self'; script-src 'self' 'nonce-([A-Za-z0-9+/=]+)' 'strict-dynamic'; style-src 'self' 'nonce-\1'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'$/;
 
-const PAGES = ["/", "/?q=portal", "/agents/mendari/portal-message-agent", "/agents/hub-test/hostile-text", "/publishers/mendari", "/agents/mendari/no-such-agent", "/no-such-page"];
+const PAGES = [
+  "/",
+  "/?q=portal",
+  "/agents/mendari/portal-message-agent",
+  "/agents/mendari/portal-message-agent/evaluation",
+  "/agents/hub-test/hostile-text",
+  "/agents/hub-test/hostile-text/evaluation",
+  "/publishers/mendari",
+  "/agents/mendari/no-such-agent",
+  "/agents/mendari/no-such-agent/evaluation",
+  "/no-such-page",
+];
 // Where an agent's page was before, and where its redirect leads.
 const MOVED = [
   ["/packs/mendari/portal-message-agent", "/agents/mendari/portal-message-agent"],

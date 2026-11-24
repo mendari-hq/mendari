@@ -87,6 +87,13 @@ CURATING_ROUTES = {
     ("POST", "/api/evalsets/{set_id}/assignments"),
     ("POST", "/api/evalsets/{set_id}/adjudication"),
 }
+# The deployment's operators' (`operate`: its readiness checks and their actions), in every mode.
+OPERATING_ROUTES = {
+    ("GET", "/api/system/checks"),
+    ("POST", "/api/system/audit/verify"),
+    ("POST", "/api/system/alerts/test"),
+    ("POST", "/api/system/ehr-check"),
+}
 # What an organization's administrators read of its people: addresses, for `keys` only.
 PEOPLE_LISTS = ("/api/auth/members", "/api/auth/invitations", "/api/auth/access-requests")
 
@@ -866,6 +873,12 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
     assert labelling == LABELLING_ROUTES
     curating = {r for r in routes if permission_for(*r) == "curate"}
     assert curating == CURATING_ROUTES
+    # The deployment's operators' routes (`operate`): the one place the two modes answer an
+    # administrator differently, until `MENDARI_OPERATOR_ORG` names their organization.
+    operating = {r for r in routes if permission_for(*r) == "operate"}
+    assert operating == OPERATING_ROUTES
+    operated = Auth(settings, store, operator_org="default")
+    elsewhere = Auth(settings, store, operator_org="another-clinic")
     labeller = member(store, org="default", roles=["labeller"], sub="member-labeller")
     differ = []
     for role in ROLES:
@@ -888,6 +901,17 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
                 assert attempt(by_records, method, path, as_member)[0] == (
                     200 if role == "admin" else 403
                 ), (role, path)
+            if (method, path) in operating:
+                # In claims mode every administrator operates the deployment, as its own views
+                # always answered them. In memberships mode nobody does through the web (as
+                # before), until the setting names their organization: then its administrators,
+                # and never another organization's.
+                wanted = 200 if role == "admin" else 403
+                assert attempt(by_claims, method, path, as_person)[0] == wanted, (role, path)
+                assert attempt(by_records, method, path, as_member)[0] == 403, (role, path)
+                assert attempt(operated, method, path, as_member)[0] == wanted, (role, path)
+                assert attempt(elsewhere, method, path, as_member)[0] == 403, (role, path)
+                continue
             if attempt(by_records, method, path, as_member) != attempt(
                 by_claims, method, path, as_person
             ):
