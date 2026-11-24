@@ -24,8 +24,8 @@ T = TypeVar("T")
 
 
 class FileConfig(BaseModel):
-    """A `rules`, `criteria` or `dosing` variant: its type and the pack file its config is in,
-    and nothing else (`Provider.config_problems`)."""
+    """A `rules`, `criteria` or `dosing` variant: its type and the file of the agent its config
+    is in, and nothing else (`Provider.config_problems`)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -325,7 +325,7 @@ def state_fields_problem(kind: str) -> str:
     """Why a model variant of a pack the deployment does not own is refused without
     `state_fields`: it would send the whole input."""
     return (
-        f"a community or registry pack's {kind} variant must name its state_fields: the input "
+        f"a community or registry agent's {kind} variant must name its state_fields: the input "
         "fields it sends"
     )
 

@@ -303,7 +303,7 @@ def test_a_dataset_not_in_the_archive_is_refused(
 @pytest.mark.parametrize(
     ("configuration", "words"),
     [
-        ({"reader": SECRET}, "configuration: it names a variant the pack does not declare"),
+        ({"reader": SECRET}, "configuration: it names a variant the agent does not declare"),
         ({"reader": "rules", SECRET: "rules"}, "configuration: it must name a variant for each"),
     ],
 )

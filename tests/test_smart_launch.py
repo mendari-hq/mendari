@@ -12,9 +12,13 @@ import httpx
 import pytest
 
 from mendari.cli import main
+from mendari.core.pack import load_pack
+from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
-from mendari.sandbox import fhir_workflow, smart_launch
-from mendari.sandbox.fhir_records import REFERRAL, SANDBOX_TAG
+from mendari.sandbox import DEMO_AGENT, smart_launch
+from mendari.sandbox.code_systems import REFERRAL, SANDBOX_TAG
+from tests.conftest import DEMO_AGENT_DIR
+from tests.support import sandbox as fixtures
 from tests.test_smart import (
     DECIDE_BODY,
     REGISTERED,
@@ -47,11 +51,26 @@ def test_a_patient_with_a_work_item_is_found(monkeypatch: pytest.MonkeyPatch) ->
         return httpx.Response(200, json={"entry": [entry]}, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(smart_launch.httpx, "get", get)
-    assert smart_launch.find_patient("http://fhir:8080/fhir/", "mendari/referral-router") == "42"
+    referrals = resolve_pack(fixtures.REFERRAL)
+    assert smart_launch.find_patient("http://fhir:8080/fhir/", referrals) == "42"
     assert seen[0]["url"] == "http://fhir:8080/fhir/ServiceRequest"
     assert seen[0]["headers"]["cache-control"] == "no-cache"  # HAPI caches searches
-    with pytest.raises(MendariError, match="launches"):
-        smart_launch.find_patient("http://fhir:8080/fhir", "mendari/ai-guard")
+    with pytest.raises(MendariError, match="mendari/ai-guard has no FHIR mapping"):
+        smart_launch.find_patient("http://fhir:8080/fhir", resolve_pack("mendari/ai-guard"))
+
+
+def test_an_agents_work_is_found_by_what_its_mapping_focuses_on() -> None:
+    """The search for a patient is the agent's own FHIR focus: the bundled demo agent's and
+    another message agent's are Communications; one whose mapping says which of a type count,
+    by a code set, also asks for those codes, so it never takes another agent's orders."""
+    assert smart_launch.focus_search(load_pack(DEMO_AGENT_DIR)) == ("Communication", {})
+    assert smart_launch.focus_search(resolve_pack(fixtures.INBOX)) == ("Communication", {})
+    assert smart_launch.focus_search(resolve_pack(fixtures.REFERRAL)) == (
+        "ServiceRequest",
+        {"category": f"{REFERRAL['system']}|{REFERRAL['code']}"},
+    )
+    assert smart_launch.focus_search(resolve_pack(fixtures.PRIOR_AUTH)) == ("ServiceRequest", {})
+    assert smart_launch.focus_search(resolve_pack(fixtures.TRIAL)) == ("Patient", {})
 
 
 def test_a_referral_patient_is_found_beside_the_prior_authorization_packs_orders(
@@ -62,8 +81,8 @@ def test_a_referral_patient_is_found_beside_the_prior_authorization_packs_orders
     names the referral category), and the inbox's search is as before."""
     orders = [
         e["resource"]
-        for pack in (fhir_workflow.PRIOR_AUTH, fhir_workflow.REFERRAL)
-        for e in fhir_workflow.seed_bundle(pack, 2)["entry"]
+        for pack in (fixtures.PRIOR_AUTH, fixtures.REFERRAL)
+        for e in fixtures.seed_bundle(pack, 2)["entry"]
         if e["resource"]["resourceType"] == "ServiceRequest"
     ]
     assert not orders[0].get("category")  # a prior-authorization order: not a referral
@@ -85,12 +104,12 @@ def test_a_referral_patient_is_found_beside_the_prior_authorization_packs_orders
         return httpx.Response(200, json={"entry": entries}, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(smart_launch.httpx, "get", get)
-    found = smart_launch.find_patient("http://fhir:8080/fhir", "mendari/referral-router")
+    found = smart_launch.find_patient("http://fhir:8080/fhir", resolve_pack(fixtures.REFERRAL))
     referrals = [o for o in orders if o.get("category")]
     assert found == referrals[0]["subject"]["reference"].rsplit("/", 1)[-1]
     assert asked[0]["category"] == f"{REFERRAL['system']}|{REFERRAL['code']}"
     with pytest.raises(MendariError):  # no Communication here
-        smart_launch.find_patient("http://fhir:8080/fhir", "mendari/patient-inbox-router")
+        smart_launch.find_patient("http://fhir:8080/fhir", resolve_pack(fixtures.INBOX))
     assert "category" not in asked[1]
 
 
@@ -138,7 +157,11 @@ def test_the_launch_reads_its_session_as_the_dashboard_does(
         smart_launch.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(answer), **kw)
     )
     done = smart_launch.run(
-        engine=engine, launcher=launcher, fhir="", pack_id="mendari/referral-router", patient="1"
+        engine=engine,
+        launcher=launcher,
+        fhir="",
+        agent=resolve_pack(fixtures.REFERRAL),
+        patient="1",
     )
     assert done["session_ended"] and done["decided"][0]["decision_id"] == "d-1"
     calls = [(method, path, headers) for method, path, headers in sent if path.startswith("/api/")]
@@ -160,13 +183,25 @@ def test_the_cli_fails_unless_something_was_decided_and_the_session_ended(
         "session_ended": True,
         "decided": [{"focus": "ServiceRequest/2", "input_issues": 1}],
     }
-    monkeypatch.setattr(smart_launch, "run", lambda **kwargs: result)
+    launched: list[str] = []
+
+    def run(**kwargs: Any) -> dict[str, Any]:
+        launched.append(kwargs["agent"].id)
+        return result
+
+    monkeypatch.setattr(smart_launch, "run", run)
     args = ["sandbox", "smart-launch", "--engine", "e", "--launcher", "l", "--fhir", "f"]
+    args += ["--agent", fixtures.REFERRAL]
     assert main(args) == 0
     assert main([*args, "--strict"]) == 1  # a US Core issue
     assert "did not conform to US Core" in capsys.readouterr().err
     result["decided"] = []
     assert main(args) == 1
+    # With no agent named, the launch is the bundled demo agent's; a folder names its agent.
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
+    assert main(args[:-2]) == 1
+    assert main([*args[:-1], str(resolve_pack(fixtures.INBOX).root)]) == 1
+    assert launched[-2:] == [DEMO_AGENT, fixtures.INBOX]
 
 
 @pytest.mark.parametrize("db_target", ["sqlite", "postgres"], indirect=True)
@@ -228,6 +263,7 @@ def test_the_cli_fails_unless_each_decision_is_the_organizations_and_names_its_u
     monkeypatch.setattr(smart_launch, "run", run)
     args = ["sandbox", "smart-launch", "--engine", "e", "--launcher", "http://launcher"]
     args += ["--fhir", "f", "--expect-org", "pilot", "--db", "/data/mendari.db"]
+    args += ["--agent", fixtures.REFERRAL]
     assert main(args) == 0
     assert (seen["expect_org"], seen["db"]) == ("pilot", "/data/mendari.db")
     result["requested_by"] = [None, "key k-1"]
@@ -241,7 +277,11 @@ def test_expecting_an_organization_needs_the_engines_database() -> None:
     """Refused before anything is sent: the check would have nothing to read."""
     with pytest.raises(MendariError, match="database"):
         smart_launch.run(
-            engine="http://e", launcher="http://l", fhir="http://f", pack_id="x", expect_org="o"
+            engine="http://e",
+            launcher="http://l",
+            fhir="http://f",
+            agent=resolve_pack(fixtures.REFERRAL),
+            expect_org="o",
         )
 
 

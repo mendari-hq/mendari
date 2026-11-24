@@ -229,7 +229,7 @@ def test_supersedes_names_an_earlier_result_of_the_same_entry(
         store.add(entry("0" * 64))
     with pytest.raises(MendariError, match="supersedes names a result by its body's SHA-256"):
         entry("not-a-hash")
-    with pytest.raises(MendariError, match="a result of another pack, set, arm or configuration"):
+    with pytest.raises(MendariError, match="a result of another agent, set, arm or configuration"):
         store.add(entry(third.name, on="red_flags"))
     with pytest.raises(MendariError, match="measured after it"):
         store.add(entry(third.name, date=DATE))
@@ -301,8 +301,8 @@ def test_a_ledger_on_an_older_digest_is_kept_and_not_rerun(
     # The pack changes after the result was stored: another digest, the same sets.
     copy = tmp_path / "inbox-changed"
     shutil.copytree(inbox.root, copy)
-    manifest = (copy / "pack.yaml").read_text(encoding="utf-8")
-    (copy / "pack.yaml").write_text(f"{manifest}# Changed after its result was stored.\n")
+    manifest = (copy / "agent.yaml").read_text(encoding="utf-8")
+    (copy / "agent.yaml").write_text(f"{manifest}# Changed after its result was stored.\n")
     changed = load_pack(copy)
     assert changed.digest != inbox.digest
 
@@ -313,19 +313,21 @@ def test_a_ledger_on_an_older_digest_is_kept_and_not_rerun(
     found = results_store.check(store, base=base, packs=lambda _: changed)
     assert found.problems == []
     assert (found.recomputed, found.rerun) == (1, 0)
-    assert found.kept == [f"{name}: its ledger not re-run (stale: pack changed)"]
+    assert found.kept == [f"{name}: its ledger not re-run (stale: agent changed)"]
     # Recomputed from its own pack scope, it is still what its inputs give: an edit is found.
     rewritten(store, name, lambda result: result["figures"]["accuracy"].update(k=0))
     assert problems(store, base, packs=lambda _: changed) != []
     result_file(store, name).write_bytes(base[name])
     # A new result must be on the current digest, so its ledger can be re-run.
     found = results_store.check(store, base={}, packs=lambda _: changed)
-    assert any("a new result is measured on its pack's current digest" in p for p in found.problems)
+    assert any(
+        "a new result is measured on its agent's current digest" in p for p in found.problems
+    )
     # Shown as stale on the board, whatever the store holds.
     (table,) = scoreboard.board(
         [store.results()[name].result], {INBOX: scoreboard.Current.of(changed)}
     )["tables"]
-    assert "stale: pack changed" in table["entries"][0]["marks"]
+    assert "stale: agent changed" in table["entries"][0]["marks"]
 
 
 def test_a_ledger_made_up_to_fit_its_result_is_found_by_a_new_run(
@@ -449,10 +451,10 @@ def test_the_store_is_run_and_checked_against_the_repositorys_packs(
     name = stored(store, inbox)
     copy = tmp_path / "elsewhere" / "patient-inbox-router"
     shutil.copytree(inbox.root, copy)
-    manifest = (copy / "pack.yaml").read_text(encoding="utf-8")
+    manifest = (copy / "agent.yaml").read_text(encoding="utf-8")
     newer = re.sub(r"^version: .*$", "version: 99.0.0", manifest, count=1, flags=re.M)
     assert newer != manifest
-    (copy / "pack.yaml").write_text(newer, encoding="utf-8")
+    (copy / "agent.yaml").write_text(newer, encoding="utf-8")
     monkeypatch.setenv("MENDARI_PACKS_PATH", str(copy.parent))
     assert resolve_pack(INBOX).root == copy.resolve()
     assert results_store.maintained_pack(INBOX).digest == inbox.digest
@@ -462,9 +464,9 @@ def test_the_store_is_run_and_checked_against_the_repositorys_packs(
     assert main([*argv, "--store", str(store.root)]) == 0
     assert capsys.readouterr().out.startswith(f"kept: {INBOX} {SET} ")
     assert list(store.results()) == [name]
-    with pytest.raises(MendariError, match="not a pack Mendari maintains"):
+    with pytest.raises(MendariError, match="not an agent Mendari maintains"):
         results_store.maintained_pack("mendari/no-such-pack")
-    with pytest.raises(MendariError, match="not a pack Mendari maintains"):
+    with pytest.raises(MendariError, match="not an agent Mendari maintains"):
         results_store.maintained_pack(str(copy))  # a directory is never a pack's id
 
 
@@ -498,7 +500,7 @@ def test_running_a_remote_configuration_without_replicates_is_refused(
             inbox, str(ROOT / "tests" / "fixtures" / "datasets" / "x.jsonl"), jev
         )
     shutil.copytree(inbox.root, tmp_path / "copy")
-    with pytest.raises(MendariError, match="not a pack Mendari maintains"):
+    with pytest.raises(MendariError, match="not an agent Mendari maintains"):
         results_store.refuse_unmeasurable(load_pack(tmp_path / "copy"), SET, naive_bayes(inbox))
     # From the command line: refused before anything runs, and nothing written.
     argv = ["scoreboard", "run", INBOX, "--dataset", SET, "--store", str(store.root)]

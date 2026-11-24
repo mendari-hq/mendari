@@ -217,7 +217,7 @@ def test_reference_decisions_never_see_the_deadline(monkeypatch: pytest.MonkeyPa
     """Every shipped pack on its default (local) providers decides each of its behaviour tests
     exactly as before, with a deadline that passed before it started."""
     monkeypatch.delenv(SETTING, raising=False)
-    packs = [load_pack(root) for root in sorted(PACKS.iterdir()) if (root / "pack.yaml").exists()]
+    packs = [load_pack(root) for root in sorted(PACKS.iterdir()) if (root / "agent.yaml").exists()]
     assert len(packs) == 5
 
     def comparable(result: DecisionResult) -> dict[str, Any]:

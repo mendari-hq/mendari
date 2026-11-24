@@ -39,8 +39,8 @@ from mendari.evals.improve import (
 )
 from mendari.evals.pack_tests import run_pack_tests
 from mendari.hub import client as hub_client
-from mendari.sandbox import synthetic_inbox
 from tests.conftest import INBOX_DIR, LOCAL_DATASET, ROOT
+from tests.support import synthetic_inbox
 
 HARDER = (
     ROOT / "tests" / "fixtures" / "datasets" / "drafts" / "patient-inbox-harder" / "train.jsonl"
@@ -344,7 +344,7 @@ def test_a_pack_it_wrote_to_is_one_train_rebuilds_and_a_second_run_learns_nothin
 
     # The run is kept once: the pack it judged is not the pack on disk any more.
     improved = held(inbox)
-    with pytest.raises(MendariError, match="the pack has changed since this run judged it"):
+    with pytest.raises(MendariError, match="the agent has changed since this run judged it"):
         apply(load_pack(inbox), found)
     assert held(inbox) == improved
     assert not list(inbox.parent.glob(".mendari-improve-*"))  # nothing left beside the pack
@@ -437,7 +437,7 @@ def test_a_candidate_surer_of_wrong_answers_about_emergencies_is_not_kept(inbox:
     assert (words["held_out"]["current"], words["held_out"]["candidate"]) == (95, 98)
     assert words["verdict"] == REGRESSED and words["regressions"] == [
         "red_flags: confident and wrong more often: 4 of 23 confident answers (the model in "
-        "the pack: 0 of 7)"
+        "the agent: 0 of 7)"
     ]
     red_flags = next(found for found in words["datasets"] if found["dataset"] == "red_flags")
     assert red_flags["confident"]["current"] == {"n": 7, "wrong": 0}
@@ -462,7 +462,7 @@ def test_a_pack_with_a_second_classifier_still_trains_after_a_run_is_kept(
 ) -> None:
     """What a run learned labels one question. A classifier for another question, trained on the
     same dataset, does not count those cases among its examples."""
-    manifest = inbox / "pack.yaml"
+    manifest = inbox / "agent.yaml"
     after = "        config: logic/red_flags.yaml\n      rules_and_jev:\n"
     text = manifest.read_text()
     assert text.count(after) == 1
@@ -503,10 +503,10 @@ def test_a_run_is_kept_only_in_a_pack_of_ones_own(
         "an agent this release bundles": lambda: monkeypatch.setattr(
             registry, "_BUNDLED_DIRS", [inbox.parent]
         ),
-        "a community pack of this repository": lambda: monkeypatch.setattr(
+        "a community agent of this repository": lambda: monkeypatch.setattr(
             registry, "_COMMUNITY_DIR", inbox.parent
         ),
-        "a pack pulled from a registry": lambda: monkeypatch.setattr(
+        "an agent pulled from a registry": lambda: monkeypatch.setattr(
             hub_client, "packs_cache", lambda: inbox.parent
         ),
     }
@@ -516,7 +516,7 @@ def test_a_run_is_kept_only_in_a_pack_of_ones_own(
             assert registry.origin_of(inbox) != "local"
             with pytest.raises(MendariError, match=f"nothing to keep: {what} is not changed"):
                 apply(load_pack(inbox), found)  # loaded as a local pack, and still refused
-    with pytest.raises(MendariError, match="a pack pulled from a registry is not changed"):
+    with pytest.raises(MendariError, match="an agent pulled from a registry is not changed"):
         apply(load_pack(inbox, origin="hub"), found)  # and as it was loaded, wherever it is
     assert pack_digest(inbox) == SHIPPED
 
@@ -553,7 +553,7 @@ def test_the_command_says_so_before_it_runs(
 
 def test_a_pack_with_no_classifier_has_nothing_to_improve(harder: Dataset) -> None:
     with pytest.raises(MendariError, match="no naive_bayes"):
-        improve(load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard"), [harder])
+        improve(load_pack(ROOT / "tests" / "fixtures" / "reference-agents" / "ai-guard"), [harder])
 
 
 def test_a_slot_that_is_not_the_classifiers_is_refused(inbox: Path, harder: Dataset) -> None:
@@ -562,7 +562,7 @@ def test_a_slot_that_is_not_the_classifiers_is_refused(inbox: Path, harder: Data
 
 
 def test_a_pack_whose_other_slots_call_a_model_is_not_judged(inbox: Path, harder: Dataset) -> None:
-    manifest = inbox / "pack.yaml"
+    manifest = inbox / "agent.yaml"
     text = manifest.read_text()
     assert text.count("    use: rules\n") == 1
     manifest.write_text(text.replace("    use: rules\n", "    use: llm\n"))
@@ -580,7 +580,7 @@ def test_a_model_file_named_by_a_path_out_of_the_pack_is_never_written(
 ) -> None:
     """A report-only run writes nothing, whatever a manifest names: not through a path that
     leaves the pack and comes back to its model."""
-    manifest = inbox / "pack.yaml"
+    manifest = inbox / "agent.yaml"
     absolute = str((inbox / MODEL).resolve())
     manifest.write_text(
         manifest.read_text().replace(f"model_file: {MODEL}", f"model_file: {absolute}")
@@ -624,7 +624,7 @@ def test_the_command_reports_and_writes_only_when_asked(
     assert main([*argv, "--write"]) == 0
     printed = capsys.readouterr().out
     assert f"wrote {MODEL}" in printed and f"wrote {TRAIN}" in printed
-    assert "bump the pack's version" in printed
+    assert "It is a changed agent: bump its version" in printed
     assert pack_digest(inbox) != SHIPPED
 
     assert main([*argv, "--write"]) == NOT_KEPT  # nothing new the second time: nothing kept

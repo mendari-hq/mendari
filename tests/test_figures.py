@@ -238,7 +238,7 @@ def test_a_shipped_leaderboard_is_served_with_its_figures(name: str) -> None:
         served["rows"], pack.digest)]  # fmt: skip
     assert [(g["dataset"], g["n"]) for g in served["groups"]] == [(g[0], g[2]) for g, _ in order]
     for row in served["rows"]:  # every shipped row is from mendari.leaderboard/1
-        assert row["rank"] is None and "its pack digest not recorded" in row["standing_text"]
+        assert row["rank"] is None and "its agent digest not recorded" in row["standing_text"]
         assert row["figures"]["accuracy"] is None and row["figures"]["false_automation"] is None
         assert row["figures"]["automation"] == figures.counted(row["auto_rate"], row["n"])
         for c in row["figures"]["critical"]:

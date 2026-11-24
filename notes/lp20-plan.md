@@ -258,7 +258,8 @@ Every PR:
 - [ ] **20a** The plan, ADR-0016 (Proposed), and the conflicts written to `tasks/todo.md`.
   - **What it builds:**
     - `notes/lp20-plan.md` (this plan).
-    - `docs/decisions/ADR-0016-a-pack-store-per-organization.md` (Proposed).
+    - `docs/decisions/ADR-0016-an-agent-store-per-organization.md` (Proposed; the file was
+      named `ADR-0016-a-pack-store-per-organization.md` until 2026-11-23).
     - The LP-20 entry in `tasks/todo.md`, with the steps, the conflicts and the owner decisions,
       written before any build, as the prompt requires (`notes/vision-audit.md:2465`).
   - **Files:** new: the plan, the ADR. Changed: `mkdocs.yml` (the ADR's nav entry, after

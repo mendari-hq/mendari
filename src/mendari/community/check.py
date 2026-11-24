@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """`mendari community-check`: what CI enforces on a community pack, before anyone reviews it.
 
-One entry point for the command line and CI (`scripts/community_check.py`, the `pack-check` job
-of the `packs` workflow). Each rule says, in plain words, what to fix:
+One entry point for the command line and CI (`scripts/community_check.py`, the `agent-check`
+job of the `agents` workflow). Each rule says, in plain words, what to fix:
 
-- **scope**: the change touches only `community-packs/<name>/` (and `MAINTAINERS.yaml`, for
+- **scope**: the change touches only `community-agents/<name>/` (and `MAINTAINERS.yaml`, for
   that pack's own entry); no `pack.yaml` below the pack's own.
 - **identity**: the folder name and the id `community/<name>` agree; the id is not taken by
   another pack, nor removed (a tombstone in `MAINTAINERS.yaml`); the pack has maintainers; its
@@ -79,10 +79,14 @@ from mendari.core.origin import (
 )
 from mendari.core.pack import (
     MANIFEST,
+    MANIFEST_NAMES,
     Pack,
     PatternsRefused,
     authored_patterns,
+    has_manifest,
     load_pack,
+    manifest_name,
+    manifests_under,
     pack_digest,
     parse_yaml,
 )
@@ -210,7 +214,7 @@ class _Context:
 def check(
     pack_dir: str | Path, *, base: str | None = None, scope: bool = True, owner: bool = False
 ) -> Report:
-    """Every community-pack rule on the folder `pack_dir` (`community-packs/<name>`). With
+    """Every community-pack rule on the folder `pack_dir` (`community-agents/<name>`). With
     `base` (a git commit), the change since it is checked too: `scope` (the files it touches)
     and the update rules. `owner`: the repository's owner made the change, who may edit
     `MAINTAINERS.yaml` beyond the pack's own entry."""
@@ -220,9 +224,9 @@ def check(
     if root.parent.name != COMMUNITY_DIR:
         report.error(
             "scope",
-            f"a community pack lives in {COMMUNITY_DIR}/<name>/; move this folder there",
+            f"a community agent lives in {COMMUNITY_DIR}/<name>/; move this folder there",
         )
-    if not (root / MANIFEST).is_file():
+    if not has_manifest(root):
         report.error("correctness", f"there is no {MANIFEST} in {report.folder}")
         return report
     if base is not None:
@@ -276,7 +280,7 @@ def _display(pack_dir: str | Path) -> str:
 def _open_base(ctx: _Context, ref: str) -> None:
     top = toplevel(ctx.root)
     if top is None:
-        ctx.report.error("scope", "--base needs the pack inside a git repository")
+        ctx.report.error("scope", "--base needs the agent inside a git repository")
         return
     try:
         ctx.base = Base(top, ref)
@@ -292,12 +296,12 @@ def _open_base(ctx: _Context, ref: str) -> None:
 # -- scope ---------------------------------------------------------------------------------------
 
 
-README = "README.md"  # community-packs/README.md: documentation, no pack's
+README = "README.md"  # community-agents/README.md: documentation, no pack's
 
 
 def pack_folders(changed: list[str]) -> list[str]:
-    """The community pack folders (`community-packs/<name>`'s names) that `changed` paths
-    touch. Anything under `community-packs/` is a pack's but its README and MAINTAINERS.yaml,
+    """The community pack folders (`community-agents/<name>`'s names) that `changed` paths
+    touch. Anything under `community-agents/` is a pack's but its README and MAINTAINERS.yaml,
     even a path one level deep (a file, or a git submodule, which has no files here)."""
     prefix = COMMUNITY_DIR + "/"
     folders = set()
@@ -313,27 +317,27 @@ def pack_folders(changed: list[str]) -> list[str]:
 def pr_scope_problems(changed: list[str], *, owner: bool) -> list[str]:
     """Why a pull request that changes `changed` (repository paths) is out of scope for a
     community pack, or []: it changes a community pack (or `MAINTAINERS.yaml`) and anything
-    outside one `community-packs/<name>/` folder (`MAINTAINERS.yaml` aside). The owner may
+    outside one `community-agents/<name>/` folder (`MAINTAINERS.yaml` aside). The owner may
     change more."""
     prefix = COMMUNITY_DIR + "/"
     folders = pack_folders(changed)
     if owner or not (folders or prefix + maintainers.FILE in changed):
-        return []  # the owner's change, or none to a pack (community-packs/README.md is docs)
+        return []  # the owner's change, or none to a pack (community-agents/README.md is docs)
     outside = [path for path in changed if not path.startswith(prefix) or path == prefix + README]
     problems = []
     if len(folders) > 1:
         problems.append(
-            f"this pull request changes {len(folders)} community packs ({', '.join(folders)}): "
-            "change one pack per pull request"
+            f"this pull request changes {len(folders)} community agents ({', '.join(folders)}): "
+            "change one agent per pull request"
         )
     if not folders and prefix + maintainers.FILE in changed:
         problems.append(
-            f"{prefix}{maintainers.FILE} changes only together with the pack it lists; the "
+            f"{prefix}{maintainers.FILE} changes only together with the agent it lists; the "
             "repository's owner makes other changes to it"
         )
     if outside:
         problems.append(
-            "a community pack's pull request changes only its own folder "
+            "a community agent's pull request changes only its own folder "
             f"({prefix}<name>/, and {prefix}{maintainers.FILE}); open a separate pull request "
             f"for: {_listed(outside)}"
         )
@@ -358,7 +362,7 @@ def _scope(ctx: _Context) -> None:
         ctx.report.error(
             "scope",
             f"this change also touches files outside {inside}: {_listed(outside)}. A community "
-            f"pack's pull request changes only its own folder (and its entry in "
+            f"agent's pull request changes only its own folder (and its entry in "
             f"{COMMUNITY_DIR}/{maintainers.FILE}); open a separate pull request for the rest",
         )
 
@@ -366,14 +370,14 @@ def _scope(ctx: _Context) -> None:
 def _nested_manifests(ctx: _Context) -> None:
     nested = sorted(
         path.relative_to(ctx.root).as_posix()
-        for path in ctx.root.rglob(MANIFEST)
+        for path in manifests_under(ctx.root)
         if path.parent != ctx.root
     )
     if nested:
         ctx.report.error(
             "scope",
-            f"a community pack has one {MANIFEST}, at the top of its folder; remove "
-            f"{_listed(nested)} (one pack per folder in {COMMUNITY_DIR}/)",
+            f"a community agent has one {MANIFEST}, at the top of its folder; remove "
+            f"{_listed(nested)} (one agent per folder in {COMMUNITY_DIR}/)",
         )
 
 
@@ -381,10 +385,11 @@ def _nested_manifests(ctx: _Context) -> None:
 
 
 def _load(ctx: _Context) -> None:
+    name = _manifest_file(ctx)
     try:
-        raw = parse_yaml((ctx.root / MANIFEST).read_bytes(), MANIFEST, ctx.shown)
+        raw = parse_yaml((ctx.root / name).read_bytes(), name, ctx.shown)
     except (OSError, MendariError) as error:
-        ctx.report.error("correctness", f"{MANIFEST} cannot be read: {error}")
+        ctx.report.error("correctness", f"{name} cannot be read: {error}")
         return
     ctx.raw = raw if isinstance(raw, dict) else {}
     if isinstance(ctx.raw.get("id"), str):
@@ -397,11 +402,11 @@ def _load(ctx: _Context) -> None:
             if problem in refused:  # the patterns rule: it holds once the pack loads
                 ctx.report.error("patterns", problem)
             else:
-                ctx.report.error("correctness", f"the pack does not load: {problem}")
+                ctx.report.error("correctness", f"the agent does not load: {problem}")
     except MendariError as error:
-        ctx.report.error("correctness", f"the pack does not load: {error}")
+        ctx.report.error("correctness", f"the agent does not load: {error}")
     except Exception as error:  # the pack's content: named by type, as the registry does
-        ctx.report.error("correctness", f"the pack does not load ({type(error).__name__})")
+        ctx.report.error("correctness", f"the agent does not load ({type(error).__name__})")
     if ctx.pack is not None:
         _pattern_notes(ctx, ctx.pack)
 
@@ -438,7 +443,7 @@ def _identity(ctx: _Context) -> None:
     if pack_id != expected:
         ctx.report.error(
             "identity",
-            f"the id is {pack_id!r}; a pack in {COMMUNITY_DIR}/{ctx.name}/ has the id {expected}",
+            f"the id is {pack_id!r}; an agent in {COMMUNITY_DIR}/{ctx.name}/ has the id {expected}",
         )
     _maintainers(ctx, expected)
     _unique(ctx, expected)
@@ -453,7 +458,7 @@ def _read_maintainers(ctx: _Context) -> dict[str, maintainers.Entry] | None:
     if not path.is_file():
         ctx.report.error(
             "identity",
-            f"{COMMUNITY_DIR}/{maintainers.FILE} is missing; it lists every community pack's "
+            f"{COMMUNITY_DIR}/{maintainers.FILE} is missing; it lists every community agent's "
             "maintainers",
         )
         return None
@@ -505,18 +510,19 @@ def _maintainers(ctx: _Context, pack_id: str) -> None:
     if changed:
         ctx.report.error(
             "scope",
-            f"this change edits other packs' entries in {maintainers.FILE} ({_listed(changed)}); "
-            "change only your pack's entry",
+            f"this change edits other agents' entries in {maintainers.FILE} ({_listed(changed)}); "
+            "change only your agent's entry",
         )
 
 
 def _unique(ctx: _Context, pack_id: str) -> None:
     claims: list[str] = []
-    for other in sorted(ctx.community_dir.glob(f"*/{MANIFEST}")):
+    others = (path for name in MANIFEST_NAMES for path in ctx.community_dir.glob(f"*/{name}"))
+    for other in sorted(others):
         if other.parent.resolve() == ctx.root:
             continue
         try:
-            raw = parse_yaml(other.read_bytes(), MANIFEST, str(other))
+            raw = parse_yaml(other.read_bytes(), other.name, str(other))
         except (OSError, MendariError):
             continue
         if isinstance(raw, dict) and raw.get("id") == pack_id:
@@ -533,7 +539,7 @@ def _unique(ctx: _Context, pack_id: str) -> None:
 def _maintained_dir(ctx: _Context) -> Path:
     from mendari.core import registry
 
-    own = ctx.community_dir.parent / "packs"
+    own = ctx.community_dir.parent / "agents"
     if own.is_dir():
         return own
     return next((path for path in registry._BUNDLED_DIRS if path.is_dir()), own)
@@ -710,8 +716,8 @@ def name_findings(
     named = next((word for word in RESERVED_NAMESPACES if _joins(written, word)), None)
     if named is not None:
         errors.append(
-            f"{where} {text!r} names {_SHOWN_RESERVED.get(named, named)}: a community pack is "
-            "not Mendari's. Use your own name (the label says where a pack comes from)"
+            f"{where} {text!r} names {_SHOWN_RESERVED.get(named, named)}: a community agent is "
+            "not Mendari's. Use your own name (the label says where an agent comes from)"
         )
     else:
         lookalike = next((w for w in RESERVED_NAMESPACES if _joins(read, _folded(w))), None)
@@ -719,18 +725,18 @@ def name_findings(
             shown = _SHOWN_RESERVED.get(lookalike, lookalike)
             warnings.append(
                 f"{where} {text!r} looks like it names {shown}, "
-                f"{_how(text)}: for the owner's review (a community pack is not Mendari's: use "
+                f"{_how(text)}: for the owner's review (a community agent is not Mendari's: use "
                 "your own name)"
             )
     copy = copies.get("".join(written))
     if copy is not None:
         errors.append(
-            f"{where} {text!r} is the name of {copy[1]}, a pack Mendari maintains: choose "
+            f"{where} {text!r} is the name of {copy[1]}, an agent Mendari maintains: choose "
             "another, so no one takes one for the other"
         )
     elif (alike := looks.get("".join(read))) is not None and "".join(read):
         warnings.append(
-            f"{where} {text!r} looks like {alike[0]!r}, the name of {alike[1]}, a pack Mendari "
+            f"{where} {text!r} looks like {alike[0]!r}, the name of {alike[1]}, an agent Mendari "
             f"maintains, {_how(text)}: for the owner's review (choose another name, so no one "
             "takes one for the other)"
         )
@@ -784,7 +790,7 @@ def _terminology(ctx: _Context) -> None:
         terminology.resources(others)
     except Exception:
         ctx.report.not_checked.append(
-            "terminology collisions: the packs already in the repository collide with each other"
+            "terminology collisions: the agents already in the repository collide with each other"
         )
         return
     try:
@@ -792,11 +798,11 @@ def _terminology(ctx: _Context) -> None:
     except MendariError as error:
         ctx.report.error(
             "identity",
-            f"the pack's FHIR terminology collides with another pack's: {error}. Give its "
+            f"the agent's FHIR terminology collides with another agent's: {error}. Give its "
             "systems (e.g. a performer system) their own urls",
         )
     except Exception as error:
-        ctx.report.error("identity", f"the pack's FHIR terminology cannot be built ({error})")
+        ctx.report.error("identity", f"the agent's FHIR terminology cannot be built ({error})")
 
 
 # -- the manifest --------------------------------------------------------------------------------
@@ -820,16 +826,16 @@ def _manifest_policy(ctx: _Context) -> None:
     m = ctx.pack.manifest
     fail = ctx.report.error
     if m.license != "Apache-2.0":
-        fail("manifest", f"license is {m.license!r}; a community pack is `license: Apache-2.0`")
+        fail("manifest", f"license is {m.license!r}; a community agent is `license: Apache-2.0`")
     if m.publisher.type != "community":
         fail(
             "manifest",
-            f"publisher.type is {m.publisher.type!r}; a community pack says `type: community`",
+            f"publisher.type is {m.publisher.type!r}; a community agent says `type: community`",
         )
     if m.audit.store_input != "hash":
         fail(
             "manifest",
-            "a community pack keeps only a hash of its inputs: set `audit: {store_input: hash}`",
+            "a community agent keeps only a hash of its inputs: set `audit: {store_input: hash}`",
         )
     for problem in rule_problems(m):
         fail("manifest", problem)
@@ -840,26 +846,26 @@ def _manifest_policy(ctx: _Context) -> None:
                 "manifest",
                 f"providers.{slot_name}: the default variant {slot.use!r} calls a service; make "
                 "the default a local one (rules, criteria, dosing, naive_bayes, or a composite "
-                "of those). The deployment can opt a pack in to others by name",
+                "of those). The deployment can opt an agent in to others by name",
             )
     for where, config in _variant_configs(ctx.pack):
         if "model" in config:
             fail(
                 "manifest",
-                f"{where}: remove `model`; the deployment chooses which model a community pack "
+                f"{where}: remove `model`; the deployment chooses which model a community agent "
                 "uses",
             )
     tolerance = m.evaluation.degradation_tolerance
     if tolerance > MAX_TOLERANCE:
         fail(
             "manifest",
-            f"evaluation.degradation_tolerance is {tolerance}; a community pack's is at most "
+            f"evaluation.degradation_tolerance is {tolerance}; a community agent's is at most "
             f"{MAX_TOLERANCE}",
         )
     if m.risk.level > MAX_COMMUNITY_RISK:
         fail(
             "manifest",
-            f"risk level {int(m.risk.level)}: a community pack is at most risk level "
+            f"risk level {int(m.risk.level)}: a community agent is at most risk level "
             f"{int(MAX_COMMUNITY_RISK)} (clinical information). Higher levels need a clinical "
             "review the pull-request route does not have yet",
         )
@@ -966,7 +972,7 @@ def _evaluation(ctx: _Context) -> None:
     try:
         report = evaluate(Decision(pack), dataset)
     except MendariError as error:
-        fail("evaluation", f"the pack cannot be evaluated: {error}")
+        fail("evaluation", f"the agent cannot be evaluated: {error}")
         return
     _floors(ctx, report)
     base_report, tolerance = _base_benchmark(ctx)
@@ -1013,7 +1019,10 @@ def _on_the_bases_dataset(
     from mendari.evals.gate import gate
 
     assert ctx.pack is not None and ctx.base is not None
-    base_manifest = _parsed(ctx.base.read(f"{ctx.folder}/{MANIFEST}"))
+    try:
+        base_manifest = _parsed(_base_manifest(ctx))
+    except MendariError:  # both names in the base: `_base_benchmark` has said so
+        base_manifest = {}
     evaluation = base_manifest.get("evaluation")
     evaluation = evaluation if isinstance(evaluation, dict) else {}
     kept = {(c.question, c.label) for c in ctx.pack.manifest.evaluation.critical}
@@ -1040,7 +1049,7 @@ def _on_the_bases_dataset(
         report = evaluate(Decision(ctx.pack), before)
     except MendariError as error:
         ctx.report.error(
-            "evaluation", f"the pack cannot be evaluated on the base's benchmark dataset: {error}"
+            "evaluation", f"the agent cannot be evaluated on the base's benchmark dataset: {error}"
         )
         return
     where = "on the base's benchmark dataset: "
@@ -1105,7 +1114,7 @@ def _base_benchmark(ctx: _Context) -> tuple[dict[str, Any] | None, float]:
     if ctx.base is None:
         return None, MAX_TOLERANCE
     try:
-        manifest_bytes = ctx.base.read(f"{ctx.folder}/{MANIFEST}")
+        manifest_bytes = _base_manifest(ctx)
         if manifest_bytes is None:
             return None, MAX_TOLERANCE
         raw = parse_yaml(manifest_bytes, MANIFEST, f"the base's {ctx.folder}")
@@ -1122,7 +1131,7 @@ def _base_benchmark(ctx: _Context) -> tuple[dict[str, Any] | None, float]:
         )
         relative = evaluation.get("benchmark")
         if not isinstance(relative, str):
-            ctx.report.not_checked.append("regressions: the base's pack has no benchmark")
+            ctx.report.not_checked.append("regressions: the base's agent has no benchmark")
             return None, tolerance
         data = ctx.base.read(f"{ctx.folder}/{relative}")
         loaded = json.loads(data) if data is not None else None
@@ -1130,7 +1139,7 @@ def _base_benchmark(ctx: _Context) -> tuple[dict[str, Any] | None, float]:
         ctx.report.error("evaluation", f"the base's benchmark cannot be read: {error}")
         return None, MAX_TOLERANCE
     if not isinstance(loaded, dict):
-        ctx.report.not_checked.append("regressions: the base's pack has no benchmark")
+        ctx.report.not_checked.append("regressions: the base's agent has no benchmark")
         return None, tolerance
     return loaded, tolerance
 
@@ -1157,7 +1166,7 @@ def _honest_numbers(ctx: _Context, report: dict[str, Any]) -> None:
         if differences:
             ctx.report.error(
                 "honest-numbers",
-                f"{relative} is not what the pack gives when evaluated again (differs at "
+                f"{relative} is not what the agent gives when evaluated again (differs at "
                 f"{_listed(differences)}): {regenerate}",
             )
         for wrong in _ledger_problems(ctx, relative, committed):
@@ -1183,7 +1192,7 @@ def _honest_numbers(ctx: _Context, report: dict[str, Any]) -> None:
         else:
             if existing_card != card:
                 ctx.report.error(
-                    "honest-numbers", f"{CARD} is not the card the pack renders: {rewrite}"
+                    "honest-numbers", f"{CARD} is not the card the agent renders: {rewrite}"
                 )
 
 
@@ -1212,14 +1221,14 @@ def _retrained(ctx: _Context) -> None:
             if not committed.is_file() or committed.read_bytes() != item.path.read_bytes():
                 ctx.report.error(
                     "honest-numbers",
-                    f"{relative} is not what `mendari train` gives from the pack's data, byte for "
+                    f"{relative} is not what `mendari train` gives from the agent's data, byte for "
                     f"byte: retrain it with `mendari train {ctx.shown}`",
                 )
     unproduced = sorted(declared - produced)
     if unproduced:
         ctx.report.error(
             "honest-numbers",
-            f"no training run gives {_listed(unproduced)}: a community pack's models are what "
+            f"no training run gives {_listed(unproduced)}: a community agent's models are what "
             f"`mendari train {ctx.shown}` gives from its own data",
         )
 
@@ -1288,16 +1297,16 @@ def _hygiene_files(ctx: _Context) -> None:
     if links:
         fail(
             "hygiene",
-            f"a community pack holds regular files only; replace the symbolic links "
+            f"a community agent holds regular files only; replace the symbolic links "
             f"{_listed(sorted(links))}",
         )
     size = sum(path.stat().st_size for path in files)
     if len(files) > MAX_PACK_FILES:
-        fail("hygiene", f"{len(files)} files; a community pack has at most {MAX_PACK_FILES}")
+        fail("hygiene", f"{len(files)} files; a community agent has at most {MAX_PACK_FILES}")
     if size > MAX_PACK_BYTES:
         fail(
             "hygiene",
-            f"{size / 1024 / 1024:.1f} MB; a community pack is at most "
+            f"{size / 1024 / 1024:.1f} MB; a community agent is at most "
             f"{MAX_PACK_BYTES // 1024 // 1024} MB. Keep the benchmark dataset to what it needs",
         )
     top = toplevel(ctx.root)
@@ -1309,7 +1318,7 @@ def _hygiene_files(ctx: _Context) -> None:
         if submodules:
             fail(
                 "hygiene",
-                "a community pack holds its own files, never another repository's (a git "
+                "a community agent holds its own files, never another repository's (a git "
                 f"submodule): remove {_listed(submodules)}",
             )
     models = _model_files(ctx)
@@ -1321,7 +1330,7 @@ def _hygiene_files(ctx: _Context) -> None:
     if binary:
         fail(
             "hygiene",
-            f"a community pack holds text files only (a trained model aside); remove "
+            f"a community agent holds text files only (a trained model aside); remove "
             f"{_listed(binary)}",
         )
     kept = _benchmark_files(ctx)
@@ -1340,11 +1349,36 @@ def _hygiene_files(ctx: _Context) -> None:
 
 
 def _raw_manifest(ctx: _Context) -> dict[str, Any]:
+    name = _manifest_file(ctx)
     try:
-        raw = parse_yaml((ctx.root / MANIFEST).read_bytes(), MANIFEST, ctx.shown)
+        raw = parse_yaml((ctx.root / name).read_bytes(), name, ctx.shown)
     except (OSError, MendariError):
         return {}
     return raw if isinstance(raw, dict) else {}
+
+
+def _manifest_file(ctx: _Context) -> str:
+    """What the folder's manifest is called (`manifest_name`). A folder that holds both names
+    is read by the current one here: `load_pack` is what refuses it, saying why."""
+    try:
+        return manifest_name(ctx.root, ctx.shown) or MANIFEST
+    except PackValidationError:
+        return MANIFEST
+
+
+def _base_manifest(ctx: _Context) -> bytes | None:
+    """This agent's manifest in the base, under whichever name the base holds it (a change may
+    rename `pack.yaml` to `agent.yaml`, and the benchmark, tolerance and critical labels it is
+    held to are still the base's); None: the base has none, a new agent. Both names in the base
+    are a `PackValidationError`, as they are in a folder."""
+    assert ctx.base is not None
+    found = {
+        name: data
+        for name in MANIFEST_NAMES
+        if (data := ctx.base.read(f"{ctx.folder}/{name}")) is not None
+    }
+    name = manifest_name(found, f"the base's {ctx.folder}")
+    return None if name is None else found[name]
 
 
 def _ledger_problems(ctx: _Context, relative: str, committed: dict[str, Any]) -> list[str]:
@@ -1505,7 +1539,7 @@ def _changelog(ctx: _Context) -> None:
     try:
         before = ctx.base.files(ctx.folder)
     except MendariError as error:
-        ctx.report.error("hygiene", f"the base's pack cannot be read: {error}")
+        ctx.report.error("hygiene", f"the base's agent cannot be read: {error}")
         return
     if not before:
         return  # a new pack
@@ -1517,12 +1551,15 @@ def _changelog(ctx: _Context) -> None:
         base_digest = pack_digest(Path(temp))
     if base_digest == pack_digest(ctx.root):
         return
-    raw = _parsed(before.get(MANIFEST))
+    try:
+        raw = _parsed(before.get(manifest_name(before, f"the base's {ctx.folder}") or MANIFEST))
+    except MendariError:  # both names in the base: no version to compare with
+        raw = {}
     base_version = raw.get("version") if isinstance(raw.get("version"), str) else None
     if base_version is None or version_key(version) <= version_key(base_version):
         ctx.report.error(
             "hygiene",
-            f"what the pack decides with changed, so its version goes up (the base has "
+            f"what the agent decides with changed, so its version goes up (the base has "
             f"{base_version}, this change {version}): MAJOR for label changes, MINOR for "
             "behaviour, PATCH for wording",
         )
@@ -1534,7 +1571,7 @@ def _parsed(data: bytes | None) -> dict[str, Any]:
     if data is None:
         return {}
     try:
-        raw = parse_yaml(data, MANIFEST, "the base's pack")
+        raw = parse_yaml(data, MANIFEST, "the base's agent")
     except MendariError:
         return {}
     return raw if isinstance(raw, dict) else {}
@@ -1559,7 +1596,7 @@ def _site_cases(ctx: _Context) -> None:
             "phi",
             f"{relative} holds cases `mendari improve` added or `mendari feedback export` "
             f"wrote, or a model built from them ({count} marked). They are a site's cases, "
-            "and a community pack's data is synthetic: take them out, and where a model was "
+            "and a community agent's data is synthetic: take them out, and where a model was "
             "built from them, run `mendari train` so that it is built again without them",
         )
 
@@ -1582,7 +1619,7 @@ def _phi(ctx: _Context) -> None:
             ctx.report.warn(
                 "phi",
                 f"{relative}: vocabulary word {hit.line} looks like {hit.kind}. A model learns "
-                "from its data, which must be synthetic: train it on the pack's data only",
+                "from its data, which must be synthetic: train it on the agent's data only",
             )
     for path in _phi_files(ctx):
         if not _is_text(path):

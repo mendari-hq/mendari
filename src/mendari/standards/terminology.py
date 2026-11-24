@@ -39,21 +39,21 @@ from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError
-from mendari.sandbox.ehr_profile import (
+from mendari.sandbox.code_systems import (
+    CHANNEL_SYSTEM,
+    CHANNELS,
+    CONDITION_SYSTEM,
+    CONDITIONS,
+    PROCEDURE_SYSTEM,
+    PROCEDURES,
+    REFERRAL_SYSTEM,
+    REFERRALS,
+    SANDBOX_TAG,
     SITE_DIAGNOSES,
     SITE_DIAGNOSIS_SYSTEM,
     SITE_ORDER_TYPE_SYSTEM,
     SITE_ORDER_TYPES,
 )
-from mendari.sandbox.fhir_records import (
-    CHANNEL_SYSTEM,
-    CHANNELS,
-    REFERRAL_SYSTEM,
-    REFERRALS,
-    SANDBOX_TAG,
-)
-from mendari.sandbox.synthetic_prior_auth import PROCEDURE_SYSTEM, PROCEDURES
-from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM, CONDITIONS
 from mendari.standards import audit_fhir, davinci
 from mendari.standards.fhir import (
     DECISION_ID_SYSTEM,
@@ -84,12 +84,12 @@ OUTCOMES: dict[Outcome, tuple[str, str]] = {
     Outcome.ABSTAIN: (
         "Abstain",
         "No recommendation: the existing manual workflow handles the case. Any proposed action "
-        "is the pack's fallback, never a recommended action.",
+        "is the agent's fallback, never a recommended action.",
     ),
     Outcome.BLOCK: (
         "Block",
         "The action must not happen: the input was invalid or a blocking policy rule matched. "
-        "Any proposed action is the pack's fallback, never the blocked action.",
+        "Any proposed action is the agent's fallback, never the blocked action.",
     ),
 }
 _ACTIONS = {"C": "create", "R": "read", "U": "update", "D": "delete", "E": "execute"}
@@ -136,8 +136,8 @@ NAMING_SYSTEMS = (
     (
         "decision-pack",
         PACK_ID_SYSTEM,
-        "Mendari Decision Pack version",
-        "A Decision Pack version (`namespace/name@version`) acting as the engine, in "
+        "Mendari agent version",
+        "An agent version (`namespace/name@version`) acting as the engine, in "
         "AuditEvent.agent and Provenance.agent. In Task.meta.tag the same value is a code of "
         f"{PACK_TAG_SYSTEM}.",
     ),
@@ -202,7 +202,7 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
     ids = [pack.id for pack in served]
     repeated = sorted({pack_id for pack_id in ids if ids.count(pack_id) > 1})
     if repeated:
-        raise MendariError(f"terminology for one version of each pack, not several of {repeated}")
+        raise MendariError(f"terminology for one version of each agent, not several of {repeated}")
     found = [
         _outcomes(),
         _audit_events(),
@@ -218,12 +218,12 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
 
 
 def sandbox_resources() -> list[dict[str, Any]]:
-    """The sandbox's own systems, experimental and never served: its synthetic-data tag, its
-    Communications' message channel, the fictional codes of the test fixtures' synthetic
-    data (prior-authorization procedures, trial-eligibility local-site conditions, a
-    specialty referral), and the vendor-shaped EHR profile's
-    site codes (its diagnoses and its referral's order type, LP-23e). CI loads them so the
-    sandbox and Da Vinci samples validate."""
+    """The sandbox's own systems (`sandbox/code_systems.py`), experimental and never served:
+    its synthetic-data tag, its Communications' message channel, the fictional codes synthetic
+    examples are written in (prior-authorization procedures, a local site's conditions, a
+    specialty referral), and a vendor-shaped EHR site's own codes (its diagnoses and its
+    referral's order type, LP-23e). CI loads them so the sandbox and Da Vinci samples
+    validate."""
     return [
         _code_system(
             SANDBOX_TAG["system"],
@@ -247,8 +247,8 @@ def sandbox_resources() -> list[dict[str, Any]]:
             PROCEDURE_SYSTEM,
             "fictional-procedures",
             "Mendari fictional procedure codes",
-            "Procedure codes invented for the Prior Authorization Preflight's synthetic data. Not "
-            "CPT or any real code system; never for billing. A site maps its own codes.",
+            "Procedure codes invented for synthetic prior-authorization data. Not CPT or any "
+            "real code system; never for billing. A site maps its own codes.",
             __version__,
             [_concept(code, shown) for code, shown in PROCEDURES.items()],
             experimental=True,
@@ -257,8 +257,8 @@ def sandbox_resources() -> list[dict[str, Any]]:
             CONDITION_SYSTEM,
             "fictional-conditions",
             "Mendari fictional condition codes",
-            "Condition codes invented for the Clinical Trial Prescreener's synthetic local-site "
-            "data. Not SNOMED CT or any real code system. A site maps its own codes.",
+            "Condition codes invented for a synthetic local site's patient records. Not SNOMED "
+            "CT or any real code system. A site maps its own codes.",
             __version__,
             [_concept(code, shown) for code, shown in CONDITIONS.items()],
             experimental=True,
@@ -267,8 +267,8 @@ def sandbox_resources() -> list[dict[str, Any]]:
             REFERRAL_SYSTEM,
             "fictional-referrals",
             "Mendari fictional referral codes",
-            "The code that marks a synthetic specialty referral for the Referral Router. Not "
-            "SNOMED CT or any real code system. A site maps its own referral code.",
+            "The code that marks a synthetic order as a specialty referral. Not SNOMED CT or "
+            "any real code system. A site maps its own referral code.",
             __version__,
             [_concept(code, shown) for code, shown in REFERRALS.items()],
             experimental=True,
@@ -385,7 +385,7 @@ def _decision_packs(served: list[Pack]) -> dict[str, Any]:
         "decision-pack",
         "Mendari agent",
         "Agent versions (`namespace/name@version`), as Task.meta.tag. Lists the agents "
-        "this deployment serves; decisions made by other packs or versions keep their codes, so "
+        "this deployment serves; decisions made by other agents or versions keep their codes, so "
         "this is a fragment.",
         _served_version(served),
         [
@@ -406,8 +406,8 @@ def _performers(served: list[Pack]) -> Iterator[dict[str, Any]]:
         if len({adapter.pack.community for adapter in adapters}) > 1:
             shared = ", ".join(adapter.pack.id for adapter in adapters)
             raise MendariError(
-                f"the performer system {url} is used by a community pack and another pack "
-                f"({shared}); a community pack's systems are its own"
+                f"the performer system {url} is used by a community agent and another agent "
+                f"({shared}); a community agent's systems are its own"
             )
         community = adapters[0].pack.community
         concepts: dict[str, dict[str, str]] = {}
@@ -489,7 +489,7 @@ def _code_system(
     if community:
         title = f"{title} ({COMMUNITY_LABEL})"
         description = (
-            f"{description} {COMMUNITY_LABEL}: an outside developer contributed this pack, and "
+            f"{description} {COMMUNITY_LABEL}: an outside developer contributed this agent, and "
             "Mendari has not clinically reviewed it."
         )
     resource: dict[str, Any] = {

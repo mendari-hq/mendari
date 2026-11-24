@@ -450,7 +450,7 @@ def test_a_configuration_not_declared_before_its_run_is_refused(
     data["arms"][arms.CLASSIFIER]["remote"] = {"router": "rules", "safety_screen": "nope"}
     path.write_text(json.dumps(data), encoding="utf-8")
     commit(store)
-    with pytest.raises(MendariError, match="is not one of the pack's"):
+    with pytest.raises(MendariError, match="is not one of the agent's"):
         run()
     assert calls == [] and not (store.root / "results").exists()
     # Committed before the run: stored, citing the declaration's SHA-256.
@@ -756,7 +756,7 @@ def test_an_undisclosed_provider_is_not_published(
         label
         for label in rows
         if label.strip()
-        not in ("Marks", "Pack", "Set", "Method", "Measured on", "Models", "Disclosure", "Status")
+        not in ("Marks", "Agent", "Set", "Method", "Measured on", "Models", "Disclosure", "Status")
     ]
     assert "Case flip rate" in [label.strip() for label in figures]
     assert {rows[label].strip(" |") for label in figures} == {scoreboard.DISCLOSURE_PENDING}

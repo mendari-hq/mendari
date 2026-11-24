@@ -1,5 +1,5 @@
 name: Idea
-description: A feature, a standard to support, or a new pack.
+description: A feature, a standard to support, or a new agent.
 labels: [idea]
 body:
   - type: textarea

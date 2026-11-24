@@ -13,8 +13,8 @@ planned in `notes/lp17-plan.md`). What landed, in the order it was built:
   price table (`mendari.prices/1`) and the disclosures file (`mendari.disclosures/1`), pure;
 - 17e (#263), signed results and the public verifier (`mendari.evals.signing`,
   `mendari scoreboard sign` and `verify`), off without the key;
-- 17f (#267, merged with 17j in #268), the results store under `scoreboard/`, its check in the
-  required `reference-pack` job, and the early scoreboard's page (stage 3);
+- 17f (#267, merged with 17j in #268), the results store under `scoreboard/`, its check in a
+  required CI job, and the early scoreboard's page (stage 3);
 - 17j (#268), grades as attestations and band ranking with its Holm family
   (`mendari.evals.grade`, `mendari.evals.bands`), pure;
 - 17g (#279, the LP-17 lane), the public template sets relabelled "public set: regression check,
@@ -38,20 +38,22 @@ confirmed that 17l waits for LP-19 and LP-20, decision 10). Gate G3-4's
 effective date (gate `grading-method`). The defaults below hold unless the owner chooses
 otherwise: the owner's decisions still open are listed in `tasks/todo.md`.
 
+Terminology updated 2026-11-23: what this record called a pack is an agent.
+
 ## Context
-Mendari compares a pack's configurations today with leaderboards (`mendari.leaderboard/2`), ranked
+Mendari compares an agent's configurations today with leaderboards (`mendari.leaderboard/2`), ranked
 by one function (`mendari.rank/1`, `evals/ranking.py`): critical cases automated first, then the
 worst critical label's lower bound, false automation, accuracy and cost, on raw 95% bounds, with a
 strict name tiebreak.
 
-- Every set it ranks on is public: in the repository and in the wheel. A pack can be tuned to it,
+- Every set it ranks on is public: in the repository and in the wheel. An agent can be tuned to it,
   and a set built from templates cannot be told from a hand-written one (no record carries a
   `template` or `source` attribute).
 - Raw counts overstate the evidence. A `test` set built from templates can hold far fewer
   distinct positives than positives, and far fewer distinct inputs than cases.
 - It has no arms by provider class, no simultaneous bound across critical labels, no Brier, no
   bands, no shared ranks and no rank intervals.
-- Its 166 shipped rows are mostly on older pack digests, with n of 100 or less and no ledgers.
+- Its 166 shipped rows are mostly on older agent digests, with n of 100 or less and no ledgers.
 - Hidden sets (ADR-0011) are graded by the organization's grading key through
   `POST /api/evalsets/{set}/runs`, with local providers only, answering aggregates only
   (`mendari.hidden_result/1`). Nothing there ranks or grades.
@@ -87,7 +89,7 @@ grade is given.
    at 95%, with the distinct count beside them.
 5. **Local providers only on hidden sets, until owner decision 2.** The grading route refuses a
    remote variant before any case is read (LP-11l). A remote arm on a hidden set reads "not
-   graded here". With one local arm per pack, ranking is built but off until the owner decides
+   graded here". With one local arm per agent, ranking is built but off until the owner decides
    otherwise. A remote configuration is measured on public sets only, with 3 to 5 replicates,
    outside CI: the remote arms by the owner, and a CQL configuration (deterministic, but
    calling Mendari's own CQL engine) by a build session
@@ -107,7 +109,7 @@ grade is given.
    signed hidden-set result carries the commitment. Anyone can verify with public keys only.
 8. **The repository is the store.** Results live under `scoreboard/` at the repository root,
    outside the wheel, the sdist and the site, append-only, each named by the SHA-256 of its body,
-   each able to name the result it supersedes. A check in the required `reference-pack` job
+   each able to name the result it supersedes. A check in a required CI job
    recomputes every public result and refuses any change but a valid signature added to an
    unsigned result. The site's scoreboard page is generated from the store.
 
@@ -155,8 +157,8 @@ grade is given.
 - **One-sided bounds at `1 - 0.05/L`.** Smaller minimums; left to the owner (owner decision 6).
 - **A signing key on the server, and a results table.** Rejected: a key a server holds can sign
   whatever the server is made to compute. Signing is offline, and the repository is the one store.
-- **A store under `packs/<pack>/evals/`.** Rejected: that directory is outside the digest but
-  inside the wheel and every archive, so a publisher's pack could carry a forged scoreboard file,
+- **A store under each agent's own `evals/` folder.** Rejected: that directory is outside the digest but
+  inside the wheel and every archive, so a publisher's agent could carry a forged scoreboard file,
   and model ids would ship.
 - **Read the method from the installed package.** The documentation is not in the wheel or the
   sdist, so the hash is pinned in code and checked against the repository's file by a test.

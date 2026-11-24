@@ -117,7 +117,7 @@ UNREADABLE_DETAIL = (
 # refused, as the audit record keeps them (where in the input and which rule of the schema, a
 # resource by its type and position: never a value or an id).
 REFUSED_DETAIL = (
-    "Refused: Mendari could not accept the data sent as this pack's input, so it checked "
+    "Refused: Mendari could not accept the data sent as this agent's input, so it checked "
     "nothing and made no recommendation. Why:"
 )
 # What follows that list on those two cards: the decision's other reasons, apart, since they are
@@ -168,7 +168,12 @@ class CardLinks:
     """Where a card may link: Mendari's public address (`MENDARI_PUBLIC_URL`, None: no link and
     the reasons in the detail, the confidence thresholds' left out), and whether the EHR may
     launch the pack's SMART view from the card (SMART on, and the request's `fhirServer`
-    registered for launches in the caller's organization, `MENDARI_SMART_EHRS`)."""
+    registered for launches in the caller's organization, `MENDARI_SMART_EHRS`).
+
+    A link into the console names the agent as the console's address does, `?agent=` (it was
+    `?pack=` until 2026-11, which the console still reads: a card an EHR kept opens as before).
+    The launch link keeps `?pack=`: that is the launch route's own query parameter
+    (`server/smart_routes.py`), a name on the wire that an EHR's registered launch may hold."""
 
     public_url: str | None = None
     launch: bool = False
@@ -243,7 +248,7 @@ def invoke(
     an OperationOutcome is still `operation_outcome`."""
     hooks = decision.pack.manifest.cds_hooks
     if hooks is None:
-        raise FhirError(f"pack {decision.pack.id} is not a CDS service")
+        raise FhirError(f"agent {decision.pack.id} is not a CDS service")
     if request.get("hook") != hooks.hook:
         raise FhirError(f"service expects hook {hooks.hook!r}, got {request.get('hook')!r}")
     orders: list[dict[str, Any]] = []
@@ -749,7 +754,7 @@ def _card(
     shown_pack = quote(pack.id, safe="/")
     public = links.public_url.rstrip("/") if links.public_url else None
     if public is not None:
-        source["url"] = f"{public}/?pack={shown_pack}#card"
+        source["url"] = f"{public}/?agent={shown_pack}#card"
     if pack.manifest.cds_hooks is not None and pack.manifest.cds_hooks.coverage_information:
         source["topic"] = dict(CARD_TYPE)  # CRD 2.2.1: every card of a CRD service says its type
     found: dict[str, Any] = {
@@ -776,7 +781,7 @@ def _card(
         found["links"] = [
             {
                 "label": AUDIT_LINK,
-                "url": f"{public}/?pack={shown_pack}#audit/{quote(result.id, safe='')}",
+                "url": f"{public}/?agent={shown_pack}#audit/{quote(result.id, safe='')}",
                 "type": "absolute",
             }
         ]

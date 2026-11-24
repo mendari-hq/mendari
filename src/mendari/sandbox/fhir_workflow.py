@@ -1,14 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Sandbox workflow against a FHIR R4 server (HAPI FHIR in docker compose).
 
-`seed` loads synthetic cases as US Core resources (`fhir_records`): inbox Patients and
-Communications (status `in-progress`), referral Patients, ServiceRequests and their records, or
-the trial and prior-authorization packs' Patients and records. The sandbox FHIR server plays the
-part of the "local site", so cases come from the local-site example datasets. It also loads the
-vendor-shaped EHR profile (`ehr_profile`, LP-23e) under the profile's own ids, which the sandbox
-CDS client (`cds_client`) names. `run_worker` claims each in-progress Communication, asks the
-engine for a decision, and writes the resulting Task back. Only resources carrying the sandbox
-tag are ever touched.
+`seed` loads a message agent's synthetic cases as US Core resources (`fhir_records`): Patients
+and Communications (status `in-progress`). The sandbox FHIR server plays the part of the "local
+site", and the agent is the bundled demo agent unless another is named. `run_worker` claims each
+in-progress Communication, asks the engine for a decision, and writes the resulting Task back.
+Only resources carrying the sandbox tag are ever touched.
 
 Each Communication is claimed with a version-conditional update (`If-Match`) before the engine
 sees it, so a message is processed at most once even if searches return stale results (HAPI
@@ -24,33 +21,14 @@ from typing import Any
 
 import httpx
 
+from mendari.core.pack import Pack
 from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
-from mendari.evals.harness import load_dataset, resolve_dataset
-from mendari.sandbox import ehr_profile, example_datasets_dir
-from mendari.sandbox.fhir_records import (
-    CASE_SYSTEM,
-    SANDBOX_TAG,
-    inbox_entries,
-    prior_auth_entries,
-    referral_entries,
-    trial_entries,
-)
+from mendari.evals.harness import Dataset, resolve_dataset
+from mendari.sandbox import DEMO_AGENT
+from mendari.sandbox.code_systems import CASE_SYSTEM, SANDBOX_TAG
+from mendari.sandbox.fhir_records import message_entries
 
-INBOX = "mendari/patient-inbox-router"
-REFERRAL = "mendari/referral-router"
-TRIAL = "mendari/clinical-trial-prescreener"
-PRIOR_AUTH = "mendari/prior-auth-preflight"
-EHR_PROFILE = "ehr-profile"  # the vendor-shaped EHR profile (ehr_profile.py), not a pack
-SEEDS = (INBOX, REFERRAL, TRIAL, PRIOR_AUTH, EHR_PROFILE)
-# What `seed` counts of each: the resource a case or patient is about.
-_FOCUS = {
-    INBOX: "Communication",
-    REFERRAL: "ServiceRequest",
-    TRIAL: "Patient",
-    PRIOR_AUTH: "ServiceRequest",
-    EHR_PROFILE: "Patient",
-}
 _TAG_QUERY = f"{SANDBOX_TAG['system']}|{SANDBOX_TAG['code']}"
 _FHIR_JSON = {"content-type": "application/fhir+json", "accept": "application/fhir+json"}
 # HAPI reuses cached search results for a while; a work queue must always see fresh state.
@@ -70,70 +48,83 @@ def wait_for(fhir: str, seconds: int) -> None:
         time.sleep(3)
 
 
-def to_resources(record: dict[str, Any]) -> list[dict[str, Any]]:
-    """One inbox case as a Patient + Communication pair of transaction entries."""
-    return inbox_entries(record)
+def labelled_cases(agent: Pack, dataset: str | None = None) -> Dataset:
+    """The agent's labelled cases the sandbox is seeded from, and its checks compare with: the
+    dataset named (one of the agent's own, or a JSONL file), by default the agent's benchmark
+    dataset."""
+    ref = dataset or agent.manifest.evaluation.benchmark_dataset
+    if ref is None:
+        raise MendariError(f"{agent.id} names no benchmark dataset: give its cases with --dataset")
+    return resolve_dataset(agent, ref)
 
 
-def seed_bundle(pack_id: str, count: int) -> dict[str, Any]:
-    """The transaction `seed` posts: `count` local-site cases of the pack as FHIR resources, or
-    (`EHR_PROFILE`) the whole vendor-shaped profile, which PUTs each resource under its id."""
-    if pack_id == INBOX:
-        entries = [e for record in _sample(count) for e in inbox_entries(record)]
-    elif pack_id == REFERRAL:
-        cases = _local(REFERRAL, "referral")[:count]
-        entries = [e for record in cases for e in referral_entries(record)]
-    elif pack_id == TRIAL:
-        entries = [e for record in _local(TRIAL, "trial")[:count] for e in trial_entries(record)]
-    elif pack_id == PRIOR_AUTH:
-        cases = _local(PRIOR_AUTH, "prior-auth")[:count]
-        entries = [e for record in cases for e in prior_auth_entries(record)]
-    elif pack_id == EHR_PROFILE:
-        return ehr_profile.bundle()
-    else:
-        raise MendariError(f"the sandbox can seed {', '.join(SEEDS)}, not {pack_id}")
+def seed_bundle(agent: Pack, count: int, dataset: str | None = None) -> dict[str, Any]:
+    """The transaction `seed` posts: `count` of the agent's cases, each a portal message, as
+    FHIR resources. A reproducible mix that always includes some cases with a critical label
+    (an urgent message, for the demo agent), so the sandbox's queue shows both."""
+    chosen = _sample(agent, labelled_cases(agent, dataset).records, count)
+    if not all(_is_message(record) for record in chosen):
+        raise MendariError(
+            f"the sandbox seeds portal messages, and {agent.id}'s cases are not: each needs an "
+            "input with a `message` (its `body`, and a `subject` if it has one)"
+        )
+    entries = [e for record in chosen for e in message_entries(record)]
     return {"resourceType": "Bundle", "type": "transaction", "entry": entries}
 
 
-def seed(fhir: str, *, count: int, wait_seconds: int = 180, pack_id: str = INBOX) -> int:
-    """Load `count` synthetic cases of the pack into the FHIR server, once (a server that already
-    holds them is left alone), or the EHR profile, whose PUTs replace what an earlier seed of it
-    made. Returns how many of the cases' focus resources (or the profile's Patients) it sent."""
+def _is_message(record: dict[str, Any]) -> bool:
+    given = record.get("input")
+    message = given.get("message") if isinstance(given, dict) else None
+    return isinstance(message, dict) and isinstance(message.get("body"), str)
+
+
+def seed(
+    fhir: str,
+    *,
+    count: int,
+    wait_seconds: int = 180,
+    agent: str = DEMO_AGENT,
+    dataset: str | None = None,
+) -> int:
+    """Load `count` synthetic messages of the agent into the FHIR server, once (a server that
+    already holds them is left alone). Returns how many Communications it sent."""
+    pack = resolve_pack(agent)
+    bundle = seed_bundle(pack, count, dataset)
+    if not post_once(fhir, bundle, wait_seconds=wait_seconds, named=pack.id):
+        return 0
+    return sum(e["resource"]["resourceType"] == "Communication" for e in bundle["entry"])
+
+
+def post_once(fhir: str, bundle: dict[str, Any], *, wait_seconds: int, named: str) -> bool:
+    """Post a transaction of synthetic cases, unless the server already holds its first case:
+    the first Patient of the bundle, found by its case id with a fresh search. Returns whether
+    it was sent. A bundle with no case is not sent."""
     fhir = fhir.rstrip("/")
     wait_for(fhir, wait_seconds)
-    bundle = seed_bundle(pack_id, count)
-    focus = _FOCUS[pack_id]
-    if pack_id != EHR_PROFILE and _seeded(fhir, pack_id, bundle):
-        print(f"sandbox already holds {pack_id}'s synthetic cases; skipping")
-        return 0
-    response = httpx.post(fhir, json=bundle, headers=_FHIR_JSON, timeout=120)
-    if not response.is_success:
-        raise MendariError(f"seeding failed: HTTP {response.status_code} {response.text[:300]}")
-    return sum(e["resource"]["resourceType"] == focus for e in bundle["entry"])
-
-
-def _seeded(fhir: str, pack_id: str, bundle: dict[str, Any]) -> int:
-    """Whether the server already holds the pack's cases (how many of what it counts): the
-    inbox's tagged Communications, as before. The referral router's and the prior-authorization
-    pack's focus is a ServiceRequest and the trial's a Patient, kinds each shares with another
-    pack's cases, so for those it counts the Patient of the bundle's first case, by its case id."""
-    params = {"_tag": _TAG_QUERY, "_summary": "count"}
-    kind = _FOCUS[pack_id]
-    if pack_id != INBOX:
-        patients = [
-            e["resource"] for e in bundle["entry"] if e["resource"]["resourceType"] == "Patient"
-        ]
-        if not patients:  # `--count 0`: nothing to send, and nothing to look for
-            return 0
-        case = next(i["value"] for i in patients[0]["identifier"] if i["system"] == CASE_SYSTEM)
-        params, kind = {"identifier": f"{CASE_SYSTEM}|{case}", "_summary": "count"}, "Patient"
+    patients = [
+        e["resource"] for e in bundle["entry"] if e["resource"]["resourceType"] == "Patient"
+    ]
+    if not patients:  # `--count 0`: nothing to send, and nothing to look for
+        return False
+    case = next(i["value"] for i in patients[0]["identifier"] if i["system"] == CASE_SYSTEM)
     found = httpx.get(
-        f"{fhir}/{kind}",
-        params=params,
+        f"{fhir}/Patient",
+        params={"identifier": f"{CASE_SYSTEM}|{case}", "_summary": "count"},
         headers=_NO_CACHE,  # a cached "0" from before an earlier seed would seed twice
         timeout=30,
     )
-    return int(found.json().get("total", 0))
+    if int(found.json().get("total", 0)):
+        print(f"sandbox already holds {named}'s synthetic cases; skipping")
+        return False
+    post(fhir, bundle)
+    return True
+
+
+def post(fhir: str, bundle: dict[str, Any]) -> None:
+    """Post a transaction to the FHIR server, or say why it was refused."""
+    response = httpx.post(fhir.rstrip("/"), json=bundle, headers=_FHIR_JSON, timeout=120)
+    if not response.is_success:
+        raise MendariError(f"seeding failed: HTTP {response.status_code} {response.text[:300]}")
 
 
 def run_worker(fhir: str, engine: str, *, pack_id: str, interval: float, once: bool) -> None:
@@ -142,7 +133,7 @@ def run_worker(fhir: str, engine: str, *, pack_id: str, interval: float, once: b
     with httpx.Client(timeout=30) as client:
         while True:
             processed = _process_batch(
-                client, fhir, f"{engine}/api/packs/{namespace}/{name}/fhir/decide"
+                client, fhir, f"{engine}/api/agents/{namespace}/{name}/fhir/decide"
             )
             if once:
                 return
@@ -150,21 +141,17 @@ def run_worker(fhir: str, engine: str, *, pack_id: str, interval: float, once: b
                 time.sleep(interval)
 
 
-def _local(pack_id: str, prefix: str) -> list[dict[str, Any]]:
-    """The pack's local-site example cases (the sandbox plays the local site)."""
-    datasets = example_datasets_dir()
-    name = "local-site-example.jsonl" if prefix == "inbox" else f"{prefix}-local-site-example.jsonl"
-    local = datasets / name if datasets else None
-    if local is not None and local.is_file():
-        return load_dataset(local).records
-    return resolve_dataset(resolve_pack(pack_id), "test").records
+def _sample(agent: Pack, records: list[dict[str, Any]], count: int) -> list[dict[str, Any]]:
+    """A reproducible mix of the cases that always includes some with a critical label: at
+    least one, and one in ten of `count` when the cases hold that many."""
+    critical = {(c.question, c.label) for c in agent.manifest.evaluation.critical}
 
+    def flagged(record: dict[str, Any]) -> bool:
+        labels = record.get("labels") or {}
+        return any(labels.get(question) == label for question, label in critical)
 
-def _sample(count: int) -> list[dict[str, Any]]:
-    """A reproducible mix of local-site messages that always includes some emergencies."""
-    records = _local(INBOX, "inbox")
-    urgent = [r for r in records if r["labels"]["urgency"] == "urgent"][: max(1, count // 10)]
-    routine = [r for r in records if r["labels"]["urgency"] != "urgent"][: count - len(urgent)]
+    urgent = [r for r in records if flagged(r)][: max(1, count // 10)][:count]
+    routine = [r for r in records if not flagged(r)][: count - len(urgent)]
     chosen = urgent + routine
     random.Random(0).shuffle(chosen)
     return chosen

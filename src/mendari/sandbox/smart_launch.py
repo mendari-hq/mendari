@@ -2,16 +2,15 @@
 """A scripted SMART on FHIR EHR launch against the sandbox (docker compose): the EHR and the
 browser in one, over plain HTTP.
 
-It picks a synthetic patient with something for the pack to decide, then does what an EHR and a
-browser would:
+It picks a synthetic patient with something for the agent to decide (the bundled demo agent,
+unless another is named), then does what an EHR and a browser would:
 1. open the engine's launch URL with `iss` (the launcher's FHIR base) and a `launch` value;
 2. follow the redirect to the launcher's authorize endpoint;
 3. follow the redirect back to the engine's callback.
 
 The launcher's launch value asks it to skip login and consent. The script then uses the session
 like the dashboard does: the patient's work items, a decision for each, and logging out. This is
-the roadmap's exit check: "the inbox and referral packs run from a SMART launch against the HAPI
-sandbox".
+the roadmap's exit check: an agent runs from a SMART launch against the HAPI sandbox.
 
 With sign-in on and the launcher registered (`MENDARI_SMART_EHRS`, the compose profile
 `signin`), `expect_org` also reads the engine's own audit store (`db`, so the script runs next
@@ -35,23 +34,15 @@ import httpx
 
 from mendari.core import tenancy
 from mendari.core.audit import AuditStore
+from mendari.core.pack import Pack
 from mendari.errors import MendariError
-from mendari.sandbox.fhir_records import REFERRAL, SANDBOX_TAG
+from mendari.sandbox.code_systems import SANDBOX_TAG
 from mendari.server.origin import OWN_REQUEST
+from mendari.standards.fhir import FhirAdapter
 
 COOKIE = "mendari_smart"
 LAUNCH = "mendari_launch"  # ties the engine's /smart/launch to its /smart/callback
 _TAG = f"{SANDBOX_TAG['system']}|{SANDBOX_TAG['code']}"
-# Each pack's focus resource, and the search for one of its synthetic cases'. A referral is found
-# by its category: the prior-authorization pack's seeded orders are tagged ServiceRequests too
-# (`mendari sandbox seed --pack mendari/prior-auth-preflight`), and none is a referral.
-_FOCUS = {
-    "mendari/patient-inbox-router": ("Communication", {}),
-    "mendari/referral-router": (
-        "ServiceRequest",
-        {"category": f"{REFERRAL['system']}|{REFERRAL['code']}"},
-    ),
-}
 
 
 def launch_value(patient: str, provider: str) -> str:
@@ -61,13 +52,32 @@ def launch_value(patient: str, provider: str) -> str:
     return base64.urlsafe_b64encode(json.dumps(fields).encode()).decode().rstrip("=")
 
 
-def find_patient(fhir: str, pack_id: str) -> str:
-    """A synthetic patient who has one of the pack's focus resources (for the referral router,
-    a referral, whichever other packs' cases the server holds)."""
-    focus = _FOCUS.get(pack_id)
-    if focus is None:
-        raise MendariError(f"the sandbox launches {sorted(_FOCUS)}, not {pack_id}")
-    kind, narrowed = focus
+def focus_search(agent: Pack) -> tuple[str, dict[str, str]]:
+    """What an agent decides about, as a FHIR search: the resource type its mapping focuses on
+    and, where the mapping says which of them count by a code set read at `<element>.coding`
+    (`focus_where`), the token search for those codes (`<element>=<system>|<code>,...`). So a
+    search for one agent's work finds none of another's that shares the type (a referral among
+    other orders)."""
+    if agent.manifest.inputs.fhir is None:
+        raise MendariError(
+            f"{agent.id} has no FHIR mapping (`inputs.fhir`): the sandbox finds an agent's work "
+            "on the FHIR server by what its mapping focuses on"
+        )
+    mapping = FhirAdapter.for_pack(agent).mapping
+    narrowed: dict[str, str] = {}
+    rule = mapping.focus_where
+    if rule is not None and rule.code_set is not None and rule.path.endswith(".coding"):
+        element = rule.path.removesuffix(".coding")
+        chosen = mapping.code_sets[rule.code_set]
+        if element.isalpha():  # a top-level element: FHIR names its search parameter after it
+            narrowed[element] = ",".join(f"{chosen.system}|{code}" for code in chosen.codes)
+    return mapping.focus, narrowed
+
+
+def find_patient(fhir: str, agent: Pack) -> str:
+    """A synthetic patient who has something for the agent to decide: one of its focus
+    resources (`focus_search`), whichever other agents' cases the server holds."""
+    kind, narrowed = focus_search(agent)
     response = httpx.get(
         f"{fhir.rstrip('/')}/{kind}",
         params={"_tag": _TAG, **narrowed, "_count": "1"},
@@ -77,7 +87,9 @@ def find_patient(fhir: str, pack_id: str) -> str:
     response.raise_for_status()
     entries = response.json().get("entry") or []
     if not entries:
-        raise MendariError(f"no synthetic {kind} in {fhir}: run `mendari sandbox seed` first")
+        raise MendariError(
+            f"no synthetic {kind} for {agent.id} in {fhir}: run `mendari sandbox seed` first"
+        )
     reference = entries[0]["resource"].get("subject", {}).get("reference", "")
     return str(reference).rsplit("/", 1)[-1]
 
@@ -87,7 +99,7 @@ def run(
     engine: str,
     launcher: str,
     fhir: str,
-    pack_id: str,
+    agent: Pack,
     patient: str | None = None,
     provider: str = "sandbox-clinician",
     limit: int = 5,
@@ -100,7 +112,8 @@ def run(
     if expect_org is not None and db is None:
         raise MendariError("checking the organization needs the engine's database (db)")
     engine = engine.rstrip("/")
-    patient = patient or find_patient(fhir, pack_id)
+    pack_id = agent.id
+    patient = patient or find_patient(fhir, agent)
     iss = f"{launcher.rstrip('/')}/v/r4/fhir"
     with httpx.Client(follow_redirects=False, timeout=60) as browser:
         started = browser.get(

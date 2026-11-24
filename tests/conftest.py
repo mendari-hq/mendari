@@ -31,7 +31,7 @@ from mendari import sandbox as _sandbox
 from mendari.core import reference as _reference
 from mendari.core import registry as _registry
 from mendari.core.evalset_keys import EvalsetKeys, evalset_keys
-from mendari.core.pack import pack_digest
+from mendari.core.pack import MANIFEST_NAMES, pack_digest
 from mendari.core.phi import PhiPolicy
 from mendari.core.registry import resolve_pack
 from mendari.errors import ProviderError
@@ -47,7 +47,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # The packs the tests decide with are fixtures, not part of the product: here they stand where a
 # release's bundled agents do, so they load with the maintained origin. Both names are read when
 # called, never copied, so setting them here reaches every module.
-REFERENCE_PACKS = ROOT / "tests" / "fixtures" / "reference-packs"
+REFERENCE_PACKS = ROOT / "tests" / "fixtures" / "reference-agents"
 _reference.BUNDLED_DIRS = (REFERENCE_PACKS,)
 _registry._BUNDLED_DIRS = _reference.BUNDLED_DIRS
 _sandbox.DATASET_DIRS = (ROOT / "tests" / "fixtures" / "datasets",)
@@ -58,6 +58,13 @@ LOCAL_DATASET = ROOT / "tests" / "fixtures" / "datasets" / "local-site-example.j
 _BASE_POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
 _XDIST_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "").strip()
 _WORKER_DB_LOCK = 72_610_491
+
+
+def fixture_agents() -> list[Path]:
+    """The folder of every agent under tests/fixtures, whichever name its manifest has (one
+    keeps `pack.yaml` on purpose: tests/test_manifest_names.py)."""
+    fixtures = ROOT / "tests" / "fixtures"
+    return sorted({p.parent for name in MANIFEST_NAMES for p in fixtures.glob(f"**/{name}")})
 
 
 def _worker_postgres(base_url: str, worker: str) -> tuple[str, str | None]:
@@ -132,8 +139,8 @@ def _the_repositorys_own_packs_are_as_they_were() -> Iterator[None]:
     after it read another pack. A run that leaves one changed fails here, at its end."""
     packs = sorted(
         path
-        for path in (ROOT / "tests" / "fixtures" / "reference-packs").iterdir()
-        if (path / "pack.yaml").is_file()
+        for path in (ROOT / "tests" / "fixtures" / "reference-agents").iterdir()
+        if (path / "agent.yaml").is_file()
     )
     before = {path: pack_digest(path) for path in packs}
     yield
@@ -169,7 +176,9 @@ def _own_hub_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def _no_community_packs(monkeypatch: pytest.MonkeyPatch) -> None:
     """Community packs are off unless a test turns them on (tests/test_community_packs.py), as
-    in a deployment that never set MENDARI_COMMUNITY_PACKS."""
+    in a deployment that never set MENDARI_COMMUNITY_AGENTS (nor MENDARI_COMMUNITY_PACKS, the
+    name it had before)."""
+    monkeypatch.delenv("MENDARI_COMMUNITY_AGENTS", raising=False)
     monkeypatch.delenv("MENDARI_COMMUNITY_PACKS", raising=False)
 
 
@@ -500,7 +509,7 @@ def router(inbox_pack: Pack) -> Decision:
 
 @pytest.fixture
 def pack_copy(tmp_path: Path) -> Callable[..., Path]:
-    """Copy the reference pack and apply edits to pack.yaml / policy.yaml before loading."""
+    """Copy the reference pack and apply edits to agent.yaml / policy.yaml before loading."""
 
     def make(
         manifest: Callable[[dict[str, Any]], None] | None = None,
@@ -513,7 +522,7 @@ def pack_copy(tmp_path: Path) -> Callable[..., Path]:
             # Tiny stand-ins: most tests do not need the real splits.
             source = (INBOX_DIR / "data" / f"{split}.jsonl").read_text().splitlines()[:20]
             (target / "data" / f"{split}.jsonl").write_text("\n".join(source) + "\n")
-        for name, edit in (("pack.yaml", manifest), ("policy.yaml", policy)):
+        for name, edit in (("agent.yaml", manifest), ("policy.yaml", policy)):
             if edit is None:
                 continue
             path = target / name
@@ -793,3 +802,73 @@ def runbook_body(
         assert arms is not None
         sent["arms"] = arms
     return sent
+
+
+# The routes renamed in 2026-11 (`server/paths.py`), each at the path it had before, with the
+# route that answers it now: written out here, not computed, so the tests that hold the two
+# spellings to the same rules have a table of their own to hold the helper to. The engine's
+# own; those of what it mounts when on (the agent store, the registry's reviewers); and the
+# registry's, which the engine serves under `/registry`.
+RenamedRoutes = dict[tuple[str, str], tuple[str, str]]
+FORMER_ROUTES: RenamedRoutes = {
+    (method, f"/api/packs{rest}"): (method, f"/api/agents{rest}")
+    for method, rest in [
+        ("GET", ""),
+        ("GET", "/{namespace}/{name}"),
+        ("GET", "/{namespace}/{name}/datasets"),
+        ("GET", "/{namespace}/{name}/examples"),
+        ("POST", "/{namespace}/{name}/decide"),
+        ("POST", "/{namespace}/{name}/guard"),
+        ("POST", "/{namespace}/{name}/fhir/decide"),
+        ("GET", "/{namespace}/{name}/validation-brief"),
+        ("POST", "/{namespace}/{name}/evals"),
+        ("GET", "/{namespace}/{name}/feedback/export"),
+        ("POST", "/{namespace}/{name}/pas"),
+    ]
+}
+STORE_FORMER_ROUTES: RenamedRoutes = {
+    (method, f"/api/store/packs{rest}"): (method, f"/api/store/agents{rest}")
+    for method, rest in [
+        ("GET", ""),
+        ("GET", "/{namespace}/{name}"),
+        ("POST", "/{namespace}/{name}/improvement"),
+    ]
+}
+REVIEW_FORMER_ROUTES: RenamedRoutes = {
+    (method, f"/api/registry/review/packs{rest}"): (method, f"/api/registry/review/agents{rest}")
+    for method, rest in [
+        ("GET", "/{namespace}/{name}/{version}"),
+        ("POST", "/{namespace}/{name}/{version}"),
+        ("POST", "/{namespace}/{name}/{version}/recall"),
+        ("POST", "/{namespace}/{name}/{version}/delete"),
+    ]
+}
+REGISTRY_FORMER_ROUTES: RenamedRoutes = {
+    (method, f"/v1/packs{rest}"): (method, f"/v1/agents{rest}")
+    for method, rest in [
+        ("PUT", "/{namespace}/{name}/{version}"),
+        ("POST", "/{namespace}/{name}/{version}/yank"),
+        ("GET", "/{namespace}/{name}"),
+        ("GET", "/{namespace}/{name}/tickets"),
+        ("GET", "/{namespace}/{name}/site-evidence"),
+        ("GET", "/{namespace}/{name}/reports/{report_id}"),
+        ("GET", "/{namespace}/{name}/reports"),
+        ("GET", "/{namespace}/{name}/{version}"),
+        ("GET", "/{namespace}/{name}/{version}/archive"),
+        ("POST", "/{namespace}/{name}/{version}/reports"),
+        ("POST", "/{namespace}/{name}/{version}/evaluations"),
+        ("GET", "/{namespace}/{name}/{version}/evaluations"),
+    ]
+}
+ENGINE_FORMER_ROUTES: RenamedRoutes = {
+    **FORMER_ROUTES,
+    **STORE_FORMER_ROUTES,
+    **REVIEW_FORMER_ROUTES,
+}
+
+
+def as_now(route: tuple[str, str]) -> tuple[str, str]:
+    """A route of the engine as it is listed now: a former route's current one, any other as
+    it is. A test's own table of what each route needs names current paths; a former route is
+    held to what that table says of the route that answers it now."""
+    return ENGINE_FORMER_ROUTES.get(route, route)

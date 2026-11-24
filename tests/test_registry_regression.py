@@ -35,9 +35,9 @@ def _copy(tmp_path: Path, version: str, edit: Any = None) -> Pack:
 
 def _worse(root: Path) -> None:
     """The same test set, routed by the pack's keyword rules instead of its model."""
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["providers"]["router"]["use"] = "rules"
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
 
 
 def test_a_publish_is_checked_on_its_own_test_set_and_shown_as_no_ranking(
@@ -65,10 +65,10 @@ def test_a_publish_is_checked_on_its_own_test_set_and_shown_as_no_ranking(
 
 def test_a_pack_without_a_test_set_says_so(registry: Registry, tmp_path: Path) -> None:
     def no_test_set(root: Path) -> None:
-        manifest = yaml.safe_load((root / "pack.yaml").read_text())
+        manifest = yaml.safe_load((root / "agent.yaml").read_text())
         del manifest["evaluation"]["benchmark_dataset"]
         manifest["evaluation"].pop("benchmark", None)
-        (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+        (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
 
     assert registry.publish(_copy(tmp_path, "9.9.7", no_test_set)).status_code == 201
     shown = registry.client.get(f"/v1/packs/{INBOX.id}/9.9.7").json()["checked"]["regression"]
@@ -190,10 +190,10 @@ def test_the_baseline_is_the_newest_measured_check_recalled_or_not(
     assert registry.publish(_copy(tmp_path, "9.9.6")).status_code == 201
 
     def no_test_set(root: Path) -> None:
-        manifest = yaml.safe_load((root / "pack.yaml").read_text())
+        manifest = yaml.safe_load((root / "agent.yaml").read_text())
         del manifest["evaluation"]["benchmark_dataset"]
         manifest["evaluation"].pop("benchmark", None)
-        (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+        (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
 
     assert registry.publish(_copy(tmp_path, "9.9.7", no_test_set)).status_code == 201
     worse = registry.publish(_copy(tmp_path, "9.9.8", _worse))

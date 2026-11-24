@@ -58,6 +58,7 @@ import mendari
 from mendari import __version__
 from mendari.core.decision import Decision, DecisionResult
 from mendari.core.origin import COMPOSITE_PROVIDER_TYPES, LOCAL_PROVIDER_TYPES
+from mendari.core.pack import has_manifest
 from mendari.core.spec import is_pack_id
 from mendari.errors import MendariError
 from mendari.evals import arms, method, stats
@@ -171,7 +172,7 @@ def _arm(arm: str) -> str:
 
 def _pack_id(text: str) -> str:
     if not is_pack_id(text):
-        raise ValueError("must be a pack id (namespace/name)")
+        raise ValueError("must be an agent id (namespace/name)")
     return text
 
 
@@ -377,7 +378,7 @@ def record(
     composite never kept is not reported, so a cost that needs it is unknown, never guessed.
     Refused when it would not agree with `ledger` (`disagreement`)."""
     if decision.pack.digest != ledger.header["pack"]["digest"]:
-        raise MendariError("the decision is not of the ledger's pack (another digest)")
+        raise MendariError("the decision is not of the ledger's agent (another digest)")
     if len(results) != len(ledger.cases):
         raise MendariError(f"{len(results)} results for a ledger of {len(ledger.cases)} cases")
     cases = []
@@ -470,8 +471,9 @@ def prices(raw: bytes, *, where: str = "price table") -> Prices:
 
 def load_prices(path: str | Path) -> Prices:
     """A price table from a file outside Mendari's code: one in the package (or the repository's
-    `src/`) or in a pack's directory is refused before it is read, so no built-in price and no
-    price a pack sets is ever used."""
+    `src/`) or in an agent's folder (one that holds a manifest, by either of its names, or is
+    below one) is refused before it is read, so no built-in price and no price an agent sets is
+    ever used."""
     return read_prices(path)[1]
 
 
@@ -481,8 +483,8 @@ def read_prices(path: str | Path) -> tuple[bytes, Prices]:
     where = Path(path)
     if _inside_code_or_pack(where):
         raise MendariError(
-            f"{where.name}: a price table is never read from Mendari's code or a pack "
-            "(keep it under scoreboard/prices/)"
+            f"{where.name}: a price table is never read from Mendari's code or an agent's "
+            "folder (keep it under scoreboard/prices/)"
         )
     try:
         raw = where.read_bytes()
@@ -499,7 +501,7 @@ def _inside_code_or_pack(path: Path) -> bool:
     code = [package, package.parent] if package.parent.name == "src" else [package]
     if any(resolved.is_relative_to(root) for root in code):
         return True
-    return any((parent / "pack.yaml").is_file() for parent in resolved.parents)
+    return any(has_manifest(parent) for parent in resolved.parents)
 
 
 # --------------------------------------------------------------------------------------------
@@ -577,7 +579,7 @@ def declaration_problem(
             found = [c for c in configurations if c.providers == dict(providers)]
             written = ",".join(f"{slot}={providers[slot]}" for slot in sorted(providers))
             if not found:
-                return f"its {where} configuration of {arm}, {written}, is not one of the pack's"
+                return f"its {where} configuration of {arm}, {written}, is not one of the agent's"
             if found[0].arm != arm:
                 return f"its {where} configuration of {arm}, {written}, is in {found[0].arm}"
             if found[0].local != (where == LOCAL):
@@ -644,7 +646,7 @@ def replicates(
         if problem is not None:
             raise MendariError(f"replicate {number}'s run record is not its ledger's: {problem}")
         if not _same_run_of(ledgers[0], ledger):
-            raise MendariError(f"replicate {number} is of another pack, set or configuration")
+            raise MendariError(f"replicate {number} is of another agent, set or configuration")
         if set(readings[number - 1]) != set(readings[0]):
             raise MendariError(f"replicate {number} holds other cases than replicate {HEADLINE}")
         for kind, found in run["models"].items():
@@ -699,7 +701,7 @@ def canary_flips(canary: Ledger, headline: Ledger) -> tuple[int, int]:
         two["primary"],
         variants[1],
     ):
-        raise MendariError("the canary is not of its replicates' pack, set and configuration")
+        raise MendariError("the canary is not of its replicates' agent, set and configuration")
     drawn, held = _primary_readings(canary), _primary_readings(headline)
     if not set(drawn) <= set(held):
         raise MendariError("the canary holds a case its replicates do not")

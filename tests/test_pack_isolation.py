@@ -36,7 +36,7 @@ def _outsider(root: Path, edit: Callable[[Path], None], source: Path = INBOX_DIR
     """An outside copy of a shipped pack (its own id) under `root`, changed by `edit`."""
     pack = root / "outsider" / source.name
     shutil.copytree(source, pack)
-    manifest_path = pack / "pack.yaml"
+    manifest_path = pack / "agent.yaml"
     manifest = yaml.safe_load(manifest_path.read_text())
     manifest["id"] = f"outsider/{source.name}"
     manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True))
@@ -143,10 +143,10 @@ DEEP = 5000  # nested deeper than the YAML, JSON and jsonschema readers recurse
             _with_schema_property(json.loads('{"not":' * 900 + "{}" + "}" * 900)),
             "not a schema the validator can read (RecursionError)",
         ),
-        (_write("pack.yaml", "a: " + "[" * DEEP + "]" * DEEP), "invalid YAML (RecursionError)"),
-        (_write("pack.yaml", b"id: \xff\xfe"), "pack.yaml: invalid YAML (UnicodeDecodeError)"),
-        (_append("pack.yaml", laughs(7)), "pack.yaml: expands to more than 1,000,000 nodes"),
-        (_append("pack.yaml", "x_loop: &loop [*loop]\n"), "refers to the anchor it is inside"),
+        (_write("agent.yaml", "a: " + "[" * DEEP + "]" * DEEP), "invalid YAML (RecursionError)"),
+        (_write("agent.yaml", b"id: \xff\xfe"), "agent.yaml: invalid YAML (UnicodeDecodeError)"),
+        (_append("agent.yaml", laughs(7)), "agent.yaml: expands to more than 1,000,000 nodes"),
+        (_append("agent.yaml", "x_loop: &loop [*loop]\n"), "refers to the anchor it is inside"),
     ],
     ids=[
         "ref-index",
@@ -196,7 +196,7 @@ def test_any_error_loading_one_pack_lists_it_by_type_and_serves_the_others(
     monkeypatch.setattr(registry_module, "load_pack", load)
     client = TestClient(create_app(db_path=tmp_path / "r.db", packs_paths=[outside, PACKS]))
     assert client.get("/api/health").json()["invalid"] == {
-        str(pack): "the pack could not be loaded (RuntimeError)"
+        str(pack): "the agent could not be loaded (RuntimeError)"
     }
     _shipped_packs_all_decide(client)
 
@@ -222,21 +222,21 @@ def test_an_unexpected_error_building_terminology_is_named_and_the_pack_still_se
 
 def _cql_default(change: Callable[[Path], None]) -> Callable[[Path], None]:
     def edit(pack: Path) -> None:
-        manifest = (pack / "pack.yaml").read_text()
+        manifest = (pack / "agent.yaml").read_text()
         assert "    use: criteria" in manifest
-        (pack / "pack.yaml").write_text(manifest.replace("    use: criteria", "    use: cql", 1))
+        (pack / "agent.yaml").write_text(manifest.replace("    use: criteria", "    use: cql", 1))
         change(pack)
 
     return edit
 
 
 def _cql_extra_key(pack: Path) -> None:
-    manifest = yaml.safe_load((pack / "pack.yaml").read_text())
+    manifest = yaml.safe_load((pack / "agent.yaml").read_text())
     for slot in manifest["providers"].values():
         for variant in slot["variants"].values():
             if variant.get("type") == "cql":
                 variant["bogus"] = 1
-    (pack / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (pack / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
 
 
 @pytest.mark.parametrize(
@@ -300,7 +300,7 @@ def test_an_over_long_version_is_refused_at_load_and_never_stops_startup(tmp_pat
     shipped = f"version: {load_pack(INBOX_DIR).version}"
     outside = tmp_path / "outside"
     pack = _outsider(
-        outside, lambda pack: _replace(pack / "pack.yaml", shipped, f"version: '{huge}'")
+        outside, lambda pack: _replace(pack / "agent.yaml", shipped, f"version: '{huge}'")
     ).resolve()
     with pytest.raises(PackValidationError, match="at most 64 characters"):
         load_pack(pack)
@@ -459,7 +459,7 @@ def test_an_example_over_64_kb_as_json_is_left_out_of_the_api_reference(tmp_path
     client = TestClient(create_app(db_path=tmp_path / "x.db", packs_paths=[outside, PACKS]))
     reference = client.get("/openapi.json")
     assert reference.status_code == 200 and "\\u0000" not in reference.text
-    decide = reference.json()["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]
+    decide = reference.json()["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     summaries = [
         e["summary"]
         for e in decide["requestBody"]["content"]["application/json"]["examples"].values()
@@ -471,13 +471,13 @@ def test_an_example_over_64_kb_as_json_is_left_out_of_the_api_reference(tmp_path
 
 
 def test_an_unused_variant_cannot_carry_an_expanding_manifest(tmp_path: Path) -> None:
-    """The same in pack.yaml (an unused variant's extra key, dumped by the pack's detail page):
+    """The same in agent.yaml (an unused variant's extra key, dumped by the pack's detail page):
     the pack is refused at load and every other pack is served."""
     outside = tmp_path / "outside"
-    pack = _outsider(outside, _append("pack.yaml", long_text_laughs(3, 100_000))).resolve()
+    pack = _outsider(outside, _append("agent.yaml", long_text_laughs(3, 100_000))).resolve()
     client = TestClient(create_app(db_path=tmp_path / "m.db", packs_paths=[outside, PACKS]))
     invalid = client.get("/api/health").json()["invalid"]
-    assert "pack.yaml: expands to more than 32,000,000 characters" in invalid[str(pack)]
+    assert "agent.yaml: expands to more than 32,000,000 characters" in invalid[str(pack)]
     _shipped_packs_all_decide(client)
 
 
@@ -510,14 +510,14 @@ def test_a_yaml_value_python_cannot_build_is_the_packs_problem(
     error's text)."""
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
-    _append("pack.yaml", f"\n{line}\n")(root)
-    error = error.format(line=(root / "pack.yaml").read_text().count("\n"))
+    _append("agent.yaml", f"\n{line}\n")(root)
+    error = error.format(line=(root / "agent.yaml").read_text().count("\n"))
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
-    assert raised.value.problems == [f"pack.yaml: invalid YAML value ({error})"]
+    assert raised.value.problems == [f"agent.yaml: invalid YAML value ({error})"]
     assert main(["validate", str(root)]) == 1
     err = capsys.readouterr().err
-    assert "pack.yaml: invalid YAML value" in err and "Traceback" not in err
+    assert "agent.yaml: invalid YAML value" in err and "Traceback" not in err
 
 
 # -- numbers, constructor errors and test inputs that are not JSON ------------------------------
@@ -560,13 +560,13 @@ def test_a_number_is_bounded_before_it_is_built_in_every_base(
     integer in a test input made `mendari validate` print a traceback."""
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
-    _append("pack.yaml", f"\nx_count: {value}\n")(root)
-    lines = (root / "pack.yaml").read_text().count("\n")
+    _append("agent.yaml", f"\nx_count: {value}\n")(root)
+    lines = (root / "agent.yaml").read_text().count("\n")
     started = time.perf_counter()
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
     assert time.perf_counter() - started < 2
-    assert raised.value.problems == [f"pack.yaml: {reason} (line {lines}, column 10)"]
+    assert raised.value.problems == [f"agent.yaml: {reason} (line {lines}, column 10)"]
     assert main(["validate", str(root)]) == 1
     err = capsys.readouterr().err
     assert reason in err and "Traceback" not in err
@@ -595,16 +595,16 @@ def test_a_constructor_error_names_its_type_and_place_never_the_value(tmp_path: 
     constructor cannot build."""
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
-    _append("pack.yaml", "\nx_secret: !canary-tag canary-value\n")(root)
-    lines = (root / "pack.yaml").read_text().count("\n")
+    _append("agent.yaml", "\nx_secret: !canary-tag canary-value\n")(root)
+    lines = (root / "agent.yaml").read_text().count("\n")
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
     assert raised.value.problems == [
-        f"pack.yaml: invalid YAML value (ConstructorError, line {lines}, column 11)"
+        f"agent.yaml: invalid YAML value (ConstructorError, line {lines}, column 11)"
     ]
     # A file that does not parse keeps the parser's message: what it expected, and where.
-    _append("pack.yaml", "x_broken: [1, 2\n")(root)
-    with pytest.raises(PackValidationError, match=r"pack\.yaml: invalid YAML: while parsing"):
+    _append("agent.yaml", "x_broken: [1, 2\n")(root)
+    with pytest.raises(PackValidationError, match=r"agent\.yaml: invalid YAML: while parsing"):
         load_pack(root)
 
 

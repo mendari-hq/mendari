@@ -43,7 +43,7 @@ from tests.test_hub_client import (  # noqa: F401 - `hub` is the live registry f
 from tests.test_registry_claims import Claimed
 
 REFERRAL = resolve_pack("mendari/referral-router")
-PATH = f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"
+PATH = f"/v1/agents/{REFERRAL.id}/{REFERRAL.version}"
 SUBJECT = f"{REFERRAL.id}@{REFERRAL.version}"
 URL = "https://registry.example"
 SEED = os.urandom(32)  # the registry's key in these tests: made here, never kept
@@ -81,7 +81,7 @@ def _client(
             seen.append(path)
         answer = registry.client.request(request.method, path, content=request.content)
         content = answer.content
-        if change is not None and answer.status_code == 200 and "/v1/packs/" in path:
+        if change is not None and answer.status_code == 200 and "/v1/agents/" in path:
             found = answer.json()
             if isinstance(found, dict) and "checked" in found:
                 content = json.dumps(change(found)).encode()
@@ -112,7 +112,7 @@ def _record(registry: Registry, path: str = PATH) -> Any:
 
 
 def _cached() -> list[Path]:
-    return sorted(packs_cache().rglob("pack.yaml"))
+    return sorted(packs_cache().rglob("agent.yaml"))
 
 
 def _keys_file(path: Path, *keys: Ed25519PrivateKey) -> Path:
@@ -146,7 +146,7 @@ def test_an_accepted_version_carries_a_record_that_verifies(
     }
     # Every read of the version serves the same record.
     assert (
-        registry.client.get(f"/v1/packs/{REFERRAL.id}").json()["latest"]["checked"]["accepted"]
+        registry.client.get(f"/v1/agents/{REFERRAL.id}").json()["latest"]["checked"]["accepted"]
         == record
     )
     (found,) = registry.client.get("/v1/search").json()
@@ -185,9 +185,9 @@ def test_a_version_planted_in_the_database_has_no_record_and_is_not_pulled(
         "INSERT INTO hub_versions (namespace, name, version, created_at, archive_sha256, metadata) "
         "SELECT namespace, name, '9.9.9', created_at, archive_sha256, metadata FROM hub_versions",
     )
-    planted = registry.client.get(f"/v1/packs/{REFERRAL.id}/9.9.9").json()
+    planted = registry.client.get(f"/v1/agents/{REFERRAL.id}/9.9.9").json()
     assert planted["checked"]["accepted"] is None
-    assert registry.client.get(f"/v1/packs/{REFERRAL.id}").json()["latest"]["version"] == "9.9.9"
+    assert registry.client.get(f"/v1/agents/{REFERRAL.id}").json()["latest"]["version"] == "9.9.9"
     seen: list[str] = []
     for ref in (REFERRAL.id, f"{REFERRAL.id}@9.9.9"):  # as the latest, and by its number
         with (
@@ -215,7 +215,7 @@ def test_a_version_planted_in_the_database_has_no_record_and_is_not_pulled(
 @pytest.mark.parametrize(
     ("field", "other", "problem"),
     [
-        ("pack", "mendari/another", "it names another pack"),
+        ("pack", "mendari/another", "it names another agent"),
         ("version", "9.9.9", "it names another version"),
         ("digest", "sha256:" + "1" * 64, "it names another digest"),
         ("archive_sha256", "2" * 64, "it names another archive sha256"),
@@ -287,7 +287,7 @@ def test_a_pending_version_is_signed_at_approval_and_a_refused_one_never(
     _keyed(monkeypatch)
     acme = Claimed(registry, db_target, tmp_path)
     own = {"authorization": f"Bearer {acme.token}"}
-    path = f"/v1/packs/acme/inbox/{SHIPPED}"
+    path = f"/v1/agents/acme/inbox/{SHIPPED}"
     assert acme.publish()["checked"]["accepted"] is None  # pending: not listed, not signed
     assert acme.publish("9.9.9")["checked"]["accepted"] is None
     assert registry.client.get(path, headers=own).json()["checked"]["accepted"] is None
@@ -304,7 +304,7 @@ def test_a_pending_version_is_signed_at_approval_and_a_refused_one_never(
     assert json.loads(events[1]["payload"])["by"] == "user:77aa"
     key_id = yank.registry_public(_key())["key_id"]
     for version in (SHIPPED, "9.9.9"):
-        record = _record(registry, f"/v1/packs/acme/inbox/{version}")
+        record = _record(registry, f"/v1/agents/acme/inbox/{version}")
         assert acceptance.problem(record, _key().public_key(), key_id) is None
         assert (record["pack"], record["version"]) == ("acme/inbox", version)
     with _client(registry) as client:
@@ -571,13 +571,13 @@ def test_countersign_refuses_a_broken_chain_and_never_signs_a_planted_version(
     printed = capsys.readouterr()
     assert json.loads(printed.out) == {
         "signed": [SUBJECT],
-        "skipped": [f"{REFERRAL.id}@9.9.9: its archive is another pack or version"],
+        "skipped": [f"{REFERRAL.id}@9.9.9: its archive is another agent or version"],
         "events_since_checkpoint": None,
         "checkpoint": None,
     }
     assert "1 not counter-signed" in printed.err and "ran without a checkpoint" in printed.err
     assert (
-        registry.client.get(f"/v1/packs/{REFERRAL.id}/9.9.9").json()["checked"]["accepted"] is None
+        registry.client.get(f"/v1/agents/{REFERRAL.id}/9.9.9").json()["checked"]["accepted"] is None
     )
     with _client(registry) as client, pytest.raises(HubError, match="is not counter-signed"):
         pull(f"{REFERRAL.id}@9.9.9", client)
@@ -618,8 +618,8 @@ def test_approval_never_signs_a_version_planted_while_the_claim_was_pending(
     assert [e["subject"] for e in _events(db_target) if e["event"] == "pack.accepted"] == [
         f"acme/inbox@{SHIPPED}"
     ]
-    assert _record(registry, f"/v1/packs/acme/inbox/{SHIPPED}") is not None
-    assert _record(registry, "/v1/packs/acme/inbox/9.9.9") is None
+    assert _record(registry, f"/v1/agents/acme/inbox/{SHIPPED}") is not None
+    assert _record(registry, "/v1/agents/acme/inbox/9.9.9") is None
     with _client(registry) as client:
         with pytest.raises(HubError, match="is not counter-signed"):
             pull("acme/inbox", client)  # the planted one is the newest: refused, not skipped

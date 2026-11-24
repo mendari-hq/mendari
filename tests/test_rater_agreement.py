@@ -275,7 +275,7 @@ def test_a_derived_question_is_labelled_through_the_packs_table() -> None:
     ("labels", "message"),
     [
         ({"verdict": "block"}, "labels verdict, a derived question: raters label its members"),
-        ({"no_such_question": "yes"}, "labels a question the pack does not have"),
+        ({"no_such_question": "yes"}, "labels a question the agent does not have"),
         ({"unsafe_advice": "certainly"}, "unsafe_advice's label is not one of its labels"),
     ],
 )

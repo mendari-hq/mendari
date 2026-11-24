@@ -152,7 +152,7 @@ EXPECTED_WARNINGS = (
         r"^No code provided, and a code should be provided from the value set "
         r"'CRD Coverage Assertion Reasons Value Set'",
         r"^ServiceRequest\.extension\[\d+\]\.extension\[\d+\]",
-        "a pack gives its coverage reason as text (an extensible binding)",
+        "an agent gives its coverage reason as text (an extensible binding)",
     ),
     Expected(
         r"^None of the codings provided are in the value set 'IdentifierType'",

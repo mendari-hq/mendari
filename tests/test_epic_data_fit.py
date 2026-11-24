@@ -698,7 +698,7 @@ def two_source_pack(
     root = mini(
         base / "packs", {"lists": {"medications": TWO_SOURCES}, **(changes or {})}, spec="0.3"
     )
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["risk"]["level"] = 1
     manifest["policy"]["thresholds"]["auto"] = 0.8
     if rules is not None:
@@ -709,7 +709,7 @@ def two_source_pack(
             "requests": "MedicationRequest?patient={{context.patientId}}",
         }
     )
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     schema_path = root / "schemas" / "input.schema.json"
     schema = json.loads(schema_path.read_text())
     schema["properties"]["medications"] = {"type": "array", "items": {"type": "object"}}
@@ -836,12 +836,12 @@ def test_a_refused_input_s_card_says_the_limitation_apart_from_why(tmp_path: Pat
     under a declaration its limitation is on the card too, but apart (`ALSO_NOTED`), since it is
     not why: the refusal is the US Core errors."""
     root = two_source_pack(tmp_path)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     card = manifest["cds_hooks"]["card"]
     card["summaries"]["refused"] = "Prescreen not checked: its data was refused as invalid"
     card["indicators"]["refused"] = "warning"
     card["show"].append("refused")
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     strict = Decision(load_pack(root), fhir_validation="enforce")
     result, task = decide_for(
         strict, mini_chart(refused=True).client(), "p1", "Patient/p1", declared=declaration()
@@ -990,7 +990,7 @@ def test_a_cds_client_may_still_send_a_declared_key(monkeypatch: pytest.MonkeyPa
 
 # -- the setting, checked at startup -------------------------------------------------------------
 
-REFERENCE_PACKS = ROOT / "tests" / "fixtures" / "reference-packs"
+REFERENCE_PACKS = ROOT / "tests" / "fixtures" / "reference-agents"
 REGISTERED = {EHR: Registration(base=EHR, org=DEFAULT_ORG, level="decide")}
 
 
@@ -1088,9 +1088,9 @@ def test_each_declaration_is_checked_against_the_deployment() -> None:
     )
     for kind in ("DocumentReference", "Patient", "Medication", "Condition"):
         message = refusal({EHR: entry(not_offered=[kind])})
-        assert f"not_offered {kind}: no pack found here" in message, kind
+        assert f"not_offered {kind}: no agent found here" in message, kind
     both = {EHR: entry(not_offered=["MedicationRequest", "MedicationStatement"])}
-    assert "not_offered MedicationRequest: no pack found here" in refusal(both)
+    assert "not_offered MedicationRequest: no agent found here" in refusal(both)
 
     # Registered either way, for its organization: checked.
     check(declarations(), packs, signed_in=False, ehrs=REGISTERED, cds=None, allowed={ORIGIN})

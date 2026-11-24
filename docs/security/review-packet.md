@@ -33,7 +33,7 @@ approvals are appended to a hash chain. A clinician reviews what the policy does
 | Outbound calls (SSRF): FHIR servers, the CQL engine, the identity provider, the payer, webhooks, model providers | `standards/fhir_client.py`, `providers/` |
 | The agent registry: publishing, the card it renders, the two groups (checked, claimed), its chain, recalls and deletions, rate limits and headers, the regression check (LP-18, [ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)) | `hub/registry.py`, `hub/yank.py`, `hub/regression.py`, `hub/archive.py`, `core/card.py` |
 | Pulling and serving an agent from a registry: verification, the origin marker, the cap until an organization approves its digest, the recall reads | `hub/client.py`, `core/origin.py`, `core/decision.py` (`_origin_holds`), `server/recalls.py`, `server/app.py` (`/api/registry-approvals`) |
-| An organization's agent store (LP-20, [ADR-0016](../decisions/ADR-0016-a-pack-store-per-organization.md), off unless `MENDARI_PACK_STORE=on`, memberships mode only): the author role and its keys, signed uploads in parts, the PHI detector, the hidden-set check and what it holds, copies and edits, stored evaluation jobs and comparisons, promotion by someone other than the author and serving a promoted version to its organization only, the improvement dataset; routes `/api/store/*`, tables `store_files`, `store_versions`, `store_usage`, `store_keys`, `store_uploads`, `store_upload_parts`, `store_matches`, `store_datasets`, `store_jobs`, `store_promotions`, `store_proposals` | `core/pack_store.py`, `core/phi_detect.py`, `server/store_routes.py`, `evals/store_jobs.py`, `evals/corrections.py`, `evals/validation.py`, `evals/dataset_checks.py`, `server/app.py` (`served_here`) |
+| An organization's agent store (LP-20, [ADR-0016](../decisions/ADR-0016-an-agent-store-per-organization.md), off unless `MENDARI_AGENT_STORE=on`, memberships mode only): the author role and its keys, signed uploads in parts, the PHI detector, the hidden-set check and what it holds, copies and edits, stored evaluation jobs and comparisons, promotion by someone other than the author and serving a promoted version to its organization only, the improvement dataset; routes `/api/store/*`, tables `store_files`, `store_versions`, `store_usage`, `store_keys`, `store_uploads`, `store_upload_parts`, `store_matches`, `store_datasets`, `store_jobs`, `store_promotions`, `store_proposals` | `core/pack_store.py`, `core/phi_detect.py`, `server/store_routes.py`, `evals/store_jobs.py`, `evals/corrections.py`, `evals/validation.py`, `evals/dataset_checks.py`, `server/app.py` (`served_here`) |
 | The Hub website: rendering publisher text, its CSP and headers | the repository's top-level `hub/` (Next.js: `proxy.ts`, `app/`), not `src/mendari/hub/` |
 | The build: CI, pinned actions and images, the Docker image, Dependabot | `.github/`, `Dockerfile`, `deploy/` |
 
@@ -271,8 +271,12 @@ uv run mendari serve --port 8000 --db var/review.db
 
 - **The scripted pilot:** in another shell, `uv run mendari sandbox pilot-check --engine
   http://127.0.0.1:8000`. It signs in four people through the real flow, creates a key,
-  decides 12 synthetic messages, reads and resolves a review, checks a viewer is refused,
-  approves an agent and verifies the chain.
+  decides 12 synthetic messages with the demo agent, reads and resolves a review, checks a
+  viewer is refused and verifies the chain. The committee's approval of automation needs an
+  agent of risk level 2 or 3, and the demo agent is level 0: name one the engine serves
+  (`--approve AGENT`, an id or a directory; CI gives a test fixture's) and it is approved and
+  its next decision checked for the approval; without it that step is left out, and reported
+  so.
 - **In a browser:** open `http://127.0.0.1:8000/` (`MENDARI_PUBLIC_URL`'s host; a sign-in
   started on another, such as `localhost`, is sent there first).
   The provider's form takes any user name and, as claims, for example

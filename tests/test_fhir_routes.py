@@ -403,12 +403,19 @@ def test_signed_out_callers_get_nothing(two_orgs: Any) -> None:
 # -- what CI validates -------------------------------------------------------------------------
 
 
-def test_every_sample_ci_validates_passes_the_structural_gate(client: TestClient) -> None:
+def test_every_sample_ci_validates_passes_the_structural_gate(db_target: str) -> None:
     """The answers `scripts/fhir_output_sample.py` writes for the HL7 validator, made here
-    through the same requests: each passes the in-process R4 structure check, and no searchset
-    carries an error among its outcome entries (the validator does not look for that)."""
+    through the same requests to the script's own engine (the bundled demo agent, read by its
+    rules): each passes the in-process R4 structure check, and no searchset carries an error
+    among its outcome entries (the validator does not look for that)."""
     script = load_script("fhir_output_sample")
-    answers = script.served_reads_and_searches(client)
+    with TestClient(script.engine(db_target), base_url=SERVER) as client:
+        answers = script.served_reads_and_searches(client)
+        metadata = client.get("/fhir/metadata")
+        tasks = client.get("/fhir/Task?_count=10").json()["entry"]
+    # A decision of each kind the demo agent's rules give: reviewed, automated, abstained.
+    waiting = {task["resource"]["status"] for task in tasks}
+    assert waiting == {"completed", "requested"} and len(tasks) == 3
     assert set(answers) == {
         "served-task",
         "served-task-v2",
@@ -421,7 +428,6 @@ def test_every_sample_ci_validates_passes_the_structural_gate(client: TestClient
         "served-searchset-provenance",
         "served-searchset-codesystem",
     }
-    metadata = client.get("/fhir/metadata")
     assert metadata.status_code == 200
     answers["capability"] = metadata.json()
     for name, resource in answers.items():

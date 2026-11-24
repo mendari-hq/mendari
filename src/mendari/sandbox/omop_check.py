@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The OMOP exit check: a dataset written into an OMOP CDM database and read back as pack inputs
-must evaluate exactly like the dataset itself (the same decisions, metrics per question and
-misclassified cases). This is the roadmap's v0.7 check for "OMOP CDM -> pack inputs".
+"""The OMOP exit check: a dataset written into an OMOP CDM database and read back as an agent's
+inputs must evaluate exactly like the dataset itself (the same decisions, metrics per question
+and misclassified cases). This is the roadmap's v0.7 check for "OMOP CDM -> agent inputs".
+
+OMOP holds a patient's record (conditions, labs, medications), so the check is for an agent
+that reads one. The bundled demo agent reads a portal message: the agent is always named.
 """
 
 from __future__ import annotations

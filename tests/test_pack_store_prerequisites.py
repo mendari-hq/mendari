@@ -34,8 +34,8 @@ def _without_the_budget() -> Any:
 @pytest.mark.parametrize(
     ("target", "name", "replacement", "named"),
     [
-        (origin, "NOT_OWNED", frozenset({"hub"}), "LP-16: a pack from a store"),
-        (patterns, "check_time", _without_the_budget(), "LP-16: a bounded pack's rules"),
+        (origin, "NOT_OWNED", frozenset({"hub"}), "LP-16: an agent from a store"),
+        (patterns, "check_time", _without_the_budget(), "LP-16: a bounded agent's rules"),
         (stats, "clopper_pearson", lambda k, n: (0.0, 1.0), "LP-10: the exact interval"),
         (stats, "mcnemar_exact", lambda b, c: 1.0, "LP-10: the exact McNemar"),
         (ledger, "canonical", lambda value: "{}", "LP-10: the ledger's canonical JSON"),

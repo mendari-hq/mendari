@@ -278,7 +278,7 @@ def test_every_summary_expansion_fits_140_characters(tmp_path: Path) -> None:
     each expansion counted here, and `longest` is the longest of them. A summary that can read
     140 or longer is refused from a registry, warned when owned, and refused by `mendari
     validate`; an owned pack's card cuts it to 139."""
-    roots = [p for p in sorted(INBOX_DIR.parent.iterdir()) if (p / "pack.yaml").is_file()]
+    roots = [p for p in sorted(INBOX_DIR.parent.iterdir()) if (p / "agent.yaml").is_file()]
     counted = 0
     for root in roots:
         pack = load_pack(root)
@@ -367,7 +367,8 @@ def test_the_engine_trace_is_behind_the_audit_link_only_when_one_can_be_made(
     its reasons stay in its detail, but for the confidence thresholds' (`threshold_reason`),
     whose figures have no interval; with it, the detail is the status, the notice and one plain
     sentence, the reasons are behind an absolute link to the decision in the audit view, and
-    `source.url` is the pack's card."""
+    `source.url` is the pack's card. Both links name the agent as the console's address does
+    (`?agent=`; the console still reads `?pack=`, as a card an EHR kept wrote it)."""
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "ftp://mendari.test")
     for public in (None, "ftp://mendari.test"):
         if public is None:
@@ -387,11 +388,11 @@ def test_the_engine_trace_is_behind_the_audit_link_only_when_one_can_be_made(
         assert card["links"] == [
             {
                 "label": cds_hooks.AUDIT_LINK,
-                "url": f"{PUBLIC}/?pack=mendari/referral-router#audit/{decision}",
+                "url": f"{PUBLIC}/?agent=mendari/referral-router#audit/{decision}",
                 "type": "absolute",
             }
         ]
-        assert card["source"]["url"] == f"{PUBLIC}/?pack=mendari/referral-router#card"
+        assert card["source"]["url"] == f"{PUBLIC}/?agent=mendari/referral-router#card"
         record = client.get(f"/api/audit/{decision}").json()["record"]
         assert record["reasons"] and not any(r in card["detail"] for r in record["reasons"])
         status, sentence = card["detail"].split("\n\n")[:2]
@@ -424,7 +425,8 @@ def test_a_card_links_to_the_launch_view_only_for_a_registered_ehr_of_the_same_o
 ) -> None:
     """A `smart` link to the pack's launch, only when SMART is on and the request's `fhirServer`
     is registered for launches (`MENDARI_SMART_EHRS`) to the caller's own organization: open
-    mode's is `default`."""
+    mode's is `default`. It names the agent by the launch route's own parameter, `pack`, which
+    stays (a name on the wire: `GET /smart/launch?pack=`)."""
     _launch_setup(monkeypatch, smart=False)
     assert _launch_links(served(tmp_path, "off.db"), EHR_A) == []  # SMART off
     _launch_setup(monkeypatch)
@@ -535,9 +537,9 @@ def _edited(tmp_path: Path, source: Path, edit: Any) -> Path:
     """A copy of a reference pack whose manifest `edit` changed (in place, as a mapping)."""
     root = tmp_path / source.name
     shutil.copytree(source, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     edit(manifest)
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     return root
 
 

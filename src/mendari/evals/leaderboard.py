@@ -186,10 +186,10 @@ def preface() -> str:
     (`ranking.grouped`'s) and where the scoreboard is. It calls only the pack's own sets public:
     a board can hold a site's own file (`mendari leaderboard --dataset PATH`)."""
     return (
-        f"{PUBLIC_SET[:1].upper()}{PUBLIC_SET[1:]}. Nothing here is graded: the pack's own sets "
+        f"{PUBLIC_SET[:1].upper()}{PUBLIC_SET[1:]}. Nothing here is graded: the agent's own sets "
         "are public, in the repository and in the package, so a configuration can be tuned to "
         "them, and grades and rankings are given only on frozen hidden sets. The rows are a "
-        "listing order, not a ranking: those measured on this version of the pack, on records "
+        "listing order, not a ranking: those measured on this version of the agent, on records "
         f"where a critical label has at least {MIN_POSITIVES} positives, come first, the "
         "critical cases caught first and never accuracy alone; every other row follows, by "
         "configuration name."

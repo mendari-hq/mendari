@@ -5,7 +5,7 @@ check).
 As the registry's operator, on its database (`--db`, as `mendari registry ...` acts; there is no
 shared administrator token since LP-19g): claims the `mendari` namespace for the `mendari`
 organization and mints an owned publisher token. Then, over HTTP as that publisher, registers a
-signing key and signs and pushes every bundled pack; then approves the claim, which lists the
+signing key and signs and pushes every bundled agent; then approves the claim, which lists the
 namespace, and records it as a verified publisher. Prints the token and key id; with `--key-out`
 it keeps the key pair for later pushes. With `--hostile-example` it also publishes, as a
 community publisher, a pack whose text tries to run a script and a `javascript:` link (the
@@ -90,7 +90,7 @@ def listed(store: RegistryStore, name: str, publisher_type: str) -> None:
 
 
 def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
-    """A copy of the inbox pack under another id whose summary, intended use and evidence carry
+    """A copy of the demo agent under another id whose summary, intended use and evidence carry
     a script tag, an image with an `onerror` handler, Markdown that would read as the registry's
     own words (a heading, a table, an image, a rule, a review claim) and a `javascript:` link."""
     private, public = archive.generate_key()
@@ -99,7 +99,8 @@ def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
     with tempfile.TemporaryDirectory() as scratch:
         root = Path(scratch) / "hostile"
         shutil.copytree(inbox.root, root)
-        manifest = yaml.safe_load((root / "pack.yaml").read_text(encoding="utf-8"))
+        manifest_file = root / inbox.manifest_file
+        manifest = yaml.safe_load(manifest_file.read_text(encoding="utf-8"))
         manifest["id"], manifest["version"] = HOSTILE_ID, "1.0.0"
         manifest["name"] = "Hostile Text Example"
         manifest["summary"] = f"Publisher text that tries to run: {HOSTILE_SCRIPT}"
@@ -114,7 +115,7 @@ def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
             for version in ("0.9.0", "1.0.0"):
                 manifest["version"] = version
                 text = yaml.safe_dump(manifest, sort_keys=False)
-                (root / "pack.yaml").write_text(text, encoding="utf-8")
+                manifest_file.write_text(text, encoding="utf-8")
                 published = client.push(load_pack(root), key)
                 print(f"published {published['id']}@{published['version']}")
             client.yank(

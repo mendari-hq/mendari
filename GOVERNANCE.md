@@ -9,7 +9,7 @@ aims: move openly, and never trade safety for speed.
 |---|---|---|
 | **Contributors** | Anyone who opens an issue or a pull request | Proposes changes |
 | **Maintainers** | @Junebugg1214 (founder, lead maintainer) | Review and merge, cut releases, enforce the code of conduct, handle security reports |
-| **Clinical reviewers** | Clinicians who volunteer, named in a pack's PR | Review a pack's criteria, risk level and failure modes before Mendari publishes it as one of its own agents |
+| **Clinical reviewers** | Clinicians who volunteer, named in an agent's PR | Review an agent's criteria, risk level and failure modes before Mendari publishes it as one of its own agents |
 
 A contributor becomes a maintainer after sustained, high-quality contributions and reviews, when
 the existing maintainers agree.
@@ -34,8 +34,8 @@ the existing maintainers agree.
   for.
 - Publishers on the Hub are `community` by default. A publisher becomes **`verified`** when a
   maintainer has confirmed who they are. They become **`institutional`** when the publisher is
-  a healthcare organization that stands behind its packs. The type is shown on every pack, and
-  says who publishes it, not that the pack is clinically validated for your site: validate
+  a healthcare organization that stands behind its agents. The type is shown on every agent, and
+  says who publishes it, not that the agent is clinically validated for your site: validate
   locally.
 
 ## Conduct and security

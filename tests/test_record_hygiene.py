@@ -49,7 +49,9 @@ KEYED = re.compile(r"^hmac-sha256:[0-9a-f]{16}:[0-9a-f]{64}$")
 
 @pytest.fixture(scope="module")
 def trial() -> Pack:
-    return load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "clinical-trial-prescreener")
+    return load_pack(
+        ROOT / "tests" / "fixtures" / "reference-agents" / "clinical-trial-prescreener"
+    )
 
 
 def marked_bundle(*, conforming: bool = True) -> dict[str, Any]:

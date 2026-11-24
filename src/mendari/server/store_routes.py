@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """An organization's pack store, its authors' routes (LP-20f, ADR-0016 Proposed).
 
-Mounted only with `MENDARI_PACK_STORE=on` in memberships mode, once the store's prerequisites
+Mounted only with `MENDARI_AGENT_STORE=on` in memberships mode, once the store's prerequisites
 are met (`create_app`). The guard lets through only a person who signed in and holds `author`
 (the reserved role `pack_author`, which an administrator gives, themself included): never a
 key, a client, an EHR launch or open mode. The authors' keys are managed by the organization's
@@ -35,10 +35,10 @@ from mendari.core.decision import Decision
 from mendari.core.pack import Pack
 from mendari.core.pack_store import DRAFT, HELD, PackStore, PhiRejected, StoreError
 from mendari.errors import HubError, MendariError
-from mendari.server import security_log
+from mendari.server import paths, security_log
 from mendari.server.auth import Auth, org_of
 
-TAG = "Pack store"
+TAG = "Agent store"
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 MAX_EDITED_FILES = 20
 MAX_TEST_CASES = 500
@@ -52,7 +52,9 @@ class UploadRequest(BaseModel):
 
 
 class CopyRequest(BaseModel):
-    pack: str = Field(description="the id of a pack this deployment serves from disk")
+    pack: str = Field(
+        title="Agent", description="the id of an agent this deployment serves from disk"
+    )
     name: str = Field(description="the copy's name: its id is <your organization>/<name>")
 
 
@@ -74,9 +76,11 @@ class DatasetRequest(BaseModel):
 
 class JobRequest(BaseModel):
     version: str | None = Field(default=None, description="a store version's digest")
-    pack: str | None = Field(default=None, description="or a pack served here: the current one")
+    pack: str | None = Field(
+        default=None, title="Agent", description="or an agent served here: the current one"
+    )
     dataset: dict[str, str] = Field(
-        description='a dataset the pack declares, `{"name": "test"}`, or yours, `{"id": ...}`'
+        description='a dataset the agent declares, `{"name": "test"}`, or yours, `{"id": ...}`'
     )
     variants: dict[str, str] | None = Field(default=None, description="slot -> variant")
 
@@ -145,7 +149,7 @@ def _renamed(manifest: bytes, pack_id: str) -> bytes:
     """A manifest with its top-level `id` replaced; nothing else of it changes."""
     text = manifest.decode("utf-8")
     if not _TOP_LEVEL_ID.search(text):
-        raise HTTPException(422, "the pack's manifest has no top-level id to rename")
+        raise HTTPException(422, "the agent's manifest has no top-level id to rename")
     return _TOP_LEVEL_ID.sub(f"id: {pack_id}", text, count=1).encode("utf-8")
 
 
@@ -229,9 +233,15 @@ def add_store_routes(
             raise HTTPException(409, f"version {digest} is {said}")
         return row
 
-    @app.get("/api/store/packs", tags=[TAG], summary="Your organization's packs in the store")
+    @paths.route(
+        app.get,
+        "/api/store/agents",
+        tags=[TAG],
+        summary="Your organization's agents in the store",
+        name="store_agents",
+    )
     def store_packs(request: Request) -> list[dict[str, Any]]:
-        """The packs in the store of the organization you act for, each with its versions,
+        """The agents in the store of the organization you act for, each with its versions,
         newest first: state, whether it validated, where it came from, who made it and when. A
         held version shows its state and nothing else."""
         _, org = person(request)
@@ -240,19 +250,21 @@ def add_store_routes(
             lineages.setdefault(row["pack_id"], []).append(_listed(row))
         return [{"pack_id": pack_id, "versions": found} for pack_id, found in lineages.items()]
 
-    @app.get(
-        "/api/store/packs/{namespace}/{name}",
+    @paths.route(
+        app.get,
+        "/api/store/agents/{namespace}/{name}",
         tags=[TAG],
-        summary="One pack's versions in the store",
+        summary="One agent's versions in the store",
+        name="store_agent",
     )
     def store_pack(request: Request, namespace: str, name: str) -> dict[str, Any]:
-        """One pack of your organization's store, its versions newest first, each with its
-        files, validation and dataset checks. An unknown pack and another organization's are
+        """One agent of your organization's store, its versions newest first, each with its
+        files, validation and dataset checks. An unknown agent and another organization's are
         one `404`."""
         _, org = person(request)
         found = store.versions(org, f"{namespace}/{name}")
         if not found:
-            raise HTTPException(404, "no such pack in this organization's store")
+            raise HTTPException(404, "no such agent in this organization's store")
         return {"pack_id": f"{namespace}/{name}", "versions": [_detail(row) for row in found]}
 
     @app.get("/api/store/versions/{digest}", tags=[TAG], summary="One version, with its card")
@@ -294,7 +306,7 @@ def add_store_routes(
 
     @app.post("/api/store/versions", status_code=201, tags=[TAG], summary="Upload a small archive")
     async def upload_archive(request: Request) -> JSONResponse:
-        """A signed pack archive (`mendari pack build`) in one request, under the body limit;
+        """A signed agent archive (`mendari archive build`) in one request, under the body limit;
         a larger one goes in parts (`/api/store/uploads`). It must be signed by one of your
         organization's author keys. Answers the new version (`201`), `held` (for the operator's
         review) if it holds a hidden evaluation case, or a refusal naming the check."""
@@ -368,12 +380,18 @@ def add_store_routes(
             raise _refused(error) from None
         return checked_archive(request, org, by, data)
 
-    @app.post("/api/store/copies", status_code=201, tags=[TAG], summary="Copy a pack into a draft")
+    @app.post(
+        "/api/store/copies",
+        status_code=201,
+        tags=[TAG],
+        summary="Copy an agent into a draft",
+        name="copy_agent",
+    )
     def copy_pack(request: Request, body: CopyRequest) -> JSONResponse:
-        """A draft of a pack this deployment serves from disk, renamed `<your organization>/
-        <name>` (a store pack never takes a bundled agent's id) and recording what it was
-        copied from (id, version, digest). It runs on the engine for packs the deployment does
-        not own, so a pack whose patterns that engine cannot run is refused, saying why."""
+        """A draft of an agent this deployment serves from disk, renamed `<your organization>/
+        <name>` (a store agent never takes a bundled agent's id) and recording what it was
+        copied from (id, version, digest). It runs on the engine for agents the deployment does
+        not own, so an agent whose patterns that engine cannot run is refused, saying why."""
         from mendari.hub.archive import pack_files
 
         by, org = person(request)
@@ -381,12 +399,14 @@ def add_store_routes(
             raise HTTPException(422, "a name is lower-case letters, digits and hyphens")
         source = served().get(body.pack)
         if source is None:
-            raise HTTPException(404, "no such pack served here to copy")
+            raise HTTPException(404, "no such agent served here to copy")
         files = {
             path.relative_to(source.root).as_posix(): path.read_bytes()
             for path in pack_files(source.root)
         }
-        files["pack.yaml"] = _renamed(files["pack.yaml"], f"{org}/{body.name}")
+        # The manifest under the name the served agent has it (`Pack.manifest_file`).
+        manifest = source.manifest_file
+        files[manifest] = _renamed(files[manifest], f"{org}/{body.name}")
         copied = {"id": source.id, "version": source.version, "digest": source.digest}
         return admitted(request, org, by, files, source="copy", copied_from=copied)
 
@@ -419,7 +439,7 @@ def add_store_routes(
             except UnicodeDecodeError:
                 raise HTTPException(422, f"{edited.path}: not a text file") from None
             files[edited.path] = edited.content.encode("utf-8")
-        if _trained_paths(files.get("pack.yaml", b"")) != trained:
+        if _trained_paths(files.get(pack.manifest_file, b"")) != trained:
             raise HTTPException(422, "an edit does not change which files are trained")
         return admitted(request, org, by, files, source="edit", parent=digest)
 
@@ -539,7 +559,7 @@ def add_store_routes(
 
     @app.post("/api/store/jobs", status_code=201, tags=[TAG], summary="Make an evaluation job")
     def make_job(request: Request, body: JobRequest) -> dict[str, Any]:
-        """A job evaluating a version of your store (`version`) or a pack served here (`pack`,
+        """A job evaluating a version of your store (`version`) or an agent served here (`pack`,
         the current one a draft is compared with) on a dataset. Local variants unless named; a
         remote one needs your organization's evaluation quota set and runs on 200 cases at
         most. It runs when `…/advance` is called, a slice at a time. Chained."""
@@ -632,8 +652,9 @@ def add_store_routes(
             )
         return results
 
-    @app.post(
-        "/api/store/packs/{namespace}/{name}/improvement",
+    @paths.route(
+        app.post,
+        "/api/store/agents/{namespace}/{name}/improvement",
         status_code=201,
         tags=[TAG],
         summary="Build the improvement dataset from reviewers' corrections",
@@ -641,7 +662,7 @@ def add_store_routes(
     def build_improvement(
         request: Request, namespace: str, name: str, body: ImprovementRequest
     ) -> JSONResponse:
-        """A dataset of your organization's decisions of this pack (and of the pack it was
+        """A dataset of your organization's decisions of this agent (and of the agent it was
         copied from) that a reviewer resolved: each one's input and final label, with where the
         label came from (the decision, the reviewer by id, when, whether they overrode it). Needs
         `author` and the permission to read inputs: it reads patients' inputs, each read chained.
@@ -658,7 +679,7 @@ def add_store_routes(
         pack_id = f"{namespace}/{name}"
         row = owned(org, body.version)
         if row["pack_id"] != pack_id:
-            raise HTTPException(422, "that version is not one of this pack's")
+            raise HTTPException(422, "that version is not one of this agent's")
         sources = [pack_id]
         current: Mapping[str, Any] | None = row
         while current is not None:  # the pack its lineage was copied from
@@ -762,7 +783,7 @@ def add_store_routes(
         """Serve a validated version of your organization's store to your organization, on the
         evaluation reports named (each one of this version's), with a reference and a note.
         Refused when you made it or any version it was made from. The promoted version of the
-        same pack before it is retired. At risk levels 2 and 3 it still automates only with the
+        same agent before it is retired. At risk levels 2 and 3 it still automates only with the
         automation approval of its digest. Chained `pack_version.promoted`."""
         by, org = person(request)
         try:
@@ -788,8 +809,8 @@ def add_store_routes(
         summary="Withdraw a promotion",
     )
     def retire_promotion(request: Request, promotion_id: str) -> dict[str, Any]:
-        """Stop serving a promoted version: the organization is served no version of that pack
-        until another is promoted. A store pack's recall. Chained `pack_version.retired`."""
+        """Stop serving a promoted version: the organization is served no version of that agent
+        until another is promoted. A store agent's recall. Chained `pack_version.retired`."""
         by, org = person(request)
         try:
             retired = store.retire(org, promotion_id, by=by)

@@ -68,7 +68,7 @@ from mendari.core import clock
 from mendari.core.audit import AuditStore
 from mendari.core.rate_buckets import RateBuckets
 from mendari.errors import MendariError
-from mendari.server import security_log
+from mendari.server import paths, security_log
 
 Mode = Literal["on", "log", "off"]
 _UNITS = {"s": 1, "min": 60, "h": 3600}
@@ -119,9 +119,11 @@ DEFAULT_RATES: dict[str, Rate] = {
     "store": Rate(240, 3600, 60),
 }
 
-_GUARD = re.compile(r"^/api/packs/[^/]+/[^/]+/guard$")
+# Each names a route's current path; `Limiter.classify` and `DailyCap.counts` read a renamed
+# route's former path as its current one first (`server/paths.py`), so both count alike.
+_GUARD = re.compile(r"^/api/agents/[^/]+/[^/]+/guard$")
 _EXPORTS = re.compile(
-    r"^/api/(audit/(administrative/)?export/fhir|packs/[^/]+/[^/]+/feedback/export)$"
+    r"^/api/(audit/(administrative/)?export/fhir|agents/[^/]+/[^/]+/feedback/export)$"
 )
 
 
@@ -248,7 +250,7 @@ class DailyCapReached(RateLimited):
 # draft order (counted in its route, `DailyCap.charge`). Not what only needs the permission
 # (acknowledging the notice, a PAS submission or a DTR package, built from decisions made).
 _DECIDES = re.compile(
-    r"^/(api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide)|fhir/\$decide|api/smart/decide)$"
+    r"^/(api/agents/[^/]+/[^/]+/(decide|guard|fhir/decide)|fhir/\$decide|api/smart/decide)$"
 )
 
 
@@ -273,7 +275,7 @@ class DailyCap:
     def counts(method: str, path: str) -> bool:
         """Whether the guard counts this request (one decision); a CDS Hooks request is counted
         in its route, which knows how many it makes."""
-        return method == "POST" and _DECIDES.match(path) is not None
+        return method == "POST" and _DECIDES.match(paths.current(path)) is not None
 
     def check(self, principal_id: str, org: str | None, cost: int = 1) -> DailyCapReached | None:
         """Count `cost` decisions, all or none; the refusal if they would pass the cap."""
@@ -328,6 +330,7 @@ class Limiter:
 
     def classify(self, method: str, path: str, permission: str) -> str | None:
         """The class a request counts against, or None (not limited here)."""
+        path = paths.current(path)
         if method == "GET" and path in ("/auth/login", "/smart/launch"):
             return "signin"
         if method == "POST" and permission == "person":

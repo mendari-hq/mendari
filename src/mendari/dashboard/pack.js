@@ -5,7 +5,7 @@ import { chartHtml } from "./charts.js";
 import { recordHtml } from "./record.js";
 import { esc, num, pct, slotText, state } from "./ui.js";
 
-// Where a pack comes from (`origin`, from /api/packs): set by where the deployment found it, never
+// Where a pack comes from (`origin`, from /api/agents): set by where the deployment found it, never
 // by its manifest. A community pack is not clinically reviewed and never automates
 // (core/origin.py); every view that shows a pack says so.
 export const isCommunity = (pack) => pack?.origin === "community";
@@ -74,8 +74,8 @@ function plainReason(reason, r) {
     [/ is below the auto threshold /, "Not sure enough to act alone, so a person checks."],
     [/^automation requires /, "This deployment's safety screen is not one this agent automates with, so a person checks."],
     [/^risk level \d+ requires human review$/, "This agent's risk level needs a person to check."],
-    [/^a community pack .* never blocks on its own/, "A community agent never blocks on its own: a person decides."],
-    [/^a community pack .* recommends and never automates$/, "A community agent only recommends: a person checks."],
+    [/^a community (?:agent|pack) .* never blocks on its own/, "A community agent never blocks on its own: a person decides."],
+    [/^a community (?:agent|pack) .* recommends and never automates$/, "A community agent only recommends: a person checks."],
   ];
   return said.find(([pattern]) => pattern.test(reason))?.[1] ?? reason;
 }

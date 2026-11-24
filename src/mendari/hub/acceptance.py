@@ -121,7 +121,10 @@ def names_problem(record: Mapping[str, Any], **named: Any) -> str | None:
     """Why a well-formed `record` is not about exactly this pack, version, digest, archive and
     publisher key (`NAMED`, each given by name; None: it is)."""
     assert set(named) == set(NAMED), sorted(named)
-    other = [name for name in NAMED if record.get(name) != named[name]]
+    # In words: the record's `pack` field names an agent, and keeps its name on the wire.
+    other = [
+        "agent" if name == "pack" else name for name in NAMED if record.get(name) != named[name]
+    ]
     return f"it names another {' and '.join(other)}".replace("_", " ") if other else None
 
 

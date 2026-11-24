@@ -18,6 +18,9 @@ out: a missed emergency, a provider behaving oddly, an agent version you are uns
 | Every agent | every decision in your organization | the API, the command line (lifted in the dashboard too) |
 | Every organization (`--all-orgs`) | every decision on the deployment | the command line only |
 
+`pack_id` and `pack_digest` name the agent and its version: the keys keep the word Mendari used
+before, as stored records hold them.
+
 Holds are rows in the deployment's database, read by each decision (and reused on a server for
 at most five seconds), so a hold set anywhere reaches every instance within seconds. Setting and
 lifting each append a chained event (`automation.held`, `automation.lifted`) with who and when;
@@ -45,14 +48,14 @@ that database never served, and a malformed digest. `mendari decide --db` honour
 
 ```bash
 mendari automation hold --all-orgs --reason "incident 7" --db "$DATABASE_URL"
-mendari automation hold --org clinic-a --pack mendari/portal-message-agent --reason "checking" --db "$DATABASE_URL"
+mendari automation hold --org clinic-a --agent mendari/portal-message-agent --reason "checking" --db "$DATABASE_URL"
 mendari automation list --db "$DATABASE_URL"
 mendari automation lift <id> --db "$DATABASE_URL"
 ```
 
 ## What a hold means for prior authorization
 
-A held decision is a person's to confirm: the Da Vinci PAS route (`POST /api/packs/{id}/pas`
+A held decision is a person's to confirm: the Da Vinci PAS route (`POST /api/agents/{id}/pas`
 with `submit`) sends a request to the payer only for a `submit_ready` recommendation that was
 automated, or that a reviewer resolved as `submit_ready` (the label the review chained; an
 outcome reported later does not count).

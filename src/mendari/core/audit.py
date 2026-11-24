@@ -3297,7 +3297,7 @@ class AuditStore(RateBuckets):
     ) -> dict[str, Any]:
         if risk_level not in (2, 3):
             reason = "is never automated" if risk_level >= 4 else "needs no approval"
-            raise ReviewError(f"a risk level {risk_level} pack {reason}")
+            raise ReviewError(f"a risk level {risk_level} agent {reason}")
         if not approver.strip() or not reference.strip():
             raise ReviewError("an approval needs an approver and a reference")
         approval = {
@@ -3361,7 +3361,7 @@ class AuditStore(RateBuckets):
         if not reason or len(reason) > 200:
             raise ReviewError("a hold needs a reason of at most 200 characters")
         if pack_digest is not None and pack_id is None:
-            raise ReviewError("a hold on a digest names its pack")
+            raise ReviewError("a hold on a digest names its agent")
         hold = {
             "id": secrets.token_hex(8),
             "org": org,

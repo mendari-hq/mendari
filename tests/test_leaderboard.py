@@ -162,7 +162,7 @@ def test_the_cli_says_what_its_tables_are_as_the_card_does(
     assert f"{leaderboard.preface()}\n\n**`our-own-cases`**" in printed  # above its tables
     assert "Public set: regression check, not a ranking." in printed
     assert "every other row follows, by configuration name" in printed
-    assert "the pack's own sets are public" in printed
+    assert "the agent's own sets are public" in printed
     assert "Every set" not in printed  # never that every set it shows is public
 
 

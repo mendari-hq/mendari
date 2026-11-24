@@ -31,6 +31,7 @@ from mendari.standards import cds_hooks, davinci, fhir_client
 from mendari.standards.data_coverage import READ_REASONS, source_type
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from tests.conftest import DASHBOARD, ROOT
+from tests.support import fhir_decisions_golden as script
 from tests.test_fhir_client import EHR, TOKEN, Handler, fhir_json, referral_ehr
 from tests.test_prior_auth_pack import _order, _prefetch
 from tests.test_smart import APP, CLIENT, REFERRAL, FakeEhr, full_launch
@@ -234,7 +235,9 @@ def test_a_note_that_is_only_a_link_or_does_not_decode_abstains(
 
 def patient_view(resources: list[dict[str, Any]]) -> dict[str, Any]:
     """A trial patient-view request with every prefetch key sent."""
-    pack = load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "clinical-trial-prescreener")
+    pack = load_pack(
+        ROOT / "tests" / "fixtures" / "reference-agents" / "clinical-trial-prescreener"
+    )
     return {
         "hook": "patient-view",
         "hookInstance": "4b4c1b2e-0000-4000-8000-000000000002",
@@ -426,12 +429,11 @@ def test_rejected_input_still_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
 def _cases() -> list[tuple[str, dict[str, Any]]]:
     """One synthetic FHIR case per pack with a FHIR mapping (the 23a golden's builders), the
     one it automates if it automates any."""
-    script = _golden_script()
     found = []
     with script.on_the_day():
         for pack_id, (directory, dataset, build) in script.CASES.items():
             decision = Decision.from_path(
-                ROOT / "tests" / "fixtures" / "reference-packs" / directory
+                ROOT / "tests" / "fixtures" / "reference-agents" / directory
             )
             records = script.load_dataset(
                 ROOT / "tests" / "fixtures" / "datasets" / dataset
@@ -452,25 +454,10 @@ def _cases() -> list[tuple[str, dict[str, Any]]]:
     return found
 
 
-@functools.cache
-def _golden_script() -> Any:
-    import importlib.util
-    import sys
-
-    path = ROOT / "scripts" / "fhir_decisions_golden.py"
-    spec = importlib.util.spec_from_file_location("fhir_decisions_golden_unreadable", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 def test_an_unreadable_record_never_raises_automation() -> None:
     """Every pack with a FHIR mapping, every reason, every one of its prefetch keys: a case it
     decides (the one it automates, where it automates one) abstains or is blocked, never
     automated, never sent for review as if the record were whole."""
-    script = _golden_script()
     with script.on_the_day():
         for pack_id, bundle in _cases():
             decision = Decision.from_hub(pack_id)
@@ -562,7 +549,9 @@ def test_an_unreadable_abstain_shows_a_card_whatever_show_says(app: TestClient) 
     """The trial pack shows cards for `candidate` and `needs_review` only, so an ABSTAIN (no
     recommendation) would be silent; over unreadable data it shows an `info` card, so the
     clinician knows the record was not checked (owner decision 6)."""
-    pack = load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "clinical-trial-prescreener")
+    pack = load_pack(
+        ROOT / "tests" / "fixtures" / "reference-agents" / "clinical-trial-prescreener"
+    )
     hooks = pack.manifest.cds_hooks
     assert hooks is not None and hooks.card is not None and hooks.card.show is not None
     assert "none" not in hooks.card.show

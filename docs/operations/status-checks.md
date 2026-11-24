@@ -21,7 +21,7 @@ checks](#exporting-the-checks) prints them ready to copy):
 |---|---|---|---|
 | Readiness | `GET /api/health/ready` | `200` | The database answers and the agents loaded. `503` when not. |
 | Sign-in | `GET /auth/login?next=%2F`, redirects not followed | `302` to the identity provider (another host) | Sign-in works. Only with sign-in on. |
-| Decide | `POST /api/packs/mendari/portal-message-agent/decide` with the status key and the file's synthetic message | `200` with an `outcome` | A decision is made and recorded, end to end. |
+| Decide | `POST /api/agents/mendari/portal-message-agent/decide` with the status key and the file's synthetic message | `200` with an `outcome` | A decision is made and recorded, end to end. |
 | Registry | `GET <registry>/v1/health` | `200` | Agents can be published and pulled. A registry under the engine (`MENDARI_REGISTRY=on`) has the base `<engine>/registry`, so the check is `GET <engine>/registry/v1/health`. |
 | Hub | `GET <hub>/` | `200` | The Hub's site loads. |
 

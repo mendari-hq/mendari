@@ -664,12 +664,12 @@ def test_a_pack_whose_result_cannot_fit_is_refused_before_any_run_counts(
     The reference packs' local variants hold."""
     served = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, served)
-    manifest = yaml.safe_load((served / "pack.yaml").read_text())
+    manifest = yaml.safe_load((served / "agent.yaml").read_text())
     router = manifest["providers"]["router"]
     long = "naive_bayes_" + "retrained" * 6
     router["variants"][long] = router["variants"].pop("naive_bayes")
     router["use"] = long
-    (served / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (served / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     keys = deployment(monkeypatch, "memberships")
     with started(
         db_target, inbox_pack, keys, packs_paths=[SearchPath(served, "maintained")]

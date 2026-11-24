@@ -13,7 +13,7 @@ from mendari.evals.gate import gate, markdown
 
 BENCHMARK = (
     Path(__file__).resolve().parents[1]
-    / "tests/fixtures/reference-packs/patient-inbox-router/evals/benchmark.json"
+    / "tests/fixtures/reference-agents/patient-inbox-router/evals/benchmark.json"
 )
 
 

@@ -1066,7 +1066,7 @@ def test_looked_for_says_what_each_field_and_list_looks_for(tmp_path: Path) -> N
     assert json.dumps(mapped.looked_for()) == json.dumps(mapped.looked_for())
 
     inbox = FhirAdapter.for_pack(
-        load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "patient-inbox-router")
+        load_pack(ROOT / "tests" / "fixtures" / "reference-agents" / "patient-inbox-router")
     ).looked_for()
     assert inbox["lists"] == {}
     assert inbox["fields"]["message.channel"] == looked(
@@ -1098,7 +1098,7 @@ def test_a_0_2_mapping_written_with_0_3_keys_reads_every_golden_case_alike() -> 
     rewritten_packs = []
     with script.on_the_day():
         for pack_id, (directory, dataset, build) in script.CASES.items():
-            pack = load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / directory)
+            pack = load_pack(ROOT / "tests" / "fixtures" / "reference-agents" / directory)
             if pack.manifest.spec_version == "0.3":
                 continue  # its own mapping is 0.3: the golden pins it as it is
             rewritten_packs.append(pack_id)

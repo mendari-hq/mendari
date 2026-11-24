@@ -16,14 +16,17 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 from mendari.cli import main
+from mendari.core.pack import load_pack
 from mendari.core.registry import resolve_pack
 from mendari.errors import FhirError, MendariError
-from mendari.sandbox import example_datasets_dir
-from mendari.sandbox.fhir_records import CASE_SYSTEM, referral_entries
+from mendari.sandbox import DEMO_AGENT, example_datasets_dir, fhir_workflow
+from mendari.sandbox.code_systems import CASE_SYSTEM
 from mendari.standards import bulk
 from mendari.standards.bulk import BulkError
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import GuardedHttp
+from tests.conftest import DEMO_AGENT_DIR
+from tests.support.fhir_records import referral_entries
 
 FHIR = "https://ehr.example.org/fhir"
 LABELS = (example_datasets_dir() or Path("datasets")) / "referral-local-site-example.jsonl"
@@ -477,17 +480,23 @@ def test_backend_services_signs_an_assertion_for_the_token_endpoint(
 def referral_export(tmp_path: Path, cases: list[dict[str, Any]]) -> Path:
     """What a server exports for these referral cases: NDJSON per type, ids and references
     resolved as a server stores them."""
+    return exported(tmp_path, [referral_entries(record) for record in cases])
+
+
+def exported(tmp_path: Path, cases: list[list[dict[str, Any]]]) -> Path:
+    """What a server exports for these cases (each its transaction entries): NDJSON per type,
+    ids and references resolved as a server stores them."""
     by_type: dict[str, list[dict[str, Any]]] = {}
-    for n, record in enumerate(cases):
-        entries = referral_entries(record)
+    for n, entries in enumerate(cases):
         ids = {
             e["fullUrl"]: f"{e['resource']['resourceType']}/c{n}-{i}" for i, e in enumerate(entries)
         }
         for i, entry in enumerate(entries):
             resource = json.loads(json.dumps(entry["resource"]))
             resource["id"] = f"c{n}-{i}"
-            if "subject" in resource:
-                resource["subject"] = {"reference": ids[resource["subject"]["reference"]]}
+            for name in ("subject", "sender"):
+                if name in resource:
+                    resource[name] = {"reference": ids[resource[name]["reference"]]}
             by_type.setdefault(resource["resourceType"], []).append(resource)
     for kind, rows in by_type.items():
         (tmp_path / f"{kind}.001.ndjson").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
@@ -551,8 +560,10 @@ def test_the_sandbox_bulk_check_compares_the_export_with_the_file(
     from mendari.sandbox import bulk_check
 
     cases = [json.loads(line) for line in LABELS.read_text().splitlines()[:8]]
+    asked: list[list[str]] = []
 
     def fake_export(fhir: str, out: Path, **kwargs: Any) -> dict[str, Any]:
+        asked.append(kwargs["types"])
         out.mkdir(parents=True)
         referral_export(out, cases)
         return {
@@ -560,7 +571,57 @@ def test_the_sandbox_bulk_check_compares_the_export_with_the_file(
         }
 
     monkeypatch.setattr(bulk_check.bulk, "export", fake_export)
-    result = bulk_check.run("http://fhir:8080/fhir", "mendari/referral-router")
+    referrals = resolve_pack("mendari/referral-router")
+    result = bulk_check.run("http://fhir:8080/fhir", referrals, str(LABELS))
     assert result["cases"] == 8 and result["identical"] and result["differences"] == []
-    with pytest.raises(MendariError, match="runs for"):
-        bulk_check.run("http://fhir:8080/fhir", "mendari/ai-guard")
+    # The export asks for what the agent's mapping reads, and no more.
+    assert asked == [
+        ["Patient", "ServiceRequest", "DocumentReference", "DiagnosticReport", "Observation"]
+    ]
+    with pytest.raises(MendariError, match="mendari/ai-guard has no FHIR mapping"):
+        bulk_check.run("http://fhir:8080/fhir", resolve_pack("mendari/ai-guard"))
+
+
+def test_the_sandbox_bulk_check_runs_on_the_demo_agent_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`mendari sandbox bulk-check` names no agent by default: the bundled demo agent, whose
+    seeded messages (`mendari sandbox seed`) come back from an export of Patients and
+    Communications as its benchmark cases, and evaluate as those cases do from the file."""
+    from mendari.sandbox import bulk_check
+
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
+    demo = load_pack(DEMO_AGENT_DIR)
+    seeded = fhir_workflow.seed_bundle(demo, 12)["entry"]
+    asked: list[list[str]] = []
+
+    def fake_export(fhir: str, out: Path, **kwargs: Any) -> dict[str, Any]:
+        asked.append(kwargs["types"])
+        out.mkdir(parents=True)
+        exported(out, [seeded[start : start + 2] for start in range(0, len(seeded), 2)])
+        return {
+            "output": [{"type": p.name.split(".")[0], "count": 12} for p in out.glob("*.ndjson")]
+        }
+
+    monkeypatch.setattr(bulk_check.bulk, "export", fake_export)
+    assert main(["sandbox", "bulk-check", "--fhir", "http://fhir:8080/fhir"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert asked == [["Patient", "Communication"]]
+    assert result["files"] == {"Patient": 12, "Communication": 12}
+    assert (
+        result["cases"] == 12
+        and result["identical"]
+        and result["left_out"]
+        == {
+            "unlabelled": 0,
+            "no_key": 0,
+        }
+    )
+    assert demo.id == DEMO_AGENT
+    # Labels from another file than the sandbox was seeded from: no case is labelled.
+    other = tmp_path / "other.jsonl"
+    other.write_text('{"id": "x-1", "input": {"message": {"body": "Hello"}}, "labels": {}}\n')
+    assert main(["sandbox", "bulk-check", "--fhir", "http://f", "--dataset", str(other)]) == 1
+    assert "the export holds no labelled mendari/portal-message-agent cases" in (
+        capsys.readouterr().err
+    )

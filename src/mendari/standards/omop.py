@@ -34,7 +34,7 @@ from typing import Any
 from mendari.core.db import Backend, Session, connect
 from mendari.errors import MendariError
 from mendari.providers.criteria import _date, _items
-from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM
+from mendari.sandbox.code_systems import CONDITION_SYSTEM
 from mendari.standards import record_fhir
 from mendari.standards.record_fhir import born
 

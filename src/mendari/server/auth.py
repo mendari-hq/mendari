@@ -139,7 +139,7 @@ from mendari.errors import (
     OrganizationChanged,
     ScopeError,
 )
-from mendari.server import presets, scopes, security_log, sessions
+from mendari.server import paths, presets, scopes, security_log, sessions
 from mendari.server.scopes import Grant
 from mendari.standards import oidc, smart
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers, origin_of
@@ -153,8 +153,8 @@ REALM = "mendari"
 KEY_PREFIX = "ohk_"
 TOKEN_PREFIX = "mat_"  # SMART Backend Services access tokens (ADR-0004)
 ROLES = ("viewer", "reviewer", "service", "governance", "admin")
-# `discover` (every role; never an EHR launch): the lists of the packs a principal may decide
-# with, `GET /api/packs` and `GET /cds-services`, which a decide-scoped credential also reaches
+# `discover` (every role; never an EHR launch): the lists of the agents a principal may decide
+# with, `GET /api/agents` and `GET /cds-services`, which a decide-scoped credential also reaches
 # (server/scopes.py, ADR-0004 as amended).
 PERMISSIONS: dict[str, frozenset[str]] = {
     "viewer": frozenset({"read", "discover"}),
@@ -255,7 +255,10 @@ REGISTRY_PEOPLE = r"^/api/registry/(namespaces|tokens|sites)(/|$)"  # sites: LP-
 # Its reviewers' routes (LP-19e): the queue, and the acts on any namespace a reviewer makes.
 REGISTRY_REVIEW = r"^/api/registry/review(/|$)"
 _REGISTRY_ONLY = frozenset({REGISTRY_MOUNT, REGISTRY_PEOPLE, REGISTRY_REVIEW})
-# (method, path pattern) -> permission, first match wins; unlisted routes need "admin".
+# (method, path pattern) -> permission, first match wins; unlisted routes need "admin". Each
+# pattern names a route's current path: a renamed route's former path (`/api/packs/...`) is read
+# as its current one before any rule is tried (`permission_for`, `server/paths.py`), so no rule
+# here names it and the two spellings never differ.
 _RULES: list[tuple[str, re.Pattern[str], str]] = [
     (method, re.compile(pattern), permission)
     for method, pattern, permission in [
@@ -298,7 +301,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/api/holds$", "approve"),
         ("DELETE", r"^/api/holds/[^/]+$", "approve"),
         ("POST", r"^/api/notice/acknowledge$", "decide"),  # what deciding asks first
-        ("POST", r"^/api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide|pas)$", "decide"),
+        ("POST", r"^/api/agents/[^/]+/[^/]+/(decide|guard|fhir/decide|pas)$", "decide"),
         ("POST", r"^/cds-services/[^/]+$", "decide"),
         # CDS Hooks card feedback (LP-23f): what a clinician did with a card the caller asked for.
         ("POST", r"^/cds-services/[^/]+/feedback$", "decide"),
@@ -317,14 +320,14 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # Search, also as POST (a form body keeps the criteria out of URLs): a read.
         ("GET", r"^/fhir/(Task|AuditEvent|Provenance|CodeSystem)$", "read"),
         ("POST", r"^/fhir/(Task|AuditEvent|Provenance|CodeSystem)/_search$", "read"),
-        # The lists of packs to decide with: every role, and a decide-scoped key or token.
-        ("GET", r"^/(api/packs|cds-services)$", "discover"),
-        ("POST", r"^/api/packs/[^/]+/[^/]+/evals$", "evaluate"),
+        # The lists of agents to decide with: every role, and a decide-scoped key or token.
+        ("GET", r"^/(api/agents|cds-services)$", "discover"),
+        ("POST", r"^/api/agents/[^/]+/[^/]+/evals$", "evaluate"),
         ("POST", r"^/api/review/[^/]+$", "review"),
         ("POST", r"^/api/audit/[^/]+/feedback$", "review"),
         ("POST", r"^/api/audit/[^/]+/outcome$", "outcome"),
         ("POST", r"^/api/audit/[^/]+/erase$", "admin"),  # a kept input, on request
-        ("GET", r"^/api/packs/[^/]+/[^/]+/feedback/export$", "admin"),  # case inputs, in bulk
+        ("GET", r"^/api/agents/[^/]+/[^/]+/feedback/export$", "admin"),  # case inputs, in bulk
         ("*", r"^/api/auth/(keys|clients)", "keys"),
         # The pack registry under the engine (LP-19d; `MENDARI_REGISTRY=on`, not mounted
         # otherwise: `_REGISTRY_ONLY`). The mounted registry is public to the guard, which reads
@@ -356,7 +359,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # method and path under it, before the reads below: a set's answer names its strata,
         # languages and labellers.
         ("*", r"^/api/evalsets(/|$)", "curate"),
-        # An organization's pack store (LP-20f; `MENDARI_PACK_STORE=on` in memberships mode, not
+        # An organization's pack store (LP-20f; `MENDARI_AGENT_STORE=on` in memberships mode, not
         # mounted otherwise): its authors' keys, managed by its administrators, and every other
         # route of the store its authors' (`pack_author`), people only. Before the reads below:
         # a draft is not served to anyone but its organization's authors.
@@ -735,8 +738,11 @@ async def read_body(request: Request, limit: int) -> bytes | None:
 def permission_for(method: str, path: str, *, registry: bool = True) -> str:
     """The permission a route needs. HEAD needs what GET needs: the static files (and any route
     that serves both) answer it as GET, and the rules name GET. `registry=False` (the registry
-    is not mounted here): without the registry's rules."""
+    is not mounted here): without the registry's rules. A renamed route's former path needs
+    what its current one does: the path is read as it is called now (`paths.current`) before
+    any rule is tried."""
     method = "GET" if method == "HEAD" else method
+    path = paths.current(path)
     for rule_method, pattern, permission in _RULES:
         if not registry and pattern.pattern in _REGISTRY_ONLY:
             continue
@@ -832,9 +838,9 @@ def _roles_field(**default: Any) -> Any:
         min_length=1,
         max_length=len(accounts.MEMBERSHIP_ROLES),
         description="Roles: viewer, reviewer, service, governance, admin, pack_author (writes "
-        "packs in the organization's pack store: author only), labeller (labels hidden "
+        "agents in the organization's agent store: author only), labeller (labels hidden "
         "evaluation sets: label only) and "
-        "registry_reviewer (reviews the pack registry; given in its review organization only, "
+        "registry_reviewer (reviews the agent registry; given in its review organization only, "
         "a 422 in any other). Never grading.",
     )
 
@@ -1625,8 +1631,8 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         memberships mode, also `accounts: "memberships"` and, for a person, `memberships`: the
         organizations they hold a membership of (theirs only), each with its name and roles;
         `principal.org` is null while they act for none. `principal.registry_review_org` is
-        true for a person acting for the pack registry's review organization, and absent
-        otherwise. `store: true` when organizations' pack stores are served here (LP-20f), so
+        true for a person acting for the agent registry's review organization, and absent
+        otherwise. `store: true` when organizations' agent stores are served here (LP-20f), so
         the dashboard knows whether to show one; absent otherwise."""
         principal = auth.principal(request)
         shown: dict[str, Any] = {"accounts": "memberships"} if auth.memberships else {}
@@ -1833,7 +1839,7 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         an administrator elsewhere never makes a reviewer (LP-19e)."""
         if org != auth.review_org and set(roles) & set(accounts.REVIEW_ORG_ONLY):
             raise AuthError(
-                f"{accounts.REGISTRY_REVIEWER!r} is given only in the pack registry's review "
+                f"{accounts.REGISTRY_REVIEWER!r} is given only in the agent registry's review "
                 "organization",
                 422,
             )
@@ -1953,7 +1959,7 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         in with `email` verified, valid for `days` (7 unless asked, 30 at most). Mendari sends no
         e-mail: pass the `link` on yourself. Its token is in this response only (in `link`, a
         path on this site to put after its address), stored hashed. `grading` is never given,
-        `pack_author` grants `author` (the pack store) and `labeller` grants `label` only.
+        `pack_author` grants `author` (the agent store) and `labeller` grants `label` only.
         Recorded in the audit chain (`invitation.created`, with a digest of the address)."""
         principal = auth.acting(request)
         made = store.create_invitation(

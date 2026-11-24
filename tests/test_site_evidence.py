@@ -109,9 +109,9 @@ def _inbox_version(tmp_path: Path, version: str) -> Pack:
     digest."""
     root = tmp_path / f"inbox-{version}"
     shutil.copytree(INBOX_DIR, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["version"] = version
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     return load_pack(root)
 
 

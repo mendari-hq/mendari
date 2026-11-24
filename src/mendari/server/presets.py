@@ -28,6 +28,7 @@ from typing import Any
 from starlette.routing import Route as Served
 
 from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS
+from mendari.server import paths
 from mendari.server.scopes import DECIDE, OUTCOME
 
 Route = tuple[str, str]  # (method, path template as mounted)
@@ -72,17 +73,17 @@ _ALL = [
     Preset(
         id="rest",
         title="REST API",
-        purpose="List the packs, decide on a case and read its audit record: the quickstart's "
+        purpose="List the agents, decide on a case and read its audit record: the quickstart's "
         "three calls. The whole `service` role: no scope reaches Mendari's own audit reads.",
         role="service",
         scope=None,
         calls=(
-            ("GET", "/api/packs"),
-            ("POST", "/api/packs/{namespace}/{name}/decide"),
+            ("GET", "/api/agents"),
+            ("POST", "/api/agents/{namespace}/{name}/decide"),
             ("GET", "/api/audit/{decision_id}"),
         ),
         doc="guides/api.md#quickstart-in-three-calls",
-        examples=("quickstart/packs", "quickstart/decide", "quickstart/record"),
+        examples=("quickstart/agents", "quickstart/decide", "quickstart/record"),
     ),
     Preset(
         id="fhir",
@@ -128,7 +129,7 @@ _ALL = [
         calls=(
             ("POST", "/cds-services/{service_id}"),
             ("POST", "/fhir/Questionnaire/$questionnaire-package"),
-            ("POST", "/api/packs/{namespace}/{name}/pas"),
+            ("POST", "/api/agents/{namespace}/{name}/pas"),
         ),
         doc="deploying-with-phi.md#2-sign-in-and-roles",
     ),
@@ -163,12 +164,14 @@ PRESETS: dict[str, Preset] = {preset.id: preset for preset in _ALL}
 
 def served(routes: Iterable[Any]) -> list[Route]:
     """Every route an app serves, by method (HEAD aside): what a preset's reach is computed
-    over, the same for the API and the tests."""
+    over, the same for the API and the tests. A renamed route is listed once, at its current
+    path: a key reaches the path it had before exactly as it reaches this one
+    (`server/paths.py`)."""
     return sorted(
         {
             (method, route.path)
             for route in routes
-            if isinstance(route, Served)
+            if isinstance(route, Served) and not paths.is_former(route.path)
             for method in route.methods or ()
             if method != "HEAD"
         }

@@ -19,7 +19,7 @@ from mendari import Decision, Outcome, Pack, __version__, load_pack
 from mendari.core.registry import discover
 from mendari.core.spec import Priority
 from mendari.errors import MendariError
-from mendari.sandbox.fhir_records import CHANNELS
+from mendari.sandbox.code_systems import CHANNELS
 from mendari.standards import audit_fhir, davinci, terminology
 from mendari.standards.fhir import (
     DISPLAY_LIMIT,
@@ -42,26 +42,32 @@ NAME = re.compile(r"^[A-Z][A-Za-z0-9_]{0,254}$")
 # new version.
 PINNED = {
     "0.1.0": {
-        "CodeSystem/decision-outcome": "39fd51215c2eb221",
+        # Moved in wave 1 (one vocabulary), before 0.1.0's release: its definitions say "agent".
+        "CodeSystem/decision-outcome": "7688b8fb74597a15",
         # Moved in LP-23f, before 0.1.0's release: `card.feedback`.
         "CodeSystem/audit-event": "8e2b2ce5fb759d11",
         # Added in LP-23f, a new url (no earlier content): why a card was overridden.
         "CodeSystem/card-override-reasons": "289761ea34d8c87a",
         "CodeSystem/sandbox": "8a63d292423bdf66",
         "CodeSystem/message-channel": "0c3b329c01cfcc58",
-        # Added in LP-14, a new url (no earlier content): the prior-auth pack's fictional codes.
-        "CodeSystem/fictional-procedures": "b3c2e5361a6b9ea7",
-        # Added in LP-14's SNOMED CT swap, new urls too: the trial prescreener's and the referral
-        # router's fictional codes.
-        "CodeSystem/fictional-conditions": "2f0ec1f007434d56",
-        "CodeSystem/fictional-referrals": "491fe1f31f0f3df5",
+        # Added in LP-14, a new url (no earlier content): the fictional procedure codes of the
+        # synthetic prior-authorization data.
+        # Moved in wave 1 (the trim), before 0.1.0's release, with the two below: each
+        # description says what its codes are for, and names no agent the product shipped.
+        "CodeSystem/fictional-procedures": "e7e87798938500ce",
+        # Added in LP-14's SNOMED CT swap, new urls too: the fictional condition codes of a
+        # synthetic local site's records, and the fictional referral code.
+        "CodeSystem/fictional-conditions": "0de390a631fd2d78",
+        "CodeSystem/fictional-referrals": "2deb518897c0c86e",
         # Added in LP-23e, new urls (no earlier content): the vendor-shaped EHR profile's site
         # diagnoses and order types.
         "CodeSystem/fictional-site-diagnoses": "9049440f2ca39e04",
         "CodeSystem/fictional-site-order-types": "21f35b7faf771d51",
         "NamingSystem/decision-id": "a3ac1c38e9476b4f",
         "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
-        "NamingSystem/decision-pack": "677f5f91c8577ec0",
+        # Moved in wave 1, before 0.1.0's release: its title and description say "agent" (its
+        # id and url are as they were: stored resources carry them).
+        "NamingSystem/decision-pack": "0d51891d0f85a216",
         # Added in LP-12g, new urls (no earlier content): the administrative events' codes and
         # the chain id each is about. Moved in LP-21l, before 0.1.0's release: `sessions.ended`;
         # in LP-11e: the hidden evaluation sets' events and their `evalset:` subject; in
@@ -74,7 +80,9 @@ PINNED = {
         # Moved in LP-20g, before 0.1.0's release: the store's datasets and jobs.
         # Moved in LP-20h, before 0.1.0's release: a store version's promotion and retirement.
         # Moved in LP-20i, before 0.1.0's release: the improvement dataset and its proposed tests.
-        "CodeSystem/audit-administrative-event": "c53d8e0aa65b0445",
+        # Moved in wave 1, before 0.1.0's release: the displays say "agent" (the codes are as
+        # they were: the chain holds them).
+        "CodeSystem/audit-administrative-event": "b28fb3a352e9243d",
         "NamingSystem/audit-subject": "1c75c7fb62504dc2",
     }
 }
@@ -83,7 +91,7 @@ PINNED = {
 @pytest.fixture(scope="module")
 def packs() -> dict[str, Pack]:
     return {
-        pack.id: pack for pack in discover([ROOT / "tests" / "fixtures" / "reference-packs"]).packs
+        pack.id: pack for pack in discover([ROOT / "tests" / "fixtures" / "reference-agents"]).packs
     }
 
 
@@ -96,9 +104,9 @@ def inbox_variant(tmp_path: Path, pack_id: str, edit: Callable[[dict[str, Any]],
     """The inbox pack under another id, with its FHIR mapping edited."""
     root = tmp_path / pack_id.replace("/", "-")
     shutil.copytree(INBOX_DIR, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"] = pack_id
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     mapping = yaml.safe_load((root / "fhir" / "mapping.yaml").read_text())
     edit(mapping["task"])
     (root / "fhir" / "mapping.yaml").write_text(yaml.safe_dump(mapping))
@@ -221,7 +229,7 @@ def test_every_shipped_performer_template_is_under_the_cap(packs: dict[str, Pack
 
     shipped = [
         *packs.values(),
-        *discover([ROOT / "agents", ROOT / "tests" / "fixtures" / "packs"]).packs,
+        *discover([ROOT / "agents", ROOT / "tests" / "fixtures" / "mini-agents"]).packs,
     ]
     counted = [
         expansion_count(adapter.performer_template, _performer_choices(pack.manifest))
@@ -389,7 +397,7 @@ def test_sandbox_systems_are_experimental_and_never_served(served: Terminology) 
     assert not any(served.by_url(r["url"]) for r in sandbox)
     schema = json.loads(
         (
-            ROOT / "tests/fixtures/reference-packs/patient-inbox-router/schemas/input.schema.json"
+            ROOT / "tests/fixtures/reference-agents/patient-inbox-router/schemas/input.schema.json"
         ).read_text()
     )
     channels = schema["properties"]["message"]["properties"]["channel"]["enum"]
@@ -398,7 +406,7 @@ def test_sandbox_systems_are_experimental_and_never_served(served: Terminology) 
 
 def test_one_version_of_each_pack(packs: dict[str, Pack]) -> None:
     inbox = packs["mendari/patient-inbox-router"]
-    with pytest.raises(MendariError, match="one version of each pack"):
+    with pytest.raises(MendariError, match="one version of each agent"):
         terminology.resources([inbox, inbox])
 
 

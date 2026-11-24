@@ -27,14 +27,14 @@ def _copy(tmp_path: Path) -> Path:
 
 
 def _replace(root: Path, old: str, new: str) -> None:
-    manifest = root / "pack.yaml"
+    manifest = root / "agent.yaml"
     text = manifest.read_text()
     assert old in text
     manifest.write_text(text.replace(old, new, 1))
 
 
 def _edit_manifest(root: Path, edit: Callable[[dict[str, Any]], None]) -> None:
-    manifest = root / "pack.yaml"
+    manifest = root / "agent.yaml"
     raw = yaml.safe_load(manifest.read_text())
     edit(raw)
     manifest.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True))

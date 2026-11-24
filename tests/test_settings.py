@@ -25,7 +25,7 @@ from mendari.server.app import create_app
 from mendari.settings import default_providers, parse_providers, providers_for
 from tests.conftest import INBOX_DIR, ROOT
 
-FIXTURES = Path(__file__).parent / "fixtures" / "packs"
+FIXTURES = Path(__file__).parent / "fixtures" / "mini-agents"
 INBOX_SLOTS = {
     "router": {"naive_bayes", "rules", "jev"},
     "safety_screen": {"rules", "rules_and_jev"},
@@ -81,9 +81,9 @@ def test_the_cli_refuses_settings_that_cannot_apply(
     # Typed, a setting that applies to nothing in the pack is a mistake (LP-15)...
     assert main(["test", trial, "--provider", "router=jev"]) == 1
     err = capsys.readouterr().err
-    assert "provider setting router=jev: the pack has no slot 'router'" in err
+    assert "provider setting router=jev: the agent has no slot 'router'" in err
     assert main(["test", trial, "--provider", "other/pack:screen=llm"]) == 1
-    assert "names other/pack, not this pack" in capsys.readouterr().err
+    assert "names other/pack, not this agent" in capsys.readouterr().err
     # ...but MENDARI_PROVIDERS, a deployment's list for every pack, only warns.
     monkeypatch.setenv("MENDARI_PROVIDERS", "router=jev")
     assert main(["test", trial]) == 0
@@ -304,7 +304,7 @@ def test_the_vercel_app_runs_the_jev_defaults(
     for name in ("VERCEL", "DATABASE_URL", "MENDARI_PROVIDERS"):
         monkeypatch.delenv(name, raising=False)
     # A process of its own does not see the tests' fixture packs unless told where they are.
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT / "tests" / "fixtures" / "reference-packs"))
+    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT / "tests" / "fixtures" / "reference-agents"))
     script = (
         _SET_DEFAULTS + "import json; from fastapi.testclient import TestClient; "
         "from mendari.server.vercel import app; "

@@ -4,16 +4,18 @@ Each organization can keep its own versions of agents on the server: written and
 authors, checked, evaluated and, once someone other than the author signs off, served to that
 organization alone (ADR-0016, Proposed). LP-20 builds it in steps; this page grows with them.
 
-**Status:** off unless `MENDARI_PACK_STORE=on`, and then only in memberships mode: with the
+**Status:** off unless `MENDARI_AGENT_STORE=on`, and then only in memberships mode: with the
 switch on in claims or open mode, or with a prerequisite below missing, the server stops at
 start-up and says why. Its authors' routes are mounted (LP-20f), and a promoted version answers
 its own organization's requests (LP-20h). Its tables are created empty in every database.
 
 ## Who does what
 
-- **Authors** hold the reserved role `pack_author` (`author`, people only). An administrator
-  gives it, themself included: `admin` does not hold it. Authors upload signed archives, copy a
-  agent this deployment serves, edit text files into new drafts, run a draft's tests and
+- **Authors** hold the reserved role `pack_author` (`author`, people only; the role keeps the
+  name it had before, which memberships record). An administrator
+  gives it, themself included: `admin` does not hold it. Authors upload signed archives (the
+  `.mendari` file `mendari archive build` writes; one named `.ohpack`, as it was before
+  2026-11, is the same file), copy an agent this deployment serves, edit text files into new drafts, run a draft's tests and
   withdraw a draft (`docs/guides/api.md`, "An organization's agent store").
 - **Administrators** (`keys`) register and revoke the authors' Ed25519 public keys: an upload
   must be signed by one of the organization's keys that is not revoked.
@@ -105,7 +107,7 @@ that agent id from disk. Promoting retires the version promoted before; retiring
 serving it (the store agent's recall). Every decision a promoted version makes records the
 promotion's id.
 
-Only the promoting organization is served the version: its decide routes, `/api/packs`, CDS
+Only the promoting organization is served the version: its decide routes, `/api/agents`, CDS
 Hooks and the FHIR operation. Promotion is not the automation approval: at risk levels 2 and 3 a
 promoted version automates only once its digest is approved too, and holds stop it as any agent.
 A promoted version is built on its first use in a process, not at start-up; one that no longer
@@ -153,7 +155,7 @@ events stay.
 
 | Task | Command |
 |---|---|
-| List an organization's versions, newest first | `mendari store versions --db … --org ORG [--pack ID]` |
+| List an organization's versions, newest first | `mendari store versions --db … --org ORG [--agent ID]` |
 | Check every kept file and version against its hash and digest | `mendari store verify --db …` |
 | Withdraw a draft or held version, with a reason on the chain | `mendari store withdraw DIGEST --db … --org ORG --reason …` |
 | Free the files of versions withdrawn more than 30 days ago | `mendari store purge --db …` |

@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 
 const SITE = "http://127.0.0.1:3101"; // playwright.config.ts: its REGISTRY_URL refuses
 
-for (const path of ["/packs/mendari/portal-message-agent", "/publishers/mendari"]) {
+for (const path of ["/agents/mendari/portal-message-agent", "/publishers/mendari"]) {
   test(`${path} says the registry cannot be reached`, async ({ page }) => {
     await page.goto(`${SITE}${path}`);
     const alert = page.getByRole("main").getByRole("alert");

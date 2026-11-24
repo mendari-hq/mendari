@@ -38,9 +38,11 @@ version the registry received before (its `published_at`), or a recall whose sig
 before; anything later, or with no time, is refused. The registry itself does the same: it takes
 nothing from a revoked key and still verifies what the key signed before (ADR-0020).
 
-Pulled packs are cached under `~/.cache/mendari/packs/<namespace>/<name>/<version>`, which is
+Pulled packs are cached under `~/.cache/mendari/agents/<namespace>/<name>/<version>`, which is
 on the pack search path, so `mendari test`, `Decision.from_hub` and the server find them like
-any local pack. Credentials and pinned keys live in `~/.config/mendari` (files mode 0600,
+any local pack. Until 2026-11 the folder was `packs/`: a version pulled then is still found
+there (`caches`), still recalled and removed there, and written under `agents/` when a pull
+has to fetch it again. Credentials and pinned keys live in `~/.config/mendari` (files mode 0600,
 written whole and moved in). Pins are filed per registry address, scheme and host in lower
 case and without the default port; a pin file that is there and cannot be read is refused,
 never read as empty.
@@ -94,7 +96,21 @@ def cache_dir() -> Path:
 
 
 def packs_cache() -> Path:
+    """The registry cache: where `pull` writes an agent, `<namespace>/<name>/<version>`."""
+    return cache_dir() / "agents"
+
+
+def former_cache() -> Path:
+    """The folder the registry cache had until 2026-11. Nothing is written there any more, and
+    what a pull left there is read as before (`caches`): an operator's cache outlives a rename."""
     return cache_dir() / "packs"
+
+
+def caches() -> tuple[Path, Path]:
+    """The registry cache as it is read: its folder, then the one it had before. A version in
+    both is the first's (the search path lists them in this order, and the newest of an id is
+    the first found of its version)."""
+    return packs_cache(), former_cache()
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -275,8 +291,8 @@ class RegistryClient:
 
     def version(self, namespace: str, name: str, version: str | None = None) -> dict[str, Any]:
         if version:
-            return dict(self._get(f"/v1/packs/{namespace}/{name}/{version}"))
-        latest = self._get(f"/v1/packs/{namespace}/{name}").get("latest")
+            return dict(self._get(f"/v1/agents/{namespace}/{name}/{version}"))
+        latest = self._get(f"/v1/agents/{namespace}/{name}").get("latest")
         if not isinstance(latest, dict):
             raise HubError(
                 f"every version of {namespace}/{name} is recalled: pull an exact version to "
@@ -318,14 +334,14 @@ class RegistryClient:
             key_id=archive.key_id(key.public_key()),
         )
         response = self._http.post(
-            f"/v1/packs/{namespace}/{name}/{version}/yank", json={"record": record}
+            f"/v1/agents/{namespace}/{name}/{version}/yank", json={"record": record}
         )
         return dict(self._json(response))
 
     def archive(self, namespace: str, name: str, version: str) -> bytes:
         """The archive's bytes, read as they come and refused past `archive.MAX_ARCHIVE_BYTES`
         (what `archive.verify` takes): a registry cannot make a pull hold more in memory."""
-        path = f"/v1/packs/{namespace}/{name}/{version}/archive"
+        path = f"/v1/agents/{namespace}/{name}/{version}/archive"
         with self._http.stream("GET", path) as response:
             if response.status_code >= 400:
                 response.read()
@@ -354,7 +370,7 @@ class RegistryClient:
         except ValidationError:
             raise MendariError("not a signed site submission (mendari eval --share-out)") from None
         namespace, name = pack.id.split("/")
-        path = f"/v1/packs/{namespace}/{name}/{pack.version}/reports"
+        path = f"/v1/agents/{namespace}/{name}/{pack.version}/reports"
         response = self._http.post(
             path, json=dict(submission), headers={"authorization": f"Bearer {secret}"}
         )
@@ -370,7 +386,7 @@ class RegistryClient:
         return dict(self._json(response))
 
     def pack_tickets(self, pack_id: str) -> list[dict[str, Any]]:
-        return list(self._get(f"/v1/packs/{pack_id}/tickets")["tickets"])
+        return list(self._get(f"/v1/agents/{pack_id}/tickets")["tickets"])
 
     def add_key(self, namespace: str, public_pem: bytes) -> str:
         body = {"public_pem": public_pem.decode()}
@@ -386,19 +402,19 @@ class RegistryClient:
         pack = parse(record).pack  # the path is built from it: only the record's own pack
         namespace, name = pack.id.split("/")
         response = self._http.post(
-            f"/v1/packs/{namespace}/{name}/{pack.version}/evaluations", json=dict(record)
+            f"/v1/agents/{namespace}/{name}/{pack.version}/evaluations", json=dict(record)
         )
         return dict(self._json(response))
 
     def evaluations(self, namespace: str, name: str, version: str) -> dict[str, Any]:
         """A version's live publisher evaluations, with the registry's figures."""
-        return dict(self._get(f"/v1/packs/{namespace}/{name}/{version}/evaluations"))
+        return dict(self._get(f"/v1/agents/{namespace}/{name}/{version}/evaluations"))
 
     def push(self, pack: Pack, key: Ed25519PrivateKey) -> dict[str, Any]:
         namespace, name = pack.id.split("/")
         data = archive.build(pack, key)
         response = self._http.put(
-            f"/v1/packs/{namespace}/{name}/{pack.version}",
+            f"/v1/agents/{namespace}/{name}/{pack.version}",
             content=data,
             headers={"content-type": "application/octet-stream"},
         )
@@ -423,26 +439,28 @@ def pull(
     version = meta.get("version")
     if not is_version(version) or (wanted and version != wanted):
         raise HubError(f"the registry answered a version that is not one of {pack_id}")
-    cache = packs_cache().resolve()
-    target = cache / namespace / name / version
-    if not target.resolve().is_relative_to(cache / namespace / name):
-        raise HubError(f"the registry answered a version that is not one of {pack_id}")
+    target, former = (_cached_at(cache, pack_id, version) for cache in caches())
+    # The copy in use: this version in the cache, or, with none there, the one a pull left in
+    # the folder the cache had before (`former_cache`). It is the copy that is used as is,
+    # recalled or removed; a version fetched again is written to the cache, and replaces it.
+    held = former if former.is_dir() and not target.exists() else target
     deleted = meta.get("deleted")
     if isinstance(deleted, Mapping):
-        # Deleted by the registry: never served, and a copy cached before is removed.
-        if target.exists():
-            shutil.rmtree(target)
+        # Deleted by the registry: never served, and every copy cached before is removed.
+        for copy in (target, former):
+            if copy.exists():
+                shutil.rmtree(copy)
         raise HubError(
             f"{pack_id}@{version} was deleted from the registry: {deleted.get('reason')}", 410
         )
     # The registry's key is pinned on first contact, before any recall it signs is read; and the
     # version's counter-signature is checked before the archive is fetched or a cached copy used.
     accepted = _accepted(client, pack_id, meta, registry_keys)
-    if pulled_record(target).get("archive_sha256") == meta["archive_sha256"]:
-        pack = load_pack(target, origin="hub")
+    if pulled_record(held).get("archive_sha256") == meta["archive_sha256"]:
+        pack = load_pack(held, origin="hub")
         if pack.digest == meta["digest"]:
             # Cached: what the registry says of it now (a recall since) is written beside it.
-            _write_origin(target, client, namespace, meta, accepted)
+            _write_origin(held, client, namespace, meta, accepted)
             return pack
     # Signed when the registry received it (it takes nothing from a revoked key): a key revoked
     # since still verifies it, one revoked before does not.
@@ -467,13 +485,26 @@ def pull(
         # On the engine it will run on: a pack it refuses is never cached, nor marked verified.
         pack = archive.extract(verified, staged, origin="hub")
         if accepted and pack.digest != meta["digest"]:
-            raise HubError("the pack is not the build the registry counter-signed")
+            raise HubError("the agent is not the build the registry counter-signed")
         marked = {**meta, "archive_sha256": verified.sha256}
         _write_origin(staged, client, namespace, marked, accepted)
         if target.exists():
             shutil.rmtree(target)
         staged.rename(target)
+    if held != target:
+        shutil.rmtree(held)  # the copy in the former folder, which this one replaces
     return load_pack(target, origin="hub")
+
+
+def _cached_at(cache: Path, pack_id: str, version: str) -> Path:
+    """Where `cache` keeps this version of an agent, `<namespace>/<name>/<version>`: refused
+    unless it stays inside the agent's own folder there, whatever the registry answered."""
+    namespace, name = pack_id.split("/")
+    root = cache.resolve() / namespace / name
+    target = root / version
+    if not target.resolve().is_relative_to(root):
+        raise HubError(f"the registry answered a version that is not one of {pack_id}")
+    return target
 
 
 def _write_origin(
@@ -545,7 +576,7 @@ def recall_of(meta: Mapping[str, Any], client: RegistryClient, pack: Pack) -> di
         pack.version,
         pack.digest,
     ):
-        problem = "it is about another pack, version or build"
+        problem = "it is about another agent, version or build"
     if problem is None:
         try:
             if record["signer"] == "publisher":

@@ -292,7 +292,7 @@ def ranking(
     first = entries[0]["scope"]
     for entry in entries[1:]:
         if any(entry["scope"][part] != first[part] for part in ("pack", "set", "method")):
-            raise MendariError("the entries ranked together must be of one pack, set and method")
+            raise MendariError("the entries ranked together must be of one agent, set and method")
     if len(entries) < 2:
         return off(ONE_ARM)
     if ledgers is None or records is None:

@@ -238,7 +238,7 @@ def test_a_check_of_a_derived_decision_can_be_the_right_answer(
     """AI Guard: "Which check was wrong?" labels that check alone, and the record still
     evaluates (a dataset may label any subset of questions)."""
     guard = Decision.from_path(
-        ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard", store=store
+        ROOT / "tests" / "fixtures" / "reference-agents" / "ai-guard", store=store
     )
     result = guard(
         {
@@ -256,7 +256,7 @@ def test_a_check_of_a_derived_decision_can_be_the_right_answer(
     path = tmp_path / "guard.jsonl"
     path.write_text(json.dumps(records[0]) + "\n")
     report = evaluate(
-        Decision.from_path(ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard"),
+        Decision.from_path(ROOT / "tests" / "fixtures" / "reference-agents" / "ai-guard"),
         load_dataset(path),
     )
     assert report["questions"]["unsafe_advice"]["n"] == 1

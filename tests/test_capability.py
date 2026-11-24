@@ -211,7 +211,7 @@ def test_with_sign_in_on_the_statement_names_no_pack(
     assert "mendari/" not in shown and "@0." not in shown
     decide = next(o for o in every["rest"][0]["operation"] if o["name"] == "decide")
     for said in (decide["documentation"], every["text"]["div"]):
-        assert "for signed-in callers, the packs GET /api/packs lists whose" in said
+        assert "for signed-in callers, the agents GET /api/agents lists whose" in said
     definition = TestClient(create_app(db_path=tmp_path / "c.db")).get(
         "/fhir/OperationDefinition/decide"
     )
@@ -257,7 +257,7 @@ def test_a_pack_whose_terminology_cannot_be_built_is_reported_not_fatal(tmp_path
     """One pack's broken FHIR mapping must not stop the server (it did not before Phase 2)."""
     broken = tmp_path / "pack"
     shutil.copytree(
-        Path(__file__).parent / "fixtures" / "reference-packs" / "patient-inbox-router", broken
+        Path(__file__).parent / "fixtures" / "reference-agents" / "patient-inbox-router", broken
     )
     (broken / "fhir" / "mapping.yaml").write_text("fhir_version: R5\n")
     # A copy of a maintained pack, standing in for one: `mendari/` is reserved to them.

@@ -115,7 +115,7 @@ def test_a_provider_failure_keeps_its_safety_caveat_and_names_the_question(page:
         "reasons": ["provider failure (provider_unavailable); safety checks may be incomplete"],
     }
     page.route(
-        f"**/api/packs/{INBOX}/decide",
+        f"**/api/agents/{INBOX}/decide",
         lambda route: (
             route.fulfill(json=failed) if route.request.method == "POST" else route.continue_()
         ),
@@ -128,3 +128,53 @@ def test_a_provider_failure_keeps_its_safety_caveat_and_names_the_question(page:
     )
     unanswered = page.locator("#result .answers div", has_text="Possible emergency")
     expect(unanswered).to_contain_text("no answer")
+
+
+@pytest.mark.parametrize("named", ["agent", "pack"])
+@pytest.mark.parametrize(
+    ("reason", "plain"),
+    [
+        pytest.param(
+            "a community {} (not clinically reviewed) recommends and never automates",
+            "A community agent only recommends: a person checks.",
+            id="recommends",
+        ),
+        pytest.param(
+            "a community {} (not clinically reviewed) never blocks on its own: a person decides",
+            "A community agent never blocks on its own: a person decides.",
+            id="never blocks",
+        ),
+    ],
+)
+def test_a_community_reason_reads_plainly_in_the_engines_words_then_and_now(
+    page: Page, named: str, reason: str, plain: str
+) -> None:
+    """The engine writes "a community agent ..." in a decision's reasons, and wrote "a community
+    pack ..." in the decisions stored before: both read as the one plain sentence, and both show
+    the gate that held the decision."""
+    held = {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "outcome": "HUMAN_REVIEW",
+        "recommendation": "medical_assistant",
+        "priority": "routine",
+        "confidence": 0.97,
+        "primary": "destination",
+        "rule": None,
+        "fallback": None,
+        "answers": {
+            "destination": {"label": "medical_assistant", "confidence": 0.97, "evidence": []}
+        },
+        "errors": {},
+        "reasons": [reason.format(named)],
+    }
+    page.route(
+        f"**/api/agents/{INBOX}/decide",
+        lambda route: (
+            route.fulfill(json=held) if route.request.method == "POST" else route.continue_()
+        ),
+    )
+    open_pack(page, INBOX, "try")
+    page.get_by_role("button", name="Refill", exact=True).click()
+    page.locator("#decide").click()
+    expect(page.locator("#result .reasons")).to_have_text(plain)
+    expect(page.locator("#result ol.trace")).to_contain_text("Risk / approval gate")

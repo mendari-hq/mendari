@@ -366,7 +366,7 @@ class _Writer:
             if name == "ASSERT_NOT" and av[0] < 0:  # a negative lookbehind
                 instead = _NOT_AFTER
             raise Unsupported(
-                f"uses {_REFUSED[name]}, which RE2 (the engine community packs and packs from a "
+                f"uses {_REFUSED[name]}, which RE2 (the engine community agents and agents from a "
                 f"registry run on) does not have: {instead} ({_GUIDE})"
             )
         if name in _SINGLE:

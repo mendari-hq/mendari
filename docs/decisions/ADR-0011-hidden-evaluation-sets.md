@@ -70,7 +70,7 @@ in the order they landed:
   them and allows a case's input only in a labeller's own next case.
 - 11m, the labelling screen (`#labelling`, `dashboard/labelling.js`, over 11j's routes only):
   shown to a person holding `label` where those routes are served; someone who only labels sees
-  it alone (`labelOnly`: no pack, no notice, no other section); their counts set by set, then
+  it alone (`labelOnly`: no agent, no notice, no other section); their counts set by set, then
   one case at a time, its input escaped by `record.js` (the generic renderer, taken out of
   `pack.js`) and the set's questions as radio groups with nothing chosen. Blind: nothing of the
   case but its input, nor anyone's label, reaches the page, and nothing is kept in the
@@ -96,7 +96,7 @@ in the order they landed:
   account mode: only an organization's grading key passes the guard (`grade`, under a rule of its
   own before the curators', and not theirs in claims mode), for its own organization's sets
   (another's, an unknown and a malformed id are one `404`); before any case is read, the set's
-  header is checked against the pack asked for (its id; a later version asking the same
+  header is checked against the agent asked for (its id; a later version asking the same
   questions grades the set too) and every provider slot must run a local variant (conflict 52,
   owner decision 4, confirmed 2026-11-07); the store's grading read then chains the run and
   hands the cases in memory to a Decision with no store, whose `mendari.eval/2` result,
@@ -149,20 +149,22 @@ in the order they landed:
   not cover, naming the set; `mendari audit verify --evalsets` and `rotate --check` check all
   of it, and count the rows from before these commitments (`predating`), read as before.
 
+Terminology updated 2026-11-23: what this record called a pack is an agent.
+
 ## Context
-Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside
+Every dataset Mendari has is a JSONL file tracked in git: 22 named in agent manifests and inside
 their digests, and 5 local-site examples under `datasets/`. All 27 are public, so none can
-measure a pack honestly once its author has seen it. LP-11 (vision audit, amending A8) asks for held-out sets that clinicians label blind,
+measure an agent honestly once its author has seen it. LP-11 (vision audit, amending A8) asks for held-out sets that clinicians label blind,
 with measured agreement, that no route, export or log can leak, and that a later step (LP-17)
-grades packs against. Two things that look close are not it: `mendari agreement` compares two
+grades agents against. Two things that look close are not it: `mendari agreement` compares two
 machine variants, and the review queue shows the model's answer and takes one resolution per
 decision.
 
 ## Decision
 **Where sets live (the owner, 2026-10-07).** Set content, labels, assignments and the
 hidden-case index live only in the hosted engine's own database (locally, a developer's SQLite
-or Postgres with synthetic sets), in tables prefixed `evalset_`: never in this repository, a
-pack directory, a shipped fixture or a pack digest. Hand-written cases only until B20.
+or Postgres with synthetic sets), in tables prefixed `evalset_`: never in this repository, an
+agent directory, a shipped fixture or an agent digest. Hand-written cases only until B20.
 
 **Sealed, under keys of their own.** Every case input, label and attribute is sealed
 (AES-256-GCM, bound to its kind, set id and case id, and a label also to its label id) under
@@ -178,7 +180,7 @@ Without both, the feature is off: no evaluation-set route is mounted and no comm
 exactly (the ledger's canonical JSON) or under `norm/v1` (string values folded: NFKC, case
 folded, invisible characters removed, runs of characters other than letters, marks, digits and
 `_` one space; whole numbers written as integers). The coverage report, the hidden-case index and
-the pack store's upload check (LP-20) use the same functions (`evals/canonical.py`), pinned byte
+the agent store's upload check (LP-20) use the same functions (`evals/canonical.py`), pinned byte
 for byte; a change to `norm/v1` means a new version and reindexing from the sealed inputs.
 
 **Roles and permissions.** Labellers hold `label` through the reserved `labeller` role, in

@@ -125,7 +125,7 @@ def _labelled(
             where = f"case {position}, rater {rater}"
             for question, label in labels.items():
                 if question not in manifest.questions:
-                    raise MendariError(f"{where}: labels a question the pack does not have")
+                    raise MendariError(f"{where}: labels a question the agent does not have")
                 if question in derived:
                     raise MendariError(
                         f"{where}: labels {question}, a derived question: raters label its members"

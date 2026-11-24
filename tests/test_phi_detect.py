@@ -56,7 +56,7 @@ def test_no_report_log_or_error_holds_a_matched_value(caplog: pytest.LogCaptureF
 def _shipped() -> dict[str, bytes]:
     files = {}
     for root in (
-        ROOT / "tests" / "fixtures" / "reference-packs",
+        ROOT / "tests" / "fixtures" / "reference-agents",
         ROOT / "tests" / "fixtures" / "datasets",
     ):
         for path in sorted(root.rglob("*")):

@@ -248,7 +248,7 @@ def test_each_table_is_one_set_of_records() -> None:
     assert len(tables) == 3
     assert tables[1].startswith(" (n=600; dataset hash not recorded;")
     assert tables[2].startswith(" (n=100; the first 100 cases of the file;")
-    assert "| old (version 1.0.0, its pack digest not recorded) |" in tables[1]
+    assert "| old (version 1.0.0, its agent digest not recorded) |" in tables[1]
 
 
 def test_unranked_rows_come_after_the_ranked_whatever_their_names() -> None:
@@ -264,7 +264,7 @@ def test_why_a_row_is_not_of_the_pack_as_it_is() -> None:
     assert ranking.measured_on("0.9.0", DIGEST, "1.0.0") == "earlier version 0.9.0"
     assert ranking.measured_on("1.0.0", DIGEST, "1.0.0") == "version 1.0.0 before its last change"
     assert ranking.measured_on("1.0.0", None, "1.0.0") == (
-        "version 1.0.0, its pack digest not recorded"
+        "version 1.0.0, its agent digest not recorded"
     )
 
 

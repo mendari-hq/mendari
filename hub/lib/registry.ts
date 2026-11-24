@@ -167,6 +167,7 @@ export async function search(filters: SearchFilters): Promise<PackSummary[]> {
   return (await get<PackSummary[]>(`/v1/search?${params}`)) ?? [];
 }
 
+// The registry also answers at /v1/agents/...; the Hub moves to it once every deployed registry does.
 export const pack = (namespace: string, name: string) =>
   get<PackDetail>(`/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 

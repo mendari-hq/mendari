@@ -249,9 +249,9 @@ def test_a_first_publish_is_invisible_to_search_pull_the_namespace_the_recall_li
             headers=who,
         )
         assert shared.status_code == 401  # a report is a site's, signed (LP-22f)
-    with pytest.raises(HubError, match="no pack acme/inbox"):
+    with pytest.raises(HubError, match="no agent acme/inbox"):
         pull("acme/inbox", _client(registry))
-    with pytest.raises(HubError, match="no pack acme/inbox"):
+    with pytest.raises(HubError, match="no agent acme/inbox"):
         pull(f"acme/inbox@{SHIPPED}", _client(registry, registry.token))
     # Its recall is not on the public list either (a running server reads that list).
     record = claimed.recall()
@@ -404,7 +404,7 @@ def test_a_refused_namespace_never_lists_and_its_archive_is_kept(
     assert [status for status, _ in _reads(registry, "acme")] == [404] * len(READS)
     assert registry.client.get("/v1/search").json() == []
     assert registry.client.get("/v1/health").json()["packs"] == 0
-    with pytest.raises(HubError, match="no pack acme/inbox"):
+    with pytest.raises(HubError, match="no agent acme/inbox"):
         pull("acme/inbox", _client(registry))
     # Kept: the archive, the version and the chain (a refusal removes nothing), for a reviewer
     # and for the publisher's own token, which reads why.

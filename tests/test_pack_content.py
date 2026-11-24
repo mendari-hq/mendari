@@ -66,7 +66,7 @@ def _client(tmp_path: Path, outside: Path) -> TestClient:
         ("- name: z\n  input: [1]\n", "`input` must be a mapping"),
         ("- name: z\n", "`input` must be a mapping"),
         # Strict since LP-15: a test that cannot fail is refused, named.
-        (f"- name: z\n  input: {INPUT}\n", "no `expect`: say what the pack must decide"),
+        (f"- name: z\n  input: {INPUT}\n", "no `expect`: say what the agent must decide"),
         (f"- name: z\n  input: {INPUT}\n  expect: {{}}\n", "`expect` is empty"),
         (
             f"- name: z\n  input: {INPUT}\n  expect: {{outcom: AUTO}}\n",
@@ -98,7 +98,7 @@ def _client(tmp_path: Path, outside: Path) -> TestClient:
         ),
         (
             f"- name: z\n  input: {INPUT}\n  expect: {{answers: {{nosuch: x}}}}\n",
-            "`expect.answers` names 'nosuch', which is not one of the pack's questions",
+            "`expect.answers` names 'nosuch', which is not one of the agent's questions",
         ),
     ],
     ids=[
@@ -142,7 +142,7 @@ def test_a_behaviour_test_of_the_wrong_shape_is_named_never_a_500(
     client = _client(tmp_path, outside)
     reference = client.get("/openapi.json")
     assert reference.status_code == 200
-    decide = reference.json()["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]
+    decide = reference.json()["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
     assert "patient-inbox-router" in examples
     assert client.get(f"/api/packs/{REFERRAL}/examples").status_code == 422
@@ -164,7 +164,7 @@ def test_one_packs_tests_can_never_fail_the_api_reference(
     client = TestClient(create_app(db_path=tmp_path / "m.db", packs_paths=[PACKS]))
     reference = client.get("/openapi.json")
     assert reference.status_code == 200
-    decide = reference.json()["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]
+    decide = reference.json()["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
     assert "patient-inbox-router" in examples and "referral-router" not in examples
 
@@ -181,12 +181,12 @@ def _tagged(tag: str) -> str:
 @pytest.mark.parametrize(
     ("relative", "line", "column", "reason"),
     [
-        ("pack.yaml", 'name: "Referral \\ud800"', 7, SURROGATE),
-        ("pack.yaml", '"x_\\udfff": 1', 1, SURROGATE),
-        ("pack.yaml", "x_blob: !!binary /w==", 9, _tagged("binary")),
-        ("pack.yaml", "x_set: !!set {a}", 8, _tagged("set")),
-        ("pack.yaml", "x_omap: !!omap [a: 1]", 9, _tagged("omap")),
-        ("pack.yaml", "x_pairs: !!pairs [a: 1]", 10, _tagged("pairs")),
+        ("agent.yaml", 'name: "Referral \\ud800"', 7, SURROGATE),
+        ("agent.yaml", '"x_\\udfff": 1', 1, SURROGATE),
+        ("agent.yaml", "x_blob: !!binary /w==", 9, _tagged("binary")),
+        ("agent.yaml", "x_set: !!set {a}", 8, _tagged("set")),
+        ("agent.yaml", "x_omap: !!omap [a: 1]", 9, _tagged("omap")),
+        ("agent.yaml", "x_pairs: !!pairs [a: 1]", 10, _tagged("pairs")),
         ("policy.yaml", 'x_note: "\\ud800"', 9, SURROGATE),
         ("logic/triage_rules.yaml", 'x_name: "\\ud800"', 9, SURROGATE),
     ],
@@ -230,7 +230,7 @@ def test_a_yaml_value_json_cannot_hold_is_refused_at_load_with_its_place(
 @pytest.mark.parametrize(
     ("relative", "text"),
     [
-        ("pack.yaml", "risk:\n  level: 3\n  category: x\n  rationale: a second risk\n"),
+        ("agent.yaml", "risk:\n  level: 3\n  category: x\n  rationale: a second risk\n"),
         ("policy.yaml", "primary: next_step\n"),
         ("fhir/mapping.yaml", "focus: ServiceRequest\n"),
     ],
@@ -449,7 +449,7 @@ def _edit_in_place(path: Path, old: str, new: str) -> None:
     assert path.stat().st_ino == before  # the same file on disk: only its content changed
 
 
-CHANGED = "logic/checklist.yaml: changed since the pack's digest was computed"
+CHANGED = "logic/checklist.yaml: changed since the agent's digest was computed"
 
 
 def test_a_file_edited_in_place_after_the_load_is_refused_not_used(tmp_path: Path) -> None:
@@ -524,7 +524,7 @@ def test_the_benchmark_must_be_in_evals(tmp_path: Path, capsys: pytest.CaptureFi
     a JSONDecodeError traceback and the pack's detail answered 500."""
     pack = _outsider(
         tmp_path,
-        _set_key("pack.yaml", "evaluation", {"benchmark": "DECISION_CARD.md"}),
+        _set_key("agent.yaml", "evaluation", {"benchmark": "DECISION_CARD.md"}),
         REFERRAL_DIR,
     )
     problem = "evaluation.benchmark: path 'DECISION_CARD.md' is not in evals/"

@@ -45,7 +45,7 @@ services:
   engine:
     # Mendari in open mode (no sign-in), PHI mode `off`, for the SMART App Launch and Bulk Data
     # client suites: Inferno plays the EHR (its authorization server and FHIR server, at
-    # http://nginx), and the engine is the client. One pack, so a launch needs no `pack`
+    # http://nginx), and the engine is the client. One agent, so a launch needs no `pack`
     # (Inferno adds `iss` and `launch` to the registered launch URL, and nothing else). The
     # scopes leave out `openid fhirUser`: the kit's SMART configuration has no jwks_uri and its
     # id_token no nonce, both of which Mendari's sign-in refuses (sandbox/inferno/README.md).
@@ -54,16 +54,16 @@ services:
     image: mendari-engine:inferno
     environment:
       MENDARI_PHI_MODE: "off"
-      MENDARI_PACKS: mendari/referral-router
+      MENDARI_AGENTS: mendari/referral-router
       MENDARI_PUBLIC_URL: http://engine:8000
       MENDARI_FHIR_ALLOWED_SERVERS: http://nginx
       MENDARI_SMART_CLIENT_ID: mendari-sandbox
       MENDARI_SMART_SCOPES: launch patient/*.rs
       # The agents are test fixtures, mounted read-only (the image ships only the demo agent).
-      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_AGENTS_PATH: /sandbox/agents
       MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:
-      - ../../../tests/fixtures/reference-packs:/sandbox/agents:ro
+      - ../../../tests/fixtures/reference-agents:/sandbox/agents:ro
       - ../../../tests/fixtures/datasets:/sandbox/datasets:ro
     ports:
       - "127.0.0.1:${MENDARI_INFERNO_ENGINE_PORT:-8090}:8000"
@@ -92,10 +92,10 @@ services:
       MENDARI_PHI_MODE: encrypt
       MENDARI_PHI_KEY: ${MENDARI_PHI_KEY:-}
       MENDARI_INPUT_HASH_KEY: ${MENDARI_INPUT_HASH_KEY:-}
-      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_AGENTS_PATH: /sandbox/agents
       MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:
-      - ../../../tests/fixtures/reference-packs:/sandbox/agents:ro
+      - ../../../tests/fixtures/reference-agents:/sandbox/agents:ro
       - ../../../tests/fixtures/datasets:/sandbox/datasets:ro
     ports:
       - "127.0.0.1:${MENDARI_INFERNO_SIGNIN_PORT:-8091}:8000"

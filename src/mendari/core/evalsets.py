@@ -10,8 +10,8 @@ the deployment's own database, in the `evalset_` tables of `core/audit.py`, and 
   is null, and `author`, `language` and `stratum` are given. A record holding what a model
   decided or people rated (a `system` or `feedback` block, as `mendari feedback export` writes)
   is refused, and so is an input equal, exactly or under `norm/v1`, to one of the public cases:
-  the bundled agents' data and `datasets/` as this release bundles them, and each generator's
-  output at its default seed. The store mints each case's id (a UUID4); the author's id and an
+  the bundled agents' data and the example datasets, as this release bundles them or the
+  deployment names them. The store mints each case's id (a UUID4); the author's id and an
   intended label, if any, are kept among its attributes. Its input is sealed, and its attributes
   sealed with a 32-byte salt; its keyed case hash and its two index hashes (`index_hashes`) are
   kept beside them. Chained, one per case in one exclusive append: `evalset.case_added {set, org,
@@ -1378,7 +1378,7 @@ class EvalsetStore:
         if not (isinstance(grader, str) and _GRADER.fullmatch(grader)):
             raise MendariError("a grader is a grading key, named key: and its id")
         if not (isinstance(pack_digest, str) and _PACK_DIGEST.fullmatch(pack_digest)):
-            raise MendariError("a pack digest is sha256: and 64 hex digits")
+            raise MendariError("an agent digest is sha256: and 64 hex digits")
         from mendari.evals.harness import Dataset
 
         with self.store._db.session(exclusive=True) as db:
@@ -2237,8 +2237,8 @@ def case_problems(records: Sequence[Any], header: Mapping[str, Any]) -> list[tup
                 problems.append(
                     (
                         index,
-                        "its input is a public case's (the bundled agents' data, datasets/ or "
-                        "a generator's output): a hidden case is written by hand",
+                        "its input is a public case's (the bundled agents' data or the "
+                        "example datasets): a hidden case is written by hand",
                     )
                 )
     return sorted(problems)
@@ -2287,7 +2287,7 @@ def _problem(record: Any, header: Mapping[str, Any]) -> str | None:
     for question, label in labels.items():
         # Only what the pack defines is named: a label written here can hold case text.
         if question not in questions:
-            return "labels name a question the pack does not have"
+            return "labels name a question the agent does not have"
         if label not in questions[question]:
             return f"labels.{question} is not one of its labels"
     return None
@@ -2520,7 +2520,7 @@ def _digest(form: str) -> bytes:
 @functools.cache
 def _public_forms() -> tuple[frozenset[bytes], frozenset[bytes]]:
     """The digests of every public case's input in both forms (strict, `norm/v1`), read once per
-    process: about 17,000 inputs, under a second."""
+    process: the bundled agents' cases, a few hundred, and whatever example datasets there are."""
     exact: set[bytes] = set()
     folded: set[bytes] = set()
     for value in _public_inputs():
@@ -2533,34 +2533,17 @@ def _public_forms() -> tuple[frozenset[bytes], frozenset[bytes]]:
 
 
 def _public_inputs() -> Iterator[Any]:
-    """Every public case's input: each JSONL record's under the bundled agents and the example
-    datasets as this release bundles them (`mendari/_packs`, `mendari/_datasets`, or a checkout's
-    `packs/` and `datasets/`), and each generator's at its default seed."""
+    """Every public case's input: each JSONL record's under the bundled agents (`mendari/_agents`,
+    or a checkout's `agents/`) and under the example datasets (`sandbox.example_datasets_dir`:
+    `$MENDARI_DATASETS_PATH`, or those a release bundles)."""
     from mendari.core.reference import bundled_dir
-    from mendari.sandbox import (
-        example_datasets_dir,
-        synthetic_guard,
-        synthetic_inbox,
-        synthetic_prior_auth,
-        synthetic_referral,
-        synthetic_trial,
-    )
+    from mendari.sandbox import example_datasets_dir
 
     for root in (bundled_dir(), example_datasets_dir()):
         if root is None:
             continue
         for path in sorted(root.rglob("*.jsonl")):
             yield from _inputs_of(path)
-    for generator in (
-        synthetic_inbox,
-        synthetic_trial,
-        synthetic_referral,
-        synthetic_prior_auth,
-        synthetic_guard,
-    ):
-        for records in generator.public_splits().values():
-            yield from (record["input"] for record in records)
-        yield from (record["input"] for record in generator.local_site())
 
 
 def _inputs_of(path: Path) -> Iterator[Any]:
@@ -2802,8 +2785,8 @@ def pack_problem(pack: Pack, header: Mapping[str, Any]) -> str | None:
     if all(made[name] == header.get(name) for name in made):
         return None
     return (
-        f"pack {pack.id} does not ask the set's questions with their labels and critical "
-        "labels: give the pack the set was made for (--pack)"
+        f"agent {pack.id} does not ask the set's questions with their labels and critical "
+        "labels: give the agent the set was made for (--agent)"
     )
 
 

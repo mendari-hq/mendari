@@ -51,7 +51,7 @@ from mendari.hub.registry import (
     RegistryStore,
     ReviewRequest,
 )
-from mendari.server import security_log
+from mendari.server import paths, security_log
 from mendari.server.auth import Auth, Principal, org_of
 
 TAG = "Registry accounts"
@@ -396,7 +396,7 @@ def _a_version(namespace: str, name: str, version: str) -> None:
     """A path that names a version as the registry names one: anything else is a version that
     does not exist (never a lookup, never an echo of what was sent)."""
     if not (_NAME.match(namespace) and _NAME.match(name) and _VERSION.match(version)):
-        raise HTTPException(404, "no such pack version")
+        raise HTTPException(404, "no such agent version")
 
 
 def add_registry_review_routes(
@@ -443,7 +443,7 @@ def add_registry_review_routes(
         is you (`own`: you cannot decide it), its publisher keys by id, and its newest versions
         (5 at most; `more_versions` counts the rest), each with what the registry `checked`
         apart from what the publisher `claimed`. A version's card is read with the version
-        (`GET /api/registry/review/packs/...`). A claim with no version cannot be approved
+        (`GET /api/registry/review/agents/...`). A claim with no version cannot be approved
         yet."""
         principal = reviewer(request)
         pending = registry.claims(status="pending")
@@ -469,8 +469,9 @@ def add_registry_review_routes(
             )
         return {"pending": items, "more": max(0, len(pending) - MAX_QUEUE)}
 
-    @app.get(
-        "/api/registry/review/packs/{namespace}/{name}/{version}",
+    @paths.route(
+        app.get,
+        "/api/registry/review/agents/{namespace}/{name}/{version}",
         tags=[REVIEW_TAG],
         summary="One version, with its card",
     )
@@ -582,8 +583,9 @@ def add_registry_review_routes(
         logged("admin.registry_namespace.publisher_type_set", principal, namespace)
         return {"namespace": namespace, "publisher_type": changed["publisher_type"]}
 
-    @app.post(
-        "/api/registry/review/packs/{namespace}/{name}/{version}",
+    @paths.route(
+        app.post,
+        "/api/registry/review/agents/{namespace}/{name}/{version}",
         status_code=201,
         tags=[REVIEW_TAG],
         summary="Record a version's review",
@@ -592,7 +594,7 @@ def add_registry_review_routes(
         request: Request, namespace: str, name: str, version: str, body: ReviewRequest
     ) -> dict[str, Any]:
         """Record the risk level your review of one version found (which may differ from the
-        one its publisher declared) and a short note about the pack: never case text. The
+        one its publisher declared) and a short note about the agent: never case text. The
         newest review of a version is the one shown. Chained `pack.reviewed` with your id."""
         principal = reviewer(request)
         _a_version(namespace, name, version)
@@ -610,8 +612,9 @@ def add_registry_review_routes(
         logged("admin.registry_pack.reviewed", principal, f"{namespace}/{name}@{version}")
         return shown(reviewed)
 
-    @app.post(
-        "/api/registry/review/packs/{namespace}/{name}/{version}/recall",
+    @paths.route(
+        app.post,
+        "/api/registry/review/agents/{namespace}/{name}/{version}/recall",
         status_code=201,
         tags=[REVIEW_TAG],
         summary="Recall a version",
@@ -639,8 +642,9 @@ def add_registry_review_routes(
         logged("admin.registry_pack.recalled", principal, f"{namespace}/{name}@{version}")
         return shown(recalled)
 
-    @app.post(
-        "/api/registry/review/packs/{namespace}/{name}/{version}/delete",
+    @paths.route(
+        app.post,
+        "/api/registry/review/agents/{namespace}/{name}/{version}/delete",
         tags=[REVIEW_TAG],
         summary="Delete a version",
     )

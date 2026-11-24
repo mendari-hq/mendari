@@ -68,7 +68,7 @@ def test_a_hold_needs_a_reason_and_a_digest_its_pack(tmp_path: Path) -> None:
                 store.hold_automation(
                     org="a", pack_id=None, pack_digest=None, reason=reason, set_by="ops"
                 )
-        with pytest.raises(Exception, match="names its pack"):
+        with pytest.raises(Exception, match="names its agent"):
             store.hold_automation(
                 org="a", pack_id=None, pack_digest="sha256:" + "1" * 64, reason="r", set_by="o"
             )

@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The community-pack half of the `pack-check` job (workflow `packs`): every pull request runs it.
+"""The community half of the `agent-check` job (workflow `agents`): every pull request runs it.
 
     uv run python scripts/community_check.py --base BASE_SHA --actor AUTHOR \\
         --head-repo OWNER/REPO --repo OWNER/REPO --base-ref BRANCH --default-branch BRANCH \\
         [--summary "$GITHUB_STEP_SUMMARY"]
 
-- A pull request that changes no community pack (nor `MAINTAINERS.yaml`) passes at once;
-  `community-packs/README.md` is documentation.
-- One that does, and anything outside one `community-packs/<name>/` folder (its
+- A pull request that changes no community agent (nor `MAINTAINERS.yaml`) passes at once;
+  `community-agents/README.md` is documentation.
+- One that does, and anything outside one `community-agents/<name>/` folder (its
   `MAINTAINERS.yaml` aside), fails, unless the repository's owner made it: the pull request's
   author (`--actor`, never whoever caused the run) is the one person the `*` rule of
   `.github/CODEOWNERS` names in the base (never the pull request's own copy, which could name
@@ -15,14 +15,14 @@
   repository (`--head-repo` is `--repo`); and it is into the default branch (`--base-ref` is
   `--default-branch`), whose CODEOWNERS changes only with a code owner's approval. A rule
   naming a team, an email or several people names no owner.
-- A git submodule anywhere in `community-packs/` fails: its files are another repository's,
+- A git submodule anywhere in `community-agents/` fails: its files are another repository's,
   which no check here reads.
-- Each changed community pack is checked (`mendari.community.check`), against the base for
-  regressions and the version bump. Only the owner removes a pack, and a removed pack needs its
-  tombstone in `MAINTAINERS.yaml`.
+- Each changed community agent is checked (`mendari.community.check`), against the base for
+  regressions and the version bump. Only the owner removes an agent, and a removed agent needs
+  its tombstone in `MAINTAINERS.yaml`.
 
-The metrics table and the rendered Decision Card of each pack go to the job summary. Exit 1 if
-anything fails. Every path comes from `git diff -z` and reaches nothing but `pathlib`.
+The metrics table and the rendered Decision Card of each agent go to the job summary. Exit 1
+if anything fails. Every path comes from `git diff -z` and reaches nothing but `pathlib`.
 """
 
 from __future__ import annotations
@@ -52,14 +52,14 @@ def run(repo: Path, base: str, *, owner: bool, summary: Path | None = None) -> i
     out: list[str] = []
     submodules = gitlinks(repo, COMMUNITY_DIR)
     if not folders and f"{COMMUNITY_DIR}/{maintainers.FILE}" not in changed and not submodules:
-        _emit("no community pack changes", ["No community pack changes."], summary)
+        _emit("no community agent changes", ["No community agent changes."], summary)
         return 0
     failed = False
     problems = pr_scope_problems(changed, owner=owner)
     if submodules:
         problems.append(
             f"{COMMUNITY_DIR}/ holds a git submodule ({', '.join(submodules)}): a community "
-            "pack's files are in this repository, where CI checks them and a reviewer reads them"
+            "agent's files are in this repository, where CI checks them and a reviewer reads them"
         )
     if problems:
         failed = True
@@ -79,17 +79,17 @@ def run(repo: Path, base: str, *, owner: bool, summary: Path | None = None) -> i
         out.append(report.markdown())
         failed = failed or not report.passed
     if not folders:
-        print("no community pack changed (only MAINTAINERS.yaml)")
+        print("no community agent changed (only MAINTAINERS.yaml)")
     _emit(None, out, summary)
     return 1 if failed else 0
 
 
 def _removal_problem(repo: Path, folder: str, *, owner: bool) -> str | None:
-    """Why a pack's removal cannot stand: only the owner removes a pack, and it needs a
+    """Why an agent's removal cannot stand: only the owner removes an agent, and it needs a
     tombstone."""
     if not owner:
         return (
-            "only the repository's owner removes a community pack; to propose a removal, open "
+            "only the repository's owner removes a community agent; to propose a removal, open "
             "an issue"
         )
     path = repo / COMMUNITY_DIR / maintainers.FILE

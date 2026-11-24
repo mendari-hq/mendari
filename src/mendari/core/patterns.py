@@ -223,7 +223,7 @@ def problem(text: str, flags: int = 0, *, community: bool = False) -> str | None
 
 # What a load-time message says RE2 is: it names no origin, as the same check refuses a pattern of
 # a community pack and of one from a registry.
-_RE2_ENGINE = "the engine community packs and packs from a registry run on"
+_RE2_ENGINE = "the engine community agents and agents from a registry run on"
 
 
 def _re2_problem(message: str) -> str:

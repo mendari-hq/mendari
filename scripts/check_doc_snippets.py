@@ -159,7 +159,7 @@ def run_pass(
         secret = made["key"]
     ok = True
     with _server(db, show=show) as base:
-        if key and _status(f"{base}/api/packs") != 401:
+        if key and _status(f"{base}/api/agents") != 401:
             print("  FAIL sign-in is not on: a request without the key was not refused")
             return False
         env = {**base_env, "MENDARI": base, "MENDARI_KEY": secret}

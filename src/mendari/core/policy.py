@@ -156,7 +156,7 @@ def apply_policy(
         # A block is final at once and no person sees it; a community pack's rule never decides
         # alone (its load refuses such a rule; this covers a pack loaded by path).
         reasons.append(
-            "a community pack (not clinically reviewed) never blocks on its own: a person decides"
+            "a community agent (not clinically reviewed) never blocks on its own: a person decides"
         )
         outcome = Outcome.HUMAN_REVIEW
     if translated and was_block:
@@ -282,7 +282,7 @@ def _caps(
     community: bool,
 ) -> Outcome:
     if community:
-        reasons.append("a community pack (not clinically reviewed) recommends and never automates")
+        reasons.append("a community agent (not clinically reviewed) recommends and never automates")
         return Outcome.HUMAN_REVIEW
     label_policy = manifest.policy.labels.get(recommendation or "")
     if label_policy is not None and not label_policy.allow_auto:

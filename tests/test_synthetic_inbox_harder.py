@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The harder inbox benchmark's draft (`mendari.sandbox.synthetic_inbox_harder`), draft, not
+"""The harder inbox benchmark's draft (`tests/support/synthetic_inbox_harder.py`), draft, not
 clinically reviewed: its committed files are the generator's byte for byte, whatever the hash
 seed; its leakage check passes and finds every kind of leak planted in a copy; every label,
 critical label, red-flag sign and frame is covered in both splits; every case says it is a draft;
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import ast
 import copy
-import importlib.util
 import os
 import subprocess
 import sys
@@ -25,10 +24,11 @@ from mendari import Decision, load_pack
 from mendari.core import evalsets
 from mendari.evals.canonical import canonical_input
 from mendari.evals.harness import evaluate, record_problems, resolve_dataset
-from mendari.sandbox import synthetic_inbox_harder as harder
 from tests.conftest import ROOT
+from tests.support import harder_inbox_draft
+from tests.support import synthetic_inbox_harder as harder
 
-PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / harder.PACK_NAME
+PACK_DIR = ROOT / "tests" / "fixtures" / "reference-agents" / harder.PACK_NAME
 DRAFT_DIR = ROOT / harder.DRAFT_DIR
 Splits = dict[str, list[dict[str, Any]]]
 
@@ -44,13 +44,8 @@ def corpus() -> harder.Corpus:
 
 
 def _script() -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "harder_inbox_draft", ROOT / "scripts" / "harder_inbox_draft.py"
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """The command that writes or checks the draft: `python -m tests.support.harder_inbox_draft`."""
+    return harder_inbox_draft
 
 
 # -- byte-reproducibility ---------------------------------------------------------------------
@@ -75,7 +70,7 @@ def test_the_check_passes_under_another_hash_seed() -> None:
     for hash_seed in ("0", "4242"):
         env = {**os.environ, "PYTHONHASHSEED": hash_seed}
         run = subprocess.run(
-            [sys.executable, "scripts/harder_inbox_draft.py", "--check"],
+            [sys.executable, "-m", "tests.support.harder_inbox_draft", "--check"],
             cwd=ROOT, env=env, capture_output=True, text=True, timeout=120,
         )  # fmt: skip
         assert run.returncode == 0, run.stderr
@@ -403,6 +398,6 @@ def test_the_generator_is_local() -> None:
             imported.add(node.module)
     allowed = {
         "__future__", "hashlib", "json", "random", "re", "unicodedata", "collections",
-        "collections.abc", "dataclasses", "pathlib", "typing", "mendari", "mendari.sandbox",
+        "collections.abc", "dataclasses", "pathlib", "typing", "mendari", "tests.support",
     }  # fmt: skip
     assert imported <= allowed, imported - allowed

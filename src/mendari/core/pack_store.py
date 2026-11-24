@@ -24,7 +24,7 @@ database, keyed by content digest, as `EvalsetStore` keeps hidden sets.
   only a scratch one, so a version is written there on its first use in a process, checked
   against its digest, and kept in a cache bounded in count and bytes.
 
-Nothing here is reached by a route: LP-20f mounts them, behind `MENDARI_PACK_STORE=on` and
+Nothing here is reached by a route: LP-20f mounts them, behind `MENDARI_AGENT_STORE=on` and
 memberships mode, once `prerequisites` finds nothing missing."""
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Any
 
 from mendari.core import accounts, clock
 from mendari.core.audit import STORE_STATES, _canonical, _now, store_version_sha256
-from mendari.core.pack import Pack, load_pack, pack_digest
+from mendari.core.pack import MANIFEST, Pack, load_pack, pack_digest
 from mendari.errors import MendariError
 
 if TYPE_CHECKING:
@@ -117,7 +117,7 @@ def _check_path(path: str) -> None:
         or any(part in ("", ".", "..") for part in parts)
     ):
         shown = path if path.isprintable() else ascii(path)
-        raise StoreError(f"{shown}: not a path inside a pack")
+        raise StoreError(f"{shown}: not a path inside an agent")
 
 
 def _write(files: Mapping[str, bytes], root: Path) -> None:
@@ -129,7 +129,7 @@ def _write(files: Mapping[str, bytes], root: Path) -> None:
     for path, data in files.items():
         target = (base / path).resolve()
         if target == base or not target.is_relative_to(base):
-            raise StoreError(f"{path}: not a path inside a pack")
+            raise StoreError(f"{path}: not a path inside an agent")
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
@@ -143,9 +143,9 @@ def _load(root: Path) -> Pack:
     try:
         return load_pack(root, origin="store")
     except MendariError as error:
-        raise StoreError(f"the pack does not load: {error}") from None
+        raise StoreError(f"the agent does not load: {error}") from None
     except Exception as error:  # someone else's files: named, never a 500
-        raise StoreError(f"the pack does not load ({type(error).__name__})") from None
+        raise StoreError(f"the agent does not load ({type(error).__name__})") from None
 
 
 def _actor(by: str) -> str:
@@ -209,7 +209,7 @@ def _prepare(files: Mapping[str, bytes]) -> Prepared:
         _check_path(path)
     kept = {path: bytes(data) for path, data in files.items() if _kept(path)}
     if not kept:
-        raise StoreError("no file of a pack: a pack.yaml and the files it names")
+        raise StoreError(f"no file of an agent: an {MANIFEST} and the files it names")
     if len(kept) > MAX_FILES:
         raise StoreError(f"more than {MAX_FILES} files", 413)
     large = sorted(path for path, data in kept.items() if len(data) > MAX_FILE_BYTES)
@@ -454,11 +454,11 @@ class PackStore:
             namespace != org and not (claimed is not None and claimed(org, namespace))
         ):
             raise StoreError(
-                f"a pack in this organization's store is named {org}/<name>: {pack.id!r} is "
+                f"an agent in this organization's store is named {org}/<name>: {pack.id!r} is "
                 "not (a copy is renamed on the way in)"
             )
         if expect_digest is not None and pack.digest != expect_digest:
-            raise StoreError("the archive's files are not the pack its manifest names")
+            raise StoreError("the archive's files are not the agent its manifest names")
         checks: dict[str, Any] = {
             "phi": {"files": found.files, "findings": len(found.findings)},
             "datasets": ready.datasets,
@@ -1082,7 +1082,7 @@ class PackStore:
             raise StoreError(str(error)) from None
         report = dataset_checks.check(pack, data, training={})
         if not report.passed:
-            raise StoreError("the dataset does not fit the pack: schema or label problems", 422)
+            raise StoreError("the dataset does not fit the agent: schema or label problems", 422)
         matches = (
             []
             if hidden is None or kind != "upload"
@@ -1243,7 +1243,7 @@ class PackStore:
             )
         pack = self.load(org, digest)
         if automate and int(pack.manifest.risk.level) >= 4:
-            raise StoreError("a pack of risk level 4 or above never automates (ADR-0002)")
+            raise StoreError("an agent of risk level 4 or above never automates (ADR-0002)")
         with self.store._db.session(exclusive=True) as db:
             for report_id in reports:
                 found = db.one(
@@ -1576,11 +1576,11 @@ def _bounded_problems() -> list[str]:
 
     found = []
     if "store" not in NOT_OWNED or not bounded("acme/x", "store", "sha256:" + "0" * 64):
-        found.append("LP-16: a pack from a store does not run on the bounded engine")
+        found.append("LP-16: an agent from a store does not run on the bounded engine")
     try:
         with time_budget(0.0):
             check_time()
-        found.append("LP-16: a bounded pack's rules do not stop at the CPU budget")
+        found.append("LP-16: a bounded agent's rules do not stop at the CPU budget")
     except OutOfTime:
         pass
     return found

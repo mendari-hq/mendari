@@ -20,7 +20,7 @@ from mendari.standards.fhir import FhirAdapter, age_years
 from tests.conftest import INBOX_DIR
 from tests.test_fhir import COMMUNICATION, PATIENT
 
-MINI = Path(__file__).parent / "fixtures" / "packs" / "prescreen-mini"
+MINI = Path(__file__).parent / "fixtures" / "mini-agents" / "prescreen-mini"
 TODAY = date.today()
 
 
@@ -187,7 +187,7 @@ def test_the_inbox_card_wording_is_unchanged(router: Decision) -> None:
 
 
 def test_card_keys_must_be_recommendations() -> None:
-    raw = yaml.safe_load((MINI / "pack.yaml").read_text())
+    raw = yaml.safe_load((MINI / "agent.yaml").read_text())
     raw["cds_hooks"]["card"]["show"] = ["candidate", "maybe"]
     with pytest.raises(ValidationError, match="unknown recommendations"):
         PackManifest.model_validate(raw)
@@ -216,7 +216,7 @@ def test_validate_parses_the_fhir_mapping(
 
 
 @pytest.mark.parametrize(
-    ("name", "reported"), [("pack.yaml", "pack.yaml"), ("policy.yaml", "policy.yaml")]
+    ("name", "reported"), [("agent.yaml", "agent.yaml"), ("policy.yaml", "policy.yaml")]
 )
 def test_invalid_manifest_or_policy_yaml_is_a_validation_error(
     tmp_path: Path, name: str, reported: str

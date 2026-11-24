@@ -136,7 +136,7 @@ def markdown(pack_id: str, rows: list[dict[str, Any]], failures: list[str], new:
 
     lines = [f"### {pack_id}", ""]
     if new:
-        lines += ["A new pack: nothing on `main` to compare with.", ""]
+        lines += ["A new agent: nothing on `main` to compare with.", ""]
     lines += ["| Metric | main | this change |", "|---|---|---|"]
     lines += [
         f"| {name(r)} | {cell(r['main'], r.get('main_n'))} "

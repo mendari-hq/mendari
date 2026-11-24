@@ -148,6 +148,41 @@ def test_past_its_page_cap_the_activity_tab_shows_the_newest_events(site: Site) 
     assert [query.get("after") for query in asked[1:3]] == [["after-499"], ["after-999"]]
 
 
+def test_an_agent_store_s_events_are_named_in_words(site: Site) -> None:
+    """An event of the organization's agent store reads in words in both columns: what happened,
+    and what it is about, never the name the chain keeps for either."""
+    page = site.window(lead(site))
+    now = datetime.now(UTC)
+    kinds = [
+        ("pack_version.promoted", "pack_version:7", "Agent store version 7"),
+        ("store_key.added", "store_key:3", "Agent store author key 3"),
+        ("store_dataset.created", "store_dataset:5", "Agent store dataset 5"),
+        ("store_job.created", "store_job:9", "Agent store evaluation job 9"),
+    ]
+    events = [
+        {
+            "subject": subject,
+            "event": kind,
+            "payload": {"org": "clinic-a", "created_by": "lead@example.org"},
+            "created_at": (now - timedelta(minutes=n)).isoformat(timespec="milliseconds"),
+            "hash": f"{n:064x}",
+        }
+        for n, (kind, subject, _) in enumerate(kinds)
+    ]
+    page.route(
+        re.compile(r"/api/audit/administrative\?"),
+        lambda route: route.fulfill(json={"items": events, "next": None}),
+    )
+    access(page, "activity")
+    rows = page.locator('[data-table="activity"] tbody tr')
+    expect(rows).to_have_count(len(kinds))
+    expect(rows.first.locator("td").nth(1)).to_have_text(
+        "Agent store version promoted to be served"
+    )
+    for n, (_, _, about) in enumerate(kinds):
+        expect(rows.nth(n).locator("td").nth(2)).to_have_text(about)
+
+
 def test_a_viewer_has_neither_the_activity_nor_the_audit_export(site: Site) -> None:
     lead(site)
     viewer = person(site, sub="vi", email="vi@example.org", org="clinic-a", roles=["viewer"])

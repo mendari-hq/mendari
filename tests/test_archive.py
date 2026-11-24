@@ -80,7 +80,7 @@ def changed_referral(tmp_path: Path, version: str | None = None) -> Path:
     rules = root / "logic" / "triage_rules.yaml"
     rules.write_text(rules.read_text() + "# one more line\n")
     if version is not None:
-        manifest = root / "pack.yaml"
+        manifest = root / "agent.yaml"
         manifest.write_text(
             manifest.read_text().replace(f"version: {REFERRAL.version}", f"version: {version}", 1)
         )
@@ -143,8 +143,8 @@ def test_pack_verify_refuses_a_shadow_without_a_traceback(
 
 def test_a_changed_file_is_caught(key: archive.Ed25519PrivateKey) -> None:
     entries = members(archive.build(REFERRAL, key))
-    entries = [(n, d + b"#" if n == "pack/pack.yaml" else d) for n, d in entries]
-    with pytest.raises(HubError, match=r"pack\.yaml does not match the manifest"):
+    entries = [(n, d + b"#" if n == "pack/agent.yaml" else d) for n, d in entries]
+    with pytest.raises(HubError, match=r"agent\.yaml does not match the manifest"):
         archive.verify(repack(entries), trusted(key))
 
 
@@ -177,7 +177,7 @@ def test_a_file_the_manifest_does_not_list_is_refused(key: archive.Ed25519Privat
 )
 def test_paths_outside_the_pack_are_refused(key: archive.Ed25519PrivateKey, name: str) -> None:
     entries = [*members(archive.build(REFERRAL, key)), (name, b"x")]
-    with pytest.raises(HubError, match="not a path inside the pack"):
+    with pytest.raises(HubError, match="not a path inside the agent"):
         archive.verify(repack(entries), trusted(key))
 
 
@@ -217,7 +217,7 @@ def signed_with_all(key: archive.Ed25519PrivateKey, extra: list[tuple[str, bytes
 @pytest.mark.parametrize(
     "names",
     [
-        ["pack/PACK.yaml"],
+        ["pack/AGENT.yaml"],
         ["pack/LOGIC"],
         ["pack/caf\u00e9.md", "pack/cafe\u0301.md"],
         ["pack/A", "pack/a/x.yaml"],
@@ -231,7 +231,7 @@ def test_names_that_are_one_file_where_case_is_not_significant_are_refused(
     capsys: pytest.CaptureFixture[str],
     names: list[str],
 ) -> None:
-    """`A` and `a/x.yaml` (or `pack.yaml` and `PACK.yaml`, NFC and NFD spellings) are two files
+    """`A` and `a/x.yaml` (or `agent.yaml` and `AGENT.yaml`, NFC and NFD spellings) are two files
     on Linux and one on macOS or Windows: `mendari pull` printed a FileExistsError traceback,
     or the last write won. Refused by `verify`, on every platform."""
     data = signed_with_all(key, [(name, b"x: 1\n") for name in names])
@@ -265,7 +265,7 @@ def test_names_with_empty_or_dot_segments_are_refused(
     # written at the absolute path: a file anywhere on the registry host or a puller's machine.
     outside = tmp_path / "outside" / "pwned.txt"
     name = name.format(outside=outside.as_posix())
-    with pytest.raises(HubError, match="not a path inside the pack"):
+    with pytest.raises(HubError, match="not a path inside the agent"):
         archive.verify(signed_with(key, name, b"x"), trusted(key))
     assert not outside.exists()
 
@@ -278,10 +278,10 @@ def test_extract_writes_nothing_outside_the_destination(
     good = archive.verify(archive.build(REFERRAL, key), trusted(key))
     files = {**good.files, path.format(outside=outside.as_posix()): b"x"}
     evil = archive.Verified(good.manifest, files, good.key_id, good.sha256)
-    with pytest.raises(HubError, match="not a path inside the pack"):
+    with pytest.raises(HubError, match="not a path inside the agent"):
         archive.extract(evil, tmp_path / "dest" / "pack", origin="hub")
     assert not outside.exists() and not (tmp_path / "dest" / "escape.txt").exists()
-    assert not (tmp_path / "dest" / "pack" / "pack.yaml").exists()  # checked before any write
+    assert not (tmp_path / "dest" / "pack" / "agent.yaml").exists()  # checked before any write
 
 
 def test_links_are_refused(key: archive.Ed25519PrivateKey) -> None:
@@ -473,9 +473,23 @@ def test_the_cli_generates_keys_builds_and_verifies(
         main(["pack", "build", "mendari/referral-router", "--key", key, "--out", str(tmp_path)])
         == 0
     )
-    built = tmp_path / f"mendari-referral-router-{REFERRAL.version}.ohpack"
+    # An archive is written as `<namespace>-<name>-<version>.mendari`, and nothing else.
+    built = tmp_path / f"mendari-referral-router-{REFERRAL.version}.mendari"
+    assert archive.archive_name(REFERRAL) == built.name and archive.EXTENSION == ".mendari"
+    assert [path.name for path in tmp_path.iterdir() if path.suffix not in (".key", ".pub")] == [
+        built.name
+    ]
     assert (
         main(["pack", "verify", str(built), "--public-key", str(tmp_path / "publisher.pub")]) == 0
     )
     shown = f"OK mendari/referral-router@{REFERRAL.version} {REFERRAL.digest}"
     assert shown in capsys.readouterr().out
+    # One written before the rename, as `.ohpack`, is still read: the same bytes under the
+    # name they had verify the same (an archive is never read by its name).
+    former = built.with_suffix(archive.FORMER_EXTENSION)
+    assert former.name == f"mendari-referral-router-{REFERRAL.version}.ohpack"
+    former.write_bytes(built.read_bytes())
+    for command in ("archive", "pack"):
+        argv = [command, "verify", str(former), "--public-key", str(tmp_path / "publisher.pub")]
+        assert main(argv) == 0
+        assert shown in capsys.readouterr().out

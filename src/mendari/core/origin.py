@@ -6,10 +6,10 @@ self-declared):
 
 - `maintained`: the agents Mendari bundles (`packs/`, bundled in the wheel).
 - `community`: packs outside developers contributed by pull request, in
-  `community-packs/<name>/` with id `community/<name>`; served only with
-  `MENDARI_COMMUNITY_PACKS=on`.
+  `community-agents/<name>/` with id `community/<name>`; served only with
+  `MENDARI_COMMUNITY_AGENTS=on`.
 - `hub`: packs pulled from a registry, verified, in the local cache.
-- `local`: any other directory (`MENDARI_PACKS_PATH`, a path given on the command line).
+- `local`: any other directory (`MENDARI_AGENTS_PATH`, a path given on the command line).
 
 A community pack recommends and never automates (`core/policy.py`): no policy rule of its own
 blocks, and a person confirms every decision. It decides with local providers unless the
@@ -26,7 +26,7 @@ bundled agent of the installed release (`core/reference.py`): a copy of a bundle
 the maintained engine, and nothing a manifest, a registry or a marker file says chooses it.
 The engine is all a pulled pack shares with a community pack: it is labelled "From a registry",
 may automate under its policy and may block, as before. Maintained and local packs (an
-operator's own: a copy of a pulled pack in `MENDARI_PACKS_PATH` is one) stay on `re`.
+operator's own: a copy of a pulled pack in `MENDARI_AGENTS_PATH` is one) stay on `re`.
 
 Such a pack's provider configs are refused at load unless every variant and composite member
 passes its provider's closed config (`providers.config_problems`; an owned pack loads with them
@@ -62,6 +62,9 @@ Origin = Literal["maintained", "community", "hub", "local", "store"]
 NOT_OWNED: frozenset[Origin] = frozenset({"hub", "store"})
 
 COMMUNITY_NAMESPACE = "community"
+# The repository's folder of community agents, by the name it has kept: every message that
+# names the folder reads it here.
+COMMUNITY_FOLDER = "community-agents"
 # The namespaces of the packs Mendari maintains, which a community pack never claims.
 RESERVED_NAMESPACES: Mapping[str, Origin] = {
     "mendari": "maintained",
@@ -123,7 +126,7 @@ MARKER = ".mendari-verified"
 ORIGIN_FORMAT = "mendari.origin/1"
 # Why automation is held for a pack from a registry until its organization approves its digest
 # (`core/decision.py`): no field in the pack lifts it.
-UNAPPROVED = "a pack from a registry, not approved for automation by this organization"
+UNAPPROVED = "an agent from a registry, not approved for automation by this organization"
 
 
 def pulled_record(root: Path) -> dict[str, Any]:
@@ -145,7 +148,7 @@ def pulled_record(root: Path) -> dict[str, Any]:
 
 
 def is_community(pack_id: str, origin: Origin) -> bool:
-    """A community pack: found in `community-packs/`, or named in the `community/` namespace
+    """A community pack: found in `community-agents/`, or named in the `community/` namespace
     wherever it was loaded from (a path on the command line), so its limits always apply."""
     return origin == "community" or pack_id.partition("/")[0] == COMMUNITY_NAMESPACE
 
@@ -167,8 +170,8 @@ def bounded_reader(pack_id: str, origin: Origin) -> str:
     """What a reason says of a pack on the community engine (`bounded`): "a community pack",
     "a pack from a store" or "a pack from a registry"."""
     if is_community(pack_id, origin):
-        return "a community pack"
-    return "a pack from a store" if origin == "store" else "a pack from a registry"
+        return "a community agent"
+    return "an agent from a store" if origin == "store" else "an agent from a registry"
 
 
 def shown_origin(pack_id: str, origin: Origin) -> Origin:
@@ -184,7 +187,7 @@ def namespace_problem(pack_id: str, origin: Origin) -> str | None:
     namespace = pack_id.partition("/")[0]
     if origin != "community" or namespace not in RESERVED_NAMESPACES:
         return None
-    return f"the namespace {namespace}/ is reserved to the packs Mendari maintains"
+    return f"the namespace {namespace}/ is reserved to the agents Mendari maintains"
 
 
 def community_url(pack_id: str) -> str:
@@ -202,7 +205,7 @@ def performer_problem(pack_id: str, system: str | None) -> str | None:
     if system.startswith(own) and len(system) > len(own):
         return None
     return (
-        f"fhir/mapping.yaml: task.performer_system is {system!r}; a community pack's FHIR "
+        f"fhir/mapping.yaml: task.performer_system is {system!r}; a community agent's FHIR "
         f"systems live under its own url, e.g. {own}CodeSystem/performer"
     )
 
@@ -218,7 +221,7 @@ def rule_problems(manifest: PackManifest) -> list[str]:
     ]
 
 
-def shape_problem(value: Any, reader: str = "a community pack") -> str | None:
+def shape_problem(value: Any, reader: str = "a community agent") -> str | None:
     """Why an input is too large in shape for a pack on the community engine (`reader`, from
     `bounded_reader`), or None: more than `MAX_COMMUNITY_VALUES` values, or nested deeper than
     `MAX_COMMUNITY_DEPTH` (its schema is applied to every value, and jsonschema recurses into
@@ -292,23 +295,23 @@ def long_text(
 
 
 def community_problems(manifest: PackManifest, folder: str) -> list[str]:
-    """Why a pack found in `community-packs/<folder>/` cannot be served, if it cannot."""
+    """Why a pack found in `community-agents/<folder>/` cannot be served, if it cannot."""
     problems = []
     if not COMMUNITY_NAME.match(folder):
         problems.append(f"the folder name {folder!r} must be lowercase letters, digits and dashes")
     if manifest.id != f"{COMMUNITY_NAMESPACE}/{folder}":
         problems.append(
-            f"a community pack in community-packs/{folder}/ has the id "
+            f"a community agent in community-agents/{folder}/ has the id "
             f"{COMMUNITY_NAMESPACE}/{folder}, not {manifest.id}"
         )
     if manifest.risk.level > MAX_COMMUNITY_RISK:
         problems.append(
-            f"risk level {int(manifest.risk.level)}: a community pack is at most risk level "
+            f"risk level {int(manifest.risk.level)}: a community agent is at most risk level "
             f"{int(MAX_COMMUNITY_RISK)}"
         )
     if manifest.audit.store_input != "hash":
         problems.append(
-            "a community pack keeps only a hash of its inputs (audit.store_input: hash)"
+            "a community agent keeps only a hash of its inputs (audit.store_input: hash)"
         )
     problems += rule_problems(manifest)
     for slot_name, slot in manifest.providers.items():

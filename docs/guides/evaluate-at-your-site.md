@@ -6,7 +6,7 @@ its own environment, and share the result with a registry as signed counts
 dataset name leaves your machines, and nothing is shared that a registry could not check.
 
 This page is for the person who runs the evaluation at the site. The registry's side is in
-[Operating the registry](../operations/registry.md#sites).
+[Running a registry](../operations/registry.md#sites).
 
 ## What leaves your site, and what stays
 
@@ -50,7 +50,7 @@ report it signed then leaves the pooled figures.
 
 ```bash
 mendari login --registry https://registry.example.org   # its address only; no token needed
-mendari eval acme/referral@1.2.0 --dataset reviewed-cases.jsonl --share
+mendari eval acme/intake-agent@1.2.0 --dataset reviewed-cases.jsonl --share
 ```
 
 `--share` does three things, in order:
@@ -75,7 +75,7 @@ the report; it is never pooled with a local one.
 ## Read before sending
 
 ```bash
-mendari eval acme/referral@1.2.0 --dataset reviewed-cases.jsonl --share-out submission.json
+mendari eval acme/intake-agent@1.2.0 --dataset reviewed-cases.jsonl --share-out submission.json
 mendari site submit submission.json
 ```
 
@@ -87,11 +87,11 @@ sends those exact bytes, from any machine, within the ticket's 30 days.
 
 ```bash
 # where the cases are:
-mendari site ticket acme/referral@1.2.0 --dataset reviewed-cases.jsonl --out request.json
+mendari site ticket acme/intake-agent@1.2.0 --dataset reviewed-cases.jsonl --out request.json
 # on a machine that reaches the registry:
 mendari site ticket --request request.json --out ticket.json
 # back where the cases are:
-mendari eval acme/referral@1.2.0 --dataset reviewed-cases.jsonl --ticket ticket.json \
+mendari eval acme/intake-agent@1.2.0 --dataset reviewed-cases.jsonl --ticket ticket.json \
   --share-out submission.json
 # then from any machine that reaches the registry:
 mendari site submit submission.json --ticket ticket.json

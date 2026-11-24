@@ -1,18 +1,20 @@
 # ADR-0018: Local providers read text in its plain form
 
 ## Status
-Proposed (2026-11-10). Built on the branch that proposes it; it changes what a pack decides on
+Proposed (2026-11-10). Built on the branch that proposes it; it changes what an agent decides on
 some inputs, so merging it is the owner's decision.
 
+Terminology updated 2026-11-23: what this record called a pack is an agent.
+
 ## Context
-A pack's patterns are written as a keyboard types them: `can'?t breathe`, `chest (pain|pressure)`.
+An agent's patterns are written as a keyboard types them: `can'?t breathe`, `chest (pain|pressure)`.
 The text they are matched against is written by phones, web forms, word processors and language
-models, which write the same words in other characters. Measured on the packs shipped at the
-time, on their own datasets with their default offline providers: every true critical case a
-pack detected as shipped was retyped by a fixed rule (every apostrophe curly, a phone's default;
+models, which write the same words in other characters. Measured on the agents shipped at the
+time, on their own datasets with their default offline providers: every true critical case an
+agent detected as shipped was retyped by a fixed rule (every apostrophe curly, a phone's default;
 every third space no-break and every third doubled; every third space zero-width and every third
 a line separator; a soft hyphen inside every fourth word), and matched as received. A curly
-apostrophe cost a few detections; the spaces and invisible characters cost every pack many, up
+apostrophe cost a few detections; the spaces and invisible characters cost every agent many, up
 to about two thirds of its critical cases.
 
 Single cases say the same:
@@ -49,20 +51,20 @@ The providers that decide on this machine read free text in its **plain form**
    newline becomes one space.
 
 - **Typography only.** No case folding, no compatibility folding (a ligature, a full-width
-  letter and the micro sign stay), no spelling. A newline stays a newline: packs treat one as the
+  letter and the micro sign stay), no spelling. A newline stays a newline: agents treat one as the
   end of a sentence. Every other character that ends a line somewhere (a lone carriage return, a
   vertical tab, a form feed, the line and paragraph separators) is white space, as a pattern has
   always read it.
-- **Never longer than the text**, so the 10,000 characters a pack on the community engine's
+- **Never longer than the text**, so the 10,000 characters an agent on the community engine's
   patterns run on holds for the plain form too.
 - **Only what a local provider matches.** The decision's record, its input hash, the input
   schema's checks and what a remote model is sent keep the text as received.
-- **In the engine, for every pack and every spec version.** No pack file changes.
+- **In the engine, for every agent and every spec version.** No agent file changes.
 
 ## Consequences
 - Text that differs only in typography decides the same. Every true critical case of every
-  bundled pack's datasets is retyped six ways in the tests and must decide as shipped.
-- Nothing that ships changes: no text in any bundled pack's datasets differs from its plain
+  bundled agent's datasets is retyped six ways in the tests and must decide as shipped.
+- Nothing that ships changes: no text in any bundled agent's datasets differs from its plain
   form, so the data, the trained models, the benchmarks and the digests are byte-identical, and
   every decision on them is the same.
 - A decision on an input that holds such characters can change. Nearly always a pattern matches
@@ -76,15 +78,15 @@ The providers that decide on this machine read free text in its **plain form**
     as it reads and the match is negated;
   - a pattern or a negation that reached across an ellipsis character: it ends there, as at
     three full stops.
-- A pack's patterns, names and tokens must be written in plain form: a character the plain form
-  never holds matches nothing. The bundled packs' are (a test), and the spec lists the
+- An agent's patterns, names and tokens must be written in plain form: a character the plain form
+  never holds matches nothing. The bundled agents' are (a test), and the spec lists the
   characters.
 - Accents are composed for a whole field or not at all: a field that also holds one of the few
   characters that compose to more keeps its accents as they were written.
 
 ## Alternatives Considered
-- **Each pack writes its patterns for typography** (a class of apostrophes in every
-  contraction, `\s+` for every space). Every author must know every variant, and the packs
+- **Each agent writes its patterns for typography** (a class of apostrophes in every
+  contraction, `\s+` for every space). Every author must know every variant, and the agents
   shipped at the time did not: 12 of their 102 rule patterns used `\s` at all.
 - **Unicode NFKC.** It also folds ligatures and full-width letters, but it rewrites the micro
   sign as the Greek letter mu and a fraction or a superscript as digits, which changes what a
@@ -97,7 +99,7 @@ The providers that decide on this machine read free text in its **plain form**
   separates: "asthma", a zero-width space, "attack" would stop being found.
 - **Normalising the input itself**, before the schema and the record. The record would no longer
   hold what was received, and the input hash would change.
-- **A pack opts in.** The bundled packs would stay as they are until each is changed and
-  rebuilt, and a community pack would be exposed by default.
-- **Joining wrapped lines.** Text wrapped mid-phrase also hides it, but a newline is a pack's
+- **An agent opts in.** The bundled agents would stay as they are until each is changed and
+  rebuilt, and a community agent would be exposed by default.
+- **Joining wrapped lines.** Text wrapped mid-phrase also hides it, but a newline is an agent's
   sentence boundary and nothing tells a wrap from a paragraph. Not done; left to measure.

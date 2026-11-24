@@ -134,7 +134,7 @@ def serve_board(page: Page, pack_id: str, board: dict[str, Any]) -> None:
         body["leaderboard"] = board
         route.fulfill(json=body)
 
-    page.route(re.compile(rf".*/api/packs/{re.escape(pack_id)}$"), handle)
+    page.route(re.compile(rf".*/api/agents/{re.escape(pack_id)}$"), handle)
 
 
 @pytest.mark.parametrize("pack_id", PACKS)
@@ -196,7 +196,7 @@ def test_a_record_link_opens_its_drawer(page: Page, live_server: str) -> None:
 
 @pytest.mark.parametrize("axe_page", ["light", "dark"], indirect=True)
 def test_a_fhir_decision_shows_what_it_read_in_its_record(axe_page: Page, live_server: str) -> None:
-    """A decision made from FHIR opens, from the link a card gives (`?pack=…#audit/<id>`,
+    """A decision made from FHIR opens, from the link a card gives (`?agent=…#audit/<id>`,
     LP-23f), on a panel of what it read (its data-coverage record): each mapped field and list,
     the resources read, the values found and what could not be read, as counts, never as a
     share; and the drawer passes axe in both themes. A decision on JSON input has no panel."""
@@ -206,7 +206,7 @@ def test_a_fhir_decision_shows_what_it_read_in_its_record(axe_page: Page, live_s
     made = httpx.post(f"{live_server}/api/packs/{INBOX}/fhir/decide", json=BUNDLE, timeout=30)
     assert made.status_code == 200, made.text
     decision = made.json()["decision"]["id"]
-    axe_page.goto(f"/?pack={INBOX}#audit/{decision}")
+    axe_page.goto(f"/?agent={INBOX}#audit/{decision}")  # as the card writes it
     panel = axe_page.locator(".drawer section.coverage")
     expect(panel).to_be_visible()
     expect(panel.get_by_role("heading", name="What it read")).to_be_visible()
@@ -219,7 +219,7 @@ def test_a_fhir_decision_shows_what_it_read_in_its_record(axe_page: Page, live_s
     assert not re.search(r"\d+\s+(?:of|out of|/)\s*\d+", panel.inner_text())  # no k of n
     assert violations(axe_page) == []
     latest = httpx.get(f"{live_server}/api/audit", params={"pack_id": GUARD, "limit": 1}).json()
-    axe_page.goto(f"/?pack={GUARD}#audit/{latest[0]['id']}")
+    axe_page.goto(f"/?agent={GUARD}#audit/{latest[0]['id']}")
     expect(axe_page.get_by_role("dialog")).to_contain_text(latest[0]["id"])
     expect(axe_page.locator(".drawer section.coverage")).to_have_count(0)
 
@@ -242,7 +242,7 @@ def test_a_list_of_several_resource_types_shows_a_row_per_source(
     }
     made = httpx.post(f"{live_server}/api/packs/{TRIAL}/fhir/decide", json=record, timeout=30)
     assert made.status_code == 200, made.text
-    axe_page.goto(f"/?pack={TRIAL}#audit/{made.json()['decision']['id']}")
+    axe_page.goto(f"/?agent={TRIAL}#audit/{made.json()['decision']['id']}")
     table = axe_page.locator(".drawer section.coverage table")
     expect(table).to_contain_text("medications ← MedicationStatement")
     expect(table).to_contain_text("medications ← MedicationRequest")
@@ -259,28 +259,42 @@ def test_a_shared_link_opens_the_pack_it_was_copied_from(page: Page, live_server
     link opens over that pack's list, and moving between views keeps it."""
     latest = httpx.get(f"{live_server}/api/audit", params={"pack_id": GUARD, "limit": 1}).json()[0]
     page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
-    page.goto(f"/?pack={GUARD}#audit/{latest['id']}")
+    page.goto(f"/?agent={GUARD}#audit/{latest['id']}")
     expect(page.get_by_role("dialog")).to_contain_text(latest["id"])
     expect(page.locator("#pack-select")).to_have_value(GUARD)
     page.get_by_role("button", name="Close").click()
     page.locator('.nav a[data-view="review"]').click()
-    expect(page).to_have_url(re.compile(f"\\?pack={GUARD}#review$"))
+    expect(page).to_have_url(re.compile(f"\\?agent={GUARD}#review$"))
     expect(page.locator("#pack-select")).to_have_value(GUARD)
 
 
 def test_choosing_a_pack_puts_it_in_the_address(page: Page) -> None:
     open_pack(page, INBOX, "overview")
-    expect(page).to_have_url(re.compile(f"\\?pack={INBOX}#overview$"))
+    expect(page).to_have_url(re.compile(f"\\?agent={INBOX}#overview$"))
     page.select_option("#pack-select", GUARD)
-    expect(page).to_have_url(re.compile(f"\\?pack={GUARD}#overview$"))
+    expect(page).to_have_url(re.compile(f"\\?agent={GUARD}#overview$"))
     expect(page.locator("main h1")).to_have_text("AI Guard")
 
 
 def test_an_unknown_pack_in_the_address_falls_back_to_the_last_one(page: Page) -> None:
     page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(GUARD)})")
-    page.goto("/?pack=someone/else#overview")
+    page.goto("/?agent=someone/else#overview")
     expect(page.locator("#pack-select")).to_have_value(GUARD)
-    expect(page).to_have_url(re.compile(f"\\?pack={GUARD}#overview$"))
+    expect(page).to_have_url(re.compile(f"\\?agent={GUARD}#overview$"))
+
+
+def test_a_link_made_before_the_address_said_agent_still_opens_its_agent(page: Page) -> None:
+    """The address named the agent `?pack=` before. A link from then (a bookmark, the link a CDS
+    card or an EHR launch gives) opens the agent it names, and the address says `?agent=` from
+    there on. Given both, `?agent=` is the one read."""
+    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
+    page.goto(f"/?pack={GUARD}#overview")
+    expect(page.locator("#pack-select")).to_have_value(GUARD)
+    expect(page.locator("main h1")).to_have_text("AI Guard")
+    expect(page).to_have_url(re.compile(f"/\\?agent={GUARD}#overview$"))
+    page.goto(f"/?agent={INBOX}&pack={GUARD}#overview")
+    expect(page.locator("#pack-select")).to_have_value(INBOX)
+    expect(page).to_have_url(re.compile(f"/\\?agent={INBOX}#overview$"))
 
 
 def test_going_back_across_a_pack_change_shows_that_pack(page: Page) -> None:
@@ -288,9 +302,9 @@ def test_going_back_across_a_pack_change_shows_that_pack(page: Page) -> None:
     page.locator('.nav a[data-view="audit"]').click()
     expect(page.locator("main h1")).to_have_text("Audit trail")
     page.select_option("#pack-select", GUARD)
-    expect(page).to_have_url(re.compile(f"\\?pack={GUARD}#audit$"))
+    expect(page).to_have_url(re.compile(f"\\?agent={GUARD}#audit$"))
     page.go_back()
-    expect(page).to_have_url(re.compile(f"\\?pack={INBOX}#overview$"))
+    expect(page).to_have_url(re.compile(f"\\?agent={INBOX}#overview$"))
     expect(page.locator("#pack-select")).to_have_value(INBOX)
     expect(page.locator("main h1")).to_have_text("Patient Inbox Router")
 
@@ -302,14 +316,14 @@ def test_a_pack_that_answers_late_does_not_replace_the_one_chosen_after_it(page:
     page.locator('.nav a[data-view="audit"]').click()
     expect(page.locator("main h1")).to_have_text("Audit trail")
     held: list[Route] = []
-    page.route(f"**/api/packs/{GUARD}", lambda route: held.append(route))
-    with page.expect_request(f"**/api/packs/{GUARD}"):
+    page.route(f"**/api/agents/{GUARD}", lambda route: held.append(route))
+    with page.expect_request(f"**/api/agents/{GUARD}"):
         page.select_option("#pack-select", GUARD)
     page.go_back()
     expect(page.locator("main h1")).to_have_text("Patient Inbox Router")
     for route in held:
         route.continue_()
-    page.unroute(f"**/api/packs/{GUARD}")
+    page.unroute(f"**/api/agents/{GUARD}")
     page.wait_for_timeout(300)  # time for the late answer and any render it could start
     expect(page.locator("main h1")).to_have_text("Patient Inbox Router")
     expect(page.locator("#pack-select")).to_have_value(INBOX)
@@ -471,7 +485,7 @@ def test_the_leaderboard_shows_its_listing_and_marks_the_deployed_row(page: Page
     table = page.locator("#board table").first  # the per-check table follows it
     assert "Rank" not in table.locator("thead th").all_inner_texts()
     expect(table.locator(".rank, .rank-cell")).to_have_count(0)
-    expect(table.locator("tbody .standing").first).to_contain_text("its pack digest not recorded")
+    expect(table.locator("tbody .standing").first).to_contain_text("its agent digest not recorded")
     # Locally the pack runs its default screen (the keyword rules).
     deployed = table.locator("tbody tr.deployed")
     expect(deployed).to_have_count(1)
@@ -692,7 +706,7 @@ def test_a_report_with_nothing_labelled_for_its_question_still_shows(page: Page)
         body["benchmark"] = {**report, "figures": figures.guarded(lambda: figures.report(report))}
         route.fulfill(json=body)
 
-    page.route(re.compile(rf".*/api/packs/{re.escape(INBOX)}$"), handle)
+    page.route(re.compile(rf".*/api/agents/{re.escape(INBOX)}$"), handle)
     open_pack(page, INBOX, "evals")
     page.goto("/#evals/report")
     body = page.locator("#evals-body")
@@ -1031,7 +1045,7 @@ def test_the_threshold_sweep_does_not_claim_automation_that_never_happens(page: 
         body["benchmark"]["decisions"]["outcome_rates"]["AUTO"] = 0.91
         route.fulfill(json=body)
 
-    page.route(f"**/api/packs/{INBOX}", automating)
+    page.route(f"**/api/agents/{INBOX}", automating)
     page.select_option("#pack-select", INBOX)
     expect(page.locator("#evals-body")).to_contain_text("Destination accuracy")
     expect(page.locator('figure.chart[data-chart^="sweep"]')).not_to_contain_text("Nothing was")
@@ -1309,7 +1323,7 @@ def test_with_a_model_in_the_screen_the_card_says_the_inbox_automates(page: Page
         body["active_providers"]["safety_screen"] = {"variant": "rules_and_jev", "model": jev}
         route.fulfill(json=body)
 
-    page.route(f"**/api/packs/{INBOX}", screened)
+    page.route(f"**/api/agents/{INBOX}", screened)
     open_pack(page, INBOX, "card")
     expect(page.locator("dl.facts")).to_contain_text(
         "At confidence 0.90 or more (some labels need more; see Policy)."
@@ -1354,7 +1368,7 @@ def test_an_evaluation_that_calls_remote_models_asks_first(page: Page) -> None:
 
     runs: list[str] = []
     page.on("request", lambda r: runs.append(r.url) if r.url.endswith("/evals") else None)
-    page.route(f"**/api/packs/{INBOX}", remote)
+    page.route(f"**/api/agents/{INBOX}", remote)
     open_pack(page, INBOX, "evals")
     page.goto("/#evals/run")
     run = page.get_by_role("button", name="Run evaluation")
@@ -1402,7 +1416,7 @@ HEADING_PROBLEMS = """() => {
 def test_keyboard_users_can_skip_to_the_content(page: Page) -> None:
     open_pack(page, INBOX, "feedback")
     page.evaluate("document.activeElement.blur()")
-    page.goto(f"/?pack={INBOX}#feedback")  # the same document: tabbing starts from the top
+    page.goto(f"/?agent={INBOX}#feedback")  # the same document: tabbing starts from the top
     page.keyboard.press("Tab")
     skip = page.get_by_role("button", name="Skip to content")
     expect(skip).to_be_focused()
@@ -2069,14 +2083,14 @@ def smart_launched(page: Page, decided: list[Any]) -> None:
 def test_without_a_launch_the_patient_view_stays_out_of_the_way(page: Page) -> None:
     open_pack(page, INBOX)
     expect(page.locator('.nav a[data-view="patient"]')).to_be_hidden()
-    page.goto(f"/?pack={INBOX}#patient")
+    page.goto(f"/?agent={INBOX}#patient")
     expect(page.locator(".empty-state h2")).to_have_text("No EHR launch")
 
 
 def test_an_ehr_launch_shows_the_patient_and_decides_their_work_items(page: Page) -> None:
     decided: list[Any] = []
     smart_launched(page, decided)
-    page.goto("/?pack=mendari/referral-router#patient")
+    page.goto("/?agent=mendari/referral-router#patient")
     expect(page.locator('.nav a[data-view="patient"]')).to_be_visible()
     expect(page.locator("main h1")).to_have_text("This patient")
     expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
@@ -2095,7 +2109,7 @@ def test_an_ehr_launch_shows_the_patient_and_decides_their_work_items(page: Page
 
 def test_ending_the_ehr_session_hides_the_patient_view(page: Page) -> None:
     smart_launched(page, [])
-    page.goto("/?pack=mendari/referral-router#patient")
+    page.goto("/?agent=mendari/referral-router#patient")
     page.get_by_role("button", name="End session").click()
     expect(page).to_have_url(re.compile("#overview$"))
     expect(page.locator('.nav a[data-view="patient"]')).to_be_hidden()
@@ -2104,7 +2118,7 @@ def test_ending_the_ehr_session_hides_the_patient_view(page: Page) -> None:
 def test_the_patient_view_fits_a_phone(page: Page) -> None:
     page.set_viewport_size(PHONE)
     smart_launched(page, [])
-    page.goto("/?pack=mendari/referral-router#patient")
+    page.goto("/?agent=mendari/referral-router#patient")
     expect(page.locator(".work-item")).to_have_count(1)
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
@@ -2167,7 +2181,7 @@ def test_a_launch_alone_opens_the_patient_view_only(page: Page) -> None:
     view is the only section, the packs are the launch's, the decision is shown in place with
     no link into the audit trail, and nothing outside the launch's routes is asked for."""
     asked = launch_only(page, launched_as("L1"))
-    page.goto(f"/?pack={REFERRAL}#patient/L1")
+    page.goto(f"/?agent={REFERRAL}#patient/L1")
     expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
     expect(page.locator(".nav a:visible")).to_have_count(1)
     expect(page.locator(".nav a:visible")).to_have_text("This patient")
@@ -2182,7 +2196,7 @@ def test_a_launch_alone_opens_the_patient_view_only(page: Page) -> None:
     expect(result).to_contain_text("Anticoagulation question")
     expect(result).to_contain_text("Recorded in your organization's audit trail as d-1.")
     expect(result.get_by_role("link")).to_have_count(0)
-    page.goto(f"/?pack={REFERRAL}#overview")  # no other section, whatever the address says
+    page.goto(f"/?agent={REFERRAL}#overview")  # no other section, whatever the address says
     expect(page.locator("main h1")).to_have_text("This patient")
     expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
     outside = {path for path in asked if not path.startswith("/api/smart/")}
@@ -2195,7 +2209,7 @@ def test_a_signed_in_person_keeps_the_link_to_the_decision(page: Page) -> None:
     page.route("**/api/smart/patient", lambda route: route.fulfill(json=SMART_PATIENT))
     page.route("**/api/smart/focus?*", lambda route: route.fulfill(json=SMART_ITEMS))
     page.route("**/api/smart/decide", lambda route: route.fulfill(json=DECIDED))
-    page.goto(f"/?pack={REFERRAL}#patient/L1")
+    page.goto(f"/?agent={REFERRAL}#patient/L1")
     expect(page.locator('.nav a[data-view="overview"]')).to_be_visible()
     item = page.locator(".work-item")
     item.get_by_role("button", name="Decide").click()
@@ -2220,7 +2234,7 @@ def test_an_ended_launch_says_to_open_mendari_again_from_the_ehr(
     else:
         launch_only(page, launched_as("L1"))
     page.route("**/api/smart/patient", lambda route: route.fulfill(status=401, json=ended))
-    page.goto(f"/?pack={REFERRAL}#patient/L1")
+    page.goto(f"/?agent={REFERRAL}#patient/L1")
     banner = page.locator("#launch-ended")
     expect(banner).to_be_visible()
     expect(banner).to_have_text("This EHR launch ended. Open Mendari again from the EHR.")
@@ -2238,7 +2252,7 @@ def test_a_window_whose_launch_was_replaced_says_so(page: Page) -> None:
     nothing and never shows the other launch's patient."""
     session = launched_as("L1")
     asked = launch_only(page, session)
-    page.goto(f"/?pack={REFERRAL}#patient")  # opened without a pin: it takes the one it shows
+    page.goto(f"/?agent={REFERRAL}#patient")  # opened without a pin: it takes the one it shows
     expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
     expect(page).to_have_url(re.compile("#patient/L1$"))
     expect(page.locator('.nav a[data-view="patient"]')).to_have_attribute("href", "#patient/L1")
@@ -2272,7 +2286,7 @@ def test_the_launch_alone_fits_a_phone_in_both_themes(page: Page, scheme: str) -
         lambda route: route.fulfill(status=401, json={"detail": "ended"}),
         times=1,
     )
-    page.goto(f"/?pack={REFERRAL}#patient/L1")
+    page.goto(f"/?agent={REFERRAL}#patient/L1")
     expect(page.locator("#launch-ended")).to_be_visible()
     pairs = page.evaluate(CONTRAST, "#launch-ended")
     page.reload()
@@ -2333,14 +2347,14 @@ def test_open_mode_shows_no_sign_in(page: Page) -> None:
 def test_the_bar_says_who_is_signed_in(page: Page) -> None:
     signed_in_as(page, "reviewer")
     open_pack(page, INBOX)
-    expect(page.locator("#signed-in-name")).to_have_text("Nurse Kim · reviewer")
+    expect(page.locator("#signed-in-name")).to_have_text("Nurse Kim · Reviewer")
     expect(page.get_by_role("button", name="Sign out")).to_be_visible()
 
 
 def test_only_administrators_see_the_evaluation_run(page: Page) -> None:
     signed_in_as(page, "reviewer")
     open_pack(page, INBOX, "evals")
-    page.goto(f"/?pack={INBOX}#evals/run")
+    page.goto(f"/?agent={INBOX}#evals/run")
     expect(page.locator("#evals-body")).to_contain_text(
         "Running an evaluation is for administrators"
     )
@@ -2352,9 +2366,9 @@ def test_a_viewer_reads_but_is_not_offered_what_the_server_would_refuse(
 ) -> None:
     decide_inbox(live_server, "Crushing chest pain and my left arm is numb")  # waits for review
     signed_in_as(page, "viewer")
-    page.goto(f"/?pack={INBOX}#try")
+    page.goto(f"/?agent={INBOX}#try")
     expect(page.get_by_role("heading", name="Trying the agent is for reviewers")).to_be_visible()
-    page.goto(f"/?pack={INBOX}#review")
+    page.goto(f"/?agent={INBOX}#review")
     card = page.locator(".review-card").first
     expect(card).to_contain_text("Resolving is for reviewers")
     expect(page.locator(".review-card .labels")).to_have_count(0)
@@ -2375,7 +2389,7 @@ def test_who_is_signed_in_closes_the_phone_settings_sheet(page: Page) -> None:
 
 def test_a_signed_in_reviewer_reviews_under_their_own_name(page: Page) -> None:
     signed_in_as(page, "reviewer")
-    page.goto(f"/?pack={INBOX}#review")
+    page.goto(f"/?agent={INBOX}#review")
     expect(page.locator("#reviewer")).to_have_value("kim@clinic.example.org")  # as chained
     expect(page.locator("#reviewer")).to_have_attribute("readonly", "")
 
@@ -2389,7 +2403,7 @@ def test_a_session_that_ended_says_so_and_offers_the_way_back(page: Page) -> Non
     expect(banner).to_be_hidden()
     ended = {"detail": "sign in first, or send an API key"}
     page.route("**/api/review?*", lambda route: route.fulfill(status=401, json=ended))
-    page.goto(f"/?pack={INBOX}#review")
+    page.goto(f"/?agent={INBOX}#review")
     expect(banner).to_be_visible()
     expect(banner).to_have_text("Your session ended. Sign in again.")
     link = banner.get_by_role("link", name="Sign in again.")
@@ -2403,14 +2417,14 @@ def test_open_mode_never_says_a_session_ended(page: Page) -> None:
     open_pack(page, INBOX)
     refused = {"detail": "refused here"}
     page.route("**/api/review?*", lambda route: route.fulfill(status=401, json=refused))
-    page.goto(f"/?pack={INBOX}#review")
+    page.goto(f"/?agent={INBOX}#review")
     expect(page.locator(".error-state")).to_contain_text("refused here")
     expect(page.locator("#session-ended")).to_be_hidden()
 
 
 def test_a_level_2_pack_can_be_approved_to_automate_from_its_card(page: Page) -> None:
     open_pack(page, "mendari/clinical-trial-prescreener", "card")
-    page.goto("/?pack=mendari/clinical-trial-prescreener#card/approval")
+    page.goto("/?agent=mendari/clinical-trial-prescreener#card/approval")
     section = page.locator("#card-approval")
     expect(section).to_contain_text(
         "a person reviews every decision unless your organization approves"
@@ -2428,7 +2442,7 @@ def test_a_level_2_pack_can_be_approved_to_automate_from_its_card(page: Page) ->
 
 def test_the_card_lists_where_the_pack_runs(page: Page) -> None:
     open_pack(page, INBOX, "card")
-    page.goto(f"/?pack={INBOX}#card/deployments")
+    page.goto(f"/?agent={INBOX}#card/deployments")
     rows = page.locator("#card-deployments tbody tr")
     expect(rows).to_have_count(1)
     expect(rows.first).to_contain_text("local")
@@ -2437,7 +2451,7 @@ def test_the_card_lists_where_the_pack_runs(page: Page) -> None:
 
 def test_a_level_1_pack_needs_no_approval(page: Page) -> None:
     open_pack(page, INBOX, "card")
-    page.goto(f"/?pack={INBOX}#card/approval")
+    page.goto(f"/?agent={INBOX}#card/approval")
     expect(page.locator("#card-approval")).to_contain_text("No approval is needed")
 
 
@@ -2662,5 +2676,5 @@ def test_an_input_kept_encrypted_says_who_can_read_it(page: Page, live_server: s
 
     page.route(f"**/api/audit/{decided['id']}", restricted)
     open_pack(page, INBOX, "audit")
-    page.goto(f"/?pack={INBOX}#audit/{decided['id']}")
+    page.goto(f"/?agent={INBOX}#audit/{decided['id']}")
     expect(page.locator(".drawer")).to_contain_text("Input kept encrypted (PHI mode)")

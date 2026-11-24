@@ -1,0 +1,31 @@
+name: Agent content
+description: An agent decides something wrong, misses a case, or its card says something that isn't so.
+labels: [agent]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Clinical content needs clinician review, so tell us why the answer is wrong. Never paste
+        real patient data: rewrite the case synthetically.
+  - type: input
+    id: agent
+    attributes:
+      label: Agent and version
+      placeholder: mendari/portal-message-agent@0.1.2
+    validations:
+      required: true
+  - type: textarea
+    id: case
+    attributes:
+      label: The (synthetic) input, what the agent decided, and what it should decide
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Could this harm a patient?
+      options:
+        - "No: a wrong route or extra review"
+        - "Yes: a missed urgent case, or automation that shouldn't happen"
+    validations:
+      required: true

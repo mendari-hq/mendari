@@ -18,9 +18,10 @@ under `scoreboard/`, outside the wheel, the sdist and the site.
 A result may name the earlier result it supersedes (`supersedes`, in its body): one of the same
 pack, set, arm and configuration, measured no later. Both stay in the store; the later is the
 current one (`heads`), and one pack, set, arm and configuration has one current result at most.
-Nothing stored changes: `add` refuses to overwrite, and `check` (`scripts/check_scoreboard.py`,
-in the required `reference-pack` job) refuses a result removed or changed against a base commit,
-except a valid signature added to an unsigned result whose body stays the same. It recomputes
+Nothing stored changes: `add` refuses to overwrite, and `check` refuses a result removed or
+changed against a base commit, except a valid signature added to an unsigned result whose body
+stays the same (no script or CI job runs it since Mendari stopped keeping a store of its own:
+the test suite holds it, on stores it builds). It recomputes
 every public result from its stored inputs, and re-runs every local ledger on its pack's current
 digest. A result of an older digest is recomputed and kept, never re-run; one whose set or
 method changed is kept as it is. A new result must be on its pack's current digest, set and
@@ -28,7 +29,7 @@ method, and measured no later than today, so that all of it is checked; a new re
 hold its replicates and its pack's declaration of it (its ledgers could not be re-run without a
 call off the machine, so they are recomputed from, never re-run). The packs are the
 ones Mendari maintains, read from the bundled packs alone (`maintained_pack`: the repository's
-`packs/` in a checkout), never from `MENDARI_PACKS_PATH` or the registry cache.
+`packs/` in a checkout), never from `MENDARI_AGENTS_PATH` or the registry cache.
 
 A hidden set's result (`mendari.hidden_scoreboard/1`, LP-17k) is the grading route's answer,
 stored with `add` as it was answered: one result per pack and set (its arms are in it), named by
@@ -116,7 +117,7 @@ PackSource = Callable[[str], Pack]
 def maintained_pack(ref: str, root: Path | None = None) -> Pack:
     """The pack Mendari maintains that `ref` names (`namespace/name`, its newest version, or
     `namespace/name@version`), read from the bundled packs alone: `root`, or `bundled_dir()`
-    (the repository's `packs/` in a checkout). Never from `MENDARI_PACKS_PATH`, the registry
+    (the repository's `packs/` in a checkout). Never from `MENDARI_AGENTS_PATH`, the registry
     cache or the community packs, and never a directory `ref` might also name, so the store is
     run, checked and shown against the packs the repository holds, whatever the search path."""
     where = root if root is not None else bundled_dir()
@@ -132,7 +133,7 @@ def maintained_pack(ref: str, root: Path | None = None) -> Pack:
     )
     if not found:
         raise PackNotFoundError(
-            f"{ref} is not a pack Mendari maintains: the store holds the bundled agents' "
+            f"{ref} is not an agent Mendari maintains: the store holds the bundled agents' "
             "results (give one by its id)"
         )
     return max(found, key=lambda pack: version_key(pack.version))
@@ -302,7 +303,7 @@ def held(result: Any, *, name: str | None = None) -> Held:
     if _day(values.measured_on) is None:
         raise MendariError("its scope names no day it was measured (YYYY-MM-DD)")
     if not is_pack_id(values.pack_id):
-        raise MendariError("its scope names no pack id (namespace/name)")
+        raise MendariError("its scope names no agent id (namespace/name)")
     # What names a file: a hash, never a path.
     if not (_BODY.fullmatch(values.ledger) and _BODY.fullmatch(values.run)):
         raise MendariError("its ledger and run record are named by sha256:<64 hex>")
@@ -655,7 +656,7 @@ def _read_canary(raw: bytes, name: str) -> dict[str, Any]:
 def _declared(raw: bytes, file_name: str) -> runs.Declaration:
     found = runs.declaration(raw, where=f"{DECLARED}/{file_name}")
     if f"{found.pack.partition('/')[2]}.json" != file_name:
-        raise MendariError(f"{DECLARED}/{file_name}: its name is not its pack's ({found.pack})")
+        raise MendariError(f"{DECLARED}/{file_name}: its name is not its agent's ({found.pack})")
     return found
 
 
@@ -706,7 +707,7 @@ def _link_problem(found: Held, results: Mapping[str, Held]) -> str | None:
     if target is None:
         return f"it supersedes {found.supersedes}, which is not stored"
     if target.identity != found.identity:
-        return f"it supersedes {target.name}, a result of another pack, set, arm or configuration"
+        return f"it supersedes {target.name}, a result of another agent, set, arm or configuration"
     if target.measured_on > found.measured_on:
         return f"it supersedes {target.name}, measured after it"
     return None
@@ -841,8 +842,8 @@ def refuse_unmeasurable(
     runs `method.MIN_REPLICATES` to `method.MAX_REPLICATES`, never in CI."""
     if pack.origin != MAINTAINED:
         raise MendariError(
-            f"{pack.ref} is not a pack Mendari maintains: the store holds the bundled agents' "
-            "results (give the pack by its id)"
+            f"{pack.ref} is not an agent Mendari maintains: the store holds the bundled agents' "
+            "results (give the agent by its id)"
         )
     sets = ", ".join(scoring_sets(pack))
     if set_name in FITTING_SETS and set_name in pack.manifest.evaluation.datasets:
@@ -1085,7 +1086,7 @@ def run_canary(
     refuse_in_ci("a canary")
     shown = written(configuration.providers)
     if pack.origin != MAINTAINED:
-        raise MendariError(f"{pack.ref} is not a pack Mendari maintains")
+        raise MendariError(f"{pack.ref} is not an agent Mendari maintains")
     if configuration.local:
         raise MendariError(f"{shown} is local, so deterministic: a canary is of a remote one")
     if size != method.CANARY_SIZE:
@@ -1189,7 +1190,7 @@ def rerun(found: Held, pack: Pack) -> Ledger:
     """The ledger a new run of `found`'s configuration over its set gives: every case decided
     again, on this machine. Only a local result on its pack's current digest is re-run."""
     if found.pack_digest != pack.digest or not found.local:
-        raise MendariError(f"{found.name}: only a local result on its pack's digest is re-run")
+        raise MendariError(f"{found.name}: only a local result on its agent's digest is re-run")
     configuration = _configuration(pack, found.providers)
     return _decided(pack, resolve_dataset(pack, found.set_name), configuration)[2]
 
@@ -1248,7 +1249,7 @@ def _public(
     stale = _stale_inputs(found, pack)
     if stale is not None and new:
         return Verdict(
-            f"{where}: a new result is measured on its pack's current digest, set and method "
+            f"{where}: a new result is measured on its agent's current digest, set and method "
             f"({stale})"
         )
     if stale is not None and stale != scoreboard.STALE_PACK:
@@ -1290,7 +1291,7 @@ def _remote_problem(found: Held, store: Store) -> str | None:
             f"{method.MAX_REPLICATES} replicates, not {count or 'one'}"
         )
     if found.declared is None:
-        return "a remote configuration's result cites its pack's declaration (it cites none)"
+        return "a remote configuration's result cites its agent's declaration (it cites none)"
     shown = f"{DECLARED}/{store.declaration_path(found.pack_id).name}"
     try:
         declared = store.declaration(found.pack_id)

@@ -59,7 +59,7 @@ views.patient = async (main, params) => {
 
 const NO_LAUNCH = {
   icon: "user", title: "No EHR launch",
-  text: "Open Mendari from the EHR to see a patient's messages or referrals here.",
+  text: "Open Mendari from the EHR to see what the agent decides about for a patient.",
 };
 const ENDED = { icon: "clock", title: "This EHR launch ended", text: "Open Mendari again from the EHR." };
 const REPLACED = {

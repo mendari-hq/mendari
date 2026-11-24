@@ -5,6 +5,7 @@
 #   docker compose -f sandbox/inferno/docker-compose.yml build engine inferno
 #   docker compose -f sandbox/inferno/docker-compose.yml up -d --wait engine
 #   uv run python scripts/inferno_dtr_inputs.py --engine http://127.0.0.1:8090 \
+#     --agent tests/fixtures/reference-agents/prior-auth-preflight \
 #     --out var/inferno/dtr_payer_server_v220_preset.json
 #   docker compose -f sandbox/inferno/docker-compose.yml run --rm -T inferno \
 #     bundle exec inferno execute --suite dtr_payer_server_v220 --groups 1 3 4 \
@@ -33,7 +34,7 @@ x-inferno-environment: &inferno-environment
 
 services:
   engine:
-    # Mendari in open mode (no sign-in), PHI mode `off`, serving the prior-authorization pack
+    # Mendari in open mode (no sign-in), PHI mode `off`, serving the prior-authorization agent
     # alone: the decisions it makes here are on the synthetic orders the inputs script sends.
     build:
       context: ../..
@@ -43,13 +44,13 @@ services:
       # Inferno and the inputs script reach this open engine over Docker's network, never from
       # loopback, so its CDS Hooks services answer only under the sandbox flag (LP-23c).
       MENDARI_CDS_SANDBOX: "1"
-      MENDARI_PACKS: mendari/prior-auth-preflight
+      MENDARI_AGENTS: mendari/prior-auth-preflight
       MENDARI_PUBLIC_URL: http://engine:8000
       # The agents are test fixtures, mounted read-only (the image ships only the demo agent).
-      MENDARI_PACKS_PATH: /sandbox/agents
+      MENDARI_AGENTS_PATH: /sandbox/agents
       MENDARI_DATASETS_PATH: /sandbox/datasets
     volumes:
-      - ../../tests/fixtures/reference-packs:/sandbox/agents:ro
+      - ../../tests/fixtures/reference-agents:/sandbox/agents:ro
       - ../../tests/fixtures/datasets:/sandbox/datasets:ro
     ports:
       - "127.0.0.1:${MENDARI_INFERNO_ENGINE_PORT:-8090}:8000"

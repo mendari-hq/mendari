@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Community packs (plan B1, B2): packs outside developers contribute by pull request, in
-`community-packs/<name>/` with id `community/<name>`. Where a pack was found sets its origin
+`community-agents/<name>/` with id `community/<name>`. Where a pack was found sets its origin
 (`core/origin.py`); a community pack is served only with MENDARI_COMMUNITY_PACKS=on, never
 automates, decides with local providers unless the deployment names it, keeps only a hash of its
 inputs and is at most risk level 1. One id is one pack, whatever the versions."""
@@ -34,7 +34,7 @@ from tests.conftest import INBOX_DIR, ROOT
 from tests.test_fhir import COMMUNICATION, PATIENT
 
 PACKS = INBOX_DIR.parent
-SORTER = ROOT / "tests" / "fixtures" / "community-packs" / "visit-sorter"
+SORTER = ROOT / "tests" / "fixtures" / "community-agents" / "visit-sorter"
 SORTER_ID = "community/visit-sorter"
 BILL = {"message": "I have a question about my last bill."}
 SHIPPED = {
@@ -56,7 +56,7 @@ def _copy(
     root = base / folder
     shutil.copytree(source, root)
     if edit is not None:
-        path = root / "pack.yaml"
+        path = root / "agent.yaml"
         manifest = yaml.safe_load(path.read_text())
         edit(manifest)
         path.write_text(yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True))
@@ -84,8 +84,8 @@ BLOCK_RULE = {
 
 
 def _community(tmp_path: Path) -> Path:
-    """A community-packs/ directory holding the example community pack."""
-    base = tmp_path / "community-packs"
+    """A community-agents/ directory holding the example community pack."""
+    base = tmp_path / "community-agents"
     _copy(base, "visit-sorter")
     return base
 
@@ -104,7 +104,7 @@ def test_community_packs_are_searched_only_when_turned_on(
     for off in ("off", "OFF", ""):
         monkeypatch.setenv("MENDARI_COMMUNITY_PACKS", off)
         assert SearchPath(base, "community") not in search_paths()
-    # Off means off, even where MENDARI_PACKS_PATH names community-packs/.
+    # Off means off, even where MENDARI_PACKS_PATH names community-agents/.
     monkeypatch.setenv("MENDARI_PACKS_PATH", str(base))
     assert SORTER_ID not in {pack.id for pack in discover().packs}
 
@@ -152,7 +152,7 @@ def test_a_directory_has_the_origin_of_where_it_sits(
         ("visit-sorter", _set(id="someone/visit-sorter"), "has the id community/visit-sorter"),
         ("Visit_Sorter", _set(id="community/visit-sorter"), "must be lowercase letters"),
         ("visit-sorter", _set(id="mendari/visit-sorter"), "namespace mendari/ is reserved"),
-        ("visit-sorter", _set(risk__level=2), "a community pack is at most risk level 1"),
+        ("visit-sorter", _set(risk__level=2), "a community agent is at most risk level 1"),
         ("visit-sorter", _set(audit__store_input="full"), "audit.store_input: hash"),
         (
             "visit-sorter",
@@ -176,7 +176,7 @@ def test_a_directory_has_the_origin_of_where_it_sits(
 def test_a_community_pack_that_breaks_a_rule_is_listed_and_not_served(
     tmp_path: Path, folder: str, edit: Callable[[dict[str, Any]], None] | None, problem: str
 ) -> None:
-    base = tmp_path / "community-packs"
+    base = tmp_path / "community-agents"
     root = _copy(base, folder, edit)
     found = discover([SearchPath(base, "community")])
     assert found.packs == []
@@ -184,7 +184,7 @@ def test_a_community_pack_that_breaks_a_rule_is_listed_and_not_served(
 
 
 def test_a_pack_at_the_root_of_community_packs_is_not_served(tmp_path: Path) -> None:
-    base = tmp_path / "community-packs"
+    base = tmp_path / "community-agents"
     shutil.copytree(SORTER, base)
     found = discover([SearchPath(base, "community")])
     assert found.packs == []
@@ -341,7 +341,7 @@ def test_a_community_packs_id_is_never_replaced_whatever_the_version(tmp_path: P
     assert [(pack.id, pack.version, pack.origin) for pack in found.packs] == [
         (SORTER_ID, "0.1.0", "community")
     ]
-    assert "already taken by the pack at" in found.problems[str(later.resolve())]
+    assert "already taken by the agent at" in found.problems[str(later.resolve())]
     first = (base / "visit-sorter").resolve()
     assert "is served from here; also claimed by" in found.problems[str(first)]
 
@@ -354,6 +354,32 @@ def test_the_registry_cache_still_holds_versions_of_one_pack(tmp_path: Path) -> 
     assert sorted(pack.version for pack in found.packs) == ["0.1.0", "0.2.0"]
     assert not found.problems
     assert resolve_pack("someone/sorter", [SearchPath(cache, "hub")]).version == "0.2.0"
+
+
+def test_the_registry_caches_two_folders_are_one_place_in_the_search_order(tmp_path: Path) -> None:
+    """The registry cache is read in two folders, the one it has and the one it had before
+    (`hub/client.py` `caches`). Versions of one agent pulled before and after the rename are one
+    claim to its id, as they are in one folder, also where a community agent claims that id:
+    both stay, and the community agent is the one refused. Another folder of agents from a
+    registry is still a second claim."""
+    from mendari.hub.client import caches
+
+    now, before = caches()
+    _copy(now / "community" / "visit-sorter", "0.3.0", _set(version="0.3.0"))
+    _copy(before / "community" / "visit-sorter", "0.2.0", _set(version="0.2.0"))
+    community = SearchPath(_community(tmp_path), "community")
+    cache = [SearchPath(now, "hub"), SearchPath(before, "hub")]
+    assert search_paths()[:2] == cache  # as the search path lists them: the folder it has first
+    found = discover([*cache, community])
+    kept = sorted((pack.version, pack.origin) for pack in found.packs)
+    assert kept == [("0.2.0", "hub"), ("0.3.0", "hub")]
+    refused = found.problems[str((community.path / "visit-sorter").resolve())]
+    assert "already taken by the agent at" in refused
+    assert resolve_pack(SORTER_ID, [*cache, community]).version == "0.3.0"
+    elsewhere = tmp_path / "elsewhere"
+    _copy(elsewhere / "community" / "visit-sorter", "0.4.0", _set(version="0.4.0"))
+    found = discover([SearchPath(now, "hub"), SearchPath(elsewhere, "hub"), community])
+    assert [(p.version, p.origin) for p in found.packs] == [("0.3.0", "hub")]
 
 
 def test_the_server_reports_both_claims_of_a_community_id_and_serves_the_first(
@@ -383,7 +409,7 @@ def test_an_invalid_community_pack_is_listed_and_every_other_pack_decides(
     base = _community(tmp_path)
     broken = _copy(base, "broken", _set(id="community/broken", risk__level=3))
     (base / "unreadable").mkdir()
-    (base / "unreadable" / "pack.yaml").write_text("id: [")
+    (base / "unreadable" / "agent.yaml").write_text("id: [")
     client = TestClient(
         create_app(db_path=tmp_path / "s.db", packs_paths=[PACKS, SearchPath(base, "community")])
     )
@@ -404,7 +430,7 @@ def test_an_invalid_community_pack_is_listed_and_every_other_pack_decides(
 
 def test_a_community_pack_never_blocks_on_its_own(tmp_path: Path) -> None:
     """A rule's BLOCK is final at once: no person would see the case. A community pack loaded
-    by path (its load in community-packs/ refuses such a rule) sends it to a person instead;
+    by path (its load in community-agents/ refuses such a rule) sends it to a person instead;
     any other pack still blocks."""
     outside = load_pack(
         _copy(tmp_path / "a", "sorter", _set(id="someone/sorter", policy__rules=[BLOCK_RULE]))
@@ -426,11 +452,11 @@ def test_a_community_pack_reads_texts_no_longer_than_10000_characters() -> None:
     result = Decision(load_pack(SORTER)).decide(long)
     assert result.outcome is Outcome.BLOCK
     assert result.reasons == (
-        "input rejected: message: longer than 10,000 characters, the most a community pack reads",
+        "input rejected: message: longer than 10,000 characters, the most a community agent reads",
     )
     assert Decision(load_pack(SORTER)).decide({"message": "x" * 2_000}).outcome is not None
     maintained = Decision(load_pack(INBOX_DIR)).decide({"message": {"body": "x" * 10_001}})
-    assert not any("community pack" in reason for reason in maintained.reasons)
+    assert not any("community agent" in reason for reason in maintained.reasons)
 
 
 def test_a_community_pack_holds_its_texts_together_to_that_length() -> None:
@@ -440,7 +466,7 @@ def test_a_community_pack_holds_its_texts_together_to_that_length() -> None:
     result = Decision(load_pack(SORTER)).decide(halves)
     assert result.reasons == (
         "input rejected: the input's texts together: longer than 10,000 characters, the most a "
-        "community pack reads",
+        "community agent reads",
     )
     assert long_text(["x" * 5_000, "y" * 4_999]) is None
     assert long_text([["x"] * 2_500, "y" * 5_000]) is None  # a separator each
@@ -490,7 +516,7 @@ def test_a_community_pack_recommends_and_never_automates(tmp_path: Path) -> None
         result = Decision(pack).decide(BILL)
         assert result.outcome is Outcome.HUMAN_REVIEW
         assert result.recommendation == "billing"
-        assert "a community pack (not clinically reviewed) recommends and never automates" in (
+        assert "a community agent (not clinically reviewed) recommends and never automates" in (
             result.reasons
         )
 
@@ -652,7 +678,9 @@ def test_the_decision_card_labels_a_community_pack_and_says_it_never_automates()
     assert "- AUTO when `destination` confidence" in maintained
 
 
-@pytest.mark.parametrize("pack_dir", sorted(PACKS.glob("*/pack.yaml")), ids=lambda p: p.parent.name)
+@pytest.mark.parametrize(
+    "pack_dir", sorted(PACKS.glob("*/agent.yaml")), ids=lambda p: p.parent.name
+)
 def test_every_shipped_card_is_what_it_renders_and_says_maintained(pack_dir: Path) -> None:
     pack = resolve_pack(str(pack_dir.parent))
     card = render_card(pack)
@@ -684,11 +712,11 @@ def test_cds_discovery_and_cards_say_a_community_pack_is_not_clinically_reviewed
 
 def test_the_docs_landing_labels_community_packs_in_open_mode(labelled: TestClient) -> None:
     text = labelled.get("/docs").text
-    link = f'<a href="/?pack={SORTER_ID}#card">'
+    link = f'<a href="/?agent={SORTER_ID}#card">'
     assert link in text
     item = text[text.index(link) : text.index("</li>", text.index(link))]
     assert COMMUNITY_LABEL in item
-    inbox = f'<a href="/?pack={INBOX_ID}#card">'
+    inbox = f'<a href="/?agent={INBOX_ID}#card">'
     assert COMMUNITY_LABEL not in text[text.index(inbox) : text.index("</li>", text.index(inbox))]
 
 
@@ -696,17 +724,22 @@ def test_the_docs_landing_labels_community_packs_in_open_mode(labelled: TestClie
 
 
 def test_the_contribution_forms_and_guide_hang_together() -> None:
-    """The issue form parses and is labelled with labels the owner creates (B8), the pack PR
-    template asks for the sign-off, and the guide and ADR-0007 are in the docs site."""
-    form = yaml.safe_load((ROOT / ".github/ISSUE_TEMPLATE/propose-pack.yml").read_text())
-    assert form["name"] == "Propose a pack" and form["labels"] == ["pack", "idea"]
+    """The issue form parses and is labelled with labels the owner creates (B8), the pull
+    request template for a community agent asks for the sign-off and is the file the guide
+    names, and the guide and ADR-0007 are in the docs site."""
+    form = yaml.safe_load((ROOT / ".github/ISSUE_TEMPLATE/propose-agent.yml").read_text())
+    assert form["name"] == "Propose an agent" and form["labels"] == ["agent", "idea"]
     assert {item["id"] for item in form["body"] if "id" in item} >= {"name", "risk", "data"}
-    template = (ROOT / ".github/PULL_REQUEST_TEMPLATE/pack.md").read_text()
+    (template_file,) = (ROOT / ".github/PULL_REQUEST_TEMPLATE").iterdir()
+    assert template_file.name == "agent.md"
+    template = template_file.read_text()
     assert "git commit -s" in template and "community-check" in template
     nav = (ROOT / "mkdocs.yml").read_text()
     assert "guides/contributing-an-agent.md" in nav
-    assert "decisions/ADR-0007-community-packs-by-pull-request.md" in nav
+    assert "decisions/ADR-0007-community-agents-by-pull-request.md" in nav
     guide = (ROOT / "docs/guides/contributing-an-agent.md").read_text()
+    # The two ways the guide gives to open a pull request with the template, by its file's name.
+    assert "`?template=agent.md`" in guide and "`gh pr create --template agent.md`" in guide
     assert COMMUNITY_LABEL in guide and "| 0 | Administrative:" in guide
     assert "anything possibly urgent sent to a person | Yes |" in guide
 
@@ -719,7 +752,7 @@ def test_a_community_pack_cannot_write_into_a_codesystem_of_mendaris(tmp_path: P
     served as Mendari's own, ahead of the router's (`community/` sorts before `mendari/`)."""
     from mendari.standards.terminology import Terminology
 
-    base = tmp_path / "community-packs"
+    base = tmp_path / "community-agents"
     root = _copy(
         base,
         "inbox-copy",
@@ -736,7 +769,7 @@ def test_a_community_pack_cannot_write_into_a_codesystem_of_mendaris(tmp_path: P
     alone, _ = Terminology.serving([inbox])
     both, problems = Terminology.serving([load_pack(root, origin="community"), inbox])
     assert both.by_url(INBOX_PERFORMERS) == alone.by_url(INBOX_PERFORMERS)
-    assert "a community pack's systems are its own" in problems["community/inbox-copy"]
+    assert "a community agent's systems are its own" in problems["community/inbox-copy"]
 
 
 def test_a_community_packs_codesystems_say_who_published_them_and_that_they_are_unreviewed(
@@ -796,7 +829,7 @@ def test_the_eval_endpoint_runs_a_community_pack_remotely_only_where_named(
     assert shipped.status_code == 200
 
     # The deployment named the pack for that variant: then the evaluation may run it too.
-    base = tmp_path / "named" / "community-packs"
+    base = tmp_path / "named" / "community-agents"
     _inbox_as_community(base)
     app = create_app(
         db_path=tmp_path / "n.db",

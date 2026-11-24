@@ -26,7 +26,7 @@ a person can quote it and the line be found.
 `/smart` request, refused ones included, but not `/api/health` and `/api/health/ready`
 (probes) or static files. Where the pack registry is mounted (`MENDARI_REGISTRY=on`, LP-19d),
 one per `/registry/` request too, with the registry's own route template under the mount
-(`/registry/v1/packs/{namespace}/{name}`) and `anonymous` as its actor: the engine reads no
+(`/registry/v1/agents/{namespace}/{name}`) and `anonymous` as its actor: the engine reads no
 credential there, and a publisher token is never a field.
 
 **Events**: `auth.signin.ok|refused`, `auth.logout`, `auth.credential.refused` (memberships

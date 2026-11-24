@@ -95,13 +95,13 @@ _WHO = {
     "launch": "an EHR launch from an EHR registered here: never a person's session, a key or a "
     "token",
     "launch_decide": "an EHR launch from an EHR registered here to decide",
-    "discover": "every role, and a key or token scoped to decide (the lists of the packs it may "
+    "discover": "every role, and a key or token scoped to decide (the lists of the agents it may "
     "decide with): never an EHR launch",
     "curate": "an administrator of the organization (memberships mode), signed in as a person: "
     "never a key, a token or a labeller",
     "label": "a person holding the labeller role (memberships mode), signed in: never a key or "
     "a token",
-    "registry_review": "a person holding the registry_reviewer role in the pack registry's "
+    "registry_review": "a person holding the registry_reviewer role in the agent registry's "
     "review organization (memberships mode), signed in: never a key, a token, or an "
     "administrator of another organization",
     "grade": "the organization's grading key, which only the operator makes: never a person, an "
@@ -383,16 +383,16 @@ def _cards(cards: Mapping[str, CardLink] | None) -> str:
     """Each pack's Decision Card in the dashboard, in open mode; otherwise only where they are."""
     if cards is None:
         return (
-            '<a href="/#card">Decision Cards</a>: what each pack decides, how it was tested and '
+            '<a href="/#card">Decision Cards</a>: what each agent decides, how it was tested and '
             "its limits, in the dashboard once you sign in."
         )
     community = f' <span class="badge origin-community">{escape(COMMUNITY_LABEL)}</span>'
     links = "".join(
-        f'<li><a href="/?pack={escape(quote(pack_id, safe="/"))}#card">{escape(link.name)}</a> '
+        f'<li><a href="/?agent={escape(quote(pack_id, safe="/"))}#card">{escape(link.name)}</a> '
         f"<code>{escape(pack_id)}</code>{community if link.community else ''}</li>"
         for pack_id, link in sorted(cards.items())
     )
     return (
-        "Decision Cards: what each pack decides, how it was tested and its limits."
+        "Decision Cards: what each agent decides, how it was tested and its limits."
         f'<ul class="docs-cards">{links}</ul>'
     )

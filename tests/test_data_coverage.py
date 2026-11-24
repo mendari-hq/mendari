@@ -382,7 +382,7 @@ def test_the_unreadable_notes_are_counted_by_reason() -> None:
     leaves out a note that reads, an empty one and an attachment with neither data nor a link.
     (The prescreen fixture's notes are `base64_text`; the trial pack's are `attachment_text`
     since LP-23k, whose reasons `tests/test_fhir_mapping_03.py` counts.)"""
-    pack = load_pack(ROOT / "tests" / "fixtures" / "packs" / "prescreen-mini")
+    pack = load_pack(ROOT / "tests" / "fixtures" / "mini-agents" / "prescreen-mini")
     adapter = FhirAdapter.for_pack(pack)
     note = {
         "resourceType": "DocumentReference",

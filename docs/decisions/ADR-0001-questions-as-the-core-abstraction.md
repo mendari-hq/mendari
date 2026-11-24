@@ -3,14 +3,16 @@
 ## Status
 Accepted (v0.1)
 
+Terminology updated 2026-11-23: what this record called a pack is an agent.
+
 ## Context
 Mendari must let the same healthcare decision run on deterministic rules, Jev, local ML
 models, LLMs, or combinations of them, and must evaluate and govern all of them the same way.
-If a pack's contract were "a model plus its output format", every provider change would
+If an agent's contract were "a model plus its output format", every provider change would
 change the contract, the evaluation and the policy.
 
 ## Decision
-A pack declares **questions**: each has a fixed label set and a human-readable criterion per
+An agent declares **questions**: each has a fixed label set and a human-readable criterion per
 label. Providers are grouped into **slots**. A slot answers one or more questions with a
 probability distribution over their labels. Slots have interchangeable **variants**. The
 **policy** is written only against questions and labels.
@@ -27,11 +29,11 @@ Jev.
 - Calibration becomes a first-class property of providers, because thresholds consume
   confidences.
 - Multi-output decisions (e.g. trial prescreening with per-criterion yes/no/unknown) are
-  multiple questions in one pack.
+  multiple questions in one agent.
 
 ## Alternatives Considered
 - **Free-form provider output plus per-provider parsers.** Rejected: evaluation and policy
   would be per-provider, and prompt-dependent parsing is a failure mode in itself.
-- **A single "label" output per pack.** Rejected: safety screens (urgency) and routing
+- **A single "label" output per agent.** Rejected: safety screens (urgency) and routing
   (destination) are different questions with different providers and must be evaluated
   separately.

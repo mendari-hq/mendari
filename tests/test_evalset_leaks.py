@@ -674,7 +674,9 @@ def seed(world: World, org: Org) -> None:
     org.ids["key"] = made["id"]
     service = {"authorization": f"Bearer {made['key']}"}
     decided = {
-        words: world.call(service, "POST", f"/api/packs/{INBOX}/decide", json=message(words)).json()
+        words: world.call(
+            service, "POST", f"/api/agents/{INBOX}/decide", json=message(words)
+        ).json()
         for words in (URGENT, ROUTINE)
     }
     org.ids["decision"] = decided[URGENT]["id"]
@@ -684,7 +686,7 @@ def seed(world: World, org: Org) -> None:
     approved = world.call(governance, "POST", "/api/governance", json=APPROVAL)
     org.ids["approval"] = approved.json()["id"]
     org.ids["hold"] = world.call(governance, "POST", "/api/holds", json=HOLD).json()["id"]
-    assert world.call(admin, "POST", f"/api/packs/{INBOX}/evals", json=RUN).status_code == 200
+    assert world.call(admin, "POST", f"/api/agents/{INBOX}/evals", json=RUN).status_code == 200
     invitation = {"email": f"joiner@{org.name}.example.org", "roles": ["viewer"]}
     invited = world.call(admin, "POST", "/api/auth/invitations", json=invitation)
     org.ids["invitation"] = invited.json()["id"]
@@ -1193,9 +1195,9 @@ def served(world: World, org: Org) -> None:
         assert answer.status_code == expect, (route, answer.status_code, answer.text)
         return answer
 
-    decide = ("POST", "/api/packs/{namespace}/{name}/decide")
+    decide = ("POST", "/api/agents/{namespace}/{name}/decide")
     decided = {
-        kind: ok(service, decide, f"/api/packs/{INBOX}/decide", 200, json=message(words)).json()
+        kind: ok(service, decide, f"/api/agents/{INBOX}/decide", 200, json=message(words)).json()
         for kind, words in (("pending", URGENT), ("routine", ROUTINE), ("spare", ROUTINE))
     }
     parameters = {
@@ -1206,16 +1208,16 @@ def served(world: World, org: Org) -> None:
         ],
     }
     ok(service, ("POST", "/fhir/$decide"), "/fhir/$decide", 200, json=parameters)
-    packed = f"/api/packs/{INBOX}/fhir/decide"
+    packed = f"/api/agents/{INBOX}/fhir/decide"
     ok(
         reviewer,
-        ("POST", "/api/packs/{namespace}/{name}/fhir/decide"),
+        ("POST", "/api/agents/{namespace}/{name}/fhir/decide"),
         packed,
         200,
         json=FHIR_EXAMPLE,
     )
-    guard = ("POST", "/api/packs/{namespace}/{name}/guard")
-    ok(service, guard, f"/api/packs/{GUARD}/guard", 200, json=SAFE)
+    guard = ("POST", "/api/agents/{namespace}/{name}/guard")
+    ok(service, guard, f"/api/agents/{GUARD}/guard", 200, json=SAFE)
     hook = ok(
         service,
         ("POST", "/cds-services/{service_id}"),
@@ -1236,8 +1238,8 @@ def served(world: World, org: Org) -> None:
     }
     ok(
         service,
-        ("POST", "/api/packs/{namespace}/{name}/pas"),
-        f"/api/packs/{PA}/pas",
+        ("POST", "/api/agents/{namespace}/{name}/pas"),
+        f"/api/agents/{PA}/pas",
         200,
         json=pas,
     )
@@ -1263,8 +1265,8 @@ def served(world: World, org: Org) -> None:
     ok(reviewer, ("POST", "/api/audit/{decision_id}/feedback"), url, 200, json=RATING)
     approval = ok(governance, ("POST", "/api/governance"), "/api/governance", 201, json=APPROVAL)
     hold = ok(governance, ("POST", "/api/holds"), "/api/holds", 201, json=HOLD)
-    run = ("POST", "/api/packs/{namespace}/{name}/evals")
-    ok(admin, run, f"/api/packs/{INBOX}/evals", 200, json=RUN)
+    run = ("POST", "/api/agents/{namespace}/{name}/evals")
+    ok(admin, run, f"/api/agents/{INBOX}/evals", 200, json=RUN)
     # Keys (spares to rotate and revoke), a client (a spare) and its token.
     keys = [
         ok(admin, ("POST", "/api/auth/keys"), "/api/auth/keys", 201, json=body).json()["id"]

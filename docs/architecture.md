@@ -4,7 +4,7 @@
 
 ```text
             ┌──────────────────────────── mendari serve ────────────────────────────┐
- EHR/app ──►│ REST /api/packs/{ns}/{name}/decide      FHIR /…/fhir/decide   /cds-services│
+ EHR/app ──►│ REST /api/agents/{ns}/{name}/decide     FHIR /…/fhir/decide   /cds-services│
             │        │                                   │ FhirAdapter          │        │
             │        ▼                                   ▼                      ▼        │
             │   ┌─────────────────────────── Decision (runtime) ───────────────────┐    │
@@ -21,18 +21,18 @@
 - **Spec and agent loading** (`core/spec.py`, `core/pack.py`): pydantic models, cross-reference
   validation, file confinement, content digest.
 - **Registry** (`core/registry.py`): resolves `namespace/name[@version]` from
-  `MENDARI_PACKS_PATH`, the registry cache, the bundled agents and, with
-  `MENDARI_COMMUNITY_PACKS=on`, `community-packs/`. Each agent carries the origin of where it
+  `MENDARI_AGENTS_PATH`, the registry cache, the bundled agents and, with
+  `MENDARI_COMMUNITY_AGENTS=on`, `community-agents/`. Each agent carries the origin of where it
   was found (`core/origin.py`: maintained, community, hub or local); an id is one agent, and a
   second claim is reported, never served. The origin, never the manifest's `publisher.type`
   (self-declared), sets the label every surface shows: "Maintained by Mendari" or "Community ·
-  not clinically reviewed" ([ADR-0007](decisions/ADR-0007-community-packs-by-pull-request.md)).
+  not clinically reviewed" ([ADR-0007](decisions/ADR-0007-community-agents-by-pull-request.md)).
   The origin and the digest choose the engine an agent's patterns run on (`Pack.bounded`): an agent
   the deployment does not own (a community agent, or a pulled one that is not a copy of an agent
   bundled with the installed release, `core/reference.py`) runs on RE2 with caps, input limits and a CPU
   budget per decision; the others on `re`, their input schemas bounded in shape at load
   (`core/input_schema.py`, over `core/schema_graph.py`)
-  ([ADR-0009](decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+  ([ADR-0009](decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md)).
   A pulled agent never takes a bundled agent's place: one with its id and version but other
   files is refused.
 - **Runtime** (`core/decision.py`): binds an agent to concrete provider variants. It validates
@@ -42,7 +42,7 @@
   answers.
 - **Policy** (`core/policy.py`): a pure function from answers and failures to an outcome. It
   holds all automation limits, including risk-level caps, governance overrides, the
-  community-pack cap (a community agent never automates) and the site code cap (a decision read
+  cap on community agents (one never automates) and the site code cap (a decision read
   through a site's translation of its own code never automates, `core/site_codes.py`).
 - **Providers** (`providers/`): a common `answer(inputs) -> ProviderOutput` contract.
   Within one decision, remote providers that share an endpoint and model are merged into a
@@ -125,8 +125,8 @@
   input; an agent the deployment does not own (community, registry) must name them, and runs on
   the deployment's model with its `max_tokens`, `timeout_ms` and `reasoning_effort` capped.
   Every variant's config is checked at load against its provider's closed config
-  (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): such a
-  agent is refused for a problem, an owned one warned.
+  (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): such
+  an agent is refused for a problem, an owned one warned.
   - With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set (`providers/http.py`), every Jev, LLM and Vercel
     Connect request to an origin it does not list is refused before it is opened
     (`invalid_endpoint`), and an `LLM_BASE_URL` or `JEV_API_URL` off it stops startup. Unset,
@@ -173,6 +173,9 @@
 ## Sandbox
 
 `docker compose up` runs HAPI FHIR (R4, in-memory), the engine image, and a worker that seeds
-synthetic Patients and Communications tagged `https://mendari.co/fhir/sandbox|synthetic`.
-The worker then routes each in-progress Communication through the engine, writes a `Task`, and
-marks the Communication completed. Only tagged resources are ever touched.
+the bundled demo agent's synthetic portal messages, as Patients and Communications tagged
+`https://mendari.co/fhir/sandbox|synthetic`. The worker then routes each in-progress
+Communication through the engine, writes a `Task`, and marks the Communication completed. Only
+tagged resources are ever touched. The other sandbox commands (`mendari sandbox seed`,
+`smart-launch`, `bulk-check`, `cds-client`) run on the same agent unless `--agent` names
+another.

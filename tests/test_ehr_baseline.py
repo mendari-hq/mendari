@@ -171,7 +171,7 @@ def test_ci_runs_the_hl7_validator_offline_over_mendaris_outputs_and_the_sandbox
     assert set(job["env"]) == {
         "VALIDATOR_VERSION",
         "VALIDATOR_SHA256",
-        "MENDARI_PACKS_PATH",  # the sample scripts decide with the test fixtures' agents
+        "MENDARI_AGENTS_PATH",  # the sample scripts decide with the test fixtures' agents
         "MENDARI_DATASETS_PATH",
     }
     runs = _runs(job)
@@ -201,8 +201,10 @@ def test_ci_runs_the_hl7_validator_offline_over_mendaris_outputs_and_the_sandbox
 def test_ci_runs_the_smart_app_against_smart_launcher_v2() -> None:
     """CE-2b. The `sandbox-e2e` job always runs and only its Docker Hub sign-in may fail: it
     starts smart-launcher-v2 (pinned by digest) in front of HAPI, and runs the scripted SMART
-    launch through it for the inbox and referral packs, with sign-in off and on, with `--strict`
-    so a decision on input that does not conform fails the job."""
+    launch through it with sign-in off and on, with `--strict` so a decision on input that does
+    not conform fails the job: for the bundled demo agent (no agent named), then, with the test
+    fixtures' agents served too (sandbox/fixtures.compose.yml), for a referral agent and
+    another message agent, each named by its folder."""
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
     assert compose["services"]["launcher"]["image"].startswith(
         "smartonfhir/smart-launcher-2@sha256:"
@@ -220,12 +222,38 @@ def test_ci_runs_the_smart_app_against_smart_launcher_v2() -> None:
     runs = _runs(job)
     up = "docker compose --profile signin up -d --build --wait engine launcher engine-signin"
     assert up in runs
-    for engine in ("engine", "engine-signin"):
-        for pack in ("mendari/referral-router", "mendari/patient-inbox-router"):
-            launch = (
-                f"docker compose exec -T {engine} mendari sandbox smart-launch --strict "
-                f"--engine http://{engine}:8000 --launcher http://launcher "
-                f"--fhir http://fhir:8080/fhir --pack {pack}"
-            )
-            assert launch in runs, (engine, pack)
+    lines = runs.splitlines()
+    organization = " --expect-org pilot --db /data/mendari.db"
+    fixtures = "-f docker-compose.yml -f sandbox/fixtures.compose.yml"
+    assert job["env"] == {"FIXTURES": fixtures}
+    override = yaml.safe_load((ROOT / "sandbox" / "fixtures.compose.yml").read_text())
+    served = override["services"]["engine"]
+    assert served == override["services"]["engine-signin"]  # both engines, the same agents
+    agents = served["environment"]["MENDARI_AGENTS_PATH"]
+    assert served["volumes"] == ["./tests:/home/mendari/tests:ro"]  # so a fixture's path is its own
+    for engine, expected in (("engine", ""), ("engine-signin", organization)):
+        launch = (
+            f"exec -T {engine} mendari sandbox smart-launch --strict "
+            f"--engine http://{engine}:8000 --launcher http://launcher "
+            "--fhir http://fhir:8080/fhir"
+        )
+        # The sandbox as it ships: the bundled demo agent, which the command names by default.
+        assert f"docker compose {launch}{expected}" in lines, engine
+        for name in ("referral-router", "patient-inbox-router"):
+            assert (ROOT / agents / name / "agent.yaml").is_file(), name
+            named = f"docker compose $FIXTURES {launch} --agent {agents}/{name}{expected}"
+            assert named in lines, (engine, name)
     assert "mendari smart check http://launcher/v/r4/fhir" in runs
+    # The fixtures' agents are served before any step names one, and their cases seeded.
+    again = "docker compose $FIXTURES --profile signin up -d --wait engine engine-signin"
+    seeded = (
+        "docker compose $FIXTURES exec -T engine python -m tests.support.sandbox seed "
+        f"--fhir http://fhir:8080/fhir --count 40 --agent {agents}/referral-router"
+    )
+    first_named = min(n for n, line in enumerate(lines) if "$FIXTURES" in line)
+    assert lines.index(up) < lines.index(again) == first_named < lines.index(seeded)
+    assert all(
+        lines.index(seeded) < n
+        for n, line in enumerate(lines)
+        if "--agent" in line and n != lines.index(seeded)
+    )

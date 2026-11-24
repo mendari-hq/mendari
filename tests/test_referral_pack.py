@@ -15,18 +15,17 @@ import yaml
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, load_pack
-from mendari.cli import main
 from mendari.core.policy import Outcome
 from mendari.core.site_codes import ENV as SITE_CODES_ENV
 from mendari.errors import FhirError
-from mendari.sandbox import synthetic_referral
-from mendari.sandbox.fhir_records import REFERRAL
+from mendari.sandbox.code_systems import REFERRAL
 from mendari.server.app import create_app
 from mendari.standards import cds_hooks
+from tests.support import fixture_data, synthetic_referral
 from tests.test_site_codes import mapped, maps_of
 
 ROOT = Path(__file__).parents[1]
-PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / "referral-router"
+PACK_DIR = ROOT / "tests" / "fixtures" / "reference-agents" / "referral-router"
 CHECKLIST = ("recent_visit_note", "ecg_on_file", "imaging_on_file", "recent_labs", "marked_urgent")
 TODAY = date.today()
 LOINC = "http://loinc.org"
@@ -82,10 +81,10 @@ def test_the_local_site_differs_the_way_the_card_says() -> None:
     assert mix.most_common(1)[0][0] == "orthopedics"
 
 
-def test_sandbox_generate_writes_the_referral_data(tmp_path: Path) -> None:
+def test_the_generator_writes_the_referral_data(tmp_path: Path) -> None:
     local = tmp_path / "local.jsonl"
-    argv = ["sandbox", "generate", "--kind", "referral", "--pack-dir", str(tmp_path / "pack")]
-    assert main([*argv, "--local-out", str(local)]) == 0
+    argv = ["--kind", "referral", "--agent-dir", str(tmp_path / "pack")]
+    assert fixture_data.main([*argv, "--local-out", str(local)]) == 0
     train = (tmp_path / "pack" / "data" / "train.jsonl").read_text().splitlines()
     assert len(train) == 1500 and json.loads(train[0])["id"] == "ref-00000"
     assert len(local.read_text().splitlines()) == 300

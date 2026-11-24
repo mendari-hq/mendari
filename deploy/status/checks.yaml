@@ -25,7 +25,7 @@ checks:
     what: a synthetic decision by the bundled demo agent, with the status organization's key
     request:
       method: POST
-      url: "{api}/api/packs/mendari/portal-message-agent/decide"
+      url: "{api}/api/agents/mendari/portal-message-agent/decide"
       key_from: STATUS_DECIDE_KEY
       json:
         message: {body: "Status check: what time does the clinic open on Friday?"}

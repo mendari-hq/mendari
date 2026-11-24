@@ -3,6 +3,8 @@
 ## Status
 Accepted (Phase 4b, 2026-10-02)
 
+Terminology updated 2026-11-23: what this record called a pack is an agent.
+
 ## Context
 Phase 4 gave Mendari sign-in, scoped machine access and SMART Backend Services. Before the owner
 lifts Vercel Authentication, or any site handles PHI, the audit and the Phase 4b research found
@@ -16,7 +18,7 @@ gaps of three kinds:
 - **What anyone can make Mendari do.** Nothing limits how often a caller signs in, asks for a
   token or makes a decision that calls a paid model. The public capability statement takes the
   chain's exclusive lock, sign-in fetches the identity provider's discovery document on every
-  call, and the public health endpoint lists packs, models and today's usage.
+  call, and the public health endpoint lists agents, models and today's usage.
 - **What the browser and the build trust.** Sessions last 8 hours whatever the activity, cookies
   have no `__Host-` prefix, no route checks where a request came from, the API docs load Swagger
   UI and ReDoc from a CDN without a content security policy, and CI actions and images are
@@ -37,7 +39,7 @@ public deployment.
   `read_input`; the chain itself is never rewritten. A governance approval's `reference` (an
   administrator's pointer to minutes, not case text) stays chained. The FHIR exports carry
   codes only, and a payer's outcome and review actions are chained only if they are codes.
-- **Evidence follows the input.** Under `hash` (and for a pack that keeps only the hash) the
+- **Evidence follows the input.** Under `hash` (and for an agent that keeps only the hash) the
   stored record keeps no evidence values; under `encrypt` they are sealed with the input. A
   resource id in an input issue is stored as its type and position (`Patient (entry 2)`), in
   every mode.

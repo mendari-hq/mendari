@@ -1,0 +1,104 @@
+# FHIR R4 -> pack input for prescreening: one Patient and their record. The screening date is
+# the day of the request (the input has no `as_of`). Spec 0.3 (docs/spec/agent-manifest-0.3.md):
+# a coding is read by its code system wherever it sits, a note through `attachment_text` (plain
+# text or HTML, inline or in a Binary), and medications from MedicationStatement and
+# MedicationRequest, a MedicationRequest's start and stop by the spec's stated rule.
+fhir_version: R4
+focus: Patient
+
+resources:
+  Patient:
+    required: true
+
+fields:
+  patient.age:
+    path: Patient.birthDate
+    transform: age_years
+  patient.sex:
+    path: Patient.gender
+    map: {female: female, male: male, other: other, unknown: unknown}
+  notes:
+    # Plain text and HTML, inline or in a Binary the attachment's url names; RTF, PDF and CDA
+    # are unreadable, and the decision abstains (spec 0.3 §2.4).
+    path: DocumentReference.content.attachment
+    transform: attachment_text
+
+lists:
+  conditions:
+    resource: Condition
+    fields:
+      code:
+        # ICD-10-CM wherever it sits among the codings, else the local-site example's fictional
+        # condition codes, else (no coding of either) the first coding as the EHR sends it: a
+        # site's own code, which logic/criteria.yaml matches only once the site lists it there.
+        paths:
+          - "code.coding[system=http://hl7.org/fhir/sid/icd-10-cm].code"
+          - "code.coding[system=https://mendari.co/fhir/CodeSystem/fictional-conditions].code"
+          - code.coding[0].code
+      text:
+        path: code.text
+      status:
+        path: clinicalStatus.coding[0].code
+      onset:
+        path: onsetDateTime
+  observations:
+    resource: Observation
+    fields:
+      code:
+        # LOINC wherever it sits among the codings, else the first coding (a site's own code).
+        paths:
+          - "code.coding[system=http://loinc.org].code"
+          - code.coding[0].code
+      name:
+        path: code.text
+      value:
+        path: valueQuantity.value
+      unit:
+        path: valueQuantity.unit
+      date:
+        path: effectiveDateTime
+  medications:
+    resources:
+      MedicationStatement:
+        fields:
+          code:
+            path: "medicationCodeableConcept.coding[system=http://www.nlm.nih.gov/research/umls/rxnorm].code"
+          name:
+            path: medicationCodeableConcept.text
+          status:
+            path: status
+          start:
+            path: effectivePeriod.start
+          end:
+            path: effectivePeriod.end
+      MedicationRequest:
+        # The drug from the Medication its reference names (read from the EHR when the record
+        # does not hold it), else the request's own coded concept. When the drug is taken is the
+        # spec's stated rule (§2.7), with the changes the owner, a physician, chose on 2026-11-07:
+        # the start is the first dosage instruction's `timing.repeat.boundsPeriod.start`, else
+        # `authoredOn`; the stop is that `boundsPeriod.end`, else the start plus that timing's
+        # `boundsDuration`, else unknown, never inferred from the status; the dispensing window
+        # is not read; a request entered in error, a proposal, a plan, an option, and an order
+        # not to give the drug (`doNotPerform`) are left out.
+        fields:
+          code:
+            follow: medicationReference
+            paths:
+              - "Medication.code.coding[system=http://www.nlm.nih.gov/research/umls/rxnorm].code"
+              - "MedicationRequest.medicationCodeableConcept.coding[system=http://www.nlm.nih.gov/research/umls/rxnorm].code"
+          name:
+            follow: medicationReference
+            paths:
+              - Medication.code.text
+              - MedicationRequest.medicationCodeableConcept.text
+              - MedicationRequest.medicationReference.display
+          status:
+            path: status
+        medication_period: {start: start, end: end}
+
+# Decision -> FHIR Task for the research coordinator's prescreening queue.
+task:
+  code_text: Review study prescreen
+  performer_system: https://mendari.co/fhir/CodeSystem/research-team
+  performer: research-coordinator
+  description: "GLYCEMIA-2 prescreen: {recommendation}. Confirm eligibility against the protocol."

@@ -16,11 +16,11 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
   23f (#270), cards and card feedback as CDS Hooks 2.0 and Da Vinci CRD expect (the card's `uuid`
   its decision's id, `selectionBehavior`, three neutral override reasons, and
   `POST /cds-services/{id}/feedback` chained as `card.feedback`); and 23g (#271), the FHIR
-  mapping syntax 0.3, which no shipped pack adopted until 23k. 23c and 23f landed on main with
+  mapping syntax 0.3, which no shipped agent adopted until 23k. 23c and 23f landed on main with
   23g, through #271;
-- 23e (#280, the LP-23 lane), a vendor-shaped synthetic EHR profile (`sandbox/ehr_profile.py`)
-  and a signed sandbox CDS client over HTTP (`mendari sandbox cds-client`), which compose runs
-  against both engines;
+- 23e (#280, the LP-23 lane), a vendor-shaped synthetic EHR profile (test support since
+  2026-11, `tests/support/ehr_profile.py`) and a signed sandbox CDS client over HTTP
+  (`mendari sandbox cds-client`), which compose runs against both engines;
 - 23h (#280), linked record data under the EHR's FHIR server: a note by its Binary link, the
   payer and the medication by reference, at most 20 reads a decision (since 2026-11-08, 50
   notes and 50 followed references a decision, 100 reads a request);
@@ -32,16 +32,16 @@ only for SMART launches. Built in steps (LP-23, `tasks/todo.md`, planned in
 - 23m (#280), the close-out: gate `a12-ehr-pilot`'s probes, the threat model's residual
   risks, this status, the scorecard graded again, and the end-to-end test
   (`tests/test_ehr_pilot_e2e.py`);
-- 23j (#281), after the close-out, the shipped packs' cards: a card template of a pack's own,
+- 23j (#281), after the close-out, the shipped agents' cards: a card template of an agent's own,
   and cards only for the outcomes the person signing can act on (`show:`, the default the owner
   confirmed on 2026-11-06). No decision changes;
-- 23k (#282), after the close-out and the owner's go-ahead (2026-11-06), the shipped packs'
+- 23k (#282), after the close-out and the owner's go-ahead (2026-11-06), the shipped agents'
   mappings for real EHR data on spec 0.3: a condition read by its ICD-10-CM coding wherever it
   sits, medications from MedicationRequest too (spec 0.3's stated start and stop rule), a payer
   through the Coverage's reference, notes through `attachment_text` (a linked Binary read from
   the EHR), and an order's or a document's code through code sets a site's code map can
   translate into. Three engine additions it needed: `focus_where` through a code set, a
-  followed field's fallback to a path of its own type, and notes longer in all than a pack's
+  followed field's fallback to a path of its own type, and notes longer in all than an agent's
   input allows abstaining (`too_large`) rather than refusing the input.
 
 What stays open. The clinician's note on the MedicationRequest rule 23k adopts (B21; the draft
@@ -49,12 +49,12 @@ for the reviewer is `notes/clinician-review-medication-period.md`, and gate `cli
 attestation records the review): the owner, a physician, answered it on 2026-11-07, acceptable
 with changes; the rule is not clinically reviewed until those changes are built and the owner
 confirms them. How a payer field reads a site's own payer identifier was
-confirmed as built by the owner on 2026-11-07: 23k reads it as no payer the pack knows, so the
+confirmed as built by the owner on 2026-11-07: 23k reads it as no payer the agent knows, so the
 order is `not_checked`. The owner's answers as a clinician that day are built, with spec 0.3's
 two card keys (`also_show` and `refused`, §5), no decision changed: a possible red flag under a
 site's payer identifier shows a card at `order-sign`, other `not_checked` orders still show none
 (#282 Q2); and an order refused as invalid input (BLOCK) shows a card that says why (#281 Q3). The Epic sandbox
-run, in which every pack with a standard hook decides on Epic's sandbox patients (A12.acc-3),
+run, in which every agent with a standard hook decides on Epic's sandbox patients (A12.acc-3),
 and `mendari smart check` against Epic are the owner's. Gate G5-6's `a12-ehr-pilot` names the Epic run as
 pending. `conformance.yml`'s new jobs
 (`crd-server`, `smart-client`, `bulk-client`) have not run on GitHub yet (its `dtr-payer` job
@@ -107,6 +107,8 @@ What the first three steps built, with the details they settled:
   when the Coverage was read; neither prefetch nor `fhirServer` is a `412`, and request faults
   stay `4xx`. Every FHIR decision's record carries `data_coverage` (`standards/data_coverage.py`).
   The SMART launch's decide reads its record the same way.
+
+Terminology updated 2026-11-23: what this record called a pack is an agent.
 
 ## Context
 An EHR calls a CDS Hooks service with its own signed token. Mendari cannot take one today:
@@ -191,14 +193,14 @@ Inferno's Da Vinci CRD kit sends exactly those, with a header of `alg`, `typ`, `
    itself, a note whose data does not decode or that is only a link), the decision is ABSTAIN,
    before any provider runs. Its reasons read `could not read <key>: <reason>`, from a closed set
    of reasons, never a URL, a query or a server's text. The decision is recorded, and the hook
-   answers `200` with an `info` card whatever the pack's `show` says. Input that is refused still
+   answers `200` with an `info` card whatever the agent's `show` says. Input that is refused still
    BLOCKs; a request fault stays a `4xx`; neither prefetch nor `fhirServer` is a `412`, as CDS
    Hooks says. A server off the allow-list, or one the client did not register, is
    configuration, not data: it is refused, with nothing fetched or recorded.
 8. **The data-coverage record (23d).** Every FHIR decision (CDS Hooks, `fhir/decide`,
    `$decide`, the SMART launch's, DTR) carries `data_coverage` (`mendari.data-coverage/1`). For
    each mapped field and list it holds the paths looked for, the declared code systems and the
-   pack's own looked-for codes, the resources counted by type, the values found, the codings
+   agent's own looked-for codes, the resources counted by type, the values found, the codings
    counted by declared system (any other system as one count) and the unreadable keys counted
    by reason. Counts and declared codes only: never a value, an id, text, a patient's code or an
    undeclared system. A JSON decision carries none, and older records still verify.
@@ -216,7 +218,7 @@ there amends ADR-0006.
 - One `cds:<id>` principal carries a whole site's hooks under one rate limit and one daily cap,
   so a pilot's volume is measured before it goes live.
 - A record Mendari cannot read goes to a person, never to a guess. On note-heavy EHR data (RTF
-  notes, for one) the packs may abstain often, and the data-coverage counts show it.
+  notes, for one) the agents may abstain often, and the data-coverage counts show it.
 - The only thing stored is the `jti` claims, which expire. Rolling back past 23b turns an EHR's
   tokens back into refusals.
 - The [threat model](../security/threat-model.md#residual-risks-and-assumptions) keeps six

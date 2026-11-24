@@ -224,7 +224,7 @@ def _absolute(template: str, bases: Mapping[str, str | None]) -> tuple[str | Non
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the status checks against a deployment.")
     parser.add_argument("--api", help="the deployment's base URL")
-    parser.add_argument("--registry", help="the pack registry's base URL")
+    parser.add_argument("--registry", help="the agent registry's base URL")
     parser.add_argument("--hub", help="the Hub's base URL")
     parser.add_argument("--checks", type=Path, default=CHECKS, help="the checks file")
     parser.add_argument(

@@ -2,9 +2,10 @@
 // An organization's pack store (LP-20j, ADR-0016 Proposed), in the dashboard: shown where the
 // server says the store is on (`/api/auth/me` `store`) to a person who holds `author` (the
 // `pack_author` role) or `promote` (`governance`, `admin`). Five tabs:
-// - Packs: the organization's packs and their versions, with their state in words; copy a pack
-//   served here, upload a signed archive (in parts, with progress); a refused upload shows the
-//   PHI report's kinds, files and lines, never a value; a held one says only that it is held.
+// - Agents (#store/agents): the organization's agents and their versions, with their state in
+//   words; copy an agent served here, upload a signed archive (in parts, with progress); a refused
+//   upload shows the PHI report's kinds, files and lines, never a value; a held one says only that
+//   it is held.
 // - A version (#store/version/<digest>): its files, an editor for a text file that saves a new
 //   draft, its validation, its behaviour tests and the proposed tests from reviewers'
 //   corrections, and the Decision Card the server rendered, as text.
@@ -39,7 +40,7 @@ const cellTable = ({ id, columns, rows }) =>
 const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body) });
 
 const TABS = [
-  { key: "packs", label: "Agents", shown: () => may("author") },
+  { key: "agents", label: "Agents", shown: () => may("author") },
   { key: "results", label: "Results", shown: () => may("author") },
   { key: "compare", label: "Compare", shown: () => may("author") },
   { key: "promote", label: "Promote", shown: () => may("promote") },
@@ -62,7 +63,11 @@ const short = (digest) => esc(String(digest).replace("sha256:", "").slice(0, 12)
 const digestCode = (digest) => `<code title="${esc(digest)}">${short(digest)}</code>`;
 
 views.store = async (main, params = []) => {
-  const [tab = defaultTab(), ...rest] = params;
+  const [asked = defaultTab(), ...rest] = params;
+  // The Agents tab's address was "#store/packs": a link made then opens the tab, and the address
+  // says "#store/agents" from there on.
+  const tab = asked === "packs" ? "agents" : asked;
+  if (tab !== asked) history.replaceState(history.state, "", `${location.pathname}${location.search}#store/${tab}`);
   if (tab === "version" && rest[0]) return showVersion(main, rest[0]);
   const tabs = TABS.filter((t) => t.shown());
   const current = tabs.find((t) => t.key === tab) ?? tabs[0];
@@ -74,7 +79,7 @@ views.store = async (main, params = []) => {
     <section id="store-body" aria-busy="true"></section>`;
   const body = $("#store-body");
   try {
-    if (current.key === "packs") await showPacks(body);
+    if (current.key === "agents") await showPacks(body);
     else if (current.key === "results") await showResults(body);
     else if (current.key === "compare") await showCompare(body);
     else await showPromote(body);
@@ -91,13 +96,13 @@ views.store.packless = true;
 views.store.leave = () => document.querySelectorAll("dialog[data-admin]:not([data-busy])").forEach((d) => d.close());
 
 function defaultTab() {
-  return may("author") ? "packs" : "promote";
+  return may("author") ? "agents" : "promote";
 }
 
 // -- packs ---------------------------------------------------------------------------------------
 
 async function showPacks(body) {
-  const lineages = await api("/api/store/packs");
+  const lineages = await api("/api/store/agents");
   const list = lineages.length
     ? lineages.map(lineageHtml).join("")
     : emptyState({ icon: "package", title: "No agent in your store yet", text: "Copy an agent this deployment serves, or upload a signed archive." });
@@ -113,9 +118,9 @@ async function showPacks(body) {
     </form>
     <form class="panel admin-form" id="upload-form" novalidate>
       <h2>Upload a signed archive</h2>
-      <p class="muted">Built with <code>mendari pack build</code> and signed with one of your organization's author keys. Files that read as a person's details are refused.</p>
+      <p class="muted">Built with <code>mendari archive build</code> and signed with one of your organization's author keys. Files that read as a person's details are refused.</p>
       <label for="upload-file">Archive</label>
-      <input id="upload-file" name="file" type="file" required accept=".ohpack,application/gzip">
+      <input id="upload-file" name="file" type="file" required accept=".mendari,.ohpack,application/gzip">
       <progress id="upload-progress" max="1" value="0" hidden aria-label="Upload progress"></progress>
       <button type="submit" class="primary">Upload</button>
     </form>
@@ -213,7 +218,7 @@ function uploadedHtml({ ok, body }) {
 async function showVersion(main, digest) {
   const version = await api(`/api/store/versions/${encodeURIComponent(digest)}`);
   const held = version.state === "held";
-  main.innerHTML = `<p><a href="#store/packs">← Agent store</a></p>
+  main.innerHTML = `<p><a href="#store/agents">← Agent store</a></p>
     <h1><code>${esc(version.pack_id)}</code> ${esc(version.version)}</h1>
     <p>${stateBadge(version.state)} ${digestCode(version.digest)}</p>
     ${held ? '<div class="callout neutral" role="status">Held for the operator\'s review. Nothing more is shown until the operator answers.</div>' : versionBody(version)}`;
@@ -301,7 +306,7 @@ function testsHtml(ran) {
 // -- results ----------------------------------------------------------------------------------------
 
 async function showResults(body) {
-  const [datasets, jobs, lineages] = await Promise.all([api("/api/store/datasets"), api("/api/store/jobs"), api("/api/store/packs")]);
+  const [datasets, jobs, lineages] = await Promise.all([api("/api/store/datasets"), api("/api/store/jobs"), api("/api/store/agents")]);
   const versions = lineages.flatMap((l) => l.versions.filter((v) => v.state !== "held" && v.state !== "withdrawn"));
   const datasetRows = datasets.map((d) => [
     { html: esc(d.name) },

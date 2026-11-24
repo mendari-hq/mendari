@@ -41,6 +41,7 @@ from mendari.server.limits import (
 )
 from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import (
+    FORMER_ROUTES,
     ROOT,
     encrypt_mode,
     evalset_on,
@@ -580,21 +581,26 @@ EXPECTED_CLASSES = {
     ("POST", "/auth/token"): "token",
     ("POST", "/api/smart/decide"): "decide",
     ("POST", "/api/notice/acknowledge"): "decide",  # what deciding asks first; chained once
-    ("POST", "/api/packs/{namespace}/{name}/decide"): "decide",
-    ("POST", "/api/packs/{namespace}/{name}/fhir/decide"): "decide",
-    ("POST", "/api/packs/{namespace}/{name}/pas"): "decide",
+    ("POST", "/api/agents/{namespace}/{name}/decide"): "decide",
+    ("POST", "/api/agents/{namespace}/{name}/fhir/decide"): "decide",
+    ("POST", "/api/agents/{namespace}/{name}/pas"): "decide",
     ("POST", "/cds-services/{service_id}"): "decide",
     ("POST", "/cds-services/{service_id}/feedback"): "decide",  # a card's feedback (LP-23f)
     ("POST", "/fhir/$decide"): "decide",
     ("POST", "/fhir/Questionnaire/$questionnaire-package"): "decide",
-    ("POST", "/api/packs/{namespace}/{name}/guard"): "guard",
-    ("POST", "/api/packs/{namespace}/{name}/evals"): "evaluate",
+    ("POST", "/api/agents/{namespace}/{name}/guard"): "guard",
+    ("POST", "/api/agents/{namespace}/{name}/evals"): "evaluate",
     ("GET", "/api/audit/export/fhir"): "export",
     ("GET", "/api/audit/administrative/export/fhir"): "export",
-    ("GET", "/api/packs/{namespace}/{name}/feedback/export"): "export",
+    ("GET", "/api/agents/{namespace}/{name}/feedback/export"): "export",
     # With the evaluation-set keys, in both account modes: a grading run is an evaluation
     # (LP-11l), counted per grading key.
     ("POST", "/api/evalsets/{set_id}/runs"): "evaluate",
+}
+# A renamed route at the path it had before (`server/paths.py`) counts against the class the
+# route counts against now: one bucket for both, so the former path is no second allowance.
+FORMER_CLASSES = {
+    old: EXPECTED_CLASSES[now] for old, now in FORMER_ROUTES.items() if now in EXPECTED_CLASSES
 }
 # What memberships mode adds (ADR-0008): a person's own three routes, counted per address as
 # signing in is, and, with the evaluation-set keys, a labeller's, per person (LP-11j). An
@@ -632,7 +638,9 @@ def test_costly_routes_have_their_class_reads_none_and_one_call_of_each_passes(
     )
     classes = {r: limiter.classify(*r, permission_for(*r)) for r in routes}
     added = MEMBERSHIPS_CLASSES if accounts == "memberships" else {}
-    assert {r: c for r, c in classes.items() if c is not None} == EXPECTED_CLASSES | added
+    assert len(FORMER_CLASSES) == 6 and set(FORMER_ROUTES) <= set(routes)
+    limited = {r: c for r, c in classes.items() if c is not None}
+    assert limited == EXPECTED_CLASSES | FORMER_CLASSES | added
     if accounts == "memberships":
         with AuditStore(tmp_path / "signin.db") as store:
             admin = member(store, org="default", roles=["admin"], sub="lead")
@@ -874,10 +882,10 @@ def test_the_api_reference_says_what_is_limited_only_when_limits_are_on(
     paths = schema["paths"]
     assert (
         "Retry-After"
-        in paths["/api/packs/{namespace}/{name}/decide"]["post"]["responses"]["429"]["headers"]
+        in paths["/api/agents/{namespace}/{name}/decide"]["post"]["responses"]["429"]["headers"]
     )
     assert "429" in paths["/api/audit/export/fhir"]["get"]["responses"]
-    assert "429" not in paths["/api/packs"]["get"]["responses"]  # reads are not limited here
+    assert "429" not in paths["/api/agents"]["get"]["responses"]  # reads are not limited here
     assert "**Rate limits.**" in schema["info"]["description"]
     assert "decisions 600/min:100" in schema["info"]["description"]
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "log")
@@ -885,7 +893,8 @@ def test_the_api_reference_says_what_is_limited_only_when_limits_are_on(
     reader = person(db, host="testserver")
     schema = TestClient(create_app(db_path=db)).get("/openapi.json", headers=reader).json()
     assert "Rate limits" not in schema["info"]["description"]
-    assert "429" not in schema["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]["responses"]
+    decide = schema["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
+    assert "429" not in decide["responses"]
 
 
 def in_words(rate: Rate) -> str:
@@ -1178,13 +1187,20 @@ def test_only_what_decides_counts_against_the_cap(
     in_route = {("POST", "/cds-services/{service_id}")}
     not_decisions = {
         ("POST", "/api/notice/acknowledge"),
-        ("POST", "/api/packs/{namespace}/{name}/pas"),
+        ("POST", "/api/agents/{namespace}/{name}/pas"),
+        ("POST", "/api/packs/{namespace}/{name}/pas"),  # the path it had before
         ("POST", "/fhir/Questionnaire/$questionnaire-package"),
         ("POST", "/cds-services/{service_id}/feedback"),
     }
     counted = {r for r in deciding if DailyCap.counts(r[0], re.sub(r"\{[^}]+\}", "x", r[1]))}
     assert counted | in_route | not_decisions == deciding
     assert not counted & (in_route | not_decisions)
+    # A renamed route counts against the cap at the path it had before as it does now.
+    assert {old in counted for old, now in FORMER_ROUTES.items() if now in counted} == {True}
+    assert {old for old in FORMER_ROUTES if old in counted} == {
+        ("POST", f"/api/packs/{{namespace}}/{{name}}/{what}")
+        for what in ("decide", "guard", "fhir/decide")
+    }
     monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "required")
     db = str(tmp_path / "notice.db")
     client = TestClient(create_app(db_path=db))

@@ -7,12 +7,12 @@ import { expect, test, type Page } from "@playwright/test";
 // publisher) and, from a community publisher, a copy of it whose text tries to run a script
 // (scripts/hub_seed.py --hostile-example). Search lists them by id.
 const AGENTS = ["Hostile Text Example", "Portal Message Agent"];
-const DEMO = "/packs/mendari/portal-message-agent";
+const DEMO = "/agents/mendari/portal-message-agent";
 
 // The demo agent's version as it ships: the registry the tests run against publishes it.
 // `npm test` runs in hub/.
 function shippedVersion(): string {
-  const manifest = "../agents/portal-message-agent/pack.yaml";
+  const manifest = "../agents/portal-message-agent/agent.yaml";
   const version = /^version: (.+)$/m.exec(readFileSync(manifest, "utf8"))?.[1];
   if (!version) throw new Error(`no version in ${manifest}`);
   return version;
@@ -54,7 +54,7 @@ test("an agent page shows what the registry checked apart from what the publishe
   const errors = watchConsole(page);
   await page.goto("/");
   await page.getByRole("link", { name: "Portal Message Agent" }).click();
-  await expect(page).toHaveURL(/\/packs\/mendari\/portal-message-agent$/);
+  await expect(page).toHaveURL(/\/agents\/mendari\/portal-message-agent$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Portal Message Agent");
   await expect(page.locator(".pull")).toHaveText("pip install mendari && mendari pull mendari/portal-message-agent");
   await expect(page.locator(".fact").first()).toContainText(shippedVersion());
@@ -88,14 +88,14 @@ test("an agent page shows what the registry checked apart from what the publishe
   const card = page.locator("article.markdown");
   await expect(card.locator("table").first()).toBeVisible();
   await expect(card.getByRole("cell", { name: /^0, .*\(declared by the publisher\)$/ })).toBeVisible();
-  await expect(card).toContainText("Rendered by the registry from the pack's own files");
+  await expect(card).toContainText("Rendered by the registry from the agent's own files");
   await expect(card).not.toContainText("|---|");
   expect(errors).toEqual([]);
 });
 
 test("publisher text is shown as text: no script runs and no unsafe link is made", async ({ page }) => {
   const errors = watchConsole(page);
-  await page.goto("/packs/hub-test/hostile-text");
+  await page.goto("/agents/hub-test/hostile-text");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Hostile Text Example");
   // The summary's script tag is shown as the characters it is made of, never parsed.
   await expect(page.locator(".lead")).toHaveText("Publisher text that tries to run: <script>window.__hostile = 1</script>");
@@ -143,14 +143,27 @@ test("a publisher page lists its agents and signing keys", async ({ page }) => {
 });
 
 test("an unknown agent is a 404 page", async ({ page }) => {
-  const response = await page.goto("/packs/mendari/no-such-pack");
+  const response = await page.goto("/agents/mendari/no-such-agent");
   expect(response?.status()).toBe(404);
   await expect(page.getByRole("heading", { name: "Not found" })).toBeVisible();
 });
 
+// An agent's page was at /packs/<namespace>/<name> before: a link made then still opens it, and a
+// name is only ever a name in the address it leads to.
+test("the address an agent's page had before leads to the page", async ({ page, request }) => {
+  const moved = await request.get("/packs/mendari/portal-message-agent", { maxRedirects: 0 });
+  expect(moved.status()).toBe(308);
+  expect(moved.headers()["location"]).toBe(DEMO);
+  const odd = await request.get("/packs/%2F%2Fexample.org/a%3Fb", { maxRedirects: 0 });
+  expect(odd.headers()["location"]).toBe("/agents/%2F%2Fexample.org/a%3Fb");
+  await page.goto("/packs/mendari/portal-message-agent");
+  await expect(page).toHaveURL(/\/agents\/mendari\/portal-message-agent$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Portal Message Agent");
+});
+
 test("pages fit a phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const path of ["/", DEMO, "/packs/hub-test/hostile-text", "/publishers/mendari"]) {
+  for (const path of ["/", DEMO, "/agents/hub-test/hostile-text", "/publishers/mendari"]) {
     await page.goto(path);
     const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
     expect(fits, path).toBe(true);
@@ -187,7 +200,7 @@ test("an agent page shows site evidence in its own section: sites, cases, a plot
 });
 
 test("an agent no site has evaluated says so in words", async ({ page }) => {
-  await page.goto("/packs/hub-test/hostile-text");
+  await page.goto("/agents/hub-test/hostile-text");
   const section = page.getByRole("region", { name: /^Site evidence/ });
   await expect(section.getByRole("heading", { level: 2 })).toHaveText("Site evidence");
   await expect(section).toContainText("No site has shared signed counts for version");
@@ -230,7 +243,7 @@ test("an agent page shows the publisher's evaluations side by side, one row per 
 });
 
 test("an agent with no published evaluation says so in words", async ({ page }) => {
-  await page.goto("/packs/hub-test/hostile-text");
+  await page.goto("/agents/hub-test/hostile-text");
   const section = page.getByRole("region", { name: "Published evaluations" });
   await expect(section).toContainText("The publisher has published no evaluation of version 1.0.0");
   await expect(section.getByRole("table")).toHaveCount(0);

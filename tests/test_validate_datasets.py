@@ -49,7 +49,7 @@ VALID = {"message": {"body": SECRET}}
         ),
         (
             json.dumps({"id": "r3", "input": VALID, "labels": {SECRET: "calm"}}),
-            "case r3: labels name a question the pack does not have",
+            "case r3: labels name a question the agent does not have",
         ),
         (
             json.dumps({"id": "r4", "input": VALID, "labels": ["urgent"]}),
@@ -82,7 +82,7 @@ def test_validate_reads_every_declared_dataset(
 
 
 def test_every_shipped_dataset_validates() -> None:
-    for manifest in sorted(Path(INBOX_DIR).parent.glob("*/pack.yaml")):
+    for manifest in sorted(Path(INBOX_DIR).parent.glob("*/agent.yaml")):
         assert main(["validate", str(manifest.parent)]) == 0, manifest.parent.name
 
 
@@ -105,9 +105,9 @@ def test_a_pack_with_no_behaviour_tests_fails_its_test_run(
     (pack / "tests" / "cases.yaml").write_text("[]\n")
     assert main(["test", str(pack)]) == 1
     assert "no behaviour tests to run: add cases to tests/cases.yaml" in capsys.readouterr().err
-    manifest = yaml.safe_load((pack / "pack.yaml").read_text())
+    manifest = yaml.safe_load((pack / "agent.yaml").read_text())
     del manifest["tests"]
-    (pack / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (pack / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     assert main(["test", str(pack)]) == 1
     assert "no behaviour tests to run" in capsys.readouterr().err
 

@@ -160,7 +160,7 @@ def test_a_community_packs_schema_uses_only_the_keywords_mendari_bounds(
     with pytest.raises(PackValidationError) as error:
         load_pack(sorter(tmp_path, schema=used))
     assert any(
-        f"properties/codes/{keyword}: a community or registry pack's schema may not use {keyword}"
+        f"properties/codes/{keyword}: a community or registry agent's schema may not use {keyword}"
         in problem
         for problem in error.value.problems
     )
@@ -295,7 +295,7 @@ def test_a_community_packs_input_holds_a_bounded_number_of_values(tmp_path: Path
     result, took = timed(pack, {"message": "my bill", "xs": [1] * 2_000_000})
     assert took < BOUND_S and result.outcome is Outcome.BLOCK  # refused before any keyword
     assert result.reasons == (
-        "input rejected: (root): more than 10,000 values, the most a community pack reads",
+        "input rejected: (root): more than 10,000 values, the most a community agent reads",
     )
     assert timed(pack, {"message": "my bill", "xs": [1] * 9_000})[0].outcome is not Outcome.BLOCK
 
@@ -315,7 +315,7 @@ def test_a_community_packs_input_is_nested_at_most_32_deep(tmp_path: Path) -> No
         {"message": "my bill", "tree": deep}
     )
     assert result.reasons == (
-        "input rejected: (root): nested more than 32 deep, the most a community pack reads",
+        "input rejected: (root): nested more than 32 deep, the most a community agent reads",
     )
 
 
@@ -441,7 +441,7 @@ def test_validate_called_alone_holds_a_community_packs_text_to_its_length(
     """`mendari omop` validates records without deciding them: the length cap applies too."""
     pack = load_pack(sorter(tmp_path, schema=long_message))
     assert Decision(pack).validate({"message": "x" * 10_001}) == [
-        "message: longer than 10,000 characters, the most a community pack reads"
+        "message: longer than 10,000 characters, the most a community agent reads"
     ]
 
 

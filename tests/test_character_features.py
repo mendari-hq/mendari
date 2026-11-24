@@ -237,7 +237,7 @@ def test_a_range_that_is_not_one_is_refused(
 def test_the_reference_models_are_words_alone() -> None:
     """So `mendari train` rebuilds them byte for byte, as CI checks."""
     for model in sorted(
-        (ROOT / "tests" / "fixtures" / "reference-packs").glob("*/models/*-nb.json")
+        (ROOT / "tests" / "fixtures" / "reference-agents").glob("*/models/*-nb.json")
     ):
         assert json.loads(model.read_text())["format"] == FORMAT, model
 

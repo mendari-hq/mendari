@@ -271,7 +271,7 @@ def test_a_pack_may_not_choose_the_variables_jev_reads(
     with pytest.raises(PackValidationError) as error:
         jev_provider(inbox_pack, sent.append, **{field: "PACK_SAFETY_CANARY"})
     text = str(error.value)
-    assert "router: a pack may not choose the environment variables" in text
+    assert "router: an agent may not choose the environment variables" in text
     assert text.endswith(f"Remove: {field}")
     assert CANARY not in text and "PACK_SAFETY_CANARY" not in text
     assert sent == []
@@ -319,19 +319,19 @@ def test_a_variant_or_member_naming_the_deployment_s_variables_is_refused_at_loa
 ) -> None:
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["providers"]["router"]["variants"]["outside"] = variant
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     with pytest.raises(PackValidationError) as error:
         load_pack(root)
     assert error.value.problems == [
-        "providers.router.variants.outside: a pack may not choose the environment variables a "
+        "providers.router.variants.outside: an agent may not choose the environment variables a "
         f"provider reads its endpoint, model or key from; these are the deployment's. "
         f"Remove: {refused}"
     ]
     # The same keys on another provider type are that provider's business (rules forbids them).
     manifest["providers"]["router"]["variants"]["outside"] = {"type": "naive_bayes", "x_env": 1}
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     assert load_pack(root).id == "mendari/patient-inbox-router"
 
 

@@ -1,0 +1,114 @@
+name: agents
+
+# The contribution flow for agents. `agent-check` runs on every pull request, so it can be a
+# required check, and passes at once ("no agent changes") when none is changed.
+# - A bundled agent (agents/) that a pull request changes is validated, tested, evaluated on its
+#   benchmark dataset and given a card. Its metrics are compared with the benchmark on the base
+#   branch, and a regression in a critical metric fails (the eval gate, scripts/pack_gate.py).
+# - A community agent (community-agents/<name>/) goes through `mendari community-check`
+#   (scripts/community_check.py): scope, identity, manifest policy, tests, evaluation floors and
+#   regressions, regenerated benchmark, card and model, patterns, hygiene and PHI warnings. A
+#   pull request that touches a community agent and anything outside its folder fails, unless the
+#   repository's owner made it.
+# The job summary shows the metrics and the rendered cards; the bundled agents' cards are also
+# an artifact. No secrets, a read-only token, and never `pull_request_target`.
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  agent-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.6"
+          python-version: "3.12"
+      - run: uv sync --locked
+      - name: Find the changed agents
+        # An agent's directory is named by the pull request, so it is data, never code: it comes
+        # NUL-separated from scripts/changed_packs.py (git diff -z), stays one quoted shell word,
+        # and reaches Python only through argv.
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          mkdir -p /tmp/agents
+          uv run python scripts/changed_packs.py "$BASE" > /tmp/agents/changed
+          if [ ! -s /tmp/agents/changed ]; then
+            echo "no agent changes" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Bundled agents - validate, test, evaluate and card each; gate on the base benchmark
+        # The list is read on fd 3, so no command in the loop can consume it from stdin.
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          failed=0
+          field='import sys; from mendari.core.registry import resolve_pack; print(getattr(resolve_pack(sys.argv[1]).manifest.evaluation, sys.argv[2]) or "")'
+          while IFS= read -r -d '' dir <&3; do
+            case "$dir" in agents/*) ;; *) continue ;; esac
+            name="${dir#agents/}"
+            name="${name//\//__}"
+            if [ ! -f "$dir/agent.yaml" ] && [ ! -f "$dir/pack.yaml" ]; then printf '%s was removed\n' "$dir" >> "$GITHUB_STEP_SUMMARY"; continue; fi
+            uv run mendari validate "$dir"
+            uv run mendari data check "$dir" >> "$GITHUB_STEP_SUMMARY"
+            uv run mendari test "$dir"
+            uv run mendari card "$dir" > "/tmp/agents/$name-DECISION_CARD.md"
+            dataset=$(uv run python -c "$field" "$dir" benchmark_dataset)
+            if [ -z "$dataset" ]; then printf '### %s: no benchmark dataset to evaluate\n' "$dir" >> "$GITHUB_STEP_SUMMARY"; continue; fi
+            uv run mendari eval "$dir" --dataset "$dataset" --baseline none --out "/tmp/agents/$name.json"
+            main_args=()
+            benchmark=$(uv run python -c "$field" "$dir" benchmark)
+            if [ -n "$benchmark" ] && git show "$BASE:$dir/$benchmark" > "/tmp/agents/$name-main.json" 2>/dev/null; then
+              main_args=(--main "/tmp/agents/$name-main.json")
+            fi
+            uv run python scripts/pack_gate.py "$dir" --report "/tmp/agents/$name.json" "${main_args[@]}" >> "$GITHUB_STEP_SUMMARY" || failed=1
+          done 3< /tmp/agents/changed
+          exit $failed
+      - name: Community agents - dataset checks
+        # `mendari data check` on each changed community agent's declared datasets: fails only
+        # on a schema or label problem (LP-20c); duplicates, overlap and thin labels are in the
+        # summary.
+        if: success() || failure()
+        run: |
+          failed=0
+          while IFS= read -r -d '' dir <&3; do
+            case "$dir" in community-agents/*) ;; *) continue ;; esac
+            [ -f "$dir/agent.yaml" ] || [ -f "$dir/pack.yaml" ] || continue
+            uv run mendari data check "$dir" >> "$GITHUB_STEP_SUMMARY" || failed=1
+          done 3< /tmp/agents/changed
+          exit $failed
+      - name: Community agents - scope and community-check
+        # Runs even when the bundled agents failed, so the summary shows both. The owner's
+        # pull request is one whose author, never `github.actor` (whoever caused this run: the
+        # owner updating a fork's branch would be it), is the person the `*` rule of the base's
+        # `.github/CODEOWNERS` names, with a branch in this repository, into the default branch.
+        # The script reads that file from the base itself; `github.repository_owner` is the
+        # organization, no person.
+        if: success() || failure()
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+        run: >-
+          uv run python scripts/community_check.py --base "$BASE" --actor "$AUTHOR"
+          --head-repo "$HEAD_REPO" --repo "$REPO" --base-ref "$BASE_REF"
+          --default-branch "$DEFAULT_BRANCH" --summary "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: decision-cards
+          path: /tmp/agents/*-DECISION_CARD.md
+          if-no-files-found: ignore

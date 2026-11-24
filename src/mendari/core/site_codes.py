@@ -183,7 +183,7 @@ def check(maps: SiteCodeMaps, packs: Iterable[Pack]) -> None:
             codes = declared.get(name)
             where = f"{ENV} organization {site.org!r}, code set {name!r}"
             if codes is None:
-                raise MendariError(f"{where}: no pack found here declares it")
+                raise MendariError(f"{where}: no agent found here declares it")
             for position, entry in enumerate(translations, start=1):
                 if entry["as"] not in codes:
                     raise MendariError(

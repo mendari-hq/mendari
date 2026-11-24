@@ -27,7 +27,7 @@ from mendari.evals import evaluate, resolve_dataset
 from mendari.providers import Answer, ProviderInfo
 from tests.conftest import INBOX_DIR
 
-TRIAL_MINI = Path(__file__).parent / "fixtures" / "packs" / "trial-mini"
+TRIAL_MINI = Path(__file__).parent / "fixtures" / "mini-agents" / "trial-mini"
 INFO = ProviderInfo(slot="t", variant="t", type="t")
 
 
@@ -37,7 +37,7 @@ def answer(question: str, probabilities: dict[str, float]) -> Answer:
 
 
 def manifest_dict() -> dict[str, Any]:
-    raw = yaml.safe_load((TRIAL_MINI / "pack.yaml").read_text())
+    raw = yaml.safe_load((TRIAL_MINI / "agent.yaml").read_text())
     assert isinstance(raw, dict)
     return raw
 
@@ -422,7 +422,7 @@ def test_evals_cover_derived_questions() -> None:
 
 
 def test_spec_01_manifests_still_load() -> None:
-    raw = yaml.safe_load((INBOX_DIR / "pack.yaml").read_text())
+    raw = yaml.safe_load((INBOX_DIR / "agent.yaml").read_text())
     raw["spec_version"] = "0.1"
     raw["policy"] = yaml.safe_load((INBOX_DIR / "policy.yaml").read_text())
     rule = raw["policy"]["rules"][0]["when"]
@@ -480,7 +480,7 @@ def test_inbox_escalates_at_the_documented_threshold(inbox_pack: Any) -> None:
 
 
 def test_spec_01_packs_cannot_use_min_probability() -> None:
-    raw = yaml.safe_load((INBOX_DIR / "pack.yaml").read_text())
+    raw = yaml.safe_load((INBOX_DIR / "agent.yaml").read_text())
     raw["spec_version"] = "0.1"
     raw["policy"] = yaml.safe_load((INBOX_DIR / "policy.yaml").read_text())
     with pytest.raises(ValidationError, match="rule possible-emergency"):
@@ -566,11 +566,11 @@ def test_a_pack_whose_files_name_a_licensed_system_must_declare_it(tmp_path: Pat
     data.write_text('{"note": "coded as urn:oid:2.16.840.1.113883.6.96"}\n')
     with pytest.raises(Exception, match=r"logic/codes\.json names SNOMED CT .* declare it"):
         load_pack(root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["code_systems"] = [
         {"url": "http://snomed.info/sct", "name": "SNOMED CT", "licence_note": "Member country."}
     ]
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     card = render_card(load_pack(root))
     assert "- SNOMED CT (`http://snomed.info/sct`). Licence: Member country." in card
 

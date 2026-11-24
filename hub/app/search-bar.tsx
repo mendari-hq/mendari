@@ -26,7 +26,7 @@ export function SearchBar({ filterKey, q, risk, standard, publisherType, filtere
           name="q"
           type="search"
           defaultValue={q ?? ""}
-          placeholder="referral, prior authorization, triage…"
+          placeholder="portal messages, refill, appointment…"
         />
       </label>
       <label>

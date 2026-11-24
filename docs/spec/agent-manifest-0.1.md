@@ -14,13 +14,13 @@ limits, and how well it performed on which data, without reading code.
 
 ## 2. Layout
 
-An agent is a directory containing `pack.yaml`. All paths in the manifest are relative to the
+An agent is a directory containing `agent.yaml`. All paths in the manifest are relative to the
 agent directory and MUST NOT resolve outside it.
 
 | Path (conventional) | Required | Content |
 |---|---|---|
-| `pack.yaml` | yes | Manifest (§3) |
-| `policy.yaml` | no | Policy (§6). It may instead be inline in `pack.yaml` |
+| `agent.yaml` | yes | Manifest (§3) |
+| `policy.yaml` | no | Policy (§6). It may instead be inline in `agent.yaml` |
 | `schemas/input.schema.json` | yes | JSON Schema 2020-12 for the agent input |
 | `fhir/mapping.yaml` | no | FHIR R4 mapping (§9) |
 | `logic/`, `models/` | per provider | Provider configuration and artifacts |

@@ -14,9 +14,12 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from pydantic import BaseModel
+
 from mendari import notices
 from mendari.core.pack import Pack
 from mendari.evals.pack_tests import load_cases
+from mendari.evals.share import SharedPack
 from mendari.server import scopes
 
 TAGS = [
@@ -29,11 +32,11 @@ TAGS = [
         "Da Vinci DTR and PAS. Mendari is not a FHIR data server: it stores and serves no "
         "clinical resources.",
     },
-    {"name": "Packs", "description": "The agents this deployment serves."},
+    {"name": "Agents", "description": "The agents this deployment serves."},
     {"name": "Review and feedback", "description": "The human review queue, outcomes, ratings."},
     {"name": "Audit", "description": "The hash-chained audit trail of every decision."},
     {"name": "Evaluation and monitoring", "description": "Evaluations, drift, deployments."},
-    {"name": "Governance", "description": "Approvals for higher-risk packs to automate."},
+    {"name": "Governance", "description": "Approvals for higher-risk agents to automate."},
     {
         "name": "Sign-in",
         "description": "Who is calling, API keys for machines, and (memberships mode) members "
@@ -54,7 +57,7 @@ TAGS = [
     },
     {
         "name": "Grading",
-        "description": "A pack graded against one of the organization's hidden evaluation sets, "
+        "description": "An agent graded against one of the organization's hidden evaluation sets, "
         "frozen and committed to, by its grading key only (which only the operator makes): each "
         "run counted against the set's rotation rule and recorded in the audit chain, with "
         "local providers only, answered with aggregates only (`mendari.hidden_result/1`): "
@@ -114,7 +117,7 @@ PRODUCT = (
 # OUTCOME_TEXT), and what it means for the caller.
 OUTCOMES = (
     ("AUTO", "Automated", "safe to act on"),
-    ("HUMAN_REVIEW", "Human review", "a person decides, with the pack's recommendation"),
+    ("HUMAN_REVIEW", "Human review", "a person decides, with the agent's recommendation"),
     ("ABSTAIN", "Abstained", "not confident enough to say"),
     ("BLOCK", "Blocked", "the input or a safety rule stops it"),
 )
@@ -173,9 +176,9 @@ in a hash-chained audit trail.
 
 ### A first request
 
-1. `GET /api/packs` lists the packs.
-2. `GET /api/packs/{pack}/examples` gives synthetic inputs.
-3. `POST /api/packs/{pack}/decide` with an example's `input` returns the decision; its `id`
+1. `GET /api/agents` lists the agents.
+2. `GET /api/agents/{pack}/examples` gives synthetic inputs.
+3. `POST /api/agents/{pack}/decide` with an example's `input` returns the decision; its `id`
    opens the audit record at `GET /api/audit/{{id}}`.
 
 A request body is 4 MiB at most unless the deployment sets `MENDARI_MAX_BODY_BYTES`; a larger
@@ -189,7 +192,7 @@ The FHIR base is `/fhir`; [`GET /fhir/metadata`](/fhir/metadata) says what it do
 `POST /fhir/$decide` takes `Parameters` (`pack`, `data` as a Bundle) and returns the decision as
 a FHIR Bundle (a `GuidanceResponse` first; act on its `outcome`, not its `status`). To send a
 bare Bundle, one resource or CDS Hooks prefetch and get Mendari's JSON back, use
-`POST /api/packs/{{namespace}}/{{name}}/fhir/decide`. FHIR input first passes a structural R4
+`POST /api/agents/{{namespace}}/{{name}}/fhir/decide`. FHIR input first passes a structural R4
 check (a `400` otherwise), then R4 and US Core 6.1.0 rules; an error on a FHIR route is an
 `OperationOutcome`.
 
@@ -211,7 +214,7 @@ another site cannot sign anyone out). Integrations with a key or token, and scri
 session cookie, are not affected; a script that reads with a person's session cookie sends
 `X-Mendari-Request: 1`, as Mendari's own pages do.
 
-[Open the dashboard](/) to try packs without code. The OpenAPI document itself is
+[Open the dashboard](/) to try agents without code. The OpenAPI document itself is
 [`/openapi.json`](/openapi.json).
 """.strip()
 
@@ -350,15 +353,15 @@ def document(
 REGISTRY_TAGS = [
     {
         "name": "Registry",
-        "description": "The pack registry served under this deployment (`MENDARI_REGISTRY=on`): "
-        "search, a pack's versions, its signed archive, recalls and site reports. Reads need no "
+        "description": "The agent registry served under this deployment (`MENDARI_REGISTRY=on`): "
+        "search, an agent's versions, its signed archive, recalls and site reports. Reads need no "
         "credential. Writes need a publisher token (`Authorization: Bearer ohr_…`), which "
         "publishes to its own namespace only; a session cookie or an API key is never a "
         "credential here. A request body is this deployment's limit at most (a `413` names it).",
     },
     {
         "name": "Registry accounts",
-        "description": "An organization's namespaces and publisher tokens in the pack registry, "
+        "description": "An organization's namespaces and publisher tokens in the agent registry, "
         "managed by its administrators (people only): claim a namespace, register a publisher "
         "key, and mint, list and revoke publisher tokens.",
     },
@@ -391,6 +394,34 @@ def mounted(schema: dict[str, Any], registry: Mapping[str, Any], *, prefix: str)
         components.setdefault("schemas", {})[f"Registry{name}"] = model
     components.setdefault("securitySchemes", {})["publisherToken"] = PUBLISHER_TOKEN
     schema["tags"] = [*schema.get("tags", []), *REGISTRY_TAGS]
+
+
+# Models an API description lists under the title they set (`model_config`'s `title`), in
+# place of their Python class's name. A class keeps its name until the records it is in change
+# (the JSON key it types is on the wire); what a reader of the description sees is the title.
+TITLED: tuple[type[BaseModel], ...] = (SharedPack,)
+
+
+def titled(schema: dict[str, Any]) -> dict[str, Any]:
+    """The document with each of `TITLED` listed under its title: its component renamed, and
+    every reference to it. One whose title another component already has is left as it is, so a
+    name never stands for two schemas."""
+    schemas = schema.get("components", {}).get("schemas", {})
+    renames = {
+        model.__name__: str(model.model_config["title"])
+        for model in TITLED
+        if model.__name__ in schemas and model.model_config.get("title") not in (None, *schemas)
+    }
+    if not renames:
+        return schema
+    text = json.dumps(schema)
+    for name, title in renames.items():
+        text = text.replace(f'{_SCHEMA_REF}{name}"', f'{_SCHEMA_REF}{title}"')
+    renamed: dict[str, Any] = json.loads(text)
+    renamed["components"]["schemas"] = {
+        renames.get(name, name): model for name, model in renamed["components"]["schemas"].items()
+    }
+    return renamed
 
 
 TOO_MANY = {
@@ -448,7 +479,7 @@ def _first_example(pack: Pack) -> tuple[str, dict[str, Any]] | None:
 def _body_examples(
     path: str, inputs: Mapping[str, tuple[str, dict[str, Any]] | None], packs: Mapping[str, Pack]
 ) -> dict[str, Any]:
-    if path in ("/api/packs/{namespace}/{name}/fhir/decide", "/fhir/$decide"):
+    if path in ("/api/agents/{namespace}/{name}/fhir/decide", "/fhir/$decide"):
         if FHIR_EXAMPLE_PACK not in packs:
             return {}
         value: dict[str, Any] = FHIR_EXAMPLE
@@ -466,7 +497,10 @@ def _body_examples(
                 "value": value,
             }
         }
-    if path not in ("/api/packs/{namespace}/{name}/decide", "/api/packs/{namespace}/{name}/guard"):
+    if path not in (
+        "/api/agents/{namespace}/{name}/decide",
+        "/api/agents/{namespace}/{name}/guard",
+    ):
         return {}
     guards = path.endswith("/guard")
     return {
@@ -510,7 +544,7 @@ def _secure(
     if permission == "registry_review":  # people only, the review organization's reviewers
         operation["security"] = [{"session": []}]
         needed = (
-            "a person who signed in holding the registry_reviewer role in the pack registry's "
+            "a person who signed in holding the registry_reviewer role in the agent registry's "
             "review organization (`registry_review`, memberships mode; never a key, a token "
             "or an administrator of another organization)"
         )

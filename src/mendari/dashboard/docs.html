@@ -150,7 +150,7 @@
 
       <section class="docs-section" id="guard" aria-labelledby="guard-title">
         <h2 id="guard-title">Guarding a model's replies</h2>
-        <p>An agent with a <code>guard</code> section checks a model's draft before a patient reads it. <code>POST /api/packs/{id}/guard</code> answers <code>{status, reply, outcome, recommendation, reasons, fallback, decision_id}</code>: the draft is <code>released</code> only when the decision is automated with a release recommendation; otherwise it is <code>held_for_review</code> or <code>blocked</code>. Never send a blocked draft: act on <code>fallback</code>. The bundled demo agent declares no <code>guard</code> section; an agent of your own that does is checked the same way, and in Python with <code>mendari.guard.check</code>, without a server.</p>
+        <p>An agent with a <code>guard</code> section checks a model's draft before a patient reads it. <code>POST /api/agents/{id}/guard</code> answers <code>{status, reply, outcome, recommendation, reasons, fallback, decision_id}</code>: the draft is <code>released</code> only when the decision is automated with a release recommendation; otherwise it is <code>held_for_review</code> or <code>blocked</code>. Never send a blocked draft: act on <code>fallback</code>. The bundled demo agent declares no <code>guard</code> section; an agent of your own that does is checked the same way, and in Python with <code>mendari.guard.check</code>, without a server.</p>
       </section>
 
       <section class="docs-section" id="auth" aria-labelledby="auth-title">
@@ -167,7 +167,7 @@
           <li><a href="/docs/reference">The API reference</a>: every operation, with its parameters, synthetic examples and "Try it out".<!-- landing:reference --></li>
           <li><a href="/openapi.json" download="openapi.json" data-openapi>The OpenAPI document</a>, for code generators and API clients.</li>
           <li><a href="/">The dashboard</a>: the review queue, the audit trail and evaluations, and <a href="/#try">Try it</a>, a decision without code.</li>
-          <li><a href="/#store">The agent store</a>, where the operator has switched it on: your organization's own versions of agents, copied or uploaded, evaluated and promoted by people who sign in. No key reaches it, so it has no example here; its operations are in the API reference under "Pack store".</li>
+          <li><a href="/#store">The agent store</a>, where the operator has switched it on: your organization's own versions of agents, copied or uploaded, evaluated and promoted by people who sign in. No key reaches it, so it has no example here; its operations are in the API reference under "Agent store".</li>
           <li><!-- landing:cards --></li>
         </ul>
       </section>

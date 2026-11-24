@@ -74,10 +74,10 @@ def site_pack(base: Path, *, level: int = 1) -> Path:
     root = mini(
         base / "packs", {"code_sets": CODE_SETS, "lists": {"conditions": CONDITIONS}}, spec="0.3"
     )
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["risk"]["level"] = level
     manifest["policy"]["thresholds"]["auto"] = 0.8
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     return root
 
 
@@ -199,7 +199,7 @@ BAD: dict[str, tuple[Any, str]] = {
         mapped({"t2d": [{**T2D, "code": f"S{n}"} for n in range(MAX_TRANSLATIONS + 1)]}),
         "more than 10,000 translations",
     ),
-    "a set no pack declares": (mapped({"payer": [T2D]}), "code set 'payer': no pack"),
+    "a set no pack declares": (mapped({"payer": [T2D]}), "code set 'payer': no agent"),
     "an as the set does not declare": (
         mapped({"t2d": [T2D, {**T2D, "code": OTHER_CODE, "as": "E11.0"}]}),
         "code set 't2d', translation 2: it translates into a code the set does not declare",
@@ -569,7 +569,7 @@ def test_a_decision_made_through_a_site_code_is_never_automated(
     # A rule's BLOCK on a value read through a translation goes to a person too: a block is
     # final at once and seen by nobody. The same rule on the pack's own code still blocks.
     blocking = site_pack(tmp_path / "block")
-    manifest = yaml.safe_load((blocking / "pack.yaml").read_text())
+    manifest = yaml.safe_load((blocking / "agent.yaml").read_text())
     manifest["policy"]["rules"] = [
         {
             "name": "t2d_stop",
@@ -578,7 +578,7 @@ def test_a_decision_made_through_a_site_code_is_never_automated(
             "reason": "a fixture's block",
         }
     ]
-    (blocking / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (blocking / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     blocker = decision_of(blocking, maps)
     blocked, _ = blocker.decide_fhir(coded(ICD, "E11.9"))
     to_person, _ = blocker.decide_fhir(coded(SITE, SITE_CODE))

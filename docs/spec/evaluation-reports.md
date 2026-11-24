@@ -4,7 +4,9 @@ This page specifies what an evaluation run writes: the report (`mendari.eval/2`)
 ledger its result is computed from (`mendari.ledger/1`), and a paired comparison of two runs
 (`mendari.compare/1`). It supersedes the report format of the
 [agent spec 0.2](agent-manifest-0.2.md) (`mendari.eval/1`), which still loads. The key
-words MUST, SHOULD and MAY are used as in that spec.
+words MUST, SHOULD and MAY are used as in that spec. These formats name the agent with the key
+`pack`, the word Mendari used before: hashed and signed records hold that key, so it keeps its
+name.
 
 The scoreboard and its scoped grades (LP-17) follow the
 [grading method 1.0](../grading/method-1.0.md), a draft not in effect: the arms, the figures and
@@ -30,7 +32,7 @@ A report has two parts.
   override's approver (kept locally, never in the result). `result_sha256` is the SHA-256 of the
   canonical result.
 
-`comparison`, outside the result, is the local validation against the agent's benchmark. For a
+`comparison`, outside the result, is the local validation against the agent's benchmark. For an
 agent pulled from a registry it is never made with the benchmark the agent carries, which is its
 publisher's upload
 ([ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)): it is
@@ -121,14 +123,14 @@ leaderboard or registry version on every read, so one published before needs no 
 
 | Where | Key | Holds |
 |---|---|---|
-| `GET /api/packs/{pack}` | `benchmark.figures` | the benchmark report's figures |
-| `GET /api/packs/{pack}` | `leaderboard` | the leaderboard as served: `ranking`, `groups` (one per set of records, with `about` and `label`) and each row's `rank`, `standing`, `standing_text`, `group` and `figures` |
-| `POST /api/packs/{pack}/evals`, `GET /api/evals` | `figures` | each report's figures (null when a stored report's cannot be read) |
+| `GET /api/agents/{namespace}/{name}` | `benchmark.figures` | the benchmark report's figures |
+| `GET /api/agents/{namespace}/{name}` | `leaderboard` | the leaderboard as served: `ranking`, `groups` (one per set of records, with `about` and `label`) and each row's `rank`, `standing`, `standing_text`, `group` and `figures` |
+| `POST /api/agents/{namespace}/{name}/evals`, `GET /api/evals` | `figures` | each report's figures (null when a stored report's cannot be read) |
 | `GET /api/stats` | `periods` | the last 7 and 30 days and all time (local days), each with the window before it: automated, overridden and agreed shares and each outcome |
 | `GET /api/monitoring` | `weeks[].figures`, `last_7_days.figures`, `benchmark.figures` | each week's and the last 7 days' automated (of decisions made: refused inputs left out), override, accuracy, `reviewed_accuracy` (decisions sent to a person whose recommendation the reviewer kept) and `automated_accuracy` (automated decisions with an outcome recorded downstream) shares, and the `provider_errors` (decisions a provider failed, from LP-21d on) and `abstained` shares, over the served version's decisions; the benchmark's accuracy and its `reviewed_accuracy` (one minus its expected override rate) and `automated_accuracy`, which the alerts compare, stratum by stratum, only when `benchmark.comparable` is true; otherwise `benchmark.reason` says why (`from_registry`: an agent pulled from a registry, whose benchmark is never read; `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`), and an agent from a registry's benchmark figures are null |
-| `GET /v1/packs/{pack}`, `GET /v1/packs/{pack}/{version}` | `latest.checked.regression.accuracy`, `checked.regression.accuracy` | the registry's own regression check on the agent's test set, labelled "publisher's own test set: regression check, not a ranking" |
-| `GET /v1/packs/{pack}` | `latest.figures` | `benchmark` and `leaderboard`, always null: a registry shows no uploaded figure |
-| `GET /v1/packs/{pack}/{version}` | `figures` | the same, always null |
+| `GET /v1/agents/{namespace}/{name}`, `GET /v1/agents/{namespace}/{name}/{version}` | `latest.checked.regression.accuracy`, `checked.regression.accuracy` | the registry's own regression check on the agent's test set, labelled "publisher's own test set: regression check, not a ranking" |
+| `GET /v1/agents/{namespace}/{name}` | `latest.figures` | `benchmark` and `leaderboard`, always null: a registry shows no uploaded figure |
+| `GET /v1/agents/{namespace}/{name}/{version}` | `figures` | the same, always null |
 | `GET /v1/search` | each item's `figures` | `benchmark`, always null |
 
 Since LP-18 a registry stores and shows no benchmark or leaderboard a publisher uploads
@@ -306,7 +308,7 @@ hypergeometric probabilities, and the permutation test for its seed and against 
 ## Site evidence: `mendari.site-evidence/1`
 
 What sites' signed reports say of one agent (LP-22g), served by a registry at
-`GET /v1/packs/{namespace}/{name}/site-evidence` and worked out on every read from the reports
+`GET /v1/agents/{namespace}/{name}/site-evidence` and worked out on every read from the reports
 it verified (`hub/site_evidence.py`); nothing in it is a rate a site sent.
 
 - **Groups.** One per agent digest, configuration and remote consent, never across them: two
@@ -342,7 +344,7 @@ sent by `mendari eval AGENT --dataset NAME --publish --key publisher.key`:
 
 ```json
 {"format": "mendari.publisher-evaluation/1",
- "pack": {"id": "mendari/portal-message-agent", "version": "0.1.1", "digest": "sha256:…"},
+ "pack": {"id": "mendari/portal-message-agent", "version": "0.1.2", "digest": "sha256:…"},
  "configuration": {"reader": "rules"},
  "dataset": {"name": "test", "sha256": "<64 hex>", "n": 600},
  "report": {"format": "mendari.site-report/2", "…": "…"},
@@ -370,7 +372,7 @@ sent by `mendari eval AGENT --dataset NAME --publish --key publisher.key`:
   of the whole record.
 
 The registry serves the live evaluations of a version as `mendari.publisher-evaluations/1`
-(`GET /v1/packs/{namespace}/{name}/{version}/evaluations`): each with `rerun` (`matched`: the
+(`GET /v1/agents/{namespace}/{name}/{version}/evaluations`): each with `rerun` (`matched`: the
 registry ran the configuration again and counted the same; `calls_a_model`: not re-run),
 `excluded` (`"key revoked"`, or null) and `figures`, worked out from the counts: per critical
 label `detected` and `automated` (k of n, with `automated_misses` the count) and
@@ -422,13 +424,13 @@ The rows are listed in `ranking.grouped`'s order, a listing order: those that ra
 (measured on this version of the agent, on records where a critical label has at least 100
 positives) first, in `mendari.rank/1`'s order, the critical cases caught first; then every
 other row, by configuration name. A table of rows all measured on earlier versions is therefore in order of configuration name. The data and the API do not
-change: each row keeps its `rank` and `standing`, and `GET /api/packs/{pack}` serves them as
+change: each row keeps its `rank` and `standing`, and `GET /api/agents/{namespace}/{name}` serves them as
 before.
 
 ## Arms: `mendari.arms/1`
 
 The scoreboard (LP-17) puts an agent's provider configurations in four arms, by the class of the
-models they ask (`evals/arms.py`). `mendari scoreboard arms PACK` lists them from the agent's
+models they ask (`evals/arms.py`). `mendari scoreboard arms AGENT` lists them from the agent's
 manifest alone: nothing is run, called or written (`--json` prints the report).
 
 A configuration is one variant for each of the agent's slots, so an agent's configurations are the
@@ -447,7 +449,7 @@ The arm says what a configuration asks, not where it runs. Each configuration al
 it is local: every slot's variant decides on the machine (`core.origin.is_local`: rules,
 criteria, dosing and naive Bayes, or a composite of only those). A configuration that is not
 local names its remote types, the types it calls off the machine. CQL is deterministic but
-remote: it calls Mendari's own CQL engine (`MENDARI_CQL_URL`), not a model. An arm none of a
+remote: it calls Mendari's own CQL engine (`MENDARI_CQL_URL`), not a model. An arm none of an
 agent's configurations reaches is `not applicable`. An agent with more than 10,000 configurations is
 refused, never listed.
 
@@ -539,8 +541,8 @@ again.
   groups, at the simultaneous level `1 - 0.05/L` for an agent with L critical labels, stored with
   its `level` and `labels`. It is shown as "lower bound X at Y%, simultaneous across L labels".
 - **Evidence:** a critical label has enough when its distinct positives reach
-  `method.min_positives(0.95, L)`: 100 for L of 1 to 4, and 107 for the Clinical Trial
-  Prescreener's 6. Every critical label needs enough, not just one.
+  `method.min_positives(0.95, L)`: 100 for L of 1 to 4, and 107 for an agent with 6. Every
+  critical label needs enough, not just one.
 - **Cost** is priced from the run record's tokens, per case and per model type, and the dated
   price table. It is never the ledger's cost, a price an agent sets or one built into a provider.
   It is "0 (no metered calls)" for a configuration that calls no model (CQL included), or whose
@@ -576,7 +578,7 @@ again.
 
 `board(entries, current)` shows entries one table per agent and set, in a listing order (by arm,
 then configuration, then date), never an order of any figure. `current` is, per agent, its
-digest, its arms' statuses and its sets' SHA-256 (`Current.of(pack)`). It reads each entry as its
+digest, its arms' statuses and its sets' SHA-256 (`Current.of`). It reads each entry as its
 canonical JSON holds it (keys sorted), so entries just built and the same entries read back from
 a store give the same board. A configuration is written `slot=variant`, its slots in sorted
 order. Each table holds:
@@ -731,7 +733,7 @@ another model's.
 ## Price tables and disclosures: `mendari.prices/1` and `mendari.disclosures/1`
 
 A price table is a dated file outside Mendari's code (`scoreboard/prices/<YYYY-MM-DD>.json`),
-cited by the SHA-256 of its bytes. A table read from the package, the repository's `src/` or a
+cited by the SHA-256 of its bytes. A table read from the package, the repository's `src/` or an
 agent's directory is refused before it is read.
 
 | Field | What it holds |
@@ -747,7 +749,7 @@ refusal of either names a key the input chose as `<key>`, as a run record's does
 
 ## Declarations and canaries: `mendari.declared/1` and `mendari.canary/1`
 
-An agent's declaration (`scoreboard/declared/<pack name>.json`, LP-17h; the method's section 3)
+An agent's declaration (`scoreboard/declared/<agent name>.json`, LP-17h; the method's section 3)
 names, per arm, the configurations declared before any run. It is a closed schema, read as
 strictly as a run record, and cited by the SHA-256 of its bytes.
 
@@ -797,7 +799,7 @@ agent's own `evals/` is in every archive, where a publisher's agent could carry 
 | `runs/<sha256>.json` | A run record (`mendari.run/1`), named by the SHA-256 of its bytes. |
 | `prices/<YYYY-MM-DD>.json` | A dated price table (`mendari.prices/1`), cited by its SHA-256. |
 | `canaries/<sha256>.json` | A canary (`mendari.canary/1`), named by its body's SHA-256. |
-| `declared/<pack name>.json` | An agent's declared configurations (`mendari.declared/1`). |
+| `declared/<agent name>.json` | An agent's declared configurations (`mendari.declared/1`). |
 | `keys.json` | The public grading keys (`mendari.grading-keys/1`). |
 | `disclosures.json` | The disclosures (`mendari.disclosures/1`): no statement yet, so every remote type's is pending. |
 
@@ -810,7 +812,7 @@ agent's own `evals/` is in every archive, where a publisher's agent could carry 
   most. A hidden set's answer has no arm or configuration of its own (its arms are in it): one
   agent and set has one current answer, as
   [the hidden-set scoreboard](#the-hidden-set-scoreboard-mendarihidden_scoreboard1) says.
-- **Running.** `mendari scoreboard run PACK [--dataset NAME ...] [--config slot=variant ... |
+- **Running.** `mendari scoreboard run AGENT [--dataset NAME ...] [--config slot=variant ... |
   --every-local] [--again]` runs a configuration of an agent Mendari maintains over its public
   scoring sets (every set it declares but `train` and `calibration`), and stores the ledger, the
   run record (each case's latency and tokens) and the entry, unsigned. A result that is still
@@ -825,11 +827,14 @@ agent's own `evals/` is in every archive, where a publisher's agent could carry 
   whose date another stored table holds, and a provider this machine has not set up (its
   preflight: the CQL engine's URL, Jev's endpoint and model, an LLM's model), which would fail
   every case. Every replicate's ledger and run record is stored. `mendari
-  scoreboard canary PACK --config ... --size 30 --seed S` runs a canary the same way, by hand, with
+  scoreboard canary AGENT --config ... --size 30 --seed S` runs a canary the same way, by hand, with
   no schedule. The agent is read from the repository's `agents/` (the bundled agents), never from
-  `MENDARI_PACKS_PATH` or the registry cache. The check and the page read it from there too.
-- **The check.** `scripts/check_scoreboard.py --base REF`, a step of the required
-  `demo-agent` job, names each file whose name is not its content's, each result of the base
+  `MENDARI_AGENTS_PATH` or the registry cache. The check and the page read it from there too.
+- **The check.** `results_store.check` (`evals/results_store.py`) takes a store and the result
+  files of a base commit. It is a library function: Mendari keeps no store of its own since the
+  bundled demo agent is not scored, so no script and no CI job runs it any more, and the test
+  suite holds it on stores it builds. It names each file whose name is not its content's, each
+  result of the base
   removed or changed (but for a valid signature added), each `supersedes` link that breaks the
   rules above, and each current result whose signature does not verify against `keys.json`, or
   was made with a publisher's or a registry's key this machine pinned (CI pins none). It
@@ -852,11 +857,10 @@ agent's own `evals/` is in every archive, where a publisher's agent could carry 
   recompute from, may be of any version of an agent Mendari maintains, and is checked as
   [the hidden-set scoreboard](#the-hidden-set-scoreboard-mendarihidden_scoreboard1) says
   ("Stored").
-- **The page.** `scripts/scoreboard_page.py` writes
-  the early scoreboard from the current results, through `board`
-  and `render.scoreboard_markdown`, and lists each superseded result; `--check` (also in
-  `demo-agent`) fails when the page is not the store's. Its bytes depend only on the repository:
-  the store and `agents/`.
+- **The page.** `scripts/scoreboard_page.py STORE --out PAGE.md` writes
+  the early scoreboard from the store's current results, through `board`
+  and `render.scoreboard_markdown`, and lists each superseded result. Its bytes depend only on
+  the store and `agents/`, so the same store gives the same page.
 
 ## Paired comparisons: `mendari.compare/1`
 
@@ -874,7 +878,7 @@ dataset X): critical detections first, then false automation, correctness and au
 
 ## Coverage: `mendari.coverage/1`
 
-`mendari data coverage PACK --dataset NAME|FILE` says what a labelled set covers, for the agent
+`mendari data coverage AGENT --dataset NAME|FILE` says what a labelled set covers, for the agent
 whose questions it is labelled for, without running the agent (LP-11). It reads an agent's dataset
 or any JSONL file, and refuses one the agent cannot read as `mendari eval` does (by case id, never
 case text).
@@ -1059,7 +1063,7 @@ set, its arms in it, so a second read of the same set is the same result. The st
 against this closed schema field by field (its values rounded as above), against an agent Mendari
 maintains (any of its versions) and, when new, the current method, a day no later than today,
 `in_effect` as the method is on that day, and its agent's declaration
-(`scoreboard/declared/<pack name>.json`, `mendari.declared/1`): `declared` is the SHA-256 of the
+(`scoreboard/declared/<agent name>.json`, `mendari.declared/1`): `declared` is the SHA-256 of the
 declaration as the store holds it, and the graded arms are the arms it names a `local`
 configuration for, each with that configuration, so the store, which the route never reads,
 holds the configurations declared before the run. Under the current method it also checks the answer

@@ -43,7 +43,7 @@ def renamed(
     changed by `changes` (a dotted key -> value)."""
     root = base / pack_id.replace("/", "-")
     shutil.copytree(INBOX_DIR, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"] = pack_id
     for dotted, value in (changes or {}).items():
         *path, last = dotted.split(".")
@@ -51,7 +51,7 @@ def renamed(
         for key in path:
             target = target[key]
         target[last] = value
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     return root
 
 
@@ -174,7 +174,7 @@ def test_a_store_pack_does_not_set_its_own_cost_batching_or_temperature(
     """Its Jev price, its batching switch and an LLM's temperature are the deployment's; a pack
     from a registry keeps them (a change would change its decisions). Unscoped provider settings
     and the Jev defaults do not reach it: only a setting that names it."""
-    variants = yaml.safe_load((INBOX_DIR / "pack.yaml").read_text())["providers"]
+    variants = yaml.safe_load((INBOX_DIR / "agent.yaml").read_text())["providers"]
     jev = dict(variants["safety_screen"]["variants"]["jev"])
     jev |= {"cost_per_1k_input_tokens_usd": 0.9, "batch": False}
     root = renamed(tmp_path, changes={"providers.safety_screen.variants.jev": jev})

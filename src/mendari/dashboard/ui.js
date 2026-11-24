@@ -383,7 +383,7 @@ export function docsLink(doc) {
   return url.href;
 }
 
-export const packPath = () => `/api/packs/${state.packId}`;
+export const packPath = () => `/api/agents/${state.packId}`;
 
 // A pack chosen while another was still loading wins: the older answer is dropped when it arrives.
 // The load in flight is kept: a view that reads the pack waits for it (`packLoaded`, router.js),
@@ -395,7 +395,7 @@ export function loadPack(packId) {
   state.packId = packId;
   packFailed = false;
   if (state.launchOnly) return (packLoad = Promise.resolve()); // a launch reads no pack's details (the patient view needs none)
-  const load = api(`/api/packs/${packId}`).then((detail) => {
+  const load = api(`/api/agents/${packId}`).then((detail) => {
     if (state.packId === packId) state.detail = detail;
   });
   // Said by the view that waits for it, not as an unhandled rejection.

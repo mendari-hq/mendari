@@ -20,7 +20,65 @@ The loop, and where the platform stands:
    the dashboard: discover, pull, shadow on real workflows, validate locally, approve.
 5. **Share back:** site evidence (signed counts, never cases): in place on the Hub.
 
-## Plan: agents only (2026-11-21, owner decision), the current work
+## Plan: the engineering to A+ (2026-11-23, owner request), the current work
+
+**Objective.** The owner graded the product C+ against the north star and asked for all of the
+engineering first; what depends on them (going public, the security review, a design-partner
+site, clinician labels) comes after. Each wave is one pull request: built in worktrees, combined,
+run on the full suite (SQLite and Postgres), merged when CI is green, then checked in production.
+
+**One vocabulary (every wave follows it).** The governed unit is an **agent**; "pack" and
+"Decision Pack" are never written where a person reads or types.
+
+| Was | Is | The old name |
+|---|---|---|
+| `pack.yaml` | `agent.yaml` | still loads |
+| `/api/packs/...`, `/api/store/packs` | `/api/agents/...`, `/api/store/agents` | still answers, not in the API docs |
+| registry `/v1/packs/...` | `/v1/agents/...` | still answers, not in the API docs |
+| `mendari pack ...` | `mendari archive ...` | hidden alias |
+| `--pack`, `--pack-dir`, the positional `pack` | `--agent`, `--agent-dir`, `agent` | hidden aliases |
+| `MENDARI_PACKS_PATH`, `MENDARI_PACKS`, `MENDARI_PACK_STORE`, `MENDARI_COMMUNITY_PACKS` | `MENDARI_AGENTS_PATH`, `MENDARI_AGENTS`, `MENDARI_AGENT_STORE`, `MENDARI_COMMUNITY_AGENTS` | read when the new one is unset |
+| `community-packs/`, `tests/fixtures/reference-packs/` | `community-agents/`, `tests/fixtures/reference-agents/` | gone |
+| an archive named `.ohpack` | `.mendari` | still read |
+| the registry cache's folder `packs/` | `agents/` | still read |
+| the console's `?pack=` and `#store/packs`; the Hub's `/packs/<namespace>/<name>` | `?agent=`, `#store/agents`; `/agents/<namespace>/<name>` | still open (the Hub's redirects) |
+| the image's `--build-arg PACK` | `AGENT` | gone |
+| workflow `packs`, its check `pack-check`, the template `pack.md` | `agents`, `agent-check`, `agent.md` | gone (branch protection names the check) |
+| "Decision Card" | unchanged | |
+
+Not renamed in this plan, and why: the JSON keys of stored, hashed or signed records (`pack`,
+`pack_id`, `pack_version`, `pack_digest` in decisions, audit events, registry records and signed
+results), the database's columns and the Python identifiers. Renaming them rewrites records the
+audit chain and the signatures cover, so it is its own versioned change (wave 6, the owner's go).
+Nor the `pack` parameter of `/smart/launch`, which an EHR's registered launch may hold, nor the
+paths the Hub asks the registry at (`/v1/packs/...` for one release, `hub/lib/registry.ts`).
+Tests hold the line (`tests/test_vocabulary.py` and its three companions: the command line, the
+docs, the front ends): no "pack" in the CLI's help, the API docs' prose and paths, the docs, the
+README or the front ends, outside an explicit list of those names.
+
+- [ ] **Wave 1. No Decision Packs, one vocabulary.** (a) Names and words in the Python product:
+  the table above, every help text, message and API description, the short `mendari --help` with
+  the advanced commands behind `mendari help all`, the vocabulary test. (b) Docs and README.
+  (c) Front ends: dashboard, Agent Hub, mendari.co. (d) Trim: the five former packs' generators
+  and defaults leave `src/`, the CLI's defaults name the demo agent, packaging and CI follow.
+- [ ] **Wave 2. Smarter and easier, the independent pieces.** The automation threshold
+  recommended from evaluation data with a stated guarantee; failures found automatically
+  (typos, noise, injected instructions offline; paraphrase, negation and other languages with a
+  model) and written as regression tests; a CI action that runs the evaluation on every change;
+  the governance committee's packet per agent, mapped to the frameworks committees use; one
+  install path for a hospital.
+- [ ] **Wave 3.** An external agent's confidence calibrated, with agreement across repeated runs
+  or two models as a second signal that only lowers automation; a public evaluation page and a
+  badge a developer links from a README; the web console's gaps against the CLI closed.
+- [ ] **Wave 4. Actions.** The manifest declares the tools an agent may use; anything that writes
+  to the chart or contacts a patient is gated by the same four outcomes and audited (an ADR and
+  a spec version first).
+- [ ] **Wave 5. Written output.** Rubrics a clinician grades, a model judge, and the judge's
+  measured agreement with clinicians before its scores are reported.
+- [ ] **Wave 6 (the owner's go).** The wire and storage names, as a versioned format change.
+- [ ] **Last.** The README and the docs caught up with every wave; the grade taken again.
+
+## Plan: agents only (2026-11-21, owner decision), superseded by wave 1 above
 
 **Objective.** The product ships no Decision Packs. The engine stays whole (policy caps, audit
 chain, evaluation, sign-in, tenancy, FHIR / CDS Hooks / SMART, registry); what it governs is an
@@ -4126,6 +4184,18 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
 After the community-packs PR (`claude/community-packs`) is merged and the repository is public
 (A9). Each step says where to click and what to check after. Nothing here is done by a build
 session.
+
+**Names since wave 1 (2026-11-23).** The steps below are as they were written, before the one
+vocabulary. Read them with today's names: the required check is `agent-check` (workflow
+`agents`; it was `pack-check` of `packs`); the pull request template is `agent.md`
+(`?template=agent.md`); the issue forms are "Agent content" and "Propose an agent", and they
+apply the label `agent`, so create `agent`, `agent:new`, `agent:update` and `good first agent`
+where step 1 says `pack`; the folder is `community-agents/`, the guide
+`docs/guides/contributing-an-agent.md`, the settings `MENDARI_COMMUNITY_AGENTS` and
+`MENDARI_AGENTS`, the route `/api/agents/...`. As of that day the `main` ruleset (step 3, made
+2026-10-08) still requires `pack-check`, and it and the classic branch rule both require
+`reference-pack`, which no job has reported since the agents-only change (#343) named it
+`demo-agent`: replace both names there.
 
 1. **B8, labels.** Issues → Labels → New label, for each of: `pack` (pack content and
    proposals), `pack:new`, `pack:update`, `needs-clinical-review` (no clinician named in the

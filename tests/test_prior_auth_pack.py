@@ -14,16 +14,15 @@ import httpx
 import pytest
 
 from mendari import Decision
-from mendari.cli import main
 from mendari.core.policy import Outcome
 from mendari.errors import FhirError
-from mendari.sandbox import synthetic_prior_auth
-from mendari.sandbox.synthetic_prior_auth import procedure_codings
+from mendari.sandbox.code_systems import procedure_codings
 from mendari.standards import cds_hooks
+from tests.support import fixture_data, synthetic_prior_auth
 from tests.test_fhir_client import allow_ehr, fhir_json
 
 ROOT = Path(__file__).parents[1]
-PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / "prior-auth-preflight"
+PACK_DIR = ROOT / "tests" / "fixtures" / "reference-agents" / "prior-auth-preflight"
 STRUCTURED = ("service", "payer", "diagnosis_supports", "prior_imaging")
 TODAY = date.today()
 ICD = "http://hl7.org/fhir/sid/icd-10-cm"
@@ -80,10 +79,10 @@ def test_the_local_site_differs_the_way_the_card_says() -> None:
     assert payers["beacon"] > payers["acme"]
 
 
-def test_sandbox_generate_writes_the_prior_auth_data(tmp_path: Path) -> None:
+def test_the_generator_writes_the_prior_auth_data(tmp_path: Path) -> None:
     local = tmp_path / "local.jsonl"
-    argv = ["sandbox", "generate", "--kind", "prior-auth", "--pack-dir", str(tmp_path / "pack")]
-    assert main([*argv, "--local-out", str(local)]) == 0
+    argv = ["--kind", "prior-auth", "--agent-dir", str(tmp_path / "pack")]
+    assert fixture_data.main([*argv, "--local-out", str(local)]) == 0
     test = (tmp_path / "pack" / "data" / "test.jsonl").read_text().splitlines()
     assert len(test) == 600 and json.loads(test[0])["id"] == "pa-0300"
     assert len(local.read_text().splitlines()) == 300

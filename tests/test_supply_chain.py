@@ -151,7 +151,7 @@ def _docker_built_tags(script: str) -> set[str]:
 
 def test_the_workflows_and_files_are_there() -> None:
     names = {p.name for p in WORKFLOWS}
-    assert {"ci.yml", "release.yml", "packs.yml", "conformance.yml", "terminology.yml"} <= names
+    assert {"ci.yml", "release.yml", "agents.yml", "conformance.yml", "terminology.yml"} <= names
     assert "images.yml" not in names  # images are published by release.yml, after its build
     assert all(p.exists() for p in COMPOSE_FILES)
 
@@ -460,9 +460,9 @@ def test_the_inferno_harness_reaches_only_its_own_services() -> None:
     assert set(environment) == {
         "MENDARI_PHI_MODE",
         "MENDARI_CDS_SANDBOX",  # Inferno calls it from another machine (LP-23c)
-        "MENDARI_PACKS",
+        "MENDARI_AGENTS",
         "MENDARI_PUBLIC_URL",
-        "MENDARI_PACKS_PATH",  # the example agents, mounted read-only from the test fixtures
+        "MENDARI_AGENTS_PATH",  # the example agents, mounted read-only from the test fixtures
         "MENDARI_DATASETS_PATH",
     }
     assert environment["MENDARI_CDS_SANDBOX"] == "1"
@@ -488,12 +488,12 @@ def test_the_scripted_harness_reaches_only_its_own_services() -> None:
     assert engine["build"] == {"context": "../../.."}  # the repository's own Dockerfile
     assert set(engine["environment"]) == {
         "MENDARI_PHI_MODE",
-        "MENDARI_PACKS",
+        "MENDARI_AGENTS",
         "MENDARI_PUBLIC_URL",
         "MENDARI_FHIR_ALLOWED_SERVERS",
         "MENDARI_SMART_CLIENT_ID",
         "MENDARI_SMART_SCOPES",
-        "MENDARI_PACKS_PATH",  # the example agents, mounted read-only from the test fixtures
+        "MENDARI_AGENTS_PATH",  # the example agents, mounted read-only from the test fixtures
         "MENDARI_DATASETS_PATH",
     }
     assert engine["environment"]["MENDARI_PHI_MODE"] == "off"

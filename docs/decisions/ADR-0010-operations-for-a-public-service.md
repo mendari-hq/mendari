@@ -36,6 +36,8 @@ what it built here, in the order they landed:
 The defaults below hold unless the owner chooses otherwise; the step that changes the hosted
 firewall (21o) waits for the owner.
 
+Terminology updated 2026-11-23: what this record called a pack is an agent.
+
 ## Context
 The hosted platform is to take strangers without the owner watching it (LP-21, amending A13 of
 the vision audit). What it had:
@@ -44,7 +46,7 @@ the vision audit). What it had:
   database work, so it stays green through a database outage. That is right for liveness, since a restart never fixes
   a database, but it means nothing outside the deployment can see an outage.
 - **The monitor.** `mendari monitor` posts alerts to a webhook, and the self-hosted templates
-  schedule it, but the hosted site does not. The monitor mixes organizations and pack versions,
+  schedule it, but the hosted site does not. The monitor mixes organizations and agent versions,
   compares accuracy with a benchmark measured on other providers, and drops unknown costs from
   its averages. The webhook is unsigned and a failed delivery is only logged.
 - **Usage.** Organization quotas cover decisions only. Evaluations spend the deployment's daily
@@ -58,17 +60,17 @@ the vision audit). What it had:
 - **The firewall.** Its rule is a file in log mode (`deploy/vercel`).
 
 ## Decision
-LP-21 is built in small steps, each safe alone. None changes what a valid pack decides: no
-pack, rule, policy or benchmark file is touched, and nothing sets an automation hold by itself.
+LP-21 is built in small steps, each safe alone. None changes what a valid agent decides: no
+agent, rule, policy or benchmark file is touched, and nothing sets an automation hold by itself.
 Anonymous `/api/health` stays three fields with no database work.
 
 1. **Readiness (21a).**
    - `GET`/`HEAD /api/health/ready` is public. It answers `200` with `ready` or `degraded`, or
      `503` `unready`, from:
      - one read of Mendari's own table, waited for about 3.5 s at most;
-     - the packs as start-up found them: `degraded` while one did not load or build, `none`
-       when no pack is served.
-   - The answer holds fixed codes only: no error text, pack ids or counts.
+     - the agents as start-up found them: `degraded` while one did not load or build, `none`
+       when no agent is served.
+   - The answer holds fixed codes only: no error text, agent ids or counts.
    - Each instance reads the database at most once every 5 s, whoever asks, and keeps the
      answer (a failure too). The read runs in a thread of its own. One the database never
      answers (a network black hole, which no driver timeout bounds) holds that thread, and no
@@ -96,7 +98,7 @@ Anonymous `/api/health` stays three fields with no database work.
      setting that will leave it out of monitoring comes with the monitor's schedule (21f).
 3. **The monitor (21c, 21d).**
    - It compares like with like (21c):
-     - only the served pack version, other versions' decisions counted apart;
+     - only the served agent version, other versions' decisions counted apart;
      - only decisions made since the current configuration (this build and these providers)
        started, by the deployment records;
      - the benchmark only when it measured this build (its digest), with these providers (each
@@ -109,7 +111,7 @@ Anonymous `/api/health` stays three fields with no database work.
        one minus its expected override rate, automated ones with an outcome against its
        automated accuracy; the whole-set accuracy is shown, never compared;
      - an alert only beyond doubt: the top of the observed share's exact 95% interval below
-       the reference minus the pack's tolerance, so a pack doing as its benchmark says alerts
+       the reference minus the agent's tolerance, so an agent doing as its benchmark says alerts
        in under 1% of weeks;
      - refused decisions apart from every rate and the cost; drift over 50 confidences;
      - whole weekly buckets, 14 to 180 days;

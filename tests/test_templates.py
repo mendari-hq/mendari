@@ -17,7 +17,7 @@ from mendari.errors import PackValidationError
 from mendari.evals.pack_tests import validate_pack
 from mendari.standards import cds_hooks
 from mendari.standards.fhir import FhirAdapter
-from tests.conftest import INBOX_DIR, ROOT
+from tests.conftest import INBOX_DIR, fixture_agents
 from tests.test_fhir_lists import BUNDLE, MINI, PATIENT_9, RECORD, cds_request, searchset
 
 
@@ -61,9 +61,9 @@ def test_task_and_card_templates_name_answers(tmp_path: Path) -> None:
     mapping["task"]["performer"] = "trial-team-{t2d_diagnosis}"
     mapping["task"]["description"] = "Prescreen {recommendation} (HbA1c {hba1c_in_range})"
     (root / "fhir" / "mapping.yaml").write_text(yaml.safe_dump(mapping))
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["cds_hooks"]["card"]["summaries"]["candidate"] = "Candidate (T2D {t2d_diagnosis})"
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
 
     decision = Decision.from_path(root)
     _, task = decision.decide_fhir(BUNDLE)
@@ -80,7 +80,7 @@ def test_task_and_card_templates_name_answers(tmp_path: Path) -> None:
 
 
 def test_unknown_placeholders_are_refused_when_the_pack_loads(tmp_path: Path) -> None:
-    raw = yaml.safe_load((MINI / "pack.yaml").read_text())
+    raw = yaml.safe_load((MINI / "agent.yaml").read_text())
     raw["cds_hooks"]["card"]["summaries"]["candidate"] = "Candidate for {study}"
     with pytest.raises(ValidationError, match=r"unknown placeholders \['study'\]"):
         PackManifest.model_validate(raw)
@@ -126,9 +126,9 @@ def with_wording(tmp_path: Path, *, summary: str | None = None, task: str | None
     root = tmp_path / "pack"
     shutil.copytree(MINI, root)
     if summary is not None:
-        manifest = yaml.safe_load((root / "pack.yaml").read_text())
+        manifest = yaml.safe_load((root / "agent.yaml").read_text())
         manifest["cds_hooks"]["card"]["summaries"]["candidate"] = summary
-        (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+        (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     if task is not None:
         mapping = yaml.safe_load((root / "fhir" / "mapping.yaml").read_text())
         mapping["task"]["description"] = task
@@ -187,11 +187,11 @@ def test_every_shipped_template_is_bare() -> None:
     """Every card summary and Task text the reference packs and the fixtures ship (the inbox's
     Task text is the default description) is bare: none is warned of, and none would be refused
     from a registry."""
-    roots = [p for p in sorted(INBOX_DIR.parent.iterdir()) if (p / "pack.yaml").is_file()]
-    roots += sorted(p.parent for p in (ROOT / "tests" / "fixtures").glob("**/pack.yaml"))
+    roots = [p for p in sorted(INBOX_DIR.parent.iterdir()) if (p / "agent.yaml").is_file()]
+    roots += fixture_agents()
     checked = 0
     for root in roots:
-        origin: Origin = "community" if root.parent.name == "community-packs" else "local"
+        origin: Origin = "community" if root.parent.name == "community-agents" else "local"
         pack = load_pack(root, origin=origin)
         assert pack.warnings == (), root
         hooks, wording = pack.manifest.cds_hooks, []

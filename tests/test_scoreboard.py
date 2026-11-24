@@ -524,15 +524,15 @@ def test_a_pack_set_or_built_in_price_is_never_used(jev_run: Built, tmp_path: Pa
     # A table is never read from Mendari's code or from a pack's directory.
     for inside in (
         ROOT / "src" / "mendari" / "evals" / "method.py",
-        ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard" / "pack.yaml",
+        ROOT / "tests" / "fixtures" / "reference-agents" / "ai-guard" / "agent.yaml",
     ):
-        with pytest.raises(MendariError, match="never read from Mendari's code or a pack"):
+        with pytest.raises(MendariError, match="never read from Mendari's code or an agent"):
             runs.load_prices(inside)
     pack_dir = tmp_path / "a-pack"
     pack_dir.mkdir()
-    (pack_dir / "pack.yaml").write_text("id: someone/pack\n")
+    (pack_dir / "agent.yaml").write_text("id: someone/pack\n")
     (pack_dir / "prices.json").write_text((tmp_path / "prices" / "2026-10-18.json").read_text())
-    with pytest.raises(MendariError, match="never read from Mendari's code or a pack"):
+    with pytest.raises(MendariError, match="never read from Mendari's code or an agent"):
         runs.load_prices(pack_dir / "prices.json")
 
 
@@ -988,7 +988,7 @@ def test_freshness_is_worked_out_when_shown_and_never_stored(
     assert marks([found]) == [fresh]
     assert marks([{**found, "signature": {"key_id": "k", "value": "v"}}]) == [fresh[1:]]
     assert marks([found], replace(current, digest="sha256:" + "0" * 64)) == [
-        [*fresh[:2], "stale: pack changed", fresh[2]]
+        [*fresh[:2], "stale: agent changed", fresh[2]]
     ]
     assert marks(
         [found], replace(current, sets={**current.sets, "red_flags_holdout": "0" * 64})

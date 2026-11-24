@@ -192,7 +192,7 @@
     },
     "criteria": {
       "additionalProperties": false,
-      "description": "A `rules`, `criteria` or `dosing` variant: its type and the pack file its config is in,\nand nothing else (`Provider.config_problems`).",
+      "description": "A `rules`, `criteria` or `dosing` variant: its type and the file of the agent its config\nis in, and nothing else (`Provider.config_problems`).",
       "properties": {
         "config": {
           "title": "Config",
@@ -211,7 +211,7 @@
     },
     "dosing": {
       "additionalProperties": false,
-      "description": "A `rules`, `criteria` or `dosing` variant: its type and the pack file its config is in,\nand nothing else (`Provider.config_problems`).",
+      "description": "A `rules`, `criteria` or `dosing` variant: its type and the file of the agent its config\nis in, and nothing else (`Provider.config_problems`).",
       "properties": {
         "config": {
           "title": "Config",
@@ -464,7 +464,7 @@
     },
     "rules": {
       "additionalProperties": false,
-      "description": "A `rules`, `criteria` or `dosing` variant: its type and the pack file its config is in,\nand nothing else (`Provider.config_problems`).",
+      "description": "A `rules`, `criteria` or `dosing` variant: its type and the file of the agent its config\nis in, and nothing else (`Provider.config_problems`).",
       "properties": {
         "config": {
           "title": "Config",

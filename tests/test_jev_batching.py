@@ -17,7 +17,7 @@ from mendari.providers.batch import batched_answer, batching
 from mendari.providers.jev import JevProvider, jev_question, validate_response
 from tests.conftest import message
 
-TRIAL_MINI = Path(__file__).parent / "fixtures" / "packs" / "trial-mini"
+TRIAL_MINI = Path(__file__).parent / "fixtures" / "mini-agents" / "trial-mini"
 DESTINATIONS = ["front_desk", "medical_assistant", "nurse", "physician", "billing"]
 ROUTINE = "Hi, I need a refill on my metoprolol. I have about a week's worth of pills left."
 

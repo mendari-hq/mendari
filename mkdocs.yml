@@ -90,16 +90,16 @@ nav:
       - "ADR-0004: Machine access, tokens and scopes": decisions/ADR-0004-machine-access-tokens-and-scopes.md
       - "ADR-0005: Hardening before PHI": decisions/ADR-0005-hardening-before-phi.md
       - "ADR-0006: An EHR launch is a principal": decisions/ADR-0006-an-ehr-launch-is-a-principal.md
-      - "ADR-0007: Community packs by pull request": decisions/ADR-0007-community-packs-by-pull-request.md
+      - "ADR-0007: Community agents by pull request": decisions/ADR-0007-community-agents-by-pull-request.md
       - "ADR-0008: Accounts and memberships": decisions/ADR-0008-accounts-and-memberships.md
-      - "ADR-0009: Bounded evaluation for packs the deployment does not own": decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md
+      - "ADR-0009: Bounded evaluation for agents the deployment does not own": decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md
       - "ADR-0010: Operations for a public service": decisions/ADR-0010-operations-for-a-public-service.md
       - "ADR-0011: Hidden evaluation sets, blind labelling and agreement": decisions/ADR-0011-hidden-evaluation-sets.md
       - "ADR-0012: A registry that shows only what it checked": decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md
       - "ADR-0013: A scoreboard and scoped grades": decisions/ADR-0013-scoreboard-and-scoped-grades.md
       - "ADR-0014: A CDS client is a principal": decisions/ADR-0014-a-cds-client-is-a-principal.md
       - "ADR-0015: Registry accounts, under the engine": decisions/ADR-0015-registry-accounts-under-the-engine.md
-      - "ADR-0016: A pack store per organization, and promotion": decisions/ADR-0016-a-pack-store-per-organization.md
+      - "ADR-0016: An agent store per organization, and promotion": decisions/ADR-0016-an-agent-store-per-organization.md
       - "ADR-0017: A site network of signed counts": decisions/ADR-0017-a-site-network-of-signed-counts.md
       - "ADR-0018: Local providers read text in its plain form": decisions/ADR-0018-local-providers-read-plain-text.md
       - "ADR-0019: The engine learns from review, and a person promotes": decisions/ADR-0019-the-engine-learns-and-a-person-promotes.md

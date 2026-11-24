@@ -52,7 +52,7 @@ def store_tab(page: Page, tab: str) -> None:
 
 
 def copy(page: Page, name: str = "inbox-router") -> str:
-    store_tab(page, "packs")
+    store_tab(page, "agents")
     page.get_by_label("Agent to copy", exact=True).fill(INBOX)
     page.get_by_label("Name of the copy").fill(name)
     page.get_by_role("button", name="Copy", exact=True).click()
@@ -186,8 +186,8 @@ def test_the_store_passes_axe(site: Site, scheme: str) -> None:
     found["a comparison"] = violations(page)
     store_tab(page, "promote")
     found["promote"] = violations(page)
-    store_tab(page, "packs")
-    found["packs"] = violations(page)
+    store_tab(page, "agents")
+    found["agents"] = violations(page)
     assert found == {view: [] for view in found}
 
 
@@ -202,9 +202,9 @@ def _signed(site: Site, tmp_path: Path, extra_case: dict[str, object]) -> bytes:
         )
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"] = f"{CLINIC_B}/uploaded"
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     cases = root / "tests" / "cases.yaml"
     case = {"name": "planted", "input": extra_case, "expect": {"not_outcome": "BLOCK"}}
     cases.write_text(cases.read_text() + "\n" + yaml.safe_dump([case], sort_keys=False))
@@ -212,8 +212,8 @@ def _signed(site: Site, tmp_path: Path, extra_case: dict[str, object]) -> bytes:
 
 
 def _upload(page: Page, tmp_path: Path, data: bytes) -> None:
-    store_tab(page, "packs")
-    path = tmp_path / "upload.ohpack"
+    store_tab(page, "agents")
+    path = tmp_path / f"upload{archive.EXTENSION}"  # named as `mendari archive build` names one
     path.write_bytes(data)
     page.get_by_label("Archive").set_input_files(str(path))
     page.get_by_role("button", name="Upload", exact=True).click()
@@ -248,10 +248,30 @@ def test_a_held_upload_says_only_that_it_is_held(
         db.all(
             "UPDATE store_versions SET state = 'held' WHERE pack_id = ?", (f"{CLINIC_B}/uploaded",)
         )
-    store_tab(page, "packs")
+    store_tab(page, "agents")
     row = page.locator(f'[data-table="store-{CLINIC_B}/uploaded"] tbody tr')
     expect(row).to_contain_text("Held for the operator's review")
     expect(row).not_to_contain_text("hidden")
+
+
+def test_the_agents_tab_opens_from_the_address_it_had_before(site: Site) -> None:
+    """The Agents tab was at `#store/packs`: a link made then opens the tab, and the address says
+    `#store/agents` from there on. The tab names the command that builds an archive as it is
+    typed now."""
+    page = site.window(
+        person(site, sub="aria", email="aria@example.org", org=CLINIC_B, roles=["pack_author"])
+    )
+    page.goto("about:blank")
+    page.goto("/#store/packs")
+    expect(page.locator("main h1")).to_have_text("Agent store")
+    expect(page.locator('.tabs a[data-tab="agents"]')).to_have_attribute("aria-current", "page")
+    expect(page).to_have_url(re.compile(r"#store/agents$"))
+    expect(page.get_by_role("heading", name="Copy an agent")).to_be_visible()
+    expect(page.locator("#upload-form")).to_contain_text("Built with mendari archive build")
+    # The file chooser offers an archive by the extension it is written with, and by the one it
+    # had before (`hub/archive.py` `EXTENSION`, `FORMER_EXTENSION`): either is the same file.
+    offered = f"{archive.EXTENSION},{archive.FORMER_EXTENSION},application/gzip"
+    expect(page.locator("#upload-file")).to_have_attribute("accept", offered)
 
 
 def test_a_comparison_on_too_few_cases_says_insufficient_evidence(site: Site) -> None:

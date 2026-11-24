@@ -47,7 +47,7 @@ SHIPPED = pack_digest(INBOX_DIR)
 # Not the reference pack's version: at its own, a registry reads a changed copy as a shadow.
 VERSION = "9.9.9"
 REFUSED = (
-    "the pack holds cases `mendari improve` added or `mendari feedback export` wrote, or a "
+    "the agent holds cases `mendari improve` added or `mendari feedback export` wrote, or a "
     "model built from them"
 )
 # What a refusal says of the pack a run was kept in: each file, and how many times it is marked.
@@ -68,7 +68,7 @@ def _the_repositorys_own_pack_is_never_written_to() -> Iterator[None]:
 def copy_of_the_inbox(root: Path) -> Path:
     """The inbox pack at `VERSION`, as a site's own pack."""
     shutil.copytree(INBOX_DIR, root)
-    manifest = root / "pack.yaml"
+    manifest = root / "agent.yaml"
     shipped = f"version: {load_pack(INBOX_DIR).version}"
     assert manifest.read_text().count(shipped) == 1
     manifest.write_text(manifest.read_text().replace(shipped, f"version: {VERSION}"))
@@ -254,7 +254,9 @@ def test_a_record_is_read_for_the_marks_it_carries() -> None:
 
 
 def test_no_pack_of_the_repository_holds_one() -> None:
-    packs = sorted(path.parent for path in ROOT.glob("tests/fixtures/reference-packs/*/pack.yaml"))
+    packs = sorted(
+        path.parent for path in ROOT.glob("tests/fixtures/reference-agents/*/agent.yaml")
+    )
     assert len(packs) >= 5 and INBOX_DIR in packs
     for root in packs:
         assert site_cases.marked_files(as_archived(root)) == {}, root.name
@@ -279,7 +281,7 @@ def test_a_pack_that_holds_learned_cases_is_not_built(
 def test_a_refusal_names_a_few_files_and_counts_the_rest() -> None:
     case = b'{"id": "c", "input": {}, "attributes": {"added_by": "mendari improve"}}\n'
     files = {f"data/part-{number}.jsonl": case * (number + 1) for number in range(7)}
-    files["pack.yaml"] = b"id: site/pack\n"
+    files["agent.yaml"] = b"id: site/pack\n"
     with pytest.raises(HubError) as refused:
         archive.refuse_site_cases(files)
     assert (
@@ -289,7 +291,7 @@ def test_a_refusal_names_a_few_files_and_counts_the_rest() -> None:
     del files["data/part-6.jsonl"]
     with pytest.raises(HubError, match=r"5 in data/part-4\.jsonl, and 6 more in 1 other file\)"):
         archive.refuse_site_cases(files)
-    archive.refuse_site_cases({"pack.yaml": files["pack.yaml"]})  # none: nothing is raised
+    archive.refuse_site_cases({"agent.yaml": files["agent.yaml"]})  # none: nothing is raised
 
 
 def test_a_refusal_is_one_line_whatever_a_file_is_called() -> None:
@@ -367,7 +369,7 @@ def test_the_push_command_refuses_it_and_sends_nothing(
     ordinary = copy_of_the_inbox(tmp_path / "patient-inbox-router")
     assert main([*argv, str(ordinary)]) == 1
     assert "could not reach http://127.0.0.1:9" in capsys.readouterr().err
-    assert sent == [f"PUT /v1/packs/mendari/patient-inbox-router/{VERSION}"]
+    assert sent == [f"PUT /v1/agents/mendari/patient-inbox-router/{VERSION}"]
 
 
 # -- wherever in the pack they are, and nothing else ---------------------------------------------
@@ -529,7 +531,7 @@ def test_every_record_an_export_writes_says_it_was_exported(
     argv = ["feedback", "export", str(INBOX_DIR), "--db", str(db), "--out", str(out)]
     assert main([*argv, "--source", source]) == 0
     said = capsys.readouterr().out
-    assert "a site's cases" in said and "outside the pack's folder" in said
+    assert "a site's cases" in said and "outside the agent's folder" in said
     served = TestClient(create_app(db_path=db)).get(
         "/api/packs/mendari/patient-inbox-router/feedback/export", params={"source": source}
     )
@@ -553,7 +555,7 @@ def test_a_pack_with_an_export_saved_in_its_folder_is_not_built_or_pushed(
     export = ["feedback", "export", str(root), "--db", str(db), "--source", "reviews"]
     assert main([*export, "--out", str(saved)]) == 0
     said = capsys.readouterr().out
-    assert "a site's cases" in said and "outside the pack's folder" in said
+    assert "a site's cases" in said and "outside the agent's folder" in said
     cases = lines(saved)
     assert len(cases) == 2
 
@@ -570,7 +572,7 @@ def test_a_pack_with_an_export_saved_in_its_folder_is_not_built_or_pushed(
 
     saved.rename(tmp_path / "reviewed.jsonl")  # kept beside the pack, not in it
     assert main(build) == 0
-    assert [path.suffix for path in dist.iterdir()] == [".ohpack"]
+    assert [path.suffix for path in dist.iterdir()] == [".mendari"]
 
 
 def test_exported_cases_are_found_in_whatever_file_of_the_pack_holds_them(
@@ -687,7 +689,7 @@ def test_a_run_is_not_given_cases_kept_in_the_packs_own_folder(
         for extra in ([], ["--write"]):
             assert main(["improve", str(root), "--with", str(spelt), *extra]) == 1
             printed = capsys.readouterr()
-            assert "--with reviewed.jsonl: this file is in the pack's own folder" in printed.err
+            assert "--with reviewed.jsonl: this file is in the agent's own folder" in printed.err
             assert "keep the cases a run is given outside it" in printed.err
             assert printed.out == ""  # no run was made
     assert pack_digest(root) == before

@@ -147,7 +147,7 @@
         "hl7.fhir.us.davinci-crd_2.2.1@resp-19",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-22"
       ],
-      "reason": "The card that links to Mendari's audit trail (an External Reference card to CRD) also carries the pack's suggestion, a prior-authorization Task with no id: CRD's External Reference card allows no suggestions, and a suggested resource needs an id."
+      "reason": "The card that links to Mendari's audit trail (an External Reference card to CRD) also carries the agent's suggestion, a prior-authorization Task with no id: CRD's External Reference card allows no suggestions, and a suggested resource needs an id."
     },
     {
       "id": "crd_server_v221-crd_v221_server_hooks-crd_v221_server_order_sign-Group03-crd_v221_launch_smart_app_card_validation",
@@ -167,7 +167,7 @@
       "requirements": [
         "hl7.fhir.us.davinci-crd_2.2.1@resp-24"
       ],
-      "reason": "Mendari sends no Instructions card: its cards are the pack's decision with a suggestion."
+      "reason": "Mendari sends no Instructions card: its cards are the agent's decision with a suggestion."
     },
     {
       "id": "crd_server_v221-crd_v221_server_hooks-crd_v221_server_order_sign-Group03-crd_v221_coverage_info_system_action_validation",
@@ -194,7 +194,7 @@
         "hl7.fhir.us.davinci-crd_2.2.1@hook-39",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-29"
       ],
-      "reason": "Only ehr-pa-3, whose note is RTF (never read as text), abstains and carries coverage information (`indeterminate`). The other profile patients (ehr-pa-1 and ehr-pa-2, whose linked notes the pack reads since LP-23k, and ehr-pa-4 and ehr-pa-5, which have none) are decided `not_checked`: their payer is the site's own payer id on the Organization the Coverage names, which the pack does not know and no site code map translates (how a payer field reads one is the owner's open question). The pack shows no card for `not_checked` and declares no coverage information for it (pack.yaml `card.show`, `coverage_information`), so those answers carry no coverage-information system action."
+      "reason": "Only ehr-pa-3, whose note is RTF (never read as text), abstains and carries coverage information (`indeterminate`). The other profile patients (ehr-pa-1 and ehr-pa-2, whose linked notes the agent reads since LP-23k, and ehr-pa-4 and ehr-pa-5, which have none) are decided `not_checked`: their payer is the site's own payer id on the Organization the Coverage names, which the agent does not know and no site code map translates (how a payer field reads one is the owner's open question). The agent shows no card for `not_checked` and declares no coverage information for it (agent.yaml `card.show`, `coverage_information`), so those answers carry no coverage-information system action."
     },
     {
       "id": "crd_server_v221-crd_v221_server_hooks-crd_v221_server_order_sign-Group03-crd_v221_coverage_information_card_absence",
@@ -391,7 +391,7 @@
         "hl7.fhir.us.davinci-crd_2.2.1@resp-48",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-52"
       ],
-      "reason": "No Coverage Information system action to validate: the order whose Coverage has no member id (made from ehr-pa-1) is decided as any other, and since LP-23k the pack reads the patient's linked text/plain note (it abstained on it before), so the order is decided `not_checked`: its payer is the site's own payer id on the Organization the Coverage names, which the pack does not know and no site code map translates (how a payer field reads one is the owner's open question), and the pack declares no coverage information for `not_checked`. Mendari has no member check, and never asserts `not-covered` for `no-member-found`."
+      "reason": "No Coverage Information system action to validate: the order whose Coverage has no member id (made from ehr-pa-1) is decided as any other, and since LP-23k the agent reads the patient's linked text/plain note (it abstained on it before), so the order is decided `not_checked`: its payer is the site's own payer id on the Organization the Coverage names, which the agent does not know and no site code map translates (how a payer field reads one is the owner's open question), and the agent declares no coverage information for `not_checked`. Mendari has no member check, and never asserts `not-covered` for `no-member-found`."
     },
     {
       "id": "crd_server_v221-crd_v221_specific_coverage_responses-crd_v221_server_no_member_found_group-Group03-crd_v221_coverage_info_reason",
@@ -505,7 +505,7 @@
         "hl7.fhir.us.davinci-crd_2.2.1@resp-48",
         "hl7.fhir.us.davinci-crd_2.2.1@resp-52"
       ],
-      "reason": "No Coverage Information system action to validate: Mendari does not judge whether a Coverage is active, and the order with a cancelled Coverage (made from ehr-pa-1) is decided as any other: since LP-23k the pack reads the patient's linked text/plain note (it abstained on it before), so the order is decided `not_checked`: its payer is the site's own payer id on the Organization the Coverage names, which the pack does not know and no site code map translates (how a payer field reads one is the owner's open question), and the pack declares no coverage information for `not_checked`. It never asserts `not-covered` for `no-active-coverage`."
+      "reason": "No Coverage Information system action to validate: Mendari does not judge whether a Coverage is active, and the order with a cancelled Coverage (made from ehr-pa-1) is decided as any other: since LP-23k the agent reads the patient's linked text/plain note (it abstained on it before), so the order is decided `not_checked`: its payer is the site's own payer id on the Organization the Coverage names, which the agent does not know and no site code map translates (how a payer field reads one is the owner's open question), and the agent declares no coverage information for `not_checked`. It never asserts `not-covered` for `no-active-coverage`."
     },
     {
       "id": "crd_server_v221-crd_v221_specific_coverage_responses-crd_v221_server_no_active_coverage_group-Group03-crd_v221_coverage_info_reason",

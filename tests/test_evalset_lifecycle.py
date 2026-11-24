@@ -727,7 +727,7 @@ def test_only_a_live_grading_key_of_the_set_s_organization_reads_it(world: World
         with pytest.raises(MendariError, match="a grader is a grading key"):
             read(world, wrong)
     for digest in ("d" * 64, "sha256:" + "D" * 64, "sha1:" + "d" * 40):
-        with pytest.raises(MendariError, match="a pack digest is sha256:"):
+        with pytest.raises(MendariError, match="an agent digest is sha256:"):
             world.hidden.grade_read(world.set_id, grader, digest, count)
     with pytest.raises(MendariError, match="is draft: only a frozen or active set is graded"):
         world.hidden.grade_read(other, grader, DIGEST, count)

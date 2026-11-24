@@ -14,6 +14,8 @@ recorded with the registry's administrator token (ADR-0012's defaults 3 and 5 ar
 Gate G3-4's `a10-registry-hub` names its tests; the registry turned on and the Hub deployed are
 the owner's, and stay pending there.
 
+Terminology updated 2026-11-23: what this record called a pack is an agent.
+
 ## Context
 The registry ([ADR-0012](ADR-0012-a-registry-that-shows-only-what-it-checked.md)) shows only
 what it checked, but who may publish is still a matter of shared secrets:
@@ -63,20 +65,20 @@ in front of every route.
    then refuses a version with no valid counter-signature.
 10. **The client refuses plain http**, except to this machine, before any token is sent.
 
-A registry reviewer's approval lists a pack. It never lets one automate: the regression check,
-recalls, the cap on a pulled pack and each deploying organization's own approval are unchanged.
+A registry reviewer's approval lists an agent. It never lets one automate: the regression check,
+recalls, the cap on a pulled agent and each deploying organization's own approval are unchanged.
 
 ## Consequences
 - Publishing is tied to a person, an organization and a claimed namespace, and every such act is
   on the registry's chain with the organization's id.
 - The registry shares the engine's functions and database. A publish can hold a function for up
   to three minutes, and archives grow the database. Under the mount an archive is limited to
-  the engine's request body limit; larger archives wait for the pack store (LP-20).
+  the engine's request body limit; larger archives wait for the agent store (LP-20).
 - Publisher bytes are served from the dashboard's origin, as JSON or as an attachment under a
   content security policy that loads nothing.
 - Removing the administrator token breaks anyone who runs a registry with it. No hosted
   registry exists; a self-hosted one is told which command replaces each act.
-- Nothing changes what a valid pack decides, and no pack's digest changes.
+- Nothing changes what a valid agent decides, and no agent's digest changes.
 
 ## Alternatives Considered
 - **A separate project for the registry** (option B): its own database and sessions, with

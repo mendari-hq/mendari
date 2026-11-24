@@ -36,9 +36,9 @@ def _planted_inbox(base: Path) -> Pack:
     one behaviour test whose `message` is text where the schema wants an object."""
     root = base / "inbox"
     shutil.copytree(INBOX_DIR, root)
-    manifest = (root / "pack.yaml").read_text()
+    manifest = (root / "agent.yaml").read_text()
     version = load_pack(INBOX_DIR).version
-    (root / "pack.yaml").write_text(manifest.replace(f"version: {version}", "version: 9.9.9", 1))
+    (root / "agent.yaml").write_text(manifest.replace(f"version: {version}", "version: 9.9.9", 1))
     cases = root / "tests" / "cases.yaml"
     cases.write_text(
         cases.read_text()
@@ -95,7 +95,7 @@ def test_the_command_the_community_check_and_the_registry_call_one_function(
 def test_every_reference_pack_is_valid() -> None:
     root = bundled_dir()
     assert root is not None
-    packs = [load_pack(d) for d in sorted(root.iterdir()) if (d / "pack.yaml").is_file()]
+    packs = [load_pack(d) for d in sorted(root.iterdir()) if (d / "agent.yaml").is_file()]
     assert len(packs) == 5
     for pack in packs:
         assert validation.problems(pack) == [], pack.id
@@ -109,7 +109,7 @@ def test_a_publish_the_validator_refuses_stores_nothing_and_names_the_problem(
     refused = registry.publish(pack)
     assert refused.status_code == 422
     detail = refused.json()["detail"]
-    assert detail.startswith("the pack is not valid (`mendari validate`): tests/cases.yaml case ")
+    assert detail.startswith("the agent is not valid (`mendari validate`): tests/cases.yaml case ")
     assert SECRET not in detail
     with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
         assert db.one("SELECT COUNT(*) AS n FROM hub_versions")["n"] == 0
@@ -124,9 +124,9 @@ def test_a_valid_publish_is_stored_as_before(
     monkeypatch.setenv("MENDARI_REGISTRY_REGRESSION", "off")  # its result is the run's own
     root = tmp_path / "inbox"
     shutil.copytree(INBOX_DIR, root)
-    manifest = (root / "pack.yaml").read_text()
+    manifest = (root / "agent.yaml").read_text()
     version = load_pack(INBOX_DIR).version
-    (root / "pack.yaml").write_text(manifest.replace(f"version: {version}", "version: 9.9.9", 1))
+    (root / "agent.yaml").write_text(manifest.replace(f"version: {version}", "version: 9.9.9", 1))
     pack = load_pack(root)
     data = archive.build(pack, registry.key)
     published = registry.client.put(

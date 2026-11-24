@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The vendor-shaped synthetic EHR profile (`sandbox/ehr_profile.py`, LP-23e): patients for every
-reference pack with a standard CDS hook, in the shapes an EHR's FHIR API returns them (notes
-linked to a Binary, several codings, MedicationRequest, the payer by reference), synthetic and
-the same on every run, with no SNOMED CT.
+"""The vendor-shaped synthetic EHR profile (`tests/support/ehr_profile.py`, LP-23e): patients
+for every reference pack with a standard CDS hook, in the shapes an EHR's FHIR API returns them
+(notes linked to a Binary, several codings, MedicationRequest, the payer by reference),
+synthetic and the same on every run, with no SNOMED CT.
 
 Each pack decides on them through its own hook, as the sandbox's signed client calls it
-(`cds_client.hook_request`: no prefetch, the FHIR server named), here in this process: a FHIR
+(`tests/support/sandbox.py` `hook_request`: no prefetch, the FHIR server named), here in this
+process: a FHIR
 server built from the profile (`profile_server`) answers the engine's reads. What each pack
 cannot read in these shapes yet is pinned (`ABSTAINS`, `NOT_DECIDED`, `MISSED`), each with why:
 a regression fixture, from which no rate is computed or shown. LP-23k took entries off it when
@@ -35,8 +36,16 @@ from mendari.core.audit import AuditStore
 from mendari.core.reference import reference_packs
 from mendari.core.registry import resolve_pack
 from mendari.core.site_codes import ENV as SITE_CODES_ENV
-from mendari.sandbox import cds_client, ehr_profile
-from mendari.sandbox.ehr_profile import (
+from mendari.sandbox import cds_client
+from mendari.sandbox.code_systems import CASE_SYSTEM, REFERRAL_SYSTEM, SANDBOX_TAG
+from mendari.server.app import create_app
+from mendari.standards import fhir_structure, us_core
+from mendari.standards.data_coverage import FORMAT
+from mendari.standards.fhir import FhirAdapter
+from mendari.standards.record_fhir import ICD10, RXNORM
+from tests.support import ehr_profile
+from tests.support import sandbox as fixtures
+from tests.support.ehr_profile import (
     BASE,
     PRIOR_AUTH,
     REFERRAL_PACK,
@@ -48,13 +57,7 @@ from mendari.sandbox.ehr_profile import (
     TRIAL,
     ProfilePatient,
 )
-from mendari.sandbox.fhir_records import CASE_SYSTEM, REFERRAL_SYSTEM, SANDBOX_TAG
-from mendari.sandbox.synthetic_trial import ICD, LOCAL
-from mendari.server.app import create_app
-from mendari.standards import fhir_structure, us_core
-from mendari.standards.data_coverage import FORMAT
-from mendari.standards.fhir import FhirAdapter
-from mendari.standards.record_fhir import ICD10, RXNORM
+from tests.support.synthetic_trial import ICD, LOCAL
 from tests.test_fhir_client import allow_ehr, fhir_json
 from tests.test_site_codes import PACKS as PACKS_DIR
 from tests.test_site_codes import SERVICE as PRESCREEN_SERVICE
@@ -197,7 +200,7 @@ def call_every_hook(
         for patient in ehr_profile.patients(TODAY):
             service = patient.pack_id.replace("/", ".")
             before = {d["id"] for d in store.query(limit=1000)}
-            body = cds_client.hook_request(hooks[service], patient, BASE)
+            body = fixtures.hook_request(hooks[service], patient, BASE)
             answer = http.post(f"/cds-services/{service}", json=body)
             made = [d["id"] for d in store.query(limit=1000) if d["id"] not in before]
             records = []
@@ -216,7 +219,7 @@ def standard_hooked_packs() -> set[str]:
     found = set()
     for pack_id in reference_packs():
         hooks = resolve_pack(pack_id).manifest.cds_hooks
-        if hooks is not None and hooks.hook in cds_client.STANDARD_HOOKS:
+        if hooks is not None and hooks.hook in fixtures.STANDARD_HOOKS:
             found.add(pack_id)
     return found
 
@@ -423,7 +426,7 @@ def _prescreened(
     with TestClient(create_app(db_path=db, packs_paths=packs)) as http, AuditStore(db) as store:
         for patient in patients:
             before = {d["id"] for d in store.query(limit=1000)}
-            body = cds_client.hook_request("patient-view", patient, BASE)
+            body = fixtures.hook_request("patient-view", patient, BASE)
             answer = http.post(PRESCREEN_SERVICE, json=body)
             assert answer.status_code == 200, (patient.id, answer.text)
             (made,) = [d["id"] for d in store.query(limit=1000) if d["id"] not in before]
@@ -569,13 +572,13 @@ def test_the_profile_has_linked_notes_several_codings_and_medication_requests() 
 
 def test_the_profile_carries_no_snomed_ct(tmp_path: Path) -> None:
     """Through scripts/check_snomed.py, as one of Mendari's own files (where any number written as
-    a SNOMED CT concept id counts): the profile as `mendari sandbox seed --pack ehr-profile`
-    posts it, and the module that builds it. The same check finds a SNOMED CT coding put in."""
+    a SNOMED CT concept id counts): the profile as the fixtures' `seed --ehr-profile` posts it,
+    and the module that builds it. The same check finds a SNOMED CT coding put in."""
     folder = tmp_path / "mendari" / "sandbox"
     folder.mkdir(parents=True)
     text = json.dumps(ehr_profile.bundle(TODAY), indent=2)
     (folder / "ehr-profile.json").write_text(text, encoding="utf-8")
-    module = ROOT / "src" / "mendari" / "sandbox" / "ehr_profile.py"
+    module = ROOT / "tests" / "support" / "ehr_profile.py"
     (folder / "ehr_profile.py").write_text(module.read_text(encoding="utf-8"), encoding="utf-8")
     script = str(ROOT / "scripts" / "check_snomed.py")
     clean = subprocess.run([sys.executable, script, str(tmp_path)], capture_output=True, text=True)

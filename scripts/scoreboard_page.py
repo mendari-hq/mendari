@@ -56,7 +56,7 @@ WITHHELD = "withheld: disclosure pending"
 
 
 def repository_pack(ref: str) -> Pack:
-    """The pack `ref` names, from the repository's packs/ alone (`maintained_pack`)."""
+    """The agent `ref` names, from the repository's agents/ alone (`maintained_pack`)."""
     return results_store.maintained_pack(ref, PACKS)
 
 
@@ -119,9 +119,10 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
         _draft_legend(),
         "- **Stale:** each result shows the day it goes stale, "
         f"{method.STALE_AFTER_DAYS} days after it was measured, "
-        'as "stale after DATE". It reads "stale: pack changed", "stale: set changed" or "stale: '
-        'method changed" when the pack, the set or the method is no longer the one it was '
-        "measured on. A stale result is run again, never edited, and the new one supersedes it.",
+        f'as "stale after DATE". It reads "{scoreboard.STALE_PACK}", "{scoreboard.STALE_SET}" or '
+        f'"{scoreboard.STALE_METHOD}" when the agent, the set or the method is no longer the one '
+        "it was measured on. A stale result is run again, never edited, and the new one "
+        "supersedes it.",
         "- **Insufficient evidence:** a table whose critical label has fewer distinct positives "
         "than the method's minimum carries the banner, naming each such label.",
         "- **Not measured:** an arm, or a configuration of a measured arm, that no result covers "
@@ -138,9 +139,9 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
         "flips.",
         f'- **"{scoreboard.STALE_MODEL}":** a result whose replicates reported more than one '
         "model of a type, or one for which a later run of the same model type reports another "
-        "model: a result or a canary, of any pack or configuration, the same day included.",
+        "model: a result or a canary, of any agent or configuration, the same day included.",
         "- **Canaries** (section 12), run by hand: a seeded draw of 30 `test` cases. One that "
-        f'shows drift marks "{scoreboard.STALE_DRIFT}" the remote results of its pack\'s arm '
+        f'shows drift marks "{scoreboard.STALE_DRIFT}" the remote results of its agent\'s arm '
         "measured before it (on any set), and those measured no later than the replicates it "
         "was compared with.",
         "",
@@ -159,7 +160,7 @@ def page(store: results_store.Store, packs: Callable[[str], Pack] = repository_p
         lines += [
             "Each stays in the store, as it was stored, and is no longer shown above.",
             "",
-            "| Result | Superseded by | Pack, set and configuration | Measured on |",
+            "| Result | Superseded by | Agent, set and configuration | Measured on |",
             "|---|---|---|---|",
         ]
         for name, by in sorted(later.items()):
@@ -179,7 +180,7 @@ def _canary_lines(
     if not canaries:
         return ["None yet: no canary has been run."]
     lines = [
-        "| Canary | Pack and configuration | Measured on | Against | Flip rate | Marks |",
+        "| Canary | Agent and configuration | Measured on | Against | Flip rate | Marks |",
         "|---|---|---|---|---|---|",
     ]
     for name, found in sorted(canaries.items(), key=lambda item: (item[1]["measured_on"], item[0])):
@@ -259,7 +260,7 @@ def web_scores(store: results_store.Store, packs: Callable[[str], Pack] = reposi
     sizes = _each(f"{s['n']} cases, {s['distinct_inputs']} distinct inputs" for s in sets)
     about = (
         f"Public set <code>{esc(WEB_SET)}</code> · {esc(sizes)} · "
-        f"pack {esc(_each(s['pack']['version'] for s in scopes))} · "
+        f"agent {esc(_each(s['pack']['version'] for s in scopes))} · "
         f"measured {esc(_each(s['measured_on'] for s in scopes))}"
     )
     lines = [
@@ -308,7 +309,7 @@ def web_scores(store: results_store.Store, packs: Callable[[str], Pack] = reposi
         "    </table>",
         "  </div>",
         '  <p class="board-note muted small">Correct is over the labelled cases, automated over '
-        "every case, unsafe (a case the pack automated and got wrong) over the labelled cases, "
+        "every case, unsafe (a case the agent automated and got wrong) over the labelled cases, "
         "and caught over the critical label's positives. Not measured: no result is stored for "
         "it yet.</p>",
         "</div>",
