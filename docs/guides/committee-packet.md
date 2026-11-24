@@ -9,6 +9,9 @@ organization sees it.
 It is a reading aid prepared by the software. It is not signed, and it is not a certification,
 an attestation of compliance or legal advice.
 
+A publisher can make it too, before any deployment exists, from the agent's files alone: see
+[Before any deployment exists](#before-any-deployment-exists).
+
 ## What it contains
 
 Eleven sections, in the order a committee reads, then two appendices.
@@ -71,6 +74,55 @@ Add `--json` for the JSON document. Without `--org` the counts cover every organ
 deployment holds. A packet made this way says it was made from the command line: it shows the
 settings of the environment the command ran in, and marks what only a running server knows
 (sign-in, sessions, the schedule) as not known.
+
+`--db` is what makes it your deployment's packet. Without it the command reads no database,
+not even one in the folder it runs in: it makes the packet described next.
+
+## Before any deployment exists
+
+A publisher hands the packet to a hospital before the hospital has installed anything. Leave
+`--db` out, and the packet is made from the agent's files alone:
+
+```bash
+mendari packet ./my-agent --out committee-packet.html
+```
+
+No database is opened or created, and no setting of the machine is read. The command says so
+beside the document (`note: no --db: made from the agent's files alone ...`), and the packet says
+so on its cover: *Deployment: none, made from the agent's files alone*.
+
+What the agent's files and the software can state is there as in any packet: what the agent is,
+its intended use, its risk level and what the runtime enforces, its thresholds and rules, the
+publisher's evaluation, its known limits, what the monitor checks, how a change shows, and what
+it reads and sends.
+
+What only a deployment holds is not there, and each section says so in words instead of
+showing a zero, which would read as "nothing happened":
+
+| # | Section | What it says instead |
+|---|---|---|
+| 4 | How a person stays in the loop | No review queue and no hold is shown: there was no deployment to read. |
+| 6 | This site's evidence | No site's evidence is shown: no decision, review or evaluation of any site was read. It does not say that there is none. |
+| 8 | Monitoring and what triggers an alert | The checks are listed. Nothing was monitored: there are no weeks and no alerts to show. |
+| 9 | Change control | The parts are the agent's own defaults. What a site runs, and which version ran there since when, is not shown. |
+| 10 | Data handling and privacy | What the agent reads and what its defaults call are shown. What is kept, for how long, which addresses may be called and who can read it are each deployment's settings. |
+| 11 | Who approved what and when | What the agent needs before it automates is stated. No approval is shown: none was read. |
+
+Appendix A then lists every line only a site can state, under *A site that adopts it has yet to
+state*, and the three a site's own records would answer are marked as not read.
+
+In the JSON document the same is explicit: the packet carries `no_deployment` (why it holds no
+deployment's data), `organization` and `window_days` are `null`, each of the six sections
+carries its own `no_deployment` sentence, and every field a deployment would fill is `null`,
+never `0` or an empty list. A deployment's packet has no `no_deployment` field at all.
+
+`--org` and `--days` count a deployment's decisions, so the command refuses them without
+`--db`.
+
+**When the hospital has a deployment**, it makes the packet again from its own data: in the
+console, from the API, or with `--db` as above. That packet replaces the publisher's for the
+committee: it is the same agent, at the version the hospital serves, with the hospital's own
+decisions, reviews, settings and approvals in the six sections.
 
 ## Printing it
 
