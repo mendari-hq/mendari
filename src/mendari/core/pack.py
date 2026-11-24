@@ -540,13 +540,15 @@ def _cached(root: Path) -> str:
     """What a reason adds for a pack in the registry cache, where `mendari pull` puts it
     (`<namespace>/<name>/<version>`) and pulled it before this release refused it: the directory
     to remove. Nothing for any other directory (an archive being checked, a pull's staging)."""
-    from mendari.hub.client import packs_cache  # `hub/client.py` imports this module
+    from mendari.hub.client import caches  # `hub/client.py` imports this module
 
     try:
-        cache = packs_cache().resolve()
+        folders = [cache.resolve() for cache in caches()]  # the cache's folder, and its former
     except (OSError, RuntimeError):  # no home directory to find the cache in
         return ""
-    cached = root.is_relative_to(cache) and len(root.relative_to(cache).parts) == 3
+    cached = any(
+        root.is_relative_to(cache) and len(root.relative_to(cache).parts) == 3 for cache in folders
+    )
     return f"; remove {root} from the cache" if cached else ""
 
 

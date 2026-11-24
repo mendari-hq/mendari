@@ -460,7 +460,7 @@ jobs:
           # engine (ADR-0009).
           grep -q "a copy of an agent this release bundles" /tmp/pull.txt
           version=$(sed -n 's/^version: //p' agents/portal-message-agent/agent.yaml)
-          test -f "/tmp/clean-home/.cache/mendari/packs/mendari/portal-message-agent/$version/agent.yaml"
+          test -f "/tmp/clean-home/.cache/mendari/agents/mendari/portal-message-agent/$version/agent.yaml"
           /tmp/clean/bin/mendari test mendari/portal-message-agent
           /tmp/clean/bin/mendari demo
           /tmp/clean/bin/mendari search --risk 0

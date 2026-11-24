@@ -356,6 +356,32 @@ def test_the_registry_cache_still_holds_versions_of_one_pack(tmp_path: Path) -> 
     assert resolve_pack("someone/sorter", [SearchPath(cache, "hub")]).version == "0.2.0"
 
 
+def test_the_registry_caches_two_folders_are_one_place_in_the_search_order(tmp_path: Path) -> None:
+    """The registry cache is read in two folders, the one it has and the one it had before
+    (`hub/client.py` `caches`). Versions of one agent pulled before and after the rename are one
+    claim to its id, as they are in one folder, also where a community agent claims that id:
+    both stay, and the community agent is the one refused. Another folder of agents from a
+    registry is still a second claim."""
+    from mendari.hub.client import caches
+
+    now, before = caches()
+    _copy(now / "community" / "visit-sorter", "0.3.0", _set(version="0.3.0"))
+    _copy(before / "community" / "visit-sorter", "0.2.0", _set(version="0.2.0"))
+    community = SearchPath(_community(tmp_path), "community")
+    cache = [SearchPath(now, "hub"), SearchPath(before, "hub")]
+    assert search_paths()[:2] == cache  # as the search path lists them: the folder it has first
+    found = discover([*cache, community])
+    kept = sorted((pack.version, pack.origin) for pack in found.packs)
+    assert kept == [("0.2.0", "hub"), ("0.3.0", "hub")]
+    refused = found.problems[str((community.path / "visit-sorter").resolve())]
+    assert "already taken by the agent at" in refused
+    assert resolve_pack(SORTER_ID, [*cache, community]).version == "0.3.0"
+    elsewhere = tmp_path / "elsewhere"
+    _copy(elsewhere / "community" / "visit-sorter", "0.4.0", _set(version="0.4.0"))
+    found = discover([SearchPath(now, "hub"), SearchPath(elsewhere, "hub"), community])
+    assert [(p.version, p.origin) for p in found.packs] == [("0.3.0", "hub")]
+
+
 def test_the_server_reports_both_claims_of_a_community_id_and_serves_the_first(
     tmp_path: Path,
 ) -> None:

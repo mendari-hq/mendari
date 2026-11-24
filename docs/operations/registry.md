@@ -202,7 +202,9 @@ version and removes a cached copy.
 3. **Not soon enough, or a quiet server?** Hold the agent on each deployment now
    ([Holding automation](automation-hold.md)): a hold takes effect within seconds, with no read.
 4. **Afterwards**, remove the recalled version from each server's agent cache
-   (`packs/<namespace>/<name>/<version>` under `MENDARI_CACHE_DIR`), or pull a fixed version.
+   (`agents/<namespace>/<name>/<version>` under `MENDARI_CACHE_DIR`, `~/.cache/mendari` unless
+   set; a version pulled before 2026-11 is in the folder the cache had then,
+   `packs/<namespace>/<name>/<version>`, where it is still read), or pull a fixed version.
    A new version has a new digest, so it waits for its organization's approval.
 5. **If it must never be served,** delete it as well.
 

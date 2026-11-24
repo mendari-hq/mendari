@@ -124,8 +124,9 @@ ALLOWED: dict[tuple[str, str], str] = {
     },
     ("*", "`pack/`"): _ARCHIVE,
     ("docs/security/threat-model.md", "`pack//<absolute path>`"): _ARCHIVE,
-    ("*", "`packs/<namespace>/<name>/<version>`"): "the registry cache's folder on disk is "
-    "still `packs` (`hub/client.py`): an operator removes a version by that path",
+    ("*", "`packs/<namespace>/<name>/<version>`"): "the folder the registry cache had until "
+    "2026-11, where a version pulled then is still read (`hub/client.py` `former_cache`): an "
+    "operator removes one by that path",
     ("*", "--build-arg PACK="): "the Dockerfile's build argument is still named `PACK`: the "
     "command needs its real name, and packaging renames it",
     (
