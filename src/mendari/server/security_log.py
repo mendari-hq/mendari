@@ -69,7 +69,12 @@ set's id) and `evalset.labelled` (their label recorded: the set's id; or refused
 and adjudicating disputes, LP-11k: the set's id and how many were drawn or assigned; or refused
 as `no_set`, an unknown set or another organization's, with no id), `evalset.graded` (a grading
 key's run over a hidden set, LP-11l: the set's id and how many cases were graded; or refused with
-its fixed reason, `no_set` with no id, any other with the set's id), and `error.unhandled`.
+its fixed reason, `no_set` with no id, any other with the set's id), `store.pull.added|refused`
+(a version added to an organization's agent store from the deployment's registry,
+`server/hub_routes.py`: its digest; or refused as `not_listed`, `key_changed`, `verification`,
+`unreachable`, `registry_answer`, `phi` or `checks`, with no id and never the registry's words),
+`admin.connection.set|cleared|checked|refused` (an agent's connection, ADR-0021: the agent's id
+and who acted; never its address or its token), and `error.unhandled`.
 
 **Library loggers** that would log a URL or a connection at INFO (httpx, psycopg's pool: see
 `QUIETED`) keep only warnings: on Vercel the runtime gives the root logger INFO and a handler.

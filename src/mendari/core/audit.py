@@ -170,6 +170,8 @@ SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
     "store_key": ("store_keys", "id", "org"),  # an author's key for a pack store (LP-20f)
     "store_dataset": ("store_datasets", "id", "org"),  # a pack store's dataset (LP-20g)
     "store_job": ("store_jobs", "id", "org"),  # a pack store's evaluation job (LP-20g)
+    # An agent's connection, set in the console for one organization (ADR-0021).
+    "agent_connection": ("agent_connections", "id", "org"),
 }
 ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJECT_TABLES`)
     "key.created": "key",
@@ -236,6 +238,11 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     # (LP-20i): the dataset, the case (a decision's id) and the digest, never an input.
     "store_dataset.proposal_accepted": "store_dataset",
     "store_dataset.proposal_dismissed": "store_dataset",
+    # An agent's connection for one organization (ADR-0021, `core/connections.py`): set or
+    # changed (the agent, the endpoint's origin and whether it carries a token), and cleared.
+    # Never the token, nor the endpoint's path.
+    "agent_connection.set": "agent_connection",
+    "agent_connection.cleared": "agent_connection",
 }
 # A pack store version's state after each of its kinds: `verify` checks a version's row against
 # its newest (LP-20e).
@@ -670,9 +677,31 @@ CREATE TABLE IF NOT EXISTS store_versions (
     created_at     TEXT NOT NULL,
     state          TEXT NOT NULL,
     state_at       TEXT NOT NULL,
+    pulled         TEXT,
     UNIQUE (org, digest)
 );
 CREATE INDEX IF NOT EXISTS store_versions_pack ON store_versions (org, pack_id, created_at);
+CREATE TABLE IF NOT EXISTS store_pins (
+    org        TEXT NOT NULL,
+    registry   TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    pinned_by  TEXT NOT NULL,
+    pinned_at  TEXT NOT NULL,
+    PRIMARY KEY (org, registry, name)
+);
+CREATE TABLE IF NOT EXISTS agent_connections (
+    id            TEXT PRIMARY KEY,
+    org           TEXT NOT NULL,
+    pack_id       TEXT NOT NULL,
+    endpoint      TEXT,
+    token         TEXT,
+    token_set_by  TEXT,
+    token_set_at  TEXT,
+    changed_by    TEXT NOT NULL,
+    changed_at    TEXT NOT NULL,
+    UNIQUE (org, pack_id)
+);
 CREATE TABLE IF NOT EXISTS store_usage (
     org      TEXT NOT NULL,
     day      TEXT NOT NULL,
@@ -833,7 +862,18 @@ CREATE INDEX IF NOT EXISTS alert_deliveries_created
 # organization, chained `store_key.*`), `store_matches` (which hidden cases a held version
 # matched, by set and case id: read by the operator's command only, never chained or served),
 # and `store_uploads` with `store_upload_parts` (an archive sent in parts, kept until it is
-# joined or a day old, outside the chain). Empty unless the store is on.
+# joined or a day old, outside the chain). Empty unless the store is on. A version pulled from
+# a registry in the console (`source` `hub`) keeps where it came from in `pulled` (the registry,
+# the namespace, the signing key, the archive's SHA-256 and what was checked), hashed into its
+# `pack_version.created` event with the rest of its row; `store_pins` keeps the registry keys an
+# organization pinned on first use (per registry: a namespace's key ids, the registry's own key
+# id), outside the chain, as the command line keeps them in a file (`hub/client.py`).
+
+# `agent_connections` (ADR-0021, `core/connections.py`): the service that answers for an agent
+# in one organization, set in the console: one row per organization and agent, kept when the
+# connection is cleared (`endpoint` NULL then), since its events name it. `token` is the bearer
+# token sealed under the PHI key (`core/phi.py`, kind `connection`), bound to the row's id, its
+# organization and its agent; never in an event, an answer or a log line.
 
 # The tables a read-only store reads (`_read_only_check`); the first two must be there.
 _READ_TABLES = ("audit_events", "decisions", "feedback", "decision_inputs", "notes", "settings")
@@ -879,6 +919,9 @@ _ADDED_COLUMNS = (
     # it, counted by their length).
     ("store_usage", "datasets", "INTEGER"),
     ("store_datasets", "size", "INTEGER"),
+    # Where a version pulled from a registry came from (`core/pack_store.py`, source `hub`);
+    # NULL for every other version, and on rows from before it.
+    ("store_versions", "pulled", "TEXT"),
 )
 # API keys (ADR-0004): machines are viewer or service; a key lives 90 days unless asked
 # otherwise, 365 at most; keys made before keys expired get 30 days from the first start of
@@ -2663,6 +2706,7 @@ class AuditStore(RateBuckets):
         self._rotate_inputs(prefix, batch, summary)
         self._rotate_notes(prefix, batch, summary)
         self._rotate_datasets(prefix, batch, summary)
+        self._rotate_connections(prefix, batch, summary)
         return {**summary, "from": dict(summary["from"])}
 
     def _rotate_inputs(self, prefix: str, batch: int, summary: dict[str, Any]) -> None:
@@ -2809,6 +2853,50 @@ class AuditStore(RateBuckets):
             summary["from"].update(moved)
             summary["batches"] += bool(datasets)
 
+    def _rotate_connections(self, prefix: str, batch: int, summary: dict[str, Any]) -> None:
+        """Agents' connection tokens sealed under another key (ADR-0021), re-sealed as notes
+        are: each bound to its row, its organization and its agent, as it was."""
+        after = ""
+        while True:
+            with self._db.session(exclusive=False) as db:
+                rows = db.all(
+                    "SELECT id, org, pack_id, token FROM agent_connections WHERE id > ? "
+                    "AND token IS NOT NULL AND substr(token, 1, 20) <> ? ORDER BY id LIMIT ?",
+                    (after, prefix, batch),
+                )
+            if not rows:
+                return
+            after = rows[-1]["id"]
+            changes = []
+            for row in rows:
+                ids = (str(row["id"]), str(row["org"]), str(row["pack_id"]))
+                try:
+                    token, opened = self.phi.open("connection", row["token"], *ids)
+                except MendariError:
+                    summary["unopenable"].append(
+                        {"kind": "connection", "id": row["id"], "key": token_key(row["token"])}
+                    )
+                    continue
+                changes.append((row, self.phi.seal("connection", token, *ids), opened))
+            if not changes:
+                continue
+            moved: Counter[str] = Counter()
+            connections = 0
+            with self._db.session(exclusive=True) as db:
+                for row, sealed, opened in changes:
+                    if db.all(
+                        "UPDATE agent_connections SET token = ? WHERE id = ? AND token = ? "
+                        "RETURNING id",
+                        (sealed, row["id"], row["token"]),
+                    ):  # neither replaced nor cleared since it was read
+                        connections += 1
+                        moved[opened] += 1
+                if connections:
+                    self._chain_rotation(db, moved, summary["to"], connections=connections)
+            summary["connections"] = summary.get("connections", 0) + connections
+            summary["from"].update(moved)
+            summary["batches"] += bool(connections)
+
     def _chain_rotation(
         self,
         db: _Session,
@@ -2819,6 +2907,7 @@ class AuditStore(RateBuckets):
         details: int = 0,
         notes: int = 0,
         datasets: int = 0,
+        connections: int = 0,
     ) -> None:
         """One batch's chained event (`phi.rotated`: key ids and counts, never a key), and the
         keys it moved values off marked retired."""
@@ -2832,6 +2921,7 @@ class AuditStore(RateBuckets):
             "details": details,
             "notes": notes,
             **({"datasets": datasets} if datasets else {}),
+            **({"connections": connections} if connections else {}),
         }
         self._append(db, KEYS_CHAIN, "phi.rotated", payload)
 
@@ -2935,6 +3025,25 @@ class AuditStore(RateBuckets):
                 alone.open("dataset", row["data"], row["id"])
             except MendariError:
                 failures.append({"kind": "dataset", "id": row["id"], "key": named})
+        # Agents' connection tokens (ADR-0021), counted only where there are any.
+        with self._db.session(exclusive=False) as db:
+            sealed_tokens = (
+                db.all(
+                    "SELECT id, org, pack_id, token, token_set_at FROM agent_connections "
+                    "WHERE token IS NOT NULL"
+                )
+                if db.columns("agent_connections")
+                else []
+            )
+        for row in sealed_tokens:
+            by_key.setdefault("connections", Counter())
+            named = seen("connections", row["token"], row["token_set_at"] or "")
+            try:
+                alone.open(
+                    "connection", row["token"], str(row["id"]), str(row["org"]), str(row["pack_id"])
+                )
+            except MendariError:
+                failures.append({"kind": "connection", "id": row["id"], "key": named})
         with self._db.session(exclusive=False) as db:
             retired = {
                 str(row["name"])[len(RETIRED) :]
@@ -6656,9 +6765,14 @@ def _sha(value: Any) -> str:
 
 def store_version_sha256(row: Mapping[str, Any]) -> str:
     """The hash a pack store version's `pack_version.created` event chains of its row: the
-    columns that never change (`STORE_VERSION_COLUMNS`), so a row changed past the store fails
-    `verify` (LP-20e)."""
-    return _sha({column: row[column] for column in STORE_VERSION_COLUMNS})
+    columns that never change (`STORE_VERSION_COLUMNS`, and `pulled` where a version has it), so
+    a row changed past the store fails `verify` (LP-20e)."""
+    hashed = {column: row[column] for column in STORE_VERSION_COLUMNS}
+    if row.get("pulled") is not None:
+        # A version pulled from a registry: where it came from is part of what never changes.
+        # Every other version's hash is as it was before there was such a column.
+        hashed["pulled"] = row["pulled"]
+    return _sha(hashed)
 
 
 def _commitment(salt: bytes, text: str) -> str:

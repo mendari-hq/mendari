@@ -100,6 +100,10 @@ class Pack:
     # What the manifest is called in `root` (`manifest_name`): `agent.yaml`, or `pack.yaml` in a
     # folder that keeps the name it had before. A problem in the manifest names this file.
     manifest_file: str = field(default=MANIFEST, compare=False)
+    # For a version an organization's agent store keeps that was pulled from a registry
+    # (`core/pack_store.py`, source `hub`): where it came from, as the database holds it. None
+    # for every other pack; one in the registry cache reads the marker beside it (`pulled`).
+    origin_record: Mapping[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @property
     def id(self) -> str:
@@ -128,8 +132,13 @@ class Pack:
     @property
     def pulled(self) -> dict[str, Any]:
         """For a pack from a registry, what its verified marker records of where it came from
-        (`core/origin.py` `pulled_record`); for any other pack, nothing."""
-        return pulled_record(self.root) if self.origin == "hub" else {}
+        (`core/origin.py` `pulled_record`), or, for one an organization's agent store keeps,
+        the record the database holds (`origin_record`); for any other pack, nothing."""
+        if self.origin != "hub":
+            return {}
+        if self.origin_record is not None:
+            return dict(self.origin_record)
+        return pulled_record(self.root)
 
     @property
     def shown_origin(self) -> Origin:

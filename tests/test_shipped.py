@@ -307,6 +307,12 @@ CHAINED: dict[Route, tuple[str, ...]] = {
         "store_dataset.proposal_accepted",
         "store_dataset.proposal_dismissed",
     ),
+    # A version added from the deployment's registry (MENDARI_REGISTRY_URL, with the store on):
+    # verified, then kept as any new version is.
+    (ENGINE, "POST", "/api/store/pulls"): ("pack_version.created", "pack_version.held"),
+    # An agent's connection for an organization (ADR-0021): set or changed, and cleared.
+    (ENGINE, "PUT", "/api/connections/{namespace}/{name}"): ("agent_connection.set",),
+    (ENGINE, "DELETE", "/api/connections/{namespace}/{name}"): ("agent_connection.cleared",),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
 # stored input is chained is checked over every GET route by tests/test_hosted_data.py
@@ -354,6 +360,10 @@ NOT_CHAINED: dict[Route, str] = {
     ),
     (ENGINE, "POST", "/api/store/versions/{digest}/tests"): (
         "a read: runs a draft's behaviour tests, stores nothing"
+    ),
+    (ENGINE, "POST", "/api/connections/{namespace}/{name}/check"): (
+        "a read: sends one synthetic example to the agent's service and says what came back; "
+        "stores nothing (security log: admin.connection.checked)"
     ),
 }
 # Writes with no chained event yet, each with the prompt that chains it (tasks/todo.md, LP-03).
@@ -403,6 +413,8 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     monkeypatch.setenv("MENDARI_REGISTRY", "on")  # the registry mounted, with its people's routes
     monkeypatch.setenv("MENDARI_REGISTRY_REVIEW_ORG", "registry-review")  # and its reviewers'
     monkeypatch.setenv("MENDARI_PACK_STORE", "on")  # organizations' pack stores (LP-20f)
+    # A registry to add agents from (never reached here: no route is called).
+    monkeypatch.setenv("MENDARI_REGISTRY_URL", "https://hub.example.org")
     with encrypted_store(tmp_path / "engine.db") as before:
         before.create_organization(org="registry-review", name="Registry review", created_by="t")
     evalset_on(monkeypatch)

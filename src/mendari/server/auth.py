@@ -376,6 +376,13 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("DELETE", r"^/api/governance/[^/]+$", "approve"),
         ("POST", r"^/api/registry-approvals$", "approve"),
         ("DELETE", r"^/api/registry-approvals/[^/]+$", "approve"),
+        # An agent's connection (ADR-0021): where its service answers for the organization, and
+        # the token to send it. Setting, clearing and checking one is its administrators',
+        # people only: no key, client or EHR launch points an agent's cases elsewhere or plants
+        # a token. Reading where an agent's answers come from is any reader's (below).
+        ("PUT", r"^/api/connections/[^/]+/[^/]+$", "keys"),
+        ("DELETE", r"^/api/connections/[^/]+/[^/]+$", "keys"),
+        ("POST", r"^/api/connections/[^/]+/[^/]+/check$", "keys"),
         ("GET", r"^/api/", "read"),
     ]
 ]

@@ -58,12 +58,15 @@ from mendari.core.audit import (
 )
 from mendari.core.card import benchmark, card_of
 from mendari.core.checkpoint import checkpoint_key, key_id, public_text
+from mendari.core.connections import ConnectionStore
+from mendari.core.connections import enabled as connections_enabled
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.evalset_keys import evalset_keys, require_evalset_deployment
 from mendari.core.evalsets import NO_SET, EvalsetStore, GradingRead, pack_problem
 from mendari.core.https_only import is_local_host
 from mendari.core.origin import is_local
 from mendari.core.pack import Pack
+from mendari.core.pack_store import PackStore
 from mendari.core.phi import phi_policy, require_protection
 from mendari.core.policy import GovernanceOverride
 from mendari.core.registry import SearchPath, discover, version_key
@@ -115,6 +118,7 @@ from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id, setting
 from mendari.providers import jev, llm, provider_allow_list, slots_without_model
 from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
+from mendari.providers.agent import AgentProvider, Connection
 from mendari.providers.credentials import key_source
 from mendari.server import api_docs, landing, paths, security_log, sessions
 from mendari.server.auth import (
@@ -139,7 +143,9 @@ from mendari.server.backend_services import (
     throttled,
 )
 from mendari.server.cds_clients import CdsOpenMode, cds_clients, cds_sandbox, fhir_server_allowed
+from mendari.server.connection_routes import add_connection_routes
 from mendari.server.cors import Cors
+from mendari.server.hub_routes import add_hub_routes
 from mendari.server.limits import DailyCap, Limiter, RateLimited, client_ip, limit_settings
 from mendari.server.origin import OriginCheck, trusted_origins
 from mendari.server.readiness import Readiness, packs_state
@@ -415,6 +421,9 @@ def shown_to_reader(item: Mapping[str, Any]) -> bool:
 HOLD_SECONDS = 5.0
 # The promoted store versions' Decisions one process keeps built (LP-20h), oldest dropped first.
 STORE_BUILT_MAX = 64
+# The connections one process keeps read for HOLD_SECONDS (ADR-0021): past this many, all are
+# read again.
+CONNECTION_CACHE_MAX = 4096
 # The scheduled jobs' bearer secret (CRON_SECRET, as Vercel Cron sends it): its least length.
 MIN_CRON_SECRET = 16
 # The longest a quota's alert holds the decision that reached the quota: one try.
@@ -919,6 +928,12 @@ def create_app(
     # Its reviewers' organization (LP-19e): unset, nobody reviews through the web. Checked once
     # the store is open, below.
     review_org = settings.registry_review_org()  # likewise
+    # The registry the console finds agents in and adds them from (`server/hub_routes.py`):
+    # unset, none; an address that is not https (or this machine's) fails here.
+    hub_registry = settings.registry_url()  # likewise
+    # Whether organizations set their agents' connections in the console (ADR-0021): on unless
+    # MENDARI_AGENT_CONNECTIONS=off.
+    connections_on = connections_enabled()  # likewise
     registry_app: FastAPI | None = None  # mounted with the routes, below
     registry_headers: Mapping[str, str] | None = None  # the mounted registry's own
     cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled jobs' credential
@@ -1000,6 +1015,38 @@ def create_app(
             )
     acknowledgement = notices.mode()  # read once; a bad value fails at startup
     acknowledged: set[str] = set()  # chain ids found acknowledged: an acknowledgement stays
+    # Each organization's connections for its agents (ADR-0021, `core/connections.py`), read
+    # for each decision and kept a few seconds on this instance, as holds are: one set or
+    # cleared here takes effect at once, one set on another instance within HOLD_SECONDS.
+    connection_store = ConnectionStore(store)
+    connection_cache: dict[tuple[str, str], tuple[float, Connection | None]] = {}
+    connection_generation = [0]
+
+    def forget_connections() -> None:
+        connection_generation[0] += 1
+        connection_cache.clear()
+
+    def connection_for(pack_id: str) -> Connection | None:
+        """The connection the organization this call acts for set for an agent, or None: none
+        set, or connections are switched off here (then the deployment's own endpoint is all
+        there is). One whose token does not open raises, each time it is asked: the agent's
+        provider fails the call, and never falls through to another service."""
+        if not connections_on:
+            return None
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        key = (org, pack_id)
+        now = time.monotonic()
+        cached = connection_cache.get(key)
+        if cached is not None and now - cached[0] < HOLD_SECONDS:
+            return cached[1]
+        generation = connection_generation[0]
+        found = connection_store.resolve(org, pack_id)
+        if generation == connection_generation[0]:  # none set or cleared here meanwhile
+            if len(connection_cache) >= CONNECTION_CACHE_MAX:
+                connection_cache.clear()
+            connection_cache[key] = (now, found)
+        return found
+
     auth = Auth(
         sign_in,
         store,
@@ -1217,6 +1264,7 @@ def create_app(
                 deadline_s=deadline_s,
                 site_codes=site_maps,
                 canned_cap=sign_in is not None,  # canned answers never automate with sign-in
+                connection_source=connection_for,
             )
         except MendariError:
             raise
@@ -1233,7 +1281,10 @@ def create_app(
 
     def store_decision(pack: Pack, promotion: str, automate: bool) -> Decision:
         """A promoted version's Decision. One promoted to recommend only (`automate` false)
-        never automates, as under a hold (policy only lowers automation)."""
+        never automates, as under a hold (policy only lowers automation). A version that was
+        pulled from a registry (origin `hub`) is held to what every agent from a registry is:
+        it never automates until its organization approves its digest, nor while its registry
+        recalls it (`Decision._origin_holds`)."""
         key = (pack.digest, promotion)
 
         def held_or_recommending(served: Pack) -> str | None:
@@ -1259,10 +1310,13 @@ def create_app(
                             fhir_validation=validation,
                             governance_source=approved_override,
                             hold_source=held_or_recommending,
+                            origin_approval=registry_approved,
+                            recall_source=recall_watch.held,
                             deadline_s=deadline_s,
                             site_codes=site_maps,
                             promotion=promotion,
                             canned_cap=sign_in is not None,
+                            connection_source=connection_for,
                         )
                     except MendariError:
                         raise
@@ -2165,6 +2219,20 @@ def create_app(
             decision_for(pack_or_404(pack_id).id)  # this server's own row is recorded first
         return store.deployments(pack_id, limit=min(max(limit, 0), 200))
 
+    def refuse_own_version(request: Request, pack: Pack) -> None:
+        """Separation of duties reaches the automation approvals too (LP-20h review): whoever
+        wrote a version of an organization's store, or added it from a registry, or made a
+        version it was made from, does not approve it for automation; someone else does."""
+        principal = principal_of(request)
+        if principal.kind == "open" or pack.id in packs or pack.id not in promoted_here():
+            return  # not a version of this organization's store
+        if principal.id in app.state.pack_store.authors(org_of(principal), pack.digest):
+            raise HTTPException(
+                403,
+                "the author of a store version, or whoever added it from a registry, does not "
+                "approve it: someone else does",
+            )
+
     @app.get(
         "/api/governance",
         tags=["Governance"],
@@ -2199,14 +2267,7 @@ def create_app(
         agent version (its digest)."""
         pack = pack_or_404(body.pack_id)
         approver = acting_as(request, body.approver, "approver")
-        principal = principal_of(request)
-        if (
-            pack.origin == "store"
-            and principal.kind != "open"
-            and principal.id in app.state.pack_store.authors(org_of(principal), pack.digest)
-        ):
-            # Separation of duties reaches the automation approval too (LP-20h review).
-            raise HTTPException(403, "the author of a store version does not approve it")
+        refuse_own_version(request, pack)
         expires = datetime.now(UTC) + timedelta(days=body.days)
         approval = store.approve_automation(
             pack_id=pack.id,
@@ -2273,6 +2334,7 @@ def create_app(
         if body.pack_digest != pack.digest:
             raise HTTPException(422, "pack_digest is not the digest this deployment serves")
         approver = acting_as(request, body.approver, "approver")
+        refuse_own_version(request, pack)
         approval = store.approve_registry_pack(
             pack_id=pack.id,
             pack_digest=pack.digest,
@@ -2399,6 +2461,7 @@ def create_app(
             # An evaluation measures the pack's own policy, as `mendari eval` does: a pack from
             # a registry is capped only where it is served (LP-18d).
             origin_cap=False,
+            connection_source=connection_for,  # the service that answers here (ADR-0021)
         )
         dataset = dataset_for(pack, request.dataset)
         if decision.is_remote:
@@ -3654,7 +3717,6 @@ def create_app(
         # reads every organization's hidden sets with the index key, when it is set; a
         # namespace an organization holds by an approved registry claim is its too.
         from mendari.core.evalsets import EvalsetStore as _Evalsets
-        from mendari.core.pack_store import PackStore
         from mendari.server.store_routes import add_store_routes
 
         def claimed_namespace(org: str, namespace: str) -> bool:
@@ -3677,6 +3739,7 @@ def create_app(
                 budget=None if budget is None else budget.for_evaluation(),
                 deadline_s=deadline_s,
                 origin_cap=False,  # an evaluation measures the pack's own policy
+                connection_source=connection_for,  # the service that answers here (ADR-0021)
             )
 
         store_jobs = JobStore(pack_store, served=lambda: packs, decision_for=job_decision)
@@ -3710,6 +3773,60 @@ def create_app(
             limits=lambda: org_limits,
             on_promotion=forget_promoted,
         )
+    # Finding an agent in the deployment's registry and adding it to an organization's store
+    # (`server/hub_routes.py`): `GET /api/hub` always; the rest where a registry is named.
+    kept_store: PackStore | None = getattr(app.state, "pack_store", None)
+    add_hub_routes(
+        app,
+        auth,
+        registry=hub_registry,
+        served=lambda: packs,
+        served_here=served_here,
+        store=kept_store,
+        hidden=None if evalsets is None else EvalsetStore(store, evalsets),
+    )
+
+    def draft_decision(pack: Pack) -> Decision:
+        """A Decision for a store version that is not served, to read where its `agent`
+        variants' answers would come from and to check its connection: no store, no budget,
+        its own policy."""
+        return Decision(
+            pack,
+            providers=variants_for(pack)[0],
+            deadline_s=deadline_s,
+            origin_cap=False,
+            connection_source=connection_for,
+        )
+
+    def agent_providers(org: str, pack_id: str) -> tuple[Pack, list[AgentProvider]] | None:
+        """An agent `org` is served (from the deployment's files, or a version of its store it
+        promoted) or holds in its store as a draft, with the `agent` variants it runs; None for
+        any other, another organization's included. An agent that could not be built has none."""
+        if pack_id in packs:
+            decided = built.get(pack_id)
+            return packs[pack_id], [] if decided is None else decided.agent_providers()
+        served = promoted_here().get(pack_id)
+        try:
+            if served is not None:
+                return served[0], store_decision(*served).agent_providers()
+            if kept_store is not None:
+                for row in kept_store.versions(org, pack_id):
+                    if row["state"] in ("draft", "retired"):
+                        pack = kept_store.load(org, row["digest"])
+                        return pack, draft_decision(pack).agent_providers()
+        except MendariError:
+            return None  # a version that no longer loads or builds: not one to connect
+        return None
+
+    add_connection_routes(
+        app,
+        auth,
+        connection_store,
+        enabled=connections_on,
+        agents=lambda org: sorted(served_here()),
+        providers=agent_providers,
+        changed=forget_connections,
+    )
     if backend is not None:
         add_backend_routes(app, backend, store, limiter if limiter.on else None)
     add_smart_routes(

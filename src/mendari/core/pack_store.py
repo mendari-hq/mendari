@@ -24,6 +24,16 @@ database, keyed by content digest, as `EvalsetStore` keeps hidden sets.
   only a scratch one, so a version is written there on its first use in a process, checked
   against its digest, and kept in a cache bounded in count and bytes.
 
+- **A version pulled from a registry is kept here too** (`admit_pulled`, source `hub`): what
+  `hub/client.py` `fetch` verified as `mendari pull` verifies it, with the record of where it
+  came from (`pulled`: the registry, the namespace, the signing key, the archive's SHA-256, what
+  was checked), hashed into its `pack_version.created` event. It keeps its publisher's id, loads
+  as an agent from a registry (origin `hub`, on the same bounded engine), and passes every other
+  check, limit and quota a version passes. It arrives a draft like any other: served only once
+  someone who did not add it promotes it, and then held to what any agent from a registry is
+  (its organization's approval of its digest, its registry's recalls). The keys it was verified
+  with are pinned per organization in the database (`OrgPins`), not in a file.
+
 Nothing here is reached by a route: LP-20f mounts them, behind `MENDARI_AGENT_STORE=on` and
 memberships mode, once `prerequisites` finds nothing missing."""
 
@@ -38,22 +48,28 @@ import threading
 import uuid
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from mendari.core import accounts, clock
 from mendari.core.audit import STORE_STATES, _canonical, _now, store_version_sha256
+from mendari.core.origin import COMMUNITY_NAMESPACE, Origin
 from mendari.core.pack import MANIFEST, Pack, load_pack, pack_digest
-from mendari.errors import MendariError
+from mendari.errors import HubError, MendariError
 
 if TYPE_CHECKING:
     from mendari.core.audit import AuditStore
+    from mendari.hub.client import Fetched
 
 DRAFT, HELD, PROMOTED, RETIRED, WITHDRAWN = "draft", "held", "promoted", "retired", "withdrawn"
 STATES = (DRAFT, HELD, PROMOTED, RETIRED, WITHDRAWN)
-SOURCES = ("upload", "copy", "edit")
+# Where a version came from: an author's signed archive, a copy of an agent served here, an
+# edit of another version, or a registry (`HUB`: verified as `mendari pull` verifies one).
+HUB: Final = "hub"
+SOURCES = ("upload", "copy", "edit", HUB)
+RECALL_SEVERITIES = ("low", "medium", "high", "critical")
 # A version's files: as many and as large as an archive may hold (`hub/archive.py`).
 MAX_FILES = 2000
 MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -138,10 +154,11 @@ def _write(files: Mapping[str, bytes], root: Path) -> None:
             raise StoreError(f"{shown}: cannot be written ({type(error).__name__})") from None
 
 
-def _load(root: Path) -> Pack:
-    """The pack at `root` as a store's, on the bounded engine; a `StoreError` naming why not."""
+def _load(root: Path, origin: Origin = "store") -> Pack:
+    """The pack at `root` as a store's (or, for a version pulled from a registry, as one from a
+    registry: `origin` `hub`), on the bounded engine; a `StoreError` naming why not."""
     try:
-        return load_pack(root, origin="store")
+        return load_pack(root, origin=origin)
     except MendariError as error:
         raise StoreError(f"the agent does not load: {error}") from None
     except Exception as error:  # someone else's files: named, never a 500
@@ -180,14 +197,18 @@ def _row(found: Mapping[str, Any]) -> dict[str, Any]:
         "created_at": found["created_at"],
         "state": found["state"],
         "state_at": found["state_at"],
+        # Where a version pulled from a registry came from (None for every other).
+        "pulled": None if found.get("pulled") is None else json.loads(found["pulled"]),
     }
 
 
-def _check_source(source: str, parent: str | None) -> None:
+def _check_source(source: str, parent: str | None, pulled: Mapping[str, Any] | None = None) -> None:
     if source not in SOURCES:
         raise ValueError(f"source is one of {', '.join(SOURCES)}")
     if (source == "edit") != (parent is not None):
         raise ValueError("an edit, and only an edit, names its parent")
+    if (source == HUB) != (pulled is not None):
+        raise ValueError("a version from a registry, and only one, records where it came from")
 
 
 @dataclass(frozen=True)
@@ -204,7 +225,7 @@ class Prepared:
     datasets: list[dict[str, Any]]
 
 
-def _prepare(files: Mapping[str, bytes]) -> Prepared:
+def _prepare(files: Mapping[str, bytes], origin: Origin = "store") -> Prepared:
     for path in files:
         _check_path(path)
     kept = {path: bytes(data) for path, data in files.items() if _kept(path)}
@@ -218,7 +239,7 @@ def _prepare(files: Mapping[str, bytes]) -> Prepared:
     with tempfile.TemporaryDirectory(prefix="mendari-store-") as scratch:
         root = Path(scratch) / "pack"
         _write(kept, root)
-        pack = _load(root)
+        pack = _load(root, origin)
         from mendari.evals.validation import problems
 
         found = [problem.to_json() for problem in problems(pack)]
@@ -428,6 +449,8 @@ class PackStore:
         hidden: Any = None,
         claimed: Callable[[str, str], bool] | None = None,
         expect_digest: str | None = None,
+        expect_version: tuple[str, str] | None = None,
+        pulled: Mapping[str, Any] | None = None,
     ) -> Stored:
         """A new version of `org` that passed every check an upload, a copy or an edit passes,
         in this order, before any row is written (LP-20f): the organization's uploads are not
@@ -439,11 +462,18 @@ class PackStore:
         and dataset checks, recorded with it; and the hidden-set check: with `hidden` (an
         `EvalsetStore` with the index key) each case the pack carries is looked up, and on any
         match the version is stored `held` and the match recorded for the operator only.
-        Without `hidden` the check is "not applicable": this deployment holds no hidden set."""
+        Without `hidden` the check is "not applicable": this deployment holds no hidden set.
+
+        A version from a registry (`source` `hub`, with `pulled`: where it came from, which
+        `admit_pulled` gives) passes the same checks with two differences: it loads as an agent
+        from a registry, and it keeps its publisher's id, whatever the organization is called
+        (never the community namespace, whose agents come with the deployment).
+        `expect_version` is the id and version it must have (the ones its signed manifest and
+        its registry name)."""
         from mendari.core import phi_detect
 
         org, by = _org(org), _actor(by)
-        _check_source(source, parent)
+        _check_source(source, parent, pulled)
         self._refuse_stopped(org)
         self._refuse_over_quota(org, "store_uploads")
         for path in files:
@@ -451,10 +481,15 @@ class PackStore:
         found = phi_detect.detect_files({p: d for p, d in files.items() if _kept(p)})
         if phi_detect.rejects(found):
             raise PhiRejected(found.to_json())
-        ready = _prepare(files)
+        ready = _prepare(files, HUB if source == HUB else "store")
         pack = ready.pack
         namespace = pack.id.partition("/")[0]
-        if _reserved(namespace) or (
+        if source == HUB:
+            if namespace == COMMUNITY_NAMESPACE:
+                raise StoreError(
+                    "a community agent comes with the deployment, never from a registry"
+                )
+        elif _reserved(namespace) or (
             namespace != org and not (claimed is not None and claimed(org, namespace))
         ):
             raise StoreError(
@@ -463,6 +498,8 @@ class PackStore:
             )
         if expect_digest is not None and pack.digest != expect_digest:
             raise StoreError("the archive's files are not the agent its manifest names")
+        if expect_version is not None and (pack.id, pack.version) != expect_version:
+            raise StoreError("the archive's files are not the agent and version it names")
         checks: dict[str, Any] = {
             "phi": {"files": found.files, "findings": len(found.findings)},
             "datasets": ready.datasets,
@@ -481,7 +518,74 @@ class PackStore:
             copied_from=copied_from,
             checks=checks,
             matches=matches or None,
+            pulled=pulled,
         )
+
+    def admit_pulled(
+        self,
+        org: str,
+        fetched: Fetched,
+        *,
+        by: str,
+        hidden: Any = None,
+        served_ids: Iterable[str] = (),
+    ) -> Stored:
+        """A version `hub/client.py` `fetch` verified (its archive's SHA-256 against the
+        registry's record, its signature by a key of its namespace, the registry's
+        counter-signature where it signs), kept as a draft of `org` (source `hub`) with the
+        record of where it came from, after every check `admit` makes. Refused, with nothing
+        written, when:
+
+        - its registry recalled it (a recall only ever stops an agent: one is never added to
+          start it), or the registry's record and the signed manifest name different digests;
+        - this deployment serves that agent's id from its own files (a store version never
+          replaces one, so it could never be promoted);
+        - it holds a site's cases (`archive.refuse_site_cases`), as a registry refuses one;
+        - or any check of `admit` fails: files that read as a person's details, an agent that
+          does not load on the engine it would run on, a digest, id or version that is not the
+          signed one, a limit or a quota passed."""
+        from mendari.hub import archive
+
+        recall = fetched.meta.get("yank")
+        if isinstance(recall, Mapping):
+            stated = recall.get("severity")
+            severity = stated if stated in RECALL_SEVERITIES else "unknown"
+            raise StoreError(
+                f"{fetched.pack_id}@{fetched.version} was recalled by its registry (severity: "
+                f"{severity}): a recalled version is not added",
+                409,
+            )
+        signed = fetched.verified.manifest.get("digest")
+        if not isinstance(signed, str) or signed != fetched.meta.get("digest"):
+            raise StoreError("the archive is not the build the registry recorded")
+        if fetched.pack_id in set(served_ids):
+            raise StoreError(
+                f"this deployment serves {fetched.pack_id} from its own files: a version from "
+                "a registry never replaces it",
+                409,
+            )
+        try:
+            archive.refuse_site_cases(fetched.verified.files)
+        except HubError as error:
+            raise StoreError(str(error)) from None
+        return self.admit(
+            org,
+            fetched.verified.files,
+            by=by,
+            source=HUB,
+            hidden=hidden,
+            expect_digest=signed,
+            expect_version=(fetched.pack_id, fetched.version),
+            pulled=fetched.origin,
+        )
+
+    def refuse_before_adding(self, org: str) -> None:
+        """Refused (a `StoreError`, 429) before a version is downloaded for `org`: its uploads
+        are stopped until the operator reviews its held versions, or it has added what its
+        `store_uploads` quota allows today. `admit` checks both again."""
+        org = _org(org)
+        self._refuse_stopped(org)
+        self._refuse_over_quota(org, "store_uploads")
 
     def _refuse_stopped(self, org: str, db: Any = None) -> None:
         """A `StoreError` (429) when `org` has `HELD_STOP` held versions or datasets in
@@ -573,6 +677,7 @@ class PackStore:
         copied_from: Mapping[str, str] | None,
         checks: Mapping[str, Any] | None = None,
         matches: list[dict[str, str]] | None = None,
+        pulled: Mapping[str, Any] | None = None,
     ) -> Stored:
         by_sha = {item["sha256"]: kept[item["path"]] for item in listed}
         day = clock.today().isoformat()
@@ -621,6 +726,8 @@ class PackStore:
                 "created_by": by,
                 "created_at": now,
             }
+            if pulled is not None:  # a version from a registry: where it came from, hashed too
+                row["pulled"] = _canonical(dict(pulled))
             state = HELD if matches else DRAFT
             db.all(
                 f"INSERT INTO store_versions ({', '.join(row)}, state, state_at) "
@@ -633,7 +740,7 @@ class PackStore:
                 "bytes = store_usage.bytes + excluded.bytes",
                 (org, day, sum(new.values())),
             )
-            payload = {
+            payload: dict[str, Any] = {
                 "digest": pack.digest,
                 "pack": pack.id,
                 "version": pack.version,
@@ -643,6 +750,11 @@ class PackStore:
                 "valid": not validation,
                 "version_sha256": store_version_sha256(row),
             }
+            if pulled is not None:  # which registry, signing key and archive it was verified as
+                payload["pulled"] = {
+                    name: pulled.get(name)
+                    for name in ("registry", "namespace", "key_id", "archive_sha256", "accepted")
+                }
             chained = self.store._bound("pack_version.created", payload, org)
             self.store._append(db, f"pack_version:{version_id}", "pack_version.created", chained)
             if matches:  # held at once, in the same transaction; the event names no case
@@ -798,35 +910,41 @@ class PackStore:
         """One of `org`'s versions as a `Pack` of origin `store`: written from the database to
         this process's scratch directory on its first use, its digest checked, and kept in a
         cache bounded in count and bytes. A request that asks while it is built waits for that
-        build and never starts a second."""
-        self.version(org, digest)  # `org` holds it, whoever else does
+        build and never starts a second. A version pulled from a registry is a `Pack` of origin
+        `hub` that carries where it came from (`Pack.origin_record`, the database's): built and
+        kept for its organization alone, since that record is its own."""
+        row = self.version(org, digest)  # `org` holds it, whoever else does
+        pulled = row["pulled"] if row["source"] == HUB else None
+        key = digest if pulled is None else f"{digest}@{org}"
         with self._lock:
-            cached = self._cache.get(digest)
+            cached = self._cache.get(key)
             if cached is not None and cached[0].root.is_dir():
-                self._cache.move_to_end(digest)
+                self._cache.move_to_end(key)
                 return cached[0]
-            building = self._building.setdefault(digest, threading.Lock())
+            building = self._building.setdefault(key, threading.Lock())
         with building:
             with self._lock:
-                cached = self._cache.get(digest)
+                cached = self._cache.get(key)
                 if cached is not None and cached[0].root.is_dir():
                     return cached[0]
             root = self._scratch_dir() / digest.replace(":", "-") / uuid.uuid4().hex
             try:
                 files = self.files(org, digest)
                 _write(files, root)
-                pack = _load(root)
+                pack = _load(root, "store" if pulled is None else HUB)
                 if pack.digest != digest:
                     raise StoreError(f"version {digest}'s files hash to {pack.digest}", 500)
+                if pulled is not None:
+                    pack = replace(pack, origin_record=dict(pulled))
             except BaseException:
                 shutil.rmtree(root, ignore_errors=True)
                 with self._lock:
-                    self._building.pop(digest, None)
+                    self._building.pop(key, None)
                 raise
             size = sum(len(data) for data in files.values())
             with self._lock:
-                self._cache[digest] = (pack, size)
-                self._building.pop(digest, None)
+                self._cache[key] = (pack, size)
+                self._building.pop(key, None)
                 self._evict()
         return pack
 
@@ -856,10 +974,13 @@ class PackStore:
             shutil.rmtree(pack.root, ignore_errors=True)
 
     def _forget(self, digest: str) -> None:
+        """Drop a version's built copies: the one every organization that holds it shares, and
+        each organization's own of one pulled from a registry (`load`)."""
         with self._lock:
-            cached = self._cache.pop(digest, None)
-        if cached is not None:
-            shutil.rmtree(cached[0].root, ignore_errors=True)
+            keys = [key for key in self._cache if key == digest or key.startswith(f"{digest}@")]
+            dropped = [self._cache.pop(key) for key in keys]
+        for pack, _ in dropped:
+            shutil.rmtree(pack.root, ignore_errors=True)
 
     # -- authors' keys (LP-20f) -----------------------------------------------------------------
 
@@ -1559,6 +1680,49 @@ class PackStore:
             "freed": unkept,
             "problems": problems,
         }
+
+
+class OrgPins:
+    """The registry keys one organization pinned (`hub/client.py` `Pins`), in the engine's
+    database (`store_pins`): a namespace's key ids and each registry's own key id, pinned on
+    first use when its organization first verified an agent from that registry, and from then on
+    what a changed key is refused against. Per organization: one organization accepting a
+    publisher's new key changes nothing for another. Outside the chain, as the command line's
+    pins are in a file; the version each was pinned for names its key in its own event."""
+
+    where = "this organization's pinned keys (the deployment's database, table store_pins)"
+
+    def __init__(self, store: AuditStore, org: str, by: str) -> None:
+        self.store, self.org, self.by = store, _org(org), _actor(by)
+
+    def read(self) -> dict[str, Any]:
+        with self.store._db.session(exclusive=False) as db:
+            rows = db.all("SELECT registry, name, value FROM store_pins WHERE org = ?", (self.org,))
+        pins: dict[str, Any] = {}
+        for row in rows:
+            pins.setdefault(str(row["registry"]), {})[str(row["name"])] = json.loads(row["value"])
+        return pins
+
+    def write(self, pins: Mapping[str, Any]) -> None:
+        held = self.read()
+        changed = [
+            (str(registry), str(name), _canonical(value))
+            for registry, names in pins.items()
+            for name, value in dict(names).items()
+            if held.get(registry, {}).get(name) != value
+        ]
+        if not changed:
+            return
+        now = _now()
+        with self.store._db.session(exclusive=True) as db:
+            for registry, name, value in changed:
+                db.all(
+                    "INSERT INTO store_pins (org, registry, name, value, pinned_by, pinned_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (org, registry, name) DO UPDATE SET "
+                    "value = excluded.value, pinned_by = excluded.pinned_by, "
+                    "pinned_at = excluded.pinned_at",
+                    (self.org, registry, name, value, self.by, now),
+                )
 
 
 def prerequisites(mode: str) -> list[str]:

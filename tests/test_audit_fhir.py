@@ -251,6 +251,9 @@ def test_reads_and_purges_of_encrypted_inputs_are_exported(
 # Chained under `governance:<id>`, `deployment:<id>` or `key:<id>`, not a decision; the export
 # never reads them.
 NOT_ON_A_DECISION = {
+    # An agent's connection for an organization (`agent_connection:<id>`, ADR-0021).
+    "agent_connection.set",
+    "agent_connection.cleared",
     "governance.approved",
     "governance.revoked",
     "registry_pack.approved",

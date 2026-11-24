@@ -48,6 +48,7 @@ from mendari.core.audit import (
 from mendari.core.evalset_keys import EvalsetKeys, evalset_keys
 from mendari.core.evalsets import EvalsetStore
 from mendari.core.registry import resolve_pack
+from mendari.providers import reach
 from mendari.server import presets, smart_routes
 from mendari.server.api_docs import FHIR_EXAMPLE
 from mendari.server.app import create_app
@@ -57,6 +58,7 @@ from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.search import encode_cursor
 from tests.conftest import (
     DASHBOARD,
+    DEMO_AGENT_DIR,
     calm_jev,
     encrypt_mode,
     evalset_on,
@@ -72,6 +74,8 @@ from tests.test_cds_feedback import feedback as card_feedback
 from tests.test_cds_feedback import overridden
 from tests.test_davinci import COMPLETE, PA, package_request, request
 from tests.test_hold import REFILL
+from tests.test_hub_client import Hub, hub  # noqa: F401 - the live registry fixture
+from tests.test_hub_routes import as_published
 from tests.test_memberships import token_of
 from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUESTER, REQUIRED
 from tests.test_prior_auth_pack import _order
@@ -85,6 +89,12 @@ INBOX = "mendari/patient-inbox-router"
 RUNS: tuple[str, str] = ("POST", "/api/evalsets/{set_id}/runs")
 GRADED = {"pack": INBOX, "variants": {"safety_screen": "rules", "router": "naive_bayes"}}
 GUARD = "mendari/ai-guard"
+# The agent that asks a service of its own (an `agent` variant), served here beside the others:
+# the one whose connection each organization sets (ADR-0021).
+PORTAL = "mendari/portal-message-agent"
+# The agent the deployment's registry lists (`server/hub_routes.py`): each organization finds
+# it there, and in memberships mode adds it to its own store.
+LISTED = "listed/portal-agent"
 ORGS = ("clinic-zqalpha", "clinic-zqbravo")
 PEOPLE = ("admin", "reviewer", "governance", "viewer")
 ASKED = ("admin", "reviewer")  # the roles that may decide or review: asked to acknowledge
@@ -119,6 +129,8 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
     ("GET", "/fhir/CodeSystem/{resource_id}"): "terminology built in memory from the packs",
     ("GET", "/fhir/NamingSystem/{resource_id}"): "terminology built in memory",
     ("GET", "/api/auth/keys/presets"): "the preset table and the route rules",
+    ("GET", "/api/hub"): "the registry the deployment names, and whether agents can be added "
+    "from it: its settings, the same for everyone",
     ("GET", "/api/notice"): "the notice and whether the caller acknowledged it",
     ("POST", "/api/notice/acknowledge"): "a person's own acknowledgement, across organizations",
     ("GET", "/api/smart/session"): "the launch's own session (the browser's cookie)",
@@ -203,6 +215,8 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("POST", "/api/store/agents/{namespace}/{name}/improvement"),
     ("GET", "/api/store/versions/{digest}/proposed-tests"),
     ("POST", "/api/store/versions/{digest}/proposed-tests/{dataset_id}/{case_id}"),
+    # A version added from the deployment's registry (`server/hub_routes.py`): with the store.
+    ("POST", "/api/store/pulls"),
 }
 # The tables an organization's work writes, compared before and after each refused call.
 WRITTEN = (
@@ -224,6 +238,7 @@ WRITTEN = (
     "evalset_index",
     "evalset_assignments",  # their blind labelling (LP-11h): a curator's (LP-11k)
     "evalset_labels",  # a labeller's label (LP-11j)
+    "agent_connections",  # an agent's connection, set in the console (ADR-0021)
     "audit_events",
 )
 
@@ -494,11 +509,27 @@ def issuer_of(org: str) -> str:
     return f"{TENANTS}/tenant-{org.removeprefix('clinic-')}/fhir"
 
 
+def no_call() -> Any:
+    raise AssertionError("no connection an organization set is called from this test")
+
+
 @pytest.fixture(params=["claims", "memberships"])
 def world(
-    request: pytest.FixtureRequest, db_target: str, monkeypatch: pytest.MonkeyPatch
+    request: pytest.FixtureRequest,
+    db_target: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+    hub: Hub,  # noqa: F811
 ) -> Iterator[World]:
     accounts = request.param
+    # The agent whose connection each organization sets (ADR-0021), served beside the others;
+    # what a connection leads to is never called here.
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
+    monkeypatch.setattr(reach, "public_client", no_call)
+    # A registry to find agents in and add them from (`server/hub_routes.py`), listing one.
+    monkeypatch.setenv("MENDARI_REGISTRY_URL", hub.url)
+    publisher, signing_key = hub.namespace(LISTED.split("/")[0])
+    hub.client(publisher).push(as_published(tmp_path, LISTED), signing_key)
     encrypt_mode(monkeypatch)  # inputs and notes sealed, read by a reader and chained
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
@@ -1525,6 +1556,11 @@ def reads(world: World, x: Org) -> dict[str, str]:
         (admin, ("GET", "/api/auth/keys"), "/api/auth/keys", {}),
         (admin, ("GET", "/api/auth/clients"), "/api/auth/clients", {}),
         (admin, ("GET", "/api/usage"), "/api/usage", {}),  # the organization's usage ledger
+        # Its agents' connections (ADR-0021), as a reader and as who may set them; and what the
+        # deployment's registry lists, which says what this organization has of each agent.
+        (viewer, ("GET", "/api/connections"), "/api/connections", {}),
+        (admin, ("GET", "/api/connections"), "/api/connections", {}),
+        (viewer, ("GET", "/api/hub/search"), "/api/hub/search", {}),
     ]
     if world.accounts == "memberships":
         for path in ("/api/auth/members", "/api/auth/invitations", "/api/auth/access-requests"):
@@ -1813,6 +1849,90 @@ def served(world: World, x: Org) -> None:
         served_labelling(world, x)
         served_curating(world, x)
         served_store(world, x)
+    served_agents(world, x)
+
+
+def connection_of(x: Org, path: str) -> dict[str, str]:
+    """A connection of `x`'s, its marker in the address and in the token."""
+    return {"endpoint": f"https://1.1.1.1/{x.marker}/{path}", "token": f"token-{x.marker}-{path}"}
+
+
+def served_agents(world: World, x: Org) -> None:
+    """The console's Agents view (`server/hub_routes.py`, `server/connection_routes.py`,
+    ADR-0021). `x` reads the deployment's registry, which says what `x` has of the agent it
+    lists and nothing of what the other has; in memberships mode its author adds that agent to
+    its own store. Its administrator checks, sets, reads, clears and sets again the connection
+    of the agent that asks a service, with an address and a token that carry its marker, and
+    leaves it set: the other organization, which reads the same agent's connection after (or
+    before), is shown none of it. The other's store agents are no agents here."""
+    o = world.other(x)
+    admin, viewer = x.people["admin"], x.people["viewer"]
+    at = f"/api/connections/{PORTAL}"
+    one: Route = ("GET", "/api/connections/{namespace}/{name}")
+    setting: Route = ("PUT", "/api/connections/{namespace}/{name}")
+    clearing: Route = ("DELETE", "/api/connections/{namespace}/{name}")
+    checking: Route = ("POST", "/api/connections/{namespace}/{name}/check")
+    listing: Route = ("GET", "/api/hub/agents/{namespace}/{name}")
+    # Before anything of its own: nothing, whatever the other has set or added by now.
+    for who in (viewer, admin):
+        shown = world.call(x, who, ("GET", "/api/connections"), "/api/connections", expect=200)
+        assert all(agent["connection"] is None for agent in shown.json()["agents"])
+        assert world.call(x, who, one, at, expect=200).json()["source"] == "none"
+    found = world.call(x, viewer, ("GET", "/api/hub/search"), "/api/hub/search", expect=200)
+    assert [(a["id"], a["installed"]) for a in found.json()["agents"]] == [(LISTED, None)]
+    read = world.call(x, viewer, listing, f"/api/hub/agents/{LISTED}", expect=200).json()
+    assert read["installed"] is None and read["agent"]["id"] == LISTED
+    # Nothing is connected: the check says so, and calls nothing.
+    checked = world.call(x, admin, checking, f"{at}/check", expect=200).json()
+    assert [slot["problem"] for slot in checked["checked"]] == ["canned"]
+    # A reader does not set one; nor does a key.
+    before = written(world.store)
+    for who in (viewer, x.keys["service"]):
+        world.call(x, who, setting, at, json=connection_of(x, "decide"), expect=403)
+        world.call(x, who, clearing, at, expect=403)
+        world.call(x, who, checking, f"{at}/check", expect=403)
+    assert written(world.store) == before
+    first = connection_of(x, "decide")
+    x.made("connection token", first["token"])
+    made = world.call(x, admin, setting, at, json=first, expect=200).json()
+    assert made["connection"]["endpoint"] == first["endpoint"] and first["token"] not in str(made)
+    assert world.call(x, admin, one, at, expect=200).json()["source"] == "organization"
+    seen = world.call(x, viewer, one, at, expect=200).json()["connection"]
+    assert seen["origin"] == "https://1.1.1.1" and "endpoint" not in seen
+    world.call(x, admin, clearing, at, expect=204)
+    assert world.call(x, viewer, one, at, expect=200).json()["connection"] is None
+    kept = connection_of(x, "kept")
+    x.made("connection token", kept["token"])
+    world.call(x, admin, setting, at, json=kept, expect=200)  # and left set
+    with world.store._db.session(exclusive=False) as db:
+        row = db.one("SELECT id FROM agent_connections WHERE org = ?", (x.name,))
+    x.made("connection", row["id"])
+    if world.accounts != "memberships":
+        return
+    # The other's store agents (if it has made them by now): no agents here, nothing written.
+    if o.ids.get("store version"):
+        theirs = f"/api/connections/{o.name}/inbox-copy"
+        before = written(world.store)
+        world.call(x, admin, one, theirs, expect=404)
+        world.call(x, admin, setting, theirs, json=connection_of(x, "theirs"), expect=404)
+        world.call(x, admin, clearing, theirs, expect=404)
+        world.call(x, admin, checking, f"{theirs}/check", expect=404)
+        assert written(world.store) == before
+    # Its author adds the agent the registry lists: a draft of its own store, whatever the
+    # other added (the same version, so the same digest: no organization's secret).
+    author = person(world, x, "pack_author")
+    world.call(x, viewer, ("POST", "/api/store/pulls"), "/api/store/pulls",
+               json={"ref": LISTED}, expect=403)  # fmt: skip
+    added = world.call(
+        x, author, ("POST", "/api/store/pulls"), "/api/store/pulls", json={"ref": LISTED},
+        expect=201,
+    ).json()  # fmt: skip
+    assert (added["pack_id"], added["state"], added["source"]) == (LISTED, "draft", "hub")
+    found = world.call(x, viewer, ("GET", "/api/hub/search"), "/api/hub/search", expect=200)
+    assert [a["installed"]["state"] for a in found.json()["agents"]] == ["draft"]
+    with world.store._db.session(exclusive=False) as db:
+        mine = db.all("SELECT org, state FROM store_versions WHERE digest = ?", (added["digest"],))
+    assert (x.name, "draft") in {(row["org"], row["state"]) for row in mine}
 
 
 def _store_archive(org: str, key: Any, note: str) -> bytes:
@@ -2379,6 +2499,7 @@ def deployment_wide(world: World, x: Org) -> None:
         (viewer, ("GET", "/fhir/NamingSystem/{resource_id}"), "/fhir/NamingSystem/decision-id", {}),
         (admin, ("GET", "/api/auth/keys/presets"), "/api/auth/keys/presets", {}),
         (viewer, ("GET", "/api/notice"), "/api/notice", {}),
+        (viewer, ("GET", "/api/hub"), "/api/hub", {}),
     ]
     if world.accounts == "memberships":
         calls.append((client_of(world.app), ("GET", "/invite"), "/invite", {}))
@@ -2507,6 +2628,16 @@ def again(world: World, x: Org) -> None:
         expect=201,
     ).json()
     x.made("client", client["client_id"])
+    changed = connection_of(x, "again")  # its agent's connection, changed (ADR-0021)
+    x.made("connection token", changed["token"])
+    world.call(
+        x,
+        x.people["admin"],
+        ("PUT", "/api/connections/{namespace}/{name}"),
+        f"/api/connections/{PORTAL}",
+        json=changed,
+        expect=200,
+    )
     if world.accounts == "memberships":
         invited = world.call(
             x,

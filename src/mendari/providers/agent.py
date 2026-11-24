@@ -8,11 +8,17 @@ malformed response raises `ProviderError` so Mendari's deterministic policy engi
 (`HUMAN_REVIEW` / `ABSTAIN` / `BLOCK`) and records the failure in the audit trail.
 
 Configuration & security:
+- Where a live call goes is decided in one place, `AgentProvider.live`: the organization's own
+  connection for the agent, set in the console (ADR-0021, `core/connections.py`); else, for an
+  agent the deployment owns, the variant's own `endpoint`; else `MENDARI_AGENT_URL`; else none,
+  and the variant answers from its canned examples.
 - `MENDARI_AGENT_URL`: deployment-configured agent HTTP endpoint (https, or http for localhost).
 - `MENDARI_AGENT_TOKEN`: optional bearer token sent ONLY when the endpoint comes from
-  `MENDARI_AGENT_URL`, never to a pack-specified `endpoint` URL.
+  `MENDARI_AGENT_URL`, never to a pack-specified `endpoint` URL. An organization's connection
+  carries its own token, sent only to that connection's endpoint.
 - `MENDARI_PROVIDER_ALLOWED_ORIGINS`: when set, the agent endpoint's origin must be listed
-  (`providers/http.py`).
+  (`providers/http.py`). Without it, an organization's connection leads to the public internet
+  only (`providers/reach.py`).
 - A pack the deployment does not own (`Pack.bounded`) must name `state_fields`, may not set
   `endpoint`, and has its `timeout_seconds` capped by the deployment (`core/origin.py`).
 - `mock_file`: optional pack-relative JSON or YAML fixture used offline when no live endpoint is
@@ -28,17 +34,17 @@ import math
 import os
 import re
 import uuid
-from collections.abc import Mapping
-from dataclasses import replace
-from typing import Any, TypeGuard
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field, replace
+from typing import Any, Literal, TypeGuard
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from mendari.core.pack import Pack
 from mendari.core.spec import Question, deployment_env_problem
-from mendari.errors import PackValidationError, ProviderError
-from mendari.providers import deadline
+from mendari.errors import MendariError, PackValidationError, ProviderError
+from mendari.providers import deadline, reach
 from mendari.providers.base import (
     MAX_CALL_COST_USD,
     MAX_CALL_TOKENS,
@@ -50,7 +56,7 @@ from mendari.providers.base import (
     select_fields,
     state_fields_problem,
 )
-from mendari.providers.http import post_json, require_https, require_secure
+from mendari.providers.http import allowed_origins, post_json, require_https, require_secure
 
 ENDPOINT_ENV = "MENDARI_AGENT_URL"
 TOKEN_ENV = "MENDARI_AGENT_TOKEN"
@@ -58,6 +64,35 @@ TOKEN_ENV = "MENDARI_AGENT_TOKEN"
 # with sign-in never automates on it (`policy.apply_policy`'s `canned` cap). Stable: the
 # dashboard and the audit trail show it.
 CANNED = f"canned answers: {ENDPOINT_ENV} is not set"
+
+# Where a live call's endpoint came from (`AgentProvider.live`).
+Source = Literal["organization", "agent", "deployment"]
+
+
+@dataclass(frozen=True)
+class Connection:
+    """An organization's own connection for an agent (ADR-0021): the endpoint its
+    administrators set in the console, and the bearer token to send there, if they gave one.
+    The token is never shown: it is in no `repr`, log line, answer or record."""
+
+    endpoint: str
+    token: str | None = field(default=None, repr=False)
+
+
+# The connection the organization a call acts for set for an agent, by the agent's id; None for
+# none. A server gives its own (`Decision`'s `connection_source`); the command line has none.
+ConnectionSource = Callable[[str], Connection | None]
+
+
+@dataclass(frozen=True)
+class Live:
+    """Where one live call goes: its endpoint, the token to send there (never another
+    endpoint's) and which setting named it."""
+
+    url: str
+    source: Source
+    token: str | None = field(default=None, repr=False)
+
 
 # Same character class as `evals/share.py` `_MODEL_PART` so provenance ids are always shareable.
 AGENT_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$"
@@ -108,6 +143,7 @@ class AgentProvider(Provider):
             raise PackValidationError(self.pack.id, problems)
         self.settings = settings
         self._client = client
+        self._connection: ConnectionSource | None = None
         self._mock: dict[str, Any] | None = None
         if self.settings.mock_file is not None:
             self._mock = _load_fixture_file(
@@ -164,19 +200,65 @@ class AgentProvider(Provider):
                 return None, [f"{where}: {error.detail or error.code}"]
         return settings, []
 
-    def _resolve_endpoint(self) -> tuple[str | None, bool]:
-        """Return `(url, from_env)` for a live call, or `(None, False)` when none is set.
+    def use_connection(self, source: ConnectionSource) -> None:
+        """Where an organization's own connection for this agent is read from (a server's
+        `Decision` wires it in, as it wires the budget): asked once for each call, for the
+        organization that call acts for."""
+        self._connection = source
 
-        On a bounded (unowned) pack, a pack-specified `endpoint` is never used.
-        `MENDARI_AGENT_TOKEN` is sent only when `from_env` is True, so a pack-specified URL can
-        never receive the deployment's agent token.
-        """
+    def live(self) -> Live | None:
+        """Where a live call goes, or None when nothing is set and the variant answers from its
+        canned examples. The order, stated here once (ADR-0021):
+
+        1. **The organization's own connection** for this agent, which its administrators set
+           in the console (`core/connections.py`), with that connection's own token. One that
+           is set and cannot be read (its token does not open) fails the call
+           (`credential_unavailable`): the call never falls through to another service.
+        2. **The variant's own `endpoint`**, for an agent the deployment owns only (a bounded
+           agent may not name one), with no token.
+        3. **The deployment's `MENDARI_AGENT_URL`**, with `MENDARI_AGENT_TOKEN`.
+        4. **None**: the variant's canned answers (`mock_file`), which never automate on a
+           server with sign-in.
+
+        A token goes only to the endpoint it was set with: an organization's to its own
+        connection, `MENDARI_AGENT_TOKEN` to `MENDARI_AGENT_URL`, none to a manifest's."""
+        if self._connection is not None:
+            try:
+                connection = self._connection(self.pack.id)
+            except ProviderError:
+                raise
+            except MendariError:
+                raise ProviderError(
+                    "credential_unavailable", "this agent's connection cannot be read"
+                ) from None
+            if connection is not None:
+                return Live(connection.endpoint, "organization", connection.token)
         if not self.pack.bounded and self.settings.endpoint:
-            return self.settings.endpoint, False
+            return Live(self.settings.endpoint, "agent")
         env_url = os.environ.get(ENDPOINT_ENV, "").strip()
         if env_url:
-            return env_url, True
-        return None, False
+            return Live(env_url, "deployment", os.environ.get(TOKEN_ENV, "").strip() or None)
+        return None
+
+    @property
+    def canned(self) -> bool:
+        """Whether the variant carries canned answers (`mock_file`) to answer from offline."""
+        return self._mock is not None
+
+    def _secure(self, live: Live) -> httpx.Client | None:
+        """Check that `live` may be called, and the client to call it with (None: the
+        deployment's shared one). Every endpoint is https (http to this machine only) and, where
+        the deployment lists the origins its providers may be called at, one of them. An
+        organization's connection, where it lists none, leads to the public internet only: its
+        host is checked here, and its addresses by the client that connects
+        (`providers/reach.py`)."""
+        require_secure(live.url, "Agent")
+        if self._client is not None or live.source != "organization":
+            return self._client
+        if allowed_origins() is not None:  # on the list (`require_secure`): the operator's word
+            return None
+        reach.check_name(live.url)
+        return reach.public_client()
 
     @property
     def canned(self) -> str | None:
@@ -193,22 +275,22 @@ class AgentProvider(Provider):
         return bool(self._mock and self._mock.get("cases"))
 
     def preflight(self) -> None:
-        url, _ = self._resolve_endpoint()
-        if url is not None:
-            require_secure(url, "Agent")
+        live = self.live()
+        if live is not None:
+            self._secure(live)
             return
         if self._mock is not None:
             return
         raise ProviderError("not_configured", f"set {ENDPOINT_ENV}")
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
-        url, from_env = self._resolve_endpoint()
-        if url is None:
+        live = self.live()
+        if live is None:
             if self._mock is not None:
                 return self._answer_fixture(inputs)
             raise ProviderError("not_configured", f"set {ENDPOINT_ENV}")
 
-        require_secure(url, "Agent")
+        client = self._secure(live)
         refuse_if_over_quota()
         deadline.refuse_if_past()
 
@@ -229,13 +311,12 @@ class AgentProvider(Provider):
         deadline.refuse_if_past()
         self.sending()
 
-        token = os.environ.get(TOKEN_ENV, "").strip() if from_env else ""
         headers = {"idempotency-key": str(uuid.uuid4())}
-        if token:
-            headers["authorization"] = f"Bearer {token}"
+        if live.token:
+            headers["authorization"] = f"Bearer {live.token}"
         raw = post_json(
-            self._client,
-            url,
+            client,
+            live.url,
             body,
             headers=headers,
             timeout_s=self.settings.timeout_seconds,

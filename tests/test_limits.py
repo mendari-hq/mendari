@@ -598,6 +598,9 @@ EXPECTED_CLASSES = {
     # With the evaluation-set keys, in both account modes: a grading run is an evaluation
     # (LP-11l), counted per grading key.
     ("POST", "/api/evalsets/{set_id}/runs"): "evaluate",
+    # A check of an agent's connection sends one request to its service (ADR-0021): counted per
+    # person at a person's pace, as the console's reads of the deployment's registry are.
+    ("POST", "/api/connections/{namespace}/{name}/check"): "label",
 }
 # A renamed route at the path it had before (`server/paths.py`) counts against the class the
 # route counts against now: one bucket for both, so the former path is no second allowance.

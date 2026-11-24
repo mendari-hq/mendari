@@ -206,6 +206,25 @@ def registry_review_org() -> str | None:
     return raw
 
 
+def registry_url() -> str | None:
+    """The registry the console searches and adds agents from ($MENDARI_REGISTRY_URL, the Agent
+    Hub's or a site's own; unset: none, and the console offers neither). The same setting the
+    command line's `mendari pull` reads. It is https, or plain http to this machine only, with
+    no user or password in it: anything else fails at startup, naming the setting and never
+    its value."""
+    from mendari.core.https_only import is_https_or_local
+
+    raw = os.environ.get("MENDARI_REGISTRY_URL", "").strip().rstrip("/")
+    if not raw:
+        return None
+    if not is_https_or_local(raw):
+        raise MendariError(
+            "MENDARI_REGISTRY_URL must be an https address (plain http only for this machine), "
+            "with no user or password in it"
+        )
+    return raw
+
+
 def database_target() -> str:
     """The hosted server's database (`mendari.server.vercel`): $DATABASE_URL, required on
     Vercel; elsewhere `var/mendari.db`."""

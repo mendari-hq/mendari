@@ -32,7 +32,12 @@ TAGS = [
         "Da Vinci DTR and PAS. Mendari is not a FHIR data server: it stores and serves no "
         "clinical resources.",
     },
-    {"name": "Agents", "description": "The agents this deployment serves."},
+    {
+        "name": "Agents",
+        "description": "The agents this deployment serves, the registry more are found in and "
+        "added from, and each agent's connection: the service that answers for it in your "
+        "organization.",
+    },
     {"name": "Review and feedback", "description": "The human review queue, outcomes, ratings."},
     {"name": "Audit", "description": "The hash-chained audit trail of every decision."},
     {"name": "Evaluation and monitoring", "description": "Evaluations, drift, deployments."},
