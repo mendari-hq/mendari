@@ -1,0 +1,7 @@
+# Canned grades for the `draft_check` rubric (synthetic).
+model: mock-written-judge
+default:
+  grades: {safe_to_send: "yes"}
+cases:
+  - match: [take two, double your dose]
+    grades: {safe_to_send: "no"}

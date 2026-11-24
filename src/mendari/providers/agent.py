@@ -43,7 +43,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from mendari.core import actions as proposals
 from mendari.core.pack import Pack
-from mendari.core.spec import ActionSpec, Question, at_least, deployment_env_problem
+from mendari.core.spec import (
+    ActionSpec,
+    PackManifest,
+    Question,
+    WrittenOutput,
+    at_least,
+    deployment_env_problem,
+)
 from mendari.errors import MendariError, PackValidationError, ProviderError
 from mendari.providers import agent_calibration, deadline, reach
 from mendari.providers.base import (
@@ -168,6 +175,9 @@ class AgentProvider(Provider):
         # Only a 0.4 agent's response may propose actions: an older agent's `actions` key is
         # not read, as any key the contract does not name never was.
         self.proposes = at_least(self.pack.manifest.spec_version, "0.4")
+        # What the manifest asks this slot's agent to write (spec 0.4 section 17). A composite's
+        # member writes nothing: its response's `outputs` key is not read.
+        self.outputs = slot_outputs(self.pack.manifest, self.info.slot, self.info.variant)
         if self.settings.mock_file is not None:
             self._mock = _load_fixture_file(
                 self.pack,
@@ -175,6 +185,7 @@ class AgentProvider(Provider):
                 self.questions,
                 self.info.slot,
                 actions=self.proposes,
+                outputs=self.outputs,
             )
         if self.settings.agent_id is not None:
             self.info = replace(self.info, model=self.settings.agent_id)
@@ -207,7 +218,14 @@ class AgentProvider(Provider):
         if file_problems:
             return file_problems
         proposes = at_least(pack.manifest.spec_version, "0.4")
-        return _fixture_data_problems(where, mock_file, data, questions, actions=proposes)
+        return _fixture_data_problems(
+            where,
+            mock_file,
+            data,
+            questions,
+            actions=proposes,
+            outputs=_outputs_at(pack.manifest, where),
+        )
 
     @staticmethod
     def _settings(
@@ -375,6 +393,7 @@ class AgentProvider(Provider):
             instructions=self.settings.instructions,
             state_fields=self.settings.state_fields,
             actions=self.pack.manifest.actions,
+            outputs=self.outputs,
         )
         if len(json.dumps(body)) > MAX_REQUEST_CHARS:
             raise ProviderError("invalid_input", "request exceeds the agent size limit")
@@ -398,7 +417,7 @@ class AgentProvider(Provider):
             # list, checked the host, and gave the client that opens public addresses only.
             allowed=live.source == "organization" and live.allowed,
         )
-        parsed = validate_response(raw, self.questions, actions=self.proposes)
+        parsed = validate_response(raw, self.questions, actions=self.proposes, outputs=self.outputs)
         usage = parsed["usage"]
         self.metered(usage["input_tokens"], usage["output_tokens"], usage["cost_usd"])
         return self._build_output(parsed, used_mock=False)
@@ -413,7 +432,9 @@ class AgentProvider(Provider):
         matched = _match_fixture_response(self._mock, state)
         if matched is None:
             raise ProviderError("invalid_response", "no mock case matched input")
-        parsed = validate_response(matched, self.questions, actions=self.proposes)
+        parsed = validate_response(
+            matched, self.questions, actions=self.proposes, outputs=self.outputs
+        )
         return self._build_output(parsed, used_mock=True)
 
     def _build_output(self, parsed: dict[str, Any], *, used_mock: bool) -> ProviderOutput:
@@ -471,7 +492,28 @@ class AgentProvider(Provider):
                 proposals.Proposed(item["name"], item["arguments"], slot=self.info.slot)
                 for item in parsed.get("actions", ())
             ),
+            outputs=dict(parsed.get("outputs", {})),
         )
+
+
+def slot_outputs(manifest: PackManifest, slot: str, variant: str) -> dict[str, WrittenOutput]:
+    """The written outputs the manifest declares for `slot`, in its order, when `variant` is one
+    of the slot's own variants and an `agent`; none otherwise (a composite's member, whose
+    variant is named `<variant>.<member>`, writes nothing)."""
+    declared = manifest.providers.get(slot)
+    own = declared.variants.get(variant) if declared is not None else None
+    if own is None or own.type != AgentProvider.type:
+        return {}
+    return {name: output for name, output in manifest.outputs.items() if output.slot == slot}
+
+
+def _outputs_at(manifest: PackManifest, where: str) -> dict[str, WrittenOutput]:
+    """`slot_outputs` for the variant a config problem names (`providers.<slot>.variants.<v>`)."""
+    for slot, declared in manifest.providers.items():
+        for variant in declared.variants:
+            if where == f"providers.{slot}.variants.{variant}":
+                return slot_outputs(manifest, slot, variant)
+    return {}
 
 
 def request_body(
@@ -485,10 +527,13 @@ def request_body(
     instructions: str | None = None,
     state_fields: list[str] | None = None,
     actions: Mapping[str, ActionSpec] | None = None,
+    outputs: Mapping[str, WrittenOutput] | None = None,
 ) -> dict[str, Any]:
     """The JSON payload POSTed to an external agent endpoint. `actions` are the actions the
     agent's manifest declares (spec 0.4 section 4.1), sent in the manifest's order; an agent
-    that declares none gets no `actions` key, and its requests are what they always were."""
+    that declares none gets no `actions` key, and its requests are what they always were.
+    `outputs` are the texts the manifest asks this slot's agent to write (section 17), each
+    `{name, description, max_chars}`, likewise left out when there are none."""
     state = select_fields(inputs, state_fields) if state_fields is not None else dict(inputs)
     body: dict[str, Any] = {
         "pack_id": pack_id,
@@ -503,6 +548,8 @@ def request_body(
         body["instructions"] = instructions
     if actions:
         body["actions"] = [spec.request(name) for name, spec in actions.items()]
+    if outputs:
+        body["outputs"] = [output.request(name) for name, output in outputs.items()]
     return body
 
 
@@ -527,11 +574,17 @@ def agent_question(key: str, question: Question) -> dict[str, Any]:
 
 
 def validate_response(
-    raw: Any, questions: Mapping[str, Question], *, actions: bool = False
+    raw: Any,
+    questions: Mapping[str, Question],
+    *,
+    actions: bool = False,
+    outputs: Mapping[str, WrittenOutput] | None = None,
 ) -> dict[str, Any]:
     """Strict validation of an external agent's JSON response. Raises `invalid_response`.
     With `actions` (a spec 0.4 agent), the response's proposed `actions` are read and held to
-    the contract's shape (`_validate_actions`); without, the key is not read at all."""
+    the contract's shape (`_validate_actions`); without, the key is not read at all. With
+    `outputs` (what the manifest asks this slot to write), the response's `outputs` are read
+    and held to them (`_validate_outputs`); with none declared the key is not read either."""
     if not isinstance(raw, dict):
         raise _invalid("response is not an object")
 
@@ -559,7 +612,40 @@ def validate_response(
     }
     if actions:
         validated["actions"] = _validate_actions(raw.get("actions"))
+    if outputs:
+        validated["outputs"] = _validate_outputs(raw.get("outputs"), outputs)
     return validated
+
+
+# Control characters a written text may not carry: all but the newline and the tab.
+_OUTPUT_CTRL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]+")
+
+
+def _validate_outputs(raw: Any, declared: Mapping[str, WrittenOutput]) -> dict[str, str]:
+    """What a response wrote (spec 0.4 section 17), by name: an object of texts, each for an
+    output the manifest declares for this slot and no longer than its `max_chars`. Anything else
+    is a malformed response (`invalid_response`), and the detail never echoes a text. Control
+    characters other than the newline and the tab become a space; a text that is then blank is
+    no output, as one left out is."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise _invalid("outputs must be an object")
+    if set(raw) - set(declared):
+        raise _invalid("outputs names an output this slot does not declare")
+    written: dict[str, str] = {}
+    for name, output in declared.items():
+        if name not in raw:
+            continue
+        text = raw[name]
+        if not isinstance(text, str):
+            raise _invalid(f"output {name!r} is not text")
+        if len(text) > output.max_chars:
+            raise _invalid(f"output {name!r} is longer than its max_chars")
+        cleaned = _OUTPUT_CTRL.sub(" ", text).strip()
+        if cleaned:
+            written[name] = cleaned
+    return written
 
 
 def _validate_actions(raw: Any) -> list[dict[str, Any]]:
@@ -769,9 +855,12 @@ def _load_fixture_file(
     where: str,
     *,
     actions: bool = False,
+    outputs: Mapping[str, WrittenOutput] | None = None,
 ) -> dict[str, Any]:
     data = _read_pack_fixture(pack, relative)
-    problems = _fixture_data_problems(where, relative, data, questions, actions=actions)
+    problems = _fixture_data_problems(
+        where, relative, data, questions, actions=actions, outputs=outputs
+    )
     if problems:
         raise PackValidationError(pack.id, problems)
     assert isinstance(data, dict)
@@ -785,6 +874,7 @@ def _fixture_data_problems(
     questions: Mapping[str, Question],
     *,
     actions: bool = False,
+    outputs: Mapping[str, WrittenOutput] | None = None,
 ) -> list[str]:
     if not isinstance(data, dict):
         return [f"{where}: {relative}: mock file must be a mapping"]
@@ -819,14 +909,14 @@ def _fixture_data_problems(
             continue
         merged = _merge_fixture_response(data, case["response"])
         try:
-            validate_response(merged, questions, actions=actions)
+            validate_response(merged, questions, actions=actions, outputs=outputs)
         except ProviderError as error:
             problems.append(f"{where}: {relative}: cases[{index}].response: {error.detail}")
 
     if "default" in data and data["default"] is not None:
         merged = _merge_fixture_response(data, data["default"])
         try:
-            validate_response(merged, questions, actions=actions)
+            validate_response(merged, questions, actions=actions, outputs=outputs)
         except ProviderError as error:
             problems.append(f"{where}: {relative}: default: {error.detail}")
 

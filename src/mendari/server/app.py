@@ -2060,11 +2060,15 @@ def create_app(
 
         The answer is complete, with each answer's `evidence`; the audit record keeps it only as
         the PHI mode allows (`GET /api/audit/{id}`). `input_hash` is `hmac-sha256:<key id>:<hex>`
-        where the deployment has an input hash key (always with PHI), else `sha256:<hex>`."""
+        where the deployment has an input hash key (always with PHI), else `sha256:<hex>`.
+
+        An agent whose manifest declares written outputs (spec 0.4) answers with `outputs` too:
+        what it wrote, by name. They are returned here and are not kept with the decision."""
         decided = decision_for(f"{namespace}/{name}").decide(
             payload, shadow=_is_shadow(request, shadow)
         )
-        return {**decided.to_dict(), **NOTICE}
+        written = {"outputs": dict(decided.outputs)} if decided.outputs else {}
+        return {**decided.to_dict(), **written, **NOTICE}
 
     @paths.route(
         app.post,

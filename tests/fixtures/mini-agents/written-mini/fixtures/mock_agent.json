@@ -1,0 +1,84 @@
+{
+  "model": "mock-written-agent",
+  "agent_version": "0.1.0",
+  "cases": [
+    {
+      "match": "chest pain",
+      "response": {
+        "answers": {
+          "request": {
+            "value": "other",
+            "confidence": 0.95
+          }
+        },
+        "outputs": {
+          "reply_draft": "Thank you for your message. A nurse will call you today. If it gets worse, call 911 or go to the nearest emergency department."
+        }
+      }
+    },
+    {
+      "match": "refill",
+      "response": {
+        "answers": {
+          "request": {
+            "value": "refill",
+            "confidence": 0.95
+          }
+        },
+        "outputs": {
+          "reply_draft": "Thank you for your message. The pharmacy team will review your refill request and you will hear back within two business days."
+        }
+      }
+    },
+    {
+      "match": "appointment",
+      "response": {
+        "answers": {
+          "request": {
+            "value": "appointment",
+            "confidence": 0.95
+          }
+        },
+        "outputs": {
+          "reply_draft": "Thank you for your message. The scheduling team will contact you."
+        }
+      }
+    },
+    {
+      "match": "nothing to say",
+      "response": {
+        "answers": {
+          "request": {
+            "value": "other",
+            "confidence": 0.92
+          }
+        }
+      }
+    },
+    {
+      "match": "blank reply",
+      "response": {
+        "answers": {
+          "request": {
+            "value": "other",
+            "confidence": 0.92
+          }
+        },
+        "outputs": {
+          "reply_draft": "  \n "
+        }
+      }
+    }
+  ],
+  "default": {
+    "answers": {
+      "request": {
+        "value": "other",
+        "confidence": 0.92
+      }
+    },
+    "outputs": {
+      "reply_draft": "Thank you for your message. The front desk will read it and reply within two business days."
+    }
+  }
+}

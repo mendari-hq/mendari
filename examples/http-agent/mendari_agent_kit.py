@@ -27,6 +27,10 @@ Proposing is asking: Mendari answers each with `released`, `held` or `blocked`, 
 The code that runs a tool calls `authorize` right before, and runs it only when
 `authorize(...).released`.
 
+An agent whose manifest asks it to write (spec 0.4: a draft reply, a summary) gets what is asked
+in `case.outputs` and returns the texts with its answers:
+`respond(case, answers, outputs={"reply_draft": "Thank you for your message. ..."})`.
+
 It depends only on the standard library and FastAPI, so a starter can carry a copy of this file
 (`mendari_agent_kit.py`) and deploy on its own. It never logs a request's input.
 """
@@ -55,6 +59,7 @@ __all__ = [
     "AgentError",
     "Authorization",
     "Case",
+    "Output",
     "Question",
     "authorize",
     "create_app",
@@ -78,6 +83,9 @@ MAX_ACTIONS = 16
 MAX_ARGUMENT_CHARS = 16_000
 MAX_ARGUMENT_DEPTH = 8
 ACTION_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}\Z")
+# Written outputs (spec 0.4 section 17; the engine's `core/spec.py`).
+MAX_OUTPUTS = 8
+MAX_OUTPUT_CHARS = 8_000
 # Where `authorize` asks, and with what key: the Mendari that made the decision.
 URL_ENV = "MENDARI_URL"
 KEY_ENV = "MENDARI_KEY"
@@ -116,6 +124,15 @@ class Action:
 
 
 @dataclass(frozen=True)
+class Output:
+    """One text the agent's manifest asks it to write (spec 0.4): a draft reply, a summary."""
+
+    name: str
+    description: str  # what to write, in the manifest's words
+    max_chars: int  # a longer text is refused
+
+
+@dataclass(frozen=True)
 class Case:
     """One decision's request, parsed and checked (`Case.parse`)."""
 
@@ -126,6 +143,7 @@ class Case:
     input: dict[str, Any]  # only the fields the manifest's `state_fields` send
     instructions: str | None  # the manifest's `system_prompt` and `instructions`, joined
     actions: tuple[Action, ...] = ()  # what the agent may propose; none for an older manifest
+    outputs: tuple[Output, ...] = ()  # what the agent is asked to write; none unless declared
 
     @classmethod
     def parse(cls, body: Any) -> Case:
@@ -168,6 +186,7 @@ class Case:
             input=body["input"],
             instructions="\n\n".join(said) or None,
             actions=_actions(body.get("actions")),
+            outputs=_outputs(body.get("outputs")),
         )
 
     def action(self, name: str) -> Action:
@@ -203,6 +222,7 @@ def respond(
     usage: Mapping[str, Any] | None = None,
     tool_calls: Sequence[str | Mapping[str, Any]] | None = None,
     actions: Sequence[tuple[str, Mapping[str, Any]] | Mapping[str, Any]] | None = None,
+    outputs: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """The response body for `case`, which Mendari's `validate_response` accepts by construction.
 
@@ -220,6 +240,9 @@ def respond(
     is asking: never run a proposed action that writes, contacts a patient or orders before
     Mendari releases it. The kit checks the name and the limits, not the action's schema:
     Mendari does, and blocks an action whose arguments do not match.
+
+    `outputs` are the texts the agent wrote (spec 0.4), by name, among those the case asks for
+    (`case.outputs`), each no longer than its `max_chars`. One left out, or blank, is no output.
 
     An answer that cannot be given raises `AgentError` (502), which `create_app` returns, so
     Mendari fails closed: the case goes to a person.
@@ -247,6 +270,8 @@ def respond(
         body["tool_calls"] = _tool_calls(tool_calls)
     if actions:
         body["actions"] = _proposed(case, actions)
+    if outputs:
+        body["outputs"] = _written(case, outputs)
     try:
         size = len(json.dumps(body, allow_nan=False).encode())
     except (TypeError, ValueError):
@@ -484,6 +509,49 @@ def _actions(items: Any) -> tuple[Action, ...]:
     if len({action.name for action in found}) != len(found):
         raise AgentError(400, "action names repeat")
     return tuple(found)
+
+
+def _outputs(items: Any) -> tuple[Output, ...]:
+    """The texts the request asks for; none when the key is absent. One that is not as Mendari
+    sends it is `AgentError` (400)."""
+    if items is None:
+        return ()
+    if not isinstance(items, list) or len(items) > MAX_OUTPUTS:
+        raise AgentError(400, f"outputs: at most {MAX_OUTPUTS} expected")
+    found = []
+    for item in items:
+        limit = item.get("max_chars") if isinstance(item, dict) else None
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("name"), str)
+            or not ACTION_NAME.match(item["name"])
+            or isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= MAX_OUTPUT_CHARS
+        ):
+            raise AgentError(400, "each output needs a name and a max_chars")
+        found.append(Output(item["name"], _text(item.get("description")) or "", limit))
+    if len({output.name for output in found}) != len(found):
+        raise AgentError(400, "output names repeat")
+    return tuple(found)
+
+
+def _written(case: Case, outputs: Mapping[str, str]) -> dict[str, str]:
+    """The written texts as the response carries them (`AgentError` 502 otherwise, which never
+    repeats a text)."""
+    if not isinstance(outputs, Mapping):
+        raise AgentError(502, "outputs: {name: text} expected")
+    asked = {output.name: output for output in case.outputs}
+    written = {}
+    for name, text in outputs.items():
+        if not isinstance(name, str) or name not in asked:
+            raise AgentError(502, "the agent wrote an output the case does not ask for")
+        if not isinstance(text, str):
+            raise AgentError(502, f"the output {name!r} is not text")
+        if len(text) > asked[name].max_chars:
+            raise AgentError(502, f"the output {name!r} is longer than its max_chars")
+        written[name] = text
+    return written
 
 
 def _proposed(
