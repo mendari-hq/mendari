@@ -85,6 +85,10 @@ _EVENTS = {
     "pas.submitted": ("E", "Prior authorization requested (Da Vinci PAS)"),
     "note.erased": ("D", "Note erased, on request or by the retention policy"),
     "card.feedback": ("C", "Card feedback recorded (CDS Hooks)"),
+    # An action an agent proposed or a caller asked about, and its release or denial by the
+    # decision's reviewer (spec 0.4): authorized and recorded here, run elsewhere.
+    "action.proposed": ("C", "Action proposed"),
+    "action.resolved": ("U", "Action released or denied by review"),
 }
 # The activities that create or change a decision's result: each gets a Provenance and makes a
 # new version of the decision's Task (task_fhir.py). Other events change neither. The store's
@@ -103,6 +107,18 @@ _DETAILS = {
     "input.erased": ("reason",),
     # What a clinician did with a CDS Hooks card (LP-23f): codes and ids, never a comment.
     "card.feedback": ("service", "outcome", "accepted_suggestions", "override_reason"),
+    # A proposed action: ids, the declared name, codes and the arguments' hash. The arguments,
+    # and a name the manifest does not declare, are a note: never in an export.
+    "action.proposed": (
+        "action_id",
+        "name",
+        "effect",
+        "disposition",
+        "reason",
+        "arguments_hash",
+        "source",
+    ),
+    "action.resolved": ("action_id", "name", "effect", "disposition", "reason"),
 }
 
 
@@ -268,6 +284,8 @@ def _actor(event: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, An
         event["event"] == "note.erased" and not payload.get("erased_by")
     ):
         return {"who": engine(event), "requestor": False}  # the retention policy
+    if event["event"] == "action.proposed" and payload.get("source") == "answer":
+        return {"who": engine(event), "requestor": False}  # proposed with the agent's answer
     if event["event"] == "outcome.recorded":
         return {
             "who": {"display": str(payload.get("recorded_by") or NOT_RECORDED)},

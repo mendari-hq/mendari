@@ -34,6 +34,7 @@ from mendari.core.origin import bounded as origin_bounded
 from mendari.core.spec import (
     LICENSED_CODE_SYSTEMS,
     LICENSED_HINTS,
+    Effect,
     Outcome,
     PackManifest,
     Priority,
@@ -250,6 +251,27 @@ class Pack:
             }
             for key, question in m.questions.items()
         }
+        # What the agent proposed to have done, each with what may be done with it (spec 0.4):
+        # only for an agent that declares actions, so every other agent's schema is as it was.
+        proposed = {
+            "actions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["id", "name", "effect", "disposition", "reason"],
+                    "properties": {
+                        "id": {"type": "string"},
+                        "name": {"type": "string"},
+                        "effect": {"enum": [*(effect.value for effect in Effect), None]},
+                        "disposition": {"enum": ["released", "held", "blocked"]},
+                        "reason": {"type": "string"},
+                        "arguments": {"type": "object"},
+                        "arguments_hash": {"type": "string"},
+                        "problems": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            }
+        }
         return {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "$id": f"https://mendari.co/packs/{m.id}/{m.version}/output.schema.json",
@@ -265,6 +287,7 @@ class Pack:
                 "answers": {"type": "object", "properties": answers},
                 "reasons": {"type": "array", "items": {"type": "string"}},
                 "fallback": {"type": ["string", "null"]},
+                **(proposed if m.actions else {}),
             },
         }
 

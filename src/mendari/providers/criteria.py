@@ -78,7 +78,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from mendari.core import clock
 from mendari.core.pack import Pack
-from mendari.core.spec import Question
+from mendari.core.spec import Question, at_least
 from mendari.core.text import plain
 from mendari.errors import PackValidationError
 from mendari.providers.base import (
@@ -297,7 +297,7 @@ def newer_keys(criteria: CriteriaConfig) -> list[str]:
 def older_spec_problems(relative: str, criteria: CriteriaConfig, pack: Pack) -> list[str]:
     """A 0.1 or 0.2 pack's criteria file uses no spec 0.3 key: the problem names each one it
     does (`newer_keys`), as `standards.fhir.older_spec_problems` names a mapping's."""
-    newer = [] if pack.manifest.spec_version == SPEC_03 else newer_keys(criteria)
+    newer = [] if at_least(pack.manifest.spec_version, SPEC_03) else newer_keys(criteria)
     problem = f"{relative}: {newer} use spec 0.3 criteria features; set spec_version: '0.3'"
     return [problem] if newer else []
 
@@ -307,7 +307,7 @@ def version_problems(pack: Pack) -> list[str]:
     too), for `load_pack` to refuse a pack the deployment owns as it does one it does not (whose
     variants `providers.config_problems` checks at load). A file that does not read, or is not
     of the criteria shape, gives none here: it is refused where it is read, as before."""
-    if pack.manifest.spec_version == SPEC_03:
+    if at_least(pack.manifest.spec_version, SPEC_03):
         return []
     files: list[str] = []
     for slot in pack.manifest.providers.values():

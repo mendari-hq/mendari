@@ -1262,6 +1262,13 @@ def served(world: World, org: Org) -> None:
         200,
         json=pas,
     )
+    ok(  # an action asked for that decision (spec 0.4): answered blocked, a 200
+        service,
+        ("POST", "/api/agents/{namespace}/{name}/actions"),
+        f"/api/agents/{PA}/actions",
+        200,
+        json={"decision_id": pas["decision_id"], "name": "send_reply", "arguments": {}},
+    )
     shown = hook["cards"][0]["uuid"]  # a card's feedback (LP-23f)
     when = "2026-10-18T12:00:00-04:00"
     sent = {"feedback": [{"card": shown, "outcome": "overridden", "outcomeTimestamp": when}]}

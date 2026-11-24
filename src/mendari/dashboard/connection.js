@@ -6,7 +6,8 @@
 // again: the server returns none, so the field is always empty when the panel opens.
 // Where the deployment lists the addresses it may call and the one typed is not among them, one
 // of the deployment's operators is offered a box to allow it for this agent (the server checks
-// who asks, and that the address is a public one); anyone else is told who can.
+// who asks, and that the address is a public one); anyone else is told who can. Where the
+// deployment names no operator organization nobody can, and the panel says what to set.
 // Everything the server says of an address or a person is escaped.
 
 import { $, actionDialog, api, esc, icon, may, time, toast, toastError, whileBusy } from "./ui.js";
@@ -59,7 +60,9 @@ function rules(c) {
     : "This deployment lists no address it may call.";
   const other = c.may_allow_origin
     ? `As one of this deployment's operators you can allow another address on the public internet for this agent when you save. ${inside}`
-    : "Another address is allowed by an administrator of the organization that operates this deployment, or listed by whoever runs it (MENDARI_PROVIDER_ALLOWED_ORIGINS).";
+    : c.operator_named === false
+      ? "Nobody can allow another address from here: this deployment names no organization as its operator. Whoever runs it names one (MENDARI_OPERATOR_ORG), or lists the address (MENDARI_PROVIDER_ALLOWED_ORIGINS)."
+      : "Another address is allowed by an administrator of the organization that operates this deployment, or listed by whoever runs it (MENDARI_PROVIDER_ALLOWED_ORIGINS).";
   const reach = c.allowed_origins === null ? `The address must be on the public internet. ${inside}` : `${listed} ${other}`;
   const token = c.seals
     ? "The token is kept sealed and never shown again. Changing the address removes it unless you type one."

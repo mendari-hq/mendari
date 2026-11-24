@@ -22,7 +22,7 @@ The bundled demo agent answers from a fixture that matches keywords. Probed:
 
 ```text
 $ mendari probe mendari/portal-message-agent --limit 20
-Portal Message Agent 0.1.2 (mendari/portal-message-agent), reader=agent
+Portal Message Agent 0.2.0 (mendari/portal-message-agent), reader=agent
 20 of the 536 distinct cases of test (10 with a critical label), seed 0. Text changed: message.body.
 140 decisions, none of them a call to an agent: its answers are canned (MENDARI_AGENT_URL is not
 set), read on this machine. What follows is what the canned answers miss, not what your agent

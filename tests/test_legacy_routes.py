@@ -113,6 +113,8 @@ REGISTRY_CLASS = {
 # and the registry's, as those are.
 ENGINE_SINCE_THE_RENAME: set[RouteKey] = {
     ("GET", "/api/agents/{namespace}/{name}/committee-packet"),
+    # Authorizing an action for a recorded decision (spec 0.4): made since, so at one path only.
+    ("POST", "/api/agents/{namespace}/{name}/actions"),
 }
 REGISTRY_SINCE_THE_RENAME: set[RouteKey] = {
     ("GET", "/v1/agents/{namespace}/{name}/evaluation"),

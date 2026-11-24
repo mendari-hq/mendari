@@ -6,11 +6,11 @@ Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (local) or Postgres (Verc
 
 ```bash
 uv sync                                   # install (dev group included)
-uv run pytest -n 6                        # full suite, 9,800 tests: about 15 min on six workers; warnings are errors
-uv run pytest -m core                     # the edit loop, about 20 s: manifest loading, decisions, policy, audit
+uv run pytest -n 6                        # full suite, 10,400 tests: about 15 min on six workers; warnings are errors
+uv run pytest -m core                     # the edit loop, about 20 s: manifest loading, decisions, policy and its caps, actions, audit
 uv run pytest tests/test_<area>.py        # and the file for what you changed (not with -m core, which filters it)
 uv run pytest --lf                        # after a failing full run: only what failed
-uv run pytest -m browser                  # dashboard in Chromium, 470 tests, about 7 min (once: uv run playwright install chromium)
+uv run pytest -m browser                  # dashboard in Chromium, 480 tests, about 7 min (once: uv run playwright install chromium)
 uv run pytest -m slow                     # the structural R4 gate over HL7's 5,309 R4 examples (if cached)
 # Postgres backend tests (Mendari's own container; never reuse another project's database).
 # "too many clients" there is the container's connection limit, not a bug: rerun that file alone.
@@ -77,6 +77,14 @@ docker run --rm -v "$PWD/deploy/site:/mnt:ro" koalaman/shellcheck:stable /mnt/me
 - **Policy only lowers automation.** Caps (per-label, provider failure, risk level) may turn
   AUTO into HUMAN_REVIEW, never the reverse. Risk-level limits live in `core/policy.py`, not
   in manifests (ADR-0002).
+- **The action gate lives in `core/policy.py` and only tightens** (ADR-0023): `EFFECT_GATES`,
+  `gate_of`, `disposition`. A manifest (`allow_auto: false`), an agent nobody vouched for and
+  a second signal that did not agree on a proposal each make a gate stricter; nothing loosens
+  one. Mendari authorizes an action and records it, and runs none.
+- **A calibration is tied to the agent version it was fitted for** (ADR-0024): when the
+  agent's service reports another version, or none, nothing is rescaled and the decision is
+  capped. The version cap and the second signal's are `apply_policy`'s step 7, the actions'
+  cap its step 8, in that order (the module's docstring; `tests/test_caps_together.py`).
 - **Providers never raise anything but `ProviderError`** for expected failures, with stable
   codes and no remote error bodies or credentials in messages.
 - **Reports never contain case text**, only ids.
@@ -93,8 +101,11 @@ docker run --rm -v "$PWD/deploy/site:/mnt:ro" koalaman/shellcheck:stable /mnt/me
 ## Layout
 
 See README "Project layout". Spec: `docs/spec/agent-manifest-0.2.md`, with the FHIR mapping of
-`agent-manifest-0.3.md` (0.1 and 0.2 still load). Decisions: `docs/decisions/` (ADR-0021: an
-agent's connection; ADR-0022: the first administrator and the operator organization). The
+`agent-manifest-0.3.md` and the actions, calibration and second signal of
+`agent-manifest-0.4.md` (the newest, `SPEC_VERSION`; 0.1 to 0.3 still load, and a feature of
+one version is asked for with `spec.at_least`, never equality). Decisions: `docs/decisions/`
+(ADR-0021: an agent's connection; ADR-0022: the first administrator and the operator
+organization; ADR-0023: actions; ADR-0024: a checked confidence and a second signal). The
 one-machine install is `deploy/site/` (its script `mendari-site`, its settings made by
 `src/mendari/install.py`); the console's Agents, connection and System views are
 `dashboard/agents.js`, `connection.js` and `system.js`, over `server/hub_routes.py`,

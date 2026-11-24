@@ -41,10 +41,11 @@ from typing import Any, Literal, TypeGuard
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from mendari.core import actions as proposals
 from mendari.core.pack import Pack
-from mendari.core.spec import Question, deployment_env_problem
+from mendari.core.spec import ActionSpec, Question, at_least, deployment_env_problem
 from mendari.errors import MendariError, PackValidationError, ProviderError
-from mendari.providers import deadline, reach
+from mendari.providers import agent_calibration, deadline, reach
 from mendari.providers.base import (
     MAX_CALL_COST_USD,
     MAX_CALL_TOKENS,
@@ -63,6 +64,7 @@ from mendari.providers.http import (
     require_https,
     require_secure,
 )
+from mendari.providers.repeat import MAX_RUNS, MIN_RUNS, repeated
 from mendari.standards.fhir_client import origin_of
 
 ENDPOINT_ENV = "MENDARI_AGENT_URL"
@@ -134,6 +136,11 @@ class AgentConfig(BaseModel):
     state_fields: list[str] | None = None
     # Pack-relative JSON or YAML fixture for offline testing and evaluation.
     mock_file: str | None = None
+    # Spec 0.4 (ADR-0024). Per-question temperatures fitted by `mendari calibrate` (a file in
+    # the agent), for the agent version its service reported then: `agent_calibration.py`.
+    calibration: str | None = None
+    # Ask each case this many times and never automate when the runs disagree: `repeat.py`.
+    repeat: int | None = Field(default=None, ge=MIN_RUNS, le=MAX_RUNS)
 
     @field_validator("timeout_seconds", mode="before")
     @classmethod
@@ -158,12 +165,24 @@ class AgentProvider(Provider):
         self._client = client
         self._connection: ConnectionSource | None = None
         self._mock: dict[str, Any] | None = None
+        # Only a 0.4 agent's response may propose actions: an older agent's `actions` key is
+        # not read, as any key the contract does not name never was.
+        self.proposes = at_least(self.pack.manifest.spec_version, "0.4")
         if self.settings.mock_file is not None:
             self._mock = _load_fixture_file(
-                self.pack, self.settings.mock_file, self.questions, self.info.slot
+                self.pack,
+                self.settings.mock_file,
+                self.questions,
+                self.info.slot,
+                actions=self.proposes,
             )
         if self.settings.agent_id is not None:
             self.info = replace(self.info, model=self.settings.agent_id)
+        self.calibration: agent_calibration.Calibration | None = None
+        if self.settings.calibration is not None:
+            self.calibration = agent_calibration.load(
+                self.pack, self.info.slot, self.settings.calibration, self.questions
+            )
 
     @classmethod
     def config_problems(
@@ -177,13 +196,18 @@ class AgentProvider(Provider):
         trained: bool,
     ) -> list[str]:
         settings, problems = cls._settings(where, config, questions, bounded=bounded)
+        if settings is not None and settings.calibration is not None and trained:
+            problems = agent_calibration.file_problems(pack, where, settings.calibration)
+            if problems:
+                return problems
         if settings is None or settings.mock_file is None:
             return problems
         mock_file = settings.mock_file
         data, file_problems = read_problems(lambda: _read_pack_fixture(pack, mock_file))
         if file_problems:
             return file_problems
-        return _fixture_data_problems(where, mock_file, data, questions)
+        proposes = at_least(pack.manifest.spec_version, "0.4")
+        return _fixture_data_problems(where, mock_file, data, questions, actions=proposes)
 
     @staticmethod
     def _settings(
@@ -316,6 +340,21 @@ class AgentProvider(Provider):
         raise ProviderError("not_configured", f"set {ENDPOINT_ENV}")
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
+        """The agent's answers as the policy sees them: each call's confidence calibrated
+        (`agent_calibration.calibrated`), and the call repeated when the variant says so
+        (`repeat.repeated`). `answer_once` is one call, as the agent answered it."""
+        return repeated(
+            self, self.settings.repeat, lambda: self._calibrated(self.answer_once(inputs))
+        )
+
+    def _calibrated(self, output: ProviderOutput) -> ProviderOutput:
+        if self.calibration is None:
+            return output
+        return agent_calibration.calibrated(
+            self.calibration, output, self.questions, self.settings.agent_id
+        )
+
+    def answer_once(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         live = self.live()
         if live is None:
             if self._mock is not None:
@@ -335,6 +374,7 @@ class AgentProvider(Provider):
             system_prompt=self.settings.system_prompt,
             instructions=self.settings.instructions,
             state_fields=self.settings.state_fields,
+            actions=self.pack.manifest.actions,
         )
         if len(json.dumps(body)) > MAX_REQUEST_CHARS:
             raise ProviderError("invalid_input", "request exceeds the agent size limit")
@@ -358,7 +398,7 @@ class AgentProvider(Provider):
             # list, checked the host, and gave the client that opens public addresses only.
             allowed=live.source == "organization" and live.allowed,
         )
-        parsed = validate_response(raw, self.questions)
+        parsed = validate_response(raw, self.questions, actions=self.proposes)
         usage = parsed["usage"]
         self.metered(usage["input_tokens"], usage["output_tokens"], usage["cost_usd"])
         return self._build_output(parsed, used_mock=False)
@@ -373,7 +413,7 @@ class AgentProvider(Provider):
         matched = _match_fixture_response(self._mock, state)
         if matched is None:
             raise ProviderError("invalid_response", "no mock case matched input")
-        parsed = validate_response(matched, self.questions)
+        parsed = validate_response(matched, self.questions, actions=self.proposes)
         return self._build_output(parsed, used_mock=True)
 
     def _build_output(self, parsed: dict[str, Any], *, used_mock: bool) -> ProviderOutput:
@@ -427,6 +467,10 @@ class AgentProvider(Provider):
             cost_usd=cost_usd,
             extra=extra,
             canned=CANNED if used_mock else None,
+            actions=tuple(
+                proposals.Proposed(item["name"], item["arguments"], slot=self.info.slot)
+                for item in parsed.get("actions", ())
+            ),
         )
 
 
@@ -440,8 +484,11 @@ def request_body(
     system_prompt: str | None = None,
     instructions: str | None = None,
     state_fields: list[str] | None = None,
+    actions: Mapping[str, ActionSpec] | None = None,
 ) -> dict[str, Any]:
-    """The JSON payload POSTed to an external agent endpoint."""
+    """The JSON payload POSTed to an external agent endpoint. `actions` are the actions the
+    agent's manifest declares (spec 0.4 section 4.1), sent in the manifest's order; an agent
+    that declares none gets no `actions` key, and its requests are what they always were."""
     state = select_fields(inputs, state_fields) if state_fields is not None else dict(inputs)
     body: dict[str, Any] = {
         "pack_id": pack_id,
@@ -454,6 +501,8 @@ def request_body(
         body["system_prompt"] = system_prompt
     if instructions is not None:
         body["instructions"] = instructions
+    if actions:
+        body["actions"] = [spec.request(name) for name, spec in actions.items()]
     return body
 
 
@@ -477,8 +526,12 @@ def agent_question(key: str, question: Question) -> dict[str, Any]:
     return item
 
 
-def validate_response(raw: Any, questions: Mapping[str, Question]) -> dict[str, Any]:
-    """Strict validation of an external agent's JSON response. Raises `invalid_response`."""
+def validate_response(
+    raw: Any, questions: Mapping[str, Question], *, actions: bool = False
+) -> dict[str, Any]:
+    """Strict validation of an external agent's JSON response. Raises `invalid_response`.
+    With `actions` (a spec 0.4 agent), the response's proposed `actions` are read and held to
+    the contract's shape (`_validate_actions`); without, the key is not read at all."""
     if not isinstance(raw, dict):
         raise _invalid("response is not an object")
 
@@ -497,13 +550,31 @@ def validate_response(raw: Any, questions: Mapping[str, Question]) -> dict[str, 
     tool_calls = _validate_tool_calls(raw.get("tool_calls"))
     usage = _validate_usage(raw.get("usage"))
 
-    return {
+    validated = {
         "answers": validated_answers,
         "model": model,
         "agent_version": agent_version,
         "tool_calls": tool_calls,
         "usage": usage,
     }
+    if actions:
+        validated["actions"] = _validate_actions(raw.get("actions"))
+    return validated
+
+
+def _validate_actions(raw: Any) -> list[dict[str, Any]]:
+    """The actions a response proposes (spec 0.4 section 4.2), each `{name, arguments}`: a list
+    of at most `MAX_PROPOSED` objects with `name` and optional `arguments` (an object within
+    the limits) and no other key. Anything else is a malformed response (`invalid_response`),
+    and the detail never echoes a name or a value. Whether a name is declared, and whether its
+    arguments match its schema, is not checked here: that blocks one action, not the response
+    (`core/actions.py` `check`)."""
+    problem = proposals.proposals_problem(raw)
+    if problem is not None:
+        raise _invalid(problem)
+    return [
+        {"name": item["name"], "arguments": dict(item.get("arguments", {}))} for item in raw or ()
+    ]
 
 
 def _validate_answer(key: str, question: Question, answer: Any) -> dict[str, Any]:
@@ -692,10 +763,15 @@ def _read_pack_fixture(pack: Pack, relative: str) -> Any:
 
 
 def _load_fixture_file(
-    pack: Pack, relative: str, questions: Mapping[str, Question], where: str
+    pack: Pack,
+    relative: str,
+    questions: Mapping[str, Question],
+    where: str,
+    *,
+    actions: bool = False,
 ) -> dict[str, Any]:
     data = _read_pack_fixture(pack, relative)
-    problems = _fixture_data_problems(where, relative, data, questions)
+    problems = _fixture_data_problems(where, relative, data, questions, actions=actions)
     if problems:
         raise PackValidationError(pack.id, problems)
     assert isinstance(data, dict)
@@ -703,7 +779,12 @@ def _load_fixture_file(
 
 
 def _fixture_data_problems(
-    where: str, relative: str, data: Any, questions: Mapping[str, Question]
+    where: str,
+    relative: str,
+    data: Any,
+    questions: Mapping[str, Question],
+    *,
+    actions: bool = False,
 ) -> list[str]:
     if not isinstance(data, dict):
         return [f"{where}: {relative}: mock file must be a mapping"]
@@ -738,14 +819,14 @@ def _fixture_data_problems(
             continue
         merged = _merge_fixture_response(data, case["response"])
         try:
-            validate_response(merged, questions)
+            validate_response(merged, questions, actions=actions)
         except ProviderError as error:
             problems.append(f"{where}: {relative}: cases[{index}].response: {error.detail}")
 
     if "default" in data and data["default"] is not None:
         merged = _merge_fixture_response(data, data["default"])
         try:
-            validate_response(merged, questions)
+            validate_response(merged, questions, actions=actions)
         except ProviderError as error:
             problems.append(f"{where}: {relative}: default: {error.detail}")
 

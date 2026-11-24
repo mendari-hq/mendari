@@ -231,9 +231,11 @@ def operator_org() -> str | None:
     deployment's readiness checks and its operator's actions (`/api/system/...`), and the
     deployment's own views (the whole chain's verification, the deployment records). In
     memberships mode nobody holds it through the web without this setting, as before; in claims
-    mode every administrator does unless it is set, and then only that organization's. A
-    single-hospital install names its one organization (`default`). An id no organization could
-    have fails at startup."""
+    mode every administrator does unless it is set, and then only that organization's. One
+    thing needs it set in every mode: allowing an agent's connection an origin the deployment's
+    list does not name (`server/connection_routes.py` `may_allow`), which nobody may do while
+    no organization is named. A single-hospital install names its one organization
+    (`default`). An id no organization could have fails at startup."""
     from mendari.core.accounts import is_org_id
 
     raw = os.environ.get("MENDARI_OPERATOR_ORG", "").strip()

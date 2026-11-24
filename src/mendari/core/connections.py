@@ -112,6 +112,13 @@ NOT_LISTED = (
     "its connection (public addresses only); otherwise whoever runs the deployment adds that "
     f"origin to {ALLOWED_ORIGINS_ENV}"
 )
+# The same refusal on a deployment that names no operator organization, where nobody may allow
+# an origin (`server/connection_routes.py` `may_allow`): it says what whoever runs it sets.
+NOT_LISTED_NOBODY = (
+    "{origin} is not on the list of addresses this deployment may call, and nobody can allow "
+    "it from here: the deployment names no organization as its operator. Whoever runs it names "
+    f"one (MENDARI_OPERATOR_ORG), or adds that origin to {ALLOWED_ORIGINS_ENV}"
+)
 
 
 def admitted(

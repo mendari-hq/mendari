@@ -55,6 +55,8 @@ from mendari.core.audit import AuditStore
 from mendari.core.card import RISK_AUTOMATION, RISK_NAMES, read_benchmark
 from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
+from mendari.core.policy import GATE_TEXT, gate_of
+from mendari.core.spec import variant_configs
 from mendari.core.status import title as question_title
 from mendari.errors import MendariError
 from mendari.evals import figures, monitoring
@@ -488,6 +490,87 @@ def _risk(pack: Pack, deployment: Deployment | None) -> dict[str, Any]:
     }
 
 
+def _actions(pack: Pack) -> list[dict[str, Any]]:
+    """The actions the agent declares (spec 0.4), each with its effect and how the runtime
+    gates it (`policy.gate_of`, in `policy.GATE_TEXT`'s words). Empty: it declares none."""
+    declared = []
+    for name, spec in pack.manifest.actions.items():
+        gate = gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=not pack.community)
+        schema = spec.json_schema
+        declared.append(
+            {
+                "name": name,
+                "description": spec.description,
+                "effect": spec.effect.value,
+                "gate": gate.value,
+                "released": GATE_TEXT[gate],
+                "tightened": not spec.allow_auto,
+                # None: no schema, so its arguments are not checked; else the fields it takes.
+                "arguments": None if schema is None else list(schema.get("properties") or {}),
+            }
+        )
+    return declared
+
+
+def _confidence(pack: Pack) -> list[dict[str, Any]]:
+    """Whether each `agent` variant's confidence (a composite's member too) is calibrated, from
+    the manifest and the calibration file the digest covers: on how many cases of which set,
+    when and for which version of the agent; or that it is not. Empty: no part of the agent is
+    an agent's own service."""
+    from mendari.providers import agent_calibration
+
+    found = []
+    for slot, name, member, config in variant_configs(pack.manifest):
+        if config.get("type") != "agent":
+            continue
+        entry: dict[str, Any] = {
+            "slot": slot,
+            "variant": name if member is None else f"{name}.{member}",
+            "calibrated": False,
+        }
+        status = agent_calibration.status(pack, config)
+        if isinstance(status, str):
+            entry["why_not"] = status
+        else:
+            entry.update(
+                calibrated=True,
+                cases=status.cases,
+                dataset=status.dataset,
+                date=status.date,
+                agent_id=status.agent_id,
+                agent_version=status.agent_version,
+                questions=sorted(status.temperatures),
+                not_fitted=dict(status.not_fitted),
+            )
+        found.append(entry)
+    return found
+
+
+def _second_signal(pack: Pack) -> list[dict[str, Any]]:
+    """Each second signal the manifest turns on: a variant asked more than once (`repeat`), or
+    answered by one member and checked by another (`check`). Empty: none is on."""
+    found = []
+    for slot, name, member, config in variant_configs(pack.manifest):
+        variant = name if member is None else f"{name}.{member}"
+        kind = config.get("type")
+        runs = config.get("repeat")
+        if kind in ("agent", "llm") and isinstance(runs, int) and not isinstance(runs, bool):
+            found.append({"slot": slot, "variant": variant, "kind": "repeat", "runs": runs})
+        members = config.get("members")
+        if kind == "check" and isinstance(members, dict) and len(members) == 2:
+            answers, checks = (str(key) for key in members)
+            found.append(
+                {
+                    "slot": slot,
+                    "variant": variant,
+                    "kind": "check",
+                    "answers": answers,
+                    "checks": checks,
+                }
+            )
+    return found
+
+
 def _oversight(
     pack: Pack, stats: Mapping[str, Any] | None, holds: Sequence[Mapping[str, Any]] | None
 ) -> dict[str, Any]:
@@ -530,6 +613,12 @@ def _oversight(
             for rule in policy.rules
         ],
         "fallback": policy.fallback,
+        # What the agent may ask to have done and how each is gated, whether its confidence
+        # was checked, and whether a second signal is on: each from the manifest, and empty
+        # where the manifest says nothing of it.
+        "actions": _actions(pack),
+        "confidence": _confidence(pack),
+        "second_signal": _second_signal(pack),
         "review_queue": (
             None
             if stats is None
@@ -540,6 +629,111 @@ def _oversight(
             }
         ),
         "holds": None if holds is None else covering,
+    }
+
+
+_MAX_NAME = 128  # a name read from a report: a slot, a variant, a dataset, a version
+
+
+def _name(value: Any) -> str | None:
+    return value[:_MAX_NAME] if isinstance(value, str) and value else None
+
+
+def _count(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _share(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value) if 0.0 <= value <= 1.0 else None
+
+
+def _evaluated_calibration(run: Any) -> list[dict[str, Any]] | None:
+    """What an evaluation found of its variants' confidence (`mendari.calibration-report/1`,
+    `evals/confidence.py`), as names and counts read one by one: calibrated or not, on what,
+    and each question's expected calibration error on that evaluation's cases, before the
+    calibration and after. None: the report holds no such block (it says nothing of it)."""
+    block = run.get("calibration") if isinstance(run, Mapping) else None
+    variants = block.get("variants") if isinstance(block, Mapping) else None
+    if not isinstance(variants, list):
+        return None
+    found = []
+    for entry in variants:
+        if not isinstance(entry, Mapping):
+            continue
+        slot, variant = _name(entry.get("slot")), _name(entry.get("variant"))
+        if slot is None or variant is None:
+            continue
+        fitted = entry.get("fitted") if isinstance(entry.get("fitted"), Mapping) else None
+        calibrated = entry.get("status") == "calibrated" and fitted is not None
+        agent = fitted.get("agent") if fitted and isinstance(fitted.get("agent"), Mapping) else {}
+        questions = []
+        asked = entry.get("questions")
+        for key, figures_of in asked.items() if isinstance(asked, Mapping) else ():
+            after = figures_of.get("after") if isinstance(figures_of, Mapping) else None
+            if not isinstance(after, Mapping) or _name(key) is None:
+                continue
+            before = figures_of.get("before")
+            questions.append(
+                {
+                    "question": _name(key),
+                    "n": _count(figures_of.get("n")),
+                    "ece_before": _share(before.get("ece"))
+                    if isinstance(before, Mapping)
+                    else None,
+                    "ece_after": _share(after.get("ece")),
+                }
+            )
+        found.append(
+            {
+                "slot": slot,
+                "variant": variant,
+                "calibrated": calibrated,
+                "cases": _count(fitted.get("cases")) if fitted else None,
+                "dataset": _name(fitted.get("dataset")) if fitted else None,
+                "agent_version": _name(agent.get("version")) if agent else None,
+                # On the very cases it was fitted on, its figures after are optimistic.
+                "same_cases": entry.get("same_cases") is True,
+                "questions": questions,
+            }
+        )
+    return found
+
+
+def _evaluated_second_signal(run: Any) -> dict[str, Any] | None:
+    """What an evaluation found of its second signals (`mendari.second-signal/1`): for each,
+    on how many cases it disagreed, and over all of them how many cases they kept from
+    automation. None: no second signal ran in that evaluation, or its report predates them."""
+    block = run.get("second_signal") if isinstance(run, Mapping) else None
+    signals = block.get("signals") if isinstance(block, Mapping) else None
+    if not isinstance(block, Mapping) or not isinstance(signals, list):
+        return None
+    found = []
+    for entry in signals:
+        if not isinstance(entry, Mapping) or entry.get("kind") not in ("repeat", "check"):
+            continue
+        slot, variant = _name(entry.get("slot")), _name(entry.get("variant"))
+        cases, canned = _count(entry.get("cases")), _count(entry.get("canned")) or 0
+        if slot is None or variant is None or cases is None:
+            continue
+        found.append(
+            {
+                "slot": slot,
+                "variant": variant,
+                "kind": entry["kind"],
+                "runs": _count(entry.get("runs")),
+                "checked": max(0, cases - canned),
+                "canned": canned,
+                "disagreed": _count(entry.get("disagreed")) or 0,
+                "caught": _count(entry.get("caught")) or 0,
+            }
+        )
+    kept = block.get("kept_from_automation")
+    return {
+        "signals": found,
+        "cases": _count(block.get("cases")),
+        "kept_from_automation": _count(kept.get("k")) if isinstance(kept, Mapping) else None,
     }
 
 
@@ -576,6 +770,10 @@ def _evaluation(report: Mapping[str, Any], pack: Pack) -> dict[str, Any] | None:
                 str(attribute): {str(value): cell["accuracy"] for value, cell in values.items()}
                 for attribute, values in shown["subgroups"].items()
             },
+            # What this evaluation found of the confidence and of a second signal: None where
+            # its report says nothing of one.
+            "calibration": _evaluated_calibration(r["run"]),
+            "second_signal": _evaluated_second_signal(r["run"]),
         }
     except (AttributeError, IndexError, KeyError, TypeError, ValueError, ArithmeticError):
         return None
@@ -1336,7 +1534,17 @@ _REQUIRED = {
     "identity": ["name", "id", "version", "digest", "summary", "status", "publisher", "questions"],
     "intended_use": ["intended_use", "intended_users", "patient_population", "out_of_scope"],
     "risk": ["level", "name", "category", "rationale", "automation", "enforced"],
-    "oversight": ["outcomes", "thresholds", "rules", "fallback", "review_queue", "holds"],
+    "oversight": [
+        "outcomes",
+        "thresholds",
+        "rules",
+        "fallback",
+        "actions",
+        "confidence",
+        "second_signal",
+        "review_queue",
+        "holds",
+    ],
     "publisher_evidence": ["source", "evaluation", "reason", "critical_declared"],
     "site_evidence": ["empty", "decisions", "shadow_pilot", "review", "gates", "evaluations"],
     "limits": ["known_failure_modes", "status", "of_the_evidence"],
@@ -1784,6 +1992,7 @@ def _html_oversight(c: Mapping[str, Any]) -> str:
         if c["rules"]
         else _none("The agent's policy has no such rule.")
     )
+    out += _html_actions(c["actions"]) + _html_confidence(c["confidence"], c["second_signal"])
     queue = c["review_queue"]
     out += "<h3>The review queue</h3>"
     out += (
@@ -1827,6 +2036,166 @@ def _html_oversight(c: Mapping[str, Any]) -> str:
     )
 
 
+def _html_actions(actions: Sequence[Mapping[str, Any]]) -> str:
+    out = "<h3>What the agent may ask to have done</h3>"
+    if not actions:
+        return out + _none(
+            "Not stated: the agent declares no action. It answers its questions and asks for "
+            "nothing to be done; anything it asked for anyway would be blocked, and its "
+            "decision would go to a person."
+        )
+    out += (
+        "<p>Besides answering, the agent may ask for these actions. This software authorizes "
+        "each one and runs none: whoever calls it runs an action only when it was released, "
+        "and every proposal and its release or denial is in the audit trail. What an action "
+        "needs before it is released is the runtime's rule for its effect, which the agent's "
+        "files can only tighten. An action that is not listed here is blocked.</p>"
+    )
+    return out + _table(
+        ["Action", "What it does, in the publisher's words", "Effect", "Released", "Arguments"],
+        [
+            [
+                _code(action["name"]),
+                _e(action["description"]),
+                _code(action["effect"]),
+                _e(action["released"])
+                + (" " + _label("tightened by the agent") if action["tightened"] else ""),
+                "not checked"
+                if action["arguments"] is None
+                else "checked: "
+                + (", ".join(_code(n) for n in action["arguments"]) or "none taken"),
+            ]
+            for action in actions
+        ],
+    )
+
+
+def _html_confidence(
+    confidence: Sequence[Mapping[str, Any]], second_signal: Sequence[Mapping[str, Any]]
+) -> str:
+    out = "<h3>Whether the agent's confidence was checked</h3>"
+    if not confidence:
+        out += _none(
+            "Not stated: no part of this agent is an agent's own service whose confidence could "
+            "be calibrated here."
+        )
+    items = []
+    for entry in confidence:
+        where = f"{_code(entry['slot'])} / {_code(entry['variant'])}"
+        if not entry["calibrated"]:
+            items.append(
+                f"{where}: {_e(entry['why_not'])}. Its confidence is the agent's own report, "
+                "and the automation threshold cuts on it as reported."
+            )
+            continue
+        agent = f"{_code(entry['agent_id'])} " if entry["agent_id"] else ""
+        fitted = ", ".join(_code(key) for key in entry["questions"]) or "none"
+        left = "".join(
+            f" {_code(key)} is not calibrated ({_e(why)})."
+            for key, why in entry["not_fitted"].items()
+        )
+        items.append(
+            f"{where}: calibrated on {entry['cases']:,} cases of "
+            f"{_code(entry['dataset'])} on {_e(entry['date'])}, for {agent}version "
+            f"{_code(entry['agent_version'])} (questions: {fitted}).{left} When the agent's "
+            "service reports another version, no decision is automated until it is calibrated "
+            "again."
+        )
+    if items:
+        out += "<ul>" + "".join(f"<li>{item}</li>" for item in items) + "</ul>"
+    out += "<h3>A second signal</h3>"
+    if not second_signal:
+        return out + _none(
+            "Not stated: no part of this agent is asked a case more than once, and none is "
+            "checked by a second model. The agent's own confidence is the one signal."
+        )
+    said = []
+    for entry in second_signal:
+        where = f"{_code(entry['slot'])} / {_code(entry['variant'])}"
+        if entry["kind"] == "repeat":
+            said.append(
+                f"{where}: each case is asked {_e(entry['runs'])} times. When the runs do not "
+                "all give the same answer, or do not ask for the same actions, a person decides."
+            )
+        else:
+            said.append(
+                f"{where}: {_code(entry['answers'])} answers and {_code(entry['checks'])} "
+                "checks. Where they disagree, a person decides."
+            )
+    return (
+        out
+        + "<ul>"
+        + "".join(f"<li>{item}</li>" for item in said)
+        + "</ul><p>A second signal only lowers automation: agreement raises no confidence.</p>"
+    )
+
+
+def _ece(value: Any) -> str:
+    return "not estimable" if value is None else f"{value:.3f}"
+
+
+def _evaluated_confidence_words(found: Sequence[Mapping[str, Any]] | None) -> str:
+    """One evaluation's finding on confidence, for its table: each variant, calibrated or not,
+    and each question's calibration error on that evaluation's cases."""
+    if found is None:
+        return "Not stated: this evaluation's report says nothing of calibration."
+    if not found:
+        return "Not stated: this evaluation ran no variant whose confidence could be calibrated."
+    said = []
+    for entry in found:
+        where = f"{_code(entry['slot'])} / {_code(entry['variant'])}"
+        if not entry["calibrated"]:
+            words = "not calibrated"
+        else:
+            cases = "" if entry["cases"] is None else f" on {entry['cases']:,} cases"
+            of = f" of {_code(entry['dataset'])}" if entry["dataset"] else ""
+            version = (
+                f", for version {_code(entry['agent_version'])}" if entry["agent_version"] else ""
+            )
+            words = f"calibrated{cases}{of}{version}"
+            if entry["same_cases"]:
+                words += " (these are the cases it was fitted on, so its figures are optimistic)"
+        for question in entry["questions"]:
+            error = _ece(question["ece_after"])
+            if entry["calibrated"] and question["ece_before"] is not None:
+                error = f"{_ece(question['ece_before'])} before it, {error} after"
+            counted = "" if question["n"] is None else f" on {_e(question['n'])} cases"
+            words += f"; calibration error of {_code(question['question'])}{counted}: {error}"
+        said.append(f"{where}: {words}")
+    return "<br>".join(said)
+
+
+def _evaluated_second_signal_words(found: Mapping[str, Any] | None) -> str:
+    if found is None or not found["signals"]:
+        return "Not stated: no second signal ran in this evaluation."
+    said = []
+    for entry in found["signals"]:
+        where = f"{_code(entry['slot'])} / {_code(entry['variant'])}"
+        what = (
+            f"each case asked {_e(entry['runs'])} times"
+            if entry["kind"] == "repeat"
+            else "each case checked by a second variant"
+        )
+        words = (
+            f"{where}: {what}; disagreed on {_e(entry['disagreed'])} of "
+            f"{_e(entry['checked'])} cases"
+        )
+        if entry["disagreed"]:
+            words += f", {_e(entry['caught'])} of them wrong or critical"
+        if entry["canned"]:
+            words += (
+                f"; not checked on {_e(entry['canned'])} cases, whose answers are canned and "
+                "cannot vary"
+            )
+        said.append(words)
+    if found["kept_from_automation"] is not None and found["cases"] is not None:
+        said.append(
+            f"kept {_e(found['kept_from_automation'])} of {_e(found['cases'])} cases from "
+            "automation"
+        )
+    return "<br>".join(said)
+
+
 def _html_evaluation(found: Mapping[str, Any]) -> str:
     dataset, measured = found["dataset"], found["measured_on"]
     configuration = ", ".join(
@@ -1855,6 +2224,13 @@ def _html_evaluation(found: Mapping[str, Any]) -> str:
     ]
     rows += [
         (f"Ended as {outcome}", _e(_figure(share))) for outcome, share in found["outcomes"].items()
+    ]
+    rows += [
+        ("Confidence, in this evaluation", _evaluated_confidence_words(found["calibration"])),
+        (
+            "Second signal, in this evaluation",
+            _evaluated_second_signal_words(found["second_signal"]),
+        ),
     ]
     out = _facts(rows)
     if found["critical"]:
@@ -2201,6 +2577,16 @@ def _html_change_control(c: Mapping[str, Any]) -> str:
     )
 
 
+def _service(kind: Any) -> str:
+    """What a slot calls, by the type of the variant that runs: an agent's own service, a
+    model's, or (a composite) those of its members."""
+    if kind == "agent":
+        return "the agent's own service"
+    if kind in _CALLS_OUT:
+        return f"a service of type {_code(kind)}"
+    return f"the services of its members ({_code(kind)})"
+
+
 def _html_calls_out(calls: Sequence[Mapping[str, Any]]) -> str:
     return _table(
         ["Part", "Calls", "Is sent"],
@@ -2210,7 +2596,7 @@ def _html_calls_out(calls: Sequence[Mapping[str, Any]]) -> str:
                 (
                     "nothing here: it answers from canned examples"
                     if call["canned"]
-                    else f"a {_e(call['type'])} service"
+                    else _service(call["type"])
                 )
                 + (f", model {_code(call['model'])}" if call["model"] else ""),
                 ", ".join(_code(name) for name in call["sends"])

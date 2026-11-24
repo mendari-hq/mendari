@@ -29,6 +29,7 @@ from mendari.core.connections import ALLOWED as ALLOWED_BY_AN_OPERATOR
 from mendari.core.connections import (
     KEEP,
     LISTED,
+    NOT_LISTED_NOBODY,
     SWITCH_ENV,
     ConnectionRefused,
     ConnectionStore,
@@ -1482,9 +1483,14 @@ def test_where_nobody_operates_the_deployment_through_the_web_nobody_allows_an_o
     """Memberships mode with no operator organization named: no administrator holds `operate`,
     so the list binds every one of them."""
     monkeypatch.setenv(ALLOWED_ORIGINS_ENV, LIST)
-    assert read(lite)["may_allow_origin"] is False
-    assert put(lite, token=TOKEN, allow_origin=True).status_code == 403
-    assert put(lite, token=TOKEN).status_code == 422
+    seen = read(lite)
+    assert seen["may_allow_origin"] is False and seen["operator_named"] is False
+    asked = put(lite, token=TOKEN, allow_origin=True)
+    assert asked.status_code == 403
+    assert asked.json()["detail"] == connection_routes.NO_OPERATOR_NAMED  # what to set
+    plain = put(lite, token=TOKEN)
+    assert plain.status_code == 422
+    assert plain.json()["detail"] == NOT_LISTED_NOBODY.format(origin=origin_of(ELSEWHERE))
     assert rows(lite.db) == [] and events(lite.db) == []
 
 
@@ -1500,6 +1506,7 @@ def test_without_sign_in_nobody_allows_an_origin(
         assert client.get(AT).json()["may_allow_origin"] is False
         asked = client.put(AT, json={"endpoint": ELSEWHERE, "allow_origin": True})
         assert asked.status_code == 403, asked.text
+        assert asked.json()["detail"] == connection_routes.NOT_AN_OPERATOR  # nobody signs in
         assert client.put(AT, json={"endpoint": ELSEWHERE}).status_code == 422
         assert rows(store) == [] and events(store) == []
         assert client.put(AT, json={"endpoint": f"{LIST}/decide"}).status_code == 200
@@ -1558,17 +1565,22 @@ def test_no_machines_credential_allows_an_origin_even_in_the_operating_organizat
     assert rows(operated.db) == [] and events(operated.db) == []
 
 
-def test_in_claims_mode_an_administrator_operates_and_allows_unless_another_organization_is_named(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outside: Outside
+def test_in_claims_mode_nobody_allows_an_origin_until_the_deployment_names_its_operator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    outside: Outside,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Sign-in by claims: one set of administrators, each an operator, so each may allow an
-    origin for their own organization; once the deployment names the organization that
-    operates it, only that one's."""
+    """Sign-in by claims: every administrator holds `operate` while no organization is named
+    (ADR-0022), and none of them may allow an origin. It fails closed: the refusal says what to
+    set, nothing is saved or chained, and once the deployment names the organization that
+    operates it, that one's administrators may and no other's."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
     monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
     monkeypatch.setenv(ALLOWED_ORIGINS_ENV, LIST)
+    monkeypatch.delenv("MENDARI_OPERATOR_ORG", raising=False)
     encrypt_mode(monkeypatch)
     target = str(tmp_path / "claims.db")
     body = {"endpoint": ELSEWHERE, "allow_origin": True}
@@ -1577,19 +1589,49 @@ def test_in_claims_mode_an_administrator_operates_and_allows_unless_another_orga
         encrypted_store(target) as store,
     ):
         north = signed_in(store, role="admin", org="north")
-        assert client.get(AT, headers=north).json()["may_allow_origin"] is True
-        assert client.put(AT, json=body, headers=north).status_code == 200
-        assert [kind for kind, _ in events(store)] == [
-            "agent_connection.origin_allowed",
-            "agent_connection.set",
-        ]
+        # An administrator here operates the deployment: its System view answers them.
+        assert client.get("/api/system/checks", headers=north).status_code == 200
+        seen = client.get(AT, headers=north).json()
+        assert seen["may_set"] is True and seen["may_allow_origin"] is False
+        assert seen["operator_named"] is False
+        capsys.readouterr()
+        asked = client.put(AT, json=body, headers=north)
+        assert asked.status_code == 403, asked.text
+        assert asked.json()["detail"] == connection_routes.NO_OPERATOR_NAMED
+        assert "MENDARI_OPERATOR_ORG" in connection_routes.NO_OPERATOR_NAMED  # it says what to set
+        assert "MENDARI_PROVIDER_ALLOWED_ORIGINS" in connection_routes.NO_OPERATOR_NAMED
+        assert client.put(AT, json={"endpoint": ELSEWHERE}, headers=north).status_code == 422
+        assert rows(store) == [] and events(store) == [] and outside.seen == []
+        # An address on the list is set as it always was.
+        listed = client.put(AT, json={"endpoint": f"{LIST}/decide"}, headers=north)
+        assert listed.status_code == 200, listed.text
+        assert client.delete(AT, headers=north).status_code == 204
+    reasons = [
+        line["reason"]
+        for line in security_lines(capsys.readouterr().out)
+        if line["event"] == "admin.connection.refused"
+    ]
+    assert reasons == ["no_operator_named", "origin_not_listed"]
     monkeypatch.setenv("MENDARI_OPERATOR_ORG", "north")
     with (
         TestClient(create_app(db_path=target), base_url=HTTPS, headers=DASHBOARD) as client,
         encrypted_store(target) as store,
     ):
+        north = signed_in(store, role="admin", org="north")
+        seen = client.get(AT, headers=north).json()
+        assert seen["may_allow_origin"] is True and seen["operator_named"] is True
+        before = len(events(store))
+        assert client.put(AT, json=body, headers=north).status_code == 200
+        assert [kind for kind, _ in events(store)][before:] == [
+            "agent_connection.origin_allowed",
+            "agent_connection.set",
+        ]
         south = signed_in(store, role="admin", org="south")
         assert client.get(AT, headers=south).json()["may_allow_origin"] is False
-        assert client.put(AT, json=body, headers=south).status_code == 403
+        refused = client.put(AT, json=body, headers=south)
+        assert (
+            refused.status_code == 403
+            and refused.json()["detail"] == connection_routes.NOT_AN_OPERATOR
+        )
         assert client.put(AT, json={"endpoint": ELSEWHERE}, headers=south).status_code == 422
         assert [row["org"] for row in rows(store)] == ["north"]

@@ -384,16 +384,16 @@ def test_the_bundled_demo_agent_is_probed_as_canned_answers(
     assert lines[-1].startswith("Verdict (canned answers): not ready. ")
 
 
+@pytest.mark.usefixtures("release_agents")
 def test_the_demo_probes_its_agent_and_says_whose_answers_those_are(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """`mendari demo` ends by probing the demo agent, and is plain about what that shows: its
     answers are a fixture's, read on this machine, and so are the failures."""
-    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
     assert main(["demo"]) == 0
     out = capsys.readouterr().out
-    before, _, rest = out.partition("\n== 4. Find the failures nobody wrote down ")
-    assert "== 3. Before going live: evaluate the agent " in before and rest
+    before, _, rest = out.partition("\n== 5. Find the failures nobody wrote down ")
+    assert "== 4. Before going live: evaluate the agent " in before and rest
     section, _, closing = rest.partition("\n== What next ")
     lines = section.splitlines()[1:]
     # What a variant is, in a sentence; then the probe's own report, from its second line.

@@ -253,6 +253,9 @@ def test_every_0_1_and_0_2_pack_still_loads_and_maps_identically() -> None:
             assert newer_keys(FhirAdapter.for_pack(pack, bare=True).mapping), root
             mapped += 1
             continue
+        if pack.id == "mendari-test/actions-mini":  # the 0.4 fixture (tests/test_spec_04.py)
+            assert pack.manifest.spec_version == "0.4" and pack.manifest.inputs.fhir is None
+            continue
         assert pack.manifest.spec_version in ("0.1", "0.2"), root
         if pack.manifest.inputs.fhir is not None:
             assert newer_keys(FhirAdapter.for_pack(pack, bare=True).mapping) == [], root
@@ -269,6 +272,6 @@ def test_a_0_3_manifest_is_a_0_2_manifest() -> None:
     raw = yaml.safe_load((INBOX_DIR / "agent.yaml").read_text())
     raw["policy"] = yaml.safe_load((INBOX_DIR / "policy.yaml").read_text())
     assert PackManifest.model_validate({**raw, "spec_version": "0.3"}).spec_version == "0.3"
-    assert SPEC_VERSION == "0.3"
+    assert SPEC_VERSION == "0.4"  # the newest this engine reads (tests/test_spec_04.py)
     with pytest.raises(ValidationError, match="spec_version"):
-        PackManifest.model_validate({**raw, "spec_version": "0.4"})
+        PackManifest.model_validate({**raw, "spec_version": "0.5"})

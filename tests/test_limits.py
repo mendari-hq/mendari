@@ -584,6 +584,7 @@ EXPECTED_CLASSES = {
     ("POST", "/api/agents/{namespace}/{name}/decide"): "decide",
     ("POST", "/api/agents/{namespace}/{name}/fhir/decide"): "decide",
     ("POST", "/api/agents/{namespace}/{name}/pas"): "decide",
+    ("POST", "/api/agents/{namespace}/{name}/actions"): "decide",  # authorizing an action
     ("POST", "/cds-services/{service_id}"): "decide",
     ("POST", "/cds-services/{service_id}/feedback"): "decide",  # a card's feedback (LP-23f)
     ("POST", "/fhir/$decide"): "decide",
@@ -1199,6 +1200,8 @@ def test_only_what_decides_counts_against_the_cap(
         ("POST", "/api/notice/acknowledge"),
         ("POST", "/api/agents/{namespace}/{name}/pas"),
         ("POST", "/api/packs/{namespace}/{name}/pas"),  # the path it had before
+        # Authorizing an action for a decision already made and counted: no new decision.
+        ("POST", "/api/agents/{namespace}/{name}/actions"),
         ("POST", "/fhir/Questionnaire/$questionnaire-package"),
         ("POST", "/cds-services/{service_id}/feedback"),
     }

@@ -61,12 +61,12 @@ def test_initialize_agrees_a_protocol_version_and_offers_tools_only(server: McpS
     assert unknown is not None and unknown["result"]["protocolVersion"] == PROTOCOL_VERSIONS[0]
 
 
-def test_the_tools_listed_are_the_four_with_closed_schemas(server: McpServer) -> None:
+def test_the_tools_listed_are_the_five_with_closed_schemas(server: McpServer) -> None:
     answer = server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     assert answer is not None
     tools = answer["result"]["tools"]
     assert [tool["name"] for tool in tools] == [
-        "list_agents", "decide", "review_queue", "verify_audit",
+        "list_agents", "decide", "authorize_action", "review_queue", "verify_audit",
     ]  # fmt: skip
     for tool in tools:
         assert tool["inputSchema"]["type"] == "object"
@@ -227,3 +227,122 @@ def test_an_unexpected_failure_logs_its_type_never_its_message(
     assert json.loads(out.getvalue())["error"]["code"] == -32603
     err = capsys.readouterr().err
     assert "RuntimeError" in err and "chest pain" not in err
+
+
+# -- actions (spec 0.4): what the agent proposed, and authorize_action ----------------------------
+
+QUESTION = {"message": {"body": "Did my lab results come back yet?"}}  # HUMAN_REVIEW, two held
+
+
+def test_the_instructions_say_to_authorize_before_acting(server: McpServer) -> None:
+    answer = server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    assert answer is not None
+    said = answer["result"]["instructions"]
+    assert "call authorize_action with the decision's id, and act only on released" in said
+    tools = server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    assert tools is not None
+    (tool,) = [t for t in tools["result"]["tools"] if t["name"] == "authorize_action"]
+    assert tool["inputSchema"]["required"] == ["agent", "decision", "action"]
+    assert set(tool["inputSchema"]["properties"]) == {"agent", "decision", "action", "arguments"}
+    assert tool["annotations"]["idempotentHint"] is True
+    assert tool["annotations"]["readOnlyHint"] is False
+    assert "Mendari runs nothing" in tool["description"]
+
+
+def test_list_agents_names_the_actions_an_agent_declares(server: McpServer) -> None:
+    agents = call(server, "list_agents")["structuredContent"]["agents"]
+    (demo,) = [agent for agent in agents if agent["id"] == AGENT]
+    assert [(a["name"], a["effect"]) for a in demo["actions"]] == [
+        ("assign_queue", "write"),
+        ("send_acknowledgement", "contact"),
+    ]
+    assert all(set(a) == {"name", "description", "effect"} for a in demo["actions"])
+
+
+def test_a_decision_shows_what_the_agent_proposed_and_what_may_be_done(server: McpServer) -> None:
+    automated = call(server, "decide", {"agent": AGENT, "input": REFILL})["structuredContent"]
+    assert [(a["name"], a["disposition"], a["reason"]) for a in automated["actions"]] == [
+        ("assign_queue", "released", "automated")
+    ]
+    waiting = call(server, "decide", {"agent": AGENT, "input": QUESTION})["structuredContent"]
+    assert waiting["outcome"] == "HUMAN_REVIEW"
+    assert [(a["name"], a["disposition"]) for a in waiting["actions"]] == [
+        ("assign_queue", "held"),
+        ("send_acknowledgement", "held"),
+    ]
+    refused = call(server, "decide", {"agent": AGENT, "input": {"nope": 1}})["structuredContent"]
+    assert refused["outcome"] == "BLOCK" and refused["actions"] == []
+
+
+def test_decide_then_authorize_is_the_same_gate_and_asking_again_records_nothing(
+    server: McpServer,
+) -> None:
+    automated = call(server, "decide", {"agent": AGENT, "input": REFILL})["structuredContent"]
+    waiting = call(server, "decide", {"agent": AGENT, "input": QUESTION})["structuredContent"]
+
+    def authorize(decision: str, action: str, **arguments: Any) -> dict[str, Any]:
+        asked = {"agent": AGENT, "decision": decision, "action": action, "arguments": arguments}
+        result = call(server, "authorize_action", asked)
+        assert result["isError"] is False, result
+        return dict(result["structuredContent"])
+
+    # What the agent proposed is answered as it stands: the check before running the tool.
+    proposed = automated["actions"][0]
+    again = authorize(automated["id"], "assign_queue", **proposed["arguments"])
+    assert (again["id"], again["disposition"], again["repeated"]) == (
+        proposed["id"],
+        "released",
+        True,
+    )
+    # A new one is gated by the decision: a write with AUTO, never a patient contact.
+    other = authorize(automated["id"], "assign_queue", queue="front_desk")
+    assert (other["disposition"], other["reason"], other["repeated"]) == (
+        "released",
+        "automated",
+        False,
+    )
+    contact = authorize(automated["id"], "send_acknowledgement", template="received")
+    assert (contact["disposition"], contact["reason"]) == ("blocked", "no_reviewer")
+    held = authorize(waiting["id"], "send_acknowledgement", template="received")
+    assert (held["disposition"], held["repeated"]) == ("held", True)  # proposed with the answer
+    events = len(server.store.get(waiting["id"])["events"])  # type: ignore[index]
+    authorize(waiting["id"], "send_acknowledgement", template="received")
+    assert len(server.store.get(waiting["id"])["events"]) == events  # type: ignore[index]
+    # A reviewer confirms; asking again says it was released.
+    server.store.resolve_review(waiting["id"], final_label="other", reviewer="rn-1")
+    released = authorize(waiting["id"], "send_acknowledgement", template="received")
+    assert (released["disposition"], released["reason"]) == ("released", "confirmed")
+    # Undeclared, and arguments its schema refuses: blocked, as tool results, never errors.
+    unknown = authorize(automated["id"], "renew_prescription", days_supply=90)
+    assert (unknown["disposition"], unknown["reason"], unknown["name"]) == (
+        "blocked",
+        "undeclared",
+        None,
+    )
+    wrong = authorize(waiting["id"], "assign_queue", queue="pharmacy_of_my_choice")
+    assert (wrong["disposition"], wrong["reason"]) == ("blocked", "invalid_arguments")
+    assert "arguments" not in unknown and "pharmacy_of_my_choice" not in json.dumps(wrong)
+    verified = call(server, "verify_audit")["structuredContent"]
+    assert verified["ok"] is True
+
+
+@pytest.mark.parametrize(
+    ("arguments", "says"),
+    [
+        ({"decision": "d", "action": "assign_queue"}, "agent:"),
+        ({"agent": AGENT, "action": "assign_queue"}, "decision:"),
+        ({"agent": AGENT, "decision": "", "action": "assign_queue"}, "decision:"),
+        ({"agent": AGENT, "decision": "d"}, "action:"),
+        ({"agent": AGENT, "decision": "d", "action": "Assign Queue"}, "name must match"),
+        ({"agent": AGENT, "decision": "d", "action": "assign_queue", "arguments": []}, "object"),
+        ({"agent": AGENT, "decision": "d", "action": "assign_queue", "extra": 1}, "unknown arg"),
+        ({"agent": AGENT, "decision": "no-such", "action": "assign_queue"}, "no decision no-such"),
+        ({"agent": "x/none", "decision": "d", "action": "assign_queue"}, "x/none"),
+    ],
+)
+def test_a_bad_authorization_is_a_tool_error_and_records_nothing(
+    server: McpServer, arguments: dict[str, Any], says: str
+) -> None:
+    result = call(server, "authorize_action", arguments)
+    assert result["isError"] is True and says in result["structuredContent"]["error"]
+    assert server.store.verify()["events"] == 0

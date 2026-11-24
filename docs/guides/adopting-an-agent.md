@@ -24,7 +24,7 @@ registry's address and turns the rest on.
 | `MENDARI_AGENT_STORE=on`, with `MENDARI_ACCOUNTS=memberships` | Each organization keeps the versions it adds ([The agent store](../operations/agent-store.md)). Without it the registry can be read here and nothing can be added from the console. |
 | `MENDARI_PHI_MODE=encrypt` and `MENDARI_PHI_KEY` | A connection's token is kept sealed under this key. Without one, a connection can hold an address and no token. |
 | `MENDARI_PROVIDER_ALLOWED_ORIGINS` | Optional. Set, a connection's address must be one of these origins, and may then be on your own network; an address it does not name can be allowed for one agent, to the public internet only, by an administrator of the organization that operates the deployment ([step 5](#5-connect-its-service)). Unset, a connection leads to the public internet only. |
-| `MENDARI_OPERATOR_ORG` | The organization whose administrators operate the deployment: they see the System view, and may allow an address as above. The one-machine install names your own organization. |
+| `MENDARI_OPERATOR_ORG` | The organization whose administrators operate the deployment: they see the System view, and may allow an address as above. Unset, nobody may allow one, however people sign in. The one-machine install names your own organization. |
 | `MENDARI_AGENT_CONNECTIONS` | `off` turns connections set in the console off: every agent then answers through the deployment's own `MENDARI_AGENT_URL`, or from its canned examples. On unless set. |
 | `MENDARI_REGISTRY_COUNTERSIGNATURE` | As for `mendari pull`: whether a version must carry the registry's own counter-signature to be added. |
 
@@ -158,6 +158,10 @@ When the address you type is not on the list:
   (`agent_connection.origin_allowed`);
 - it holds for that origin alone. A connection changed to another origin needs allowing
   again, and clearing the connection withdraws it;
+- the deployment must name the organization that operates it (`MENDARI_OPERATOR_ORG`). Where it
+  names none, nobody can allow an address, whichever way people sign in: the form says so, and
+  asking anyway is refused with what to set. Whoever runs the deployment names the organization
+  whose administrators may, or lists the address;
 - anyone else is told who can: an administrator of the organization that operates the
   deployment, or whoever runs it, by adding the origin to the list.
 
@@ -206,8 +210,9 @@ The security log adds, for incident response: `store.pull.added` and `store.pull
 a fixed reason: `not_listed`, `key_changed`, `verification`, `unreachable`, `registry_answer`,
 `phi` or `checks`), and `admin.connection.set`, `admin.connection.cleared`,
 `admin.connection.checked`, `admin.connection.origin_allowed` and `admin.connection.refused`
-(with a fixed reason: `checks`, `origin_not_listed`, or `not_operator` for someone who asked to
-allow an address and may not), each with the agent's id and who acted.
+(with a fixed reason: `checks`, `origin_not_listed`, `not_operator` for someone who asked to
+allow an address and may not, or `no_operator_named` where the deployment names no operator
+organization, so that nobody may), each with the agent's id and who acted.
 
 ## The same through the API
 
@@ -217,7 +222,7 @@ allow an address and may not), each with the agent's id and who acted.
 | `GET /api/hub/search`, `GET /api/hub/agents/{namespace}/{name}` | read |
 | `POST /api/store/pulls` | `author` (a person) |
 | `GET /api/connections`, `GET /api/connections/{namespace}/{name}` | read |
-| `PUT`, `DELETE /api/connections/{namespace}/{name}` | `keys` (an administrator, a person); `PUT` with `allow_origin: true` also needs `operate` (an administrator of the organization that operates the deployment) |
+| `PUT`, `DELETE /api/connections/{namespace}/{name}` | `keys` (an administrator, a person); `PUT` with `allow_origin: true` also needs `operate` in a deployment that names its operator organization (an administrator of that organization; `403` for everyone where none is named) |
 | `POST /api/connections/{namespace}/{name}/check` | `keys` |
 
 Each is described at `/docs/reference` on your deployment. The searches, the listings and the
@@ -233,4 +238,6 @@ the same rate limit as labelling.
   connection can lead there. Nothing in the console reaches inside.
 - On a deployment shared by several organizations: allowing an address the list does not name,
   for any organization but the one that operates the deployment.
+- Naming the organization that operates the deployment (`MENDARI_OPERATOR_ORG`), without which
+  nobody allows an address from the console.
 - Answering a version the hidden-set check held ([The agent store](../operations/agent-store.md)).

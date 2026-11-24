@@ -326,7 +326,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/api/holds$", "approve"),
         ("DELETE", r"^/api/holds/[^/]+$", "approve"),
         ("POST", r"^/api/notice/acknowledge$", "decide"),  # what deciding asks first
-        ("POST", r"^/api/agents/[^/]+/[^/]+/(decide|guard|fhir/decide|pas)$", "decide"),
+        ("POST", r"^/api/agents/[^/]+/[^/]+/(decide|guard|fhir/decide|pas|actions)$", "decide"),
         ("POST", r"^/cds-services/[^/]+$", "decide"),
         # CDS Hooks card feedback (LP-23f): what a clinician did with a card the caller asked for.
         ("POST", r"^/cds-services/[^/]+/feedback$", "decide"),

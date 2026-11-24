@@ -21,6 +21,12 @@ sides of that contract for the agent's author, so a handler only has to answer:
 with any ASGI server (`uvicorn module:app`). The handler gets a parsed, checked `Case` and
 returns what `respond` builds; it may be a plain or an `async` function.
 
+An agent whose manifest declares actions (spec 0.4) gets them in `case.actions` and may propose
+some with its answers: `respond(case, answers, actions=[("assign_queue", {"queue": "refill"})])`.
+Proposing is asking: Mendari answers each with `released`, `held` or `blocked`, and runs none.
+The code that runs a tool calls `authorize` right before, and runs it only when
+`authorize(...).released`.
+
 It depends only on the standard library and FastAPI, so a starter can carry a copy of this file
 (`mendari_agent_kit.py`) and deploy on its own. It never logs a request's input.
 """
@@ -33,6 +39,9 @@ import json
 import math
 import os
 import re
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -41,7 +50,16 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-__all__ = ["AgentError", "Case", "Question", "create_app", "respond"]
+__all__ = [
+    "Action",
+    "AgentError",
+    "Authorization",
+    "Case",
+    "Question",
+    "authorize",
+    "create_app",
+    "respond",
+]
 
 # The engine's limits (providers/agent.py and providers/base.py; tests/test_agent_kit.py checks
 # they agree): an answer outside them would be refused there, so it is refused here first.
@@ -55,6 +73,14 @@ MAX_TOOL_NAME_CHARS = 128
 MAX_CALL_TOKENS = 10_000_000
 MAX_CALL_COST_USD = 1_000.0
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$")
+# Proposed actions (spec 0.4 section 4.2; the engine's `core/actions.py`).
+MAX_ACTIONS = 16
+MAX_ARGUMENT_CHARS = 16_000
+MAX_ARGUMENT_DEPTH = 8
+ACTION_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}\Z")
+# Where `authorize` asks, and with what key: the Mendari that made the decision.
+URL_ENV = "MENDARI_URL"
+KEY_ENV = "MENDARI_KEY"
 
 
 class AgentError(Exception):
@@ -80,6 +106,16 @@ class Question:
 
 
 @dataclass(frozen=True)
+class Action:
+    """One action the agent's manifest declares (spec 0.4): what the agent may propose."""
+
+    name: str
+    description: str
+    effect: str  # "read", "draft", "write", "contact" or "order"
+    schema: dict[str, Any] | None = None  # a JSON Schema for its arguments, when it has one
+
+
+@dataclass(frozen=True)
 class Case:
     """One decision's request, parsed and checked (`Case.parse`)."""
 
@@ -89,6 +125,7 @@ class Case:
     questions: tuple[Question, ...]
     input: dict[str, Any]  # only the fields the manifest's `state_fields` send
     instructions: str | None  # the manifest's `system_prompt` and `instructions`, joined
+    actions: tuple[Action, ...] = ()  # what the agent may propose; none for an older manifest
 
     @classmethod
     def parse(cls, body: Any) -> Case:
@@ -130,7 +167,15 @@ class Case:
             questions=tuple(questions),
             input=body["input"],
             instructions="\n\n".join(said) or None,
+            actions=_actions(body.get("actions")),
         )
+
+    def action(self, name: str) -> Action:
+        """The declared action called `name` (`KeyError` if the manifest declares none)."""
+        for action in self.actions:
+            if action.name == name:
+                return action
+        raise KeyError(name)
 
     def question(self, key: str) -> Question:
         """The question asked under `key` (`KeyError` if it was not asked)."""
@@ -157,6 +202,7 @@ def respond(
     agent_version: str | None = None,
     usage: Mapping[str, Any] | None = None,
     tool_calls: Sequence[str | Mapping[str, Any]] | None = None,
+    actions: Sequence[tuple[str, Mapping[str, Any]] | Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The response body for `case`, which Mendari's `validate_response` accepts by construction.
 
@@ -168,6 +214,12 @@ def respond(
     `rationales` (optional, per question) are kept as evidence, cut to 500 characters, so they
     should never repeat personal details from the case. `usage` is `{input_tokens,
     output_tokens, cost_usd?}`; `tool_calls` are names or objects with a `name`.
+
+    `actions` are the actions the agent proposes (spec 0.4), each `(name, arguments)` or
+    `{"name": ..., "arguments": ...}`, among those the case offers (`case.actions`). Proposing
+    is asking: never run a proposed action that writes, contacts a patient or orders before
+    Mendari releases it. The kit checks the name and the limits, not the action's schema:
+    Mendari does, and blocks an action whose arguments do not match.
 
     An answer that cannot be given raises `AgentError` (502), which `create_app` returns, so
     Mendari fails closed: the case goes to a person.
@@ -193,6 +245,8 @@ def respond(
         body["usage"] = _usage(usage)
     if tool_calls:
         body["tool_calls"] = _tool_calls(tool_calls)
+    if actions:
+        body["actions"] = _proposed(case, actions)
     try:
         size = len(json.dumps(body, allow_nan=False).encode())
     except (TypeError, ValueError):
@@ -200,6 +254,95 @@ def respond(
     if size > MAX_RESPONSE_BYTES:
         raise AgentError(502, "the agent's answer is larger than Mendari accepts")
     return body
+
+
+@dataclass(frozen=True)
+class Authorization:
+    """Mendari's answer about one action for one decision (`authorize`)."""
+
+    disposition: str  # "released", "held", "blocked" or "denied"
+    reason: str  # a code; "unreachable" when Mendari could not be asked
+    action_id: str | None = None
+
+    @property
+    def released(self) -> bool:
+        """Whether the action may be run. Anything else, a failure to ask included, is no."""
+        return self.disposition == "released"
+
+
+_UNREACHABLE = Authorization("blocked", "unreachable")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow no redirect: a redirected question is one that was not answered."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+def authorize(
+    agent: str,
+    decision_id: str,
+    name: str,
+    arguments: Mapping[str, Any] | None = None,
+    *,
+    url: str | None = None,
+    key: str | None = None,
+    timeout_s: float = 10.0,
+) -> Authorization:
+    """Ask Mendari whether action `name` may be run with `arguments` for decision
+    `decision_id` of `agent` (its id, `namespace/name`): `POST {url}/api/agents/{agent}/actions`.
+    For the code that runs a tool, called right before it runs: run it only when the answer is
+    `released`. Asking again for the same action is safe: Mendari answers how it stands and
+    records nothing new, so this is also how a held action is found released after its review.
+
+    `url` is Mendari's address (default: `MENDARI_URL`) and `key` an API key that may decide
+    (default: `MENDARI_KEY`), sent as a bearer token. It never raises for a failure to ask: no
+    address, an address that is not https (but this machine's), a timeout, any status but 200
+    or an answer without a disposition is `Authorization("blocked", "unreachable")`. It fails
+    closed: an action nobody could authorize is not run."""
+    base = (url if url is not None else os.environ.get(URL_ENV, "")).strip().rstrip("/")
+    token = (key if key is not None else os.environ.get(KEY_ENV, "")).strip()
+    try:
+        parts = urllib.parse.urlsplit(base)
+        host = parts.hostname
+    except ValueError:
+        return _UNREACHABLE
+    local = host in ("localhost", "127.0.0.1", "::1")
+    if not base or not host or parts.scheme not in ("https", "http"):
+        return _UNREACHABLE
+    if parts.scheme == "http" and not local:
+        return _UNREACHABLE
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*", agent):
+        return _UNREACHABLE
+    try:
+        sent = json.dumps(
+            {"decision_id": decision_id, "name": name, "arguments": dict(arguments or {})},
+            allow_nan=False,
+        ).encode()
+    except (TypeError, ValueError):
+        return _UNREACHABLE
+    headers = {"content-type": "application/json", "accept": "application/json"}
+    if token:
+        headers["authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(
+        f"{base}/api/agents/{agent}/actions", data=sent, headers=headers, method="POST"
+    )
+    try:
+        # Never redirected: the key goes to the address that was set, and nowhere else.
+        with urllib.request.build_opener(_NoRedirect).open(request, timeout=timeout_s) as answer:
+            if answer.status != 200:
+                return _UNREACHABLE
+            found = json.loads(answer.read(MAX_RESPONSE_BYTES + 1))
+    except (OSError, ValueError, urllib.error.URLError):  # a timeout and a refusal are OSErrors
+        return _UNREACHABLE
+    if not isinstance(found, dict):
+        return _UNREACHABLE
+    disposition, reason = found.get("disposition"), found.get("reason")
+    if disposition not in ("released", "held", "blocked", "denied") or not isinstance(reason, str):
+        return _UNREACHABLE
+    action_id = found.get("id")
+    return Authorization(disposition, reason, action_id if isinstance(action_id, str) else None)
 
 
 Handler = Callable[[Case], dict[str, Any] | Awaitable[dict[str, Any]]]
@@ -311,6 +454,94 @@ def _question(item: dict[str, Any], choices: list[str]) -> Question:
         ),
         levels=levels if isinstance(levels, dict) else None,
     )
+
+
+def _actions(items: Any) -> tuple[Action, ...]:
+    """The request's declared actions; none when the key is absent (an older manifest). One
+    that is not as Mendari sends it is `AgentError` (400)."""
+    if items is None:
+        return ()
+    if not isinstance(items, list) or len(items) > MAX_ACTIONS:
+        raise AgentError(400, f"actions: at most {MAX_ACTIONS} expected")
+    found = []
+    for item in items:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("name"), str)
+            or not ACTION_NAME.match(item["name"])
+            or not isinstance(item.get("effect"), str)
+        ):
+            raise AgentError(400, "each action needs a name and an effect")
+        schema = item.get("schema")
+        found.append(
+            Action(
+                name=item["name"],
+                description=_text(item.get("description")) or "",
+                effect=item["effect"],
+                schema=schema if isinstance(schema, dict) else None,
+            )
+        )
+    if len({action.name for action in found}) != len(found):
+        raise AgentError(400, "action names repeat")
+    return tuple(found)
+
+
+def _proposed(
+    case: Case, actions: Sequence[tuple[str, Mapping[str, Any]] | Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """The proposed actions as the response carries them, each within the contract's limits
+    (`AgentError` 502 otherwise, which never names an argument's value)."""
+    if isinstance(actions, str | Mapping) or len(actions) > MAX_ACTIONS:
+        raise AgentError(502, f"actions: at most {MAX_ACTIONS}, each (name, arguments)")
+    offered = {action.name for action in case.actions}
+    shown = []
+    for action in actions:
+        if isinstance(action, Mapping):
+            if not {"name"} <= set(action) <= {"name", "arguments"}:
+                raise AgentError(502, "an action is {name, arguments}")
+            name, arguments = action["name"], action.get("arguments", {})
+        elif isinstance(action, tuple | list) and len(action) == 2:
+            name, arguments = action
+        else:
+            raise AgentError(502, "each action is (name, arguments) or {name, arguments}")
+        if not isinstance(name, str) or name not in offered:
+            raise AgentError(502, "the agent proposed an action the case does not offer")
+        if not isinstance(arguments, Mapping):
+            raise AgentError(502, f"the arguments of {name!r} are not an object")
+        if _depth(arguments) > MAX_ARGUMENT_DEPTH:
+            raise AgentError(502, f"the arguments of {name!r} nest too deep")
+        try:
+            size = len(
+                json.dumps(arguments, sort_keys=True, separators=(",", ":"), allow_nan=False)
+            )
+        except (TypeError, ValueError):
+            raise AgentError(502, f"the arguments of {name!r} are not plain JSON") from None
+        if size > MAX_ARGUMENT_CHARS:
+            raise AgentError(502, f"the arguments of {name!r} are larger than Mendari accepts")
+        shown.append({"name": name, "arguments": dict(arguments)})
+    return shown
+
+
+def _depth(value: Any) -> int:
+    """How deep objects and lists nest in `value` (without recursion), stopping once it is past
+    the limit; an object with a key that is not text counts as past it."""
+    deepest = 0
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, Mapping):
+            if not all(isinstance(key, str) for key in item):
+                return MAX_ARGUMENT_DEPTH + 1
+            children: Any = item.values()
+        elif isinstance(item, list | tuple):
+            children = item
+        else:
+            continue
+        deepest = max(deepest, depth)
+        if deepest > MAX_ARGUMENT_DEPTH:
+            return deepest
+        stack.extend((child, depth + 1) for child in children)
+    return deepest
 
 
 def _strings(value: Any) -> list[str]:

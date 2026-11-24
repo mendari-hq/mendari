@@ -97,6 +97,22 @@ def equal_mass(question: Mapping[str, Any]) -> str:
     return num(stored["ece"])
 
 
+def confidence_rows(report: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Each model variant of a run and whether its confidence is calibrated, in one clause
+    (`evals/confidence.py`: "not calibrated", or what it was calibrated on); none for a run
+    without a model variant, and for a report from before the block."""
+    run = report.get("run")
+    block = run.get("calibration") if isinstance(run, Mapping) else None
+    summary = block.get("summary") if isinstance(block, Mapping) else None
+    if not isinstance(summary, list):
+        return []
+    return [
+        (str(item["variant"]), str(item["words"]))
+        for item in summary
+        if isinstance(item, Mapping) and "variant" in item and "words" in item
+    ]
+
+
 def report_text(report: dict[str, Any]) -> str:
     primary = report["primary"]
     q = report["questions"].get(primary)
@@ -121,6 +137,10 @@ def report_text(report: dict[str, Any]) -> str:
             + f"ECE {num(q['calibration']['ece'])}   equal-mass ECE {equal_mass(q)}   "
             + f"Brier {num(q['brier'])}",
         ]
+    lines += [
+        ("Confidence" if index == 0 else "").ljust(26) + f"{variant}: {words}"
+        for index, (variant, words) in enumerate(confidence_rows(report))
+    ]
     lines += [
         *[
             f"Outcome {k.replace('HUMAN_', '').lower()}".ljust(26)
@@ -221,6 +241,10 @@ def report_markdown(
     if report["errors"]:
         errors = ", ".join(f"{code(error)}: {count}" for error, count in report["errors"].items())
         rows.append(("Provider errors", errors))
+    rows += [
+        (f"Confidence of {code(variant)}", code(words, 200))
+        for variant, words in confidence_rows(report)
+    ]
     lines = [
         f"### Evaluation of {code(pack['id'])} {code(pack['version'])} on "
         f"{code(report['dataset']['name'])} ({total} cases)",

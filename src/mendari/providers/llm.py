@@ -60,6 +60,8 @@ from mendari.providers.batch import batched_answer, unwrap
 from mendari.providers.calibration import rescale
 from mendari.providers.credentials import vercel_oidc_token
 from mendari.providers.http import is_local, post_json, require_secure
+from mendari.providers.repeat import MAX_RUNS, MIN_RUNS, repeated
+from mendari.providers.signals import Signals
 
 GATEWAY_URL = "https://ai-gateway.vercel.sh/v1"
 MODEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
@@ -103,6 +105,9 @@ class LlmConfig(BaseModel):
     # Per-question temperatures fitted by `mendari calibrate` (a file in the pack).
     calibration: str | None = None
     batch: bool = True
+    # Spec 0.4 (ADR-0024): ask each case this many times and never automate when the runs
+    # disagree (`providers/repeat.py`). A repeated variant shares no call with another slot.
+    repeat: int | None = Field(default=None, ge=MIN_RUNS, le=MAX_RUNS)
 
 
 class LlmProvider(Provider):
@@ -214,7 +219,7 @@ class LlmProvider(Provider):
         return bearer_token(self.base_url)
 
     def batch_key(self) -> Hashable | None:
-        if not self.settings.batch:
+        if not self.settings.batch or self.settings.repeat is not None:
             return None
         s = self.settings
         return (
@@ -227,6 +232,10 @@ class LlmProvider(Provider):
         )
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
+        if self.settings.repeat is not None:  # each run its own call (`batch_key` is None)
+            return repeated(
+                self, self.settings.repeat, lambda: unwrap(self.answer_batch([self], inputs)[0])
+            )
         shared = batched_answer(self, inputs)
         return shared if shared is not None else unwrap(self.answer_batch([self], inputs)[0])
 
@@ -285,11 +294,13 @@ class LlmProvider(Provider):
             first = provider is lead
             answered_by = replace(provider.info, model=reported or provider.info.model)
             answers = {}
+            as_given = {}  # each calibrated question's distribution as the model gave it
             for key in provider.questions:
                 probabilities = distributions[key]
                 evidence: tuple[str, ...] = ()
                 temperature = provider.temperatures.get(key)
                 if temperature is not None:
+                    as_given[key] = probabilities
                     probabilities = rescale(probabilities, temperature)
                     evidence = (f"calibrated T={temperature:.2f}",)
                 answer = provider.make_answer(key, probabilities, evidence)
@@ -302,6 +313,7 @@ class LlmProvider(Provider):
                     output_tokens=usage["output_tokens"] if first else 0,
                     cost_usd=None if cost is None else (cost if first else 0.0),
                     extra=extra,
+                    signals=Signals(reported=as_given),
                 )
             )
         return outputs
@@ -574,6 +586,8 @@ def fit_calibration(
     provider.preflight()
     uncalibrated = copy.copy(provider)
     uncalibrated.temperatures = {}
+    # One call a record, whatever the variant's `repeat`: a fit is of single answers.
+    uncalibrated.settings = provider.settings.model_copy(update={"repeat": None})
 
     def ask(record: dict[str, Any]) -> ProviderOutput | str:
         try:

@@ -568,8 +568,17 @@ stronger evidence.
       miss), and you read every misclassified case.
 - [ ] `mendari probe` reports no critical finding against the live agent, and each failure it
       found is kept as a test.
+- [ ] The agent's confidence is calibrated on cases of its own, or its card says "not
+      calibrated" and the threshold was chosen knowing it
+      ([Calibration and a second signal](calibration-and-a-second-signal.md)).
+- [ ] Whatever the agent does besides answer is declared as an action with the effect that
+      fits, and your caller runs only what was released
+      ([Governing actions](governing-actions.md)).
 - [ ] A clinician other than the author reviewed the criteria.
 - [ ] At level 2 or 3, the committee's approval is recorded.
 
-The full format is in the [agent manifest spec](../spec/agent-manifest-0.2.md), and the FHIR
-mapping of spec 0.3 in [its own document](../spec/agent-manifest-0.3.md).
+The full format is in the [agent manifest spec](../spec/agent-manifest-0.2.md), the FHIR
+mapping of spec 0.3 in [its own document](../spec/agent-manifest-0.3.md), and what spec 0.4
+adds (actions, a calibrated confidence, a second signal) in
+[its own](../spec/agent-manifest-0.4.md). `mendari new` writes an agent on spec 0.2, since it
+uses nothing newer: set `spec_version: "0.4"` when you use what 0.4 adds.

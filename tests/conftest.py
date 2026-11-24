@@ -121,7 +121,8 @@ CORE = {
     "test_referral_pack.py", "test_trial_pack.py", "test_prior_auth_pack.py",
     "test_ai_guard_pack.py", "test_policy.py", "test_safety_invariant.py", "test_governance.py",
     "test_hold.py", "test_gate.py", "test_audit.py", "test_evals.py", "test_registry_engine.py",
-    "test_rater_agreement.py", "test_stats.py",
+    "test_rater_agreement.py", "test_stats.py", "test_spec_04.py", "test_actions.py",
+    "test_caps_together.py",
 }  # fmt: skip
 
 
@@ -160,6 +161,19 @@ def _no_vercel_oidc_token(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(credentials, "vercel_oidc_token", refused)
     monkeypatch.setattr(llm, "vercel_oidc_token", refused)
+
+
+@pytest.fixture
+def release_agents(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """The bundled agents as a release has them, the repository's `agents/`, where the tests
+    otherwise stand their fixtures: for what runs the bundled agent itself (`mendari demo`)."""
+    monkeypatch.setattr(_reference, "BUNDLED_DIRS", (ROOT / "agents",))
+    monkeypatch.setattr(_registry, "_BUNDLED_DIRS", (ROOT / "agents",))
+    _reference.reference_packs.cache_clear()
+    _reference.reference_digests.cache_clear()
+    yield
+    _reference.reference_packs.cache_clear()  # read again from the fixtures by the next test
+    _reference.reference_digests.cache_clear()
 
 
 @pytest.fixture(autouse=True)

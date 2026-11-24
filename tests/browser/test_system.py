@@ -420,8 +420,10 @@ def test_erasing_a_decisions_kept_input_asks_first_and_is_chained(
         assert chained(site, "input.erased") == []  # cancelled: nothing happened
         form.get_by_role("button", name="Erase…").click()
         dialog(page).get_by_role("button", name="Erase").click()
+        # The demo agent proposed an action with its answer (spec 0.4): its arguments are kept
+        # as the input is, as a note, and erased with it.
         expect(page.locator("#erase-result")).to_contain_text(
-            "Erased: its sealed input and evidence."
+            "Erased: its sealed input and evidence and 1 note."
         )
         (event,) = chained(site, "input.erased")
         assert (event["reason"], event["erased_by"]) == ("request", "lead@example.org")

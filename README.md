@@ -58,6 +58,29 @@ The risk level is declared in the agent's manifest and enforced by the runtime, 
 | 3 | Patient-specific prediction | As level 2, with stronger validation expected |
 | 4 | Time-critical, diagnostic or treatment | Never automated |
 
+**What an agent does is gated too.** An agent may ask to have something done besides answer: a
+message put in a queue, a reply sent, an order placed. Its manifest declares each action with
+an effect, the agent proposes actions with its answers, and the decision's outcome decides what
+may be done with each. Mendari authorizes an action and records that it did; it runs none, and
+your caller runs only what was released ([Governing actions](https://github.com/mendari-hq/mendari/blob/main/docs/guides/governing-actions.md)).
+
+| The decision is | `read`, `draft` | `write`, `contact` | `order` |
+|---|---|---|---|
+| `AUTO` | released | released | never: proposing one sends the decision to a person |
+| `HUMAN_REVIEW` | released | held for the reviewer | held for the reviewer |
+| `ABSTAIN` | released | blocked | blocked |
+| `BLOCK` | blocked | blocked | blocked |
+
+The gate is the runtime's, like the risk caps: a manifest can tighten it (`allow_auto: false`)
+and nothing loosens it. An action the agent never declared is blocked.
+
+The confidence the thresholds cut on can be checked: `mendari calibrate` fits an external
+agent's confidence on labelled cases, for the version of the agent it was fitted on, and when
+the agent changes nothing is automated until it is calibrated again. A second signal (each case
+asked several times, or a second model that checks the first) sends a decision to a person
+when the answers disagree, and never raises automation
+([Calibration and a second signal](https://github.com/mendari-hq/mendari/blob/main/docs/guides/calibration-and-a-second-signal.md)).
+
 ## Install
 
 Mendari is not on PyPI yet. Install it from a clone of this repository; you need Python 3.11+
@@ -97,7 +120,16 @@ uv sync
 uv run mendari demo
 ```
 
-The demo decides six messages, works the review queue, verifies the audit chain, then evaluates
+The demo decides six messages and shows what the agent asked to do with them:
+
+```text
+released  assign_queue (write)                 with the AUTO decision on message 1
+held      send_acknowledgement (contact)       message 3 waits for a reviewer
+released  send_acknowledgement (contact)       the reviewer confirmed it
+blocked   an action the agent never declared   asked for message 1
+```
+
+It then works the review queue, verifies the audit chain, evaluates
 the agent on 600 synthetic messages and says **not ready**: the canned answers do not detect 33
 of the 114 urgent messages, those worded as a patient might, and 9 of them would have been
 automated, so no person would have read them. That is on purpose: the evaluation is there to
@@ -355,6 +387,7 @@ hosted once the repository is public.
 |---|---|
 | write an agent's manifest | [the authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md) |
 | find an agent's failures, set its threshold, check every change | [Finding failures](https://github.com/mendari-hq/mendari/blob/main/docs/guides/finding-failures.md), [Choosing an automation threshold](https://github.com/mendari-hq/mendari/blob/main/docs/guides/choosing-a-threshold.md), [Evaluating an agent on every change](https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md) |
+| check an agent's confidence, add a second signal, gate what it does | [Calibration and a second signal](https://github.com/mendari-hq/mendari/blob/main/docs/guides/calibration-and-a-second-signal.md), [Governing actions](https://github.com/mendari-hq/mendari/blob/main/docs/guides/governing-actions.md), [spec 0.4](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest-0.4.md) |
 | contribute an agent to this repository | [Contributing an agent](https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-an-agent.md) |
 | call Mendari over REST or FHIR | [Using the API](https://github.com/mendari-hq/mendari/blob/main/docs/guides/api.md) |
 | read an evaluation report | [Evaluation reports and ledgers](https://github.com/mendari-hq/mendari/blob/main/docs/spec/evaluation-reports.md) |

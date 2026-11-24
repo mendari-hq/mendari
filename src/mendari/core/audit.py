@@ -27,7 +27,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from mendari.core import accounts, clock, tenancy
+from mendari.core import accounts, actions, clock, tenancy
 from mendari.core.db import Backend as _Backend
 from mendari.core.db import Session as _Session
 from mendari.core.db import connect
@@ -45,6 +45,7 @@ from mendari.errors import (
     InvitationRefused,
     MendariError,
     NoteError,
+    PackNotFoundError,
     ProviderError,
     ReviewError,
     UnknownCard,
@@ -159,8 +160,17 @@ DECISION_KINDS = frozenset(
         "note.erased",
         # A clinician's feedback on a CDS Hooks card (LP-23f): codes and ids only.
         CARD_FEEDBACK,
+        # An action an agent proposed, or a caller asked about, and a held action's release or
+        # denial by the decision's reviewer (spec 0.4, ADR-0023): ids, the declared name, the
+        # effect, the disposition, a reason code and a hash of the arguments. Never the
+        # arguments, nor a name the manifest does not declare.
+        "action.proposed",
+        "action.resolved",
     }
 )
+# The kinds on a decision that name its organization always: added after LP-12g, so no unmarked
+# database ever chained one without it.
+_ALWAYS_BOUND = frozenset({CARD_FEEDBACK, "action.proposed", "action.resolved"})
 # On a row of its own, under `<prefix>:<id>`: the table, its id column, and the row's
 # organization as SQL, mapped as `_org_of` maps it (NULL is `default`), except a hold's: NULL is
 # the deployment's, a hold set for every organization.
@@ -307,7 +317,7 @@ DEPLOYMENT_KINDS = frozenset(
 # names it always.
 BOUND_WHEN_MARKED = frozenset(
     {
-        *(DECISION_KINDS - {CARD_FEEDBACK}),  # LP-23f's names it always
+        *(DECISION_KINDS - _ALWAYS_BOUND),  # LP-23f's and the actions' name it always
         "governance.revoked",
         "automation.lifted",
         "key.rotated",
@@ -1618,7 +1628,9 @@ class AuditStore(RateBuckets):
         (`decision_inputs`), so retention can delete them; otherwise neither is kept. The
         caller's own answer (`/decide`) is unchanged. With sign-in on (and, in open mode, for a
         CDS client's verified token), the chained event also names who asked (`requested_by`,
-        the principal's chain name, `tenancy.requester`)."""
+        the principal's chain name, `tenancy.requester`). The actions the agent proposed are
+        chained after it, one `action.proposed` each, their arguments kept as the input is: as
+        the event's note, sealed under `encrypt`, and not at all where the input is not kept."""
         record = result.to_record()
         keep = store_input == "full" and self.phi.mode != "hash"
         in_record = keep and self.phi.mode == "off"
@@ -1666,6 +1678,28 @@ class AuditStore(RateBuckets):
             self._append(
                 db, result.id, "decision.created", self._bound("decision.created", created, org)
             )
+            # Each action proposed with the answer (spec 0.4), in the same transaction: what the
+            # chain keeps of it (`ActionResult.chained`), and its arguments apart, as a note,
+            # exactly when the decision's input is kept.
+            proposed = [
+                (
+                    result.id,
+                    self._bound(
+                        "action.proposed",
+                        {
+                            **action.chained(),
+                            "note_ref": self._keep_note(
+                                db, result.id, "action.proposed", action.kept()
+                            )
+                            if keep
+                            else None,
+                        },
+                        org,
+                    ),
+                )
+                for action in result.actions or ()
+            ]
+            self._append_many(db, "action.proposed", proposed)
             _add_usage(db, org, "decision", result.usage)
             if keep and self.phi.mode == "encrypt":  # apart from the chained record
                 details = {"evidence": evidence}
@@ -1690,13 +1724,23 @@ class AuditStore(RateBuckets):
         reviewer: str,
         note: str | None = None,
         labels: QuestionLabels | None = None,
+        deny_actions: Sequence[str] = (),
     ) -> dict[str, Any]:
         """A human confirms or corrects a HUMAN_REVIEW / ABSTAIN decision with one of the labels
         of its primary question (`_check_label`). A note is kept apart from the chain (`notes`);
-        the answer repeats it to whoever wrote it."""
+        the answer repeats it to whoever wrote it.
+
+        The decision's held actions (spec 0.4) are resolved with it, in the same transaction,
+        one `action.resolved` each: released when the reviewer's label is the recommendation,
+        denied when it is another. `deny_actions` names held actions (by id) the reviewer
+        refuses while confirming the label, so refusing an action never takes a false override:
+        each is denied (`reviewer_denied`) and `human_override` says what it always said. An id
+        that is no held action of this decision refuses the whole review, before anything is
+        written. The answer has `actions` only when some were held."""
         if not reviewer.strip():
             raise ReviewError("a reviewer identity is required")
         note = self._may_keep(note)
+        denied = set(deny_actions)
         with self._db.session(exclusive=True) as db:
             scope, scoped = _scope()
             row = db.one(
@@ -1710,6 +1754,9 @@ class AuditStore(RateBuckets):
             # Overriding means disagreeing with a recommendation; an abstention made none.
             recommendation = row["recommendation"]
             override = None if recommendation is None else recommendation != final_label
+            held = actions.held(actions.state(_events_of(db, [decision_id])[decision_id]))
+            if denied - {action["id"] for action in held}:
+                raise ReviewError("deny_actions names an action this decision does not hold")
             resolved_at = _now()
             db.all(
                 "UPDATE decisions SET review_status = 'resolved', final_label = ?, "
@@ -1731,7 +1778,96 @@ class AuditStore(RateBuckets):
             }
             chained = self._bound("review.resolved", payload, _org_of(row["org"]))
             self._append(db, decision_id, "review.resolved", chained)
-        return {"id": decision_id, "resolved_at": resolved_at, **payload, "note": note}
+            # Each held action is resolved here and nowhere else, so exactly once: a held action
+            # exists only on a decision that awaits review, and this is the only way out of it.
+            resolved = [
+                {
+                    "action_id": action["id"],
+                    "name": action["name"],
+                    "effect": action["effect"],
+                    **_resolution(override, action["id"] in denied),
+                    "reviewer": reviewer,
+                }
+                for action in held
+            ]
+            self._append_many(
+                db,
+                "action.resolved",
+                [
+                    (decision_id, self._bound("action.resolved", item, _org_of(row["org"])))
+                    for item in resolved
+                ],
+            )
+        answer = {"id": decision_id, "resolved_at": resolved_at, **payload, "note": note}
+        if resolved:
+            answer["actions"] = [
+                {
+                    "id": item["action_id"],
+                    **{key: item[key] for key in ("name", "effect", "disposition", "reason")},
+                }
+                for item in resolved
+            ]
+        return answer
+
+    def propose_action(
+        self,
+        decision_id: str,
+        *,
+        pack_id: str,
+        arguments_hash: str,
+        kept: str | None,
+        ask: Callable[[Mapping[str, Any], Sequence[Mapping[str, Any]]], actions.Asked],
+    ) -> dict[str, Any]:
+        """Record that a caller asked whether one action may be run for a decision of agent
+        `pack_id` (`Decision.authorize_action`, spec 0.4 section 6), and answer how the action
+        stands. In one exclusive session: `ask` judges it from the decision's row (its record
+        parsed) and its events; an action already proposed on the decision (the same chained
+        name, the same arguments' hash; for an action with no chained name, also the same
+        reason) is answered as it stands now with `repeated: True`, and nothing is chained; a new
+        one is chained as `action.proposed` (`source: request`, with who asked), its name and
+        arguments (`kept`) apart as the event's note, as the decision's input is kept (never
+        under PHI mode `hash`; `kept` is None for an agent that keeps only hashes).
+
+        A decision that is unknown, another organization's or another agent's is
+        `PackNotFoundError`, one answer for all three."""
+        with self._db.session(exclusive=True) as db:
+            item = _decision(db, decision_id)
+            if item is None or item["pack_id"] != pack_id:
+                raise PackNotFoundError(f"no decision {decision_id} of {pack_id}")
+            events = _events_of(db, [decision_id])[decision_id]
+            asked = ask(item, events)
+            for action in actions.state(events):
+                same = action["name"] == asked.name and action["arguments_hash"] == arguments_hash
+                if same and (asked.name is not None or action["reason"] == asked.reason):
+                    return {**_asked(decision_id, action), "repeated": True}
+            epoch = self._mark_hash_epoch(db) if self.phi.hash_key else None
+            payload: dict[str, Any] = {
+                "action_id": actions.new_id(),
+                "name": asked.name,
+                "effect": asked.effect,
+                "disposition": asked.disposition,
+                "reason": asked.reason,
+                "arguments_hash": arguments_hash,
+                "source": "request",
+                "slot": None,
+            }
+            requester = tenancy.requester()
+            if requester is not None:
+                payload["requested_by"] = requester
+            keep = kept is not None and self.phi.mode != "hash"
+            payload["note_ref"] = (
+                self._keep_note(db, decision_id, "action.proposed", kept) if keep else None
+            )
+            self._append(
+                db,
+                decision_id,
+                "action.proposed",
+                self._bound("action.proposed", payload, _org_of(item["org"])),
+            )
+        if epoch is not None:  # committed: this process need not look again
+            self._hash_epoch = epoch
+        shown = {**payload, "id": payload["action_id"]}
+        return {**_asked(decision_id, shown), "repeated": False}
 
     def record_outcome(
         self,
@@ -2446,7 +2582,8 @@ class AuditStore(RateBuckets):
     def get(self, decision_id: str, *, reader: str | None = None) -> dict[str, Any] | None:
         """A decision with its events; under PHI mode `encrypt`, its input only for a `reader`,
         and its events' notes as `reveal_inputs` shows them (the read it chains is the last
-        event)."""
+        event). A decision with proposed actions (spec 0.4) has `actions`: each as it stands
+        (`actions.state`), its arguments as its event's note is shown."""
         with self._db.session(exclusive=False) as db:
             item = _decision(db, decision_id)
             if item is not None:
@@ -2454,6 +2591,7 @@ class AuditStore(RateBuckets):
         if item is None:
             return None
         self.reveal_inputs([item], reader)
+        _with_actions(item)
         return item
 
     def item(self, decision_id: str) -> dict[str, Any] | None:
@@ -5585,9 +5723,25 @@ class AuditStore(RateBuckets):
     def pending_reviews(
         self, pack_id: str | None = None, limit: int = 50, *, reader: str | None = None
     ) -> list[dict[str, Any]]:
-        """The queue, most urgent first; under PHI mode `encrypt`, with inputs for a `reader`."""
+        """The queue, most urgent first; under PHI mode `encrypt`, with inputs for a `reader`.
+        A decision with proposed actions (spec 0.4) has `actions`, each as it stands, so a
+        reviewer sees what confirming the decision releases; their arguments are shown as
+        inputs are (to a `reader`, the read chained)."""
         items = self.query(pack_id=pack_id, review_status="pending", limit=limit)
-        return self.reveal_inputs(items, reader)
+        if items:
+            with self._db.session(exclusive=False) as db:
+                found = _events_of(
+                    db, [item["id"] for item in items], kinds=(actions.PROPOSED, actions.RESOLVED)
+                )
+            for item in items:
+                if found[item["id"]]:  # only a decision with actions: every other is as it was
+                    item["events"] = found[item["id"]]
+        self.reveal_inputs(items, reader)
+        for item in items:
+            if "events" in item:
+                _with_actions(item)
+                del item["events"]
+        return items
 
     def stats(self, pack_id: str | None = None) -> dict[str, Any]:
         scope, scoped = _scope()
@@ -6645,22 +6799,57 @@ def _decision(db: _Session, decision_id: str) -> dict[str, Any] | None:
     return None if row is None else _row(row)
 
 
-def _events_of(db: _Session, decision_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+def _events_of(
+    db: _Session, decision_ids: list[str], *, kinds: Sequence[str] | None = None
+) -> dict[str, list[dict[str, Any]]]:
     """The events of these decisions, by decision, in chain order; scoped through the decision,
-    so another organization's decisions come back empty."""
+    so another organization's decisions come back empty. With `kinds`, only events of those."""
     scope, scoped = _scope()
     marks = ", ".join("?" for _ in decision_ids)
+    only = f" AND e.event IN ({', '.join('?' for _ in kinds)})" if kinds else ""
     rows = db.all(
         "SELECT e.seq, e.decision_id, e.event, e.payload, e.created_at, e.prev_hash, e.hash "
         "FROM audit_events e JOIN decisions d ON d.id = e.decision_id "
-        f"WHERE e.decision_id IN ({marks}) AND {scope} ORDER BY e.seq",
-        (*decision_ids, *scoped),
+        f"WHERE e.decision_id IN ({marks}){only} AND {scope} ORDER BY e.seq",
+        (*decision_ids, *(kinds or ()), *scoped),
     )
     found: dict[str, list[dict[str, Any]]] = {decision_id: [] for decision_id in decision_ids}
     for row in rows:
         event = {k: v for k, v in row.items() if k != "decision_id"}
         found[row["decision_id"]].append({**event, "payload": json.loads(row["payload"])})
     return found
+
+
+def _with_actions(item: dict[str, Any]) -> None:
+    """Give a decision its `actions` (`actions.state` of its events, after `reveal_inputs`
+    showed their notes), when it has any: a decision without is as it always was."""
+    found = actions.state(item.get("events") or ())
+    if found:
+        item["actions"] = found
+
+
+def _resolution(override: bool | None, denied: bool) -> dict[str, str]:
+    """How a review resolves one held action: released when the reviewer confirmed the
+    recommendation and did not refuse the action, denied otherwise. A review with no
+    recommendation to confirm (`override` None) releases nothing."""
+    if override is False and not denied:
+        return {"disposition": "released", "reason": "confirmed"}
+    if override is False:
+        return {"disposition": "denied", "reason": "reviewer_denied"}
+    return {"disposition": "denied", "reason": "overridden"}
+
+
+def _asked(decision_id: str, action: Mapping[str, Any]) -> dict[str, Any]:
+    """An action as a caller that asks about it is answered: ids, the declared name, the effect,
+    the disposition, the reason and the arguments' hash. Never the arguments."""
+    return {
+        "id": action["id"],
+        "decision_id": decision_id,
+        **{
+            key: action.get(key)
+            for key in ("name", "effect", "disposition", "reason", "arguments_hash")
+        },
+    }
 
 
 # A chained event joined with its decision's pack and record (`events()`, `event()`).

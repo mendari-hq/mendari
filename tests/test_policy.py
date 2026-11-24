@@ -1,13 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from pydantic import ValidationError
 
-from mendari import GovernanceOverride, Outcome, Pack, Priority, RiskLevel
-from mendari.core.policy import apply_policy, threshold_reason
+from mendari import GovernanceOverride, Outcome, Pack, Priority, RiskLevel, load_pack
+from mendari.core.policy import PolicyInputs, apply_policy, threshold_reason
 from mendari.core.spec import PackManifest, Risk
 from mendari.providers import Answer, ProviderInfo
+from tests.conftest import INBOX_DIR
 
 INFO = ProviderInfo(slot="test", variant="test", type="test")
 # The variants running: the inbox's policy automates only while its urgency screen includes a
@@ -209,3 +214,175 @@ def test_automation_can_require_provider_variants(inbox_pack: Pack) -> None:
     with pytest.raises(ValidationError, match="unknown slot 'missing'") as error:
         PackManifest.model_validate(raw)
     assert "unknown: ['nope']" in str(error.value)
+
+
+# -- the actions cap (spec 0.4): a proposal that could not be released with AUTO ---------------
+
+STOP = "action 'renew_prescription' (order) is never released without a person"
+UNDECLARED = "the agent proposed an action its manifest does not declare"
+
+
+def test_a_stopped_action_turns_auto_into_human_review_and_changes_nothing_else(
+    inbox_pack: Pack,
+) -> None:
+    manifest = inbox_pack.manifest
+    answers = routine("nurse", 0.95)
+    plain = apply_policy(manifest, answers, {}, None, SCREENED)
+    assert plain.outcome is Outcome.AUTO
+    stopped = apply_policy(manifest, answers, {}, None, SCREENED, actions=(STOP,))
+    assert stopped.outcome is Outcome.HUMAN_REVIEW
+    assert (stopped.recommendation, stopped.priority, stopped.rule) == (
+        plain.recommendation,
+        plain.priority,
+        plain.rule,
+    )
+    assert stopped.reasons == (*plain.reasons, f"{STOP}; a person decides")
+    # Each stop once, in order, however often it is given.
+    several = apply_policy(manifest, answers, {}, None, SCREENED, actions=(STOP, UNDECLARED, STOP))
+    assert several.reasons[-2:] == (f"{STOP}; a person decides", f"{UNDECLARED}; a person decides")
+    assert apply_policy(manifest, answers, {}, None, SCREENED, actions=()) == plain
+
+
+@pytest.mark.parametrize(
+    ("label", "confidence", "outcome"),
+    [("nurse", 0.80, Outcome.HUMAN_REVIEW), ("nurse", 0.40, Outcome.ABSTAIN)],
+)
+def test_a_decision_already_going_to_a_person_keeps_its_outcome_and_gets_the_reason(
+    inbox_pack: Pack, label: str, confidence: float, outcome: Outcome
+) -> None:
+    manifest = inbox_pack.manifest
+    answers = routine(label, confidence)
+    plain = apply_policy(manifest, answers, {}, None, SCREENED)
+    stopped = apply_policy(manifest, answers, {}, None, SCREENED, actions=(STOP,))
+    assert plain.outcome is stopped.outcome is outcome
+    assert (stopped.recommendation, stopped.priority) == (plain.recommendation, plain.priority)
+    assert stopped.reasons == (*plain.reasons, f"{STOP}; a person decides")
+    assert [reason for reason in stopped.reasons if reason.startswith(STOP)] == [
+        f"{STOP}; a person decides"
+    ]
+
+
+def test_a_block_stands_and_says_nothing_of_the_action(inbox_pack: Pack) -> None:
+    """A rule's BLOCK blocks every action: the cap neither lowers it to a person nor adds a
+    reason. (Unlike the caps that turn a rule's BLOCK into HUMAN_REVIEW, this one has nothing
+    to protect by doing so: no action is released under a BLOCK.)"""
+    raw = inbox_pack.manifest.model_dump(by_alias=True)
+    raw["policy"]["rules"].insert(
+        0,
+        {
+            "name": "block-billing",
+            "when": {"question": "destination", "labels": ["billing"]},
+            "outcome": "BLOCK",
+            "reason": "Billing messages are not routed here.",
+        },
+    )
+    manifest = PackManifest.model_validate(raw)
+    answers = routine("billing", 0.99)
+    plain = apply_policy(manifest, answers, {}, None, SCREENED)
+    stopped = apply_policy(manifest, answers, {}, None, SCREENED, actions=(STOP, UNDECLARED))
+    assert plain.outcome is Outcome.BLOCK and stopped == plain
+
+
+def test_the_stop_is_kept_with_the_cap_that_also_lowered_the_decision(inbox_pack: Pack) -> None:
+    """A hold, a provider failure or a risk cap lowers the decision first; the action's reason
+    is still given, so a reviewer reads why an action waits."""
+    manifest = inbox_pack.manifest
+    answers = routine("nurse", 0.95)
+    held = apply_policy(
+        manifest, answers, {}, None, SCREENED, hold="an operator's hold", actions=(STOP,)
+    )
+    assert held.outcome is Outcome.HUMAN_REVIEW
+    assert held.reasons[-2:] == (
+        "automation is on hold: an operator's hold",
+        f"{STOP}; a person decides",
+    )
+    risky = at_level(manifest, RiskLevel.TIME_CRITICAL)
+    capped = apply_policy(risky, answers, {}, None, SCREENED, actions=(STOP,))
+    assert capped.outcome is Outcome.HUMAN_REVIEW
+    assert capped.reasons[-2:] == (
+        "risk level 4 requires human review",
+        f"{STOP}; a person decides",
+    )
+    # Governance lifts the risk cap at levels 2 and 3, and never this one.
+    approved = GovernanceOverride(approved_by="CMIO", reference="AI-committee-2026-09")
+    level_2 = at_level(manifest, RiskLevel.CLINICAL_SUPPORT)
+    assert apply_policy(level_2, answers, {}, approved, SCREENED).outcome is Outcome.AUTO
+    lifted = apply_policy(level_2, answers, {}, approved, SCREENED, actions=(STOP,))
+    assert lifted.outcome is Outcome.HUMAN_REVIEW
+
+
+def test_the_policys_inputs_keep_the_stops_so_it_is_applied_again_the_same(
+    inbox_pack: Pack,
+) -> None:
+    manifest = inbox_pack.manifest
+    inputs = PolicyInputs(routine("nurse", 0.95), {}, None, SCREENED, actions=(STOP,))
+    assert inputs.apply(manifest) == apply_policy(
+        manifest, routine("nurse", 0.95), {}, None, SCREENED, actions=(STOP,)
+    )
+    assert inputs.apply(manifest).outcome is Outcome.HUMAN_REVIEW
+    assert PolicyInputs(routine("nurse", 0.95), {}, None, SCREENED).actions == ()
+
+
+_INBOX = load_pack(INBOX_DIR).manifest
+_ORDER = {Outcome.AUTO: 0, Outcome.HUMAN_REVIEW: 1, Outcome.ABSTAIN: 1, Outcome.BLOCK: 1}
+_STOPS = st.lists(
+    st.one_of(st.just(STOP), st.just(UNDECLARED), st.text(min_size=1, max_size=30)), max_size=4
+)
+
+
+@settings(max_examples=300, deadline=None)
+@given(
+    destination=st.sampled_from(list(_INBOX.questions["destination"].criteria)),
+    confidence=st.floats(0.0, 1.0, allow_nan=False),
+    urgency=st.sampled_from(list(_INBOX.questions["urgency"].criteria)),
+    urgent_confidence=st.floats(0.0, 1.0, allow_nan=False),
+    level=st.sampled_from(list(RiskLevel)),
+    governed=st.booleans(),
+    failed=st.booleans(),
+    community=st.booleans(),
+    hold=st.one_of(st.none(), st.just("a hold")),
+    canned=st.one_of(st.none(), st.just("canned answers")),
+    stops=_STOPS,
+)
+def test_no_proposal_raises_an_outcome(
+    destination: str,
+    confidence: float,
+    urgency: str,
+    urgent_confidence: float,
+    level: RiskLevel,
+    governed: bool,
+    failed: bool,
+    community: bool,
+    hold: str | None,
+    canned: str | None,
+    stops: list[str],
+) -> None:
+    """Policy only lowers automation, the actions cap included: whatever the answers, the caps
+    and the stops, the outcome with stops is the outcome without, or HUMAN_REVIEW where that
+    was AUTO; the recommendation, the priority and the rule do not change; and nothing a
+    proposal says ever makes a decision AUTO that was not."""
+    manifest = at_level(_INBOX, level)
+    answers = {
+        "destination": answer("destination", destination, confidence),
+        "urgency": answer("urgency", urgency, urgent_confidence),
+    }
+    governance = GovernanceOverride("cmo", "ref") if governed else None
+    failures = {"urgency": "timeout"} if failed else {}
+    options: dict[str, Any] = {"community": community, "hold": hold, "canned": canned}
+    plain = apply_policy(manifest, answers, failures, governance, SCREENED, **options)
+    stopped = apply_policy(
+        manifest, answers, failures, governance, SCREENED, actions=tuple(stops), **options
+    )
+    if plain.outcome is Outcome.AUTO and stops:
+        assert stopped.outcome is Outcome.HUMAN_REVIEW
+    else:
+        assert stopped.outcome is plain.outcome
+    assert _ORDER[stopped.outcome] >= _ORDER[plain.outcome]
+    assert (stopped.recommendation, stopped.priority, stopped.rule) == (
+        plain.recommendation,
+        plain.priority,
+        plain.rule,
+    )
+    assert stopped.reasons[: len(plain.reasons)] == plain.reasons  # reasons are only added
+    if stopped.outcome is Outcome.AUTO:
+        assert not stops and stopped == plain

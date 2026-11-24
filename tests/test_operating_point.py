@@ -1494,20 +1494,70 @@ def test_nothing_edits_the_manifest(tmp_path: Path, capsys: pytest.CaptureFixtur
     assert written["run"]["operating_point"]["change"]["line"] == "auto: 0.93"
 
 
+DISPOSITIONS = ("released", "held", "blocked", "denied")
+
+
+@pytest.mark.usefixtures("release_agents")
+def test_the_demo_runs_the_bundled_agent_where_a_pulled_copy_is_cached(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], demo: Pack
+) -> None:
+    """A copy pulled from a registry comes first on the search path and never automates until
+    an organization approves it. The demo is the bundled agent's: its first message is still
+    automated, and its actions are the four the story shows."""
+    cached = tmp_path / "hub-cache" / "agents" / demo.id / demo.version
+    shutil.copytree(DEMO_AGENT_DIR, cached)
+    assert Decision.from_hub(demo.id).pack.origin == "hub"  # the copy, wherever it is asked for
+    run_demo()
+    out = capsys.readouterr().out
+    first = out.split("\n== 1. ")[1].splitlines()[1]
+    assert first.split()[0] == "AUTO"
+    asked = out.split("\n== 2. ")[1].split("\n== 3. ")[0]
+    assert [line.split()[0] for line in asked.splitlines()[2:] if line.strip()] == [
+        "released",
+        "held",
+        "released",
+        "blocked",
+    ]
+
+
+@pytest.mark.usefixtures("release_agents")
 def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_next(
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     demo: Pack,
     demo_run: tuple[Any, list[Any]],
 ) -> None:
-    """The demo's closing, after the evaluation and the probe: the evaluation's verdict, the
-    operating point (the block's own summary, then what to do), then the commands. Short, and
-    in that order."""
-    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT / "agents"))  # as a release finds it
+    """The demo is one story: five numbered sections, then its closing. The closing, after the
+    evaluation and the probe: the evaluation's verdict, the operating point (the block's own
+    summary, then what to do), then the commands. Short, and in that order."""
     run_demo()
     out = capsys.readouterr().out
     before, heading, closing = out.partition("\n== What next ")
-    assert heading and before.index("\n== 3. Before going live") < before.index("\n== 4. Find ")
+    assert heading
+    titles = [line.strip("= ") for line in out.splitlines() if line.startswith("== ")]
+    assert titles == [
+        "1. Patient messages, through the agent and its policy",
+        "2. What the agent asks to do",
+        "3. The review queue and the audit trail",
+        "4. Before going live: evaluate the agent",
+        "5. Find the failures nobody wrote down",
+        "What next",
+    ]
+    assert "in other words; see section 4." in before  # the evaluation, where it is caught
+    # What the agent asked to do with the messages above: each line a disposition, the action
+    # with its effect, and why.
+    asked = before.split("\n== 2. What the agent asks to do ")[1].split("\n== 3. ")[0]
+    assert [" ".join(line.split()) for line in asked.splitlines()[1:] if line.strip()] == [
+        "Mendari authorizes each action and runs none: your caller runs what is released.",
+        "released assign_queue (write) with the AUTO decision on message 1",
+        "held send_acknowledgement (contact) message 3 waits for a reviewer",
+        "released send_acknowledgement (contact) the reviewer confirmed it",
+        "blocked an action the agent never declared asked for message 1",
+    ]
+    # The README and the guide show those four lines as the demo prints them.
+    shown = [line for line in asked.splitlines() if line.split(" ")[0] in DISPOSITIONS]
+    assert len(shown) == 4
+    for page in ("README.md", "docs/guides/governing-actions.md"):
+        assert "\n".join(shown) in (ROOT / page).read_text(encoding="utf-8"), page
     # The counts the verdict says are the evaluation's own, two sections up.
     assert "critical urgent_symptoms=yes: 81 of 114 detected, 9 would have been automated" in before
     lines = closing.splitlines()[1:]
@@ -1525,7 +1575,13 @@ def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_nex
         "second signal, and evaluate again before it decides anything alone. "
         "Next: mendari new my-agent --id my-clinic/my-agent an agent of your own, "
     )
-    assert len(lines) == 10 and max(map(len, lines[:-1])) <= 100  # the last holds an address
+    # The last two lines each hold an address: where a model goes, then what it can have.
+    assert len(lines) == 11 and max(map(len, lines[:-2])) <= 100
+    assert lines[-2].strip().startswith("A model answers behind MENDARI_AGENT_URL: ")
+    assert lines[-1].strip() == (
+        "Then check its confidence (mendari calibrate) and gate what it does: "
+        "https://github.com/mendari-hq/mendari/tree/main/docs/guides"
+    )
     assert out.endswith(lines[-1] + "\n")  # and nothing comes after it
     # The operating point's first sentence is the block's own summary, as `mendari eval` prints
     # it for the target the demo holds the agent to.
@@ -1743,3 +1799,65 @@ def test_the_guide_names_the_options_the_command_takes() -> None:
     assert (parsed.target_critical_miss, parsed.target_critical_miss_of) == (0.01, "all")
     assert (parsed.target_false_automation, parsed.target_confidence) == (0.02, 0.95)
     assert not re.search(r"\bpacks?\b", text, re.IGNORECASE)  # one vocabulary: an agent
+
+
+# -- proposed actions are part of what the policy decided from (spec 0.4) -------------------------
+
+ACTIONS_MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
+STOP = "action 'renew_prescription' (order) is never released without a person"
+
+
+def test_the_demo_agents_proposals_are_in_what_each_case_decided_from(
+    demo: Pack, demo_run: tuple[Any, list[Any]]
+) -> None:
+    """The demo agent's canned answers propose actions on every case, and one of them is never
+    released without a person: the stop is kept with the case, so the policy applied again
+    gives the run back (the test above), at the agent's threshold and at every other."""
+    _, results = demo_run
+    stopped = [r for r in results if r.policy_inputs is not None and r.policy_inputs.actions]
+    assert 100 < len(stopped) < 600 and all(r.actions for r in results)
+    for result in stopped:
+        assert result.outcome is not Outcome.AUTO
+        assert result.policy_inputs.actions == (
+            "action 'send_acknowledgement' is never released without a person (allow_auto: false)",
+        )
+    cases = op.cases_of(demo_run[0].ledger, results)
+    for threshold in (0.5, 0.75, 0.9, 0.99, 1.0):
+        again = op.decided(op.at_threshold(demo.manifest, threshold), cases)
+        for case, (outcome, _) in zip(cases, again, strict=True):
+            if case.inputs is not None and case.inputs.actions:
+                assert outcome != "AUTO", threshold  # no threshold releases what needs a person
+
+
+def test_a_case_with_a_stopped_action_is_never_automated_at_any_threshold() -> None:
+    """Decided for real by the actions fixture: a plain refill automates exactly from its own
+    confidence down, and the same answer with an order proposed never does, however low the
+    threshold. Applying the policy again is exact for both."""
+    decision = Decision.from_path(ACTIONS_MINI, origin_cap=False)
+    manifest = decision.pack.manifest
+    plain = decision({"message": {"body": "Could you refill my lisinopril?"}})
+    order = decision({"message": {"body": "Please renew my prescription."}})
+    undeclared = decision({"message": {"body": "Try an undeclared thing."}})
+    visit = decision({"message": {"body": "I need to move my appointment."}})
+    results = [plain, order, undeclared, visit]
+    assert [r.outcome.value for r in results] == ["AUTO", *["HUMAN_REVIEW"] * 3]
+    assert plain.policy_inputs is not None and plain.policy_inputs.actions == ()
+    assert order.policy_inputs is not None and order.policy_inputs.actions == (STOP,)
+    assert visit.policy_inputs is not None and visit.policy_inputs.actions == ()  # held, no stop
+    cases = [
+        Case(r.recommendation, (), r.outcome.value, r.recommendation, r.policy_inputs)
+        for r in results
+    ]
+    recorded = [(r.outcome.value, r.recommendation) for r in results]
+    assert op.decided(manifest, cases) == recorded  # exact at the agent's own threshold
+    assert all(case.replays for case in cases)
+    for threshold in op.sequence(manifest.policy.thresholds.review):
+        outcomes = outcomes_at(manifest, cases, threshold)
+        assert outcomes[0] == ("AUTO" if threshold <= 0.95 else "HUMAN_REVIEW"), threshold
+        assert outcomes[1:3] == ["HUMAN_REVIEW", "HUMAN_REVIEW"], threshold  # the stops hold
+        assert outcomes[3] == ("AUTO" if threshold <= 0.70 else "HUMAN_REVIEW"), threshold
+    # The same answers without the stop would automate: it is the stop that holds them.
+    without = Case(
+        "refill", (), "AUTO", "refill", PolicyInputs(order.policy_inputs.answers, {}, None, {})
+    )
+    assert outcomes_at(manifest, [without], 0.9) == ["AUTO"]

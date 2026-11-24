@@ -89,8 +89,13 @@ trust boundary, and each of these is a way it can go wrong:
      is an administrator of the organization that operates the deployment, signed in as a
      person (`operate`, [ADR-0022](ADR-0022-the-first-administrator-and-the-operator-organization.md)):
      never an API key or a client, never open mode, and never an administrator of another
-     organization than the one the deployment names (where sign-in is by claims and it names
-     none, every administrator operates it, as ADR-0022 says). They ask for it when they set
+     organization than the one the deployment names. **The deployment must name one**
+     (`MENDARI_OPERATOR_ORG`; **narrowed on 2026-11-24, with wave 4**): where it names none,
+     nobody may allow an origin, in any sign-in mode. That matters where sign-in is by claims,
+     because every administrator holds `operate` there until an organization is named
+     (ADR-0022), and "every administrator of every organization may send the server to any
+     public address" is the alternative this record rejects below. The refusal says what to
+     set, and the console's panel says it before anyone tries. They ask for it when they set
      the connection (`allow_origin`); it is
      kept on the connection's row with who allowed it and when, and chained
      (`agent_connection.origin_allowed`: the agent, the origin, who) before the connection's
@@ -200,7 +205,10 @@ trust boundary, and each of these is a way it can go wrong:
   public addresses only, changes nothing the file is the word for.
 - **Let every administrator allow an origin for their own organization.** On a shared server
   that makes the operator's list advisory: any organization's administrator could send the
-  server to any public address. Only whoever runs the server widens what it may call.
+  server to any public address. Only whoever runs the server widens what it may call. As first
+  accepted, this record still let that happen in one setup: sign-in by claims with no operator
+  organization named, where every administrator operates the deployment. It now fails closed
+  there: an allowance needs an operator organization named in the deployment's settings.
 - **Install with no list at all**, so that any public address can be connected. Then nothing
   records that someone decided a given service may be called, and a model or agent endpoint
   set by mistake in the deployment's own settings is called without a word.

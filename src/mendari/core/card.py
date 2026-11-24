@@ -12,6 +12,7 @@ from mendari import notices
 from mendari.core import clock
 from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
+from mendari.core.policy import GATE_TEXT, gate_of
 from mendari.core.spec import Condition, DeriveRow, Outcome, PackManifest, Question
 from mendari.evals import leaderboard, operating_point, ranking, stats
 from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
@@ -236,7 +237,9 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
             f"- Rule **{_t(rule.name)}**: {_condition(rule.when)} ⇒ "
             f"`{outcome.value}`{target}{priority}. {_t(rule.reason)}"
         )
-    out += [f"- Fallback (ABSTAIN / BLOCK): {_t(p.fallback)}", "", "## Providers", ""]
+    out += [f"- Fallback (ABSTAIN / BLOCK): {_t(p.fallback)}", ""]
+    out += _actions(pack)
+    out += ["## Providers", ""]
     out += ["| Slot | Answers | Default | Alternatives |", "|---|---|---|---|"]
     for slot, spec in m.providers.items():
         alternatives = ", ".join(
@@ -247,6 +250,7 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
             f"| {_c(slot)} | {_t(', '.join(spec.answers))} | {_c(spec.use)} ({_t(default.type)}) | "
             f"{alternatives or 'none'} |"
         )
+    out += _confidence(pack)
     out += ["", "## Validation", ""]
     if report:
         out += _validation(report)
@@ -330,6 +334,97 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
 _PLAIN: ContextVar[bool] = ContextVar("card_plain_text", default=False)
 _PUNCTUATION = re.compile(r"([!-/:-@\[-`{-~])")  # every ASCII punctuation character
 _LINK = re.compile(r"^https?://[^\s()<>\[\]`\\|*_]+$")
+
+
+def _actions(pack: Pack) -> list[str]:
+    """The card's Actions section (spec 0.4): each action the agent may propose, what it does,
+    its effect and how the runtime gates it (`policy.gate_of`, in `policy.GATE_TEXT`'s words).
+    Nothing for an agent that declares none, so its card is what it always was."""
+    declared = pack.manifest.actions
+    if not declared:
+        return []
+    out = [
+        "## Actions",
+        "",
+        "What the agent may ask to have done, besides answer. Mendari authorizes each action "
+        "and runs none: the caller runs an action only when it was released, and every "
+        "proposal and its release or denial is in the audit trail. An action the agent "
+        "proposes that is not listed here is blocked, and its decision goes to a person. "
+        "Where the deployment has not vouched for the agent (a community agent, or one from a "
+        "registry before its organization approves its digest), nothing it proposes is "
+        "released without a person.",
+        "",
+        "| Action | Does | Effect | Released | Arguments |",
+        "|---|---|---|---|---|",
+    ]
+    for name, spec in declared.items():
+        gate = gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=not pack.community)
+        schema = spec.json_schema
+        named = list((schema or {}).get("properties") or {})
+        if schema is None:
+            arguments = "not checked"
+        elif named:
+            arguments = "checked: " + ", ".join(_c(key) for key in named)
+        else:
+            arguments = "checked: none taken"
+        out.append(
+            f"| {_c(name)} | {_t(spec.description)} | `{spec.effect.value}` | "
+            f"{GATE_TEXT[gate]} | {arguments} |"
+        )
+    return [*out, ""]
+
+
+def _confidence(pack: Pack) -> list[str]:
+    """The card's Confidence section (ADR-0024), from the manifest and the calibration files
+    the digest covers: for each `agent` variant (a composite's member too), whether its
+    confidence is calibrated, on how many cases and when, or that it is not; and each second
+    signal a variant carries. Nothing for an agent with neither."""
+    from mendari.providers import agent_calibration
+
+    lines = []
+    for slot, spec in pack.manifest.providers.items():
+        for name, variant in spec.variants.items():
+            config = {"type": variant.type, **(variant.model_extra or {})}
+            members = config.get("members")
+            members = members if isinstance(members, dict) else {}
+            configs = [(name, config)]
+            configs += [(f"{name}.{key}", m) for key, m in members.items() if isinstance(m, dict)]
+            for label, item in configs:
+                where = f"{_c(slot)} / {_c(label)}"
+                if item.get("type") == "agent":
+                    found = agent_calibration.status(pack, item)
+                    if isinstance(found, str):
+                        lines.append(
+                            f"- {where}: **{_t(found)}**. Its confidence is the agent's own "
+                            "report, and the automation threshold cuts on it as reported."
+                        )
+                    else:
+                        agent = f"{_c(found.agent_id)} " if found.agent_id else ""
+                        fitted = ", ".join(_c(key) for key in sorted(found.temperatures))
+                        lines.append(
+                            f"- {where}: confidence **calibrated** on {found.cases:,} cases of "
+                            f"{_c(found.dataset)} on {_t(found.date)}, for {agent}version "
+                            f"{_c(found.agent_version)} (questions: {fitted or 'none'}). When "
+                            "the agent's service reports another version, no decision is "
+                            "automated until it is calibrated again."
+                        )
+                        lines += [
+                            f"  - {_c(key)}: not calibrated ({_t(why)})"
+                            for key, why in found.not_fitted.items()
+                        ]
+                if item.get("type") in ("agent", "llm") and "repeat" in item:
+                    lines.append(
+                        f"- {where}: asks each case {_t(item['repeat'])} times; the answer is "
+                        "the majority's with the lowest confidence among the runs that agree, "
+                        "and a disagreement is never automated."
+                    )
+            if variant.type == "check" and len(members) == 2:
+                first, second = members
+                lines.append(
+                    f"- {_c(slot)} / {_c(name)}: {_c(first)} answers and {_c(second)} checks; "
+                    "where they disagree, the decision is never automated."
+                )
+    return ["", "## Confidence", "", *lines] if lines else []
 
 
 def _t(value: Any) -> str:

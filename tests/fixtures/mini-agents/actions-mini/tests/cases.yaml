@@ -1,0 +1,11 @@
+# Behaviour tests for the actions fixture: its answers only (the gate's own tests are
+# tests/test_action_decisions.py).
+- name: a refill request is automated
+  input: {message: {body: "Could you refill my lisinopril?"}}
+  expect: {outcome: AUTO, recommendation: refill}
+- name: an action never released without a person sends the decision to one
+  input: {message: {body: "Please renew my prescription."}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: refill}
+- name: an abusive message is blocked
+  input: {message: {body: "This is abusive."}}
+  expect: {outcome: BLOCK}

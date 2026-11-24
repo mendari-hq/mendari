@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Review queue: grouped by priority, stat first; resolving moves focus to the next card.
 
-import { communityNotice, criteriaTable, inputView, isCommunity, labelName, originBadge, statusNotice } from "./pack.js";
+import { actionsList, communityNotice, criteriaTable, inputView, isCommunity, labelName, originBadge, statusNotice } from "./pack.js";
 import { refreshReviewCount, views } from "./router.js";
 import { $, announce, api, emptyState, esc, focusHeading, icon, may, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, reducedMotion, signedIn, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
 
@@ -148,16 +148,26 @@ function resolveCard(button, onResolved) {
     return toastError("Enter a reviewer name first");
   }
   const label = button.dataset.label;
-  if (label === card.dataset.recommendation) return sendResolution(card, label, reviewer, { onResolved });
+  // Confirming releases the held actions that are still checked, and a release is final: it
+  // waits for Undo as an override does. Confirming with nothing to release is one tap, as before.
+  if (label === card.dataset.recommendation && !releasing(card).length) return sendResolution(card, label, reviewer, { onResolved });
   holdResolution(card, button, label, reviewer, onResolved);
 }
+
+// The held actions a reviewer leaves checked (released on confirm) and unchecks (denied).
+const releasing = (card) => [...card.querySelectorAll("input[data-release]:checked")].map((box) => box.dataset.release);
+const refusing = (card) => [...card.querySelectorAll("input[data-release]:not(:checked)")].map((box) => box.dataset.release);
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function holdResolution(card, button, label, reviewer, onResolved) {
   const labelButtons = card.querySelectorAll(".labels button");
   labelButtons.forEach((b) => (b.disabled = true));
   button.classList.add("held");
   const name = labelName(state.detail.primary, label);
-  const what = card.dataset.recommendation ? `Override to <b>${esc(name)}</b>` : `Label <b>${esc(name)}</b>`;
+  const confirming = label === card.dataset.recommendation;
+  const what = confirming
+    ? `Confirm <b>${esc(name)}</b> and release ${plural(releasing(card).length, "action")}`
+    : card.dataset.recommendation ? `Override to <b>${esc(name)}</b>` : `Label <b>${esc(name)}</b>`;
   const bar = document.createElement("div");
   bar.className = "undo-bar";
   bar.innerHTML = `<span>${what} in <span class="undo-seconds">${UNDO_SECONDS}</span> s</span>
@@ -185,7 +195,7 @@ function holdResolution(card, button, label, reviewer, onResolved) {
     announce(`Cancelled: ${name} was not sent`);
   });
   bar.querySelector(".undo").focus();
-  announce(`${card.dataset.recommendation ? "Override" : "Label"} ${name} sends in ${UNDO_SECONDS} seconds. Press Undo to cancel.`);
+  announce(`${confirming ? "Confirm" : card.dataset.recommendation ? "Override" : "Label"} ${name} sends in ${UNDO_SECONDS} seconds. Press Undo to cancel.`);
 }
 
 // Leaving the queue (another view, another pack, another organization: that one waits for them)
@@ -202,6 +212,10 @@ async function sendResolution(card, label, reviewer, { keepalive = false, onReso
   const primary = state.detail?.primary;
   const note = card.querySelector(".review-note textarea")?.value.trim() || null;
   const payload = note ? { final_label: label, reviewer, note } : { final_label: label, reviewer };
+  // A held action the reviewer unchecked is denied while the label is confirmed (an override
+  // denies them all, so it names none).
+  const denied = label === card.dataset.recommendation ? refusing(card) : [];
+  if (denied.length) payload.deny_actions = denied;
   try {
     const result = await api(`/api/review/${card.dataset.id}`, {
       method: "POST",
@@ -209,7 +223,12 @@ async function sendResolution(card, label, reviewer, { keepalive = false, onReso
       keepalive,
     });
     const name = primary ? labelName(primary, label) : label;
-    toast(result.human_override ? `Override recorded: ${name}` : `Confirmed: ${name}`);
+    const released = (result.actions ?? []).filter((a) => a.disposition === "released").length;
+    const refused = (result.actions ?? []).length - released;
+    const acted = result.actions?.length
+      ? ` · ${[released ? `${plural(released, "action")} released` : "", refused ? `${plural(refused, "action")} denied` : ""].filter(Boolean).join(", ")}`
+      : "";
+    toast(`${result.human_override ? `Override recorded: ${name}` : `Confirmed: ${name}`}${acted}`);
     refreshReviewCount();
     if (!card.isConnected) return; // sent on the way out of the queue
     // Keyboard reviewers carry on where they were: the next card (or the one before) gets focus,
@@ -277,6 +296,9 @@ function reviewCard(item) {
     ${inputView(record.input, { restricted: item.input_restricted })}
     <ul class="reasons">${record.reasons.filter((r) => item.priority !== "stat" || !r.startsWith("rule ")).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
     ${criteriaTable(record.answers)}
+    ${item.actions?.length ? `<h4>Proposed actions</h4>
+      ${item.actions.some((a) => a.disposition === "held") ? `<p class="muted">Confirming the recommendation releases the held actions; another label denies them.</p>` : ""}
+      ${actionsList(item.actions, { choose: may("review") && Boolean(recommendation) })}` : ""}
     ${noteField}
     ${may("review") ? `<div class="labels">
       ${recommendation ? `<button type="button" class="primary" data-label="${esc(recommendation)}">${icon("check")} Confirm ${esc(name(recommendation))}</button>

@@ -651,6 +651,7 @@ ROUTE_SCOPE = {
     ("POST", "/api/agents/{namespace}/{name}/guard"): DECIDE,
     ("POST", "/api/agents/{namespace}/{name}/fhir/decide"): DECIDE,
     ("POST", "/api/agents/{namespace}/{name}/pas"): DECIDE,
+    ("POST", "/api/agents/{namespace}/{name}/actions"): DECIDE,  # authorizing an action
     ("POST", "/cds-services/{service_id}"): DECIDE,
     ("POST", "/cds-services/{service_id}/feedback"): DECIDE,  # a card's feedback (LP-23f)
     ("POST", "/fhir/$decide"): DECIDE,

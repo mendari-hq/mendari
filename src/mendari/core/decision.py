@@ -17,7 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 from jsonschema import ValidationError
 
-from mendari.core import input_schema, tenancy
+from mendari.core import actions, input_schema, tenancy
+from mendari.core.actions import ActionResult, Asked, Checked, Proposed
 from mendari.core.derive import complete_answers, explain
 from mendari.core.origin import (
     MAX_COMMUNITY_TEXT_CHARS,
@@ -28,13 +29,24 @@ from mendari.core.origin import (
 )
 from mendari.core.pack import Pack, load_pack
 from mendari.core.patterns import OutOfTime, budget_active, check_time, search, time_budget
-from mendari.core.policy import GovernanceOverride, PolicyInputs, PolicyResult, limitation
+from mendari.core.policy import (
+    GovernanceOverride,
+    PolicyInputs,
+    PolicyResult,
+    Review,
+    action_stops,
+    disposition,
+    gate_of,
+    limitation,
+    risk_permits_auto,
+)
 from mendari.core.registry import origin_of, resolve_pack
 from mendari.core.site_codes import SiteCodeMap, SiteCodeMaps
-from mendari.core.spec import Outcome, Priority
+from mendari.core.spec import Outcome, Priority, at_least
 from mendari.errors import (
     FhirStructureError,
     HubError,
+    MendariError,
     PackNotFoundError,
     PackValidationError,
     ProviderError,
@@ -44,6 +56,7 @@ from mendari.providers.agent import AgentProvider, ConnectionSource
 from mendari.providers.base import METER, OVER_QUOTA, Meter, Metered
 from mendari.providers.batch import batching
 from mendari.providers.deadline import deadline_until, decision_deadline, due
+from mendari.providers.signals import Signals
 from mendari.settings import FhirValidation, decision_deadline_s
 
 if TYPE_CHECKING:
@@ -119,6 +132,16 @@ class DecisionResult:
     # another automation threshold (`evals/operating_point.py`). None when no policy ran: an
     # input refused, or a record that could not be read. In memory only, like `rejected`.
     policy_inputs: PolicyInputs | None = field(default=None, compare=False, repr=False)
+    # The actions the agent proposed with its answers, each with what may be done with it (spec
+    # 0.4, `core/actions.py`), in the order proposed. None for an agent older than 0.4, and for
+    # one that declares no action and proposed none: its result is what it always was. In the
+    # caller's answer (`to_dict`) and never in the stored record (`to_record`): the chain keeps
+    # each as an event, without its arguments.
+    actions: tuple[ActionResult, ...] | None = field(default=None, compare=False)
+    # What its providers found that can only lower its automation (`providers/signals.py`: the
+    # agent changed since its confidence was calibrated, a second signal disagreed), with what
+    # an evaluation counts from. In memory only, like `rejected`: the reasons say it in the record.
+    signals: Signals = field(default_factory=Signals, compare=False, repr=False)
 
     @property
     def abstained_unreadable(self) -> bool:
@@ -160,6 +183,11 @@ class DecisionResult:
             "site_codes": self.site_codes,
             "ehr_declaration": self.ehr_declaration,
             **({"promotion": self.promotion} if self.promotion is not None else {}),
+            **(
+                {"actions": [action.to_dict() for action in self.actions]}
+                if self.actions is not None
+                else {}
+            ),
         }
 
     def to_record(self) -> dict[str, Any]:
@@ -167,8 +195,12 @@ class DecisionResult:
         an input over them, name a resource by its type and position, never by its logical id
         (which can be a medical record number), since the record's digest is chained for good.
         What the caller gets back (`to_dict`, the OperationOutcome) keeps the id, to find the
-        resource. The audit store also leaves out evidence it may not keep (`AuditStore.record`)."""
+        resource. The audit store also leaves out evidence it may not keep (`AuditStore.record`).
+        Proposed actions are no part of it: their arguments are the agent's text, and the record's
+        digest is chained for good, so each is an event of its own (`action.proposed`) and the
+        record has the shape it always had."""
         record = self.to_dict()
+        record.pop("actions", None)
         labels = {
             issue["resource"]: self.labels.get(issue["resource"]) or _type_only(issue["resource"])
             for issue in self.input_issues
@@ -331,6 +363,8 @@ class Decision:
         if connection_source is not None:
             for leaf in self.agent_providers():
                 leaf.use_connection(connection_source)
+        # What checks the arguments of each declared action that has a schema (spec 0.4).
+        self._action_checkers = actions.validators(pack.manifest)
         # A pack the deployment does not own runs on the community engine (`Pack.bounded`).
         self._validator = input_schema.validator(pack.input_schema, community=pack.bounded)
         # Its input keys count toward its text only where its schema runs patterns on them;
@@ -360,6 +394,149 @@ class Decision:
             if now:
                 held.append(now)
         return held
+
+    def vouched(self) -> bool:
+        """Whether the deployment vouches for this agent now: it is no community agent, and no
+        agent from a registry that its organization has not approved for its digest, or that is
+        recalled. For one it does not vouch for, nothing proposed is released without a person
+        (`policy.gate_of`): its declared effects are claims nobody here checked."""
+        return not self.pack.community and not self._origin_holds()
+
+    def automation_stopped(self) -> str | None:
+        """Why this agent may not automate now, or None: it is not vouched for, automation is
+        on hold, or its risk level needs an approval that is not in force. What an action asked
+        for after an AUTO decision is held to (`authorize_action`): a hold or a revoked approval
+        stops new releases, though the decision itself was automated."""
+        if self.pack.community:
+            return "a community agent never automates"
+        held = self._origin_holds()
+        if held:
+            return "; ".join(held)
+        hold = self.hold_source(self.pack) if self.hold_source is not None else None
+        if hold:
+            return f"automation is on hold: {hold}"
+        governance = self.governance
+        if governance is None and self.governance_source is not None:
+            governance = self.governance_source(self.pack)
+        level = self.pack.manifest.risk.level
+        if not risk_permits_auto(level, governance):
+            return f"risk level {int(level)} requires human review"
+        return None
+
+    def _takes_actions(self) -> bool:
+        """Whether this agent's proposals are read at all: spec 0.4 and later."""
+        return at_least(self.pack.manifest.spec_version, "0.4")
+
+    def _acted(
+        self, checked: Sequence[Checked], policy: PolicyResult, vouched: bool
+    ) -> tuple[ActionResult, ...]:
+        """Each checked proposal with what may be done with it, under the decision's final
+        policy result: a refused one is blocked for what it is; any other by its gate and the
+        decision's state (`policy.disposition`). A decision that goes to a person awaits its
+        review; one that was automated or blocked has none."""
+        hash_of = actions.plain_hash if self.store is None else self.store.phi.arguments_hash
+        review: Review = "pending" if policy.outcome in _REVIEWED else "none"
+        acted = []
+        for item in checked:
+            spec = item.spec
+            if item.refusal is not None or spec is None:
+                found: tuple[actions.Disposition, actions.Reason] = (
+                    "blocked",
+                    item.refusal or "undeclared",
+                )
+            else:
+                found = disposition(
+                    gate_of(
+                        spec.effect,
+                        allow_auto=spec.allow_auto,
+                        vouched=vouched,
+                        agreed=not item.proposed.disputed,
+                    ),
+                    outcome=policy.outcome,
+                    recommendation=policy.recommendation,
+                    review=review,
+                )
+            acted.append(
+                ActionResult(
+                    id=actions.new_id(),
+                    name=item.proposed.name,
+                    effect=None if spec is None else spec.effect,
+                    declared=spec is not None,
+                    disposition=found[0],
+                    reason=found[1],
+                    arguments=dict(item.proposed.arguments),
+                    arguments_hash=hash_of(item.proposed.arguments),
+                    source="answer",
+                    slot=item.proposed.slot,
+                    problems=item.problems,
+                )
+            )
+        return tuple(acted)
+
+    def authorize_action(
+        self, decision_id: str, name: str, arguments: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Whether one action with these arguments may be run for a decision this agent made
+        and its store recorded (spec 0.4 section 6): the action's id, its declared name and
+        effect, its disposition and the reason, as the same gate that judged the proposals made
+        with the answer gives them, by the decision as it stands now.
+
+        Asking again for an action already proposed on that decision (the same declared name,
+        the same arguments) answers how it stands now, with `repeated: true`, and records
+        nothing new: so it is the check a caller makes right before it runs a tool, and how a
+        caller holding a held action learns that a reviewer released it. A new action is checked
+        and gated, and recorded in the audit chain (`action.proposed`, with who asked). Nothing
+        is run here: the caller runs an action, and only one that is `released`.
+
+        A decision that is unknown, another organization's or another agent's raises
+        `PackNotFoundError`, one answer for all three. There is no authorization without a
+        recorded decision."""
+        if self.store is None:
+            raise MendariError("an action is authorized for a decision an audit store recorded")
+        problem = actions.shape_problem(name, arguments)
+        if problem is not None:
+            raise MendariError(problem)
+        manifest = self.pack.manifest
+        checked = actions.check(manifest, self._action_checkers, Proposed(name, dict(arguments)))
+        spec = checked.spec if self._takes_actions() else None
+        # Read before the store's own session opens: a hold or an approval is a read of it.
+        vouched = self.vouched()
+        automating = self.automation_stopped() is None
+        digest = self.pack.digest
+
+        def ask(row: Mapping[str, Any], events: Sequence[Mapping[str, Any]]) -> Asked:
+            record = row["record"]
+            made_by = record.get("pack") if isinstance(record, Mapping) else None
+            if not isinstance(made_by, Mapping) or made_by.get("digest") != digest:
+                # Another version decided: what it declared is not what this one does.
+                return Asked(None, None, "blocked", "agent_changed")
+            if spec is None:
+                return Asked(None, None, "blocked", "undeclared")
+            if checked.refusal is not None:
+                return Asked(name, spec.effect.value, "blocked", checked.refusal)
+            refused_before = any(
+                event.get("event") == actions.PROPOSED
+                and event["payload"].get("reason") in actions.REFUSALS
+                for event in events
+            )
+            found = disposition(
+                gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=vouched),
+                outcome=Outcome(row["outcome"]),
+                recommendation=row["recommendation"],
+                review=_review_of(row),
+                automating=automating,
+                refused_before=refused_before,
+            )
+            return Asked(name, spec.effect.value, found[0], found[1])
+
+        keep = manifest.audit.store_input == "full"
+        return self.store.propose_action(
+            decision_id,
+            pack_id=self.pack.id,
+            arguments_hash=self.store.phi.arguments_hash(arguments),
+            kept=actions.canonical({"name": name, "arguments": arguments}) if keep else None,
+            ask=ask,
+        )
 
     def site_map(self) -> SiteCodeMap | None:
         """The site code map of the organization this decision acts for (`tenancy.current()`;
@@ -521,6 +698,10 @@ class Decision:
         cost: float | None = 0.0
         canned: str | None = None  # why an answer is canned (`ProviderOutput.canned`), if one is
         policy_inputs: PolicyInputs | None = None  # what the policy decides from, when it does
+        proposed: list[Proposed] = []  # the actions the agent asks for (spec 0.4), in order
+        checked: list[Checked] = []  # each held against the manifest, once the providers answered
+        vouched = True
+        signals = Signals()  # what its providers found that can only lower automation
         meter = Meter()  # its remote calls, as they are made
 
         governance = self.governance
@@ -614,6 +795,8 @@ class Decision:
                             answers.update(output.answers)
                             failures.update(output.failures)
                             canned = canned or output.canned
+                            proposed.extend(output.actions)
+                            signals = signals.merge(output.signals)
                             tokens_in += output.input_tokens
                             tokens_out += output.output_tokens
                             if cost is not None:
@@ -640,6 +823,14 @@ class Decision:
                     hold = "; ".join(
                         filter(None, ["this organization's daily decisions quota is used up", hold])
                     )
+                if self._takes_actions():
+                    # Each proposal against what the manifest declares (`core/actions.py`):
+                    # one that could not be released with AUTO lowers the decision, no more.
+                    checked = [
+                        actions.check(manifest, self._action_checkers, proposal)
+                        for proposal in actions.distinct(proposed)
+                    ]
+                    vouched = not self.pack.community and not origin_holds
                 policy_inputs = PolicyInputs(
                     answers,
                     failures,
@@ -651,12 +842,19 @@ class Decision:
                     site_code=tuple(translated),
                     not_offered=tuple(not_offered),
                     canned=canned if self.canned_cap else None,
+                    actions=action_stops(checked, vouched=vouched),
+                    caps=signals.reasons(),
                 )
                 policy = policy_inputs.apply(manifest)
                 primary = manifest.questions[manifest.policy.primary]
                 if primary.derive is not None:
                     policy = replace(policy, reasons=(*policy.reasons, *explain(primary, answers)))
 
+        # What may be done with each proposed action, under the policy's final word. None for
+        # an agent that takes none: older than 0.4, or declaring none and proposing none.
+        acted: tuple[ActionResult, ...] | None = None
+        if self._takes_actions() and (manifest.actions or checked):
+            acted = self._acted(checked, policy, vouched)
         # Keyed under the deployment's input hash key when it has one (`core/phi.py`).
         hashed = input_hash(inputs) if self.store is None else self.store.phi.input_hash(inputs)
         result = DecisionResult(
@@ -692,6 +890,8 @@ class Decision:
             limitations=tuple(dict.fromkeys(not_offered)),
             promotion=self.promotion,
             policy_inputs=policy_inputs,
+            actions=acted,
+            signals=signals,
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)
@@ -886,6 +1086,19 @@ def _check_not_offered(
 
 
 _FALLBACK = (Outcome.ABSTAIN, Outcome.BLOCK)
+_REVIEWED = (Outcome.HUMAN_REVIEW, Outcome.ABSTAIN)  # the outcomes that await a review
+
+
+def _review_of(row: Mapping[str, Any]) -> Review:
+    """Where a recorded decision's review stands (`policy.Review`), from its row: awaited;
+    resolved with the recommendation confirmed or overridden (an abstention's review, which had
+    no recommendation, reads as overridden: nothing was confirmed); or none needed."""
+    status = row["review_status"]
+    if status == "pending":
+        return "pending"
+    if status == "resolved":
+        return "confirmed" if row["human_override"] in (0, False) else "overridden"
+    return "none"
 
 
 _KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}\Z")

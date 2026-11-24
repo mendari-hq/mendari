@@ -293,7 +293,7 @@ def test_the_critical_cases_named_are_the_ones_the_result_counts(demo: Evaluatio
 def test_the_markdown_is_the_reports_figures(demo: Evaluation) -> None:
     markdown = report_markdown(demo.report)
     assert markdown.startswith(
-        "### Evaluation of `mendari/portal-message-agent` `0.1.2` on `test` (600 cases)\n"
+        "### Evaluation of `mendari/portal-message-agent` `0.2.0` on `test` (600 cases)\n"
     )
     for row in (
         "| Request accuracy | 549 of 600 [89.0-93.6%] |",

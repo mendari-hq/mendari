@@ -129,8 +129,11 @@ def test_an_administrator_connects_checks_changes_and_clears_an_agents_service(
     expect(result).not_to_contain_text(Service.SAID)
     service.status = 200
 
-    # Saved again with the token left empty: the one that is set stays.
+    # Saved again with the token left empty: the one that is set stays. The panel is drawn
+    # again once it is saved, which clears the last check's result: wait for that, or the next
+    # check's result could be drawn over.
     connect(section, service.url)
+    expect(result).to_be_empty()
     expect(section).to_contain_text("It is kept sealed and is never shown again.")
     section.get_by_role("button", name="Check connection").click()
     expect(result).to_contain_text("The connection works.", timeout=30_000)
@@ -162,12 +165,14 @@ def test_a_refused_address_is_explained_in_the_form_and_nothing_is_saved(site: S
     expect(section.get_by_label("Address of the service")).to_be_focused()
     for address, why in (
         ("http://example.org/decide", "an address starts with https://"),
-        # Off the list: an administrator who does not operate the deployment is told who can
-        # allow the address.
+        # Off the list, on a deployment that names no operator organization: nobody can allow
+        # the address, and the refusal says what whoever runs the deployment sets.
         (
             "https://example.org/decide",
-            "is not on the list of addresses this deployment may call. An administrator of "
-            "the organization that operates this deployment can allow it for this agent",
+            "is not on the list of addresses this deployment may call, and nobody can allow "
+            "it from here: the deployment names no organization as its operator. Whoever runs "
+            "it names one (MENDARI_OPERATOR_ORG), or adds that origin to "
+            "MENDARI_PROVIDER_ALLOWED_ORIGINS",
         ),
         ("https://someone:pw@example.org/decide", "no user or password"),
         ("https://example.org/decide?key=zq", "no query"),
@@ -179,7 +184,8 @@ def test_a_refused_address_is_explained_in_the_form_and_nothing_is_saved(site: S
     # They are offered no box to allow it themselves.
     expect(section.locator("[data-connection-allow]")).to_have_count(0)
     expect(section).to_contain_text(
-        "Another address is allowed by an administrator of the organization that operates"
+        "Nobody can allow another address from here: this deployment names no organization as "
+        "its operator."
     )
     assert violations(admin) == []
     expect(section).to_contain_text("Not connected.")
@@ -405,3 +411,33 @@ def test_an_operator_allows_an_address_the_deployments_list_does_not_name(
             item["event"] for item in listed if item["event"].startswith("agent_connection")
         ] == ["agent_connection.origin_allowed", "agent_connection.set"]
         assert TOKEN not in str(listed)
+
+
+def test_where_no_operator_is_named_the_panel_says_nobody_can_allow_an_address(
+    browser: Browser,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    service: Service,  # noqa: F811
+) -> None:
+    """A deployment with a list of addresses and no operator organization named: an
+    administrator is offered no box, the panel says what whoever runs it must set, and an
+    address off the list is refused by the list."""
+    memberships(monkeypatch)
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
+    monkeypatch.delenv("MENDARI_OPERATOR_ORG", raising=False)
+    monkeypatch.setenv("MENDARI_PROVIDER_ALLOWED_ORIGINS", service.origin)
+    with running(browser, tmp_path / "unnamed.db") as here:
+        admin = window(here, "lead", "admin")
+        section = card(admin)
+        expect(section).to_contain_text(
+            "Nobody can allow another address from here: this deployment names no organization "
+            "as its operator. Whoever runs it names one (MENDARI_OPERATOR_ORG), or lists the "
+            "address (MENDARI_PROVIDER_ALLOWED_ORIGINS)."
+        )
+        expect(section.locator("[data-connection-allow]")).to_have_count(0)
+        section.get_by_label("Address of the service").fill(ELSEWHERE)
+        section.get_by_role("button", name="Save connection").click()
+        expect(section.locator("form .error")).to_contain_text("MENDARI_PROVIDER_ALLOWED_ORIGINS")
+        with httpx.Client(base_url=here.base, headers=headers(here, "lead", "admin")) as client:
+            assert client.get(AT).json()["connection"] is None
+        assert violations(admin) == []

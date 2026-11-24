@@ -9,6 +9,59 @@ no section, or whose section is not the newest. Changes to an agent are in the a
 
 The first release (not yet published).
 
+- **Actions: what an agent does is gated, not only what it answers** (2026-11-24, agent
+  manifest spec 0.4, [ADR-0023](docs/decisions/ADR-0023-an-agent-proposes-actions.md)). A
+  manifest declares the actions an agent may ask for (`actions:`), each with an effect: `read`,
+  `draft`, `write`, `contact` or `order`. The agent proposes actions with its answers, and each
+  comes back `released`, `held` or `blocked`: a `read` or a `draft` with any decision that is
+  not blocked, a `write` or a `contact` only with an automated decision or once the decision's
+  reviewer confirms it, an `order` never without a person. The gate is the runtime's
+  (`core/policy.py`), and a manifest can only tighten it (`allow_auto: false`). An action the
+  agent never declared, or arguments that do not match its schema, is blocked and sends the
+  decision to a person. Mendari authorizes and records; it runs nothing
+  ([Governing actions](docs/guides/governing-actions.md)). With it:
+  - a decision's answer carries `actions`; `POST /api/agents/{namespace}/{name}/actions` and
+    the MCP tool `authorize_action` ask again for a recorded decision; a review releases or
+    denies what was held (`deny_actions` refuses one action without overriding the label);
+  - two audit events, `action.proposed` and `action.resolved`, with a hash of the arguments and
+    never the arguments, which are kept as a decision's input is. No table, column or index is
+    added;
+  - the review queue, the audit view and the Decision Card show an agent's actions, and the
+    agent kit (`mendari.agent_kit`) proposes them;
+  - the demo agent is 0.2.0 on spec 0.4 and declares two actions; `mendari demo` shows a write
+    released, a message to a patient held until a reviewer confirms, and an undeclared action
+    blocked.
+  - `mendari demo` runs the agent the release bundles, also where a copy pulled from a
+    registry is in the cache: the copy comes first on the search path and automates nothing
+    until an organization approves it, so the demo showed every message waiting for a person.
+- **A confidence that was checked, and a second signal** (2026-11-24, spec 0.4,
+  [ADR-0024](docs/decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md)).
+  `mendari calibrate` fits an external agent's confidence on labelled cases (an `agent`
+  variant's `calibration`, one temperature a question), for the version the agent's service
+  reported; when the service reports another version nothing is rescaled and no decision is
+  automated until it is calibrated again. `repeat: N` asks each case N times, and a variant of
+  `type: check` has a second model check the first: where the answers disagree on a question
+  the decision turns on, a person decides. Agreement raises nothing. `mendari eval` reports the
+  calibration error before and after, and what a second signal caught and cost
+  ([Calibration and a second signal](docs/guides/calibration-and-a-second-signal.md)).
+- **The two together** (2026-11-24). One policy applies every cap in one order, the new ones
+  last: the version cap, the second signal's, then what the proposed actions need; each only
+  lowers automation, and each reason ends "; a person decides" wherever a person does. An
+  action that only some repeated runs proposed, or that a checking agent did not propose with
+  the same arguments, is held for the decision's reviewer and never released without one,
+  whatever its effect; a `check` is the one composite whose proposals are taken (its first
+  member's). The operating point stays exact with all of it on. The
+  [committee packet](docs/guides/committee-packet.md) lists an agent's declared actions with
+  their gates, whether its confidence is calibrated and whether a second signal is on, from
+  the manifest and from each evaluation, and says "Not stated" where there is nothing. One
+  spec page: [agent manifest spec 0.4](docs/spec/agent-manifest-0.4.md).
+- **Allowing an address needs a named operator organization** (2026-11-24). An agent's
+  connection may be allowed an origin the deployment's list does not name only by an
+  administrator of the organization `MENDARI_OPERATOR_ORG` names. Where sign-in is by claims
+  and no organization is named, every administrator holds `operate`, and until now each could
+  allow one: it fails closed instead, the refusal says what to set, and the security log's
+  reason is `no_operator_named`
+  ([ADR-0021](docs/decisions/ADR-0021-an-agents-connection-set-in-the-console.md)).
 - **One machine, one command, and a console that says what is left** (2026-11-24).
   `deploy/site/mendari-site install` puts Mendari on one machine with Docker: it asks for what
   only the site knows (its public address, its identity provider's issuer, client id and
