@@ -851,17 +851,24 @@ def test_the_mounted_registry_answers_the_same_at_both_paths(world: World) -> No
 
 
 def test_the_dashboard_and_the_client_ask_at_the_current_paths() -> None:
-    """Every caller in the repository moved: the dashboard's scripts, the API examples and the
-    registry client ask at the current paths (a former path is for callers outside the
-    repository, and for the Hub until the registry it reads is deployed with both)."""
+    """Every caller in the repository moved: the dashboard's scripts, the API examples, the
+    registry client and the Agent Hub ask at the current paths (a former path is for callers
+    outside the repository). The Hub deploys apart from the registry it reads, so a registry
+    that answers the current paths is deployed before a Hub that asks at them."""
     root = Path(__file__).resolve().parents[1]
+    hub = [
+        path
+        for folder in ("app", "lib")
+        for suffix in ("*.ts", "*.tsx")
+        for path in sorted((root / "hub" / folder).rglob(suffix))
+    ]
+    assert root / "hub" / "lib" / "registry.ts" in hub and len(hub) >= 10
     callers = [
         *sorted((root / "src" / "mendari" / "dashboard").glob("*.js")),
         *sorted((root / "src" / "mendari" / "dashboard").glob("*.html")),
         *sorted((root / "src" / "mendari" / "dashboard" / "snippets").glob("*")),
         root / "src" / "mendari" / "hub" / "client.py",
-        # The Hub (`hub/lib/registry.ts`) deploys apart from the registry, so it keeps the former
-        # paths for one release: it moves once every deployed registry answers the current ones.
+        *hub,
         root / "deploy" / "status" / "checks.yaml",
         *sorted((root / "scripts").glob("*.py")),
         *sorted((root / ".github" / "workflows").glob("*.yml")),
@@ -874,4 +881,7 @@ def test_the_dashboard_and_the_client_ask_at_the_current_paths() -> None:
         if former.search(line)
     ]
     assert not found, found
+    # Not vacuous: the Hub's reads of the registry are there, at the current paths.
+    asked = (root / "hub" / "lib" / "registry.ts").read_text(encoding="utf-8")
+    assert "`/v1/agents/${" in asked and "/v1/search" in asked
     assert DASHBOARD  # the dashboard's own header, sent by every session above
