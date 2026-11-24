@@ -75,8 +75,9 @@ its fixed reason, `no_set` with no id, any other with the set's id), `store.pull
 `unreachable`, `registry_answer`, `phi` or `checks`, with no id and never the registry's words),
 `admin.connection.set|cleared|checked|refused|origin_allowed` (an agent's connection, ADR-0021:
 the agent's id and who acted; never its address or its token; a refusal's reason is `checks`,
-`origin_not_listed` or `not_operator`; `origin_allowed` is an operator allowing an origin the
-deployment's list does not name), `auth.first_admin.granted|ignored` (the first-administrator
+`origin_not_listed`, `not_operator` or `no_operator_named` (the deployment names no operator
+organization, so nobody may allow an origin); `origin_allowed` is an operator allowing an origin
+the deployment's list does not name), `auth.first_admin.granted|ignored` (the first-administrator
 setting, ADR-0022: it made its administrator, once, with the membership's id; or its address
 signed in to a database that no longer takes it), `system.audit.verified`,
 `system.alert.tested` and `system.ehr.checked` (an operator's actions, `server/system_routes.py`:

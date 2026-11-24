@@ -58,7 +58,9 @@ second lets a role held through the web see and do what only the machine's owner
    - allowing, for one agent of the operator organization, a service address that the
      deployment's list of addresses it may call does not name
      ([ADR-0021](ADR-0021-an-agents-connection-set-in-the-console.md), point 5): to public
-     addresses only, and chained.
+     addresses only, and chained. This one needs the organization **named**: where sign-in is
+     by claims and the setting names none, every administrator holds `operate` and none of
+     them may allow an address (narrowed on 2026-11-24; ADR-0021 says why).
 4. **What it does not give.** No other organization's decisions, inputs, people, keys, agents
    or connections: every route still acts for the organization the person is signed in to. No
    setting can be changed through the web: the settings file stays the machine's. Nothing an

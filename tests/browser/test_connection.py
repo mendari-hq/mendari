@@ -405,3 +405,33 @@ def test_an_operator_allows_an_address_the_deployments_list_does_not_name(
             item["event"] for item in listed if item["event"].startswith("agent_connection")
         ] == ["agent_connection.origin_allowed", "agent_connection.set"]
         assert TOKEN not in str(listed)
+
+
+def test_where_no_operator_is_named_the_panel_says_nobody_can_allow_an_address(
+    browser: Browser,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    service: Service,  # noqa: F811
+) -> None:
+    """A deployment with a list of addresses and no operator organization named: an
+    administrator is offered no box, the panel says what whoever runs it must set, and an
+    address off the list is refused by the list."""
+    memberships(monkeypatch)
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
+    monkeypatch.delenv("MENDARI_OPERATOR_ORG", raising=False)
+    monkeypatch.setenv("MENDARI_PROVIDER_ALLOWED_ORIGINS", service.origin)
+    with running(browser, tmp_path / "unnamed.db") as here:
+        admin = window(here, "lead", "admin")
+        section = card(admin)
+        expect(section).to_contain_text(
+            "Nobody can allow another address from here: this deployment names no organization "
+            "as its operator. Whoever runs it names one (MENDARI_OPERATOR_ORG), or lists the "
+            "address (MENDARI_PROVIDER_ALLOWED_ORIGINS)."
+        )
+        expect(section.locator("[data-connection-allow]")).to_have_count(0)
+        section.get_by_label("Address of the service").fill(ELSEWHERE)
+        section.get_by_role("button", name="Save connection").click()
+        expect(section.locator("form .error")).to_contain_text("MENDARI_PROVIDER_ALLOWED_ORIGINS")
+        with httpx.Client(base_url=here.base, headers=headers(here, "lead", "admin")) as client:
+            assert client.get(AT).json()["connection"] is None
+        assert violations(admin) == []
