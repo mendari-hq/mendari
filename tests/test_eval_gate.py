@@ -86,7 +86,7 @@ def test_no_limit_stated_checks_nothing() -> None:
     assert limits(result(), Limits()) == ([], [])
 
 
-def test_a_limit_is_met_at_its_value_and_missed_past_it() -> None:
+def test_a_limit_is_met_at_its_value_and_not_met_past_it() -> None:
     every = Limits(
         min_accuracy=0.9,
         max_false_automation=0.01,
@@ -283,11 +283,11 @@ def test_the_critical_cases_named_are_the_ones_the_result_counts(demo: Evaluatio
     (counted,) = demo.report["decisions"]["critical"]
     (named,) = critical_cases(demo.ledger)
     assert len(named["automated"]) == counted["auto_missed"] == 9
-    assert len(named["missed"]) == 24
-    assert not set(named["automated"]) & set(named["missed"])
+    assert len(named["undetected"]) == 24
+    assert not set(named["automated"]) & set(named["undetected"])
     # Every case of either kind was not detected here (the policy sends a detected one to a
     # person), so together they are the result's missed cases.
-    assert set(named["automated"]) | set(named["missed"]) == set(counted["missed_cases"])
+    assert set(named["automated"]) | set(named["undetected"]) == set(counted["missed_cases"])
 
 
 def test_the_markdown_is_the_reports_figures(demo: Evaluation) -> None:
@@ -341,7 +341,7 @@ def test_the_markdown_renders_nothing_a_dataset_or_a_model_says() -> None:
     report["models"] = {"request": {hostile: 12}}
     report["errors"] = {hostile: 3}
     report["decisions"]["critical"][0]["auto_missed"] = 1
-    markdown = report_markdown(report, [{"automated": ["h1"], "missed": []}], {"h1": hostile})
+    markdown = report_markdown(report, [{"automated": ["h1"], "undetected": []}], {"h1": hostile})
     shown = "`![x](https://evil.example/x.png) \\| <script>' next`"
     unescaped = shown.replace("\\|", "|")
     assert f" on {unescaped} (12 cases)" in markdown  # the heading: not a table

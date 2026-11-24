@@ -89,8 +89,10 @@ file, the baseline) is from the workspace, the repository's root. A workflow tha
 action more than once in a run (two agents, two datasets) gives each use its own `artifact`
 name.
 
-The behaviour tests are the agent's own, in `tests/cases.yaml`. An agent that has none fails
-here: `mendari test` does not pass on nothing.
+The behaviour tests are the agent's own, in `tests/cases.yaml`, then the ones
+`mendari probe --write` kept in `tests/probe.yaml`
+([Finding failures](finding-failures.md#keeping-failures-as-tests)). An agent that has none
+fails here: `mendari test` does not pass on nothing.
 
 Its outputs are `validation`, `tests` and `evaluation` (`passed`, `failed`, and for the
 evaluation `error` when it could not run), the paths `result` and `summary`, and `mendari`, the

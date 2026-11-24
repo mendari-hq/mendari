@@ -237,7 +237,7 @@ def report_markdown(
     # no miss, and is said in those words.
     kinds = (
         ("automated", "Critical misses: {name} cases automated, so no person read them"),
-        ("missed", "Critical {name} cases not detected, and read by a person"),
+        ("undetected", "Critical {name} cases not detected, and read by a person"),
     )
     for name, cases in zip(names, critical, strict=False):
         for kind, words in kinds:

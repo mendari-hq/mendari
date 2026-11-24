@@ -144,12 +144,12 @@ explains every section, and
 [the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest-0.2.md)
 specifies it.
 
-**In CI.** The workflow uses Mendari's GitHub Action: on every pull request and push it
-validates, tests and evaluates the agent, writes the figures and the operating point to the
-job's summary, and fails the job when a limit you state is not met (by default: a critical
-label detected in under nine cases of ten, or any critical miss) or the result is worse than a
-baseline. It needs no secret. The action resolves from another repository once this one is
-public and a release is tagged
+**In CI.** The workflow uses Mendari's GitHub Action: on every pull request, and every push to
+`main`, it validates, tests and evaluates the agent, writes the figures and the operating point
+to the job's summary, and fails the job when a limit you state is not met (by default: a
+critical label detected in under nine cases of ten, or any critical miss) or the result is
+worse than a baseline. It needs no secret. The action resolves from another repository once
+this one is public and a release is tagged
 ([Evaluating an agent on every change](https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md)).
 
 ### 3. Put a real model behind it
