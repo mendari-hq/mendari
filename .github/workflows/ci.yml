@@ -733,6 +733,33 @@ jobs:
           grep -q '^### Gate failed: 2 limits missed$' "$STRICT"
           grep -q 'no person read them (9): .demo-0002., ' "$STRICT"
 
+  quickstart-wheel:
+    # One install command and a five-minute path, as a developer who installs the package gets
+    # them. The sdist is built, and the wheel from it; the wheel alone, with no extra, is
+    # installed into a new environment outside the checkout; then, in an empty folder with none
+    # of this machine's settings: the demo, an agent of one's own (scaffolded, validated, tested
+    # and evaluated) and the server, until it answers and serves the console
+    # (scripts/run_quickstart.py --wheel). Timed, install included: five minutes or more fails,
+    # and it takes well under one. The wheel must also hold every tracked file of the package
+    # and of the bundled agent, and no other (scripts/check_sdist.py --wheel).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.6"
+          python-version: "3.12"
+          enable-cache: false
+      - name: Build the sdist, then the wheel from it
+        run: uv build --out-dir /tmp/dist
+      - name: The sdist holds only the build inputs, and the wheel every tracked file of the folders it is built from
+        run: python3 scripts/check_sdist.py /tmp/dist/mendari-*.tar.gz --wheel /tmp/dist/*.whl
+      - name: One install command, then the first five minutes, from the wheel in an empty folder
+        run: python3 scripts/run_quickstart.py --wheel /tmp/dist/*.whl
+
   pilot-check:
     # The v0.6 exit: a pilot organization runs a portal-message agent (the bundled demo agent)
     # with its own identity provider, PHI-safe settings, monitoring and governance approvals. The
