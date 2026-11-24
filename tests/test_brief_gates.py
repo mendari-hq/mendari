@@ -22,6 +22,10 @@ from mendari.core.pack import Pack
 from mendari.evals.monitoring import MIN_FOR_OPERATIONS, monitor
 from tests.conftest import DEMO_AGENT_DIR
 
+# Part of the edit loop (`-m core`), beside the brief's other tests: fast, and on the decision
+# path's own counts.
+pytestmark = pytest.mark.core
+
 REFILL = {"message": {"body": "Please send a refill of my metformin to the pharmacy."}}
 URGENT = {"message": {"body": "I have chest pain and trouble breathing since last night."}}
 RUNNING = {"reader": "agent"}

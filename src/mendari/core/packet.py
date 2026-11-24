@@ -54,6 +54,7 @@ from mendari.evals.result import normalize
 
 FORMAT = "mendari.governance-packet/1"
 DEFAULT_DAYS = 90
+MAX_EVALUATIONS = 5  # of an organization's saved evaluations, the newest: a packet is read
 MIN_DAYS, MAX_DAYS = monitoring.MIN_DAYS, monitoring.MAX_DAYS
 # The sections, in the order a committee reads: (key, title). The crosswalk names them by key.
 SECTIONS: tuple[tuple[str, str], ...] = (
@@ -568,7 +569,12 @@ def _site_evidence(
     volume = brief["volume"]
     total = int(stats["decisions"])
     pilot = brief["shadow_pilot"]
-    evaluations = [found for report in reports if (found := _evaluation(report, pack)) is not None]
+    # The newest evaluations saved here (the store gives them newest first), and how many more.
+    evaluations = [
+        found
+        for report in reports[:MAX_EVALUATIONS]
+        if (found := _evaluation(report, pack)) is not None
+    ]
     empty = None
     if not total and not evaluations:
         empty = (
@@ -626,6 +632,7 @@ def _site_evidence(
         ],
         "gates_line": validation_brief.readiness_line(brief["gates"]),
         "evaluations": evaluations,
+        "evaluations_saved": len(reports),
     }
 
 
@@ -1734,6 +1741,9 @@ def _html_site_evidence(c: Mapping[str, Any]) -> str:
     out += "<h3>Evaluations run here</h3>"
     if not c["evaluations"]:
         return out + _none("None: no evaluation of this agent is saved for this organization.")
+    shown, saved = len(c["evaluations"]), c["evaluations_saved"]
+    if saved > shown:
+        out += f"<p>The {shown} most recent of the {_e(saved)} saved here, newest first.</p>"
     for found in c["evaluations"]:
         out += _html_evaluation(found)
     return out

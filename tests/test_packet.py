@@ -190,6 +190,44 @@ def test_what_was_stated_leaves_the_not_stated_appendix(store: AuditStore) -> No
     assert before.keys() - after == {"local_evidence"}
 
 
+def test_an_evaluation_run_here_is_shown_as_counts_with_its_configuration(
+    open_client: TestClient,
+) -> None:
+    """An evaluation saved for the organization: its test set, the configuration it ran on, each
+    share with what it is out of, and the critical cases. Never a case of the test set."""
+    ran = open_client.post(f"{AGENT}/evals", json={"dataset": "examples"})
+    assert ran.status_code == 200, ran.text
+    answer = open_client.get(PACKET)
+    built = answer.json()
+    assert packet.problems(built) == []
+    site = section(built, "site_evidence")
+    assert site["empty"] is None and site["evaluations_saved"] == 1
+    (found,) = site["evaluations"]
+    assert found["dataset"]["name"] == "examples" and found["dataset"]["n"] == 12
+    assert found["measured_on"] == {
+        "version": demo().version,
+        "digest": demo().digest,
+        "this_version": True,
+    }
+    assert found["configuration"]["reader"]["variant"] == "agent"
+    assert found["accuracy"]["n"] == 12 and 0 <= found["accuracy"]["k"] <= 12
+    assert found["accuracy"]["low"] <= found["accuracy"]["k"] / 12 <= found["accuracy"]["high"]
+    (critical,) = found["critical"]
+    assert (critical["question"], critical["label"]) == ("urgent_symptoms", "yes")
+    assert critical["detected"]["n"] == 3 and critical["insufficient_evidence"] is True
+    assert "local_evidence" not in {item["key"] for item in built["not_stated"]}
+    page = open_client.get(f"{PACKET}?format=html").text
+    assert "too few cases to judge" in page and "12 cases" in page
+    cases = [
+        json.loads(line)["input"]["message"]["body"]
+        for line in (DEMO_AGENT_DIR / "data" / "examples.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert len(cases) == 12
+    for text in (answer.text, page):
+        assert not [case for case in cases if case in text]
+
+
 def test_the_packet_is_the_same_for_the_same_evidence(store: AuditStore) -> None:
     pack = demo()
     Decision(pack, store=store).decide(REFILL)
