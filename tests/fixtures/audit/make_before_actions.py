@@ -1,12 +1,17 @@
-"""Make an audit database with the code as it was before actions (commit 948c7194).
+# SPDX-License-Identifier: Apache-2.0
+"""Make `before-actions.sqlite.gz`: an audit database written by the code as it was before
+actions (commit 948c7194), which `tests/test_action_audit.py` opens with the code as it is.
 
-Run with that commit's sources first on the path:
+Run it with that commit's sources first on the path (an export of the commit into a folder of
+its own, `<copy>`), then compress what it writes:
 
-    PYTHONPATH=<a copy of 948c7194>/src python make_before_db.py <the copy> <out.sqlite>
+    PYTHONPATH=<copy>/src python make_before_actions.py <copy> before-actions.sqlite
+    gzip -9 -n before-actions.sqlite
 
-It records, with the inbox fixture agent on synthetic messages: decisions of each outcome, a
-review with a note, a rating with a note, a downstream outcome, and a follow-up event with a
-note. PHI mode off, no keys: the plain database a local install has.
+It records, with the inbox fixture agent on synthetic messages: decisions that wait for review,
+an abstention and a refused input, a review with a note, a rating with a note, a downstream
+outcome, and a follow-up event with a note. PHI mode off, no keys: the plain database a local
+install has.
 """
 
 from __future__ import annotations
@@ -16,10 +21,11 @@ from pathlib import Path
 
 import mendari
 from mendari import AuditStore, Decision, load_pack
+from mendari.core import policy
 
 root, out = Path(sys.argv[1]), Path(sys.argv[2])
-assert str(root) in mendari.__file__, mendari.__file__
-assert not hasattr(mendari.core.policy if hasattr(mendari, "core") else object, "EFFECT_GATES")
+assert str(root) in str(mendari.__file__), "run it with the earlier commit's sources on the path"
+assert not hasattr(policy, "EFFECT_GATES"), "these sources already have actions"
 if out.exists():
     out.unlink()
 inbox = load_pack(root / "tests" / "fixtures" / "reference-agents" / "patient-inbox-router")
