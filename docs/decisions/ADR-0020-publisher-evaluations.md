@@ -45,6 +45,46 @@ dataset, and the Hub shows them side by side. Nothing in one is shown unchecked:
    misses first, then accuracy and false automation. No row is marked best; the section says
    the set is the publisher's own and public, so a configuration can be tuned to it.
 
+## Amendment (2026-11-24): the evaluation page says which configuration did best only when one clearly did
+Point 6 stands as written for the section on the agent's page, "Published evaluations": one row
+per configuration, and no row marked. Since then the Hub has an evaluation page of its own
+(`/agents/<namespace>/<name>/evaluation`, built from the registry's
+`mendari.agent-evaluation/1`, `hub/evaluation_page.py`). It lists a dataset's configurations in
+the order of `mendari.rank/1`, which is total: some configuration is always listed first. As
+first built, the page named that one as having done best whenever the first two could be told
+apart. That says more than point 6 allows, and it is amended as follows.
+
+**What the page may say, and exactly when.** For the configurations of one version on one
+dataset, the registry works out the *first band*: the configuration listed first, with every
+other one the counts cannot tell from it. That is one that did the same on all four measures
+of the order, or one whose difference from the first, on the measure where the two first
+differ, lies inside their exact 95% intervals (they overlap, or one is of no cases). The page
+says that a configuration "did best on this dataset" **only when it is alone in that band**: it
+is listed first, and every other configuration is behind it by more than chance explains. In
+every other case no configuration is named, and the page says so in plain words:
+
+- several in the first band: "No configuration is clearly best on this dataset", then which is
+  listed first and which ones it is not clearly ahead of;
+- a tie: the configurations that did the same on every measure are named together;
+- one configuration alone: there is nothing to compare it with;
+- nothing ranks (no critical label has 100 positive cases, or the agent names none): no band,
+  and no configuration named.
+
+The rule is worked out in one place, the registry's answer (`comparison.first_band` and
+`comparison.best`), on every read, from the signed counts alone. The Hub prints what the answer
+says and decides nothing; for a registry that does not say, it names none.
+
+**Why this keeps to the decision's reason.** Point 6 marks no row best because the set is the
+publisher's own and public, so a configuration can be tuned to it: a mark would be read as a
+recommendation the data cannot carry. What the page says now is a statement about these counts
+and not about the configuration: "did best on this dataset", never "is best", beside the same
+notice that the dataset is the publisher's and can be tuned to, and with what even that
+configuration let through when it automated critical cases. It is said only where the counts
+leave no other reading, and withheld wherever chance could explain the order, which is where a
+mark would mislead most. It compares the configurations of one agent only: no agent is ranked
+against another, the badge names no configuration (it gives the fewest and the most critical
+cases automated), and the section on the agent's page still marks no row.
+
 ## Consequences
 - A hospital sees, before pulling, what each configuration of an agent did on the same cases,
   which rows the registry reproduced, and which rest on the publisher's signature alone.

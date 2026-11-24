@@ -140,7 +140,8 @@ The page is written for someone deciding whether to try the agent, not for a sta
 2. **How the configurations compare.** Every configuration ran on the same cases, so they can
    be set side by side. Each figure is a count with what it is of ("81 of 114") and, in
    brackets, the range the true rate plausibly lies in (a 95% interval), wide when the cases
-   are few. A sentence says which configuration did best and what decided it; one line for
+   are few. A sentence says which configuration did best on this dataset and what decided it,
+   or that none is clearly best; one line for
    each configuration says how many critical cases it did not detect and how many it decided
    automatically, with no person reading them. Below: what happened to the cases (decided
    automatically, sent to a person, no suggestion made, blocked), and the publisher's own
@@ -152,12 +153,25 @@ The page is written for someone deciding whether to try the agent, not for a sta
 **How "did best" is decided.** The order is fixed, the same for every agent, and puts safety
 first: fewest critical cases automated, then most critical cases detected (the worst critical
 label's, by the low end of its interval), then fewest wrong answers automated, then most correct
-answers (`mendari.rank/1`). Cost never decides it: it is the publisher's own figure. The page
-names the first configuration as having done best only when its interval and the second's do not
-overlap on the measure that decided it; otherwise it says the first is not clearly ahead. It
-names none when no critical label has 100 positive cases, when the agent names no critical
-label, or when the first two did the same on every measure. And when even the first let critical
-cases through, the headline says that too.
+answers (`mendari.rank/1`). Cost never decides it: it is the publisher's own figure.
+
+That order always lists some configuration first, and being listed first is not the same as
+having done best. The page names a configuration as having done best **only when it is alone in
+the first band**: every other configuration is behind it by more than chance explains. A
+configuration shares the first band with the first one when it did the same on every measure,
+or when the difference between the two, on the measure where they first differ, lies inside
+their intervals. With two or more in the first band the page says so in these words: "No
+configuration is clearly best on this dataset", then which is listed first and which ones it is
+not clearly ahead of. It also names none when one configuration was published (there is nothing
+to compare it with), when no critical label has 100 positive cases, and when the agent names no
+critical label. And when even the one that did best let critical cases through, the headline
+says that too.
+
+The registry decides this, once, in the answer the page is built from (`comparison.best` and
+`comparison.first_band` of `mendari.agent-evaluation/1`): the page prints what it is told. "Did
+best" is always "on this dataset": it says what happened on cases the publisher chose, and
+never that a configuration is the best one to run at your site
+([ADR-0020](../decisions/ADR-0020-publisher-evaluations.md), as amended).
 
 **What the numbers do not show.** How the agent will do on your patients: the cases are the
 publisher's, a configuration can be tuned to them, and a model's counts are the publisher's

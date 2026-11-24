@@ -27,6 +27,16 @@ their intervals keep apart (`separated`): when they overlap, the difference coul
 the answer says so. As in `mendari.rank/1`, nothing is named first while no critical label has
 100 positive cases. It compares the configurations of one agent on one dataset its publisher
 chose: it ranks no agent against another and is not a grade.
+
+**Whether one did best** (`comparison.first_band`, `comparison.best`; ADR-0020, amended
+2026-11-24). The order is total, so something is always listed first; that alone names nothing
+as best. The first band is the first configuration with every other one the counts cannot tell
+from it: one that did the same on every measure, or one whose difference from the first, on the
+measure where the two first differ, lies inside their intervals. `best` names a configuration
+only when it is alone in that band: it is first, and every other configuration is behind it by
+more than chance explains. Otherwise `best` is null and the page says that none is clearly
+best. One configuration alone, and a comparison in which nothing ranks, have no band and name
+none. The rule is worked out here, once: the Hub prints what `best` says and decides nothing.
 """
 
 from __future__ import annotations
@@ -311,6 +321,10 @@ def compare(
         "decided_by": None,
         "figures": None,
         "separated": None,
+        # The first configuration and every other the counts cannot tell from it, in the
+        # order shown; and the one that did best, named only when it is alone there.
+        "first_band": [],
+        "best": None,
     }
     if len(rows) < 2:
         compared["status"] = ONE
@@ -322,26 +336,41 @@ def compare(
     for position, row in enumerate(ranked, start=1):
         by_id[row["evaluation"]]["position"] = position
     first, second = ranked[0], ranked[1]
-    ahead, behind = ranking.measures(first), ranking.measures(second)
-    decided = next((i for i in range(len(ahead)) if ahead[i] != behind[i]), None)
-    if decided is None:
+    band = [first] + [row for row in ranked[1:] if _told_apart(first, row)[3] is not True]
+    compared["first_band"] = [row["evaluation"] for row in band]
+    compared["best"] = first["evaluation"] if len(band) == 1 else None
+    measure, one, other, separated = _told_apart(first, second)
+    if measure is None:
+        ahead = ranking.measures(first)
         compared["status"] = TIED
         compared["tied"] = [row["evaluation"] for row in ranked if ranking.measures(row) == ahead]
         return ordered, compared
-    measure = ranking.MEASURES[decided]
-    one, other = _measured(first, measure), _measured(second, measure)
-    bounds = (one["low"], one["high"], other["low"], other["high"])
     compared.update(
         first=first["evaluation"],
         second=second["evaluation"],
         decided_by=measure,
         figures={"first": one, "second": other},
-        # Whether the two intervals keep apart; null when one of them is of no cases.
-        separated=None
-        if None in bounds
-        else one["high"] < other["low"] or other["high"] < one["low"],
+        separated=separated,
     )
     return ordered, compared
+
+
+def _told_apart(
+    first: Mapping[str, Any], other: Mapping[str, Any]
+) -> tuple[str | None, dict[str, Any] | None, dict[str, Any] | None, bool | None]:
+    """What tells `other` from the row listed first: the measure where the two first differ
+    (None: they did the same on every one), each row's figure on it, and whether the two
+    intervals keep apart (None when one of them is of no cases, or when nothing differs). Only
+    True puts `other` clearly behind: an overlap could be chance."""
+    ahead, behind = ranking.measures(first), ranking.measures(other)
+    decided = next((i for i in range(len(ahead)) if ahead[i] != behind[i]), None)
+    if decided is None:
+        return None, None, None, None
+    measure = ranking.MEASURES[decided]
+    one, two = _measured(first, measure), _measured(other, measure)
+    bounds = (one["low"], one["high"], two["low"], two["high"])
+    apart = None if None in bounds else one["high"] < two["low"] or two["high"] < one["low"]
+    return measure, one, two, apart
 
 
 def _measured(row: Mapping[str, Any], measure: str) -> dict[str, Any]:

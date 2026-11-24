@@ -66,15 +66,22 @@ test("an evaluation page says what was evaluated and on what data, in words", as
   expect(errors).toEqual([]);
 });
 
-test("the configurations are compared: which did best, with intervals, and which miss critical cases", async ({ page }) => {
+test("the configurations are compared: whether one did best, with intervals, and which miss critical cases", async ({ page }) => {
   const errors = watchConsole(page);
   await page.goto(EVALUATION);
   const section = page.getByRole("region", { name: "How the configurations compare" });
   await expect(section).toContainText("Every row below is the same 600 synthetic cases, so the rows can be compared.");
-  // What the comparison shows, in sentences: who is first, by what, and whether it could be chance.
+  // What the comparison shows, in sentences: who is first, by what, and whether it could be
+  // chance. One is named as having done best only where the registry names it; the row is
+  // then marked, and otherwise no row is.
   const verdict = section.getByRole("note", { name: "What the comparison shows" });
   await expect(verdict.locator(".eval-verdict-head")).toHaveText(
-    /^reader=(rules|agent) (did best on this dataset|is listed first, but it is not clearly ahead of reader=(rules|agent))/,
+    /^(reader=(rules|agent) did best on this dataset|No configuration is clearly best on this dataset: reader=(rules|agent) is listed first, but it is not clearly ahead of reader=(rules|agent)\.$)/,
+  );
+  const named = /did best on this dataset/.test((await verdict.locator(".eval-verdict-head").textContent()) ?? "");
+  await expect(section.locator("tr.eval-best")).toHaveCount(named ? 1 : 0);
+  await expect(section.getByRole("table").first().locator("tbody tr").first().locator(".badge")).toHaveText(
+    named ? "Did best on this data" : "Listed first",
   );
   await expect(verdict).toContainText(/\d+ of \d+ \[[<\d.]+-[>\d.]+%\]/);
   await expect(verdict).toContainText(/The two intervals (do not overlap|overlap)/);

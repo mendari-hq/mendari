@@ -324,6 +324,12 @@ export type Comparison = {
   decided_by: Measure | null;
   figures: { first: MeasuredFigure; second: MeasuredFigure } | null;
   separated: boolean | null; // whether the two intervals keep apart; false: it could be chance
+  // The first configuration and every other the counts cannot tell from it, in the order shown;
+  // and the one that did best, which the registry names only when it is alone there (ADR-0020,
+  // amended 2026-11-24). A registry from before that amendment sends neither: this site then
+  // names none as best.
+  first_band?: string[];
+  best?: string | null;
 };
 export type EvaluatedConfiguration = {
   id: string; // the signed record's id: the SHA-256 of its canonical JSON

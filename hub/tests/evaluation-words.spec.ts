@@ -8,6 +8,7 @@ import { expect, test } from "@playwright/test";
 import {
   badgeMarkdown,
   claimedWords,
+  comparisonWords,
   counted,
   criticalWords,
   failedWords,
@@ -15,7 +16,7 @@ import {
   provenanceWords,
   rerunSummary,
 } from "../lib/evaluation";
-import type { EvaluatedConfiguration, EvaluatedDataset } from "../lib/registry";
+import type { Comparison, EvaluatedConfiguration, EvaluatedDataset } from "../lib/registry";
 
 function configuration(changes: Partial<EvaluatedConfiguration>): EvaluatedConfiguration {
   return {
@@ -38,6 +39,78 @@ function configuration(changes: Partial<EvaluatedConfiguration>): EvaluatedConfi
     ...changes,
   };
 }
+
+// Three configurations, the first two told apart on the critical cases they automated.
+function ordered(changes: Partial<Comparison>): EvaluatedDataset {
+  const figure = (k: number) => ({ k, n: 114, low: 0, high: 0.1 });
+  return {
+    name: "test",
+    sha256: "0".repeat(64),
+    n: 600,
+    provenance: "synthetic",
+    labelled_by: [],
+    critical: [],
+    configurations: ["a", "b", "c"].map((id) => configuration({ id, label: `reader=${id}` })),
+    comparison: {
+      method: "mendari.rank/1",
+      measures: ["critical_automated", "critical_detection", "false_automation", "accuracy"],
+      status: "ordered",
+      first: "a",
+      second: "b",
+      tied: [],
+      decided_by: "critical_automated",
+      figures: { first: figure(0), second: figure(14) },
+      separated: true,
+      ...changes,
+    },
+  } as EvaluatedDataset;
+}
+
+test("a configuration is named as having done best only when the registry names it", () => {
+  // Alone in the first band: named, and its row can be marked.
+  const alone = comparisonWords(ordered({ first_band: ["a"], best: "a" }));
+  expect(alone.headline).toBe("reader=a did best on this dataset.");
+  expect(alone.best).toBe("a");
+  expect(alone.tone).toBe("ok");
+
+  // Clearly ahead of the second, and a third the counts cannot tell from it: none is named.
+  const close = comparisonWords(ordered({ first_band: ["a", "c"], best: null }));
+  expect(close.headline).toBe(
+    "No configuration is clearly best on this dataset: reader=a is listed first, but it is not clearly ahead of reader=c.",
+  );
+  expect(close.best).toBeNull();
+  expect(close.tone).toBe("neutral");
+  expect(close.detail).toContain("The two intervals do not overlap, so the difference is unlikely to be chance.");
+  expect(close.detail).toContain(
+    "reader=a is still not named as best: what separates it from reader=c is inside their intervals, and could be chance.",
+  );
+
+  // Several in the first band: each is named beside the first.
+  const several = comparisonWords(ordered({ separated: false, first_band: ["a", "b", "c"], best: null }));
+  expect(several.headline).toBe(
+    "No configuration is clearly best on this dataset: reader=a is listed first, but it is not clearly ahead of reader=b or reader=c.",
+  );
+  expect(several.detail).toContain("The two intervals overlap: with this many cases, the difference could be chance.");
+  expect(several.detail.join(" ")).not.toContain("still not named");
+
+  // A registry from before it said which did best sends neither field: none is named, even
+  // where the first two are apart, and nothing is said of a band it did not give.
+  const silent = comparisonWords(ordered({}));
+  expect(silent.headline).toBe("No configuration is named as best on this dataset: reader=a is listed first.");
+  expect(silent.best).toBeNull();
+  expect(silent.tone).toBe("neutral");
+
+  // The registry's word is taken only for the configuration it lists first.
+  expect(comparisonWords(ordered({ first_band: ["a"], best: "b" })).best).toBeNull();
+});
+
+test("a tie of several names each, and none as best", () => {
+  const tied = comparisonWords(ordered({ status: "tied", first: null, second: null, tied: ["a", "b", "c"], first_band: ["a", "b", "c"], best: null }));
+  expect(tied.headline).toBe(
+    "No configuration is clearly best: reader=a, reader=b and reader=c did the same on every measure compared.",
+  );
+  expect(tied.best).toBeNull();
+});
 
 test("counts say what they count, in the singular and the plural", () => {
   expect(counted(1, "case")).toBe("1 case");

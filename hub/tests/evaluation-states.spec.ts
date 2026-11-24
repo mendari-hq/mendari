@@ -6,6 +6,10 @@
 // configurations; a clear first, a first inside the intervals, a tie, too few critical cases and
 // none; a record changed after it was stored, a key revoked, a recall; publisher text that tries
 // to run; an earlier version.
+//
+// A configuration is named as having done best only where the registry names it
+// (`comparison.best`: it is alone in the first band, ADR-0020 as amended 2026-11-24): the cases
+// "two" and "clear". Everywhere else the page says that none is clearly best.
 import { expect, test, type Page } from "@playwright/test";
 
 import { STATES } from "./sites";
@@ -60,7 +64,7 @@ test("one configuration is compared with nothing", async ({ page }) => {
   await expect(badgeAlt(page)).toHaveAttribute("alt", /^Mendari: evaluated, 600 synthetic cases, \d+ critical automated$/);
 });
 
-test("two configurations: the first is named, with what decided it, and that it still lets critical cases through", async ({ page }) => {
+test("two configurations, one alone in the first band: it is named, with what decided it, and that it still lets critical cases through", async ({ page }) => {
   await page.goto(at("two"));
   await expect(headline(page)).toHaveText(
     /^reader=rules did best on this dataset, and it still let \d+ of 114 critical cases through with no person reading them\.$/,
@@ -80,13 +84,16 @@ test("two configurations: the first is named, with what decided it, and that it 
   );
 });
 
-test("several configurations are listed in the comparison's order, and a first inside the intervals is said to be one", async ({ page }) => {
+test("several configurations in the first band: they are listed in the comparison's order, and none is clearly best", async ({ page }) => {
   await page.goto(at("several"));
   await expect(page.locator(".lead")).toContainText("ran 3 configurations of version");
   await expect(rows(page).locator("th .mono")).toHaveText(["reader=cautious", "reader=rules", "reader=agent"]);
+  // Every configuration the counts cannot tell from the first is named with it.
   await expect(headline(page)).toHaveText(
-    /^reader=cautious is listed first, but it is not clearly ahead of reader=rules, and it still let \d+ of 114 critical cases through/,
+    "No configuration is clearly best on this dataset: reader=cautious is listed first, but it is not clearly ahead of reader=rules or reader=agent.",
   );
+  await expect(verdict(page)).toHaveClass(/eval-verdict-warn/); // critical cases were automated: no reassurance
+  await expect(compared(page).locator("tr.eval-best")).toHaveCount(0);
   await expect(verdict(page)).toContainText(
     /It automated \d+ of 114 \[[\d.]+-[\d.]+%\] of the critical cases; reader=rules automated \d+ of 114 \[[\d.]+-[\d.]+%\]\./,
   );
@@ -99,13 +106,19 @@ test("several configurations are listed in the comparison's order, and a first i
     /^Mendari: evaluated, 3 configurations, 600 synthetic cases, \d+ to \d+ critical automated$/,
   );
   await page.goto(at("overlap"));
-  await expect(headline(page)).toHaveText(/^reader=wider is listed first, but it is not clearly ahead of reader=rules/);
+  await expect(headline(page)).toHaveText(
+    "No configuration is clearly best on this dataset: reader=wider is listed first, but it is not clearly ahead of reader=rules.",
+  );
+  await expect(rows(page).nth(0).locator(".badge")).toHaveText("Listed first");
+  await expect(compared(page)).not.toContainText("Did best on this data");
 });
 
 test("a configuration that lets no critical case through and is clearly ahead reads as having done best", async ({ page }) => {
   await page.goto(at("clear"));
   await expect(headline(page)).toHaveText("reader=careful did best on this dataset.");
   await expect(verdict(page)).toHaveClass(/eval-verdict-ok/);
+  await expect(compared(page).locator("tr.eval-best")).toHaveCount(1);
+  await expect(compared(page).locator("tr.eval-best th .mono")).toHaveText("reader=careful");
   await expect(verdict(page)).toContainText(
     /It automated 0 of 114 \[0\.0-3\.2%\] of the critical cases; reader=rules automated \d+ of 114 \[[\d.]+-[\d.]+%\]\./,
   );
@@ -145,7 +158,7 @@ test("an evaluation in which no critical case was automated says so, and no more
 test("a tie, too few critical cases and no critical label name no configuration as best", async ({ page }) => {
   await page.goto(at("tied"));
   await expect(headline(page)).toHaveText(
-    "No configuration is ahead: reader=rules and reader=same did the same on every measure compared.",
+    "No configuration is clearly best: reader=rules and reader=same did the same on every measure compared.",
   );
   await expect(compared(page).locator(".badge")).toHaveCount(0);
 

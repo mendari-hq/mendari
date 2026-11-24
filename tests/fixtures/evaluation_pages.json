@@ -22,9 +22,11 @@
     "datasets": [
      {
       "comparison": {
+       "best": null,
        "decided_by": null,
        "figures": null,
        "first": null,
+       "first_band": [],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -213,6 +215,7 @@
     "datasets": [
      {
       "comparison": {
+       "best": "b33fb708078bd08a6cacaa98ae141d1e8c8500c18d2ab71de8492e0be02a6243",
        "decided_by": "critical_automated",
        "figures": {
         "first": {
@@ -229,6 +232,9 @@
         }
        },
        "first": "b33fb708078bd08a6cacaa98ae141d1e8c8500c18d2ab71de8492e0be02a6243",
+       "first_band": [
+        "b33fb708078bd08a6cacaa98ae141d1e8c8500c18d2ab71de8492e0be02a6243"
+       ],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -531,9 +537,11 @@
     "datasets": [
      {
       "comparison": {
+       "best": null,
        "decided_by": null,
        "figures": null,
        "first": null,
+       "first_band": [],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -722,9 +730,11 @@
     "datasets": [
      {
       "comparison": {
+       "best": null,
        "decided_by": null,
        "figures": null,
        "first": null,
+       "first_band": [],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -910,9 +920,11 @@
     "datasets": [
      {
       "comparison": {
+       "best": null,
        "decided_by": null,
        "figures": null,
        "first": null,
+       "first_band": [],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -1101,9 +1113,11 @@
     "datasets": [
      {
       "comparison": {
+       "best": null,
        "decided_by": null,
        "figures": null,
        "first": null,
+       "first_band": [],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -1406,9 +1420,11 @@
     "datasets": [
      {
       "comparison": {
+       "best": null,
        "decided_by": null,
        "figures": null,
        "first": null,
+       "first_band": [],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -1749,6 +1765,7 @@
     "datasets": [
      {
       "comparison": {
+       "best": "b568081823ab61a7c5121952197207b9c5cc4a9be0d70015e97c080ba082d108",
        "decided_by": "false_automation",
        "figures": {
         "first": {
@@ -1765,6 +1782,9 @@
         }
        },
        "first": "b568081823ab61a7c5121952197207b9c5cc4a9be0d70015e97c080ba082d108",
+       "first_band": [
+        "b568081823ab61a7c5121952197207b9c5cc4a9be0d70015e97c080ba082d108"
+       ],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -2067,9 +2087,11 @@
     "datasets": [
      {
       "comparison": {
+       "best": null,
        "decided_by": null,
        "figures": null,
        "first": null,
+       "first_band": [],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -2258,6 +2280,7 @@
     "datasets": [
      {
       "comparison": {
+       "best": null,
        "decided_by": "critical_automated",
        "figures": {
         "first": {
@@ -2274,6 +2297,10 @@
         }
        },
        "first": "7d33fd6950209fda2031f85d9cca277033023fe8567034d3286fa518d65fa396",
+       "first_band": [
+        "7d33fd6950209fda2031f85d9cca277033023fe8567034d3286fa518d65fa396",
+        "bdc39a7bba3a6864e911a040b99a5a06c4a771dd4135d2647b4b0e2a9146168f"
+       ],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -2658,6 +2685,7 @@
     "datasets": [
      {
       "comparison": {
+       "best": null,
        "decided_by": "critical_automated",
        "figures": {
         "first": {
@@ -2674,6 +2702,11 @@
         }
        },
        "first": "c024d37c23a03398adcd266e0289b82c9a0e5d58566a470b736bf48a81902da5",
+       "first_band": [
+        "c024d37c23a03398adcd266e0289b82c9a0e5d58566a470b736bf48a81902da5",
+        "ea38ddf475b1b48756a7e61a9a5f738b434a20dccbf90ba48a48a581817a111d",
+        "16669aec939153e2fb75af9cdf9651139fcdcaadf94d9da0e7efc135c4dda9bf"
+       ],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -3090,9 +3123,11 @@
     "datasets": [
      {
       "comparison": {
+       "best": null,
        "decided_by": null,
        "figures": null,
        "first": null,
+       "first_band": [],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -3289,9 +3324,14 @@
     "datasets": [
      {
       "comparison": {
+       "best": null,
        "decided_by": null,
        "figures": null,
        "first": null,
+       "first_band": [
+        "bc02fb977c069285b9866079e908775c403803ba9c6f1b448809f429760b6eee",
+        "f36650b459d2b321782759b150dea02331a821b5b7be474a2ec93ef7a212b8d4"
+       ],
        "measures": [
         "critical_automated",
         "critical_detection",
@@ -3597,6 +3637,7 @@
     "datasets": [
      {
       "comparison": {
+       "best": "4ae581016abba1d2b5f98af761c06c6ea09990d664a904e2ccd4086e630886a4",
        "decided_by": "false_automation",
        "figures": {
         "first": {
@@ -3613,6 +3654,9 @@
         }
        },
        "first": "4ae581016abba1d2b5f98af761c06c6ea09990d664a904e2ccd4086e630886a4",
+       "first_band": [
+        "4ae581016abba1d2b5f98af761c06c6ea09990d664a904e2ccd4086e630886a4"
+       ],
        "measures": [
         "critical_automated",
         "critical_detection",

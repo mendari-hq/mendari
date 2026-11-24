@@ -454,6 +454,8 @@ def test_one_configuration_is_compared_with_nothing() -> None:
     order, found = compared(member("only"))
     assert order == ["only"] and found["status"] == "one_configuration"
     assert found["first"] is None and found["decided_by"] is None and found["separated"] is None
+    # Nothing to be ahead of: there is no band, and it is not named as having done best.
+    assert found["first_band"] == [] and found["best"] is None
 
 
 def test_two_configurations_the_one_that_automates_fewer_critical_cases_is_first() -> None:
@@ -466,6 +468,8 @@ def test_two_configurations_the_one_that_automates_fewer_critical_cases_is_first
     assert found["figures"] == {"first": figures.of(0, 120), "second": figures.of(14, 120)}
     assert found["separated"] is True  # [0.0-3.0%] and [6.5-18.7%] keep apart
     assert [m["position"] for m in (safe, risky)] == [1, 2]
+    # Alone in the first band: the only case in which a configuration is named as best.
+    assert found["first_band"] == ["safe"] and found["best"] == "safe"
 
 
 def test_a_difference_inside_the_intervals_is_said_to_be_one() -> None:
@@ -474,6 +478,8 @@ def test_a_difference_inside_the_intervals_is_said_to_be_one() -> None:
     )
     assert order == ["b", "a"] and found["decided_by"] == "critical_automated"
     assert found["separated"] is False  # 0 of 120 and 1 of 120: the intervals overlap
+    # Listed first, and not best: the second is in the first band with it.
+    assert found["first"] == "b" and found["first_band"] == ["b", "a"] and found["best"] is None
 
 
 @pytest.mark.parametrize(
@@ -494,6 +500,7 @@ def test_each_measure_decides_when_those_before_it_are_equal(
     order, found = compared(member("worse", **second), member("better", **first))
     assert order == ["better", "worse"] and found["decided_by"] == measure
     assert found["first"] == "better" and found["separated"] is True
+    assert found["first_band"] == ["better"] and found["best"] == "better"
     if measure == "critical_detection":  # the figure names the label it is of
         assert found["figures"]["first"] == {
             **figures.of(119, 120),
@@ -514,6 +521,27 @@ def test_several_configurations_are_ordered_and_the_first_two_decide_what_is_sai
     assert (found["first"], found["second"]) == ("a", "b")
     assert found["decided_by"] == "critical_detection" and found["separated"] is False
     assert {m["id"]: m["position"] for m in members} == {"a": 1, "b": 2, "c": 3, "d": 4}
+    # The first band holds every configuration the counts cannot tell from the first, each by
+    # the measure where it first differs from it: b by its detection, c by the 2 of 120 critical
+    # cases it automated (inside the interval of 0 of 120). Only d is clearly behind.
+    assert found["first_band"] == ["a", "b", "c"] and found["best"] is None
+
+
+def test_the_first_is_best_only_when_every_other_configuration_is_clearly_behind() -> None:
+    """The first two can be told apart and a third cannot be told from the first: it is ahead
+    of the second, and still not alone in the first band, so no configuration is named."""
+    first = member("a", critical=(120, 119, 0))
+    behind = member("b", critical=(120, 100, 0))  # its detection is clearly lower
+    close = member("c", critical=(120, 120, 1))  # 1 of 120 automated: inside 0 of 120's interval
+    order, found = compared(close, behind, first)
+    assert order == ["a", "b", "c"]
+    assert (found["first"], found["second"], found["separated"]) == ("a", "b", True)
+    assert found["first_band"] == ["a", "c"] and found["best"] is None
+    # With that third one clearly behind too, the first is alone and is named.
+    far = member("c", critical=(120, 120, 14))
+    order, found = compared(far, behind, first)
+    assert order == ["a", "b", "c"]
+    assert found["first_band"] == ["a"] and found["best"] == "a"
 
 
 def test_configurations_that_did_the_same_are_tied_and_none_is_first() -> None:
@@ -521,6 +549,8 @@ def test_configurations_that_did_the_same_are_tied_and_none_is_first() -> None:
     assert order == ["a", "b", "c"]  # by name, where no count tells them apart
     assert found["status"] == "tied" and found["tied"] == ["a", "b"]
     assert found["first"] is None and found["decided_by"] is None
+    # Two share the first band (the third's accuracy is clearly lower): none is best.
+    assert found["first_band"] == ["a", "b"] and found["best"] is None
 
 
 def test_too_few_critical_cases_name_no_first_configuration() -> None:
@@ -530,8 +560,10 @@ def test_too_few_critical_cases_name_no_first_configuration() -> None:
     )
     assert order == ["a", "b"] and found["status"] == "insufficient_evidence"
     assert found["first"] is None
+    assert found["first_band"] == [] and found["best"] is None  # nothing ranks: no band
     order, found = compared(member("b", critical=None), member("a", critical=None, right=1))
     assert order == ["a", "b"] and found["status"] == "no_critical_label"
+    assert found["first_band"] == [] and found["best"] is None
 
 
 def test_a_publisher_s_cost_never_orders_the_configurations(published: Registry) -> None:
@@ -601,6 +633,10 @@ def test_three_configurations_of_one_agent_are_published_and_compared(
     found = dataset["comparison"]
     assert found["status"] == "ordered" and found["first"] == listed[0]["id"]
     assert found["second"] == listed[1]["id"] and found["decided_by"] in ranking.MEASURES
+    # The first is named as best only when it is alone in the first band.
+    band = found["first_band"]
+    assert band[0] == listed[0]["id"] and set(band) <= {c["id"] for c in listed}
+    assert found["best"] == (listed[0]["id"] if len(band) == 1 else None)
     assert said(registry, base).startswith("evaluated, 3 configurations, 600 synthetic cases, ")
     # The badge gives the fewest and the most: never the best configuration alone.
     assert said(registry, base).endswith(

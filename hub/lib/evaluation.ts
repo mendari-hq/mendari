@@ -57,9 +57,21 @@ function labelOf(dataset: EvaluatedDataset, id: string | null): string {
   return dataset.configurations.find((configuration) => configuration.id === id)?.label ?? "a configuration";
 }
 
+// "a", "a and b", "a, b and c" (or with "or").
+function listed(items: string[], joiner: "and" | "or"): string {
+  if (items.length < 2) return items.join("");
+  return `${items.slice(0, -1).join(", ")} ${joiner} ${items[items.length - 1]}`;
+}
+
 // What the comparison of one dataset's configurations says: a headline, the sentences behind
 // it, whether a configuration is named as having done best, and how the box reads: `ok` only
 // when the one that did best let no critical case through, `warn` when even it did.
+//
+// Whether one did best is the registry's to say, never this site's (`comparison.best`,
+// src/mendari/hub/evaluation_page.py; ADR-0020, amended 2026-11-24): it names a configuration
+// only when that one is alone in the first band, which is when every other configuration is
+// behind it by more than chance explains. Otherwise, and for a registry that does not say, the
+// headline says that none is clearly best.
 export type ComparisonWords = {
   headline: string;
   detail: string[];
@@ -139,7 +151,7 @@ function compared(dataset: EvaluatedDataset): ComparisonWords {
     case "tied": {
       const tied = comparison.tied.map((id) => labelOf(dataset, id));
       return {
-        headline: `No configuration is ahead: ${tied.join(" and ")} did the same on every measure compared.`,
+        headline: `No configuration is clearly best: ${listed(tied, "and")} did the same on every measure compared.`,
         detail: [ORDER_WORDS],
         best: null,
         tone,
@@ -152,11 +164,20 @@ function compared(dataset: EvaluatedDataset): ComparisonWords {
       const measure = comparison.decided_by;
       const apart = comparison.separated === true;
       const through = leader?.critical_automated ?? 0;
+      // Named by the registry, and only the one it lists first: anything else names none.
+      const best = comparison.best && comparison.best === comparison.first ? comparison.best : null;
+      // The others in the first band: those the counts cannot tell from the first.
+      const close = (comparison.first_band ?? []).filter((id) => id !== comparison.first).map((id) => labelOf(dataset, id));
+      const closeButSecond = close.filter((label) => label !== second);
       const detail = [
         measure ? decided(measure, comparison, second) : "",
         apart
           ? "The two intervals do not overlap, so the difference is unlikely to be chance."
           : "The two intervals overlap: with this many cases, the difference could be chance.",
+        // Clearly ahead of the second, and still not alone: another one is too close to call.
+        !best && apart && closeButSecond.length
+          ? `${first} is still not named as best: what separates it from ${listed(closeButSecond, "and")} is inside their intervals, and could be chance.`
+          : "",
         many > 2 ? `The other ${counted(many - 2, "configuration")} ${many - 2 === 1 ? "follows" : "follow"} in the same order.` : "",
         ORDER_WORDS,
       ].filter(Boolean);
@@ -164,14 +185,13 @@ function compared(dataset: EvaluatedDataset): ComparisonWords {
       const still = through
         ? `, and it still let ${whole.format(through)} of ${counted(leader?.critical_cases ?? 0, "critical case")} through with no person reading ${through === 1 ? "it" : "them"}`
         : "";
-      return {
-        headline: apart
-          ? `${first} did best on this dataset${still}.`
-          : `${first} is listed first, but it is not clearly ahead of ${second}${still}.`,
-        detail,
-        best: apart ? comparison.first : null,
-        tone: through ? "warn" : apart ? "ok" : tone,
-      };
+      const headline = best
+        ? `${first} did best on this dataset${still}.`
+        : close.length
+          ? `No configuration is clearly best on this dataset: ${first} is listed first, but it is not clearly ahead of ${listed(close, "or")}.`
+          : // A registry that does not say which are close (one from before it named a best one).
+            `No configuration is named as best on this dataset: ${first} is listed first.`;
+      return { headline, detail, best, tone: through ? "warn" : best ? "ok" : tone };
     }
   }
 }

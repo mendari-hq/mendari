@@ -12,7 +12,7 @@ registry API (`src/mendari/hub/registry.py`) at request time, from `REGISTRY_URL
 |---|---|
 | `/` | The catalog, searched by words, risk level, standard and publisher type |
 | `/agents/<namespace>/<name>` | An agent: what the registry checked, what the publisher claims, its evaluations, site evidence, its Decision Card |
-| `/agents/<namespace>/<name>/evaluation` | The agent's evaluation page, for a README to link: what was evaluated and on what data, its configurations compared, whose key signed each result, what the numbers do not show (`?version=` for an earlier version). [Publishing an agent's evaluation](../docs/guides/publishing-evaluations.md) |
+| `/agents/<namespace>/<name>/evaluation` | The agent's evaluation page, for a README to link: what was evaluated and on what data, its configurations compared (one is named as having done best on that dataset only when the registry's answer names it, `comparison.best`: alone in the first band; otherwise the page says none is clearly best), whose key signed each result, what the numbers do not show (`?version=` for an earlier version). [Publishing an agent's evaluation](../docs/guides/publishing-evaluations.md) |
 | `/publishers/<namespace>` | A publisher: its agents and its signing keys |
 
 ```bash
