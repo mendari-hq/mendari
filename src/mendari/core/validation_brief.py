@@ -183,7 +183,13 @@ def _governance_gate(
         if needs_reg_approval:
             pending_items.append("registry digest approval required")
         return _gate("governance", label, WARN, "; ".join(pending_items).capitalize() + ".")
-    detail = "Required governance approvals are in force with no operational holds."
+    if risk_level in (2, 3) or pack.origin == "hub":
+        detail = "Required governance approvals are in force with no operational holds."
+    else:  # nothing was required, so nothing is "in force": say that
+        detail = (
+            f"No approval is required at risk level {int(risk_level)}, and no operational hold "
+            "is in force."
+        )
     return _gate("governance", label, PASS, detail)
 
 
