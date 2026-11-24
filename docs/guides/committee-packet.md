@@ -21,8 +21,8 @@ Eleven sections, in the order a committee reads, then two appendices.
 | 1 | What it is and who made it | The agent's manifest and digest |
 | 2 | Intended use, users and population, and what it must not be used for | The manifest, in the publisher's words |
 | 3 | Risk level and what the runtime enforces because of it | The declared risk level, and the limits the engine applies at that level |
-| 4 | How a person stays in the loop | The four outcomes, the agent's thresholds and rules, the review queue, the automation holds in force |
-| 5 | The publisher's evidence | The publisher's evaluation: counts with intervals, critical cases, the configuration it ran on |
+| 4 | How a person stays in the loop | The four outcomes, the agent's thresholds and rules; the actions the agent may ask for and how each is gated; whether its confidence is calibrated, and whether a second signal is on; the review queue, the automation holds in force |
+| 5 | The publisher's evidence | The publisher's evaluation: counts with intervals, critical cases, the configuration it ran on, and what it found of the agent's confidence and of a second signal |
 | 6 | This site's evidence | Your decisions so far, the shadow pilot, reviewers' overrides, the validation brief's gates, evaluations run here |
 | 7 | Known failure modes and limits | The manifest, and the limits of what the packet itself can show |
 | 8 | Monitoring and what triggers an alert | The monitor's checks, what each needs, the last weeks, the alerts now |
@@ -41,6 +41,9 @@ Three rules hold throughout:
   cases it says `no cases (0 of 0)`, not a percentage.
 - **An empty section says why.** A deployment that has made no decision yet gets a packet that
   says so. A readiness gate with nothing to measure reads "Not enough data", never "Pass".
+  An agent that declares no action, that is not calibrated, or that has no second signal has
+  that said in section 4 ("Not stated"), and an evaluation that reported nothing of either says
+  so beside its figures: none is left out as if it did not matter.
 
 Each statement is marked by who makes it: the publisher (the manifest), your site (your audit
 trail), or the software (what the engine enforces).

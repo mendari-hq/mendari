@@ -8,7 +8,9 @@ signed-out caller, to a role without access and to another organization; the pag
 self-contained and holds no script; the crosswalk is data, every row names a section and a part
 that exist, and what was not confirmed is shown as "to verify".
 
-Every test runs on the bundled demo agent (`agents/portal-message-agent`), or a copy of it."""
+Every test runs on the bundled demo agent (`agents/portal-message-agent`) or a copy of it;
+the one of a calibration and a second signal, which the demo agent has not, on what
+`mendari new` writes."""
 
 from __future__ import annotations
 
@@ -39,6 +41,7 @@ from tests.conftest import (
     encrypted_store,
     member,
 )
+from tests.support.confidence_agents import calibration_file, live_member, scaffold, variant
 
 AGENT_ID = "mendari/portal-message-agent"
 AGENT = f"/api/agents/{AGENT_ID}"
@@ -484,6 +487,13 @@ def html_text(text: str) -> str:
     words.feed(text)
     words.close()
     return "\n".join(words.words)
+
+
+def reads(text: str) -> str:
+    """A page's words as one line, as a sentence reads: an element inside a sentence (a name
+    set as code) does not break it."""
+    line = " ".join(html_text(text).split())
+    return re.sub(r"\s+([:;,.)])", r"\1", line).replace("( ", "(")
 
 
 def test_the_page_is_self_contained_and_holds_no_script(open_client: TestClient) -> None:
@@ -1016,3 +1026,254 @@ def test_a_packet_without_a_deployment_keeps_what_the_runtime_enforces(origin: s
         signed = section(alone, "change_control")["signed"]
         assert signed["held_now"] is None and signed["recall_checked"] is False
         assert "none standing" not in packet.render_html(alone)  # no registry was asked
+
+
+# -- actions, a checked confidence and a second signal (spec 0.4) ----------------------------------
+
+
+def test_the_packet_says_what_the_agent_may_ask_to_have_done_and_how_each_is_gated() -> None:
+    """From the manifest: each declared action with its effect and the runtime's gate, in the
+    Decision Card's words. The demo agent declares two, is not calibrated and has no second
+    signal, and the page says each of those."""
+    alone = packet.build_alone(demo())
+    assert packet.problems(alone) == []
+    oversight = section(alone, "oversight")
+    assert [
+        (a["name"], a["effect"], a["gate"], a["tightened"], a["arguments"])
+        for a in oversight["actions"]
+    ] == [
+        ("assign_queue", "write", "auto", False, ["queue"]),
+        ("send_acknowledgement", "contact", "person", True, ["template"]),
+    ]
+    assert oversight["actions"][0]["released"] == (
+        "Only with an automated decision; otherwise when a reviewer confirms it."
+    )
+    assert oversight["confidence"] == [
+        {"slot": "reader", "variant": "agent", "calibrated": False, "why_not": "not calibrated"}
+    ]
+    assert oversight["second_signal"] == []
+    said = reads(packet.render_html(alone))
+    for words in (
+        "What the agent may ask to have done",
+        "This software authorizes each one and runs none",
+        "Never without a person: when a reviewer confirms the decision. tightened by the agent",
+        "checked: queue",
+        "checked: template",
+        "Whether the agent's confidence was checked",
+        "reader / agent: not calibrated. Its confidence is the agent's own report",
+        "Not stated: no part of this agent is asked a case more than once, and none is checked "
+        "by a second model.",
+    ):
+        assert words in said, words
+    # A community agent's proposals are never released without a person, a read's included.
+    community = section(packet.build_alone(demo("community")), "oversight")["actions"]
+    assert [a["gate"] for a in community] == ["auto", "person"]
+
+
+def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Path) -> None:
+    """Nothing is filled in: no action, no agent's own service and no second signal are each
+    said to be not stated, and the document holds an empty list for each."""
+    folder = tmp_path / "plain"
+    shutil.copytree(DEMO_AGENT_DIR, folder)
+    manifest = yaml.safe_load((folder / "agent.yaml").read_text())
+    del manifest["actions"]
+    manifest["providers"]["reader"]["use"] = "rules"
+    del manifest["providers"]["reader"]["variants"]["agent"]
+    (folder / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    alone = packet.build_alone(load_pack(folder))
+    assert packet.problems(alone) == []
+    oversight = section(alone, "oversight")
+    assert oversight["actions"] == oversight["confidence"] == oversight["second_signal"] == []
+    said = reads(packet.render_html(alone))
+    assert "Not stated: the agent declares no action." in said
+    assert "Not stated: no part of this agent is an agent's own service" in said
+    assert "Not stated: no part of this agent is asked a case more than once" in said
+
+
+def test_a_calibration_and_a_second_signal_are_read_from_the_manifest(tmp_path: Path) -> None:
+    def add(manifest: dict[str, Any]) -> None:
+        manifest["providers"]["reader"]["variants"]["checked"] = {
+            "type": "check",
+            "members": {
+                "agent": live_member(manifest, agent_id="first-agent"),
+                "second": live_member(manifest, agent_id="second-agent"),
+            },
+        }
+        variant(manifest).update({"repeat": 3, "calibration": "models/c.json"})
+
+    root = scaffold(tmp_path, edit=add)
+    calibration_file(root, {"request": 1.3}, relative="models/c.json")
+    alone = packet.build_alone(load_pack(root))
+    assert packet.problems(alone) == []
+    oversight = section(alone, "oversight")
+    calibrated, first, second = oversight["confidence"]
+    assert calibrated == {
+        "slot": "reader",
+        "variant": "agent",
+        "calibrated": True,
+        "cases": 400,
+        "dataset": "calibration",
+        "date": "2026-11-24",
+        "agent_id": "starter-portal-agent",
+        "agent_version": "2.1.0",
+        "questions": ["request"],
+        "not_fitted": {},
+    }
+    assert [(e["variant"], e["calibrated"]) for e in (first, second)] == [
+        ("checked.agent", False),
+        ("checked.second", False),
+    ]
+    assert oversight["second_signal"] == [
+        {"slot": "reader", "variant": "agent", "kind": "repeat", "runs": 3},
+        {
+            "slot": "reader",
+            "variant": "checked",
+            "kind": "check",
+            "answers": "agent",
+            "checks": "second",
+        },
+    ]
+    assert oversight["actions"] == []  # the scaffold declares none: its page says "Not stated"
+    said = reads(packet.render_html(alone))
+    for words in (
+        "reader / agent: calibrated on 400 cases of calibration on 2026-11-24, for "
+        "starter-portal-agent version 2.1.0 (questions: request).",
+        "When the agent's service reports another version, no decision is automated until it "
+        "is calibrated again.",
+        "reader / agent: each case is asked 3 times.",
+        "reader / checked: agent answers and second checks. Where they disagree, a person decides.",
+        "A second signal only lowers automation: agreement raises no confidence.",
+        "Not stated: the agent declares no action.",
+    ):
+        assert words in said, words
+
+
+def test_an_evaluation_says_what_it_found_of_confidence_and_of_a_second_signal(
+    open_client: TestClient,
+) -> None:
+    """From the latest evaluation: the demo agent's says its variant is not calibrated, and that
+    no second signal ran."""
+    ran = open_client.post(f"{AGENT}/evals", json={"dataset": "examples"})
+    assert ran.status_code == 200, ran.text
+    built = open_client.get(PACKET).json()
+    assert packet.problems(built) == []
+    (found,) = section(built, "site_evidence")["evaluations"]
+    (variant_found,) = found["calibration"]
+    questions = variant_found.pop("questions")
+    assert variant_found == {
+        "slot": "reader",
+        "variant": "agent",
+        "calibrated": False,
+        "cases": None,
+        "dataset": None,
+        "agent_version": None,
+        "same_cases": False,
+    }
+    assert {q["question"] for q in questions} == {"request", "urgent_symptoms"}
+    assert all(q["ece_before"] is None and q["n"] == 12 for q in questions)
+    assert found["second_signal"] is None
+    page = reads(open_client.get(f"{PACKET}?format=html").text)
+    assert "Confidence, in this evaluation" in page
+    assert "reader / agent: not calibrated; calibration error of" in page
+    assert "Not stated: no second signal ran in this evaluation." in page
+
+
+def test_a_reports_confidence_blocks_are_read_as_names_and_counts_and_nothing_else() -> None:
+    """A report that holds neither block says "Not stated" for both. One that holds them is
+    read field by field: what is not a name or a count is left out, and no line of text a
+    report carries is passed on to the page."""
+    assert packet._evaluated_calibration({}) is None
+    assert packet._evaluated_second_signal({}) is None
+    assert packet._evaluated_confidence_words(None) == (
+        "Not stated: this evaluation's report says nothing of calibration."
+    )
+    assert packet._evaluated_second_signal_words(None) == (
+        "Not stated: no second signal ran in this evaluation."
+    )
+    run = {
+        "calibration": {
+            "variants": [
+                {
+                    "slot": "reader",
+                    "variant": "agent",
+                    "status": "calibrated",
+                    "same_cases": True,
+                    "fitted": {
+                        "cases": 400,
+                        "dataset": "calibration",
+                        "agent": {"id": "portal-agent", "version": "2.1.0"},
+                        "note": f"<script>{SENTINEL}</script>",
+                    },
+                    "questions": {
+                        "request": {"n": 300, "before": {"ece": 0.142}, "after": {"ece": 0.031}},
+                        "broken": "not figures",
+                    },
+                    "lines": [SENTINEL],
+                },
+                "not an entry",
+                {"slot": 7, "variant": "agent"},
+            ],
+            "lines": [SENTINEL],
+        },
+        "second_signal": {
+            "cases": 300,
+            "signals": [
+                {
+                    "slot": "reader",
+                    "variant": "agent",
+                    "kind": "repeat",
+                    "runs": 3,
+                    "cases": 300,
+                    "canned": 0,
+                    "disagreed": 41,
+                    "caught": 30,
+                },
+                {"slot": "reader", "variant": "agent", "kind": "anything", "cases": 1},
+            ],
+            "kept_from_automation": {"k": 25},
+            "lines": [SENTINEL],
+        },
+    }
+    calibration = packet._evaluated_calibration(run)
+    signal = packet._evaluated_second_signal(run)
+    assert calibration == [
+        {
+            "slot": "reader",
+            "variant": "agent",
+            "calibrated": True,
+            "cases": 400,
+            "dataset": "calibration",
+            "agent_version": "2.1.0",
+            "same_cases": True,
+            "questions": [
+                {"question": "request", "n": 300, "ece_before": 0.142, "ece_after": 0.031}
+            ],
+        }
+    ]
+    assert signal is not None and signal["kept_from_automation"] == 25
+    assert [(s["kind"], s["disagreed"], s["checked"]) for s in signal["signals"]] == [
+        ("repeat", 41, 300)
+    ]
+    words = packet._evaluated_confidence_words(calibration)
+    assert "calibrated on 400 cases of <code>calibration</code>, for version" in words
+    assert "these are the cases it was fitted on" in words
+    assert "0.142 before it, 0.031 after" in words
+    said = packet._evaluated_second_signal_words(signal)
+    assert "each case asked 3 times; disagreed on 41 of 300 cases, 30 of them wrong" in said
+    assert "kept 25 of 300 cases from automation" in said
+    assert SENTINEL not in json.dumps([calibration, signal]) + words + said
+
+
+def test_what_a_part_calls_is_said_in_words_that_read(store: AuditStore) -> None:
+    """An agent's own service, never "a agent service"."""
+    pack = demo()
+    Decision(pack, store=store).decide(REFILL)
+    built = packet.build(store, pack, deployment=local_deployment(agent_endpoint=True))
+    page = packet.render_html(built)
+    said = reads(page)
+    assert "a agent" not in said and "a agent" not in page
+    assert "the agent's own service, model mock-portal-agent" in said
+    assert packet._service("llm") == "a service of type <code>llm</code>"
+    assert packet._service("check") == "the services of its members (<code>check</code>)"
+    canned = reads(packet.render_html(packet.build(store, pack, deployment=local_deployment())))
+    assert "nothing here: it answers from canned examples" in canned
