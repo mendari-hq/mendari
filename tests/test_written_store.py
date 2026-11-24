@@ -957,29 +957,39 @@ def test_a_stored_report_edited_in_the_database_is_not_served_and_breaks_verific
 
 
 @pytest.mark.parametrize(
-    "sql",
+    ("sql", "params"),
     [
         # A grade changed, kept its salt.
-        """UPDATE written_assignments SET grades = replace(grades, '"yes"', '"no"')
-           WHERE id = (SELECT min(id) FROM written_assignments WHERE grades LIKE '%"yes"%')""",
+        (
+            """UPDATE written_assignments SET grades = replace(grades, ?, ?)
+               WHERE id = (SELECT min(id) FROM written_assignments WHERE grades LIKE ?)""",
+            ('"yes"', '"no"', '%"yes"%'),
+        ),
         # A grade removed.
-        """UPDATE written_assignments SET grades = NULL
-           WHERE id = (SELECT min(id) FROM written_assignments)""",
+        (
+            """UPDATE written_assignments SET grades = NULL
+               WHERE id = (SELECT min(id) FROM written_assignments)""",
+            (),
+        ),
         # A grade moved to another item.
-        """UPDATE written_assignments SET item_id = (SELECT max(id) FROM written_items)
-           WHERE id = (SELECT min(a.id) FROM written_assignments a
-                       WHERE a.item_id <> (SELECT max(id) FROM written_items))""",
+        (
+            """UPDATE written_assignments SET item_id = (SELECT max(id) FROM written_items)
+               WHERE id = (SELECT min(a.id) FROM written_assignments a
+                           WHERE a.item_id <> (SELECT max(id) FROM written_items))""",
+            (),
+        ),
         # A closed round reopened, or its report removed.
-        "UPDATE written_rounds SET state = 'open'",
-        "UPDATE written_rounds SET report = NULL",
+        ("UPDATE written_rounds SET state = 'open'", ()),
+        ("UPDATE written_rounds SET report = NULL", ()),
     ],
+    ids=["grade-changed", "grade-removed", "grade-moved", "round-reopened", "report-removed"],
 )
 def test_verify_checks_every_stored_grade_and_closed_round_against_the_chain(
-    world: World, sql: str
+    world: World, sql: str, params: tuple[str, ...]
 ) -> None:
     closed_round(world)
     assert world.store.verify()["ok"]
-    tamper(world.store, sql)
+    tamper(world.store, sql, params)
     broken = world.store.verify()
     assert broken["ok"] is False and broken["reason"] == "written", broken
 
