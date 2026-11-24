@@ -10,9 +10,13 @@ Docker and nothing else.
 
 It asks seven things only you can answer (the address people will open, your identity
 provider's issuer, client id and client secret, the first administrator's sign-in address, what
-your organization is called, and whether each case's input is kept), generates everything else,
-checks the result as the server will read it, and starts. Run it again to change an answer: a
-secret it generated is never made twice, and no data is lost.
+your organization is called, and whether each case's input is kept) and one you may leave for
+later (the agent registry you adopt agents from), generates everything else, checks the result
+as the server will read it, and starts. Run it again to change an answer: a secret it generated
+is never made twice, and no data is lost.
+
+From there on the console is enough: the first administrator signs in, follows "Finish setting
+up", and adopts an agent in the Agents view.
 
 Follow the guide, which is one page: [`docs/guides/install-at-your-site.md`](../../docs/guides/install-at-your-site.md).
 

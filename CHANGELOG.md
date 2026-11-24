@@ -9,6 +9,101 @@ no section, or whose section is not the newest. Changes to an agent are in the a
 
 The first release (not yet published).
 
+- **One machine, one command, and a console that says what is left** (2026-11-24).
+  `deploy/site/mendari-site install` puts Mendari on one machine with Docker: it asks for what
+  only the site knows (its public address, its identity provider's issuer, client id and
+  secret, the first administrator's sign-in address, what the organization is called, whether
+  each case's input is kept) and one thing it may leave for later (the agent registry's
+  address), generates every secret, checks the result as the server will read it
+  (`python -m mendari.install`, inside the engine's image), and starts the engine behind an
+  https front with its database, a migration that must pass before anything serves, the daily
+  jobs and a nightly backup. `status`, `upgrade`, `rollback`, `backup`, `restore`, `verify`,
+  `hold` and `lift` are the same script. Run twice it changes nothing: a secret is never made
+  again ([Install Mendari at your site](docs/guides/install-at-your-site.md)). With it:
+  - **Who runs a deployment is in its settings**
+    ([ADR-0022](docs/decisions/ADR-0022-the-first-administrator-and-the-operator-organization.md)).
+    `MENDARI_OPERATOR_ORG` names the organization whose administrators, signed in as people,
+    hold a new permission, `operate`; in memberships mode nobody holds it without the setting,
+    and in claims mode every administrator does unless it names one organization.
+    `MENDARI_BOOTSTRAP_ADMIN` names a fresh install's first administrator: the first sign-in
+    with that address, verified by the identity provider, becomes an administrator of the
+    operator organization (called what `MENDARI_BOOTSTRAP_ORG_NAME` says), once; the database
+    is marked in the same step and the setting gives nothing again.
+  - **The System view**: the deployment's readiness as eighteen checks
+    (`GET /api/system/checks`, `mendari.system-checks/1`), each in order, needing attention,
+    not set up or not applicable, with one sentence on what is so and what to do. From it an
+    operator verifies the whole audit chain, sends a test alert, checks an EHR's connection,
+    holds all automation and erases a decision's kept input
+    (`POST /api/system/audit/verify`, `/api/system/alerts/test`, `/api/system/ehr-check`). A
+    new deployment's Overview opens on "Finish setting up": the checks still to do, in order,
+    ending at adopting an agent. The scheduled jobs record their last run, and
+    `POST /api/internal/backup` lets the schedule that made a backup report it.
+  - **The console's sections follow a site's path**: Overview, then Adopt (Agents, Agent
+    store, Decision Card), Evaluate, Review and monitor, Administer (System, Access).
+  - The security log gains `auth.first_admin.granted|ignored`, `system.audit.verified`,
+    `system.alert.tested`, `system.ehr.checked` and `system.run.unrecorded`.
+- **Adopting an agent from the console** (2026-11-24). The **Agents** view lists the agents an
+  organization uses, each with where it came from, whether it acts on its own and what stands
+  in the way, and searches the deployment's agent registry (the server's
+  `MENDARI_REGISTRY_URL`, the setting `mendari pull` reads) under **Find agents**. An author
+  adds a version there (`POST /api/store/pulls`): the server downloads it and verifies it
+  exactly as `mendari pull` does (the archive's SHA-256, the publisher's signature, the
+  registry's counter-signature where it signs), pins the publisher's keys for that
+  organization, and keeps it in the organization's agent store as a draft, served to nobody
+  until someone who did not add it starts serving it. Adding is not approving: every
+  requirement of an agent from a registry holds as before
+  ([Adopting an agent from the console](docs/guides/adopting-an-agent.md)). With it:
+  - **A connection per agent and organization**
+    ([ADR-0021](docs/decisions/ADR-0021-an-agents-connection-set-in-the-console.md)): an
+    organization's administrators set the address of the service that answers for an agent,
+    and a bearer token that is sealed under the deployment's PHI key and never shown again
+    (`GET`, `PUT`, `DELETE /api/connections/{namespace}/{name}`, and `.../check`, which sends
+    one synthetic example the agent carries). It is used before the deployment's own
+    `MENDARI_AGENT_URL`. An address is https with no user, password, query or fragment, on the
+    deployment's provider allow-list where it has one, else on the public internet only,
+    checked again by the client at every connection. `MENDARI_AGENT_CONNECTIONS=off` turns
+    the feature off. Chained `agent_connection.set` and `agent_connection.cleared`; the
+    security log gains `store.pull.added|refused` and
+    `admin.connection.set|cleared|checked|refused|origin_allowed`.
+  - **An address the allow-list does not name** can be allowed for one agent by an
+    administrator of the organization that operates the deployment, when they set the
+    connection (`allow_origin`): to public addresses only, kept with who allowed it and when,
+    and chained (`agent_connection.origin_allowed`). Anyone else stays bound by the list, and
+    nothing set in the console reaches this machine or the site's own network. It is what lets
+    the one-machine install, whose list names no address, adopt an agent with no file edited.
+  - The one-machine install turns the organization's agent store on (`MENDARI_AGENT_STORE`)
+    and writes the registry's address it was given; the System view's registry check says what
+    to do when none is set, and when one is set and nothing can be added.
+  - The two-person rule is unchanged, and the guide says what it means for an organization of
+    one person: it cannot start serving, or approve, what it added. Whether that should change
+    is an open decision for the project.
+- **An agent's evaluation in public: one command, a page and a badge** (2026-11-24).
+  `mendari push AGENT --key K --evaluate DATASET` publishes a version, runs every
+  configuration of the agent on that dataset of its own, and publishes each result signed with
+  the same key, so a new version never shows an empty evaluation. The signed record is
+  `mendari.publisher-evaluation/2`: it adds what the cases were built from (the manifest's
+  `card.provenance`, which the registry holds it to), who labelled them, the cases a provider
+  failed on and the release that ran it; a `/1` record is still taken and still shown. Every
+  stored record is verified again each time it is read, and one that fails is listed as not
+  verified, with none of its numbers. The registry answers
+  `GET /v1/agents/{namespace}/{name}/evaluation` (`mendari.agent-evaluation/1`),
+  `.../badge.svg` (the same in one line, for a README: fixed words, whole counts, no script
+  and never green) and `.../{version}/evaluations/{id}` (one signed record as stored); the
+  Agent Hub shows the first as a page, `/agents/<namespace>/<name>/evaluation`, written for
+  someone deciding whether to try the agent. The page says which configuration did best on
+  that dataset **only when one is alone in the first band** of `mendari.rank/1`, and says that
+  none is clearly best otherwise
+  ([ADR-0020](docs/decisions/ADR-0020-publisher-evaluations.md), amended). The registry names
+  the Hub's page once `MENDARI_REGISTRY_HUB_URL` says where the Hub is. The Hub now asks the
+  registry at `/v1/agents/...`
+  ([Publishing an agent's evaluations](docs/guides/publishing-evaluations.md)).
+- **The committee packet before any deployment exists** (2026-11-24). `mendari packet <agent>`
+  without `--db` is made from the agent's files alone, as a publisher hands it to a hospital:
+  no database is opened or made, and each section on a deployment's data (decisions, review,
+  monitoring, approvals) says that no deployment was read, never a count of zero; the JSON
+  says so in `no_deployment`. With `--db` it is as it was. A bare `mendari packet <agent>` no
+  longer reads a `var/mendari.db` in the working folder: name the database
+  ([The committee packet](docs/guides/committee-packet.md)).
 - **The automation threshold the cases support, with a stated guarantee** (2026-11-23; nothing
   changes how an agent decides). Every evaluation now reports its operating point: what the
   agent's automation threshold (`policy.thresholds.auto`) lets through on the cases, as two
@@ -61,7 +156,7 @@ The first release (not yet published).
   filled in; another is a crosswalk, kept as data, to the CHAI Applied Model Card, HTI-1's
   source attributes, the NIST AI Risk Management Framework and the Joint Commission and CHAI
   guidance. It holds counts, ids and dates, never case text; it is a reading aid, not signed
-  and not a certification. From the console's Overview, `mendari packet <agent>` or
+  and not a certification. From the console's Overview, `mendari packet <agent> --db ...` or
   `GET /api/agents/{namespace}/{name}/committee-packet`. With it, a gate of the validation
   brief that has nothing to measure says "Not enough data" and is never a pass, and the brief
   says it is not signed ([The committee packet](docs/guides/committee-packet.md)).

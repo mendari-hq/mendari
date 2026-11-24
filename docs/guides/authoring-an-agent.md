@@ -530,8 +530,11 @@ into one page. Share it with your AI or clinical decision support committee. At 
 ### Publish your evaluations
 
 Once a version is listed, publish how each configuration did on one of its own datasets, so a
-hospital sees on the Agent Hub which configuration works best before it pulls
-([ADR-0020](../decisions/ADR-0020-publisher-evaluations.md)). Run it once per configuration:
+hospital sees on the Agent Hub how they compare, and whether one clearly did best, before it
+pulls ([ADR-0020](../decisions/ADR-0020-publisher-evaluations.md)). `mendari push my-agent --key
+keys/publisher.key --evaluate test` does it for every configuration when it publishes the
+version, and prints the address of the agent's evaluation page and a badge for your README
+([Publishing an agent's evaluations](publishing-evaluations.md)). One configuration at a time:
 
 ```bash
 mendari eval my-agent --dataset test --provider reader=rules --publish --key keys/publisher.key

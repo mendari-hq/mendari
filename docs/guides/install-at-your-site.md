@@ -74,6 +74,12 @@ is left running. Correct what the line says and run it again.
 | What your organization is called | Shown in the console and in invitations. |
 | Whether each case's input is kept, encrypted | **Yes**: inputs are sealed with a key made for this deployment, read only by reviewers and administrators, each read recorded, and deleted after 30 days. **No**: no input is ever stored, only a keyed fingerprint, and reviewers cannot read a case in the console. This is chosen once: installing again does not change it. |
 
+Then one question you may leave for later, by pressing Enter:
+
+| Question | What it is for |
+|---|---|
+| The agent registry to adopt agents from | The https address of the registry the console searches and adds agents from: the Agent Hub's, or a registry of your own. Without one the console's Agents view has nothing to search, and the System view says so. Run the command again to give it; type `none` to have none. |
+
 Everything else is generated or set to a safe default. Run the command again at any time to
 change an answer: each question then offers what is there as its default.
 
@@ -101,9 +107,10 @@ ORGANIZATION="St Mary's Hospital"
 PATIENT_DATA=yes
 ```
 
-It may also name `TIMEZONE` (the machine's is used otherwise), `ALERT_WEBHOOK`, `REGISTRY_URL`,
-`RETENTION_DAYS`, `BACKUP_KEEP_DAYS`, `HTTPS_PORT`, `HTTP_PORT` and `SELF_SIGNED=yes`. Delete the
-file afterwards: it holds the client secret.
+It may also name `REGISTRY_URL` (the agent registry you adopt agents from), `TIMEZONE` (the
+machine's is used otherwise), `ALERT_WEBHOOK`, `RETENTION_DAYS`, `BACKUP_KEEP_DAYS`,
+`HTTPS_PORT`, `HTTP_PORT` and `SELF_SIGNED=yes`. Delete the file afterwards: it holds the
+client secret.
 
 ## What it made
 
@@ -127,9 +134,15 @@ The defaults it set, which the template lacked before:
   not served.
 - **Sign-in required**, with people and roles managed in the console (`MENDARI_ACCOUNTS`), and
   your organization's administrators as the deployment's operators (`MENDARI_OPERATOR_ORG`).
-- **Nothing leaves your network until you list it**: the lists of services Mendari may call
-  (`MENDARI_PROVIDER_ALLOWED_ORIGINS`) and of FHIR servers it may read
-  (`MENDARI_FHIR_ALLOWED_SERVERS`) start empty.
+- **Nothing leaves your network until someone allows it**: the lists of services Mendari may
+  call (`MENDARI_PROVIDER_ALLOWED_ORIGINS`) and of FHIR servers it may read
+  (`MENDARI_FHIR_ALLOWED_SERVERS`) start empty. When you connect an adopted agent's service
+  in the console, you are asked to allow that one address for that one agent: it must be on
+  the public internet, and your allowing it is kept in the audit trail. A service on your own
+  network is listed in `.env` instead ([Adopting an agent](adopting-an-agent.md#5-connect-its-service)).
+- **Adopting an agent needs no terminal**: your organization's agent store is on
+  (`MENDARI_AGENT_STORE`), and the registry you named is the one the console searches
+  (`MENDARI_REGISTRY_URL`).
 - **Limits on**, per caller in Mendari and per address on sign-in at the front
   (`MENDARI_RATE_LIMITS`).
 - **A signed checkpoint of the audit trail every day**, and an alert if the trail ever fails
@@ -163,9 +176,13 @@ install` again with the right address before anyone has become one.
 
 ## The System view
 
-In the console, **System** (under Connect & Ops) shows what this deployment needs to run safely,
-as a list of checks. Only your organization's administrators see it. Each check says, in one
-sentence, what is so, and what to do about it:
+The console's section list follows the order you will work in: **Overview** (with "Finish
+setting up" while the deployment is new), then **Adopt**, **Evaluate**, **Review and monitor**
+and **Administer**.
+
+**System**, under Administer, shows what this deployment needs to run safely, as a list of
+checks. Only your organization's administrators see it. Each check says, in one sentence, what
+is so, and what to do about it:
 
 | State | Meaning |
 |---|---|
@@ -189,10 +206,16 @@ From the same view, without a terminal:
 - **Erase a decision's kept input**, on a patient's request or for a case recorded by mistake.
 - A banner when a version you serve was recalled by its registry.
 
-A fresh install leaves a few steps for you: invite a second administrator, set an alert
-destination (`MENDARI_ALERT_WEBHOOK`, then send a test alert), name the agent registry you adopt
-agents from (`MENDARI_REGISTRY_URL`), and adopt an agent. Until then the bundled demo agent is
-the only one: it answers from canned examples and decides nothing real.
+A fresh install leaves a few steps for you, and "Finish setting up" on the Overview lists
+them in order: invite a second administrator (**Access**), set an alert destination
+(`MENDARI_ALERT_WEBHOOK`, then send a test alert), name the agent registry if you left it for
+later (run `./mendari-site install` again and give its address), and, last, adopt an agent in
+the **Agents** view. Until then the bundled demo agent is the only one: it answers from canned
+examples and decides nothing real.
+
+**Invite the second administrator before you adopt.** Whoever adds an agent can neither start
+serving it nor approve it: someone else does. With one person in your organization, an added
+agent stays "not in use yet" ([Adopting an agent](adopting-an-agent.md#one-person-alone)).
 
 ## Day to day
 
@@ -308,8 +331,9 @@ own settings in full, and many more.
 | `MENDARI_TIMEZONE` | Calendar days and displayed times. |
 | `MENDARI_RATE_LIMITS` | Limits on costly calls and on sign-in (`on`). |
 | `MENDARI_ENVIRONMENT` | What this deployment is called in its own records (`production`). |
-| `MENDARI_PROVIDER_ALLOWED_ORIGINS`, `MENDARI_FHIR_ALLOWED_SERVERS` | The only services Mendari may call and the only FHIR servers it may read, as comma-separated origins. A lone comma means none; add yours when you connect one. |
-| `MENDARI_REGISTRY_URL`, `MENDARI_REGISTRY_COUNTERSIGNATURE` | The agent registry you adopt agents from (empty until you set it), and that it must have counter-signed what it lists. |
+| `MENDARI_PROVIDER_ALLOWED_ORIGINS`, `MENDARI_FHIR_ALLOWED_SERVERS` | The only services Mendari may call and the only FHIR servers it may read, as comma-separated origins. A lone comma means none. An administrator can allow one agent's service at a public address from the console; a service on your own network, and every FHIR server, is added here. |
+| `MENDARI_REGISTRY_URL`, `MENDARI_REGISTRY_COUNTERSIGNATURE` | The agent registry you adopt agents from (empty until you give it: `./mendari-site install` asks), and that it must have counter-signed what it lists. |
+| `MENDARI_AGENT_STORE` | `on`: your organization keeps the versions of agents it adds from the registry, in the database. |
 | `MENDARI_CACHE_DIR`, `MENDARI_CONFIG_DIR` | Where the engine keeps what it pulls from a registry: a Docker volume, kept across upgrades. |
 
 A few more may be added at the end of `.env` if the machine needs them. They are read by the

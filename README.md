@@ -12,8 +12,8 @@ archive that anyone can pull and verify.
 It is built for two groups, and for the loop between them:
 
 - **Developers** build an agent, run it through the engine and publish every evaluation with
-  it: how each configuration and model did on the same cases, so which works best is there to
-  read.
+  it: how each configuration and model did on the same cases, so whether one clearly did
+  best is there to read.
 - **Hospitals** adopt an agent that already comes with its evaluations and a governance
   structure, try it in shadow on their own workflows (a person decides every case, and the
   engine records what the agent would have automated), then share their results back as signed
@@ -250,8 +250,7 @@ No registry address is built into the client: `mendari login` names one, and
 mendari keys generate --out keys/                           # a publisher key pair (Ed25519)
 mendari login --registry https://hub.example.org --token <publisher token>
 mendari keys register --namespace my-clinic --public-key keys/publisher.pub
-mendari push my-agent --key keys/publisher.key              # build, sign, publish
-mendari eval my-agent --dataset test --provider reader=rules --publish --key keys/publisher.key
+mendari push my-agent --key keys/publisher.key --evaluate test   # build, sign, publish, and evaluate every configuration
 
 mendari search portal                                       # anyone, from that registry
 mendari pull my-clinic/my-agent                             # download, verify, cache
@@ -259,17 +258,36 @@ mendari pull my-clinic/my-agent                             # download, verify, 
 
 - **Publishing.** Your organization claims a namespace and mints a publisher token. The
   registry refuses a version `mendari validate` would refuse, and lists a first one once a
-  reviewer approves the namespace. `eval --publish` adds your signed evaluation of one
-  configuration, on a dataset of 100 cases or more that the manifest declares: counts only, and
-  the registry runs a local configuration again and refuses counts that differ
+  reviewer approves the namespace.
+- **Publishing its evaluations.** `push --evaluate DATASET` then runs every configuration of
+  the agent on a dataset of 100 cases or more that its manifest declares, and publishes each
+  result signed with the same key: counts only, and the registry runs a local configuration
+  again and refuses counts that differ
   ([ADR-0020](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0020-publisher-evaluations.md)).
-  Publish one per configuration, and the Hub shows which works best.
+  The Hub gives the agent an evaluation page (`/agents/<namespace>/<name>/evaluation`): what
+  was evaluated and on what data, the configurations side by side, and which one did best on
+  that dataset only when one clearly did. The command prints the page's address and a badge
+  for your README that says the same in one line. `eval --publish` publishes one configuration
+  at a time ([Publishing an agent's evaluations](https://github.com/mendari-hq/mendari/blob/main/docs/guides/publishing-evaluations.md)).
 - **Pulling.** `pull` checks the archive's digest, every file's hash and the signature before it
   caches the agent, and pins the namespace's key on first use. Served, a pulled agent never
   automates until your organization approves its exact digest, nor while its registry recalls
   it ([Running a registry](https://github.com/mendari-hq/mendari/blob/main/docs/operations/registry.md)).
 
 ## Adopting an agent at a hospital
+
+**Install with one command.** On one machine with Docker, `./mendari-site install`
+([`deploy/site/`](https://github.com/mendari-hq/mendari/tree/main/deploy/site)) asks for what
+only the site knows (its address, its identity provider, its first administrator), generates
+every secret, and starts the engine behind https with its database, daily jobs and backups.
+The first administrator signs in through the hospital's own identity provider, and the console
+opens on what is left to set up
+([Install Mendari at your site](https://github.com/mendari-hq/mendari/blob/main/docs/guides/install-at-your-site.md)).
+From there the console is enough: its **System** view lists what the deployment needs to run
+safely, each check with what is so and what to do, and its **Agents** view finds an agent in
+the registry, adds a verified version, and connects the service that runs it
+([Adopting an agent from the console](https://github.com/mendari-hq/mendari/blob/main/docs/guides/adopting-an-agent.md)).
+The steps below are the same path, whichever way the engine was installed.
 
 1. **Read before you run.** An agent's page on the Hub shows its Decision Card (intended use,
    risk level, policy, known failure modes), what the registry checked, the publisher's
@@ -287,7 +305,9 @@ mendari pull my-clinic/my-agent                             # download, verify, 
    agent, as your organization sees it: what the agent is and what the runtime enforces, the
    publisher's evidence and your own, monitoring and approvals, then what nobody has stated
    and a crosswalk to four published frameworks. A reading aid, not a certification: from the
-   console's Overview, or `mendari packet <agent> --db <the server's database>`
+   console's Overview, or `mendari packet <agent> --db <the server's database>`. Without
+   `--db` a publisher makes it from the agent's files alone, before any deployment exists, and
+   its sections on a deployment's data say that none was read
    ([The committee packet](https://github.com/mendari-hq/mendari/blob/main/docs/guides/committee-packet.md)).
 5. **Let it decide, under your governance.** Your organization approves the agent's exact
    digest; at risk level 2 or 3 it automates only after a named approver records a governance
@@ -338,7 +358,9 @@ hosted once the repository is public.
 | contribute an agent to this repository | [Contributing an agent](https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-an-agent.md) |
 | call Mendari over REST or FHIR | [Using the API](https://github.com/mendari-hq/mendari/blob/main/docs/guides/api.md) |
 | read an evaluation report | [Evaluation reports and ledgers](https://github.com/mendari-hq/mendari/blob/main/docs/spec/evaluation-reports.md) |
-| deploy it | [`deploy/`](https://github.com/mendari-hq/mendari/tree/main/deploy), the [incident runbook](https://github.com/mendari-hq/mendari/blob/main/docs/operations/incident-runbook.md) |
+| publish an agent's evaluations, with a page and a badge | [Publishing an agent's evaluations](https://github.com/mendari-hq/mendari/blob/main/docs/guides/publishing-evaluations.md) |
+| install it at a hospital and adopt an agent from the console | [Install Mendari at your site](https://github.com/mendari-hq/mendari/blob/main/docs/guides/install-at-your-site.md), [Adopting an agent from the console](https://github.com/mendari-hq/mendari/blob/main/docs/guides/adopting-an-agent.md) |
+| deploy it another way | [`deploy/`](https://github.com/mendari-hq/mendari/tree/main/deploy), the [incident runbook](https://github.com/mendari-hq/mendari/blob/main/docs/operations/incident-runbook.md) |
 | understand how the engine works | [Architecture](https://github.com/mendari-hq/mendari/blob/main/docs/architecture.md) |
 | read why it is built this way | [the decision records](https://github.com/mendari-hq/mendari/tree/main/docs/decisions) |
 | review its security | [SECURITY.md](https://github.com/mendari-hq/mendari/blob/main/SECURITY.md), [the threat model](https://github.com/mendari-hq/mendari/blob/main/docs/security/threat-model.md) |
@@ -366,7 +388,7 @@ tests/            the test suite (tests/fixtures/ holds synthetic fixtures only;
 docs/             guides, spec, operations, security, decision records (the documentation site)
 hub/              the Agent Hub website (Next.js), a front end to a registry
 web/              the public page, mendari.co (static HTML and CSS)
-deploy/           on-premises, Kubernetes and Vercel templates
+deploy/           the one-machine install (site/), and on-premises, Kubernetes and Vercel templates
 scripts/          checks and generators that CI runs
 action.yml        the GitHub Action that checks an agent in its own repository's CI
 sandbox/          Inferno conformance kits against the engine (inferno/); CI's compose file for the test fixtures
