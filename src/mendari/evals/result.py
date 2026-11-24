@@ -218,6 +218,24 @@ def result_from_ledger(
     }
 
 
+def critical_cases(ledger: Ledger) -> list[dict[str, list[str]]]:
+    """For each critical label, in the order of a result's `decisions.critical`: the ledger
+    hashes of its cases that were `automated` (no person read them, whatever the agent
+    answered), and of those `missed` (not detected) that a person still read. A result counts
+    them (`auto_missed`, `missed_cases`); this says which, for whoever holds the dataset."""
+    found = []
+    for index, (question, label) in enumerate(ledger.header["critical"]):
+        positives = [case for case in ledger.cases if index in case["k"]]
+        automated = [case["c"] for case in positives if case["o"] == "AUTO"]
+        missed = [
+            case["c"]
+            for case in positives
+            if case["o"] != "AUTO" and (case["q"].get(question) or [None, None])[PREDICTED] != label
+        ]
+        found.append({"automated": automated, "missed": missed})
+    return found
+
+
 def _subgroups(
     header: Mapping[str, Any], cases: Sequence[Mapping[str, Any]], primary: str
 ) -> dict[str, dict[str, dict[str, Any]]]:

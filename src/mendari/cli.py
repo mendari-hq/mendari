@@ -193,11 +193,24 @@ def cmd_decide(args: argparse.Namespace) -> int:
 
 def cmd_eval(args: argparse.Namespace) -> int:
     from mendari.core.card import benchmark
-    from mendari.evals import compare, operating_point, resolve_dataset
+    from mendari.evals import compare, gate, operating_point, resolve_dataset
     from mendari.evals.compare import FROM_REGISTRY, not_compared
     from mendari.evals.harness import evaluation
-    from mendari.evals.render import comparison_text, report_text
+    from mendari.evals.render import comparison_text, report_markdown, report_text
 
+    if args.json and args.markdown:
+        raise MendariError("choose --json or --markdown, not both")
+    stated = gate.Limits(
+        min_accuracy=args.min_accuracy,
+        max_false_automation=args.max_false_automation,
+        min_critical_detection=args.min_critical_detection,
+        max_critical_automated=args.max_critical_automated,
+    )
+    # The result the run must be no worse than, read before the run: a file that is not one
+    # stops here, and `--out` may then write the new result over it.
+    held = None
+    if args.no_worse_than:
+        held = _read_json(args.no_worse_than, "--no-worse-than", shape=dict)
     sharing = bool(args.share or args.share_out)
     issued: dict[str, Any] | None = None
     publisher_key = _publishing(args, sharing)
@@ -223,9 +236,17 @@ def cmd_eval(args: argparse.Namespace) -> int:
         dataset = resolve_dataset(pack, args.dataset)
         if args.limit:
             dataset = dataset.head(args.limit)
+    if held is not None:
+        problem = gate.baseline_problem(held, pack.id, pack.manifest.policy.primary)
+        if problem is not None:
+            raise MendariError(f"--no-worse-than {_path_shown(args.no_worse_than)}: {problem}")
     workers = args.workers or (8 if decision.is_remote else 1)
     run = evaluation(decision, dataset, workers=workers, targets=targets)
     report = run.report
+    checked = None
+    if stated.stated or held is not None:
+        tolerance = pack.manifest.evaluation.degradation_tolerance
+        checked = gate.check(report, stated, held, tolerance)
 
     comparison = None
     if args.baseline != "none":
@@ -299,6 +320,20 @@ def cmd_eval(args: argparse.Namespace) -> int:
             )
     if args.json:
         _print_json(report)
+        if checked is not None:  # beside the JSON, never in it
+            print(checked.text(), file=sys.stderr)
+    elif args.markdown:
+        from mendari.evals.ledger import case_hash
+        from mendari.evals.result import critical_cases
+
+        # Cases by their ids, which only this machine can tell from the ledger's hashes.
+        ids = {case_hash(dataset.case_key, r["id"]): r["id"] for r in dataset.records}
+        print(report_markdown(report, critical_cases(run.ledger), ids))
+        if comparison:  # as the terminal shows it, in a block that renders nothing
+            print("### Against the agent's benchmark\n")
+            print(textwrap.indent(comparison_text(comparison), "    ") + "\n")
+        if checked is not None:
+            print(checked.markdown())
     else:
         print(report_text(report))
         print()
@@ -306,10 +341,14 @@ def cmd_eval(args: argparse.Namespace) -> int:
         if comparison:
             print()
             print(comparison_text(comparison))
+        if checked is not None:
+            print()
+            print(checked.text())
         if args.out:
             print(f"\nReport written to {args.out}")
     degraded = comparison is not None and comparison["status"] == "degraded"
-    return EXIT_DEGRADED if degraded and args.fail_on_degradation else 0
+    failed = checked is not None and not checked.passed
+    return EXIT_DEGRADED if failed or (degraded and args.fail_on_degradation) else 0
 
 
 def _targets(args: argparse.Namespace) -> Any:
@@ -3722,6 +3761,24 @@ def _port(text: str) -> int:
     return port
 
 
+def _share(text: str) -> float:
+    """A share of 1 (0.9 is 90%), checked before any work starts (argparse names the flag)."""
+    try:
+        share = float(text)
+    except ValueError:
+        share = -1.0
+    if not 0.0 <= share <= 1.0:  # a NaN is neither
+        raise argparse.ArgumentTypeError(f"not a share from 0 to 1 (0.9 is 90%): {text!r}")
+    return share
+
+
+def _whole(text: str) -> int:
+    """A count, 0 or more, checked before any work starts (argparse names the flag)."""
+    if not (text.isascii() and text.isdigit()):
+        raise argparse.ArgumentTypeError(f"not a whole number, 0 or more: {text!r}")
+    return int(text)
+
+
 def _x12_code(text: str) -> str:
     """An X12 code value's shape, checked before any work starts (argparse names the flag)."""
     from mendari.standards.pas import X12_CODE
@@ -3983,9 +4040,50 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--db", help="also store the report in this database (dashboard)")
     evaluate.add_argument("--json", action="store_true", help="print the JSON report")
     evaluate.add_argument(
+        "--markdown",
+        action="store_true",
+        help="print the result as Markdown, for a CI job summary: counts with their intervals, "
+        "and cases by id, never their text",
+    )
+    evaluate.add_argument(
         "--fail-on-degradation",
         action="store_true",
         help=f"exit {EXIT_DEGRADED} when local validation detects degradation",
+    )
+    # The gate a CI job holds a change to (docs/guides/evaluate-in-ci.md): a result that misses
+    # a stated limit, or is worse than an earlier one, is exit EXIT_DEGRADED.
+    evaluate.add_argument(
+        "--no-worse-than",
+        metavar="RESULT",
+        help=f"exit {EXIT_DEGRADED} when the run is worse than RESULT, an earlier result of this "
+        "agent on the same dataset (as --out writes one): a critical label detected less "
+        "often, more of its cases automated, or accuracy or false automation worse by more "
+        "than the agent's tolerance",
+    )
+    evaluate.add_argument(
+        "--min-accuracy",
+        type=_share,
+        metavar="SHARE",
+        help=f"exit {EXIT_DEGRADED} when the primary question's accuracy is under SHARE (0 to 1)",
+    )
+    evaluate.add_argument(
+        "--max-false-automation",
+        type=_share,
+        metavar="SHARE",
+        help=f"exit {EXIT_DEGRADED} when more than SHARE of the automated cases have a wrong "
+        "recommendation",
+    )
+    evaluate.add_argument(
+        "--min-critical-detection",
+        type=_share,
+        metavar="SHARE",
+        help=f"exit {EXIT_DEGRADED} when a critical label is detected in under SHARE of its cases",
+    )
+    evaluate.add_argument(
+        "--max-critical-automated",
+        type=_whole,
+        metavar="N",
+        help=f"exit {EXIT_DEGRADED} when more than N cases of a critical label are automated",
     )
     # Targets for the automation threshold the report recommends (its operating point,
     # docs/guides/choosing-a-threshold.md). A target is advice: it never fails the run.
