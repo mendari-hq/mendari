@@ -241,7 +241,7 @@ class AgentProvider(Provider):
         return None
 
     @property
-    def canned(self) -> bool:
+    def has_canned_examples(self) -> bool:
         """Whether the variant carries canned answers (`mock_file`) to answer from offline."""
         return self._mock is not None
 
@@ -263,10 +263,15 @@ class AgentProvider(Provider):
     @property
     def canned(self) -> str | None:
         """Why its answers are canned now (`CANNED`): no live endpoint is set, and its
-        `mock_file` answers. None when it calls an agent, or has no mock file to answer from."""
-        if self._mock is None or self._resolve_endpoint()[0] is not None:
+        `mock_file` answers. None when it calls an agent, or has no mock file to answer from.
+        A connection that is set and cannot be read is a live one that fails (`live`): its
+        answers are not canned."""
+        if self._mock is None:
             return None
-        return CANNED
+        try:
+            return CANNED if self.live() is None else None
+        except ProviderError:
+            return None
 
     @property
     def canned_answers_vary(self) -> bool:

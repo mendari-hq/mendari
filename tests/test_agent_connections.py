@@ -585,7 +585,8 @@ def test_a_live_call_goes_to_the_organizations_connection_then_the_deployments_t
         return httpx.Response(200, json=agent_response())
 
     provider = make_agent_provider(agent, handler)
-    assert provider.live() is None and provider.canned  # nothing set: its canned examples
+    # Nothing set: its canned examples.
+    assert provider.live() is None and provider.has_canned_examples
     assert provider.answer(message("Please refill my pills")).canned is not None and sent == []
 
     monkeypatch.setenv(ENDPOINT_ENV, "https://deployment.test/decide")

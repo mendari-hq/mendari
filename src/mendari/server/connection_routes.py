@@ -141,7 +141,7 @@ def add_connection_routes(
                     "slot": leaf.info.slot,
                     "variant": leaf.info.variant,
                     "source": source,
-                    "canned_examples": leaf.canned,
+                    "canned_examples": leaf.has_canned_examples,
                     **({"problem": problem} if problem else {}),
                 }
             )
