@@ -50,8 +50,9 @@ Not renamed in this plan, and why: the JSON keys of stored, hashed or signed rec
 `pack_id`, `pack_version`, `pack_digest` in decisions, audit events, registry records and signed
 results), the database's columns and the Python identifiers. Renaming them rewrites records the
 audit chain and the signatures cover, so it is its own versioned change (wave 6, the owner's go).
-Nor the `pack` parameter of `/smart/launch`, which an EHR's registered launch may hold, nor the
-paths the Hub asks the registry at (`/v1/packs/...` for one release, `hub/lib/registry.ts`).
+Nor the `pack` parameter of `/smart/launch`, which an EHR's registered launch may hold. (The
+paths the Hub asks the registry at were `/v1/packs/...` for one release; since wave 3 they are
+`/v1/agents/...`, `hub/lib/registry.ts`.)
 Tests hold the line (`tests/test_vocabulary.py` and its three companions: the command line, the
 docs, the front ends): no "pack" in the CLI's help, the API docs' prose and paths, the docs, the
 README or the front ends, outside an explicit list of those names.
@@ -70,6 +71,17 @@ README or the front ends, outside an explicit list of those names.
 - [ ] **Wave 3.** An external agent's confidence calibrated, with agreement across repeated runs
   or two models as a second signal that only lowers automation; a public evaluation page and a
   badge a developer links from a README; the web console's gaps against the CLI closed.
+  **Status (2026-11-24, branch `wave3/adopt-publish-install`, combined and not yet merged).**
+  Built: publishing evaluations in one command (`mendari push --evaluate`), the Hub's
+  evaluation page and the badge (a best configuration named only when it is alone in the first
+  band: ADR-0020, amended); the console's Agents view (find, add a verified version, serve)
+  and a connection per agent (ADR-0021, Accepted, with an operator's allowance of an address
+  the deployment's list does not name); the one-machine install (`deploy/site`), the first
+  administrator and the operator organization (ADR-0022), the System view and "Finish setting
+  up"; `mendari packet` without a database. Not in this branch: the calibration of an external
+  agent's confidence and the agreement signal. Open for the owner: whether an organization of
+  one person may start serving and approve what it added (the two-person rule holds today;
+  `docs/guides/adopting-an-agent.md`, "One person alone").
 - [ ] **Wave 4. Actions.** The manifest declares the tools an agent may use; anything that writes
   to the chart or contacts a patient is gated by the same four outcomes and audited (an ADR and
   a spec version first).

@@ -20,7 +20,7 @@ registry's address and turns the rest on.
 
 | Setting | What it gives the console |
 |---|---|
-| `MENDARI_REGISTRY_URL` | The agent registry that **Agents, Find agents** searches and adds from: the Agent Hub's address, or your own registry's. It must be https. Unset, the Agents page lists what you use and has nothing to search. |
+| `MENDARI_REGISTRY_URL` | The agent registry that **Agents, Find agents** searches and adds from: the Agent Hub's address, or your own registry's. It must be https. Unset, the Agents view lists what you use and has nothing to search. |
 | `MENDARI_AGENT_STORE=on`, with `MENDARI_ACCOUNTS=memberships` | Each organization keeps the versions it adds ([The agent store](../operations/agent-store.md)). Without it the registry can be read here and nothing can be added from the console. |
 | `MENDARI_PHI_MODE=encrypt` and `MENDARI_PHI_KEY` | A connection's token is kept sealed under this key. Without one, a connection can hold an address and no token. |
 | `MENDARI_PROVIDER_ALLOWED_ORIGINS` | Optional. Set, a connection's address must be one of these origins, and may then be on your own network; an address it does not name can be allowed for one agent, to the public internet only, by an administrator of the organization that operates the deployment ([step 5](#5-connect-its-service)). Unset, a connection leads to the public internet only. |
@@ -128,7 +128,7 @@ Choosing **Recommend only** keeps it that way whatever is approved later.
 ## 5. Connect its service
 
 An agent that asks an HTTP service for its answers has a **Connection**: on its Decision Card,
-and behind **Connection…** on the Agents page. Until one is set the agent answers from the
+and behind **Connection…** on the Agents view. Until one is set the agent answers from the
 canned examples it carries, and a server where people sign in never automates on those.
 
 An administrator sets:
