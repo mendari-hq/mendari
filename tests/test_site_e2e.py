@@ -20,6 +20,10 @@ What it does, in order:
 4. A real sign-in through the identity provider: someone else belongs nowhere; the
    administrator the install named becomes the operator, and the System checks answer.
 5. Installing again changes nothing: the settings file is the same, byte for byte.
+   Then what adopting an agent needs, as installed: the organization's agent store answers,
+   the System view says how to name a registry, and the administrator, as the deployment's
+   operator, allows one agent's service at a public address the deployment's list does not
+   name, and never an address inside.
 6. A backup, more decisions, then a restore: the restored audit trail verifies with the head
    it had at the backup, all automation is held, and the hold is lifted from the command line.
 7. Fail closed: with a secret missing from the settings, `start` refuses and what was serving
@@ -330,8 +334,8 @@ def test_the_one_machine_install_end_to_end(site: Install) -> None:
         f"/api/auth/members/{mine['id']}/roles", json={"roles": ["admin", "pack_author"]}
     )
     assert given.status_code == 200, given.text
-    held = adopting.get("/api/store/agents")
-    assert held.status_code == 200 and held.json() == []  # the store answers its author
+    stored = adopting.get("/api/store/agents")
+    assert stored.status_code == 200 and stored.json() == []  # the store answers its author
     connection = f"/api/connections/{DEMO}"
     as_installed = adopting.get(connection).json()
     assert as_installed["allowed_origins"] == [] and as_installed["may_allow_origin"] is True
