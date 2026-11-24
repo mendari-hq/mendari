@@ -82,7 +82,9 @@ PINNED = {
         # Moved in LP-20i, before 0.1.0's release: the improvement dataset and its proposed tests.
         # Moved in wave 1, before 0.1.0's release: the displays say "agent" (the codes are as
         # they were: the chain holds them).
-        "CodeSystem/audit-administrative-event": "b28fb3a352e9243d",
+        # Moved in wave 3, before 0.1.0's release: an agent's connection set, cleared, and its
+        # origin allowed by an operator (ADR-0021), with their `agent_connection:` subject.
+        "CodeSystem/audit-administrative-event": "fddcb1ee98be01e4",
         "NamingSystem/audit-subject": "1c75c7fb62504dc2",
     }
 }
