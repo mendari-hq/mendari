@@ -4,11 +4,13 @@
 Proposed (2026-11-10, LP-22a). Nothing in it is built yet. It is built in steps planned in
 `notes/lp22-plan.md` (22a to 22j), most of them after
 [ADR-0015](ADR-0015-registry-accounts-under-the-engine.md)'s steps, which give the registry its
-organizations and reviewers. The number 0016 is left for the pack store's decision record, which
+organizations and reviewers. The number 0016 is left for the agent store's decision record, which
 is being written at the same time.
 
+Terminology updated 2026-11-23: what this record called a pack is an agent.
+
 ## Context
-A health system can evaluate a pack on its own chart-reviewed data and share the result with a
+A health system can evaluate an agent on its own chart-reviewed data and share the result with a
 registry ([ADR-0012](ADR-0012-a-registry-that-shows-only-what-it-checked.md)). Since LP-07 what
 it shares is a closed schema with no case in it. What the registry receives is still not
 evidence:
@@ -37,7 +39,7 @@ So the registry serves every site report marked unverified, and the Hub shows no
    minimum size is not shared. Cells that describe people are suppressed when small, with
    complementary suppression so no cell can be recovered from the totals. Counts of critical
    cases are shared exactly, by a stated rule, so a missed critical case is never hidden.
-5. **A ticket before the run.** The site asks for a ticket bound to the site, the pack digest,
+5. **A ticket before the run.** The site asks for a ticket bound to the site, the agent digest,
    the configuration, the dataset's size and a keyed commitment to the dataset: an HMAC under a
    secret that never leaves the site. A plain dataset hash is never sent. A ticket with no
    result is shown as unreported.
@@ -49,7 +51,7 @@ So the registry serves every site report marked unverified, and the Hub shows no
    not a published, listed version's are each refused. Publisher tokens no longer share reports.
 8. **Deterministic by default.** A configuration that uses any provider type outside the local
    set needs the site's consent, recorded in the ticket and in the payload.
-9. **Aggregation is per pack digest and configuration, never across them.** Each site's k of n
+9. **Aggregation is per agent digest and configuration, never across them.** Each site's k of n
    with its exact interval comes first; then a pooled fixed-effect figure from summed counts,
    labelled as such; a random-effects estimate beside it; the range; the number of sites and
    total cases; and a homogeneity warning from an exact or seeded permutation test when any
@@ -57,8 +59,8 @@ So the registry serves every site report marked unverified, and the Hub shows no
 10. **Site evidence is shown apart.** The Hub shows it in its own section, as a forest plot
     with a table, with the site count and total cases. It never enters a hidden-set result or
     rank ([ADR-0013](ADR-0013-scoreboard-and-scoped-grades.md)).
-11. **A site's own organization is not an independent site for its own pack.** Reports from the
-    organization that holds the pack's namespace are listed, labelled, and left out of the pool.
+11. **A site's own organization is not an independent site for its own agent.** Reports from the
+    organization that holds the agent's namespace are listed, labelled, and left out of the pool.
 12. **Review before sending, and a path with no network.** The signed submission can be written
     to a file to read first, and a ticket request and a submission can each be carried as a
     file and accepted through the same checks.
@@ -71,7 +73,7 @@ So the registry serves every site report marked unverified, and the Hub shows no
   shown by anything here.
 - The command line changes twice for sites: the payload's format, then a registered site and a
   ticket in place of a free name. A registry runs under the engine in production since
-  2026-11-15, holding only published packs (no site report when LP-22 was built): each change
+  2026-11-15, holding only published agents (no site report when LP-22 was built): each change
   reaches it when production redeploys, and is the owner's to approve.
 - Unsigned reports from before stay stored and are no longer served.
 - The registry gains statistics of its own (pooling, a random-effects estimate, a homogeneity
@@ -91,7 +93,7 @@ So the registry serves every site report marked unverified, and the Hub shows no
   exists to count.
 - **No tickets, only signatures.** A signature shows who sent a result, not that it was the
   only run.
-- **Pool across versions of a pack.** Two digests are two packs as far as evidence goes.
+- **Pool across versions of an agent.** Two digests are two agents as far as evidence goes.
 - **Chi-square for every comparison of sites.** It is wrong when expected counts are small,
   which is the usual case for critical labels.
 - **Site evidence in the rank.** Sites choose their own cases; hidden sets are frozen and

@@ -31,7 +31,7 @@ gap. The packet for the external review is [`review-packet.md`](review-packet.md
    shows the registry's agents to anyone.
 6. **Engine ↔ database:** SQLite or Postgres.
 7. **Contributors ↔ repository:** community agents arrive by pull request from forks, and only
-   the owner's merge puts one in `community-packs/` ([ADR-0007](../decisions/ADR-0007-community-packs-by-pull-request.md)).
+   the owner's merge puts one in `community-packs/` ([ADR-0007](../decisions/ADR-0007-community-agents-by-pull-request.md)).
 
 ## Threats and mitigations (STRIDE)
 
@@ -157,7 +157,7 @@ gap. The packet for the external review is [`review-packet.md`](review-packet.md
 
 What an agent can set, which agents the deployment owns, and what an agent can and cannot do
 with what it sets (LP-16,
-[ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+[ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md)).
 Each limit names the row above that holds it; each thing an agent can do names the row that bounds
 it, or why it is left as it is.
 

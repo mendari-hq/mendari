@@ -26,13 +26,13 @@
   was found (`core/origin.py`: maintained, community, hub or local); an id is one agent, and a
   second claim is reported, never served. The origin, never the manifest's `publisher.type`
   (self-declared), sets the label every surface shows: "Maintained by Mendari" or "Community ·
-  not clinically reviewed" ([ADR-0007](decisions/ADR-0007-community-packs-by-pull-request.md)).
+  not clinically reviewed" ([ADR-0007](decisions/ADR-0007-community-agents-by-pull-request.md)).
   The origin and the digest choose the engine an agent's patterns run on (`Pack.bounded`): an agent
   the deployment does not own (a community agent, or a pulled one that is not a copy of an agent
   bundled with the installed release, `core/reference.py`) runs on RE2 with caps, input limits and a CPU
   budget per decision; the others on `re`, their input schemas bounded in shape at load
   (`core/input_schema.py`, over `core/schema_graph.py`)
-  ([ADR-0009](decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+  ([ADR-0009](decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md)).
   A pulled agent never takes a bundled agent's place: one with its id and version but other
   files is refused.
 - **Runtime** (`core/decision.py`): binds an agent to concrete provider variants. It validates

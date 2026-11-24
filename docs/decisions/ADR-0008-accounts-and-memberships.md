@@ -13,9 +13,11 @@ prerequisite `a6-accounts` (`launch/gates.yaml`) names the tests that hold it. A
 [ADR-0011](ADR-0011-hidden-evaluation-sets.md) (LP-11d, 2026-10-09): the reserved role
 `labeller` grants `label` on a membership (memberships mode only; claims mode knows no such
 role); `pack_author` still grants nothing. Amended by
-[ADR-0016](ADR-0016-a-pack-store-per-organization.md) (LP-20f, 2026-11-15): `pack_author` grants
-`author`, a people-only permission over the organization's pack store, mounted only with
-`MENDARI_PACK_STORE=on` in memberships mode.
+[ADR-0016](ADR-0016-an-agent-store-per-organization.md) (LP-20f, 2026-11-15): `pack_author` grants
+`author`, a people-only permission over the organization's agent store, mounted only with
+`MENDARI_AGENT_STORE=on` in memberships mode.
+
+Terminology updated 2026-11-23: what this record called a pack is an agent.
 
 ## Context
 A request acts for one organization, taken from the identity provider's claim at sign-in
@@ -65,8 +67,8 @@ provider's claims needs nothing to change.
 - **Credentials.** One Access screen for API keys and Backend Services clients (create, scope,
   rotate, revoke, history). Rotating a client replaces its key set. Key presets, one per
   documented integration path, live in one table that drives the API, the screen and the docs.
-  A decide-scoped credential may read the read-only lists of the packs it may decide with
-  (`GET /api/packs`, `GET /cds-services`; ADR-0004 as amended, LP-12c). A daily cap per principal sits beside the
+  A decide-scoped credential may read the read-only lists of the agents it may decide with
+  (`GET /api/agents`, `GET /cds-services`; ADR-0004 as amended, LP-12c). A daily cap per principal sits beside the
   per-organization quota and answers 429 with `Retry-After`; it is off unless configured.
 
 ## Alternatives rejected

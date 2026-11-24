@@ -79,7 +79,7 @@ review: say in the pull request why your name is spelled that way. Greek letters
 words (`β-blocker`, `µg`) are fine.
 
 Why these limits, and what was decided, is in
-[ADR-0007](../decisions/ADR-0007-community-packs-by-pull-request.md). The label comes from
+[ADR-0007](../decisions/ADR-0007-community-agents-by-pull-request.md). The label comes from
 where the agent lives, never from `publisher.type`, which every agent declares for itself.
 
 ## The path
@@ -283,7 +283,7 @@ together, before a pattern runs, and the settings that multiply its patterns' wo
 
 The same rules apply to an agent pulled from a registry that is not a copy of an agent bundled
 with the installed release: RE2, the caps, the schema keywords, the input limits and the time budget
-([ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+([ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md)).
 
 Habits that keep patterns precise and honest:
 

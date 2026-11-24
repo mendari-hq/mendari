@@ -15,43 +15,45 @@ gate's line for them stays pending until they are done. The steps, in the order 
 - 18a, the card rendered by the registry and the two groups (checked, claimed);
 - 18b, the registry's chain (`hub_events`, `mendari registry verify`) and reviews;
 - 18c, yank as a recall and delete (`hub/yank.py`, `mendari yank`);
-- 18d, origin at pull and the cap on a pulled pack (`registry_approvals`);
+- 18d, origin at pull and the cap on a pulled agent (`registry_approvals`);
 - 18e, a running server honours its registries' recalls (`server/recalls.py`);
 - 18f, rate limits and security headers on the registry and the Hub;
 - 18g, the regression check on the publisher's own test set (`hub/regression.py`);
-- the approval on the Decision Card (#240): where a pulled pack came from, a recall, the
+- the approval on the Decision Card (#240): where a pulled agent came from, a recall, the
   approval in force and earlier ones, approving through a dialog that names the digest, and
   revoking;
-- 18h, the close-out: the engine no longer compares with or monitors against a pulled pack's
+- 18h, the close-out: the engine no longer compares with or monitors against a pulled agent's
   uploaded benchmark (decision 1), the threat model's rows (S18, S19, T7, R3, D11, D12, E12,
   E13), the gate's tests, and the registry's runbook
   ([`docs/operations/registry.md`](../operations/registry.md)).
 
 The defaults below hold unless the owner chooses otherwise.
 
+Terminology updated 2026-11-23: what this record called a pack is an agent.
+
 ## Context
 The registry (`src/mendari/hub/registry.py`) checks a publish thoroughly: the archive's signature
-by one of the namespace's keys, every file against the signed manifest, and that the pack loads
+by one of the namespace's keys, every file against the signed manifest, and that the agent loads
 with the signed digest on the engine its pullers run (ADR-0009). What it then shows is another
 matter:
 
 - It stores and serves the uploaded `DECISION_CARD.md`, the benchmark's accuracy and the
-  leaderboard as the pack carries them. The digest leaves those files out (they are
-  attestations, `Pack.attestation`), so the signature only says who uploaded them. A risk-2 pack
+  leaderboard as the agent carries them. The digest leaves those files out (they are
+  attestations, `Pack.attestation`), so the signature only says who uploaded them. A risk-2 agent
   whose card says risk 1 is accepted and its card shown (reproduced in the vision audit).
 - The risk level, publisher name and type, summary and licence come from the manifest: the
   publisher's own words, shown beside the registry's checks with nothing to tell them apart.
 - There is no way to recall a version (no yank or delete), no rate limit, no security headers,
   and no audit events for its writes.
-- A pulled pack sits on the pack search path, and policy caps AUTO only by the risk level the
-  pack itself declares.
+- A pulled agent sits on the agent search path, and policy caps AUTO only by the risk level the
+  agent itself declares.
 
 ## Decision
-Nothing on a pack's page comes from the uploader unchecked.
+Nothing on an agent's page comes from the uploader unchecked.
 
 1. **The registry renders the card (18a).**
    - `render_card` takes the attestations it shows as explicit inputs (`benchmark` and
-     `leaderboard`; `mendari card` passes the pack's own). The registry passes none, so a card
+     `leaderboard`; `mendari card` passes the agent's own). The registry passes none, so a card
      it renders comes from the digested files only: the manifest, policy, input schema and
      changelog.
    - An uploaded `DECISION_CARD.md`, `evals/benchmark.json` and `evals/leaderboard.json` are
@@ -60,19 +62,19 @@ Nothing on a pack's page comes from the uploader unchecked.
    - Figures the registry computes itself come later (18g), labelled as the publisher's own test
      set. Only the scoreboard (LP-17) ranks; until it exists the registry and the Hub rank
      nothing.
-   - The engine treats a pulled pack's uploaded benchmark the same way (18h): its pack detail
+   - The engine treats a pulled agent's uploaded benchmark the same way (18h): its agent detail
      and card show none, its monitor has no benchmark for it (`benchmark.reason:
      from_registry`), and its evaluation route, `mendari eval` and `mendari demo` make no
      comparison with it, saying why (a report given with `--baseline` is the caller's own and is
      compared).
 2. **Two groups on every version, in the API and on the Hub (18a).**
    - `checked`, what the registry verified itself: the signing key's id, the archive's SHA-256,
-     the pack digest the signed manifest names and the pack loaded with, the engine it was
+     the agent digest the signed manifest names and the agent loaded with, the engine it was
      checked on, that the card was rendered here (`card: rendered`), and the review status.
    - `claimed`, what the publisher says: the publisher's name and type, the risk level and its
      category (shown as "declared by the publisher"), the licence and the summary.
    - The status label (LP-04) is derived by the code from the manifest's provenance and only
-     ever lowers what the pack claims, so it sits with the checks.
+     ever lowers what the agent claims, so it sits with the checks.
 3. **Review status (18a, 18b).** A version is `unreviewed` until a registry reviewer records a
    review (18b). Until then its risk level is shown as declared by the publisher, never as
    recomputed or confirmed. A review records the risk level it found and a short note; the
@@ -93,7 +95,7 @@ Nothing on a pack's page comes from the uploader unchecked.
    reported, never started again. The chain is unkeyed: whoever can write the whole database
    can rewrite it whole. Its head (`GET /v1/chain/head`: the event count and the last hash),
    kept elsewhere, is what shows that; a signed head is for later.
-5. **Recalls (18c).** A yank is a `mendari.yank/1` record (pack, version, digest, archive,
+5. **Recalls (18c).** A yank is a `mendari.yank/1` record (agent, version, digest, archive,
    reason, severity, signer, key id, time), signed over its canonical JSON. The publisher signs
    with one of the namespace's keys; the registry signs a recall it makes with its own key
    (`MENDARI_REGISTRY_SIGNING_KEY`, published at `GET /v1/registry-key`). The registry stores it
@@ -105,29 +107,29 @@ Nothing on a pack's page comes from the uploader unchecked.
    is still a recall, since it only stops automation. An administrator may delete a version
    with a reason: its archive answers 410, its bytes go when no version that is not deleted
    needs them, and its row and a tombstone stay, so its version is never published again.
-6. **Origin and the cap (18d).** A pull writes, beside the pack, where it came from
+6. **Origin and the cap (18d).** A pull writes, beside the agent, where it came from
    (`mendari.origin/1`: the registry's URL, namespace, publisher type, key id, archive, digest,
    time, and any recall the registry served then; a marker from before holds the archive's
-   SHA-256 alone). Served, a pack from a registry never automates until its organization
+   SHA-256 alone). Served, an agent from a registry never automates until its organization
    approves its exact digest (`registry_approvals`, `POST`/`DELETE /api/registry-approvals`,
    the `approve` permission, chained `registry_pack.approved` and `.revoked`), at any risk
    level (2 and 3 need their governance approval too), and never while a recall is known
    (the one its last pull recorded; a running server checks its registry, 18e): AUTO becomes
-   HUMAN_REVIEW, as under a hold, and the pack's own rule's BLOCK goes to a person too (final at
+   HUMAN_REVIEW, as under a hold, and the agent's own rule's BLOCK goes to a person too (final at
    once, it would act alone). The cap follows the origin, not the bytes: a pulled copy of a
-   bundled pack is capped too, and no field of the pack lifts it. One live approval a digest
+   bundled agent is capped too, and no field of the agent lifts it. One live approval a digest
    (a second is refused, so revoking stops automation at once); an approval lasts until
    revoked, since it names one digest. `mendari test`, `mendari eval`, `leaderboard --run` and
-   the server's evaluation route check the pack's own policy (`origin_cap=False`); a server and
+   the server's evaluation route check the agent's own policy (`origin_cap=False`); a server and
    `mendari decide` never do. A library caller (`Decision.from_hub`) is capped unless it passes
    `origin_approval`.
-7. **A running server honours recalls (18e).** For each registry its served packs came from, a
+7. **A running server honours recalls (18e).** For each registry its served agents came from, a
    server reads `GET /v1/yanks` in a thread of its own, over https, started by a decision for
-   one of that registry's packs once the last read is five minutes old
-   (`MENDARI_REGISTRY_RECALL_CHECK_S`); that decision uses the list read before. A pack it lists
+   one of that registry's agents once the last read is five minutes old
+   (`MENDARI_REGISTRY_RECALL_CHECK_S`); that decision uses the list read before. An agent it lists
    is held as an unapproved one is. What cannot be checked is treated the same: a registry not
    read in a day (`MENDARI_REGISTRY_RECALL_STALE_S`), not yet read since the server started, or
-   not recorded beside the pack. A recall is honoured whether or not its signature can be
+   not recorded beside the agent. A recall is honoured whether or not its signature can be
    checked here: it only lowers automation.
 8. **Limits and headers (18f).** The registry limits reads per address and writes and site
    reports per token, in its own database (the engine's `Limiter` and buckets), refusing before
@@ -136,28 +138,28 @@ Nothing on a pack's page comes from the uploader unchecked.
    the Hub with OWASP ZAP's baseline.
 9. **The regression check (18g).** On every publish the registry evaluates the version on
    the test set its manifest names, in a child process with no credential, a time limit and
-   local providers only, and runs the pack gate against the newest earlier version's check. It
+   local providers only, and runs the eval gate against the newest earlier version's check. It
    is shown, labelled "publisher's own test set: regression check, not a ranking", and never
    refuses a version: the set is the publisher's choice, so it can show a regression, never
-   rank. A pack whose default providers call a model is not run.
+   rank. An agent whose default providers call a model is not run.
 10. **Versions published before.** They keep their stored metadata (versions are immutable),
    but their uploaded card, benchmark and leaderboard are not served: `checked.card` says
-   `not_rendered`, and publishing a new version renders one. Re-rendering on read would load a
-   pack per request.
+   `not_rendered`, and publishing a new version renders one. Re-rendering on read would load an
+   agent per request.
 
 ## Defaults (the owner may choose otherwise)
 1. (18a) The Hub shows no benchmark figure and no leaderboard until the registry computes them:
    an uploaded figure is never displayed, even with a caveat.
-2. (18a) The card is rendered with the pack loaded as a pack from a registry (`origin="hub"`), so
+2. (18a) The card is rendered with the agent loaded as an agent from a registry (`origin="hub"`), so
    it shows neither a maintained nor a community source line: the registry's checks, not the
-   card, say where a pack comes from.
+   card, say where an agent comes from.
 3. (18a) In the registry's card, publisher text is plain text: each string on one line with
    Markdown's punctuation escaped, each name a code span, an evidence link only an http(s)
    address, and only the changelog's version lines as headings. So no heading, table, rule,
    image, link or bold line in it can pass for the registry's own words. The Hub renders the
    card without raw HTML or images, and drops unsafe links.
-4. (18a) Where Mendari serves or shows a pack pulled from a registry (the engine's pack detail,
-   `mendari card`), it shows the registry's card too, without the pack's uploaded benchmark and
+4. (18a) Where Mendari serves or shows an agent pulled from a registry (the engine's agent detail,
+   `mendari card`), it shows the registry's card too, without the agent's uploaded benchmark and
    leaderboard (`card_of`).
 5. (18b) Until LP-19's reviewer accounts, a review is recorded with the admin token.
    Amended by LP-19 (ADR-0015): a review is a reviewer's, by id, or the operator's command,
@@ -165,25 +167,25 @@ Nothing on a pack's page comes from the uploader unchecked.
 6. (18c) A yank is signed by whoever makes it: the publisher with the namespace's key, the
    registry with its own key. A client honours every yank, verified or not (a forged yank only
    stops automation, the safe direction), and says whether it verified.
-7. (18d) A pulled copy of a bundled pack is capped too: the cap follows the origin, not the
-   bytes. `mendari test` checks the pack's own policy and says that serving caps it.
-8. (18e) A server that could not check a pulled pack's registry for 24 hours holds it.
-9. (18g) A regression is shown, not refused: the version is the publisher's; a pack that cannot
+7. (18d) A pulled copy of a bundled agent is capped too: the cap follows the origin, not the
+   bytes. `mendari test` checks the agent's own policy and says that serving caps it.
+8. (18e) A server that could not check a pulled agent's registry for 24 hours holds it.
+9. (18g) A regression is shown, not refused: the version is the publisher's; an agent that cannot
    be evaluated on its own test set with local providers says so.
 10. (18h) The rule on uploaded benchmarks follows the origin too: a pulled copy of a reference
-    pack is not monitored against or compared with the benchmark it carries.
+    agent is not monitored against or compared with the benchmark it carries.
 
 ## Consequences
-- **Breaking, for deployments that serve pulled packs.** A pack pulled from a registry no
+- **Breaking, for deployments that serve pulled agents.** An agent pulled from a registry no
   longer automates until its organization approves its digest, at every risk level, and its own
   rule's BLOCK goes to a person until then. A registry a server cannot read for a day holds
-  every pack pulled from it, and one pulled before LP-18d (a marker that names no registry) is
+  every agent pulled from it, and one pulled before LP-18d (a marker that names no registry) is
   held until it is pulled again.
-- A pulled pack is never monitored against, or its evaluations compared with, the benchmark it
-  carries; such a pack's monitor runs only the checks that need no benchmark.
+- A pulled agent is never monitored against, or its evaluations compared with, the benchmark it
+  carries; such an agent's monitor runs only the checks that need no benchmark.
 - A publisher can no longer show a better benchmark than the registry measured, or a lower risk
   level in its card than the manifest declares.
-- The Hub's pack page loses its benchmark fact and provider leaderboard until 18g; the
+- The Hub's agent page loses its benchmark fact and provider leaderboard until 18g; the
   regression check then shows the publisher's own test set, labelled as such, and LP-17 the
   scoreboard.
 - Clients that read `card_markdown`, `benchmark` or `leaderboard` from the registry see the

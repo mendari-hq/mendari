@@ -7,6 +7,8 @@ the machine roles exists, an organization's grading key, which only the operator
 command line (`mendari access grader-key`); it holds `grade` and nothing else, no HTTP route
 makes one, and an administrator may list and revoke it, never rotate it.
 
+Terminology updated 2026-11-23: what this record called a pack is an agent.
+
 ## Context
 People sign in with the organization's identity provider (OIDC). Machines used API keys that
 carried one role and one organization, never expired, and could be of any role, admin included.
@@ -51,13 +53,13 @@ per-provider handling.
   (`mat_`), and anything else is refused. Credentials are never accepted in a URL or a form.
 
 ## Amendment (2026-10-07, LP-12c): deciding implies discovering
-Approved by the owner, in its narrow form ("usable packs only"). The decide scope implies a
+Approved by the owner, in its narrow form ("usable agents only"). The decide scope implies a
 read-only `discover` permission, with no scope URI of its own. It reaches exactly two routes,
-`GET /api/packs` and `GET /cds-services`, and each lists only the packs the credential may decide
-with: every pack this deployment serves from disk, and the caller's organization's promoted
-pack store versions (amended by LP-20h, 2026-11: a version one organization promoted is never in
+`GET /api/agents` and `GET /cds-services`, and each lists only the agents the credential may decide
+with: every agent this deployment serves from disk, and the caller's organization's promoted
+agent store versions (amended by LP-20h, 2026-11: a version one organization promoted is never in
 another's lists, decisions, CDS Hooks discovery or FHIR operation), with the summary people see of
-each (its id, name, version and the like). A pack's detail, its examples and datasets, `/openapi.json` and the audit stay
+each (its id, name, version and the like). An agent's detail, its examples and datasets, `/openapi.json` and the audit stay
 closed to a scoped credential. Every role holds `discover`, so people and unscoped credentials
 reach the lists as before; an EHR launch does not. `GET /api/auth/me` lists it.
 
@@ -78,7 +80,7 @@ reach the lists as before; an EHR launch does not. `GET /api/auth/me` lists it.
   and stale authorization until a token expires.
 - **JWKS URLs.** Deferred: an outbound fetch on an unauthenticated request, and an SSRF and
   amplification surface.
-- **Pack-scoped keys, last-used tracking, a new key format.** Deferred until external
+- **Agent-scoped keys, last-used tracking, a new key format.** Deferred until external
   developers use the API. (Rotation with an overlap was added by LP-09, 2026-10:
   `POST /api/auth/keys/{id}/rotate`. A Backend Services client's key set is replaced in place by
   LP-12h, 2026-10: `POST /api/auth/clients/{id}/keys`, same client id, its tokens dropped and a

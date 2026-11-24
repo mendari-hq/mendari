@@ -325,7 +325,7 @@ MENDARI_AGENT_URL=https://your-agent.example/decide mendari eval my-agent --data
 An agent you publish to a registry or contribute as a community agent is one the deployment
 that runs it does not own: there it must name `state_fields`, may not set `endpoint` (the
 deployment's `MENDARI_AGENT_URL` is used), and its `timeout_seconds` is held to at most 15
-([ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+([ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md)).
 
 ## 9. Set the policy: when a person must look
 

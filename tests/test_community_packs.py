@@ -707,7 +707,7 @@ def test_the_contribution_forms_and_guide_hang_together() -> None:
     assert "git commit -s" in template and "community-check" in template
     nav = (ROOT / "mkdocs.yml").read_text()
     assert "guides/contributing-an-agent.md" in nav
-    assert "decisions/ADR-0007-community-packs-by-pull-request.md" in nav
+    assert "decisions/ADR-0007-community-agents-by-pull-request.md" in nav
     guide = (ROOT / "docs/guides/contributing-an-agent.md").read_text()
     assert COMMUNITY_LABEL in guide and "| 0 | Administrative:" in guide
     assert "anything possibly urgent sent to a person | Yes |" in guide

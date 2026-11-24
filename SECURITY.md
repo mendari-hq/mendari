@@ -275,7 +275,7 @@ limits bound how often). Their input schemas are bounded in shape at load instea
 deep, at most 16 `$ref`s in a chain, at most 1,000 schema objects applied to one value, and no
 reference back to itself but a recursive list's or tree's. Packs the deployment does not own run
 on the community engine instead
-([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)):
+([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md)):
 community packs, and packs pulled from a registry unless one is a copy of an agent bundled with
 the installed release, chosen by the digest of its files, never by its manifest or the registry.
 A pack from a registry never takes a bundled agent's place: one with a bundled agent's id and
@@ -424,13 +424,13 @@ server's process: there is no isolated worker process. To trust a pulled pack, c
 ## Community packs
 
 Outside developers contribute packs by pull request, into `community-packs/<name>/` with the id
-`community/<name>` ([ADR-0007](docs/decisions/ADR-0007-community-packs-by-pull-request.md); the
+`community/<name>` ([ADR-0007](docs/decisions/ADR-0007-community-agents-by-pull-request.md); the
 contributor's guide is [`docs/guides/contributing-an-agent.md`](docs/guides/contributing-an-agent.md)).
 They are not clinically reviewed, so the runtime limits what they can do, whatever their
 manifest says (threat model S13, T5, I12, D8, E10). Two of these limits, the input limits and
 the patterns on RE2 with their caps and budget, also hold every pack pulled from a registry
 that is not a copy of an agent bundled with the installed release
-([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md),
+([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md),
 threat model D8 and S15): they are the limits of community and registry packs. The others are
 the community packs' alone: a pulled pack is labelled "From a registry", and it automates
 under its own policy only once its organization approves its digest (above).

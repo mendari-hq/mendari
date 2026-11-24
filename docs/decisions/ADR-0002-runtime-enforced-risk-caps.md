@@ -3,15 +3,17 @@
 ## Status
 Accepted (v0.1)
 
+Terminology updated 2026-11-23: what this record called a pack is an agent.
+
 ## Context
-A public pack could claim `AUTO` at any confidence. Healthcare risk depends on the intended use
-(administrative routing vs. treatment recommendations), and the organization that deploys a
-pack, not the publisher, is accountable for automating it at its site.
+A public agent could claim `AUTO` at any confidence. Healthcare risk depends on the intended use
+(administrative routing vs. treatment recommendations), and the organization that deploys an
+agent, not the publisher, is accountable for automating it at its site.
 
 ## Decision
-- Each pack declares a risk level from 0 to 4. The runtime caps `AUTO` to `HUMAN_REVIEW` for
-  levels 2–4, whatever the pack's thresholds say.
-- Packs at level ≥ 2 may not even declare `AUTO` policy rules; validation rejects them.
+- Each agent declares a risk level from 0 to 4. The runtime caps `AUTO` to `HUMAN_REVIEW` for
+  levels 2–4, whatever the agent's thresholds say.
+- Agents at level ≥ 2 may not even declare `AUTO` policy rules; validation rejects them.
 - For levels 2–3, the *deploying organization* may pass a `GovernanceOverride` with a named
   approver and a reference (e.g. committee minutes). It is written into every affected decision
   and evaluation report. Level 4 can never be autonomous.
@@ -20,20 +22,20 @@ pack, not the publisher, is accountable for automating it at its site.
 
 **v0.6:** the server keeps these approvals (`/api/governance`, and the Decision Card's
 "Automation approval" section). A person with the `governance` role gives each one for one
-organization and one pack digest, with an expiry. It is chained in the audit log, applied as the
+organization and one agent digest, with an expiry. It is chained in the audit log, applied as the
 runtime's `GovernanceOverride` while in force, and can be revoked at once. A new version of the
-pack needs a new approval. The API refuses levels 0–1, which need none, and level 4.
+agent needs a new approval. The API refuses levels 0–1, which need none, and level 4.
 
 ## Consequences
-- Automation limits live in the runtime, not in each pack's own configuration, so a
-  malicious or careless pack cannot remove them.
+- Automation limits live in the runtime, not in each agent's own configuration, so a
+  malicious or careless agent cannot remove them.
 - Overrides are auditable, attributable and local, matching how clinical AI governance works
   in practice (AI or clinical decision support committees).
 - Some legitimate level 2 automation requires an explicit governance step. That is
   intentional.
 
 ## Alternatives Considered
-- **Trust pack thresholds.** Rejected: it puts the publisher, not the deployer, in charge of
+- **Trust agent thresholds.** Rejected: it puts the publisher, not the deployer, in charge of
   automation at someone else's site.
 - **Hard-block level 2–3 automation entirely.** Rejected: validated automation of some
   clinical-support tasks can be appropriate, but it must be an explicit, recorded local
