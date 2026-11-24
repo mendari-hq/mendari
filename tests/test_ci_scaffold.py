@@ -80,8 +80,8 @@ def test_new_writes_a_workflow_that_uses_the_action_at_this_releases_tag(
     assert check["with"] == {
         "agent": ".",
         "dataset": "examples",
-        "min-critical-detection": "0.9",
-        "max-critical-automated": "0",
+        "min-critical-detection": "90%",
+        "max-critical-misses": "0",
     }
     assert all(check["with"][name] == inputs[name]["default"] for name in check["with"])
     assert check["with"]["dataset"] in load_pack(agent).manifest.evaluation.datasets
@@ -90,12 +90,15 @@ def test_new_writes_a_workflow_that_uses_the_action_at_this_releases_tag(
 
 def test_the_workflow_says_what_it_does_and_where_it_belongs(tmp_path: Path) -> None:
     text = (scaffolded(tmp_path) / CI_WORKFLOW).read_text(encoding="utf-8")
-    comment = "\n".join(line for line in text.splitlines() if line.startswith("#"))
+    # Every comment of the file: its heading, and the ones beside the inputs.
+    comment = "\n".join(line.strip() for line in text.splitlines() if line.lstrip().startswith("#"))
     assert comment.startswith("# Mendari checks my-clinic/my-agent on every change")
     for said in (
         "its manifest is validated, its behaviour tests run, and it is evaluated",
         "cases named by id and never by their text",
-        "the job fails when a check fails, a limit below is missed or the evaluation",
+        "each critical label and the operating point of the automation threshold",
+        "the job fails when a check fails, a limit below is not met or the evaluation",
+        "none of its cases is automated (a critical miss)",
         "No secret is needed",
         CI_GUIDE,
         "move the file to that repository's .github/workflows/ and name the folder in `agent`",
@@ -227,8 +230,17 @@ def test_the_summary_the_guide_shows_is_the_one_the_action_writes(tmp_path: Path
     summary = use(tmp_path, **DEMO).summary
     (shown,) = [block for block in blocks("text") if "Mendari agent check" in block]
     headings = [line for line in shown.splitlines() if line.startswith("#")]
-    assert len(headings) == 3
+    assert headings == [
+        "## Mendari agent check: failed",
+        "### Evaluation of mendari/portal-message-agent 0.1.2 on test (600 cases)",
+        "### Operating point",
+        "### Gate failed: 2 limits not met",
+    ]
     plain = summary.replace("`", "").replace("**", "")  # as the page renders it
+    # The operating point, whole: the guide shows the sentences the action writes, wrapped.
+    point = " ".join(shown.split("### Operating point")[1].split("### Gate failed")[0].split())
+    written = " ".join(plain.split("### Operating point")[1].split("### Gate failed")[0].split())
+    assert point == written
     for heading in headings:
         assert f"\n{heading}\n" in f"\n{plain}", heading
     figures = re.findall(r"\d+ of \d+ \[[^\]]+\]", shown)
@@ -238,3 +250,33 @@ def test_the_summary_the_guide_shows_is_the_one_the_action_writes(tmp_path: Path
     for line in ("Validation: passed. Behaviour tests: passed. Evaluation: failed.",):
         assert line in plain
     assert "(9): demo-0002, demo-0044, " in plain and "(24): demo-0052, " in plain
+    for line in shown.splitlines():  # each kind of critical case, under the name it has
+        if line.startswith("Critical "):
+            assert line.split(": demo-")[0] in plain, line
+    assert "| critical urgent_symptoms=yes misses" in shown and "| not met |" in shown
+
+
+@pytestmark_bash
+def test_the_guides_target_is_one_the_action_takes_and_fails_nothing(tmp_path: Path) -> None:
+    """The guide's target step, on the demo agent with no limit: the summary says which
+    threshold the cases support, or why none, and the job passes."""
+    (step,) = [
+        step
+        for block in blocks("yaml")
+        for step in _steps(yaml.safe_load(block))
+        if any(name.startswith("target-") for name in step.get("with", {}))
+    ]
+    targets = {
+        name.replace("-", "_"): value
+        for name, value in step["with"].items()
+        if name.startswith("target-")
+    }
+    assert targets == {"target_critical_miss": "1%", "target_false_automation": "2%"}
+    run = use(tmp_path, **DEMO, **targets, min_critical_detection="", max_critical_misses="")
+    assert not run.failed, run.log
+    assert run.outputs["evaluation"] == "passed"
+    assert (
+        "**No automation threshold can be certified for critical misses at most 1% and false "
+        "automation at most 2% with 95% confidence.**" in run.summary
+    )
+    assert "### Gate" not in run.summary  # no limit, no baseline: nothing to hold it to

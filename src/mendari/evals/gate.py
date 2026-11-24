@@ -15,6 +15,13 @@ The same gate is what `mendari eval --no-worse-than RESULT` runs for anyone's ag
 CI (docs/guides/evaluate-in-ci.md), beside limits they state (`Limits`): what a result must be
 whatever it was before. `check` applies both, and `Checked` renders them for a terminal or a job
 summary.
+
+A limit is on what this run measured, and a result that does not meet one fails the run. It is
+not a target (`evals/operating_point.py`), which is what a recommended automation threshold must
+keep to with a stated confidence, and fails nothing. The two name a figure the same way: a
+critical miss is a critical label's case that is automated, so no person reads it (a result's
+`auto_missed`), and false automation is a case automated with a wrong recommendation, as a share
+of the cases labelled for the primary question (a result's `proportions.false_automation`).
 """
 
 from __future__ import annotations
@@ -29,7 +36,7 @@ from typing import Any
 from mendari.core.spec import _KEY as _NAME
 from mendari.evals import stats
 from mendari.evals.render import evidence, md_row, shown
-from mendari.evals.result import counted
+from mendari.evals.result import counted, false_automation
 
 EPSILON = 1e-9
 
@@ -178,13 +185,20 @@ class Limits:
     --max-...`). A share is of 1; None: not stated."""
 
     min_accuracy: float | None = None  # the primary question's
-    max_false_automation: float | None = None  # wrong recommendations, of the automated cases
+    # Cases automated with a wrong recommendation, of the cases labelled for the primary
+    # question: the report's "False automation", and what a target on it is a share of.
+    max_false_automation: float | None = None
     min_critical_detection: float | None = None  # of each critical label's cases
-    max_critical_automated: int | None = None  # cases of each critical label
+    max_critical_misses: int | None = None  # cases of each critical label that are automated
 
     @property
     def stated(self) -> bool:
         return any(value is not None for value in astuple(self))
+
+
+# The row of a limit on false automation: the figure, and what it is a share of (the baseline's
+# gate compares another figure, the share of the automated cases, and names it so).
+FALSE_AUTOMATION = "false automation (of labelled cases)"
 
 
 def _percent(share: float) -> str:
@@ -194,9 +208,10 @@ def _percent(share: float) -> str:
 
 def limits(report: Mapping[str, Any], stated: Limits) -> tuple[list[dict[str, Any]], list[str]]:
     """(rows, failures): each stated limit beside what the report measured, and the ones it
-    misses. A floor under a figure the report does not measure (no labelled case, no case of a
-    critical label) is missed, since nothing shows it is met; a ceiling over what never
-    happened (nothing automated) is met."""
+    does not meet. A limit on a share (accuracy, false automation, detection) needs cases to be
+    a share of: where the report measures none (no labelled case, no case of a critical label)
+    it is not met, since nothing shows that it is. A limit on a count (critical misses) is met
+    by any count within it, none included."""
     rows: list[dict[str, Any]] = []
     failures: list[str] = []
 
@@ -205,50 +220,42 @@ def limits(report: Mapping[str, Any], stated: Limits) -> tuple[list[dict[str, An
         if not met:
             failures.append(f"{name}: {measured}, and the limit is {words}")
 
-    def share(name: str, value: Any, n: Any, limit: float, *, floor: bool) -> None:
-        measured = "not measured" if value is None and n != 0 else shown(counted(value, n))
-        if value is None:
-            met = not floor
-        else:
-            met = value >= limit - EPSILON if floor else value <= limit + EPSILON
-        row(name, measured, f"at {'least' if floor else 'most'} {_percent(limit)}", met)
+    def share(name: str, found: stats.Proportion | None, limit: float, *, floor: bool) -> None:
+        words = f"at {'least' if floor else 'most'} {_percent(limit)}"
+        if found is None or not found.n:
+            row(name, "not measured" if found is None else shown(found), words, False)
+            return
+        value = found.k / found.n
+        met = value >= limit - EPSILON if floor else value <= limit + EPSILON
+        row(name, shown(found), words, met)
 
     primary = str(report["primary"])
     if stated.min_accuracy is not None:
         question = report["questions"].get(primary, {})
         share(
             f"{primary} accuracy",
-            question.get("accuracy"),
-            question.get("n"),
+            counted(question.get("accuracy"), question.get("n")),
             stated.min_accuracy,
             floor=True,
         )
     if stated.max_false_automation is not None:
-        automation = report["decisions"]["automation"]
-        share(
-            "false automation rate (of automated)",
-            automation.get("false_automation_rate"),
-            automation.get("n"),
-            stated.max_false_automation,
-            floor=False,
-        )
+        share(FALSE_AUTOMATION, false_automation(report), stated.max_false_automation, floor=False)
     for item in report["decisions"].get("critical", []):
         name = f"critical {item['question']}={item['label']}"
         if stated.min_critical_detection is not None:
             share(
                 f"{name} detected",
-                item.get("detection_rate"),
-                item.get("n"),
+                counted(item.get("detection_rate"), item.get("n")),
                 stated.min_critical_detection,
                 floor=True,
             )
-        if stated.max_critical_automated is not None:
-            automated, positives = int(item.get("auto_missed", 0)), int(item.get("n", 0))
+        if stated.max_critical_misses is not None:
+            misses, positives = int(item.get("auto_missed", 0)), int(item.get("n", 0))
             row(
-                f"{name} automated",
-                shown(stats.proportion(automated, positives)),
-                f"at most {stated.max_critical_automated}",
-                automated <= stated.max_critical_automated,
+                f"{name} misses",
+                shown(stats.proportion(misses, positives)),
+                f"at most {stated.max_critical_misses}",
+                misses <= stated.max_critical_misses,
             )
     return rows, failures
 
@@ -330,7 +337,7 @@ class Checked:
     baseline was given, the gate against it."""
 
     limits: list[dict[str, Any]]
-    missed: list[str]  # the limits it misses
+    unmet: list[str]  # the limits it does not meet
     compared: bool  # a baseline was given
     tolerance: float  # the agent's, which the gate allowed
     rows: list[dict[str, Any]]  # the gate's; none when the baseline is of other cases
@@ -339,16 +346,17 @@ class Checked:
 
     @property
     def passed(self) -> bool:
-        return not self.missed and not self.regressions
+        return not self.unmet and not self.regressions
 
     @property
     def verdict(self) -> str:
-        """`passed`, or `failed` with what failed it: `failed: 2 limits missed, 1 regression`."""
+        """`passed`, or `failed` with what failed it: `failed: 2 limits not met, 1 regression`.
+        A limit is "not met", never "missed": a miss is a critical case that no person read."""
         if self.passed:
             return "passed"
         found = []
-        if self.missed:
-            found.append(f"{len(self.missed)} limit{'s' if len(self.missed) > 1 else ''} missed")
+        if self.unmet:
+            found.append(f"{len(self.unmet)} limit{'s' if len(self.unmet) > 1 else ''} not met")
         if self.regressions:
             count = len(self.regressions)
             found.append(f"{count} regression{'s' if count > 1 else ''}")
@@ -360,7 +368,7 @@ class Checked:
         width = max((len(row["metric"]) for row in self.limits), default=0)
         lines += [
             f"  {row['metric']:<{width}}  {row['measured']}, limit {row['limit']}: "
-            f"{'met' if row['met'] else 'MISSED'}"
+            f"{'met' if row['met'] else 'NOT MET'}"
             for row in self.limits
         ]
         if self.compared:
@@ -383,7 +391,7 @@ class Checked:
                     row["metric"],
                     row["limit"],
                     row["measured"],
-                    "met" if row["met"] else "**missed**",
+                    "met" if row["met"] else "**not met**",
                 )
                 for row in self.limits
             ]
@@ -425,9 +433,9 @@ def check(
     passes), against it through `gate`, within `tolerance` (the agent's
     `evaluation.degradation_tolerance`). A baseline of other cases is not compared, and that is
     a regression: nothing shows the run is no worse."""
-    limit_rows, missed = limits(report, stated)
+    limit_rows, unmet = limits(report, stated)
     notes = []
-    on_critical = (stated.min_critical_detection, stated.max_critical_automated) != (None, None)
+    on_critical = (stated.min_critical_detection, stated.max_critical_misses) != (None, None)
     if on_critical and not report["decisions"].get("critical"):
         notes.append(NO_CRITICAL_LABEL)
     rows: list[dict[str, Any]] = []
@@ -439,7 +447,7 @@ def check(
             rows, regressions = gate(report, baseline, tolerance)
     return Checked(
         limits=limit_rows,
-        missed=missed,
+        unmet=unmet,
         compared=baseline is not None,
         tolerance=tolerance,
         rows=rows,

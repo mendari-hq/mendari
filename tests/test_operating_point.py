@@ -177,6 +177,13 @@ def test_a_share_is_read_as_a_percentage_or_a_fraction() -> None:
     for bad in ("1", "100%", "0", "-1%", "one", "", "%", "nan", "inf"):
         with pytest.raises(ValueError, match="a share is"):
             op.share(bad)
+    # A limit on a run's own result is read the same way, and may be either end.
+    assert op.share("0", whole=True) == 0.0 == op.share("0%", whole=True)
+    assert op.share("1", whole=True) == 1.0 == op.share("100%", whole=True)
+    assert op.share("90%", whole=True) == 0.9 == op.share("0.9", whole=True)
+    for bad in ("90", "101%", "-1%", "one", "", "%", "nan", "inf"):
+        with pytest.raises(ValueError, match="a share is"):
+            op.share(bad, whole=True)
 
 
 def test_targets_are_shares_and_the_error_level_is_split_between_two() -> None:
@@ -1375,11 +1382,11 @@ def test_mendari_eval_takes_the_targets_and_the_level(capsys: pytest.CaptureFixt
     [
         (
             ["--target-critical-miss", "1"],
-            "--target-critical-miss: a share is above 0 and below 100%",
+            "--target-critical-miss: a share is above 0 and below 100%: write 1% or 0.01: '1'",
         ),
         (
             ["--target-false-automation", "two"],
-            "--target-false-automation: a share is written 1% or",
+            "--target-false-automation: a share is written 1% or 0.01: 'two'",
         ),
         (
             ["--target-false-automation", "0.00000001"],
@@ -1387,15 +1394,86 @@ def test_mendari_eval_takes_the_targets_and_the_level(capsys: pytest.CaptureFixt
         ),
         (["--target-confidence", "30%"], "--target-confidence: the confidence level is from 50%"),
         (["--target-confidence", "95"], "--target-confidence: a share is above 0 and below 100%"),
+        (["--target-critical-miss-of", "some"], "--target-critical-miss-of: invalid choice"),
     ],
 )
 def test_an_option_that_is_not_a_share_is_one_line_that_names_it(
     options: list[str], said: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Refused by the command line before any work, as a limit's value is: one line that names
+    the option, and where its help is."""
     code, out, err = run_cli(capsys, "eval", str(DEMO_AGENT_DIR), "--dataset", "test", *options)
     assert code == 1 and out == ""
     (line,) = err.splitlines()
-    assert line.startswith(f"error: {said}"), line
+    assert line.startswith(f"error: mendari eval: argument {said}"), line
+    assert line.endswith("(see mendari eval --help)")
+
+
+def test_what_a_target_is_a_share_of_needs_the_target(capsys: pytest.CaptureFixture[str]) -> None:
+    agent = ("eval", str(DEMO_AGENT_DIR), "--dataset", "test")
+    code, out, err = run_cli(capsys, *agent, "--target-critical-miss-of", "all")
+    assert code == 1 and out == ""
+    assert err.strip() == (
+        "error: --target-critical-miss-of says what --target-critical-miss is a share of: give "
+        "that target too"
+    )
+
+
+def test_the_block_as_markdown_is_its_own_sentences(demo_run: tuple[Any, list[Any]]) -> None:
+    """For a CI job's summary: the heading, the summary in bold, each line as a list item. The
+    sentences are the ones the terminal prints, and nothing is added."""
+    run, _ = demo_run
+    block = run.report["run"]["operating_point"]
+    markdown = op.markdown(block)
+    assert markdown == (
+        f"### Operating point\n\n**{block['summary']}**\n\n"
+        + "".join(f"- {line}\n" for line in block["lines"])
+    )
+    printed = " ".join(op.text(block).split())
+    assert all(line in printed for line in (block["summary"], *block["lines"]))
+    # A block with no line under its summary is its heading and its summary.
+    assert op.markdown({"summary": "Nothing to say.", "lines": []}) == (
+        "### Operating point\n\n**Nothing to say.**\n"
+    )
+
+
+def test_mendari_eval_writes_the_operating_point_into_the_markdown_summary(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`mendari eval --markdown` is what a CI job's summary is made of (action.yml): the
+    operating point comes after the figures, with no target and with one, and the exit code is
+    the evaluation's either way."""
+    agent = ("eval", str(DEMO_AGENT_DIR), "--dataset", "test", "--baseline", "none", "--markdown")
+    code, out, err = run_cli(capsys, *agent)
+    assert code == 0 and err == ""
+    figures, heading, section = out.partition("\n### Operating point\n")
+    assert figures.startswith("### Evaluation of `mendari/portal-message-agent`") and heading
+    assert section.startswith(
+        "\n**At the agent's automation threshold 0.90, 326 of 600 cases are automated: critical "
+        "urgent_symptoms=yes automated 9 of 114 critical cases (at most 13.4%), 9 of all 600 "
+        "cases (at most 2.7%); false automation 9 of 600 labelled cases (at most 2.7%).**\n\n"
+        "- 64 of the 600 cases repeat another case's input."
+    )
+    # The terminal's hint names options of the command: a summary is a record, and has none.
+    assert "No target was given" not in out and "--target" not in out
+    code, out, _ = run_cli(capsys, *agent, "--target-critical-miss", "1%")
+    assert code == 0  # advice: no target fails a run
+    assert (
+        "\n### Operating point\n\n**No automation threshold can be certified for critical misses "
+        "at most 1% with 95% confidence.**\n\n- At the agent's automation threshold 0.90, "
+    ) in out
+    assert "\n- The threshold cannot fix this: at 0.95, the strictest threshold" in out
+    # Beside limits the run does not meet: the summary holds both, each under its heading, and
+    # the exit code is the limits'.
+    code, out, _ = run_cli(
+        capsys, *agent, "--target-critical-miss", "1%", "--max-critical-misses", "0"
+    )
+    assert code == 2
+    assert out.index("\n### Operating point\n") < out.index("\n### Gate failed: 1 limit not met\n")
+    assert (
+        "| critical urgent_symptoms=yes misses | at most 0 | 9 of 114 [3.7-14.5%] | **not met** |"
+        in out
+    )
 
 
 def test_nothing_edits_the_manifest(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1618,6 +1696,6 @@ def test_the_guide_names_the_options_the_command_takes() -> None:
             *("--target-confidence", "95%"),
         ]
     )
-    assert (parsed.target_critical_miss, parsed.target_critical_miss_of) == ("1%", "all")
-    assert (parsed.target_false_automation, parsed.target_confidence) == ("2%", "95%")
+    assert (parsed.target_critical_miss, parsed.target_critical_miss_of) == (0.01, "all")
+    assert (parsed.target_false_automation, parsed.target_confidence) == (0.02, 0.95)
     assert not re.search(r"\bpacks?\b", text, re.IGNORECASE)  # one vocabulary: an agent

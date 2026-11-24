@@ -69,10 +69,15 @@ mendari eval my-clinic/my-agent --dataset reviewed-cases.jsonl \
 
 | Option | Meaning |
 |---|---|
-| `--target-critical-miss SHARE` | The most critical cases that may be automated, as a share: `1%` or `0.01`. |
+| `--target-critical-miss SHARE` | The most critical misses the threshold may leave, as a share: `1%` or `0.01`. |
 | `--target-critical-miss-of` | What that share is of: `critical`, each critical label's cases (the default), or `all`, all cases. |
-| `--target-false-automation SHARE` | The most cases that may be automated with a wrong answer, as a share of the labelled cases. |
+| `--target-false-automation SHARE` | The most false automation the threshold may leave, as a share of the labelled cases. |
 | `--target-confidence LEVEL` | The confidence everything is stated with. The default is `95%`. |
+
+A target is advice: it never fails a run, whatever the report finds. To fail a run on what it
+measured (in CI, say), state a limit instead, or as well: a limit names the same two figures
+and is held against this run's own counts
+([Evaluate an agent on every change](evaluate-in-ci.md#limits)).
 
 The report then recommends the lowest threshold, the one that automates the most, at which
 every target is met with that confidence:
@@ -103,9 +108,12 @@ Operating point
 When the manifest's own threshold already meets the targets and no certified threshold
 automates more, the report says the threshold is supported and there is nothing to change.
 
-`mendari eval --json` holds the same as data, in the report's `run.operating_point`. The
-console shows the section under each evaluation report, and a Decision Card shows the bound at
-the threshold its benchmark ran with.
+`mendari eval --json` holds the same as data, in the report's `run.operating_point`
+([the block's format](../spec/evaluation-reports.md#the-operating-point-mendarioperating-point1)),
+and `mendari eval --markdown` writes it for a CI job's summary, which is where
+[Mendari's action](evaluate-in-ci.md#a-target) shows it. The console shows the section under
+each evaluation report, and a Decision Card shows the bound at the threshold its benchmark ran
+with.
 
 ## What the recommendation means
 

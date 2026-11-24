@@ -671,25 +671,27 @@ jobs:
   action:
     # The action other repositories check their agent with (action.yml,
     # docs/guides/evaluate-in-ci.md), used here as they use it, on the bundled demo agent. Its
-    # canned agent misses urgent messages on purpose (81 of 114 detected, nine of the missed
-    # automated). So the first use states limits the agent meets, the second holds it to that
-    # first result and to no limit, and the third states none of its own: the action's defaults
-    # then apply, and it must fail, for the limits and for nothing else.
+    # canned agent leaves urgent messages undetected on purpose (81 of 114 detected, and nine of
+    # the others automated: nine critical misses). So the first use states limits the agent
+    # meets, and a target no threshold of it can keep to, which must fail nothing; the second
+    # holds it to that first result and to no limit; and the third states none of its own: the
+    # action's defaults then apply, and it must fail, for the limits and for nothing else.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: The demo agent, within limits it meets
+      - name: The demo agent, within limits it meets, and with a target, which fails nothing
         id: within
         uses: ./
         with:
           agent: agents/portal-message-agent
           dataset: test
-          min-critical-detection: "0.7"
-          max-critical-automated: "9"
-          min-accuracy: "0.9"
-          max-false-automation: "0.05"
+          min-critical-detection: "70%"
+          max-critical-misses: "9"
+          min-accuracy: "90%"
+          max-false-automation: "5%"
+          target-critical-miss: "1%"
           artifact: mendari-evaluation-within
       - name: The demo agent, no worse than that result
         id: against
@@ -699,7 +701,7 @@ jobs:
           dataset: test
           baseline: ${{ steps.within.outputs.result }}
           min-critical-detection: ""
-          max-critical-automated: ""
+          max-critical-misses: ""
           artifact: mendari-evaluation-against
       - name: The demo agent, held to the action's own limits (expected to fail)
         id: strict
@@ -720,7 +722,7 @@ jobs:
           test "$VALIDATION" = passed
           test "$TESTS" = passed
           test "$EVALUATION" = failed
-      - name: Each summary says what it found, with cases by id
+      - name: Each summary says what it found, with cases by id, and the operating point
         env:
           WITHIN: ${{ steps.within.outputs.summary }}
           AGAINST: ${{ steps.against.outputs.summary }}
@@ -728,9 +730,12 @@ jobs:
         run: |
           grep -q '^## Mendari agent check: passed$' "$WITHIN"
           grep -q '^### Gate passed$' "$WITHIN"
+          grep -q '^### Operating point$' "$WITHIN"
+          grep -q '^\*\*No automation threshold can be certified for critical misses at most 1% with 95% confidence\.\*\*$' "$WITHIN"
           grep -q '^Nothing is worse than the baseline\.$' "$AGAINST"
+          grep -q "^\*\*At the agent's automation threshold 0\.90, 326 of 600 cases are automated: " "$AGAINST"
           grep -q '^## Mendari agent check: failed$' "$STRICT"
-          grep -q '^### Gate failed: 2 limits missed$' "$STRICT"
+          grep -q '^### Gate failed: 2 limits not met$' "$STRICT"
           grep -q 'no person read them (9): .demo-0002., ' "$STRICT"
 
   quickstart-wheel:

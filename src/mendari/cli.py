@@ -280,7 +280,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         min_accuracy=args.min_accuracy,
         max_false_automation=args.max_false_automation,
         min_critical_detection=args.min_critical_detection,
-        max_critical_automated=args.max_critical_automated,
+        max_critical_misses=args.max_critical_misses,
     )
     held = _held_to(args)
     sharing = bool(args.share or args.share_out)
@@ -397,6 +397,9 @@ def cmd_eval(args: argparse.Namespace) -> int:
         # Cases by their ids, which only this machine can tell from the ledger's hashes.
         ids = {case_hash(dataset.case_key, r["id"]): r["id"] for r in dataset.records}
         print(report_markdown(report, critical_cases(run.ledger), ids))
+        # What the automation threshold lets through, and the threshold the cases support when
+        # the run was given targets: the engine's sentences, as the terminal prints them.
+        print(operating_point.markdown(report["run"]["operating_point"]))
         if comparison:  # as the terminal shows it, in a block that renders nothing
             print("### Against the agent's benchmark\n")
             print(textwrap.indent(comparison_text(comparison), "    ") + "\n")
@@ -437,25 +440,23 @@ def _held_to(args: argparse.Namespace) -> dict[str, Any] | None:
 
 def _targets(args: argparse.Namespace) -> Any:
     """What a recommended automation threshold must keep to (`--target-critical-miss`,
-    `--target-false-automation`, stated with `--target-confidence`): each a share, refused in
-    one line that names its option when it is not one. Read before the run."""
-    from mendari.evals.operating_point import Targets, share
+    `--target-false-automation`, stated with `--target-confidence`). Each was read as a share
+    by the command line (`_target`, `_confidence`), before any work."""
+    from mendari.evals.operating_point import CONFIDENCE, OF_CRITICAL, Targets
 
-    given: dict[str, Any] = {"critical_miss_of": args.target_critical_miss_of}
-    for name, option in (
-        ("critical_miss", "--target-critical-miss"),
-        ("false_automation", "--target-false-automation"),
-        ("confidence", "--target-confidence"),
-    ):
-        typed = getattr(args, option.removeprefix("--").replace("-", "_"))
-        if typed is None:
-            continue
-        try:
-            given[name] = share(typed)
-            Targets(**given)  # each is checked as it is read, so the line names its option
-        except ValueError as error:
-            raise MendariError(f"{option}: {error}") from None
-    return Targets(**given)
+    of = args.target_critical_miss_of
+    if of is not None and args.target_critical_miss is None:
+        raise MendariError(
+            "--target-critical-miss-of says what --target-critical-miss is a share of: give "
+            "that target too"
+        )
+    confidence = args.target_confidence
+    return Targets(
+        critical_miss=args.target_critical_miss,
+        critical_miss_of=OF_CRITICAL if of is None else of,
+        false_automation=args.target_false_automation,
+        confidence=CONFIDENCE if confidence is None else confidence,
+    )
 
 
 def _no_target(targets: Any) -> list[str]:
@@ -3925,14 +3926,40 @@ def _port(text: str) -> int:
 
 
 def _share(text: str) -> float:
-    """A share of 1 (0.9 is 90%), checked before any work starts (argparse names the flag)."""
+    """A limit's share as people write one, `90%` or `0.9`, from 0 to 100%: checked before any
+    work starts (argparse names the flag). A target's share is read the same way (`_target`)."""
+    from mendari.evals.operating_point import share
+
     try:
-        share = float(text)
-    except ValueError:
-        share = -1.0
-    if not 0.0 <= share <= 1.0:  # a NaN is neither
-        raise argparse.ArgumentTypeError(f"not a share from 0 to 1 (0.9 is 90%): {text!r}")
-    return share
+        return share(text, whole=True)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"{error}: {text!r}") from None
+
+
+def _target(text: str) -> float:
+    """A target's share, `1%` or `0.01`, above 0 and below 100%: what a recommended automation
+    threshold must keep a risk to. Checked before any work starts (argparse names the flag)."""
+    from mendari.evals.operating_point import Targets, share
+
+    try:
+        value = share(text)
+        Targets(critical_miss=value)  # the range a target has
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"{error}: {text!r}") from None
+    return value
+
+
+def _confidence(text: str) -> float:
+    """The confidence a target is held with, `95%` or `0.95`, checked before any work starts
+    (argparse names the flag)."""
+    from mendari.evals.operating_point import Targets, share
+
+    try:
+        value = share(text)
+        Targets(confidence=value)  # the range a confidence level has
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"{error}: {text!r}") from None
+    return value
 
 
 def _whole(text: str) -> int:
@@ -4302,6 +4329,14 @@ def build_parser() -> argparse.ArgumentParser:
     decide.add_argument("--db", help="record the decision in this audit database")
 
     evaluate = pack_command("eval", cmd_eval, "evaluate on a labelled dataset", providers=True)
+    evaluate.description = (
+        "Decides every case of a labelled dataset as a live decision is decided, and reports "
+        "the agent's accuracy and calibration, the mix of outcomes (AUTO, HUMAN_REVIEW, ABSTAIN, "
+        "BLOCK), each critical label's cases (how many were detected, how many automated), and "
+        "the operating point: what the agent's automation threshold lets through, each risk "
+        "with its exact upper bound. A share is k of n with its interval. The report holds "
+        "counts, never a case's text."
+    )
     evaluate.add_argument(
         "--dataset", required=True, help="one of the agent's datasets, by name, or a JSONL path"
     )
@@ -4329,67 +4364,83 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=f"exit {EXIT_DEGRADED} when local validation detects degradation",
     )
-    # The gate a CI job holds a change to (docs/guides/evaluate-in-ci.md): a result that misses
-    # a stated limit, or is worse than an earlier one, is exit EXIT_DEGRADED.
-    evaluate.add_argument(
-        "--no-worse-than",
-        metavar="RESULT",
-        help=f"exit {EXIT_DEGRADED} when the run is worse than RESULT, an earlier result of this "
-        "agent on the same dataset (as --out writes one): a critical label detected less "
-        "often, more of its cases automated, or accuracy or false automation worse by more "
-        "than the agent's tolerance",
+    # Two families of options that name the same figures, and differ in what they do. A limit
+    # is on what this run measured, and a result that does not meet one fails the run (the gate
+    # a CI job holds a change to, docs/guides/evaluate-in-ci.md). A target is what a recommended
+    # automation threshold must keep to, with a stated confidence: advice, which fails nothing
+    # (the operating point, docs/guides/choosing-a-threshold.md).
+    # (A group's description is printed as written; an option's help doubles its `%`.)
+    limits = evaluate.add_argument_group(
+        "limits",
+        f"What this run's result must be: one that does not meet a limit, or is worse than the "
+        f"result --no-worse-than names, is exit {EXIT_DEGRADED}. A share is written 90% or 0.9.",
     )
-    evaluate.add_argument(
+    limits.add_argument(
         "--min-accuracy",
         type=_share,
         metavar="SHARE",
-        help=f"exit {EXIT_DEGRADED} when the primary question's accuracy is under SHARE (0 to 1)",
+        help="the least accuracy on the agent's primary question",
     )
-    evaluate.add_argument(
-        "--max-false-automation",
-        type=_share,
-        metavar="SHARE",
-        help=f"exit {EXIT_DEGRADED} when more than SHARE of the automated cases have a wrong "
-        "recommendation",
-    )
-    evaluate.add_argument(
+    limits.add_argument(
         "--min-critical-detection",
         type=_share,
         metavar="SHARE",
-        help=f"exit {EXIT_DEGRADED} when a critical label is detected in under SHARE of its cases",
+        help="the least share of each critical label's cases that must be detected",
     )
-    evaluate.add_argument(
-        "--max-critical-automated",
+    limits.add_argument(
+        "--max-critical-misses",
         type=_whole,
         metavar="N",
-        help=f"exit {EXIT_DEGRADED} when more than N cases of a critical label are automated",
+        help="the most critical misses: cases of each critical label that may be automated, so "
+        "that no person reads them",
     )
-    # Targets for the automation threshold the report recommends (its operating point,
-    # docs/guides/choosing-a-threshold.md). A target is advice: it never fails the run.
-    evaluate.add_argument(
-        "--target-critical-miss",
+    limits.add_argument(
+        "--max-false-automation",
+        type=_share,
         metavar="SHARE",
-        help="recommend the lowest automation threshold at which the critical cases that are "
-        "automated, so no person sees them, are at most this share (1%% or 0.01) of each "
-        "critical label's cases",
+        help="the most false automation: cases automated with a wrong answer, as a share of the "
+        "labelled cases",
     )
-    evaluate.add_argument(
+    limits.add_argument(
+        "--no-worse-than",
+        metavar="RESULT",
+        help="an earlier result of this agent on the same dataset (as --out writes one) that "
+        "this run must be no worse than: no critical label detected less often, no more "
+        "critical misses, and accuracy and the share of automated cases that are wrong within "
+        "the agent's tolerance",
+    )
+    targets = evaluate.add_argument_group(
+        "targets",
+        "What a recommended automation threshold must keep to: with a target, the report's "
+        "operating point names the lowest threshold these cases support, with a stated "
+        "confidence. Advice: a target never fails the run. A share is written 1% or 0.01.",
+    )
+    targets.add_argument(
+        "--target-critical-miss",
+        type=_target,
+        metavar="SHARE",
+        help="the most critical misses the threshold may leave: critical cases that are "
+        "automated, so that no person reads them, as a share of each critical label's cases",
+    )
+    targets.add_argument(
         "--target-critical-miss-of",
         choices=("critical", "all"),
-        default="critical",
-        help="what --target-critical-miss is a share of: each critical label's cases (the "
-        "default) or all cases",
+        help="what --target-critical-miss is a share of: each critical label's cases (critical, "
+        "the default) or all cases (all)",
     )
-    evaluate.add_argument(
+    targets.add_argument(
         "--target-false-automation",
+        type=_target,
         metavar="SHARE",
-        help="recommend the lowest automation threshold at which the cases automated with a "
-        "wrong answer are at most this share (2%% or 0.02) of the labelled cases",
+        help="the most false automation the threshold may leave: cases automated with a wrong "
+        "answer, as a share of the labelled cases",
     )
-    evaluate.add_argument(
+    targets.add_argument(
         "--target-confidence",
+        type=_confidence,
         metavar="LEVEL",
-        help="the confidence the recommendation and each bound are stated with (default 95%%)",
+        help="the confidence the targets are held with, and each bound of the operating point "
+        "is stated with (default 95%%)",
     )
     evaluate.add_argument(
         "--share",

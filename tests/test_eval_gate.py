@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""What a CI job asks of `mendari eval` (docs/guides/evaluate-in-ci.md): a result that misses a
-stated limit, or is worse than an earlier one through the eval gate, is exit 2; and the result
-as Markdown for a job summary, with cases named by id and never by their text."""
+"""What a CI job asks of `mendari eval` (docs/guides/evaluate-in-ci.md): a result that does not
+meet a stated limit, or is worse than an earlier one through the eval gate, is exit 2; and the
+result as Markdown for a job summary, with cases named by id and never by their text.
+
+A limit names a figure as a target does (tests/test_operating_point.py): a critical miss is a
+critical label's case that is automated, and false automation is a share of the labelled cases."""
 
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ from mendari import Decision, load_pack
 from mendari.cli import EXIT_DEGRADED, main
 from mendari.evals import resolve_dataset
 from mendari.evals.gate import (
+    FALSE_AUTOMATION,
     NO_CRITICAL_LABEL,
     NOT_THE_SAME_CASES,
     Limits,
@@ -32,7 +36,7 @@ from tests.conftest import DEMO_AGENT_DIR
 AGENT = "my-clinic/my-agent"
 CRITICAL = "critical urgent_symptoms=yes"
 # The limits the action states unless its workflow says otherwise (action.yml).
-STRICT = ["--min-critical-detection", "0.9", "--max-critical-automated", "0"]
+STRICT = ["--min-critical-detection", "90%", "--max-critical-misses", "0"]
 
 
 def result(
@@ -44,7 +48,8 @@ def result(
     critical: tuple[int, int, int] | None = (8, 10, 0),
 ) -> dict[str, Any]:
     """The parts of an evaluation result the gate reads; `critical` is one label's detected,
-    cases and automated."""
+    cases and automated. `false_automation` is the share of the `automated` cases that are
+    wrong, as a result states it; a limit holds those wrong cases to the `labelled` ones."""
     found = []
     if critical is not None:
         detected, cases, auto = critical
@@ -77,34 +82,48 @@ def result(
 
 
 def test_no_limit_stated_checks_nothing() -> None:
-    assert not Limits().stated and Limits(max_critical_automated=0).stated
+    assert not Limits().stated and Limits(max_critical_misses=0).stated
     assert limits(result(), Limits()) == ([], [])
 
 
 def test_a_limit_is_met_at_its_value_and_missed_past_it() -> None:
     every = Limits(
         min_accuracy=0.9,
-        max_false_automation=0.02,
+        max_false_automation=0.01,
         min_critical_detection=0.8,
-        max_critical_automated=0,
+        max_critical_misses=0,
     )
     rows, failures = limits(result(), every)
     assert failures == []
     assert [(row["metric"], row["limit"], row["measured"], row["met"]) for row in rows] == [
         ("request accuracy", "at least 90%", "90 of 100 [82.4-95.1%]", True),
-        ("false automation rate (of automated)", "at most 2%", "1 of 50 [0.1-10.6%]", True),
+        (FALSE_AUTOMATION, "at most 1%", "1 of 100 [0.03-5.4%]", True),
         (f"{CRITICAL} detected", "at least 80%", "8 of 10 [44.4-97.5%]", True),
-        (f"{CRITICAL} automated", "at most 0", "0 of 10 [0.0-30.8%]", True),
+        (f"{CRITICAL} misses", "at most 0", "0 of 10 [0.0-30.8%]", True),
     ]
     worse = result(accuracy=0.89, false_automation=0.04, critical=(7, 10, 1))
     rows, failures = limits(worse, every)
     assert [row["met"] for row in rows] == [False, False, False, False]
     assert failures == [
         "request accuracy: 89 of 100 [81.2-94.4%], and the limit is at least 90%",
-        "false automation rate (of automated): 2 of 50 [0.5-13.7%], and the limit is at most 2%",
+        f"{FALSE_AUTOMATION}: 2 of 100 [0.2-7.0%], and the limit is at most 1%",
         f"{CRITICAL} detected: 7 of 10 [34.8-93.3%], and the limit is at least 80%",
-        f"{CRITICAL} automated: 1 of 10 [0.3-44.5%], and the limit is at most 0",
+        f"{CRITICAL} misses: 1 of 10 [0.3-44.5%], and the limit is at most 0",
     ]
+
+
+def test_false_automation_is_a_share_of_the_labelled_cases_as_the_report_counts_it() -> None:
+    """The limit is on the report's own "False automation" row, which a target is on too
+    (`operating_point.Tally.wrong` of `labelled`): never on the share of the automated cases,
+    which the baseline's gate compares and names so."""
+    assert FALSE_AUTOMATION == "false automation (of labelled cases)"
+    one_in_ten_automated = result(false_automation=0.1, automated=10, labelled=100)
+    (row,), failures = limits(one_in_ten_automated, Limits(max_false_automation=0.02))
+    assert (row["measured"], row["met"], failures) == ("1 of 100 [0.03-5.4%]", True, [])
+    # A report that states the proportion is read from it, not worked out.
+    stated = {**one_in_ten_automated, "proportions": {"false_automation": {"k": 3, "n": 100}}}
+    (row,), _ = limits(stated, Limits(max_false_automation=0.02))
+    assert (row["measured"], row["met"]) == ("3 of 100 [0.6-8.5%]", False)
 
 
 def test_a_stated_share_is_shown_as_it_was_stated() -> None:
@@ -112,27 +131,32 @@ def test_a_stated_share_is_shown_as_it_was_stated() -> None:
     assert [row["limit"] for row in rows] == ["at least 92.5%", "at most 0.5%"]
 
 
-def test_a_floor_under_what_was_not_measured_is_missed_and_a_ceiling_over_nothing_is_met() -> None:
-    """No labelled case, no case of the critical label: nothing shows a floor is met. Nothing
-    automated: nothing went wrong that a ceiling limits."""
+def test_a_share_of_no_case_meets_no_limit_and_a_count_of_none_is_within_any() -> None:
+    """No labelled case, no case of the critical label: nothing shows a limit on a share is met,
+    a floor or a ceiling. A limit on a count is met by none."""
     empty = result(accuracy=None, false_automation=None, automated=0, critical=(0, 0, 0))
     every = Limits(
         min_accuracy=0.5,
         max_false_automation=0.0,
         min_critical_detection=0.5,
-        max_critical_automated=0,
+        max_critical_misses=0,
     )
     rows, failures = limits(empty, every)
     assert [(row["measured"], row["met"]) for row in rows] == [
         ("not measured", False),
-        ("no cases", True),
+        ("not measured", False),
         ("no cases", False),
         ("no cases", True),
     ]
     assert failures == [
         "request accuracy: not measured, and the limit is at least 50%",
+        f"{FALSE_AUTOMATION}: not measured, and the limit is at most 0%",
         f"{CRITICAL} detected: no cases, and the limit is at least 50%",
     ]
+    # Labelled cases and none automated: nothing went wrong, and that is measured.
+    quiet = result(false_automation=None, automated=0)
+    (row,), failures = limits(quiet, Limits(max_false_automation=0.0))
+    assert (row["measured"], row["met"], failures) == ("0 of 100 [0.0-3.6%]", True, [])
 
 
 def test_limits_on_critical_cases_say_so_when_the_agent_declares_none() -> None:
@@ -165,21 +189,23 @@ def test_an_unchanged_result_is_no_worse_than_itself() -> None:
 
 def test_a_result_worse_than_its_baseline_fails_through_the_eval_gate() -> None:
     worse = result(accuracy=0.8, critical=(7, 10, 1))
-    checked = check(worse, Limits(max_critical_automated=0), result(), 0.03)
+    checked = check(worse, Limits(max_critical_misses=0), result(), 0.03)
     assert not checked.passed
     assert checked.regressions == [
         "request accuracy fell by more than 3%",
         f"{CRITICAL} detected: fewer critical cases found",
         "critical urgent_symptoms=yes: a critical case was automated",
     ]
-    assert checked.verdict == "failed: 1 limit missed, 3 regressions"
+    assert checked.verdict == "failed: 1 limit not met, 3 regressions"
     markdown = checked.markdown()
-    assert markdown.startswith("### Gate failed: 1 limit missed, 3 regressions\n")
+    assert markdown.startswith("### Gate failed: 1 limit not met, 3 regressions\n")
     assert "- **Regression:** request accuracy fell by more than 3%" in markdown
-    assert f"| {CRITICAL} automated | at most 0 | 1 of 10 [0.3-44.5%] | **missed** |" in markdown
+    assert f"| {CRITICAL} misses | at most 0 | 1 of 10 [0.3-44.5%] | **not met** |" in markdown
     text = checked.text()
     assert "against the baseline (tolerance 3%): REGRESSION" in text
-    assert text.endswith("Gate failed: 1 limit missed, 3 regressions")
+    assert text.endswith("Gate failed: 1 limit not met, 3 regressions")
+    # A limit is never "missed": that word is a critical case's, which no person read.
+    assert "missed" not in markdown.lower() and "missed" not in text.lower()
 
 
 def test_within_the_agents_tolerance_is_no_regression() -> None:
@@ -291,11 +317,14 @@ def test_the_markdown_names_cases_by_id_and_at_most_twenty_of_a_kind(demo: Evalu
     ids = {case_hash(dataset.case_key, record["id"]): record["id"] for record in dataset.records}
     named = critical_cases(demo.ledger)
     markdown = report_markdown(demo.report, named, ids)
+    # Each kind under the name it has: an automated critical case is a critical miss, and one
+    # that was not detected and that a person read is not.
     assert (
-        "Critical `urgent_symptoms=yes` cases automated, so no person read them (9): "
+        "\nCritical misses: `urgent_symptoms=yes` cases automated, so no person read them (9): "
         "`demo-0002`, `demo-0044`, "
     ) in markdown
     (listed,) = [line for line in markdown.splitlines() if "read by a person (24)" in line]
+    assert listed.startswith("Critical `urgent_symptoms=yes` cases not detected, and read by a ")
     assert listed.count("`demo-") == NAMED_CASES and listed.endswith(" and 4 more")
     # Without the ids, which only the dataset's holder has: the ledger's own names.
     assert f"`{named[0]['automated'][0]}`" in report_markdown(demo.report, named)
@@ -340,17 +369,17 @@ def test_eval_holds_a_result_to_its_limits_and_a_miss_is_exit_2(
     command = ["eval", str(agent), "--dataset", "examples", "--baseline", "none"]
     assert main([*command, *STRICT]) == 0  # a new agent meets what a CI job asks by default
     out = capsys.readouterr().out
-    assert f"  {CRITICAL} detected   3 of 3 [29.2-100.0%], limit at least 90%: met" in out
-    assert f"  {CRITICAL} automated  0 of 3 [0.0-70.8%], limit at most 0: met" in out
+    assert f"  {CRITICAL} detected  3 of 3 [29.2-100.0%], limit at least 90%: met" in out
+    assert f"  {CRITICAL} misses    0 of 3 [0.0-70.8%], limit at most 0: met" in out
     assert out.rstrip().endswith("Gate passed")
     assert main(command) == 0  # no gate asked for: none printed
     assert "Gate" not in capsys.readouterr().out
     # The demo agent's first hundred cases: urgent messages it misses are automated.
     demo = ["eval", str(DEMO_AGENT_DIR), "--dataset", "test", "--limit", "100"]
-    assert main([*demo, "--baseline", "none", "--max-critical-automated", "0"]) == EXIT_DEGRADED
+    assert main([*demo, "--baseline", "none", "--max-critical-misses", "0"]) == EXIT_DEGRADED
     out = capsys.readouterr().out
-    assert "limit at most 0: MISSED" in out
-    assert out.rstrip().endswith("Gate failed: 1 limit missed")
+    assert "limit at most 0: NOT MET" in out
+    assert out.rstrip().endswith("Gate failed: 1 limit not met")
 
 
 def test_eval_on_the_demo_agent_fails_the_limits_and_names_the_cases_by_id(
@@ -363,7 +392,7 @@ def test_eval_on_the_demo_agent_fails_the_limits_and_names_the_cases_by_id(
     assert main([*command, "--markdown", "--out", str(out), *STRICT]) == EXIT_DEGRADED
     printed = capsys.readouterr()
     markdown = printed.out
-    assert "### Gate failed: 2 limits missed" in markdown
+    assert "### Gate failed: 2 limits not met" in markdown
     assert "automated, so no person read them (9): `demo-0002`, " in markdown
     assert "Report written" not in markdown and printed.err == ""
     dataset = resolve_dataset(load_pack(DEMO_AGENT_DIR), "test")
@@ -375,7 +404,7 @@ def test_eval_on_the_demo_agent_fails_the_limits_and_names_the_cases_by_id(
     assert (out.parent / "ledgers").is_dir()
     # Against itself, with limits it meets: no regression, exit 0; and `--out` may be the
     # baseline's own file, read before it is written.
-    relaxed = ["--min-critical-detection", "0.7", "--max-critical-automated", "9"]
+    relaxed = ["--min-critical-detection", "0.7", "--max-critical-misses", "9"]
     again = [*command, "--no-worse-than", str(out), "--out", str(out), *relaxed]
     assert main([*again, "--markdown"]) == 0
     markdown = capsys.readouterr().out
@@ -390,7 +419,7 @@ def test_eval_with_json_keeps_the_verdict_out_of_the_json(
     agent = scaffold(tmp_path)
     capsys.readouterr()
     command = ["eval", str(agent), "--dataset", "examples", "--baseline", "none", "--json"]
-    assert main([*command, "--max-false-automation", "0", "--min-accuracy", "0.5"]) == 0
+    assert main([*command, "--max-false-automation", "0%", "--min-accuracy", "0.5"]) == 0
     printed = capsys.readouterr()
     assert json.loads(printed.out)["format"] == "mendari.eval/2"
     assert printed.err.rstrip().endswith("Gate passed")
@@ -407,10 +436,17 @@ def test_eval_refuses_what_cannot_be_a_limit_or_a_baseline(
     not_json.write_text("not a result")
     capsys.readouterr()
     for extra, said in (
-        (["--min-accuracy", "90"], "argument --min-accuracy: not a share from 0 to 1"),
-        (["--max-false-automation", "nan"], "argument --max-false-automation: not a share"),
-        (["--min-critical-detection", "-0.1"], "argument --min-critical-detection: not a share"),
-        (["--max-critical-automated", "1.5"], "argument --max-critical-automated: not a whole"),
+        (
+            ["--min-accuracy", "90"],
+            "argument --min-accuracy: a share is from 0 to 100%: write 90% or 0.9: '90'",
+        ),
+        (["--max-false-automation", "nan"], "argument --max-false-automation: a share is from"),
+        (["--max-false-automation", "two"], "argument --max-false-automation: a share is written"),
+        (["--min-critical-detection", "-0.1"], "argument --min-critical-detection: a share is"),
+        (["--max-critical-misses", "1.5"], "argument --max-critical-misses: not a whole"),
+        # A target's former names are no option: a limit is never taken for one.
+        (["--max-critical-miss", "1%"], "argument --max-critical-misses: not a whole number"),
+        (["--confidence-level", "95%"], "unrecognized arguments: --confidence-level 95%"),
         (["--json", "--markdown"], "choose --json or --markdown, not both"),
         (["--no-worse-than", str(other)], f"{other}: a result of another agent, not of {AGENT}"),
         (["--no-worse-than", str(not_json)], f"--no-worse-than {not_json}: not valid JSON"),

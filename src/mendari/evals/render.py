@@ -231,9 +231,13 @@ def report_markdown(
         "|---|---|",
         *(md_row(*row) for row in rows),
     ]
+    # The two ways a critical case goes wrong, each under the name it has everywhere: a critical
+    # miss is a case that was automated (the row "automated" above, and what a limit or a target
+    # on critical misses counts); a case that was not detected and that a person still read is
+    # no miss, and is said in those words.
     kinds = (
-        ("automated", "automated, so no person read them"),
-        ("missed", "not detected, and read by a person"),
+        ("automated", "Critical misses: {name} cases automated, so no person read them"),
+        ("missed", "Critical {name} cases not detected, and read by a person"),
     )
     for name, cases in zip(names, critical, strict=False):
         for kind, words in kinds:
@@ -242,7 +246,7 @@ def report_markdown(
                 named = [code((ids or {}).get(case, case)) for case in found[:NAMED_CASES]]
                 more = len(found) - len(named)
                 listed = ", ".join(named) + (f" and {more} more" if more else "")
-                lines += ["", f"Critical {name} cases {words} ({len(found)}): {listed}"]
+                lines += ["", f"{words.format(name=name)} ({len(found)}): {listed}"]
     return "\n".join(lines) + "\n"
 
 

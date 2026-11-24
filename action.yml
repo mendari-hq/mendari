@@ -10,9 +10,15 @@
 # It installs Mendari from this action's own checkout into an environment of its own (the job's
 # Python and packages are left alone), then validates the agent, runs its behaviour tests and
 # evaluates it on a labelled dataset. The job's summary gets the counts with their intervals, the
-# mix of outcomes and each critical label, with cases named by id and never by their text; the
-# result file is uploaded as an artifact; and the job fails when the manifest is not valid, a
-# behaviour test fails, a stated limit is missed or the evaluation is worse than a baseline.
+# mix of outcomes, each critical label and the operating point of the agent's automation
+# threshold, with cases named by id and never by their text; the result file is uploaded as an
+# artifact; and the job fails when the manifest is not valid, a behaviour test fails, a stated
+# limit is not met or the evaluation is worse than a baseline.
+#
+# Two kinds of input name the same figures. A limit (`min-...`, `max-...`) is on what this run
+# measured, and fails the job. A target (`target-...`) is what a recommended automation
+# threshold must keep to, with a stated confidence: the summary then names the lowest threshold
+# the cases support, and the job's result does not depend on it.
 #
 # It needs no secret and no permission beyond reading the repository, so it is safe on a pull
 # request from a fork. Each action it uses is pinned to a commit, and every input reaches a
@@ -20,7 +26,7 @@
 name: Mendari agent check
 description: >-
   Validate, test and evaluate a healthcare AI agent with Mendari on every change, and fail the
-  job when it misses a limit or is worse than a baseline.
+  job when it does not meet a limit or is worse than a baseline.
 author: Mendari contributors
 branding:
   icon: shield
@@ -42,30 +48,53 @@ inputs:
     default: ""
   min-critical-detection:
     description: >-
-      The least share (0 to 1) of each critical label's cases the agent must detect. Empty: no
-      limit.
-    default: "0.9"
-  max-critical-automated:
+      A limit: the least share of each critical label's cases the agent must detect, as `90%`
+      or `0.9`. Empty: no limit.
+    default: "90%"
+  max-critical-misses:
     description: >-
-      The most cases of each critical label that may be automated, with no person reading them.
-      Empty: no limit.
+      A limit: the most critical misses, the cases of each critical label that may be automated
+      so that no person reads them, as a count. Empty: no limit.
     default: "0"
   min-accuracy:
     description: >-
-      The least accuracy (0 to 1) on the agent's primary question. Empty: no limit.
+      A limit: the least accuracy on the agent's primary question, as `85%` or `0.85`. Empty:
+      no limit.
     default: ""
   max-false-automation:
     description: >-
-      The most of the automated cases (a share, 0 to 1) that may have a wrong recommendation.
-      Empty: no limit.
+      A limit: the most false automation, the cases automated with a wrong answer as a share of
+      the labelled cases, as `2%` or `0.02`. Empty: no limit.
     default: ""
   baseline:
     description: >-
       The path, from the workspace, of an earlier result of this agent on the same dataset (the
       result file this action uploads, or `mendari eval --out`). The evaluation fails when it is
-      worse: a critical label detected less often, more of its cases automated, or accuracy or
-      false automation worse by more than the agent's `evaluation.degradation_tolerance`. Empty:
-      nothing is compared.
+      worse: a critical label detected less often, more critical misses, or accuracy or the
+      share of automated cases that are wrong worse by more than the agent's
+      `evaluation.degradation_tolerance`. Empty: nothing is compared.
+    default: ""
+  target-critical-miss:
+    description: >-
+      A target, which never fails the job: the most critical misses a recommended automation
+      threshold may leave, as a share of each critical label's cases (`1%` or `0.01`). With a
+      target, the summary's operating point names the lowest threshold the cases support.
+      Empty: no target.
+    default: ""
+  target-critical-miss-of:
+    description: >-
+      What `target-critical-miss` is a share of: `critical`, each critical label's cases (as
+      when empty), or `all`, all cases.
+    default: ""
+  target-false-automation:
+    description: >-
+      A target, which never fails the job: the most false automation a recommended automation
+      threshold may leave, as a share of the labelled cases (`2%` or `0.02`). Empty: no target.
+    default: ""
+  target-confidence:
+    description: >-
+      The confidence the targets are held with, and each bound of the operating point is stated
+      with (`95%` when empty).
     default: ""
   python-version:
     description: The Python that runs Mendari (3.11 or later).
@@ -85,7 +114,7 @@ outputs:
     value: ${{ steps.check.outputs.tests }}
   evaluation:
     description: >-
-      `passed`; `failed` when a limit is missed or the result is worse than the baseline; `error`
+      `passed`; `failed` when a limit is not met or the result is worse than the baseline; `error`
       when the evaluation could not run; `skipped` when validation failed.
     value: ${{ steps.check.outputs.evaluation }}
   result:
@@ -146,10 +175,14 @@ runs:
         DATASET: ${{ inputs.dataset }}
         PROVIDER: ${{ inputs.provider }}
         MIN_CRITICAL_DETECTION: ${{ inputs.min-critical-detection }}
-        MAX_CRITICAL_AUTOMATED: ${{ inputs.max-critical-automated }}
+        MAX_CRITICAL_MISSES: ${{ inputs.max-critical-misses }}
         MIN_ACCURACY: ${{ inputs.min-accuracy }}
         MAX_FALSE_AUTOMATION: ${{ inputs.max-false-automation }}
         BASELINE: ${{ inputs.baseline }}
+        TARGET_CRITICAL_MISS: ${{ inputs.target-critical-miss }}
+        TARGET_CRITICAL_MISS_OF: ${{ inputs.target-critical-miss-of }}
+        TARGET_FALSE_AUTOMATION: ${{ inputs.target-false-automation }}
+        TARGET_CONFIDENCE: ${{ inputs.target-confidence }}
       run: |
         # Every check runs and is recorded, whatever the one before it found: the summary and
         # the artifact are written first, and the last step fails the job. So a command that
@@ -173,11 +206,17 @@ runs:
           evaluate+=(--provider "$setting")
         done
         set +f
+        # A limit: a result that does not meet it fails the evaluation (its status 2, below).
         [ -z "$MIN_CRITICAL_DETECTION" ] || evaluate+=(--min-critical-detection "$MIN_CRITICAL_DETECTION")
-        [ -z "$MAX_CRITICAL_AUTOMATED" ] || evaluate+=(--max-critical-automated "$MAX_CRITICAL_AUTOMATED")
+        [ -z "$MAX_CRITICAL_MISSES" ] || evaluate+=(--max-critical-misses "$MAX_CRITICAL_MISSES")
         [ -z "$MIN_ACCURACY" ] || evaluate+=(--min-accuracy "$MIN_ACCURACY")
         [ -z "$MAX_FALSE_AUTOMATION" ] || evaluate+=(--max-false-automation "$MAX_FALSE_AUTOMATION")
         [ -z "$BASELINE" ] || evaluate+=(--no-worse-than "$BASELINE")
+        # A target: what the summary's recommended threshold must keep to. It fails nothing.
+        [ -z "$TARGET_CRITICAL_MISS" ] || evaluate+=(--target-critical-miss "$TARGET_CRITICAL_MISS")
+        [ -z "$TARGET_CRITICAL_MISS_OF" ] || evaluate+=(--target-critical-miss-of "$TARGET_CRITICAL_MISS_OF")
+        [ -z "$TARGET_FALSE_AUTOMATION" ] || evaluate+=(--target-false-automation "$TARGET_FALSE_AUTOMATION")
+        [ -z "$TARGET_CONFIDENCE" ] || evaluate+=(--target-confidence "$TARGET_CONFIDENCE")
 
         if [ -z "$dir" ]; then
           echo "error: the \`agent\` input names no directory in the workspace" | tee "$logs/validate.log"
@@ -196,7 +235,7 @@ runs:
           "${evaluate[@]}" > "$logs/evaluation.md" 2> "$logs/evaluation.err"
           case $? in
             0) evaluation=passed ;;
-            2) evaluation=failed ;;  # a limit missed, or worse than the baseline
+            2) evaluation=failed ;;  # a limit not met, or worse than the baseline
             *) evaluation=error ;;
           esac
           cat "$logs/evaluation.md" "$logs/evaluation.err"
@@ -263,7 +302,7 @@ runs:
           failed=1
         fi
         if [ "$EVALUATION" = failed ]; then
-          echo "::error title=Mendari::The evaluation misses a stated limit or is worse than the baseline: the job's summary says which."
+          echo "::error title=Mendari::The evaluation does not meet a stated limit or is worse than the baseline: the job's summary says which."
           failed=1
         fi
         if [ "$EVALUATION" = error ]; then

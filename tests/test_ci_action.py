@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari.cli import main
+from mendari.cli import _command, build_parser, main
 from mendari.core.pack import load_pack
 from mendari.evals import resolve_dataset
 from mendari.evals.gate import Limits
@@ -30,12 +30,21 @@ from tests.test_vocabulary import offences
 ACTION = ROOT / "action.yml"
 CI = ROOT / ".github" / "workflows" / "ci.yml"
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
-# Each limit the action takes, and the option of `mendari eval` it becomes.
+# Each limit the action takes, and the option of `mendari eval` it becomes: a result that does
+# not meet one fails the job.
 LIMITS = {
     "min-critical-detection": "--min-critical-detection",
-    "max-critical-automated": "--max-critical-automated",
+    "max-critical-misses": "--max-critical-misses",
     "min-accuracy": "--min-accuracy",
     "max-false-automation": "--max-false-automation",
+}
+# Each target it takes, likewise: what a recommended automation threshold must keep to. A target
+# is advice, and fails nothing.
+TARGETS = {
+    "target-critical-miss": "--target-critical-miss",
+    "target-critical-miss-of": "--target-critical-miss-of",
+    "target-false-automation": "--target-false-automation",
+    "target-confidence": "--target-confidence",
 }
 
 
@@ -62,6 +71,7 @@ def test_it_is_a_composite_action_with_a_default_for_every_input() -> None:
         "provider",
         *LIMITS,
         "baseline",
+        *TARGETS,
         "python-version",
         "artifact",
     }
@@ -74,18 +84,42 @@ def test_it_is_a_composite_action_with_a_default_for_every_input() -> None:
     assert defaults["python-version"] == "3.12" and defaults["baseline"] == ""
     # By default no critical case may be automated, and nine in ten must be detected: what
     # Mendari asks of a contributed agent too (community/check.py).
-    assert defaults["min-critical-detection"] == "0.9" and defaults["max-critical-automated"] == "0"
+    assert defaults["min-critical-detection"] == "90%" and defaults["max-critical-misses"] == "0"
     assert defaults["min-accuracy"] == defaults["max-false-automation"] == ""
+    # No target unless the workflow gives one: a recommendation is asked for, never assumed.
+    assert {defaults[name] for name in TARGETS} == {""}
+    # The name says which an input is, and so does its description's first words.
+    for name, given in held["inputs"].items():
+        said = given["description"].strip()
+        assert said.startswith("A limit: ") == (name in LIMITS), name
+        assert name.startswith("target-") == (name in TARGETS), name
+    for name in ("target-critical-miss", "target-false-automation"):
+        said = held["inputs"][name]["description"].strip()
+        assert said.startswith("A target, which never fails the job: "), name
 
 
-def test_each_limit_is_an_option_of_mendari_eval() -> None:
-    """A limit is checked by the engine's gate (`mendari eval`), not by the action's script."""
+def options_of(group: str) -> set[str]:
+    """The options `mendari eval --help` lists under one heading."""
+    command = _command(build_parser(), ["eval"])
+    assert command is not None
+    (found,) = [held for held in command._action_groups if held.title == group]
+    return {option for action in found._group_actions for option in action.option_strings}
+
+
+def test_each_limit_and_each_target_is_an_option_of_mendari_eval() -> None:
+    """A limit is checked by the engine's gate, and a target read by its operating point
+    (`mendari eval`), not by the action's script: an input has the name of its option."""
     (check,) = [step for step in steps() if step.get("id") == "check"]
     script = check["run"]
-    for name, option in LIMITS.items():
+    # The command line's two groups are the action's two kinds of input, and the baseline.
+    assert options_of("limits") == {*LIMITS.values(), "--no-worse-than"}
+    assert options_of("targets") == set(TARGETS.values())
+    for name, option in (LIMITS | TARGETS).items():
+        assert option == f"--{name}"
         variable = name.upper().replace("-", "_")
         assert check["env"][variable] == f"${{{{ inputs.{name} }}}}"
         assert f'[ -z "${variable}" ] || evaluate+=({option} "${variable}")' in script
+    for option in LIMITS.values():
         assert option.removeprefix("--").replace("-", "_") in Limits.__dataclass_fields__
     assert '[ -z "$BASELINE" ] || evaluate+=(--no-worse-than "$BASELINE")' in script
     for command in ('"$MENDARI" validate "$dir"', '"$MENDARI" test "$dir"', '"$MENDARI" eval '):
@@ -264,13 +298,15 @@ def use(tmp_path: Path, **inputs: str) -> Run:
 pytestmark_bash = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
 
 DEMO = {"agent": "agents/portal-message-agent", "dataset": "test"}
-# Limits the demo agent meets: its canned agent finds 81 of 114 urgent messages (71%) and nine
-# of the ones it misses are automated. CI's `action` job states the same.
+# Limits the demo agent meets: its canned agent detects 81 of 114 urgent messages (71%), and
+# nine of the others are automated (nine critical misses). And a target none of its thresholds
+# keeps to, which must fail nothing. CI's `action` job states the same.
 WITHIN = {
-    "min_critical_detection": "0.7",
-    "max_critical_automated": "9",
-    "min_accuracy": "0.9",
-    "max_false_automation": "0.05",
+    "min_critical_detection": "70%",
+    "max_critical_misses": "9",
+    "min_accuracy": "90%",
+    "max_false_automation": "5%",
+    "target_critical_miss": "1%",
 }
 
 
@@ -291,6 +327,24 @@ def test_a_use_within_its_limits_passes_and_writes_the_summary_and_the_result(
     assert "| Outcome `AUTO` | 326 of 600 [50.3-58.4%] |" in summary
     assert "| Critical `urgent_symptoms=yes` detected | 81 of 114 [61.8-79.2%] |" in summary
     assert "### Gate passed" in summary
+    assert "| false automation (of labelled cases) | at most 5% | 9 of 600 [0.7-2.8%] | met |" in (
+        summary
+    )
+    assert "| critical urgent_symptoms=yes misses | at most 9 | 9 of 114 [3.7-14.5%] | met |" in (
+        summary
+    )
+    # The operating point, between the figures and the gate: the target is one no threshold of
+    # this agent keeps to, the summary says so, and the job passes all the same.
+    figures, _, rest = summary.partition("\n### Operating point\n")
+    point, _, gate = rest.partition("\n### Gate passed\n")
+    assert "| Figure | Result |" in figures and gate.strip()
+    assert point.startswith(
+        "\n**No automation threshold can be certified for critical misses at most 1% with 95% "
+        "confidence.**\n\n- At the agent's automation threshold 0.90, 326 of 600 cases are "
+        "automated: critical urgent_symptoms=yes automated 9 of 114 critical cases (at most "
+        "13.4%), "
+    )
+    assert "\n- The threshold cannot fix this: at 0.95, the strictest threshold" in point
     assert Path(run.outputs["summary"]).read_text() == summary
     # What the artifact holds: the result, its ledger and the summary, and nothing else.
     directory = Path(run.outputs["directory"])
@@ -298,7 +352,10 @@ def test_a_use_within_its_limits_passes_and_writes_the_summary_and_the_result(
     held = sorted(path.relative_to(directory).parts[0] for path in directory.rglob("*"))
     assert sorted(set(held)) == ["ledgers", "result.json", "summary.md"]
     # Cases are named by id, and nothing written or printed holds a case's text.
-    assert "no person read them (9): `demo-0002`" in summary
+    assert (
+        "Critical misses: `urgent_symptoms=yes` cases automated, so no person read them (9): "
+        "`demo-0002`" in summary
+    )
     dataset = resolve_dataset(load_pack(DEMO_AGENT_DIR), "test")
     written = summary + run.log + (directory / "result.json").read_text()
     for record in dataset.records:
@@ -310,12 +367,18 @@ def test_a_use_within_its_limits_passes_and_writes_the_summary_and_the_result(
         **DEMO,
         baseline=run.outputs["result"],
         min_critical_detection="",
-        max_critical_automated="",
+        max_critical_misses="",
     )
     assert not again.failed, again.log
     assert again.outputs["evaluation"] == "passed"
     assert "| Metric | baseline | this change |" in again.summary
     assert "Nothing is worse than the baseline." in again.summary
+    # With no target, the operating point is the bound at the agent's own threshold.
+    assert (
+        "\n### Operating point\n\n**At the agent's automation threshold 0.90, 326 of 600 cases "
+        "are automated: " in again.summary
+    )
+    assert "No automation threshold can be certified" not in again.summary
 
 
 @pytestmark_bash
@@ -329,8 +392,8 @@ def test_a_use_with_the_default_limits_fails_the_demo_agent_for_the_limits_alone
     assert run.outputs["validation"] == run.outputs["tests"] == "passed"
     assert run.outputs["evaluation"] == "failed"
     assert run.summary.startswith("## Mendari agent check: failed\n")
-    assert "### Gate failed: 2 limits missed" in run.summary
-    assert "::error title=Mendari::The evaluation misses a stated limit" in run.log
+    assert "### Gate failed: 2 limits not met" in run.summary
+    assert "::error title=Mendari::The evaluation does not meet a stated limit" in run.log
     assert run.log.count("::error") == 1
     assert Path(run.outputs["result"]).is_file()  # the result is there to upload all the same
 
@@ -390,7 +453,7 @@ def test_ci_runs_the_action_as_another_repository_would_and_expects_one_failure(
     assert "continue-on-error" not in uses["within"] and "continue-on-error" not in uses["against"]
     assert uses["against"]["with"]["baseline"] == "${{ steps.within.outputs.result }}"
     assert uses["against"]["with"]["min-critical-detection"] == ""
-    assert uses["against"]["with"]["max-critical-automated"] == ""
+    assert uses["against"]["with"]["max-critical-misses"] == ""
     # The third use states no limit of its own, so the action's defaults apply: it must fail.
     assert set(uses["strict"]["with"]) == {"agent", "dataset", "artifact"}
     assert uses["strict"]["continue-on-error"] is True

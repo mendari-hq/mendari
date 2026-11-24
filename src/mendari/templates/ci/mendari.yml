@@ -1,12 +1,13 @@
 # Mendari checks {{id}} on every change (https://github.com/mendari-hq/mendari):
 # its manifest is validated, its behaviour tests run, and it is evaluated on the labelled dataset
-# named below. The job's summary shows the counts with their intervals, the mix of outcomes and
-# each critical label, with cases named by id and never by their text; the result is uploaded as
-# an artifact; and the job fails when a check fails, a limit below is missed or the evaluation
-# is worse than a baseline. No secret is needed: the agent answers from fixtures/mock_agent.json
-# until MENDARI_AGENT_URL is set.
+# named below. The job's summary shows the counts with their intervals, the mix of outcomes, each
+# critical label and the operating point of the automation threshold, with cases named by id and
+# never by their text; the result is uploaded as an artifact; and the job fails when a check
+# fails, a limit below is not met or the evaluation is worse than a baseline. No secret is
+# needed: the agent answers from fixtures/mock_agent.json until MENDARI_AGENT_URL is set.
 #
-# How to change the limits, compare with a baseline or evaluate your live agent with a secret:
+# How to change the limits, compare with a baseline, ask which automation threshold the cases
+# support (a target) or evaluate your live agent with a secret:
 # https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md
 #
 # GitHub reads workflows from a repository's own .github/workflows/. If this folder is the
@@ -35,6 +36,7 @@ jobs:
           agent: .
           dataset: examples
           # Each critical label is detected in at least nine cases of ten, and none of its
-          # cases is automated: the action's own limits, written here so they are yours to set.
-          min-critical-detection: "0.9"
-          max-critical-automated: "0"
+          # cases is automated (a critical miss): the action's own limits, written here so they
+          # are yours to set.
+          min-critical-detection: "90%"
+          max-critical-misses: "0"

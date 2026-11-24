@@ -94,14 +94,19 @@ _MAX_CONFIDENCE = 0.9999
 _WIDTH = 100
 
 
-def share(text: str) -> float:
-    """A share as people write one, `1%` or `0.01`: a number above 0 and below 1."""
+def share(text: str, *, whole: bool = False) -> float:
+    """A share as people write one, `1%` or `0.01`: a number above 0 and below 1, which is what
+    a target is. With `whole`, 0 and 1 are shares too (`0%`, `100%`): what a limit on a run's
+    own result may be (`mendari eval --min-...`, `--max-...`), read the same way."""
     raw = text.strip()
     try:
         value = float(raw[:-1]) / 100.0 if raw.endswith("%") else float(raw)
     except ValueError:
         raise ValueError("a share is written 1% or 0.01") from None
-    if not (math.isfinite(value) and 0.0 < value < 1.0):
+    if whole:
+        if not (math.isfinite(value) and 0.0 <= value <= 1.0):
+            raise ValueError("a share is from 0 to 100%: write 90% or 0.9")
+    elif not (math.isfinite(value) and 0.0 < value < 1.0):
         raise ValueError("a share is above 0 and below 100%: write 1% or 0.01")
     return value
 
@@ -912,6 +917,18 @@ def text(block: Mapping[str, Any], *more: str, kinds: Sequence[str] | None = Non
         if kinds is None or kind in kinds
     ]
     return "\n".join(["Operating point", *map(wrapped, [block["summary"], *lines, *more])])
+
+
+def markdown(block: Mapping[str, Any]) -> str:
+    """The block as Markdown, for a CI job summary (after `render.report_markdown`): its
+    heading, its summary in bold, then its lines as a list. The sentences are the block's own,
+    as `text` prints them: they hold counts and the manifest's names for questions and labels
+    (which a manifest holds to lower-case letters, digits and `_`), never a case's text or id,
+    and what one writes between backticks is code here too."""
+    lines = ["### Operating point", "", f"**{block['summary']}**"]
+    if block["lines"]:
+        lines += ["", *(f"- {line}" for line in block["lines"])]
+    return "\n".join(lines) + "\n"
 
 
 def of_report(report: Mapping[str, Any], confidence: float = CONFIDENCE) -> dict[str, Any] | None:

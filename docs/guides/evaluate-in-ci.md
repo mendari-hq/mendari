@@ -1,11 +1,11 @@
 # Evaluate an agent on every change
 
-An agent changes: its prompt, its model, its policy, its rules. Each change can make it miss a
-case it used to catch. Mendari's GitHub Action runs the same three checks on every pull request
-and push that you run by hand: `mendari validate`, `mendari test` and `mendari eval` on a
-labelled dataset. It writes what it found to the job's summary, keeps the result file as an
+An agent changes: its prompt, its model, its policy, its rules. Each change can make it fail on
+a case it used to get right. Mendari's GitHub Action runs the same three checks on every pull
+request and push that you run by hand: `mendari validate`, `mendari test` and `mendari eval` on
+a labelled dataset. It writes what it found to the job's summary, keeps the result file as an
 artifact, and fails the job when the agent is not valid, a behaviour test fails, the evaluation
-misses a limit you state, or it is worse than a baseline.
+does not meet a limit you state, or it is worse than a baseline.
 
 It needs no secret and no permission beyond reading your repository, so it is safe to run on a
 pull request from a fork. It prints counts and case ids, never a case's text.
@@ -42,8 +42,8 @@ jobs:
         with:
           agent: .
           dataset: examples
-          min-critical-detection: "0.9"
-          max-critical-automated: "0"
+          min-critical-detection: "90%"
+          max-critical-misses: "0"
 ```
 
 GitHub reads workflows from a repository's own `.github/workflows/`. If the agent's folder is
@@ -66,17 +66,27 @@ Every input has a default.
 | `agent` | `.` | The agent's folder, where its `agent.yaml` is |
 | `dataset` | `examples` | The labelled dataset: a name under `evaluation.datasets` in `agent.yaml`, or the path of a JSONL file |
 | `provider` | the agent's own | Provider variants to use instead, as `SLOT=VARIANT` (`reader=rules`), separated by spaces or new lines |
-| `min-critical-detection` | `0.9` | The least share of each critical label's cases the agent must detect |
-| `max-critical-automated` | `0` | The most cases of each critical label that may be automated |
-| `min-accuracy` | none | The least accuracy on the agent's primary question |
-| `max-false-automation` | none | The most of the automated cases that may have a wrong recommendation, as a share |
+| `min-critical-detection` | `90%` | A limit: the least share of each critical label's cases the agent must detect |
+| `max-critical-misses` | `0` | A limit: the most critical misses, the cases of each critical label that may be automated, so that no person reads them |
+| `min-accuracy` | none | A limit: the least accuracy on the agent's primary question |
+| `max-false-automation` | none | A limit: the most false automation, the cases automated with a wrong answer, as a share of the labelled cases |
 | `baseline` | none | An earlier result file the evaluation must be no worse than |
+| `target-critical-miss` | none | A target: the most critical misses a recommended automation threshold may leave, as a share of each critical label's cases |
+| `target-critical-miss-of` | none | What that share is of: `critical`, each critical label's cases (as when empty), or `all`, all cases |
+| `target-false-automation` | none | A target: the most false automation a recommended automation threshold may leave, as a share of the labelled cases |
+| `target-confidence` | none | The confidence the targets are held with, `95%` when empty |
 | `python-version` | `3.12` | The Python that runs Mendari, 3.11 or later |
 | `artifact` | `mendari-evaluation` | The artifact's name; empty uploads nothing |
 
-A share is a number from 0 to 1: `0.9` is nine cases in ten. A path (the agent's folder, a
-dataset's file, the baseline) is from the workspace, the repository's root. A workflow that uses
-the action more than once in a run (two agents, two datasets) gives each use its own `artifact`
+A [limit](#limits) is on what this run measured, and a result that does not meet it fails the
+job. A [target](#a-target) never fails the job: it asks which automation threshold the cases
+support. Both name a figure the same way: a **critical miss** is a case of a critical label
+that is automated, so that no person reads it, and **false automation** is a case automated
+with a wrong answer, as a share of the labelled cases.
+
+A share is written `90%` or `0.9`: nine cases in ten. A path (the agent's folder, a dataset's
+file, the baseline) is from the workspace, the repository's root. A workflow that uses the
+action more than once in a run (two agents, two datasets) gives each use its own `artifact`
 name.
 
 The behaviour tests are the agent's own, in `tests/cases.yaml`. An agent that has none fails
@@ -89,8 +99,8 @@ path of the command it installed, for a later step that wants it (`mendari card`
 ## What the summary shows
 
 The job's summary page, and the log, show what each check found, then the evaluation. This is
-Mendari's own demo agent, whose canned answers miss urgent messages on purpose, held to the
-action's own limits (the page shows the tables as tables):
+Mendari's own demo agent, whose canned answers leave urgent messages undetected on purpose, held
+to the action's own limits (the page shows the tables as tables):
 
 ```text
 ## Mendari agent check: failed
@@ -116,14 +126,26 @@ Proportions are k of n [exact 95% interval, Clopper-Pearson].
 | Critical urgent_symptoms=yes detected  | 81 of 114 [61.8-79.2%]                 |
 | Critical urgent_symptoms=yes automated | 9 of 114 [3.7-14.5%]                   |
 
-Critical urgent_symptoms=yes cases automated, so no person read them (9): demo-0002, demo-0044, …
+Critical misses: urgent_symptoms=yes cases automated, so no person read them (9): demo-0002, demo-0044, …
 Critical urgent_symptoms=yes cases not detected, and read by a person (24): demo-0052, … and 4 more
 
-### Gate failed: 2 limits missed
+### Operating point
+
+At the agent's automation threshold 0.90, 326 of 600 cases are automated: critical
+urgent_symptoms=yes automated 9 of 114 critical cases (at most 13.4%), 9 of all 600 cases (at
+most 2.7%); false automation 9 of 600 labelled cases (at most 2.7%).
+
+- 64 of the 600 cases repeat another case's input. Each counts as its own evidence here, so the
+  bounds are narrower than the distinct cases alone would support.
+- Each "at most" is the exact one-sided bound (Clopper-Pearson) of its count at 95% confidence.
+  It is about cases like these, labelled as these are, and about this version and configuration
+  of the agent.
+
+### Gate failed: 2 limits not met
 
 | Limit                                  | Stated       | Measured                | Verdict |
-| critical urgent_symptoms=yes detected  | at least 90% | 81 of 114 [61.8-79.2%]  | missed  |
-| critical urgent_symptoms=yes automated | at most 0    | 9 of 114 [3.7-14.5%]    | missed  |
+| critical urgent_symptoms=yes detected  | at least 90% | 81 of 114 [61.8-79.2%]  | not met |
+| critical urgent_symptoms=yes misses    | at most 0    | 9 of 114 [3.7-14.5%]    | not met |
 ```
 
 - **Counts with their intervals.** Each figure is k of n with its exact 95% interval, as
@@ -133,9 +155,12 @@ Critical urgent_symptoms=yes cases not detected, and read by a person (24): demo
 - **The mix of outcomes.** How many cases were automated (`AUTO`), sent to a person
   (`HUMAN_REVIEW`), left without a recommendation (`ABSTAIN`) or refused (`BLOCK`).
 - **Critical cases.** For each label under `evaluation.critical` in `agent.yaml`: how many of
-  its cases the agent detected, and how many were automated, which means no person read them.
-  The cases that went wrong are named by the id your dataset gives them, at most twenty of each
-  kind.
+  its cases the agent detected, and how many were automated, which means no person read them:
+  its critical misses. The cases that went wrong are named by the id your dataset gives them,
+  at most twenty of each kind.
+- **The operating point.** What the agent's automation threshold lets through on these cases:
+  its critical misses and its false automation, each with an exact upper bound. With a
+  [target](#a-target), also the lowest threshold the cases support.
 - **Who answered.** The provider variants, and the models that answered. An agent scaffolded by
   `mendari new` answers from its canned file until it is given a live endpoint (below), and the
   summary says so by naming that file's model.
@@ -150,8 +175,9 @@ with cases named by a hash), its ledger under `ledgers/`, and `summary.md`. The
 ## Limits
 
 A limit is what the result must be, whatever it was before. The action states two unless you
-change them: every critical label is detected in at least nine of ten of its cases, and none
-of its cases is automated. A new agent from `mendari new` meets both on its twelve examples.
+change them: every critical label is detected in at least nine of ten of its cases, and has no
+critical miss, which is to say that none of its cases is automated. A new agent from
+`mendari new` meets both on its twelve examples.
 
 Change one by giving it another value, add `min-accuracy` or `max-false-automation`, or turn
 one off with an empty value:
@@ -161,16 +187,56 @@ one off with an empty value:
         with:
           agent: .
           dataset: test
-          min-critical-detection: "0.95"
-          max-critical-automated: "0"
-          min-accuracy: "0.85"
+          min-critical-detection: "95%"
+          max-critical-misses: "0"
+          min-accuracy: "85%"
           max-false-automation: ""
 ```
 
+| Limit | What the result must show |
+|---|---|
+| `min-critical-detection` | Each critical label detected in at least this share of its cases |
+| `max-critical-misses` | For each critical label, at most this many critical misses: its cases that were automated |
+| `min-accuracy` | At least this accuracy on the primary question |
+| `max-false-automation` | At most this false automation: the summary's row "False automation", a share of the labelled cases |
+
 A limit is held to the measured share, not to its interval: on a few cases it says little. A
-floor under a figure the dataset does not measure (no case of a critical label, no labelled
-case) is missed, since nothing shows it is met. An agent that declares no critical label has
-nothing for the two critical limits to check, and the summary says so.
+limit on a share needs cases to be a share of: where the dataset measures none (no case of a
+critical label, no labelled case), the limit is not met, since nothing shows that it is. An
+agent that declares no critical label has nothing for the two critical limits to check, and
+the summary says so.
+
+## A target
+
+A limit is about the cases of this run. A target asks another question: which automation
+threshold do cases like these support? Give one, and the summary's operating point names the
+lowest threshold at which the risk stays within the target, with a stated confidence, or says
+why no threshold does and what would change that.
+
+```yaml
+      - uses: mendari-hq/mendari@v0.1.0
+        with:
+          agent: .
+          dataset: test
+          target-critical-miss: "1%"
+          target-false-automation: "2%"
+```
+
+| Target | What the recommended threshold must keep to |
+|---|---|
+| `target-critical-miss` | Critical misses at or below this share of each critical label's cases (with `target-critical-miss-of: all`, of all cases) |
+| `target-false-automation` | False automation at or below this share of the labelled cases |
+| `target-confidence` | The confidence both are held with, `95%` unless you give another |
+
+A target never fails the job, and nothing edits your manifest: the recommendation is advice,
+and the summary prints the one line you would change. It also needs cases: about 300 cases of
+a critical label to show 1% with 95% confidence, so on a dozen examples the summary says how
+many are missing. [Choosing an automation threshold](choosing-a-threshold.md) explains what
+the recommendation means, what it assumes and how many cases a target needs.
+
+A limit and a target can be on the same figure. `max-critical-misses: "0"` fails the job when
+this run automated a critical case. `target-critical-miss: "1%"` asks for the threshold at
+which, with 95% confidence, no more than 1% of critical cases would be.
 
 ## A baseline
 
@@ -178,10 +244,10 @@ A baseline is an earlier result of the same agent on the same dataset. With one,
 fails when the change made the agent worse, by the gate Mendari holds its own agents to:
 
 - a critical label is detected less often than in the baseline, or is no longer measured;
-- more of a critical label's cases are automated;
-- accuracy on the primary question, or the share of automated cases with a wrong
-  recommendation, is worse by more than the agent's `evaluation.degradation_tolerance`
-  (3 points unless `agent.yaml` says otherwise).
+- a critical label has more critical misses: more of its cases are automated;
+- accuracy on the primary question, or the share of the automated cases that are wrong, is
+  worse by more than the agent's `evaluation.degradation_tolerance` (3 points unless
+  `agent.yaml` says otherwise).
 
 Write the baseline once, and commit it. `evals/` is outside the agent's digest, so the file
 changes nothing about the agent:
@@ -259,24 +325,31 @@ server of your own, `LLM_BASE_URL` and `LLM_API_KEY`, the same way.
 - **Each case is a call.** A dataset of 600 cases is 600 calls to your agent on every push.
   Choose a dataset sized for that, and keep the larger one for a scheduled run.
 - **A model can answer differently from one run to the next.** A baseline fails on any critical
-  case found before and missed now, so a result that varies fails now and then. Hold a model
-  that varies to limits rather than to a baseline, or set it to answer the same way each time.
+  case detected before and not detected now, so a result that varies fails now and then. Hold
+  a model that varies to limits rather than to a baseline, or set it to answer the same way
+  each time.
 - **Only synthetic or de-identified cases.** The dataset is in your repository and its cases go
   to your agent's endpoint from a runner you do not control.
 
 ## The same checks on your machine
 
-The action runs commands you can run. A limit is an option of `mendari eval`, and so is the
-baseline:
+The action runs commands you can run. A limit is an option of `mendari eval` under the name
+the input has, and so are a target and the baseline:
 
 ```bash
 mendari validate .
 mendari test .
 mendari eval . --dataset test --baseline none \
-  --min-critical-detection 0.9 --max-critical-automated 0 \
+  --min-critical-detection 90% --max-critical-misses 0 \
+  --target-critical-miss 1% \
   --no-worse-than evals/baseline.json
 ```
 
-`mendari eval` exits 2 when a limit is missed or the result is worse than the baseline, 1 when
-it could not run, and 0 otherwise. `--markdown` prints the summary the action writes, for any
-other CI system: its output, appended to that system's summary, is the whole of it.
+`mendari eval` exits 2 when a limit is not met or the result is worse than the baseline, 1 when
+it could not run, and 0 otherwise; a target changes none of that. `--markdown` prints the
+summary the action writes, for any other CI system: its output, appended to that system's
+summary, is the whole of it.
+
+An evaluation measures the cases someone wrote. To find the failures nobody wrote a case for,
+a later step can run `mendari probe . --fail-on critical` with the command the action installed
+(its `mendari` output): [Finding failures](finding-failures.md).
