@@ -15,10 +15,9 @@ import pytest
 from mendari import Decision
 from mendari.core import clock
 from mendari.core.policy import Outcome
-from mendari.sandbox import synthetic_trial
 from mendari.standards import cds_hooks
 from mendari.standards.fhir import FhirAdapter
-from tests.support import fixture_data
+from tests.support import fixture_data, synthetic_trial
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / "clinical-trial-prescreener"

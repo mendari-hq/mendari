@@ -18,11 +18,10 @@ from mendari import AuditStore, Decision, load_pack
 from mendari.core.policy import Outcome
 from mendari.core.site_codes import ENV as SITE_CODES_ENV
 from mendari.errors import FhirError
-from mendari.sandbox import synthetic_referral
 from mendari.sandbox.code_systems import REFERRAL
 from mendari.server.app import create_app
 from mendari.standards import cds_hooks
-from tests.support import fixture_data
+from tests.support import fixture_data, synthetic_referral
 from tests.test_site_codes import mapped, maps_of
 
 ROOT = Path(__file__).parents[1]

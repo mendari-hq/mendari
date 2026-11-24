@@ -25,7 +25,7 @@ from mendari.errors import PackValidationError, ProviderError
 from mendari.evals.agreement import agreement, pack_cases
 from mendari.providers import build_provider
 from mendari.providers import cql as cql_module
-from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM
+from mendari.sandbox.code_systems import CONDITION_SYSTEM
 from mendari.standards import record_fhir
 from mendari.standards.fhir_client import GuardedHttp
 

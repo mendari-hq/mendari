@@ -35,17 +35,10 @@ NOTES = (
     "note_recent_cv_event",
 )
 
-# The local site codes conditions in its own system: here, condition codes invented for this
-# synthetic example, in a code system named as fictional. Not SNOMED CT or any real code system; a
-# site maps its own codes. Each display is ours. (LP-14: they replaced the SNOMED CT codes.)
-CONDITION_SYSTEM = "https://mendari.co/fhir/CodeSystem/fictional-conditions"
-CONDITIONS = {
-    "FC101": "Type 2 diabetes mellitus",
-    "FC102": "Type 1 diabetes mellitus",
-    "FC201": "Myocardial infarction",
-    "FC202": "Stroke (cerebrovascular accident)",
-    "FC203": "Cerebral infarction",
-}
+# The local site codes conditions in its own system: here, the sandbox's fictional condition
+# codes (`CONDITIONS`, in `mendari.sandbox.code_systems`), invented for this synthetic example.
+# Not SNOMED CT or any real code system; a site maps its own codes. (LP-14: they replaced the
+# SNOMED CT codes.)
 ICD = {"t2d": ["E11.9", "E11.65", "E11.22"], "t1d": ["E10.9"], "mi": ["I21.4"], "stroke": ["I63.9"]}
 # Each local code's display is the condition's TEXT, which a FHIR coding carries as its display
 # (record_fhir): a stroke is written as a cerebral infarction, so its code is FC203.

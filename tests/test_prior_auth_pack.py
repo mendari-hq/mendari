@@ -16,10 +16,9 @@ import pytest
 from mendari import Decision
 from mendari.core.policy import Outcome
 from mendari.errors import FhirError
-from mendari.sandbox import synthetic_prior_auth
-from mendari.sandbox.synthetic_prior_auth import procedure_codings
+from mendari.sandbox.code_systems import procedure_codings
 from mendari.standards import cds_hooks
-from tests.support import fixture_data
+from tests.support import fixture_data, synthetic_prior_auth
 from tests.test_fhir_client import allow_ehr, fhir_json
 
 ROOT = Path(__file__).parents[1]

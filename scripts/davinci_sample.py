@@ -37,7 +37,7 @@ from typing import Any
 from mendari import AuditStore, Decision
 from mendari.core.pack import Pack
 from mendari.sandbox import payer as sandbox_payer
-from mendari.sandbox.synthetic_prior_auth import procedure_codings
+from mendari.sandbox.code_systems import procedure_codings
 from mendari.standards import cds_hooks, davinci, pas
 
 TODAY = date.today()

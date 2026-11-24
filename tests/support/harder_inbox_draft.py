@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """The harder inbox benchmark's draft (draft, not clinically reviewed): writes it, or checks it.
 
-    uv run python scripts/harder_inbox_draft.py           # write it (datasets/drafts/...)
-    uv run python scripts/harder_inbox_draft.py --check   # the committed files are the generator's
+    uv run python -m tests.support.harder_inbox_draft           # write it
+    uv run python -m tests.support.harder_inbox_draft --check   # the files are the generator's
 
-Both run the generator (`mendari.sandbox.synthetic_inbox_harder`, local and seeded: no network),
+Both run the generator (`tests/support/synthetic_inbox_harder.py`, local and seeded: no network),
 its leakage check against the message-routing test fixture's data and templates, and its coverage
-check against the pack's labels. `--check` exits 1 when a committed file differs from what the
+check against that agent's labels. `--check` exits 1 when a committed file differs from what the
 generator writes, byte for byte, or either check has a problem; writing exits 1 on a problem too,
-after writing. Neither touches the pack: its data, model, benchmark and digest stay as shipped.
+after writing. Neither touches the agent: its data, model, benchmark and digest stay as they are.
 How the owner reviews the draft: notes/clinician-review-harder-inbox-benchmark.md.
 """
 
@@ -18,21 +18,20 @@ import argparse
 import sys
 from pathlib import Path
 
-from mendari.sandbox import synthetic_inbox_harder as harder
+from tests.support import synthetic_inbox_harder as harder
+from tests.support.fixture_data import AGENTS
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n", 1)[0])
     parser.add_argument("--check", action="store_true", help="check the committed files")
     parser.add_argument("--out", type=Path, default=ROOT / harder.DRAFT_DIR)
     parser.add_argument("--seed", type=int, default=harder.DEFAULT_SEED)
     args = parser.parse_args(argv)
 
-    draft = harder.build(
-        ROOT / "tests" / "fixtures" / "reference-packs" / harder.PACK_NAME, seed=args.seed
-    )
+    draft = harder.build(AGENTS / harder.PACK_NAME, seed=args.seed)
     if args.check:
         problems = harder.check_files(args.out, draft)
     else:

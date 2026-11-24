@@ -16,13 +16,14 @@ from mendari.core.pack import load_pack
 from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
 from mendari.evals.harness import load_dataset
-from mendari.sandbox import DEMO_AGENT, example_datasets_dir, fhir_workflow, synthetic_inbox
+from mendari.sandbox import DEMO_AGENT, example_datasets_dir, fhir_workflow
 from mendari.sandbox.code_systems import CASE_SYSTEM
 from mendari.sandbox.fhir_records import message_entries
 from mendari.sandbox.fhir_workflow import _process_batch
 from mendari.standards import us_core
 from mendari.standards.fhir import FhirAdapter
 from tests.conftest import DEMO_AGENT_DIR
+from tests.support import synthetic_inbox
 from tests.support.fhir_records import referral_entries
 from tests.support.sandbox import (
     EHR_PROFILE,

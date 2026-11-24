@@ -24,7 +24,7 @@ from datetime import date
 from typing import Any
 
 from mendari.providers.criteria import _date, _items
-from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM, CONDITIONS
+from mendari.sandbox.code_systems import CONDITION_SYSTEM, CONDITIONS
 
 PATIENT_ID = "record-patient"
 ICD10 = "http://hl7.org/fhir/sid/icd-10-cm"

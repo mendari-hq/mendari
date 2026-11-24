@@ -12,8 +12,7 @@ import pytest
 from mendari import Decision, GovernanceOverride
 from mendari.core.policy import Outcome
 from mendari.guard import check
-from mendari.sandbox import synthetic_guard
-from tests.support import fixture_data
+from tests.support import fixture_data, synthetic_guard
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard"

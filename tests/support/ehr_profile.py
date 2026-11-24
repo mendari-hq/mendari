@@ -59,6 +59,7 @@ from typing import Any
 from mendari.errors import MendariError
 from mendari.sandbox import example_datasets_dir
 from mendari.sandbox.code_systems import (
+    CONDITION_SYSTEM,
     REFERRAL,
     SITE_DIAGNOSES,
     SITE_DIAGNOSIS_SYSTEM,
@@ -66,9 +67,9 @@ from mendari.sandbox.code_systems import (
     SITE_ORDER_TYPES,
 )
 from mendari.sandbox.fhir_records import US_CORE
-from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM, ICD, LOCAL
 from mendari.standards.record_fhir import ICD10, RXNORM
 from tests.support.fhir_records import prior_auth_entries, referral_entries, trial_entries
+from tests.support.synthetic_trial import ICD, LOCAL
 
 TRIAL = "mendari/clinical-trial-prescreener"
 PRIOR_AUTH = "mendari/prior-auth-preflight"

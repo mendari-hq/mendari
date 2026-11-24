@@ -18,7 +18,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from mendari.sandbox import (
+from tests.support import (
     synthetic_guard,
     synthetic_inbox,
     synthetic_prior_auth,

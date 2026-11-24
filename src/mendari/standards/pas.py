@@ -51,9 +51,9 @@ ICD10_PCS = "http://www.cms.gov/Medicare/Coding/ICD10"
 # X12 278 Requested Service Type, which takes these systems; the first the order is coded in is
 # sent. A site sends its own CPT codes (under its licence from the AMA) or HCPCS. ICD-10-PCS is
 # HIPAA's standard for hospital inpatient procedures only (45 CFR 162.1002), so on this
-# professional claim it stands in for a CPT code in the sandbox alone: the test fixtures'
-# fictional codes are in no payer's system, so its synthetic orders also carry a public-domain
-# ICD-10-PCS code (`sandbox/synthetic_prior_auth.py`), and the samples validate without CPT.
+# professional claim it stands in for a CPT code in the sandbox alone: the sandbox's fictional
+# procedure codes are in no payer's system, so its synthetic orders also carry a public-domain
+# ICD-10-PCS code (`sandbox/code_systems.py`), and the samples validate without CPT.
 PROCEDURE_SYSTEMS = (CPT, HCPCS, ICD10_PCS)
 ICD10 = "http://hl7.org/fhir/sid/icd-10-cm"
 RELATIONSHIP = "http://terminology.hl7.org/CodeSystem/subscriber-relationship"

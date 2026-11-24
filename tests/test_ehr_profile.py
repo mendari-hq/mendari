@@ -38,7 +38,6 @@ from mendari.core.registry import resolve_pack
 from mendari.core.site_codes import ENV as SITE_CODES_ENV
 from mendari.sandbox import cds_client
 from mendari.sandbox.code_systems import CASE_SYSTEM, REFERRAL_SYSTEM, SANDBOX_TAG
-from mendari.sandbox.synthetic_trial import ICD, LOCAL
 from mendari.server.app import create_app
 from mendari.standards import fhir_structure, us_core
 from mendari.standards.data_coverage import FORMAT
@@ -58,6 +57,7 @@ from tests.support.ehr_profile import (
     TRIAL,
     ProfilePatient,
 )
+from tests.support.synthetic_trial import ICD, LOCAL
 from tests.test_fhir_client import allow_ehr, fhir_json
 from tests.test_site_codes import PACKS as PACKS_DIR
 from tests.test_site_codes import SERVICE as PRESCREEN_SERVICE

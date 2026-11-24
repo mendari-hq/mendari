@@ -42,6 +42,10 @@ from mendari.errors import MendariError
 from mendari.sandbox.code_systems import (
     CHANNEL_SYSTEM,
     CHANNELS,
+    CONDITION_SYSTEM,
+    CONDITIONS,
+    PROCEDURE_SYSTEM,
+    PROCEDURES,
     REFERRAL_SYSTEM,
     REFERRALS,
     SANDBOX_TAG,
@@ -50,8 +54,6 @@ from mendari.sandbox.code_systems import (
     SITE_ORDER_TYPE_SYSTEM,
     SITE_ORDER_TYPES,
 )
-from mendari.sandbox.synthetic_prior_auth import PROCEDURE_SYSTEM, PROCEDURES
-from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM, CONDITIONS
 from mendari.standards import audit_fhir, davinci
 from mendari.standards.fhir import (
     DECISION_ID_SYSTEM,

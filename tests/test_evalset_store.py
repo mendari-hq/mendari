@@ -42,6 +42,7 @@ from mendari.errors import MendariError
 from mendari.evals import ledger
 from mendari.server.app import create_app
 from tests.conftest import (
+    DEMO_AGENT_DIR,
     ROOT,
     encrypt_mode,
     evalset_keys_for_test,
@@ -276,8 +277,8 @@ def first_input(path: Path) -> dict[str, Any]:
 
 
 def public_input() -> dict[str, Any]:
-    """A reference pack's case that no generator makes (the red flags are written by hand), so
-    only the bundled data refuses it."""
+    """A case of the agents that stand here where a release's bundled agents are (one written
+    by hand, as it happens: the red flags)."""
     return first_input(
         ROOT
         / "tests"
@@ -381,47 +382,43 @@ def test_every_refused_line_is_counted(
         hidden.add_cases(set_id, [hand_written("A fine case"), bad, bad])
 
 
-def test_a_generator_s_default_output_is_refused_even_unbundled(
+def test_a_release_s_public_cases_are_its_bundled_agent_s(
     held: tuple[AuditStore, EvalsetStore], inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The generators' outputs at their default seeds count, whatever is bundled."""
+    """As a release has it: the public cases are the bundled demo agent's files, and a case of
+    it is refused. The product carries no generator of any case: what it does not bundle (here,
+    the test fixtures' data) it does not know, and with nothing bundled nothing is public."""
     from mendari.core import reference
-    from mendari.sandbox import synthetic_inbox
 
     _, hidden = held
     set_id = a_set(hidden, inbox_pack)
-    monkeypatch.setattr(reference, "bundled_dir", lambda: None)
+    demo = first_input(DEMO_AGENT_DIR / "data" / "test.jsonl")
+    monkeypatch.setattr(reference, "bundled_dir", lambda: DEMO_AGENT_DIR.parent)
     monkeypatch.setattr("mendari.sandbox.example_datasets_dir", lambda: None)
     evalsets_module._public_forms.cache_clear()
     try:
-        for value in (
-            synthetic_inbox.local_site()[5]["input"],
-            synthetic_inbox.public_splits()["test"][0]["input"],
-        ):
+        for value in (demo, shouted(demo)):
             with pytest.raises(MendariError, match="its input is a public case's"):
                 hidden.add_cases(set_id, [{**hand_written("x"), "input": value}])
+        added = hidden.add_cases(set_id, [{**hand_written("x"), "input": public_input()}])
+        assert added["added"] == 1
+        monkeypatch.setattr(reference, "bundled_dir", lambda: None)
+        evalsets_module._public_forms.cache_clear()
+        assert evalsets_module._public_forms() == (frozenset(), frozenset())
+        assert hidden.add_cases(set_id, [{**hand_written("y"), "input": demo}])["added"] == 1
     finally:
         evalsets_module._public_forms.cache_clear()
+    source = Path(evalsets_module.__file__).read_text(encoding="utf-8")
+    assert "synthetic_" not in source  # the generators are the tests' (tests/support)
 
 
-def test_the_bundled_data_is_refused_without_the_generators(
+def test_the_bundled_data_and_the_example_datasets_are_refused(
     held: tuple[AuditStore, EvalsetStore], inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The reference packs' data and the example datasets count as bundled, whatever the
-    generators make: with every generator's output gone, their cases are still refused."""
-    from mendari import sandbox
-
+    """The bundled agents' data and the example datasets count as public, each by its own
+    files: a case of either is refused, exactly or folded."""
     _, hidden = held
     set_id = a_set(hidden, inbox_pack)
-    for generator in (
-        sandbox.synthetic_inbox,
-        sandbox.synthetic_trial,
-        sandbox.synthetic_referral,
-        sandbox.synthetic_prior_auth,
-        sandbox.synthetic_guard,
-    ):
-        monkeypatch.setattr(generator, "public_splits", lambda: {})
-        monkeypatch.setattr(generator, "local_site", lambda: [])
     example = first_input(ROOT / "tests" / "fixtures" / "datasets" / "local-site-example.jsonl")
     evalsets_module._public_forms.cache_clear()
     try:

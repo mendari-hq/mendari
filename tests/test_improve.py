@@ -39,8 +39,8 @@ from mendari.evals.improve import (
 )
 from mendari.evals.pack_tests import run_pack_tests
 from mendari.hub import client as hub_client
-from mendari.sandbox import synthetic_inbox
 from tests.conftest import INBOX_DIR, LOCAL_DATASET, ROOT
+from tests.support import synthetic_inbox
 
 HARDER = (
     ROOT / "tests" / "fixtures" / "datasets" / "drafts" / "patient-inbox-harder" / "train.jsonl"

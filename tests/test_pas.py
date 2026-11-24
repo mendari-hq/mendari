@@ -22,7 +22,7 @@ from mendari import settings
 from mendari.cli import main
 from mendari.errors import MendariError
 from mendari.sandbox import payer
-from mendari.sandbox.synthetic_prior_auth import procedure_codings
+from mendari.sandbox.code_systems import procedure_codings
 from mendari.server import app as app_module
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir, pas

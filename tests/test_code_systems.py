@@ -26,14 +26,19 @@ import yaml
 
 from mendari.core.pack import load_pack
 from mendari.core.spec import LICENSED_CODE_SYSTEMS, licensed_systems
-from mendari.sandbox import synthetic_prior_auth, synthetic_trial
-from mendari.sandbox.code_systems import REFERRAL, REFERRAL_SYSTEM, REFERRALS
-from mendari.sandbox.synthetic_prior_auth import PROCEDURE_SYSTEM as FICTIONAL_PROCEDURES
-from mendari.sandbox.synthetic_prior_auth import PROCEDURES
-from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM, CONDITIONS
+from mendari.sandbox.code_systems import (
+    CONDITION_SYSTEM,
+    CONDITIONS,
+    PROCEDURES,
+    REFERRAL,
+    REFERRAL_SYSTEM,
+    REFERRALS,
+)
+from mendari.sandbox.code_systems import PROCEDURE_SYSTEM as FICTIONAL_PROCEDURES
 from mendari.standards import record_fhir
 from mendari.standards.record_fhir import _ICD10_CODE
 from mendari.standards.terminology import sandbox_resources
+from tests.support import synthetic_prior_auth, synthetic_trial
 
 ROOT = Path(__file__).resolve().parents[1]
 TREES = ("agents", "community-packs", "tests/fixtures")

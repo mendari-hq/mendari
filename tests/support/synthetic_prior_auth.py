@@ -18,52 +18,9 @@ from typing import Any, Literal
 
 Site = Literal["public", "local"]
 AS_OF = date(2026, 9, 1)
-# The pack's procedure codes: invented for this synthetic example (LP-14), in a code system named
-# as fictional. Not CPT, never for billing; a site maps its own codes. Each display is ours.
-PROCEDURE_SYSTEM = "https://mendari.co/fhir/CodeSystem/fictional-procedures"
-PROCEDURES = {
-    "FX101": "MRI lumbar spine without contrast",
-    "FX102": "MRI lumbar spine with contrast",
-    "FX103": "MRI lumbar spine",
-    "FX111": "X-ray lumbar spine",
-    "FX112": "X-ray lumbar spine, 4+ views",
-    "FX201": "Knee arthroscopy",
-    "FX202": "Knee arthroscopy with meniscectomy",
-    "FX211": "MRI knee",
-    "FX212": "MRI knee with contrast",
-    "FX213": "MRI knee without and with contrast",
-    "FX301": "Polysomnography",
-    "FX302": "Polysomnography with CPAP titration",
-    "FX901": "MRI brain",
-    "FX902": "Echocardiogram",
-    "FX903": "Colonoscopy",
-    "FX904": "Comprehensive metabolic panel",
-}
-# What a payer reads for the fictional codes the samples send (Da Vinci PAS and US Core bind the
-# requested service to value sets with no fictional system): ICD-10-PCS, CMS's public-domain
-# procedure codes, with their official titles. Only the services a sample or a test sends to a
-# payer or a validator. ICD-10-PCS is HIPAA's code set for hospital inpatient procedures: on the
-# sandbox's outpatient, professional request it stands in for the CPT code a real order carries.
-PAYER_CODES = {
-    "FX101": ("BR39ZZZ", "Magnetic Resonance Imaging (MRI) of Lumbar Spine"),
-    "FX111": ("BR09ZZZ", "Plain Radiography of Lumbar Spine"),
-    "FX301": ("4A1ZXQZ", "Monitoring of Sleep, External Approach"),
-}
-
-
-def procedure_codings(code: str) -> list[dict[str, str]]:
-    """A FHIR order's or procedure's codings for a fictional code: the code itself first (the
-    pack reads it by its system, wherever it sits), then its ICD-10-PCS code when it has one
-    (`PAYER_CODES`)."""
-    from mendari.standards.pas import ICD10_PCS
-
-    codings = [{"system": PROCEDURE_SYSTEM, "code": code, "display": PROCEDURES[code]}]
-    if code in PAYER_CODES:
-        payer, shown = PAYER_CODES[code]
-        codings.append({"system": ICD10_PCS, "code": payer, "display": shown})
-    return codings
-
-
+# The pack's procedure codes are the sandbox's fictional ones (`PROCEDURES`, in
+# `mendari.sandbox.code_systems`, with the ICD-10-PCS codes a payer reads for them): invented
+# for this synthetic example (LP-14). Not CPT, never for billing; a site maps its own codes.
 ORDERS = {
     "lumbar_mri": [("FX101", "MRI lumbar spine without contrast"), ("FX103", "MRI lumbar spine")],
     "knee_arthroscopy": [

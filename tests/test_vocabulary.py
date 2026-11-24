@@ -295,8 +295,6 @@ PRODUCT = ROOT / "src" / "mendari"
 # Files this surface does not read, each with who does or when it goes.
 NOT_READ = {
     PRODUCT / "cli.py": "the command line: its help and messages have a test of their own",
-    PRODUCT / "sandbox" / "synthetic_inbox_harder.py": "a former pack's data generator, whose "
-    "committed draft is its output byte for byte: it leaves `src/` with wave 1's trim",
 }
 _DOCUMENTED = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 _LABEL = re.compile(r"\bPacks?\b")  # the word with a capital: a heading or a label, however short
