@@ -39,6 +39,8 @@ MAX_ARGUMENT_DEPTH = 8
 MAX_PROBLEMS = 10  # what one refused proposal says of its arguments
 # An action's name, declared or proposed (spec 0.4 sections 2 and 4.2).
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}\Z")
+# The same shape as an API description states it (a JSON Schema `pattern` has no `\Z`).
+NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
 PROPOSED = "action.proposed"  # the event of a proposal; its note is the kept arguments
 RESOLVED = "action.resolved"  # the event of a held action's release or denial
 

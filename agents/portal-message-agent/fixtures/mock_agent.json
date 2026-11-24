@@ -24,6 +24,9 @@
         "tool_calls": [
           {"name": "red_flag_screen", "status": "matched"},
           {"name": "intent_classifier", "status": "ok"}
+        ],
+        "actions": [
+          {"name": "assign_queue", "arguments": {"queue": "refill"}}
         ]
       }
     },
@@ -47,6 +50,9 @@
         },
         "tool_calls": [
           {"name": "red_flag_screen", "status": "matched"}
+        ],
+        "actions": [
+          {"name": "assign_queue", "arguments": {"queue": "front_desk"}}
         ]
       }
     },
@@ -69,6 +75,9 @@
         },
         "tool_calls": [
           {"name": "intent_classifier", "status": "ok"}
+        ],
+        "actions": [
+          {"name": "assign_queue", "arguments": {"queue": "refill"}}
         ]
       }
     },
@@ -91,6 +100,9 @@
         },
         "tool_calls": [
           {"name": "intent_classifier", "status": "ok"}
+        ],
+        "actions": [
+          {"name": "assign_queue", "arguments": {"queue": "scheduling"}}
         ]
       }
     }
@@ -110,6 +122,10 @@
     },
     "tool_calls": [
       {"name": "intent_classifier", "status": "ok"}
+    ],
+    "actions": [
+      {"name": "assign_queue", "arguments": {"queue": "front_desk"}},
+      {"name": "send_acknowledgement", "arguments": {"template": "received"}}
     ]
   }
 }

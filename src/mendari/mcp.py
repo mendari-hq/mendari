@@ -11,7 +11,10 @@ model answer.
 The tools:
 
 - `list_agents`: the agents served here, with their questions, labels and risk levels.
-- `decide`: one decision by one agent: outcome, recommendation, priority, confidence, reasons.
+- `decide`: one decision by one agent: outcome, recommendation, priority, confidence, reasons,
+  and each action the agent proposed with what may be done with it.
+- `authorize_action`: whether one action an agent declares may be run for a decision made here
+  (spec 0.4): released, held, blocked or denied. Mendari runs nothing.
 - `review_queue`: the decisions waiting for a person, most urgent first (ids and outcomes only,
   never the input).
 - `verify_audit`: whether the audit trail's hash chain is intact.
@@ -28,7 +31,7 @@ from collections.abc import Callable, Mapping
 from typing import IO, Any
 
 from mendari import __version__
-from mendari.core import tenancy
+from mendari.core import actions, tenancy
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision, DecisionResult
 from mendari.core.pack import Pack
@@ -50,6 +53,8 @@ INSTRUCTIONS = (
     "decide with an agent's id and an input matching its schema. Treat the outcome as binding: "
     "AUTO may be acted on; HUMAN_REVIEW means a person must decide (do not act on the "
     "recommendation alone); ABSTAIN means no recommendation; BLOCK means the input was refused. "
+    "Before any tool call that writes to a record, contacts a patient or places an order, call "
+    "authorize_action with the decision's id, and act only on released. "
     "Synthetic data only: this is a research preview and not a medical device."
 )
 
@@ -78,6 +83,34 @@ TOOLS: list[dict[str, Any]] = [
             "additionalProperties": False,
         },
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True},
+    },
+    {
+        "name": "authorize_action",
+        "title": "Authorize an action",
+        "description": "Ask whether one action an agent declares may be run for a decision made "
+        "here. Returns released, held (it waits for the decision's reviewer), blocked or denied, "
+        "and records the request in the audit trail. Mendari runs nothing: run the action "
+        "yourself, and only when it is released.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "agent": {"type": "string", "description": "the agent's id, e.g. ns/name"},
+                "decision": {"type": "string", "description": "the decision's id, from decide"},
+                "action": {"type": "string", "description": "the action, as the agent declares it"},
+                "arguments": {
+                    "type": "object",
+                    "description": "the arguments the action would be run with",
+                },
+            },
+            "required": ["agent", "decision", "action"],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     },
     {
         "name": "review_queue",
@@ -117,6 +150,7 @@ class McpServer:
         self._tools: dict[str, Callable[[Mapping[str, Any]], dict[str, Any]]] = {
             "list_agents": self._list_agents,
             "decide": self._decide,
+            "authorize_action": self._authorize_action,
             "review_queue": self._review_queue,
             "verify_audit": self._verify_audit,
         }
@@ -193,6 +227,22 @@ class McpServer:
             raise ToolError("input: give an object matching the agent's input schema")
         return _shown(self._decision(agent)(payload))
 
+    def _authorize_action(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
+        """Whether one declared action may be run for a recorded decision, by the gate the REST
+        route asks (`Decision.authorize_action`): asking again for the same action answers how
+        it stands and records nothing new."""
+        _only(arguments, {"agent", "decision", "action", "arguments"})
+        agent, decision = arguments.get("agent"), arguments.get("decision")
+        name, given = arguments.get("action"), arguments.get("arguments", {})
+        if not isinstance(agent, str) or not agent:
+            raise ToolError("agent: give an agent's id (list_agents shows them)")
+        if not isinstance(decision, str) or not decision:
+            raise ToolError("decision: give the id of a decision made here (decide returns it)")
+        problem = actions.shape_problem(name, given)
+        if problem is not None:
+            raise ToolError(f"action: {problem}")
+        return self._decision(agent).authorize_action(decision, str(name), given)
+
     def _review_queue(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
         _only(arguments, {"agent", "limit"})
         agent, limit = arguments.get("agent"), arguments.get("limit", 20)
@@ -229,7 +279,7 @@ class McpServer:
 
 def _describe(pack: Pack) -> dict[str, Any]:
     m = pack.manifest
-    return {
+    described: dict[str, Any] = {
         "id": pack.id,
         "version": pack.version,
         "name": m.name,
@@ -241,10 +291,18 @@ def _describe(pack: Pack) -> dict[str, Any]:
             for key, question in m.questions.items()
         },
     }
+    if m.actions:  # what it may ask to have done (spec 0.4): authorize_action takes these names
+        described["actions"] = [
+            {"name": name, "description": spec.description, "effect": spec.effect.value}
+            for name, spec in m.actions.items()
+        ]
+    return described
 
 
 def _shown(result: DecisionResult) -> dict[str, Any]:
+    proposed = {} if result.actions is None else {"actions": [a.to_dict() for a in result.actions]}
     return {
+        **proposed,
         "id": result.id,
         "agent": result.pack_id,
         "version": result.pack_version,

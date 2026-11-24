@@ -181,6 +181,9 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/cds-services/{service_id}/feedback"): ("card.feedback",),
     (ENGINE, "POST", "/api/smart/decide"): ("decision.created",),
     (ENGINE, "POST", "/api/agents/{namespace}/{name}/pas"): ("pas.submitted",),  # on submit
+    # A caller's question about one action for a recorded decision (spec 0.4): chained the
+    # first time it is asked; asking again answers how it stands and chains nothing.
+    (ENGINE, "POST", "/api/agents/{namespace}/{name}/actions"): ("action.proposed",),
     # The registry's own chain (`hub_events`, LP-18b): only a namespace's publisher writes over
     # its routes (LP-19g); every other act is a reviewer's, below, or the operator's commands.
     (REGISTRY, "POST", "/v1/namespaces/{namespace}/keys"): ("key.added",),

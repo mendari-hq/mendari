@@ -48,7 +48,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mendari import __version__, guard, notices, settings
 from mendari.alerts import AlertSettings, alert_settings, check_webhook, deliver, retry_due
-from mendari.core import accounts, checkpoint, clock, packet, tenancy, validation_brief
+from mendari.core import accounts, actions, checkpoint, clock, packet, tenancy, validation_brief
 from mendari.core.audit import (
     ADMINISTRATIVE_KINDS,
     OFF_DECISION_KINDS,
@@ -68,7 +68,7 @@ from mendari.core.origin import is_local
 from mendari.core.pack import Pack
 from mendari.core.pack_store import PackStore
 from mendari.core.phi import phi_policy, require_protection
-from mendari.core.policy import GovernanceOverride
+from mendari.core.policy import GATE_TEXT, GovernanceOverride, gate_of
 from mendari.core.registry import SearchPath, discover, version_key
 from mendari.core.site_codes import site_codes
 from mendari.errors import (
@@ -281,6 +281,32 @@ class ReviewRequest(BaseModel):
         default=None,
         max_length=2000,
         description=_NOTE,
+    )
+    deny_actions: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(
+        default=[],
+        max_length=actions.MAX_PROPOSED * 4,
+        description="ids of this decision's held actions to refuse while confirming its "
+        "recommendation: each is denied (`reviewer_denied`), the others are released, and "
+        "`human_override` stays what the label makes it. An id that is no held action of this "
+        "decision refuses the review (409)",
+    )
+
+
+class ActionRequest(BaseModel):
+    """One action to authorize for a decision already recorded: the decision's id, the action's
+    name as the agent's manifest declares it, and its arguments."""
+
+    decision_id: str = Field(min_length=1, max_length=100)
+    name: str = Field(
+        pattern=actions.NAME_PATTERN,
+        description="the action, as the agent's manifest declares it",
+        examples=["assign_queue"],
+    )
+    arguments: dict[str, Any] = Field(
+        default={},
+        description="the arguments the action would be run with: checked against the action's "
+        f"schema, at most {actions.MAX_ARGUMENT_CHARS:,} characters as JSON; kept as inputs "
+        "are, never in the audit chain, which keeps their hash",
     )
 
 
@@ -1924,6 +1950,9 @@ def create_app(
             "leaderboard": None if pack.origin == "hub" else leaderboard.load(pack),
             "card_markdown": card_of(pack),
             "datasets": [*pack.manifest.evaluation.datasets, *local_datasets(pack)],
+            # What the agent may ask to have done (spec 0.4), each with how it is gated for
+            # this organization now. Absent for an agent that declares none.
+            **declared_actions(pack, vouched=decision.vouched()),
         }
 
     @paths.route(
@@ -2084,6 +2113,42 @@ def create_app(
             payload, shadow=_is_shadow(request, shadow)
         )
         return {"decision": result.to_dict(), "task": task, **NOTICE}
+
+    @app.post(
+        "/api/agents/{namespace}/{name}/actions",
+        tags=["Decisions"],
+        summary="Authorize an action",
+    )
+    def authorize_action(namespace: str, name: str, body: ActionRequest) -> dict[str, Any]:
+        """Ask whether one action the agent declares may be run, with these arguments, for a
+        decision already recorded. Mendari authorizes and records; it runs nothing: run the
+        action yourself, and only when `disposition` is `released`.
+
+        `disposition` is `released`, `held` (it waits for the decision's reviewer: ask again
+        later), `blocked` or `denied` (a reviewer refused it), with a `reason` code. **A blocked
+        action is not an HTTP error**, as a `BLOCK` decision is not: check `disposition`, not
+        only the status code. The gate is the one that judged the actions the agent proposed
+        with its answer: an effect that reads or drafts is released with any decision that is
+        not `BLOCK`; one that writes or contacts a patient only with an `AUTO` decision, or
+        once the decision's reviewer confirms it; an order never without a person. An action
+        the agent's manifest does not declare, or whose arguments do not match its schema, is
+        blocked.
+
+        **Asking again is safe.** The same action with the same arguments for the same
+        decision answers how it stands now, with `repeated: true`, and records nothing new: so
+        this is the check to make right before running a tool, and how a caller holding a held
+        action learns that a reviewer released it. A new action is recorded in the audit trail
+        (`action.proposed`) with who asked; the trail keeps the arguments' hash, never the
+        arguments, which are kept as the decision's input is.
+
+        A decision that is unknown, another organization's or another agent's is a `404`."""
+        pack_id = f"{namespace}/{name}"
+        pack_or_404(pack_id)
+        problem = actions.shape_problem(body.name, body.arguments)
+        if problem is not None:
+            raise HTTPException(422, problem)
+        found = decision_for(pack_id).authorize_action(body.decision_id, body.name, body.arguments)
+        return {**found, **NOTICE}
 
     @paths.route(
         app.get,
@@ -2579,13 +2644,19 @@ def create_app(
     )
     def resolve(decision_id: str, request: ReviewRequest, http: Request) -> dict[str, Any]:
         """Record a reviewer's final label for a decision in the queue: one of the labels of the
-        decision's question. A note is kept apart from the audit chain; the answer repeats it."""
+        decision's question. A note is kept apart from the audit chain; the answer repeats it.
+
+        The decision's held actions are resolved with it: **confirming the recommendation
+        releases them, overriding it denies them**, and `deny_actions` refuses some of them
+        while confirming the label. The answer lists each under `actions`, when there were
+        any. A release is final."""
         return store.resolve_review(
             decision_id,
             final_label=request.final_label,
             reviewer=acting_as(http, request.reviewer) or "",
             note=request.note,
             labels=question_labels,
+            deny_actions=request.deny_actions,
         )
 
     @app.get(
@@ -5107,6 +5178,32 @@ class _Static(StaticFiles):
 
 def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+
+
+def declared_actions(pack: Pack, *, vouched: bool) -> dict[str, Any]:
+    """An agent's declared actions as its detail shows them (`actions`): each with its effect,
+    its gate (`policy.gate_of`, for an agent the organization does or does not vouch for) and
+    the gate in words, and the names of its arguments (None: not checked). Nothing for an agent
+    that declares none, so its detail is what it was."""
+    declared = pack.manifest.actions
+    if not declared:
+        return {}
+    listed = []
+    for name, spec in declared.items():
+        gate = gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=vouched)
+        schema = spec.json_schema
+        listed.append(
+            {
+                "name": name,
+                "description": spec.description,
+                "effect": spec.effect.value,
+                "allow_auto": spec.allow_auto,
+                "gate": gate.value,
+                "released": GATE_TEXT[gate],
+                "arguments": None if schema is None else list(schema.get("properties") or {}),
+            }
+        )
+    return {"actions": listed}
 
 
 def _summary(pack: Pack) -> dict[str, Any]:

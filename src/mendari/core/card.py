@@ -12,6 +12,7 @@ from mendari import notices
 from mendari.core import clock
 from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
+from mendari.core.policy import GATE_TEXT, gate_of
 from mendari.core.spec import Condition, DeriveRow, Outcome, PackManifest, Question
 from mendari.evals import leaderboard, operating_point, ranking, stats
 from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
@@ -236,7 +237,9 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
             f"- Rule **{_t(rule.name)}**: {_condition(rule.when)} ⇒ "
             f"`{outcome.value}`{target}{priority}. {_t(rule.reason)}"
         )
-    out += [f"- Fallback (ABSTAIN / BLOCK): {_t(p.fallback)}", "", "## Providers", ""]
+    out += [f"- Fallback (ABSTAIN / BLOCK): {_t(p.fallback)}", ""]
+    out += _actions(pack)
+    out += ["## Providers", ""]
     out += ["| Slot | Answers | Default | Alternatives |", "|---|---|---|---|"]
     for slot, spec in m.providers.items():
         alternatives = ", ".join(
@@ -330,6 +333,44 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
 _PLAIN: ContextVar[bool] = ContextVar("card_plain_text", default=False)
 _PUNCTUATION = re.compile(r"([!-/:-@\[-`{-~])")  # every ASCII punctuation character
 _LINK = re.compile(r"^https?://[^\s()<>\[\]`\\|*_]+$")
+
+
+def _actions(pack: Pack) -> list[str]:
+    """The card's Actions section (spec 0.4): each action the agent may propose, what it does,
+    its effect and how the runtime gates it (`policy.gate_of`, in `policy.GATE_TEXT`'s words).
+    Nothing for an agent that declares none, so its card is what it always was."""
+    declared = pack.manifest.actions
+    if not declared:
+        return []
+    out = [
+        "## Actions",
+        "",
+        "What the agent may ask to have done, besides answer. Mendari authorizes each action "
+        "and runs none: the caller runs an action only when it was released, and every "
+        "proposal and its release or denial is in the audit trail. An action the agent "
+        "proposes that is not listed here is blocked, and its decision goes to a person. "
+        "Where the deployment has not vouched for the agent (a community agent, or one from a "
+        "registry before its organization approves its digest), nothing it proposes is "
+        "released without a person.",
+        "",
+        "| Action | Does | Effect | Released | Arguments |",
+        "|---|---|---|---|---|",
+    ]
+    for name, spec in declared.items():
+        gate = gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=not pack.community)
+        schema = spec.json_schema
+        named = list((schema or {}).get("properties") or {})
+        if schema is None:
+            arguments = "not checked"
+        elif named:
+            arguments = "checked: " + ", ".join(_c(key) for key in named)
+        else:
+            arguments = "checked: none taken"
+        out.append(
+            f"| {_c(name)} | {_t(spec.description)} | `{spec.effect.value}` | "
+            f"{GATE_TEXT[gate]} | {arguments} |"
+        )
+    return [*out, ""]
 
 
 def _t(value: Any) -> str:

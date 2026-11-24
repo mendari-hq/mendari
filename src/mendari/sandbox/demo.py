@@ -7,6 +7,11 @@ and has simulated reviewers work it, verifies the audit chain, then evaluates th
 responses (its `mock_file`) and does not detect urgent messages that are worded as a patient
 might say them: the evaluation is there to catch exactly that.
 
+Between the two it shows what the agent asks to do (spec 0.4): the demo agent declares two
+actions and its canned answers propose them. A write is released with an AUTO decision, a
+message to the patient is held until a reviewer confirms the decision, and an action the agent
+never declared is blocked. Mendari authorizes each and runs none.
+
 Then it probes the agent (`evals/probe.py`): some of the same cases, each rewritten in ways that
 keep its meaning, to find the failures no one wrote a case for. The probe's own report says
 whose answers it read: the fixture's, on this machine, and not an agent's.
@@ -23,7 +28,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mendari.core.audit import AuditStore
-from mendari.core.decision import Decision
+from mendari.core.decision import Decision, DecisionResult
 from mendari.evals import evaluate, probe, probe_report, resolve_dataset
 from mendari.evals.operating_point import NONE_CERTIFIED, RECOMMENDED, SUPPORTED, Targets
 from mendari.evals.render import shown
@@ -54,6 +59,8 @@ NEXT = (
 # A URL, not a folder: an installed Mendari has no `examples/` beside it. The folder of every
 # starter, since product code names no model's vendor (tests/test_shipped.py).
 EXAMPLES = "https://github.com/mendari-hq/mendari/tree/main/examples"
+# An action the demo agent's manifest does not declare, asked for one of its decisions.
+UNDECLARED = ("renew_prescription", {"days_supply": 90})
 MODEL = f"A model answers behind MENDARI_AGENT_URL: the starters are at {EXAMPLES}"
 _WIDTH = 100
 
@@ -76,8 +83,10 @@ def _run(store: AuditStore) -> None:
     print(f"providers: {providers}  (canned answers offline; set MENDARI_AGENT_URL for yours)")
 
     _section("1. Patient messages, through the agent and its policy")
+    decided = []
     for body in SAMPLES:
         result = agent({"message": {"body": body}})
+        decided.append(result)
         confidence = "  -  " if result.confidence is None else f"{result.confidence:.2f}"
         target = result.recommendation or "(front desk)"
         print(
@@ -85,6 +94,9 @@ def _run(store: AuditStore) -> None:
             f"{body[:56]}{'…' if len(body) > 56 else ''}"
         )
     print("The last-but-one message describes chest pain in other words; see section 3.")
+
+    _section("Actions: what the agent asks to do")
+    _actions(agent, store, decided)
 
     _section("2. The review queue and the audit trail")
     test = resolve_dataset(pack, "test")
@@ -143,6 +155,38 @@ def _run(store: AuditStore) -> None:
     for command, what in NEXT:
         print(f"  {command:<{column}}{what}")
     print(f"  {MODEL}")
+
+
+def _actions(agent: Decision, store: AuditStore, decided: Sequence[DecisionResult]) -> None:
+    """What may be done with the actions the agent proposed with the messages above, in four
+    lines: one released with an automated decision, one held for a decision's reviewer, the same
+    one once the reviewer confirms, and one the agent never declared, asked for afterwards."""
+    print("Mendari authorizes each action and runs none: your caller runs what is released.")
+    automated = next(result for result in decided if result.outcome.value == "AUTO")
+    reviewed = next(
+        result
+        for result in decided
+        if any(action.disposition == "held" for action in result.actions or ())
+        and len(result.actions or ()) > 1
+    )
+    write = next(a for a in automated.actions or () if a.disposition == "released")
+    contact = next(a for a in reviewed.actions or () if a.effect == "contact")
+    _line(write.disposition, write.name, write.effect, "with the AUTO decision on message 1")
+    position = decided.index(reviewed) + 1
+    waits = f"message {position} waits for a reviewer"
+    _line(contact.disposition, contact.name, contact.effect, waits)
+    confirmed = store.resolve_review(
+        reviewed.id, final_label=str(reviewed.recommendation), reviewer="demo-nurse"
+    )
+    after = next(a for a in confirmed["actions"] if a["id"] == contact.id)
+    _line(after["disposition"], after["name"], after["effect"], "the reviewer confirmed it")
+    asked = agent.authorize_action(automated.id, *UNDECLARED)
+    _line(asked["disposition"], "an action the agent never declared", None, "asked for message 1")
+
+
+def _line(disposition: str, name: str, effect: Any, why: str) -> None:
+    what = name if effect is None else f"{name} ({getattr(effect, 'value', effect)})"
+    print(f"{disposition:<9} {what:<36} {why}")
 
 
 def verdict(point: Mapping[str, Any], critical: Sequence[Mapping[str, Any]]) -> str:
