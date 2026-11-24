@@ -134,9 +134,6 @@ ALLOWED: dict[tuple[str, str], str] = {
         "/smart/launch?pack=<agent id>",
     ): "the launch route's query parameter is `pack` (`server/smart_routes.py`): a name on the "
     "wire, which an EHR's registered launch address may hold, renamed with the wire names",
-    ("docs/spec/provider-configs.schema.json", "the pack file its config is in"): "generated "
-    "from a docstring of `mendari.providers` (scripts/provider_config_schema.py; "
-    "tests/test_provider_configs.py holds the file to it): reworded where the docstring is",
 }
 
 

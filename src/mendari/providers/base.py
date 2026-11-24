@@ -24,8 +24,8 @@ T = TypeVar("T")
 
 
 class FileConfig(BaseModel):
-    """A `rules`, `criteria` or `dosing` variant: its type and the pack file its config is in,
-    and nothing else (`Provider.config_problems`)."""
+    """A `rules`, `criteria` or `dosing` variant: its type and the file of the agent its config
+    is in, and nothing else (`Provider.config_problems`)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
