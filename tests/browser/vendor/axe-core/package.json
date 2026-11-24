@@ -4,6 +4,6 @@
   "description": "axe-core for the browser tests' accessibility checks, vendored (never installed): Dependabot proposes updates here, and scripts/vendor_docs_ui.py fetches the pinned version and checks it.",
   "license": "MPL-2.0",
   "dependencies": {
-    "axe-core": "4.14.0"
+    "axe-core": "4.14.1"
   }
 }
