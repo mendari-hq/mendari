@@ -6,8 +6,8 @@
         [--summary "$GITHUB_STEP_SUMMARY"]
 
 - A pull request that changes no community pack (nor `MAINTAINERS.yaml`) passes at once;
-  `community-packs/README.md` is documentation.
-- One that does, and anything outside one `community-packs/<name>/` folder (its
+  `community-agents/README.md` is documentation.
+- One that does, and anything outside one `community-agents/<name>/` folder (its
   `MAINTAINERS.yaml` aside), fails, unless the repository's owner made it: the pull request's
   author (`--actor`, never whoever caused the run) is the one person the `*` rule of
   `.github/CODEOWNERS` names in the base (never the pull request's own copy, which could name
@@ -15,7 +15,7 @@
   repository (`--head-repo` is `--repo`); and it is into the default branch (`--base-ref` is
   `--default-branch`), whose CODEOWNERS changes only with a code owner's approval. A rule
   naming a team, an email or several people names no owner.
-- A git submodule anywhere in `community-packs/` fails: its files are another repository's,
+- A git submodule anywhere in `community-agents/` fails: its files are another repository's,
   which no check here reads.
 - Each changed community pack is checked (`mendari.community.check`), against the base for
   regressions and the version bump. Only the owner removes a pack, and a removed pack needs its

@@ -38,15 +38,20 @@ def test_a_new_pack_works_as_written(tmp_path: Path, capsys: pytest.CaptureFixtu
 
 
 def test_the_template_is_yaml_only_and_says_where_the_guide_is() -> None:
-    from mendari.cli import TEMPLATE
+    """What `mendari new` writes: the files every new agent starts with, and over them either
+    the agent's manifest and offline fixture or the community agent's manifest and files."""
+    from mendari.cli import AGENT_TEMPLATE, COMMUNITY_TEMPLATE, TEMPLATE
 
     suffixes = {p.suffix for p in TEMPLATE.rglob("*") if p.is_file()}
     assert suffixes <= {".yaml", ".json", ".jsonl"}  # nothing to program
-    manifest = yaml.safe_load(
-        (TEMPLATE / "agent.yaml").read_text().replace("{{", "").replace("}}", "")
-    )
-    assert manifest["spec_version"] == "0.2"
-    assert AUTHORING_GUIDE in (TEMPLATE / "agent.yaml").read_text()
+    # The files every new agent starts with hold no manifest: it is one of the two laid over
+    # them, so none is written only to be replaced.
+    assert not (TEMPLATE / "agent.yaml").exists()
+    for template in (AGENT_TEMPLATE, COMMUNITY_TEMPLATE):
+        text = (template / "agent.yaml").read_text()
+        manifest = yaml.safe_load(text.replace("{{", "").replace("}}", ""))
+        assert manifest["spec_version"] == "0.2"
+        assert AUTHORING_GUIDE in text
 
 
 def test_the_guide_url_names_the_guide_in_this_repository() -> None:

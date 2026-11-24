@@ -20,7 +20,7 @@ from mendari.standards.fhir import FhirAdapter
 from tests.support import fixture_data, synthetic_trial
 
 ROOT = Path(__file__).parents[1]
-PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / "clinical-trial-prescreener"
+PACK_DIR = ROOT / "tests" / "fixtures" / "reference-agents" / "clinical-trial-prescreener"
 TODAY = clock.today()  # the engine's day (the display time zone), not the system's
 
 

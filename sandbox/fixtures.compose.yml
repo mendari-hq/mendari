@@ -6,7 +6,7 @@
 #   docker compose $F --profile signin up -d --wait engine launcher engine-signin
 #
 # The sandbox itself runs on the agent the image bundles. This file adds the agents the tests
-# keep (tests/fixtures/reference-packs, with their datasets), so that what the demo agent has no
+# keep (tests/fixtures/reference-agents, with their datasets), so that what the demo agent has no
 # use for is still exercised end to end: a SMART launch on orders, a Bulk export of a record,
 # and the standard CDS hooks (`patient-view`, `order-sign`) on a vendor-shaped EHR profile.
 #
@@ -15,16 +15,16 @@
 # cases and the EHR profile (tests/support/sandbox.py) runs in the engine's image:
 #
 #   docker compose $F exec -T engine python -m tests.support.sandbox seed \
-#     --fhir http://fhir:8080/fhir --agent tests/fixtures/reference-packs/referral-router
+#     --fhir http://fhir:8080/fhir --agent tests/fixtures/reference-agents/referral-router
 #   docker compose $F exec -T engine mendari sandbox smart-launch --engine http://engine:8000 \
 #     --launcher http://launcher --fhir http://fhir:8080/fhir \
-#     --agent tests/fixtures/reference-packs/referral-router
+#     --agent tests/fixtures/reference-agents/referral-router
 #
 # Paths here are relative to the first file given (docker-compose.yml: the repository's root).
 
 x-fixtures: &fixtures
   environment:
-    MENDARI_AGENTS_PATH: tests/fixtures/reference-packs
+    MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
     MENDARI_DATASETS_PATH: tests/fixtures/datasets
   volumes:
     - ./tests:/home/mendari/tests:ro

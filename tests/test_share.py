@@ -424,7 +424,7 @@ def _composite_run(tmp_path: Path) -> tuple[Pack, Evaluation]:
     would take the reference pack's place)."""
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["version"] = "9.9.9"
     variants = manifest["providers"]["router"]["variants"]
     variants["nb_then_rules"] = {
@@ -432,7 +432,7 @@ def _composite_run(tmp_path: Path) -> tuple[Pack, Evaluation]:
         "accept_at": 0.9,
         "members": {"naive_bayes": variants["naive_bayes"], "rules": variants["rules"]},
     }
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     pack = load_pack(root)
     decision = Decision(pack, providers={"router": "nb_then_rules", **SCREENED})
     return pack, evaluation(decision, resolve_dataset(pack, "test"))

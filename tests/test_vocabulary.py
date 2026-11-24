@@ -14,8 +14,10 @@ docs, the README, a front end) by adding one entry to that list.
   renaming them is its own versioned change (the plan's wave 6). A wire name may be a
   parameter's or a property's name in the API description, and prose may name it as code
   (`` `pack` ``) or as a JSON key (`"pack":`).
-- `KEPT_NAMES`: names of things that exist under their old name until a later step moves them.
-- `KEPT_SCHEMAS`: Python classes whose names an API description shows as its schemas' names.
+- `KEPT_NAMES`: identifiers that hold the old word and are not words: canonical URLs that stored
+  FHIR resources carry.
+- `KEPT_SCHEMAS`: Python classes whose names an API description shows as its schemas' names
+  (none now: the one there was is listed under a title, `server/api_docs.py` `titled`).
 - `ALLOWED`: the few texts that name something from before on purpose.
 - `NOT_READ`: files of the product this test does not read, each with who does.
 
@@ -24,6 +26,7 @@ docs, the README, a front end) by adding one entry to that list.
 from __future__ import annotations
 
 import ast
+import json
 import re
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -71,13 +74,9 @@ _AS_CODE = re.compile(
     + r"|^(?:\w+\.)*packs?(?:\.\w+)*:(?=\s)"
     + r"|`pack\.[a-z_]+`"
 )
-# Names that stay until a later step of the plan moves what they name; each with the step.
+# Identifiers, not words: canonical URLs that decisions' stored FHIR resources carry (a Task's
+# tag, an AuditEvent's agent, a coding's system) and other systems hold.
 KEPT_NAMES = {
-    "community-packs": "the repository's folder of community agents: renamed with the fixtures "
-    "(`community-agents/`), wave 1's trim",
-    "reference-packs": "tests/fixtures/reference-packs: moved by wave 1's trim",
-    # Identifiers, not words: canonical URLs that decisions' stored FHIR resources carry (a
-    # Task's tag, an AuditEvent's agent, a coding's system) and other systems hold.
     "CodeSystem/decision-pack": "the CodeSystem of agent versions, by its canonical URL",
     "NamingSystem/decision-pack": "the identifier system of agent ids, by its canonical URL",
     "mendari.co/packs": "the canonical URLs of an agent's FHIR terminology, schema and library",
@@ -113,6 +112,8 @@ def test_the_rule() -> None:
         "mendari-pack.json",
         "--pack",
         "the `packs` and a pack",
+        "community-packs/<name>/",
+        "tests/fixtures/reference-packs/",
     ):
         assert offences(said), said
     for said in (
@@ -126,8 +127,8 @@ def test_the_rule() -> None:
         "PackValidationError",
         "resolve_pack",
         "MENDARI_PACKS_PATH",
-        "community-packs/<name>/",
-        "tests/fixtures/reference-packs/",
+        "community-agents/<name>/",
+        "tests/fixtures/reference-agents/",
         "https://mendari.co/fhir/CodeSystem/decision-pack|{namespace}/{name}@{version}",
         "under its own url, https://mendari.co/packs/community/<name>/",
         "Chained `pack.yanked` with your id",
@@ -389,7 +390,7 @@ def _scaffolded(tmp_path: Path) -> Iterator[tuple[str, Path]]:
     made = {
         "mendari new": (tmp_path / "plain" / "refills", ["--id", "my-clinic/refills"]),
         "mendari new --agent": (tmp_path / "agent" / "refills", ["--agent", "--id", "a/refills"]),
-        "mendari new --community": (tmp_path / "community-packs" / "refills", ["--community"]),
+        "mendari new --community": (tmp_path / "community-agents" / "refills", ["--community"]),
     }
     for shown, (target, flags) in made.items():
         assert main(["new", str(target), *flags, "--publisher", "My Clinic"]) == 0, shown
@@ -472,11 +473,10 @@ def test_every_allowed_text_is_still_there_and_still_needs_allowing(
 
 
 # A schema's name in an API description is its Python class's, and classes are not renamed here
-# (module docstring): the ones that hold the old word, each with why it is shown at all.
-KEPT_SCHEMAS = {
-    "SharedPack": "the `pack` field of a shared evaluation report (`evals/share.py`), a signed "
-    "record's model: renamed with the Python identifiers (wave 6)",
-}
+# (module docstring). A class that holds the old word sets a title, and the description lists it
+# under that (`server/api_docs.py` `titled`), so none needs keeping: an entry here would be a
+# class shown under its own name, with why it is shown at all.
+KEPT_SCHEMAS: dict[str, str] = {}
 
 
 @pytest.mark.parametrize("document", API_DOCUMENTS)
@@ -508,6 +508,30 @@ def test_every_kept_schema_is_still_shown(tmp_path: Path, monkeypatch: pytest.Mo
     for name, reason in KEPT_SCHEMAS.items():
         assert reason.strip() and old_name(name), name
         assert name in shown, f"{name} is no longer a schema: take it off the list"
+
+
+def test_a_class_named_for_the_old_word_is_listed_under_its_title(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The model of a shared record's `pack` key: its Python class and the key it types keep
+    their names (signed records hold the key), and the API description lists the schema under
+    the title the model sets, with every reference to it following."""
+    from mendari.evals.share import SharedPack, SiteReport
+    from mendari.server import api_docs
+
+    assert SharedPack.__name__ == "SharedPack" and SharedPack in api_docs.TITLED
+    assert "pack" in SiteReport.model_fields  # the key on the wire, unchanged
+    whole = API_DOCUMENTS["the engine's API description, everything on"](tmp_path, monkeypatch)
+    schemas = whole["components"]["schemas"]
+    assert "SharedPack" not in schemas and schemas["SharedAgent"]["title"] == "SharedAgent"
+    assert set(schemas["SharedAgent"]["properties"]) == {"id", "version", "digest"}
+    references = set(re.findall(r'"#/components/schemas/([^"]+)"', json.dumps(whole)))
+    assert "SharedAgent" in references and "SharedPack" not in references
+    assert references <= set(schemas)  # every reference names a schema that is listed
+    # A title another schema already has is left alone, and a document without the model too.
+    taken: dict[str, Any] = {"components": {"schemas": {"SharedPack": {}, "SharedAgent": {}}}}
+    assert api_docs.titled(taken) == taken
+    assert api_docs.titled({"paths": {}}) == {"paths": {}}
 
 
 # The wire names each API description types (the others are keys of answers it leaves untyped).

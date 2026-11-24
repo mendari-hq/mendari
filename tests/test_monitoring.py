@@ -635,7 +635,7 @@ def test_the_cli_checks_the_newest_version_of_each_pack(
 ) -> None:
     copied = tmp_path / "older"
     shutil.copytree(inbox_pack.root, copied)
-    manifest = copied / "pack.yaml"
+    manifest = copied / "agent.yaml"
     manifest.write_text(
         manifest.read_text().replace(f"version: {inbox_pack.version}", "version: 0.0.1")
     )

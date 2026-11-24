@@ -14,7 +14,7 @@ from mendari.errors import FhirError
 from mendari.standards import cds_hooks
 from mendari.standards.fhir import FhirAdapter
 
-MINI = Path(__file__).parent / "fixtures" / "packs" / "referral-mini"
+MINI = Path(__file__).parent / "fixtures" / "mini-agents" / "referral-mini"
 REFERRAL = {"system": "http://snomed.info/sct", "code": "3457005"}
 LAB = {"system": "http://snomed.info/sct", "code": "108252007"}
 

@@ -301,8 +301,8 @@ def test_a_ledger_on_an_older_digest_is_kept_and_not_rerun(
     # The pack changes after the result was stored: another digest, the same sets.
     copy = tmp_path / "inbox-changed"
     shutil.copytree(inbox.root, copy)
-    manifest = (copy / "pack.yaml").read_text(encoding="utf-8")
-    (copy / "pack.yaml").write_text(f"{manifest}# Changed after its result was stored.\n")
+    manifest = (copy / "agent.yaml").read_text(encoding="utf-8")
+    (copy / "agent.yaml").write_text(f"{manifest}# Changed after its result was stored.\n")
     changed = load_pack(copy)
     assert changed.digest != inbox.digest
 
@@ -451,10 +451,10 @@ def test_the_store_is_run_and_checked_against_the_repositorys_packs(
     name = stored(store, inbox)
     copy = tmp_path / "elsewhere" / "patient-inbox-router"
     shutil.copytree(inbox.root, copy)
-    manifest = (copy / "pack.yaml").read_text(encoding="utf-8")
+    manifest = (copy / "agent.yaml").read_text(encoding="utf-8")
     newer = re.sub(r"^version: .*$", "version: 99.0.0", manifest, count=1, flags=re.M)
     assert newer != manifest
-    (copy / "pack.yaml").write_text(newer, encoding="utf-8")
+    (copy / "agent.yaml").write_text(newer, encoding="utf-8")
     monkeypatch.setenv("MENDARI_PACKS_PATH", str(copy.parent))
     assert resolve_pack(INBOX).root == copy.resolve()
     assert results_store.maintained_pack(INBOX).digest == inbox.digest

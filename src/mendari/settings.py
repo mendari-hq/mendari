@@ -229,7 +229,7 @@ def enabled_packs() -> frozenset[str]:
 
 
 def community_packs_enabled() -> bool:
-    """$MENDARI_COMMUNITY_AGENTS: `on` serves the agents in `community-packs/` (contributed by
+    """$MENDARI_COMMUNITY_AGENTS: `on` serves the agents in `community-agents/` (contributed by
     pull request; they never automate); `off` or unset (the default) serves none of them, even
     where `MENDARI_AGENTS_PATH` names that folder. Read as `MENDARI_COMMUNITY_PACKS` while
     unset, the name it had before (`legacy.setting`)."""

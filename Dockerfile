@@ -56,9 +56,9 @@ USER mendari
 WORKDIR /home/mendari
 
 # An image built for one agent serves only that agent:
-# docker build --build-arg PACK=mendari/portal-message-agent .
-ARG PACK=""
-ENV MENDARI_AGENTS=${PACK}
+# docker build --build-arg AGENT=mendari/portal-message-agent .
+ARG AGENT=""
+ENV MENDARI_AGENTS=${AGENT}
 # `licenses` names Mendari's own licence only; the description says the rest is under others.
 LABEL org.opencontainers.image.title="Mendari engine" \
       org.opencontainers.image.description="Governance and evaluation engine for healthcare AI agents: REST, FHIR, CDS Hooks, review queue, audit, dashboard. Mendari application code: Apache-2.0. Container includes third-party software under additional licenses. See /licenses and /licenses/THIRD_PARTY_NOTICES.md." \

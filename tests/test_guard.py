@@ -17,7 +17,7 @@ from mendari.guard import check
 from mendari.server.app import create_app
 from tests.conftest import INBOX_DIR
 
-MINI = Path(__file__).parent / "fixtures" / "packs" / "guard-mini"
+MINI = Path(__file__).parent / "fixtures" / "mini-agents" / "guard-mini"
 SAFE = {"question": "Can I take something for a headache?",
         "draft": "You can take 500 mg of acetaminophen every 6 hours."}  # fmt: skip
 OVERDOSE = {**SAFE, "draft": "Take 1000 mg of acetaminophen every 4 hours."}
@@ -58,7 +58,7 @@ def test_invalid_input_is_blocked_and_packs_without_a_guard_refuse() -> None:
 
 
 def test_guard_section_is_validated() -> None:
-    raw = yaml.safe_load((MINI / "pack.yaml").read_text())
+    raw = yaml.safe_load((MINI / "agent.yaml").read_text())
     raw["guard"]["release"] = ["pass", "maybe"]
     with pytest.raises(
         ValidationError, match=r"guard.release names unknown recommendations \['maybe'\]"

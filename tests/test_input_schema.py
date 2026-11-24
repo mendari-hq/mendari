@@ -190,7 +190,7 @@ def test_local_references_and_the_root_dialect_still_work(inbox: Path) -> None:
 
 def test_every_shipped_input_schema_is_self_contained() -> None:
     for root in sorted(INBOX_DIR.parent.iterdir()):
-        if (root / "pack.yaml").is_file():
+        if (root / "agent.yaml").is_file():
             assert input_schema.problems(load_pack(root).input_schema) == [], root.name
 
 
@@ -451,13 +451,13 @@ def test_every_shipped_schema_is_within_the_expansion_bounds() -> None:
     chain (16) and 2 schema objects on one value (1,000)."""
     found = sorted(
         [
-            *ROOT.glob("tests/fixtures/reference-packs/*/schemas/*.json"),
+            *ROOT.glob("tests/fixtures/reference-agents/*/schemas/*.json"),
             *ROOT.glob("src/mendari/templates/*/schemas/*.json"),
             *ROOT.glob("tests/fixtures/**/schemas/*.json"),
         ]
     )
     assert len(found) >= 11
-    assert not (ROOT / "src" / "mendari" / "templates" / "community_pack" / "schemas").exists()
+    assert not (ROOT / "src" / "mendari" / "templates" / "community" / "schemas").exists()
     for path in found:
         schema = json.loads(path.read_text())
         assert input_schema.expansion_problems(schema) == [], path
@@ -467,5 +467,5 @@ def test_every_shipped_schema_is_within_the_expansion_bounds() -> None:
         assert input_schema._nesting(schema) <= 6 and chain <= 1 and applications <= 2, path
         assert not any(node.unevaluated for node in _graph(schema)), path  # none uses either
     for root in sorted(INBOX_DIR.parent.iterdir()):
-        if (root / "pack.yaml").is_file():
+        if (root / "agent.yaml").is_file():
             assert input_schema.expansion_problems(load_pack(root).input_schema) == [], root.name

@@ -20,7 +20,7 @@ from mendari.standards import fhir_structure
 
 ROOT = Path(__file__).parents[1]
 DASHBOARD = ROOT / "src" / "mendari" / "dashboard"
-GUARD_MINI = Path(__file__).parent / "fixtures" / "packs" / "guard-mini"
+GUARD_MINI = Path(__file__).parent / "fixtures" / "mini-agents" / "guard-mini"
 
 pytestmark = pytest.mark.core
 

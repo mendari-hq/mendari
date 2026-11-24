@@ -3498,11 +3498,13 @@ def cmd_evalset_show(args: argparse.Namespace) -> int:
     return 0
 
 
-TEMPLATE = Path(__file__).resolve().parent / "templates" / "new_pack"
+# What every new agent starts with (examples, rules, the input schema, tests); its manifest
+# comes from one of the two laid over it.
+TEMPLATE = Path(__file__).resolve().parent / "templates" / "base"
 # Laid over TEMPLATE by `mendari new --community`: the community defaults.
-COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community_pack"
+COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community"
 # Laid over TEMPLATE by `mendari new` otherwise: an AI agent with an offline mock fixture.
-AGENT_TEMPLATE = Path(__file__).resolve().parent / "templates" / "agent_pack"
+AGENT_TEMPLATE = Path(__file__).resolve().parent / "templates" / "agent"
 # A URL, not a path: `mendari new` runs anywhere, mostly outside a checkout of the repository.
 AUTHORING_GUIDE = (
     "https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md"
@@ -4765,7 +4767,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="archive_command", required=True
     )
     parser.renamed["pack"] = "archive"
-    build_pack = pack_cmd.add_parser("build", help="build a signed .ohpack archive")
+    build_pack = pack_cmd.add_parser("build", help="build a signed .mendari archive")
     _agent_argument(build_pack, "namespace/name[@version] or a directory")
     build_pack.add_argument("--key", required=True, help="publisher private key (PEM)")
     build_pack.add_argument("--out", default="dist", help="directory for the archive")

@@ -257,7 +257,7 @@ def test_the_documents_evidence_table_is_what_the_code_gives() -> None:
     for pack, count in CRITICAL_LABELS.items():
         manifest = yaml.safe_load(
             (
-                ROOT / "tests" / "fixtures" / "reference-packs" / pack.split("/")[1] / "pack.yaml"
+                ROOT / "tests" / "fixtures" / "reference-agents" / pack.split("/")[1] / "agent.yaml"
             ).read_text()
         )
         assert manifest["id"] == pack and len(manifest["evaluation"]["critical"]) == count

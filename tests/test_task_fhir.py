@@ -195,7 +195,7 @@ def test_every_shipped_block_rule_targets_the_primary_question() -> None:
     refused input. No shipped pack has one; a pack that adds one needs a `rejected` column."""
     blocks = 0
     for manifest_path in sorted(
-        (ROOT / "tests" / "fixtures" / "reference-packs").glob("*/pack.yaml")
+        (ROOT / "tests" / "fixtures" / "reference-agents").glob("*/agent.yaml")
     ):
         policy = load_pack(manifest_path.parent).manifest.policy
         for rule in policy.rules:

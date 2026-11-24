@@ -33,8 +33,8 @@ def community_site(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     """The shipped packs and two community packs (the test fixture, and the scaffold as the
     guide makes it), as a deployment with MENDARI_COMMUNITY_PACKS=on serves them."""
     tmp = Path(tmp_path_factory.mktemp("community"))
-    base = tmp / "community-packs"
-    fixture = ROOT / "tests" / "fixtures" / "community-packs" / "visit-sorter"
+    base = tmp / "community-agents"
+    fixture = ROOT / "tests" / "fixtures" / "community-agents" / "visit-sorter"
     shutil.copytree(fixture, base / "visit-sorter")
     scaffold = ["new", str(base / "refill-router"), "--community", "--publisher", "Test Clinic"]
     assert main(scaffold) == 0

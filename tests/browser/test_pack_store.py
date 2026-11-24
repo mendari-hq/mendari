@@ -202,9 +202,9 @@ def _signed(site: Site, tmp_path: Path, extra_case: dict[str, object]) -> bytes:
         )
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"] = f"{CLINIC_B}/uploaded"
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     cases = root / "tests" / "cases.yaml"
     case = {"name": "planted", "input": extra_case, "expect": {"not_outcome": "BLOCK"}}
     cases.write_text(cases.read_text() + "\n" + yaml.safe_dump([case], sort_keys=False))

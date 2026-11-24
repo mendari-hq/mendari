@@ -37,7 +37,7 @@ START = datetime(2026, 9, 28, tzinfo=UTC)
 ORGS = ("clinic-a", "clinic-b", "default")
 LABELS = ("front_desk", "nurse", "physician", "billing", "medical_assistant")
 PACK_TAG = "mendari/patient-inbox-router"
-PACK_VERSION = yaml.safe_load((INBOX_DIR / "pack.yaml").read_text())["version"]
+PACK_VERSION = yaml.safe_load((INBOX_DIR / "agent.yaml").read_text())["version"]
 
 
 class Clock:

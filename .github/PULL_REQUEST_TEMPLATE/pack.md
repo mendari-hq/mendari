@@ -1,6 +1,6 @@
-<!-- A community pack: community-packs/<name>/, id community/<name>. The guide:
+<!-- A community pack: community-agents/<name>/, id community/<name>. The guide:
      docs/guides/contributing-an-agent.md. Change only your pack's folder and its entry in
-     community-packs/MAINTAINERS.yaml, and sign off every commit (git commit -s).
+     community-agents/MAINTAINERS.yaml, and sign off every commit (git commit -s).
      Never paste real patient data here or anywhere in the pack. -->
 
 ## The pack
@@ -45,7 +45,7 @@
 
 ## Checks
 
-- [ ] `uv run mendari community-check community-packs/<name> --base origin/main` passes.
+- [ ] `uv run mendari community-check community-agents/<name> --base origin/main` passes.
 - [ ] `CHANGELOG.md` has an entry for this version (an update raises the version).
-- [ ] My entry in `community-packs/MAINTAINERS.yaml` lists who answers for the pack.
+- [ ] My entry in `community-agents/MAINTAINERS.yaml` lists who answers for the pack.
 - [ ] Every commit is signed off (Developer Certificate of Origin).

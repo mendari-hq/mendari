@@ -292,9 +292,9 @@ def _outside_trial(root: Path, header: str) -> Pack:
     """An outside copy of the trial pack whose library declares `header` and answers 'yes'."""
     pack = root / "outsider"
     shutil.copytree(resolve_pack(TRIAL).root, pack)
-    manifest = yaml.safe_load((pack / "pack.yaml").read_text())
+    manifest = yaml.safe_load((pack / "agent.yaml").read_text())
     manifest["id"] = "outsider/evil-trial"
-    (pack / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (pack / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     library = pack / "logic" / "criteria.cql"
     text = library.read_text().replace("library GlycemiaTwoCriteria version '0.4.0'", header)
     library.write_text(text + "\n// EVIL\n")

@@ -27,7 +27,7 @@ from tests.support import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-AGENTS = ROOT / "tests" / "fixtures" / "reference-packs"
+AGENTS = ROOT / "tests" / "fixtures" / "reference-agents"
 DATASETS = ROOT / "tests" / "fixtures" / "datasets"
 # kind: (its generator, its agent's folder, its local-site example).
 KINDS: dict[str, tuple[ModuleType, Path, Path]] = {

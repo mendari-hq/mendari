@@ -119,7 +119,7 @@ def test_the_population_report_suppresses_small_cells() -> None:
 def test_a_dataset_evaluates_the_same_through_omop(tmp_path: Path) -> None:
     source = (
         Path(__file__).resolve().parents[1]
-        / "tests/fixtures/reference-packs/clinical-trial-prescreener/data"
+        / "tests/fixtures/reference-agents/clinical-trial-prescreener/data"
     )
     result = omop_check.run(source / "exclusions.jsonl", TRIAL)
     assert result["identical"] is True and result["cases"] == result["people"] > 0

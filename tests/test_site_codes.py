@@ -74,10 +74,10 @@ def site_pack(base: Path, *, level: int = 1) -> Path:
     root = mini(
         base / "packs", {"code_sets": CODE_SETS, "lists": {"conditions": CONDITIONS}}, spec="0.3"
     )
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["risk"]["level"] = level
     manifest["policy"]["thresholds"]["auto"] = 0.8
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     return root
 
 
@@ -569,7 +569,7 @@ def test_a_decision_made_through_a_site_code_is_never_automated(
     # A rule's BLOCK on a value read through a translation goes to a person too: a block is
     # final at once and seen by nobody. The same rule on the pack's own code still blocks.
     blocking = site_pack(tmp_path / "block")
-    manifest = yaml.safe_load((blocking / "pack.yaml").read_text())
+    manifest = yaml.safe_load((blocking / "agent.yaml").read_text())
     manifest["policy"]["rules"] = [
         {
             "name": "t2d_stop",
@@ -578,7 +578,7 @@ def test_a_decision_made_through_a_site_code_is_never_automated(
             "reason": "a fixture's block",
         }
     ]
-    (blocking / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (blocking / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     blocker = decision_of(blocking, maps)
     blocked, _ = blocker.decide_fhir(coded(ICD, "E11.9"))
     to_person, _ = blocker.decide_fhir(coded(SITE, SITE_CODE))

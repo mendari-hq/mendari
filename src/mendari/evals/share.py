@@ -79,6 +79,12 @@ class _Closed(BaseModel):
 
 
 class SharedPack(_Closed):
+    """The agent a shared record is about (its `pack` key): its id, version and digest."""
+
+    # What an API description calls this schema (`server/api_docs.py` `titled`); the class and
+    # the `pack` key it types keep their names, as the signed records that hold them do.
+    model_config = ConfigDict(title="SharedAgent")
+
     id: Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}/[a-z0-9][a-z0-9-]{0,62}$")]
     version: Annotated[str, Field(pattern=r"^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$")]
     digest: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]

@@ -18,7 +18,7 @@ from mendari.core.origin import Origin
 from mendari.core.spec import PREFETCH, prefetch_problems
 from mendari.errors import PackValidationError
 from mendari.evals.pack_tests import validate_pack
-from tests.conftest import INBOX_DIR, ROOT
+from tests.conftest import INBOX_DIR, fixture_agents
 from tests.test_fhir_lists import BUNDLE, MINI
 
 
@@ -27,9 +27,9 @@ def with_prefetch(tmp_path: Path, template: str) -> Path:
     `patient` prefetch template replaced."""
     root = tmp_path / "pack"
     shutil.copytree(MINI, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["cds_hooks"]["prefetch"]["patient"] = template
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     return root
 
 
@@ -80,10 +80,10 @@ def test_every_shipped_prefetch_template_is_a_relative_read_or_search() -> None:
     """The reference packs' 16 templates and the fixtures': each a read or a search, so none is
     warned of, and none would be refused from a registry."""
     found = []
-    roots = [p for p in sorted(INBOX_DIR.parent.iterdir()) if (p / "pack.yaml").is_file()]
-    roots += sorted(p.parent for p in (ROOT / "tests" / "fixtures").glob("**/pack.yaml"))
+    roots = [p for p in sorted(INBOX_DIR.parent.iterdir()) if (p / "agent.yaml").is_file()]
+    roots += fixture_agents()
     for root in roots:
-        origin: Origin = "community" if root.parent.name == "community-packs" else "local"
+        origin: Origin = "community" if root.parent.name == "community-agents" else "local"
         hooks = load_pack(root, origin=origin).manifest.cds_hooks
         assert prefetch_problems(hooks) == [], root
         found += [] if hooks is None else list(hooks.prefetch.values())

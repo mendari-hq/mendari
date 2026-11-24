@@ -81,14 +81,14 @@ jobs:
       - name: The test fixtures' agents pass their behaviour tests
         if: matrix.python == '3.12'
         env:
-          MENDARI_AGENTS_PATH: tests/fixtures/reference-packs
+          MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
           MENDARI_DATASETS_PATH: tests/fixtures/datasets
-        run: for agent in tests/fixtures/reference-packs/*/; do uv run mendari test "$agent"; done
+        run: for agent in tests/fixtures/reference-agents/*/; do uv run mendari test "$agent"; done
       - name: Every community pack passes its behaviour tests (a core change that breaks one shows here)
         if: matrix.python == '3.12'
         run: |
           failed=0
-          for manifest in community-packs/*/agent.yaml community-packs/*/pack.yaml; do
+          for manifest in community-agents/*/agent.yaml community-agents/*/pack.yaml; do
             [ -f "$manifest" ] || continue
             uv run mendari test "$(dirname "$manifest")" || failed=1
           done
@@ -170,7 +170,7 @@ jobs:
       VALIDATOR_VERSION: "6.10.4"
       VALIDATOR_SHA256: 1106b9d58f9e363e47bea7c4fc065841e5fc91fe9d062775c3bfdd212bd653cc
       # The sample scripts decide with the agents of the test fixtures (FHIR, PAS, DTR).
-      MENDARI_AGENTS_PATH: tests/fixtures/reference-packs
+      MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
       MENDARI_DATASETS_PATH: tests/fixtures/datasets
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -304,42 +304,42 @@ jobs:
         run: docker compose --profile signin run --rm -T --use-aliases cds-client
       - name: The engines again, serving the test fixtures' agents too
         # sandbox/fixtures.compose.yml mounts tests/ into the engines, which now also serve the
-        # agents under tests/fixtures/reference-packs. New containers, so each fetches the next
+        # agents under tests/fixtures/reference-agents. New containers, so each fetches the next
         # signed client's keys afresh.
         run: docker compose $FIXTURES --profile signin up -d --wait engine engine-signin
       - name: Seed a test-fixture agent's referrals
         run: >-
           docker compose $FIXTURES exec -T engine python -m tests.support.sandbox seed
           --fhir http://fhir:8080/fhir --count 40
-          --agent tests/fixtures/reference-packs/referral-router
+          --agent tests/fixtures/reference-agents/referral-router
       - name: SMART launch, a test-fixture agent on referrals
         run: >-
           docker compose $FIXTURES exec -T engine mendari sandbox smart-launch --strict
           --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
-          --agent tests/fixtures/reference-packs/referral-router
+          --agent tests/fixtures/reference-agents/referral-router
       - name: SMART launch, a test-fixture agent on portal messages
         run: >-
           docker compose $FIXTURES exec -T engine mendari sandbox smart-launch --strict
           --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
-          --agent tests/fixtures/reference-packs/patient-inbox-router
+          --agent tests/fixtures/reference-agents/patient-inbox-router
       - name: SMART launch with sign-in on, the agent on referrals, in the registered organization
         run: >-
           docker compose $FIXTURES exec -T engine-signin mendari sandbox smart-launch --strict
           --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
-          --agent tests/fixtures/reference-packs/referral-router
+          --agent tests/fixtures/reference-agents/referral-router
           --expect-org pilot --db /data/mendari.db
       - name: SMART launch with sign-in on, the agent on portal messages, in the registered organization
         run: >-
           docker compose $FIXTURES exec -T engine-signin mendari sandbox smart-launch --strict
           --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
-          --agent tests/fixtures/reference-packs/patient-inbox-router
+          --agent tests/fixtures/reference-agents/patient-inbox-router
           --expect-org pilot --db /data/mendari.db
       - name: Bulk export -> dataset -> mendari eval (the agent on referrals)
         # The export's cases must evaluate exactly like the same cases read from the dataset file.
         run: >-
           docker compose $FIXTURES exec -T engine mendari sandbox bulk-check
           --fhir http://fhir:8080/fhir
-          --agent tests/fixtures/reference-packs/referral-router
+          --agent tests/fixtures/reference-agents/referral-router
           --dataset tests/fixtures/datasets/referral-local-site-example.jsonl
       - name: The signed CDS client on the vendor-shaped EHR profile, both engines
         # LP-23e: the container seeds the profile and calls discovery and every standard hook of
@@ -464,7 +464,7 @@ jobs:
       # outbound sockets during image pull).
       MENDARI_CQL_URL: http://127.0.0.1:18090/fhir
       # The agent with CQL beside its criteria is served from the test fixtures.
-      MENDARI_AGENTS_PATH: tests/fixtures/reference-packs
+      MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
       MENDARI_FHIR_ALLOWED_SERVERS: http://127.0.0.1:18090
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -676,7 +676,7 @@ jobs:
       MENDARI_PUBLIC_URL: http://127.0.0.1:8000
       # The engine also serves the test fixtures' agents, for the one whose automation the
       # committee approves.
-      MENDARI_AGENTS_PATH: tests/fixtures/reference-packs
+      MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -696,7 +696,7 @@ jobs:
       - name: The pilot on the demo agent, the committee approving a risk level 2 agent
         run: >-
           uv run mendari sandbox pilot-check --engine http://127.0.0.1:8000
-          --approve tests/fixtures/reference-packs/clinical-trial-prescreener
+          --approve tests/fixtures/reference-agents/clinical-trial-prescreener
       - if: failure()
         run: tail -100 /tmp/engine.log
 

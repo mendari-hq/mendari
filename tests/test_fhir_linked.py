@@ -92,10 +92,10 @@ def linked_pack(tmp_path: Path, medications: dict[str, Any] = MEDICATIONS) -> Pa
         spec="0.3",
         systems=(MED, PAYER),
     )
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["cds_hooks"]["prefetch"].update(PREFETCH)
     del manifest["cds_hooks"]["card"]["show"]
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     schema_path = root / "schemas" / "input.schema.json"
     schema = json.loads(schema_path.read_text())
     schema["properties"]["medications"] = {"type": "array", "items": {"type": "object"}}
@@ -646,10 +646,10 @@ def test_a_linked_resource_is_read_through_the_organizations_site_code_map(tmp_p
     mapping = yaml.safe_load(mapping_path.read_text())
     mapping["code_sets"] = {"drugs": {"system": MED, "codes": ["RX-1"]}}
     mapping_path.write_text(yaml.safe_dump(mapping, sort_keys=False))
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["risk"]["level"] = 1  # may automate
     manifest["policy"]["thresholds"]["auto"] = 0.8  # this record's eligibility gives 0.85
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     pack = load_pack(root)
     translation = {"system": SITE_FORMULARY, "code": "F-77", "as": "RX-1"}
     given = {"default": {"version": "2026-11-06.1", "sets": {"drugs": [translation]}}}
@@ -863,7 +863,7 @@ def test_a_0_1_or_0_2_pack_reads_no_link(tmp_path: Path) -> None:
     drug); the referral router follows none."""
     request = {"fhirServer": EHR}
     linking = set()
-    for root in sorted((ROOT / "tests" / "fixtures" / "reference-packs").glob("*/pack.yaml")):
+    for root in sorted((ROOT / "tests" / "fixtures" / "reference-agents").glob("*/agent.yaml")):
         found = load_pack(root.parent)
         if found.manifest.inputs.fhir is None or found.manifest.cds_hooks is None:
             continue

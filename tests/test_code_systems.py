@@ -41,7 +41,7 @@ from mendari.standards.terminology import sandbox_resources
 from tests.support import synthetic_prior_auth, synthetic_trial
 
 ROOT = Path(__file__).resolve().parents[1]
-TREES = ("agents", "community-packs", "tests/fixtures")
+TREES = ("agents", "community-agents", "tests/fixtures")
 # What the wheel, the sdist and the images are built from: the wheel from src/, packs/ and
 # datasets/; the sdist adds README.md, LICENSE, NOTICE and pyproject.toml; the images copy the
 # same trees and carry /licenses (#180): LICENSE, NOTICE and what the build writes from
@@ -57,7 +57,7 @@ SHIPPED = (
 )
 CPT = "http://www.ama-assn.org/go/cpt"
 SNOMED = "http://snomed.info/sct"
-TRIAL = ROOT / "tests" / "fixtures" / "reference-packs" / "clinical-trial-prescreener"
+TRIAL = ROOT / "tests" / "fixtures" / "reference-agents" / "clinical-trial-prescreener"
 # Test inputs in US Core, which codes procedures and referrals in SNOMED CT. None is in a package.
 FIXTURE_ALLOWANCES = {
     "tests/fixtures/us-core/referral.json": "the referral router's input: the referral's code "
@@ -110,7 +110,7 @@ def test_a_licensed_system_is_only_where_it_is_declared_or_allowed() -> None:
             continue
         # A reference or community pack may carry one it declares (CONTRIBUTING.md); a dataset
         # or a fixture outside a pack may not.
-        assert path.startswith(("packs/", "community-packs/")), f"{path} names {systems}"
+        assert path.startswith(("packs/", "community-agents/")), f"{path} names {systems}"
         manifest = load_pack(ROOT / "/".join(path.split("/")[:2])).manifest
         declared = {use.url: use.licence_note for use in manifest.code_systems}
         for system in systems:
@@ -121,11 +121,12 @@ def test_a_licensed_system_is_only_where_it_is_declared_or_allowed() -> None:
 @pytest.mark.parametrize(
     "pack",
     sorted(
-        p.parent.name for p in (ROOT / "tests" / "fixtures" / "reference-packs").glob("*/pack.yaml")
+        p.parent.name
+        for p in (ROOT / "tests" / "fixtures" / "reference-agents").glob("*/agent.yaml")
     ),
 )
 def test_every_reference_pack_says_its_licence_and_loads(pack: str) -> None:
-    manifest = load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / pack).manifest
+    manifest = load_pack(ROOT / "tests" / "fixtures" / "reference-agents" / pack).manifest
     assert manifest.license == "Apache-2.0"
     for use in manifest.code_systems:
         assert (use.licence_note is not None) == bool(licensed_systems(use.url)), use
@@ -134,12 +135,12 @@ def test_every_reference_pack_says_its_licence_and_loads(pack: str) -> None:
 def test_the_prior_auth_codes_are_fictional_and_complete() -> None:
     """Every procedure code the pack, its data and its tests use is in the fictional system, and
     the system is declared, named as fictional, and published to the validator."""
-    pack = load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "prior-auth-preflight")
+    pack = load_pack(ROOT / "tests" / "fixtures" / "reference-agents" / "prior-auth-preflight")
     (fictional,) = [use for use in pack.manifest.code_systems if use.url == FICTIONAL_PROCEDURES]
     assert "fictional" in fictional.name and "not CPT" in fictional.name
     text = "\n".join(
         (
-            ROOT / "tests" / "fixtures" / "reference-packs" / "prior-auth-preflight" / name
+            ROOT / "tests" / "fixtures" / "reference-agents" / "prior-auth-preflight" / name
         ).read_text()
         for name in ("logic/structured.yaml", "fhir/mapping.yaml", "tests/cases.yaml")
     )
@@ -154,7 +155,7 @@ def test_every_procedure_code_the_prior_auth_pack_or_its_data_uses_is_fictional(
     the local-site dataset and the behaviour tests, every code its rules and FHIR mapping list,
     and every code the generator writes is one of the fictional codes. A CPT code coming back
     (a bare `72148`, which names no system) fails here."""
-    pack = ROOT / "tests" / "fixtures" / "reference-packs" / "prior-auth-preflight"
+    pack = ROOT / "tests" / "fixtures" / "reference-agents" / "prior-auth-preflight"
     found: set[str] = set()
     for path in [
         *sorted((pack / "data").glob("*.jsonl")),
@@ -188,9 +189,9 @@ def test_every_procedure_code_the_prior_auth_pack_or_its_data_uses_is_fictional(
     # The manifest's words (criteria, Jev instructions) name no five-digit procedure code, as
     # 0.1.3's "MRI of the lumbar spine (CPT 72148, ...)" did, and neither it nor the input schema
     # calls a code CPT.
-    manifest = (pack / "pack.yaml").read_text()
+    manifest = (pack / "agent.yaml").read_text()
     assert re.findall(r"(?<![\d.])\d{5}(?![\d.])", manifest) == []
-    for name in ("pack.yaml", "schemas/input.schema.json"):
+    for name in ("agent.yaml", "schemas/input.schema.json"):
         text = (pack / name).read_text()
         assert len(re.findall(r"\bCPT\b", text)) == len(re.findall(r"\bnot CPT\b", text)), name
 
@@ -280,7 +281,7 @@ def test_the_condition_and_referral_codes_are_fictional_and_complete() -> None:
     the fictional referral code; both systems are declared, named as fictional and not SNOMED
     CT, and published to the validator."""
     declared: dict[str, str] = {}
-    for pack in (TRIAL, ROOT / "tests" / "fixtures" / "reference-packs" / "referral-router"):
+    for pack in (TRIAL, ROOT / "tests" / "fixtures" / "reference-agents" / "referral-router"):
         declared |= {use.url: use.name for use in load_pack(pack).manifest.code_systems}
     for system in (CONDITION_SYSTEM, REFERRAL_SYSTEM):
         assert "fictional" in declared[system] and "not SNOMED CT" in declared[system]
@@ -312,7 +313,7 @@ def test_the_condition_and_referral_codes_are_fictional_and_complete() -> None:
             ROOT
             / "tests"
             / "fixtures"
-            / "reference-packs"
+            / "reference-agents"
             / "referral-router"
             / "fhir"
             / "mapping.yaml"

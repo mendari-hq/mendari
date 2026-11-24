@@ -4,8 +4,10 @@ and documented; `pack.yaml`, the name it had before, still loads where it is the
 together are refused. Every reader that finds the manifest by name is here: the loader, the
 search path, the bundled agents' digests, the community check (and what it reads of the base),
 the price-table guard, validation, signed archives, the registry cache and the agent store.
-The fixtures under `tests/fixtures` keep `pack.yaml`, so the rest of the suite is the old name's
-coverage."""
+The fixtures under `tests/fixtures` are named `agent.yaml`, as every agent written now is, so the
+rest of the suite is the new name's coverage, and this file the old name's: with one small
+fixture kept as `pack.yaml` on purpose (`tests/fixtures/mini-agents/referral-mini`), which the
+order-hook tests decide with (tests/test_order_sign.py)."""
 
 from __future__ import annotations
 
@@ -18,9 +20,11 @@ from typing import Any
 
 import pytest
 import yaml
+from fastapi.testclient import TestClient
 
 from mendari.cli import main
 from mendari.core import reference
+from mendari.core.decision import Decision
 from mendari.core.pack import (
     LEGACY_MANIFEST,
     MANIFEST,
@@ -33,33 +37,39 @@ from mendari.core.pack import (
 )
 from mendari.core.registry import discover, resolve_pack
 from mendari.errors import HubError, MendariError, PackValidationError
+from mendari.evals.pack_tests import run_pack_tests
 from mendari.evals.runs import PRICES_FORMAT, load_prices
 from mendari.evals.validation import problems
 from mendari.hub import archive, client
 from mendari.hub.client import pull
-from tests.conftest import DEMO_AGENT_DIR, INBOX_DIR
+from mendari.server.app import create_app
+from tests.conftest import DEMO_AGENT_DIR, INBOX_DIR, ROOT
 from tests.test_hub_client import Hub, hub  # noqa: F401  (the registry served over HTTP)
 from tests.test_store_uploads import ORG_A, Store, store_world, upload
 
 BOTH = "agent.yaml and pack.yaml are both here"
-
-
-def legacy(base: Path, name: str = "legacy") -> Path:
-    """A copy of the inbox fixture, whose manifest is `pack.yaml`."""
-    root = base / name
-    shutil.copytree(INBOX_DIR, root)
-    assert (root / LEGACY_MANIFEST).is_file() and not (root / MANIFEST).exists()
-    return root
+# The one fixture whose manifest keeps the name it had before, on purpose.
+KEPT = ROOT / "tests" / "fixtures" / "mini-agents" / "referral-mini"
 
 
 def renamed(base: Path, name: str = "renamed", pack_id: str | None = None) -> Path:
-    """The same files with the manifest called `agent.yaml` (and, with `pack_id`, that id)."""
-    root = legacy(base, name)
-    (root / LEGACY_MANIFEST).rename(root / MANIFEST)
+    """A copy of the inbox fixture, whose manifest is `agent.yaml` (and, with `pack_id`, under
+    that id)."""
+    root = base / name
+    shutil.copytree(INBOX_DIR, root)
+    assert (root / MANIFEST).is_file() and not (root / LEGACY_MANIFEST).exists()
     if pack_id is not None:
         manifest = yaml.safe_load((root / MANIFEST).read_text())
         manifest["id"] = pack_id
         (root / MANIFEST).write_text(yaml.safe_dump(manifest, sort_keys=False))
+    return root
+
+
+def legacy(base: Path, name: str = "legacy", pack_id: str | None = None) -> Path:
+    """The same files with the manifest called `pack.yaml`, the name it had before (and, with
+    `pack_id`, under that id)."""
+    root = renamed(base, name, pack_id)
+    (root / MANIFEST).rename(root / LEGACY_MANIFEST)
     return root
 
 
@@ -76,18 +86,42 @@ def test_the_bundled_agent_and_every_scaffold_use_the_new_name(tmp_path: Path) -
         assert main(["new", str(target), *flags, "--id", "my-clinic/refills"]) == 0
         assert manifest_name(target) == MANIFEST and not (target / LEGACY_MANIFEST).exists()
         assert load_pack(target).manifest_file == MANIFEST
-    community = tmp_path / "community-packs" / "refills"
+    community = tmp_path / "community-agents" / "refills"
     assert main(["new", str(community), "--community"]) == 0
     assert manifest_name(community) == MANIFEST and not (community / LEGACY_MANIFEST).exists()
+
+
+def test_one_fixture_keeps_the_old_name_and_works_as_any_other(tmp_path: Path) -> None:
+    """Every fixture agent's manifest is `agent.yaml` but one, kept as `pack.yaml` on purpose:
+    an agent written before the rename. It loads, validates, passes its behaviour tests, is
+    found on a search path and is served, under the name its manifest has."""
+    manifests = [
+        path
+        for path in sorted((ROOT / "tests" / "fixtures").rglob("*.yaml"))
+        if path.name.casefold() in MANIFEST_NAMES
+    ]
+    assert len(manifests) == 10
+    assert [path for path in manifests if path.name != MANIFEST] == [KEPT / LEGACY_MANIFEST]
+    pack = load_pack(KEPT)
+    assert (pack.id, pack.manifest_file) == ("mendari-test/referral-mini", LEGACY_MANIFEST)
+    assert manifest_name(KEPT) == LEGACY_MANIFEST and pack_digest(KEPT) == pack.digest
+    outcomes = run_pack_tests(Decision(pack))
+    assert outcomes and all(outcome.passed for outcome in outcomes)
+    assert main(["validate", str(KEPT)]) == 0 and main(["test", str(KEPT)]) == 0
+    found = {agent.id: agent.manifest_file for agent in discover([KEPT.parent]).packs}
+    assert found[pack.id] == LEGACY_MANIFEST
+    assert set(found.values()) == {MANIFEST, LEGACY_MANIFEST}  # beside those of the new name
+    served = TestClient(create_app(db_path=tmp_path / "served.db", packs_paths=[KEPT.parent]))
+    assert pack.id in [agent["id"] for agent in served.get("/api/agents").json()]
 
 
 def test_a_folder_with_only_the_old_name_loads_as_before(tmp_path: Path) -> None:
     root = legacy(tmp_path)
     pack, shipped = load_pack(root), load_pack(INBOX_DIR)
-    assert pack.manifest_file == LEGACY_MANIFEST
-    assert (pack.id, pack.version, pack.digest) == (shipped.id, shipped.version, shipped.digest)
+    assert (pack.manifest_file, shipped.manifest_file) == (LEGACY_MANIFEST, MANIFEST)
+    assert (pack.id, pack.version) == (shipped.id, shipped.version)
     assert pack.manifest == shipped.manifest
-    assert resolve_pack(str(root)).digest == shipped.digest
+    assert resolve_pack(str(root)).digest == pack.digest == pack_digest(root)
 
 
 def test_the_new_name_loads_the_same_agent_under_another_digest(tmp_path: Path) -> None:
@@ -96,7 +130,7 @@ def test_the_new_name_loads_the_same_agent_under_another_digest(tmp_path: Path) 
     old, new = load_pack(legacy(tmp_path)), load_pack(renamed(tmp_path))
     assert new.manifest_file == MANIFEST
     assert new.manifest == old.manifest and new.digest != old.digest
-    assert pack_digest(new.root) == new.digest
+    assert pack_digest(new.root) == new.digest == load_pack(INBOX_DIR).digest
 
 
 @pytest.mark.parametrize("extra", ["agent.yaml", "Agent.yaml", "AGENT.YAML"])
@@ -329,8 +363,9 @@ def test_the_bundled_agent_is_published_and_pulled_with_its_manifest(
 
 @pytest.fixture
 def world(db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Store]:
-    """The agent store on, serving one more agent from disk whose manifest is `agent.yaml`."""
-    served = renamed(tmp_path / "served", "inbox", pack_id="local-clinic/inbox")
+    """The agent store on, serving one more agent from disk whose manifest is `pack.yaml`
+    (the bundled ones' is `agent.yaml`)."""
+    served = legacy(tmp_path / "served", "inbox", pack_id="local-clinic/inbox")
     monkeypatch.setenv("MENDARI_AGENTS_PATH", str(served.parent))
     yield from store_world(db_target, tmp_path, monkeypatch)
 
@@ -406,8 +441,8 @@ def test_a_copy_of_a_served_agent_renames_the_id_in_its_own_manifest(world: Stor
     one that keeps the old."""
     author = world.as_(ORG_A, "pack_author")
     for source, file in (
-        ("local-clinic/inbox", MANIFEST),
-        ("mendari/patient-inbox-router", LEGACY_MANIFEST),
+        ("mendari/patient-inbox-router", MANIFEST),
+        ("local-clinic/inbox", LEGACY_MANIFEST),
     ):
         made = world.client.post(
             "/api/store/copies", json={"pack": source, "name": f"copy-{file[:4]}"}, headers=author

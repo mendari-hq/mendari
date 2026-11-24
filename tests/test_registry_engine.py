@@ -51,7 +51,7 @@ BLOCK_RULE = {
 def bundled() -> list[Path]:
     root = bundled_dir()
     assert root is not None
-    return [d for d in sorted(root.iterdir()) if (d / "pack.yaml").is_file()]
+    return [d for d in sorted(root.iterdir()) if (d / "agent.yaml").is_file()]
 
 
 def copied(
@@ -68,7 +68,7 @@ def copied(
     root = base / "cache" / "mendari" / name / (version or shipped.version)
     shutil.copytree(source, root)
     if version is not None:
-        manifest = root / "pack.yaml"
+        manifest = root / "agent.yaml"
         text = manifest.read_text()
         manifest.write_text(text.replace(f"version: {shipped.version}", f"version: {version}", 1))
     if edit is not None:

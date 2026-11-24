@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Community packs (plan B1, B2): packs outside developers contribute by pull request, in
-`community-packs/<name>/` with id `community/<name>`. Where a pack was found sets its origin
+`community-agents/<name>/` with id `community/<name>`. Where a pack was found sets its origin
 (`core/origin.py`); a community pack is served only with MENDARI_COMMUNITY_PACKS=on, never
 automates, decides with local providers unless the deployment names it, keeps only a hash of its
 inputs and is at most risk level 1. One id is one pack, whatever the versions."""
@@ -34,7 +34,7 @@ from tests.conftest import INBOX_DIR, ROOT
 from tests.test_fhir import COMMUNICATION, PATIENT
 
 PACKS = INBOX_DIR.parent
-SORTER = ROOT / "tests" / "fixtures" / "community-packs" / "visit-sorter"
+SORTER = ROOT / "tests" / "fixtures" / "community-agents" / "visit-sorter"
 SORTER_ID = "community/visit-sorter"
 BILL = {"message": "I have a question about my last bill."}
 SHIPPED = {
@@ -56,7 +56,7 @@ def _copy(
     root = base / folder
     shutil.copytree(source, root)
     if edit is not None:
-        path = root / "pack.yaml"
+        path = root / "agent.yaml"
         manifest = yaml.safe_load(path.read_text())
         edit(manifest)
         path.write_text(yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True))
@@ -84,8 +84,8 @@ BLOCK_RULE = {
 
 
 def _community(tmp_path: Path) -> Path:
-    """A community-packs/ directory holding the example community pack."""
-    base = tmp_path / "community-packs"
+    """A community-agents/ directory holding the example community pack."""
+    base = tmp_path / "community-agents"
     _copy(base, "visit-sorter")
     return base
 
@@ -104,7 +104,7 @@ def test_community_packs_are_searched_only_when_turned_on(
     for off in ("off", "OFF", ""):
         monkeypatch.setenv("MENDARI_COMMUNITY_PACKS", off)
         assert SearchPath(base, "community") not in search_paths()
-    # Off means off, even where MENDARI_PACKS_PATH names community-packs/.
+    # Off means off, even where MENDARI_PACKS_PATH names community-agents/.
     monkeypatch.setenv("MENDARI_PACKS_PATH", str(base))
     assert SORTER_ID not in {pack.id for pack in discover().packs}
 
@@ -176,7 +176,7 @@ def test_a_directory_has_the_origin_of_where_it_sits(
 def test_a_community_pack_that_breaks_a_rule_is_listed_and_not_served(
     tmp_path: Path, folder: str, edit: Callable[[dict[str, Any]], None] | None, problem: str
 ) -> None:
-    base = tmp_path / "community-packs"
+    base = tmp_path / "community-agents"
     root = _copy(base, folder, edit)
     found = discover([SearchPath(base, "community")])
     assert found.packs == []
@@ -184,7 +184,7 @@ def test_a_community_pack_that_breaks_a_rule_is_listed_and_not_served(
 
 
 def test_a_pack_at_the_root_of_community_packs_is_not_served(tmp_path: Path) -> None:
-    base = tmp_path / "community-packs"
+    base = tmp_path / "community-agents"
     shutil.copytree(SORTER, base)
     found = discover([SearchPath(base, "community")])
     assert found.packs == []
@@ -383,7 +383,7 @@ def test_an_invalid_community_pack_is_listed_and_every_other_pack_decides(
     base = _community(tmp_path)
     broken = _copy(base, "broken", _set(id="community/broken", risk__level=3))
     (base / "unreadable").mkdir()
-    (base / "unreadable" / "pack.yaml").write_text("id: [")
+    (base / "unreadable" / "agent.yaml").write_text("id: [")
     client = TestClient(
         create_app(db_path=tmp_path / "s.db", packs_paths=[PACKS, SearchPath(base, "community")])
     )
@@ -404,7 +404,7 @@ def test_an_invalid_community_pack_is_listed_and_every_other_pack_decides(
 
 def test_a_community_pack_never_blocks_on_its_own(tmp_path: Path) -> None:
     """A rule's BLOCK is final at once: no person would see the case. A community pack loaded
-    by path (its load in community-packs/ refuses such a rule) sends it to a person instead;
+    by path (its load in community-agents/ refuses such a rule) sends it to a person instead;
     any other pack still blocks."""
     outside = load_pack(
         _copy(tmp_path / "a", "sorter", _set(id="someone/sorter", policy__rules=[BLOCK_RULE]))
@@ -652,7 +652,9 @@ def test_the_decision_card_labels_a_community_pack_and_says_it_never_automates()
     assert "- AUTO when `destination` confidence" in maintained
 
 
-@pytest.mark.parametrize("pack_dir", sorted(PACKS.glob("*/pack.yaml")), ids=lambda p: p.parent.name)
+@pytest.mark.parametrize(
+    "pack_dir", sorted(PACKS.glob("*/agent.yaml")), ids=lambda p: p.parent.name
+)
 def test_every_shipped_card_is_what_it_renders_and_says_maintained(pack_dir: Path) -> None:
     pack = resolve_pack(str(pack_dir.parent))
     card = render_card(pack)
@@ -719,7 +721,7 @@ def test_a_community_pack_cannot_write_into_a_codesystem_of_mendaris(tmp_path: P
     served as Mendari's own, ahead of the router's (`community/` sorts before `mendari/`)."""
     from mendari.standards.terminology import Terminology
 
-    base = tmp_path / "community-packs"
+    base = tmp_path / "community-agents"
     root = _copy(
         base,
         "inbox-copy",
@@ -796,7 +798,7 @@ def test_the_eval_endpoint_runs_a_community_pack_remotely_only_where_named(
     assert shipped.status_code == 200
 
     # The deployment named the pack for that variant: then the evaluation may run it too.
-    base = tmp_path / "named" / "community-packs"
+    base = tmp_path / "named" / "community-agents"
     _inbox_as_community(base)
     app = create_app(
         db_path=tmp_path / "n.db",

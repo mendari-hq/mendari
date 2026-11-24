@@ -181,7 +181,7 @@ def _shipped() -> list[tuple[Pack, Dataset]]:
     assert root is not None
     found = []
     for folder in sorted(root.iterdir()):
-        if not (folder / "pack.yaml").is_file():
+        if not (folder / "agent.yaml").is_file():
             continue
         pack = load_pack(folder)
         for name in pack.manifest.evaluation.datasets:

@@ -240,7 +240,7 @@ def test_ci_runs_the_smart_app_against_smart_launcher_v2() -> None:
         # The sandbox as it ships: the bundled demo agent, which the command names by default.
         assert f"docker compose {launch}{expected}" in lines, engine
         for name in ("referral-router", "patient-inbox-router"):
-            assert (ROOT / agents / name / "pack.yaml").is_file(), name
+            assert (ROOT / agents / name / "agent.yaml").is_file(), name
             named = f"docker compose $FIXTURES {launch} --agent {agents}/{name}{expected}"
             assert named in lines, (engine, name)
     assert "mendari smart check http://launcher/v/r4/fhir" in runs

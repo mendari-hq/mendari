@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """`mendari community-check` (plan B4, B6): every rule CI enforces on a community pack, each on a
 pack that breaks only it, in a throwaway git repository shaped like Mendari's
-(`community-packs/<name>/`, `community-packs/MAINTAINERS.yaml`). The pack is what
+(`community-agents/<name>/`, `community-agents/MAINTAINERS.yaml`). The pack is what
 `mendari new --community` writes, which passes as it is."""
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from tests.conftest import ROOT
 
 NAME = "refill-router"
 PACK_ID = f"community/{NAME}"
-SORTER = ROOT / "tests" / "fixtures" / "community-packs" / "visit-sorter"
+SORTER = ROOT / "tests" / "fixtures" / "community-agents" / "visit-sorter"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -59,8 +59,8 @@ def commit(repo: Path, message: str = "change") -> str:
 
 
 def write_maintainers(repo: Path, entries: list[dict[str, Any]]) -> None:
-    path = repo / "community-packs" / "MAINTAINERS.yaml"
-    path.write_text(yaml.safe_dump({"packs": entries}, sort_keys=False))
+    path = repo / "community-agents" / "MAINTAINERS.yaml"
+    path.write_text(yaml.safe_dump({"agents": entries}, sort_keys=False))
 
 
 @pytest.fixture(scope="module")
@@ -76,7 +76,7 @@ def repo(tmp_path: Path) -> Path:
     """A repository whose `main` has an empty MAINTAINERS.yaml and no packs, on a branch off it.
     A test that wants the base to hold its commits so far moves `main` there."""
     root = tmp_path / "repo"
-    (root / "community-packs").mkdir(parents=True)
+    (root / "community-agents").mkdir(parents=True)
     git(root, "init", "-q", "-b", "main")
     write_maintainers(root, [])
     (root / "README.md").write_text("A repository.\n")
@@ -88,7 +88,7 @@ def repo(tmp_path: Path) -> Path:
 @pytest.fixture
 def new_pack(repo: Path, scaffold: Path) -> Path:
     """A new community pack, added (with its MAINTAINERS entry) since `main`."""
-    pack = repo / "community-packs" / NAME
+    pack = repo / "community-agents" / NAME
     shutil.copytree(scaffold, pack)
     write_maintainers(repo, [{"id": PACK_ID, "maintainers": ["octocat"]}])
     commit(repo, "add the pack")
@@ -204,26 +204,26 @@ def test_a_nested_pack_and_a_folder_outside_community_packs_fail(
     new_pack: Path, tmp_path: Path, scaffold: Path
 ) -> None:
     shutil.copytree(SORTER, new_pack / "extra")
-    assert has(run(new_pack), "scope", "remove extra/pack.yaml")
+    assert has(run(new_pack), "scope", "remove extra/agent.yaml")
     elsewhere = tmp_path / "elsewhere" / NAME
     shutil.copytree(scaffold, elsewhere)
-    assert has(run(elsewhere, base=None), "scope", "lives in community-packs/<name>/")
+    assert has(run(elsewhere, base=None), "scope", "lives in community-agents/<name>/")
 
 
 def test_the_pull_request_scope() -> None:
-    pack = ["community-packs/a/pack.yaml", "community-packs/a/data/x.jsonl"]
-    maintainers_file = "community-packs/MAINTAINERS.yaml"
+    pack = ["community-agents/a/pack.yaml", "community-agents/a/data/x.jsonl"]
+    maintainers_file = "community-agents/MAINTAINERS.yaml"
     assert pr_scope_problems(["src/mendari/cli.py"], owner=False) == []  # no community pack
     assert pr_scope_problems([*pack, maintainers_file], owner=False) == []
-    (two,) = pr_scope_problems([*pack, "community-packs/b/pack.yaml"], owner=False)
+    (two,) = pr_scope_problems([*pack, "community-agents/b/pack.yaml"], owner=False)
     assert "2 community agents (a, b)" in two
     (outside,) = pr_scope_problems(
-        [*pack, "src/mendari/cli.py", "community-packs/README.md"], owner=False
+        [*pack, "src/mendari/cli.py", "community-agents/README.md"], owner=False
     )
-    assert "src/mendari/cli.py, community-packs/README.md" in outside
+    assert "src/mendari/cli.py, community-agents/README.md" in outside
     (alone,) = pr_scope_problems([maintainers_file], owner=False)
     assert "only together with the agent it lists" in alone
-    assert pr_scope_problems(["community-packs/README.md"], owner=False) == []  # docs only
+    assert pr_scope_problems(["community-agents/README.md"], owner=False) == []  # docs only
     assert pr_scope_problems([*pack, "src/mendari/cli.py"], owner=True) == []
 
 
@@ -236,7 +236,7 @@ def test_the_id_must_match_the_folder(new_pack: Path) -> None:
 
 
 def test_the_folder_name_is_checked(repo: Path, scaffold: Path) -> None:
-    pack = repo / "community-packs" / "Refill_Router"
+    pack = repo / "community-agents" / "Refill_Router"
     shutil.copytree(scaffold, pack)
     assert has(run(pack, base=None), "identity", "lowercase letters, digits and dashes")
 
@@ -263,23 +263,23 @@ def test_a_removed_id_is_never_used_again(new_pack: Path, repo: Path) -> None:
 def test_a_pack_needs_its_maintainers(new_pack: Path, repo: Path) -> None:
     write_maintainers(repo, [])
     assert has(run(new_pack), "identity", f"add an entry for {PACK_ID}")
-    (repo / "community-packs" / "MAINTAINERS.yaml").write_text("packs: [{id: x}]\n")
+    (repo / "community-agents" / "MAINTAINERS.yaml").write_text("agents: [{id: x}]\n")
     assert has(run(new_pack), "identity", "`maintainers` must list one or more GitHub user names")
-    (repo / "community-packs" / "MAINTAINERS.yaml").unlink()
+    (repo / "community-agents" / "MAINTAINERS.yaml").unlink()
     assert has(run(new_pack), "identity", "MAINTAINERS.yaml is missing")
 
 
 def test_an_id_another_folder_claims_is_refused(new_pack: Path, repo: Path) -> None:
-    shutil.copytree(new_pack, repo / "community-packs" / "copy")
-    assert has(run(new_pack), "identity", "already used by community-packs/copy/")
+    shutil.copytree(new_pack, repo / "community-agents" / "copy")
+    assert has(run(new_pack), "identity", "already used by community-agents/copy/")
 
 
 def test_a_terminology_collision_is_refused(repo: Path) -> None:
     # community/visit-sorter's question `topic` and community/visit's question `sorter_topic`
     # both become the CodeSystem id community-visit-sorter-topic.
-    sorter = repo / "community-packs" / "visit-sorter"
+    sorter = repo / "community-agents" / "visit-sorter"
     shutil.copytree(SORTER, sorter)
-    other = repo / "community-packs" / "visit"
+    other = repo / "community-agents" / "visit"
     shutil.copytree(SORTER, other)
     for path in other.rglob("*.yaml"):
         text = path.read_text().replace("topic", "sorter_topic")
@@ -437,8 +437,8 @@ def test_the_check_fails_on_a_copy_and_warns_on_a_look_alike(new_pack: Path) -> 
 def test_a_community_packs_fhir_systems_live_under_its_own_url(repo: Path) -> None:
     """Before, CI passed a pack whose performer system was the inbox router's: its definitions
     were then served in Mendari's CodeSystem."""
-    pack = repo / "community-packs" / "inbox-copy"
-    shutil.copytree(ROOT / "tests" / "fixtures" / "reference-packs" / "patient-inbox-router", pack)
+    pack = repo / "community-agents" / "inbox-copy"
+    shutil.copytree(ROOT / "tests" / "fixtures" / "reference-agents" / "patient-inbox-router", pack)
     edit_manifest(pack, lambda m: m.update(id="community/inbox-copy"))
     report = run(pack, base=None)
     assert has(report, "identity", "task.performer_system is 'https://mendari.co/fhir/CodeSystem")
@@ -446,9 +446,9 @@ def test_a_community_packs_fhir_systems_live_under_its_own_url(repo: Path) -> No
 
 
 def test_the_repositorys_maintainers_file_matches_its_packs() -> None:
-    """Every pack in community-packs/ has an entry, and every entry but a tombstone has its
+    """Every pack in community-agents/ has an entry, and every entry but a tombstone has its
     pack: what a contributor's pull request adds keeps this true, so it never fails CI."""
-    assert_maintainers_match(ROOT / "community-packs")
+    assert_maintainers_match(ROOT / "community-agents")
 
 
 def assert_maintainers_match(base: Path) -> None:
@@ -466,7 +466,7 @@ def assert_maintainers_match(base: Path) -> None:
 def _unused(base: Path, stem: str) -> str:
     """A pack name neither a folder in `base` nor an id in its MAINTAINERS.yaml uses, so the
     test holds whatever the repository's file later lists."""
-    rows = yaml.safe_load((base / "MAINTAINERS.yaml").read_text())["packs"] or []
+    rows = yaml.safe_load((base / "MAINTAINERS.yaml").read_text())["agents"] or []
     taken = {path.name for path in base.iterdir()} | {
         str(row.get("id", "")).removeprefix("community/") for row in rows
     }
@@ -481,10 +481,10 @@ def test_a_contributors_maintainers_entry_keeps_the_repository_check_green(
     without its pack, does not. A tombstone stays, including one already in the file (the
     owner removed a pack before this contribution): it stays a tombstone. The names used are
     ones the repository's file does not, so a real pack or removal never turns this red."""
-    base = tmp_path / "community-packs"
-    shutil.copytree(ROOT / "community-packs", base)
+    base = tmp_path / "community-agents"
+    shutil.copytree(ROOT / "community-agents", base)
     if removed_before:
-        earlier = yaml.safe_load((base / "MAINTAINERS.yaml").read_text())["packs"] or []
+        earlier = yaml.safe_load((base / "MAINTAINERS.yaml").read_text())["agents"] or []
         removal = {"id": f"community/{_unused(base, 'gone')}", "maintainers": ["y"]}
         write_maintainers(
             tmp_path, [*earlier, {**removal, "removed": "2026-10-05", "reason": "unmaintained"}]
@@ -492,7 +492,7 @@ def test_a_contributors_maintainers_entry_keeps_the_repository_check_green(
     name = _unused(base, "contributed")
     shutil.copytree(scaffold, base / name)
     entry = {"id": f"community/{name}", "maintainers": ["janedoe"]}
-    rows = yaml.safe_load((base / "MAINTAINERS.yaml").read_text())["packs"] or []
+    rows = yaml.safe_load((base / "MAINTAINERS.yaml").read_text())["agents"] or []
     write_maintainers(tmp_path, [*rows, entry])
     assert_maintainers_match(base)
     old = {"id": f"community/{_unused(base, 'old')}", "maintainers": ["x"]}
@@ -505,18 +505,25 @@ def test_a_contributors_maintainers_entry_keeps_the_repository_check_green(
 
 def test_the_maintainers_format() -> None:
     entries = maintainers.parse(
-        b"packs:\n  - {id: community/a, maintainers: [octocat]}\n"
+        b"agents:\n  - {id: community/a, maintainers: [octocat]}\n"
         b'  - {id: community/b, maintainers: [x-y], removed: "2026-10-04", reason: gone}\n'
     )
     assert not entries["community/a"].tombstone and entries["community/b"].tombstone
     for bad in (
-        b"packs: {}\n",
-        b"packs: [{id: a, maintainers: [-bad]}]\n",
-        b"packs: [{id: a, maintainers: [x], extra: 1}]\n",
-        b"packs: [{id: a, maintainers: [x]}, {id: a, maintainers: [y]}]\n",
+        b"agents: {}\n",
+        b"agents: [{id: a, maintainers: [-bad]}]\n",
+        b"agents: [{id: a, maintainers: [x], extra: 1}]\n",
+        b"agents: [{id: a, maintainers: [x]}, {id: a, maintainers: [y]}]\n",
     ):
         with pytest.raises(MendariError):
             maintainers.parse(bad)
+    # The key the list had before is refused, saying the key it has now: never read as empty.
+    with pytest.raises(MendariError, match=r"the list of entries is `agents` \(it was `packs`\)"):
+        maintainers.parse(b"packs:\n  - {id: community/a, maintainers: [octocat]}\n")
+    assert maintainers.parse(b"agents: []\n") == {}
+    # The repository's own file is in the format, under the key.
+    listed = (ROOT / "community-agents" / "MAINTAINERS.yaml").read_bytes()
+    assert maintainers.parse(listed) == {} and b"\nagents: []" in listed
 
 
 # -- the manifest --------------------------------------------------------------------------------
@@ -789,7 +796,7 @@ def test_a_stale_benchmark_after_a_rule_change_fails(new_pack: Path) -> None:
 
 def _bayes_pack(repo: Path) -> Path:
     """A community pack whose default is a trained naive Bayes model."""
-    pack = repo / "community-packs" / "visit-sorter"
+    pack = repo / "community-agents" / "visit-sorter"
     shutil.copytree(SORTER, pack)
     texts = {
         "billing": ["question about my bill", "my insurance payment", "the bill is wrong"],
@@ -1171,7 +1178,7 @@ def _script() -> ModuleType:
 def pull_request(repo: Path, scaffold: Path) -> Iterator[Path]:
     """A branch off `main` adding the pack, as a pull request's head."""
     git(repo, "checkout", "-q", "-b", "contribution")
-    shutil.copytree(scaffold, repo / "community-packs" / NAME)
+    shutil.copytree(scaffold, repo / "community-agents" / NAME)
     write_maintainers(repo, [{"id": PACK_ID, "maintainers": ["octocat"]}])
     commit(repo, "add the pack")
     yield repo
@@ -1206,7 +1213,7 @@ def test_a_removed_pack_needs_its_tombstone(
     pull_request: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     git(pull_request, "branch", "-f", "main")
-    shutil.rmtree(pull_request / "community-packs" / NAME)
+    shutil.rmtree(pull_request / "community-agents" / NAME)
     commit(pull_request, "remove the pack")
     script = _script()
     assert script.run(pull_request, "main", owner=True) == 1
@@ -1258,7 +1265,7 @@ def test_the_owner_is_the_one_person_codeowners_names_on_its_star_rule() -> None
     for text in (
         "",
         "# * @Junebugg1214\n",
-        "/community-packs/ @Junebugg1214\n",
+        "/community-agents/ @Junebugg1214\n",
         "*\n",  # no owner
         "* @mendari-hq/maintainers\n",  # a team
         "* owner@example.org\n",  # an email
@@ -1305,7 +1312,7 @@ def test_an_organization_as_the_repositorys_owner_decides_nothing(
     (pull_request / ".github" / "CODEOWNERS").write_text("* @Junebugg1214\n")
     commit(pull_request, "the base: the pack, and the owner named")
     git(pull_request, "branch", "-f", "main")
-    shutil.rmtree(pull_request / "community-packs" / NAME)
+    shutil.rmtree(pull_request / "community-agents" / NAME)
     tombstone = {"removed": "2026-10-08", "reason": "unmaintained"}
     write_maintainers(pull_request, [{"id": PACK_ID, "maintainers": ["octocat"], **tombstone}])
     # The pull request's own CODEOWNERS names its author: the base's still decides.
@@ -1337,31 +1344,37 @@ def test_an_organization_as_the_repositorys_owner_decides_nothing(
 def test_a_pack_added_as_a_git_submodule_fails(
     pull_request: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Before, a gitlink at community-packs/<name> (one slash) was 'no community pack
+    """Before, a gitlink at community-agents/<name> (one slash) was 'no community pack
     changes': its files are another repository's, which nothing checks."""
     git(pull_request, "branch", "-f", "main")
     head = git(pull_request, "rev-parse", "HEAD").strip()
     (pull_request / ".gitmodules").write_text(
-        '[submodule "evil"]\n\tpath = community-packs/evil\n\turl = https://example.org/evil\n'
+        '[submodule "evil"]\n\tpath = community-agents/evil\n\turl = https://example.org/evil\n'
     )
     git(pull_request, "add", ".gitmodules")
-    git(pull_request, "update-index", "--add", "--cacheinfo", f"160000,{head},community-packs/evil")
+    git(
+        pull_request, "update-index", "--add", "--cacheinfo", f"160000,{head},community-agents/evil"
+    )
     git(pull_request, "commit", "-q", "-m", "a submodule")
     capsys.readouterr()
     for owner in (False, True):
         assert _script().run(pull_request, "main", owner=owner) == 1
         out = capsys.readouterr().out
-        assert "holds a git submodule (community-packs/evil)" in out
+        assert "holds a git submodule (community-agents/evil)" in out
         assert "no community pack changes" not in out
-    assert pr_scope_problems([".gitmodules", "community-packs/evil"], owner=False)
+    assert pr_scope_problems([".gitmodules", "community-agents/evil"], owner=False)
 
 
 def test_a_submodule_inside_a_pack_fails(new_pack: Path, repo: Path) -> None:
     head = git(repo, "rev-parse", "HEAD").strip()
     git(
-        repo, "update-index", "--add", "--cacheinfo", f"160000,{head},community-packs/{NAME}/vendor"
+        repo,
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        f"160000,{head},community-agents/{NAME}/vendor",
     )
-    assert has(run(new_pack, base=None), "hygiene", f"community-packs/{NAME}/vendor")
+    assert has(run(new_pack, base=None), "hygiene", f"community-agents/{NAME}/vendor")
 
 
 def test_phi_hits_count_lines_as_jsonl_does() -> None:

@@ -103,8 +103,8 @@ def test_a_server_serves_what_either_name_asks_for(
 ) -> None:
     served = tmp_path / "served" / "inbox"
     shutil.copytree(INBOX_DIR, served)
-    text = (served / "pack.yaml").read_text()
-    (served / "pack.yaml").write_text(
+    text = (served / "agent.yaml").read_text()
+    (served / "agent.yaml").write_text(
         text.replace("id: mendari/patient-inbox-router", "id: my-clinic/inbox", 1)
     )
     for path_name, only_name in (

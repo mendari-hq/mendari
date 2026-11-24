@@ -777,7 +777,7 @@ def test_no_server_workflow_or_deployment_names_the_key() -> None:
     places = [
         *(ROOT / ".github").rglob("*"),
         *(ROOT / "deploy").rglob("*"),
-        *(ROOT / "tests" / "fixtures" / "reference-packs").rglob("*.yaml"),
+        *(ROOT / "tests" / "fixtures" / "reference-agents").rglob("*.yaml"),
         ROOT / "vercel.json",
         ROOT / "app.py",
         ROOT / "Dockerfile",

@@ -65,7 +65,7 @@ def test_every_mapped_pack_decides_its_synthetic_fhir_as_the_golden_says() -> No
         pack.id
         for pack in (
             load_pack(path.parent)
-            for path in sorted(ROOT.glob("tests/fixtures/reference-packs/*/pack.yaml"))
+            for path in sorted(ROOT.glob("tests/fixtures/reference-agents/*/agent.yaml"))
         )
         if pack.manifest.inputs.fhir is not None
     }
@@ -142,7 +142,7 @@ def test_the_new_synthetic_fhir_decides_as_its_record_does(pack_id: str) -> None
     at HUMAN_REVIEW."""
     dataset, build = BUILT[pack_id]
     decision = Decision.from_path(
-        ROOT / "tests" / "fixtures" / "reference-packs" / pack_id.split("/")[1]
+        ROOT / "tests" / "fixtures" / "reference-agents" / pack_id.split("/")[1]
     )
     adapter = FhirAdapter.for_pack(decision.pack)
     focus = adapter.mapping.focus_where

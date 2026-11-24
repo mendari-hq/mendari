@@ -63,7 +63,7 @@ class Base:
 
     def changed(self) -> list[str]:
         """Every file the change touches: committed since the base (`base...HEAD`), changed in
-        the working tree, and new files under community-packs/ not yet added."""
+        the working tree, and new files under community-agents/ not yet added."""
         diff = ("diff", "-z", "--name-only", "--no-renames")
         found = set(_paths(_git(self.repo, *diff, f"{self.ref}...HEAD")))
         found |= set(_paths(_git(self.repo, *diff, "HEAD")))

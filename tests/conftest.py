@@ -31,7 +31,7 @@ from mendari import sandbox as _sandbox
 from mendari.core import reference as _reference
 from mendari.core import registry as _registry
 from mendari.core.evalset_keys import EvalsetKeys, evalset_keys
-from mendari.core.pack import pack_digest
+from mendari.core.pack import MANIFEST_NAMES, pack_digest
 from mendari.core.phi import PhiPolicy
 from mendari.core.registry import resolve_pack
 from mendari.errors import ProviderError
@@ -47,7 +47,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # The packs the tests decide with are fixtures, not part of the product: here they stand where a
 # release's bundled agents do, so they load with the maintained origin. Both names are read when
 # called, never copied, so setting them here reaches every module.
-REFERENCE_PACKS = ROOT / "tests" / "fixtures" / "reference-packs"
+REFERENCE_PACKS = ROOT / "tests" / "fixtures" / "reference-agents"
 _reference.BUNDLED_DIRS = (REFERENCE_PACKS,)
 _registry._BUNDLED_DIRS = _reference.BUNDLED_DIRS
 _sandbox.DATASET_DIRS = (ROOT / "tests" / "fixtures" / "datasets",)
@@ -58,6 +58,13 @@ LOCAL_DATASET = ROOT / "tests" / "fixtures" / "datasets" / "local-site-example.j
 _BASE_POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
 _XDIST_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "").strip()
 _WORKER_DB_LOCK = 72_610_491
+
+
+def fixture_agents() -> list[Path]:
+    """The folder of every agent under tests/fixtures, whichever name its manifest has (one
+    keeps `pack.yaml` on purpose: tests/test_manifest_names.py)."""
+    fixtures = ROOT / "tests" / "fixtures"
+    return sorted({p.parent for name in MANIFEST_NAMES for p in fixtures.glob(f"**/{name}")})
 
 
 def _worker_postgres(base_url: str, worker: str) -> tuple[str, str | None]:
@@ -132,8 +139,8 @@ def _the_repositorys_own_packs_are_as_they_were() -> Iterator[None]:
     after it read another pack. A run that leaves one changed fails here, at its end."""
     packs = sorted(
         path
-        for path in (ROOT / "tests" / "fixtures" / "reference-packs").iterdir()
-        if (path / "pack.yaml").is_file()
+        for path in (ROOT / "tests" / "fixtures" / "reference-agents").iterdir()
+        if (path / "agent.yaml").is_file()
     )
     before = {path: pack_digest(path) for path in packs}
     yield
@@ -502,7 +509,7 @@ def router(inbox_pack: Pack) -> Decision:
 
 @pytest.fixture
 def pack_copy(tmp_path: Path) -> Callable[..., Path]:
-    """Copy the reference pack and apply edits to pack.yaml / policy.yaml before loading."""
+    """Copy the reference pack and apply edits to agent.yaml / policy.yaml before loading."""
 
     def make(
         manifest: Callable[[dict[str, Any]], None] | None = None,
@@ -515,7 +522,7 @@ def pack_copy(tmp_path: Path) -> Callable[..., Path]:
             # Tiny stand-ins: most tests do not need the real splits.
             source = (INBOX_DIR / "data" / f"{split}.jsonl").read_text().splitlines()[:20]
             (target / "data" / f"{split}.jsonl").write_text("\n".join(source) + "\n")
-        for name, edit in (("pack.yaml", manifest), ("policy.yaml", policy)):
+        for name, edit in (("agent.yaml", manifest), ("policy.yaml", policy)):
             if edit is None:
                 continue
             path = target / name

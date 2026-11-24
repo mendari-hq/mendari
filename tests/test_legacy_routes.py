@@ -731,7 +731,7 @@ def test_the_registry_answers_the_same_at_both_paths(registry: Registry) -> None
 
 
 def test_a_publish_at_the_former_path_is_the_same_publish(registry: Registry) -> None:
-    pack = load_pack(Path(__file__).parent / "fixtures" / "reference-packs" / "referral-router")
+    pack = load_pack(Path(__file__).parent / "fixtures" / "reference-agents" / "referral-router")
     data = archive.build(pack, registry.key)
     former = registry.client.put(
         f"/v1/packs/mendari/referral-router/{pack.version}",

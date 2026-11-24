@@ -29,7 +29,7 @@ from mendari.server.readiness import Readiness, packs_state
 from tests.test_auth import FakeIdp, signing_in_with
 
 READY = "/api/health/ready"
-PACKS = Path(__file__).parent / "fixtures" / "reference-packs"
+PACKS = Path(__file__).parent / "fixtures" / "reference-agents"
 # A driver's message can carry the host, the user and the database: none of it may leave.
 SECRET_TEXT = 'connection to server at "db.internal.example" (10.9.8.7) failed: user "mendari"'
 

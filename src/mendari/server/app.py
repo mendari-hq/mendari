@@ -1477,6 +1477,7 @@ def create_app(
                     registry_app.openapi(),
                     prefix=REGISTRY_PREFIX.rstrip("/"),
                 )
+            app.openapi_schema = api_docs.titled(app.openapi_schema)
         return app.openapi_schema
 
     app.openapi = openapi  # type: ignore[method-assign]

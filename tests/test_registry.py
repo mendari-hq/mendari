@@ -278,11 +278,11 @@ def test_an_over_long_version_is_refused_and_search_keeps_working(
     root = tmp_path / "pack"
     shutil.copytree(REFERRAL.root, root)
     manifest = (
-        (root / "pack.yaml")
+        (root / "agent.yaml")
         .read_text()
         .replace(f"version: {REFERRAL.version}", f"version: '{huge}'", 1)
     )
-    (root / "pack.yaml").write_text(manifest)
+    (root / "agent.yaml").write_text(manifest)
     signed = Pack(
         manifest=REFERRAL.manifest.model_copy(update={"version": huge}),
         root=root,
@@ -353,7 +353,7 @@ def test_a_composite_whose_members_cannot_run_is_refused_at_publish(
     registry (ADR-0009)."""
     root = tmp_path / "pack"
     shutil.copytree(INBOX.root, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["version"] = "9.9.9"
     variants = manifest["providers"]["safety_screen"]["variants"]
     rules, jev = variants["rules"], variants["jev"]
@@ -364,7 +364,7 @@ def test_a_composite_whose_members_cannot_run_is_refused_at_publish(
         "members": {datetime.date(2024, 1, 1): rules, "jev": jev},
     }
     variants["listed"] = {"type": "any_of", "escalate": escalate, "members": [rules, rules]}
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     owned = load_pack(root)
     assert [warning.partition(":")[0] for warning in owned.warnings] == [
         "providers.safety_screen.variants.dated",
@@ -379,7 +379,7 @@ def test_a_composite_whose_members_cannot_run_is_refused_at_publish(
     assert registry.client.get("/v1/search").json() == []
 
     del variants["dated"], variants["listed"]
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     published = registry.publish(load_pack(root))
     assert published.status_code == 201, published.text
     members = published.json()["names"]["members"]["safety_screen"]
@@ -395,8 +395,8 @@ def _at_version(tmp_path: Path, source: Pack, version: str) -> Pack:
     """A copy of a reference pack at another version: not the copy in this release."""
     root = tmp_path / source.id.replace("/", "-")
     shutil.copytree(source.root, root)
-    manifest = (root / "pack.yaml").read_text()
-    (root / "pack.yaml").write_text(
+    manifest = (root / "agent.yaml").read_text()
+    (root / "agent.yaml").write_text(
         manifest.replace(f"version: {source.version}", f"version: {version}", 1)
     )
     return load_pack(root)
@@ -423,7 +423,7 @@ def test_the_registry_publishes_the_reference_packs_of_its_own_release(
     a reference pack of the registry's release, checked on the maintained engine."""
     root = bundled_dir()
     assert root is not None
-    packs = [load_pack(d) for d in sorted(root.iterdir()) if (d / "pack.yaml").is_file()]
+    packs = [load_pack(d) for d in sorted(root.iterdir()) if (d / "agent.yaml").is_file()]
     assert len(packs) == 5
     for pack in packs:
         published = registry.publish(pack)
@@ -504,7 +504,7 @@ def _hostile_copy(tmp_path: Path) -> Path:
     as the registry's own words, a names a publisher chooses holding backticks and pipes."""
     root = tmp_path / "hostile"
     shutil.copytree(INBOX.root, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"], manifest["version"] = "site-a/hostile", "1.0.0"
     manifest["name"] = "Hostile" + HOSTILE
     manifest["summary"] = "Summary" + HOSTILE
@@ -521,7 +521,7 @@ def _hostile_copy(tmp_path: Path) -> Path:
             "note": HOSTILE,
         }
     ]
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     (root / "CHANGELOG.md").write_text(
         "# Changelog\n\n## 1.0.0\n\n- first" + HOSTILE + "\n\n# Checked by the registry\n\n"
         "Title\n=====\n"
@@ -537,7 +537,7 @@ def test_publisher_text_in_the_registrys_card_is_plain_text(tmp_path: Path) -> N
     hostile = load_pack(_hostile_copy(tmp_path), origin="hub")
     plain = tmp_path / "plain"
     shutil.copytree(_hostile_copy(tmp_path / "again"), plain)
-    manifest = yaml.safe_load((plain / "pack.yaml").read_text())
+    manifest = yaml.safe_load((plain / "agent.yaml").read_text())
     for key in ("name", "summary"):
         manifest[key] = key
     manifest["risk"]["rationale"] = "why"
@@ -546,7 +546,7 @@ def test_publisher_text_in_the_registrys_card_is_plain_text(tmp_path: Path) -> N
     manifest["card"]["intended_users"] = ["users"]
     manifest["card"]["known_failure_modes"] = ["modes"]
     manifest["card"]["evidence"] = [{"title": "evidence", "url": "https://a", "note": "n"}]
-    (plain / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (plain / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     (plain / "CHANGELOG.md").write_text("# Changelog\n\n## 1.0.0\n\n- first\n\n# x\n\nTitle\n")
 
     def card(pack: Pack) -> str:

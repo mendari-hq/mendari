@@ -31,7 +31,7 @@ from mendari.providers.rules import RulesProvider
 from tests.conftest import ROOT
 from tests.test_lookaround_rewrites import ORIGINALS
 
-SORTER = ROOT / "tests" / "fixtures" / "community-packs" / "visit-sorter"
+SORTER = ROOT / "tests" / "fixtures" / "community-agents" / "visit-sorter"
 RULES = "logic/rules.yaml"
 SCHEMA = "schemas/input.schema.json"
 
@@ -76,14 +76,14 @@ def community_pack(
     schema: dict[str, Any] | None = None,
     pack_id: str = "community/visit-sorter",
 ) -> Path:
-    """A copy of the community fixture under `base/community-packs/`, with `rules` as its
+    """A copy of the community fixture under `base/community-agents/`, with `rules` as its
     billing patterns, its message up to 10,000 characters, and `schema` merged into the
     message's schema."""
-    root = base / "community-packs" / pack_id.partition("/")[2]
+    root = base / "community-agents" / pack_id.partition("/")[2]
     shutil.copytree(SORTER, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"] = pack_id
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     if rules:
         config = yaml.safe_load((root / RULES).read_text())
         config["questions"]["topic"]["labels"]["billing"] = [
@@ -460,7 +460,7 @@ def test_ignoring_case_matches_what_re_matches_for_every_class() -> None:
 def maintained_cases() -> list[tuple[str, str, int, list[str]]]:
     """Every maintained pattern, with the texts of its pack's datasets and examples."""
     packs = discover(
-        [SearchPath(ROOT / "tests" / "fixtures" / "reference-packs", "maintained")]
+        [SearchPath(ROOT / "tests" / "fixtures" / "reference-agents", "maintained")]
     ).packs
     cases = []
     for pack in packs:

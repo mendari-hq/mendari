@@ -27,8 +27,8 @@ from mendari.core.patterns import MAX_PACK_PATTERNS
 from mendari.errors import PackValidationError
 from tests.conftest import INBOX_DIR, ROOT
 
-SORTER = ROOT / "tests" / "fixtures" / "community-packs" / "visit-sorter"
-SCAFFOLD_SCHEMA = ROOT / "src" / "mendari" / "templates" / "new_pack" / "schemas"
+SORTER = ROOT / "tests" / "fixtures" / "community-agents" / "visit-sorter"
+SCAFFOLD_SCHEMA = ROOT / "src" / "mendari" / "templates" / "base" / "schemas"
 RULES = "logic/rules.yaml"
 SCHEMA = "schemas/input.schema.json"
 PACKS = INBOX_DIR.parent
@@ -46,21 +46,21 @@ def sorter(
     manifest: Callable[[dict[str, Any]], None] | None = None,
     pack_id: str = "community/visit-sorter",
 ) -> Path:
-    """A copy of the community fixture under `base/community-packs/`, its rules, schema and
+    """A copy of the community fixture under `base/community-agents/`, its rules, schema and
     manifest changed by the callables, with id `pack_id`."""
-    root = base / "community-packs" / "visit-sorter"
+    root = base / "community-agents" / "visit-sorter"
     shutil.copytree(SORTER, root)
     for relative, edit, load, dump in (
         (RULES, rules, yaml.safe_load, lambda d: yaml.safe_dump(d, sort_keys=False)),
         (SCHEMA, schema, json.loads, json.dumps),
-        ("pack.yaml", manifest, yaml.safe_load, lambda d: yaml.safe_dump(d, sort_keys=False)),
+        ("agent.yaml", manifest, yaml.safe_load, lambda d: yaml.safe_dump(d, sort_keys=False)),
     ):
         if edit is not None:
             data = load((root / relative).read_text())
             edit(data)
             (root / relative).write_text(dump(data))
     if pack_id != "community/visit-sorter":
-        path = root / "pack.yaml"
+        path = root / "agent.yaml"
         data = yaml.safe_load(path.read_text())
         data["id"] = pack_id
         path.write_text(yaml.safe_dump(data, sort_keys=False))
@@ -187,7 +187,7 @@ def test_a_pack_that_is_not_a_community_pack_is_not_capped(tmp_path: Path) -> No
 def test_the_maintained_packs_load_as_before_and_would_pass_the_caps() -> None:
     """The caps are set above what the shipped packs use: the inbox router's red-flag window of
     40 characters, its 7 cues, its schema's pattern runs."""
-    for root in sorted(p for p in PACKS.iterdir() if (p / "pack.yaml").is_file()):
+    for root in sorted(p for p in PACKS.iterdir() if (p / "agent.yaml").is_file()):
         pack = load_pack(root, origin="maintained")
         assert not pack.community
         for relative, data in pack.parsed.items():

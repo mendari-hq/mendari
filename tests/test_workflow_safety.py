@@ -673,7 +673,7 @@ def test_ci_runs_every_community_packs_tests() -> None:
     ci = _workflow(ROOT / ".github" / "workflows" / "ci.yml")
     scripts = [step.get("run", "") for step in ci["jobs"]["test"]["steps"]]
     # By either name of the manifest (`core/pack.py` `MANIFEST_NAMES`).
-    names = "community-packs/*/agent.yaml community-packs/*/pack.yaml"
+    names = "community-agents/*/agent.yaml community-agents/*/pack.yaml"
     (loop,) = [run for run in scripts if names in run]
     assert 'uv run mendari test "$(dirname "$manifest")"' in loop and "exit $failed" in loop
 
@@ -718,10 +718,10 @@ def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
         "agents/removed/pack.yaml",  # gone from the tree: reported as its top folder
         "agents/README.md",  # directly in agents/: no pack
         "src/mendari/cli.py",
-        "community-packs/visit-sorter/logic/rules.yaml",
-        "community-packs/visit-sorter/nested/pack.yaml",  # one folder is one community pack
-        "community-packs/gone; $(touch x)/pack.yaml",
-        "community-packs/MAINTAINERS.yaml",  # directly in community-packs/: no pack
+        "community-agents/visit-sorter/logic/rules.yaml",
+        "community-agents/visit-sorter/nested/pack.yaml",  # one folder is one community pack
+        "community-agents/gone; $(touch x)/pack.yaml",
+        "community-agents/MAINTAINERS.yaml",  # directly in community-agents/: no pack
     ]
     assert _changed_packs().pack_dirs(changed, tmp_path) == [
         "agents/a/b/c",
@@ -731,6 +731,6 @@ def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
         "agents/my pack; $(touch x)",
         "agents/removed",
         "agents/renamed",
-        "community-packs/gone; $(touch x)",
-        "community-packs/visit-sorter",
+        "community-agents/gone; $(touch x)",
+        "community-agents/visit-sorter",
     ]

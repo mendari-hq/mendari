@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Pack archives (`.ohpack`): a pack, byte for byte, with a signed list of its files.
+"""Agent archives (`.mendari`): an agent, byte for byte, with a signed list of its files. A
+file is named `<namespace>-<name>-<version>.mendari`; until 2026-11 the extension was `.ohpack`,
+and an archive under that name is the same file: nothing reads an archive by its name.
 
 An archive is a deterministic gzip tar (sorted entries, zero mtimes, owner and mode fixed, gzip
 mtime 0), so the same pack always gives the same bytes and the same archive digest. It holds:
@@ -134,9 +136,15 @@ def pack_files(root: Path) -> list[Path]:
     )
 
 
+# What an archive's file is called when one is written. An archive is read from whatever file
+# it is in: one written before as `.ohpack` (`FORMER_EXTENSION`) verifies and loads the same.
+EXTENSION = ".mendari"
+FORMER_EXTENSION = ".ohpack"
+
+
 def archive_name(pack: Pack) -> str:
     namespace, name = pack.id.split("/")
-    return f"{namespace}-{name}-{pack.version}.ohpack"
+    return f"{namespace}-{name}-{pack.version}{EXTENSION}"
 
 
 def refuse_site_cases(files: Mapping[str, bytes]) -> None:

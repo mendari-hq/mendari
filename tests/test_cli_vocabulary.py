@@ -26,7 +26,7 @@ pytestmark = pytest.mark.core
 
 # "pack" and "packs" (so "Decision Pack" too), in any case, as a word of its own: also where a
 # dash, a dot or an underscore joins it to another (`--pack-dir`, `pack.yaml`, `PACK_DIR`), which
-# a plain word boundary would let through. `.ohpack`, the archive's extension, is not that word.
+# a plain word boundary would let through. `.ohpack`, the extension an archive had, is not it.
 OLD_WORD = re.compile(r"(?<![a-z])packs?(?![a-z])", re.IGNORECASE)
 AGENT = "my-clinic/an-agent"  # any agent: no option takes only some
 # Every command with an option that names an agent, and the least it takes beside it.
@@ -50,11 +50,10 @@ AGENT_OPTIONS = {
     "evalset freeze": ["a-set", "--max-runs", "1", "--max-age-days", "1"],
 }
 # In the command line's source, the strings that are names, not words: keys of stored and
-# signed records, what the commands read an argument as, the options' names before, folders.
+# signed records, what the commands read an argument as, the options' names before.
 NAMES = {
     *("pack", "packs", "pack_id", "pack_digest"),
     "--pack",
-    *("new_pack", "community_pack", "agent_pack"),
 }
 
 

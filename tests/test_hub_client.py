@@ -100,10 +100,10 @@ def copy_pack(tmp_path: Path, pack_id: str, version: str = SHIPPED) -> Pack:
     """The inbox pack under another id (and version): a pack no search path has."""
     target = tmp_path / "packs" / pack_id.replace("/", "-") / version
     shutil.copytree(INBOX_DIR, target)
-    manifest = (target / "pack.yaml").read_text()
+    manifest = (target / "agent.yaml").read_text()
     manifest = manifest.replace("id: mendari/patient-inbox-router", f"id: {pack_id}", 1)
     manifest = manifest.replace(f"version: {SHIPPED}", f"version: {version}", 1)
-    (target / "pack.yaml").write_text(manifest)
+    (target / "agent.yaml").write_text(manifest)
     return load_pack(target)
 
 
@@ -280,7 +280,7 @@ def changed_referral(tmp_path: Path, version: str | None = None) -> Path:
     rules = changed / "logic" / "triage_rules.yaml"
     rules.write_text(rules.read_text() + "# one more line\n")
     if version is not None:
-        manifest = changed / "pack.yaml"
+        manifest = changed / "agent.yaml"
         shipped = load_pack(REFERRAL_DIR).version
         manifest.write_text(
             manifest.read_text().replace(f"version: {shipped}", f"version: {version}", 1)

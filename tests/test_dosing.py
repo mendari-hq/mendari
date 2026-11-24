@@ -12,7 +12,7 @@ import yaml
 from mendari import Decision
 from mendari.errors import PackValidationError
 
-MINI = Path(__file__).parent / "fixtures" / "packs" / "guard-mini"
+MINI = Path(__file__).parent / "fixtures" / "mini-agents" / "guard-mini"
 
 
 @pytest.fixture(scope="module")

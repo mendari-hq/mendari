@@ -31,8 +31,8 @@ from tests.conftest import ROOT, message
 
 PACKS = sorted(
     path
-    for path in (ROOT / "tests" / "fixtures" / "reference-packs").iterdir()
-    if (path / "pack.yaml").is_file()
+    for path in (ROOT / "tests" / "fixtures" / "reference-agents").iterdir()
+    if (path / "agent.yaml").is_file()
 )
 
 CURLY = "\N{RIGHT SINGLE QUOTATION MARK}"  # a phone's apostrophe
@@ -316,7 +316,7 @@ def test_the_classifier_reads_typographic_variants_as_the_same_words(inbox_pack:
 )
 def test_a_dose_is_read_however_its_range_and_spaces_are_typed(draft: str) -> None:
     dosing = Decision.from_path(
-        ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard"
+        ROOT / "tests" / "fixtures" / "reference-agents" / "ai-guard"
     ).providers["dosing"]
     answer = dosing.answer({"draft": draft}).answers["dose_exceeds_limit"]
     assert answer.label == "yes" and "1000 mg x 6 a day" in " ".join(answer.evidence)
@@ -466,7 +466,7 @@ def test_matched_as_received_the_same_retyping_hides_critical_cases(
     name, question, label, how = hidden
     monkeypatch.setattr(base, "plain", lambda text: text)
     monkeypatch.setattr(criteria, "plain", lambda text: text)
-    decision = Decision.from_path(ROOT / "tests" / "fixtures" / "reference-packs" / name)
+    decision = Decision.from_path(ROOT / "tests" / "fixtures" / "reference-agents" / name)
 
     def detects(inputs: Any) -> bool:
         answer = decision.decide(inputs).answers.get(question)

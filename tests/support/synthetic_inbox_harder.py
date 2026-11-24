@@ -59,7 +59,7 @@ DRAFT_DIR = Path("tests") / "fixtures" / "datasets" / "drafts" / "patient-inbox-
 FILES = ("train.jsonl", "heldout.jsonl", "REPORT.md", "FAMILIES.md")
 LANGUAGES = ("en", "es")
 
-# The signs the pack's `urgent` criterion lists, in its order (the inbox pack's pack.yaml).
+# The signs the pack's `urgent` criterion lists, in its order (the inbox pack's agent.yaml).
 RED_FLAGS: dict[str, str] = {
     "chest_pain": "chest pain or pressure",
     "breathing": "trouble breathing",

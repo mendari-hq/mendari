@@ -127,7 +127,7 @@ def test_rules_patterns_compile_as_the_provider_runs_them(inbox: Path) -> None:
 def test_a_pattern_used_by_a_non_default_variant_or_a_member_is_checked_too(
     inbox: Path,
 ) -> None:
-    manifest = yaml.safe_load((inbox / "pack.yaml").read_text())
+    manifest = yaml.safe_load((inbox / "agent.yaml").read_text())
     (inbox / "logic" / "extra.yaml").write_text(
         (inbox / RED_FLAGS).read_text().replace("weight: 1", "weight: 1", 1)
     )
@@ -142,7 +142,7 @@ def test_a_pattern_used_by_a_non_default_variant_or_a_member_is_checked_too(
             "b": {"type": "rules", "config": "logic/extra.yaml"},
         },
     }
-    (inbox / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (inbox / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     with pytest.raises(PackValidationError) as raised:
         load_pack(inbox)
     (problem,) = raised.value.problems
@@ -162,8 +162,8 @@ def test_an_invalid_pattern_lists_the_pack_and_never_fails_health(
     inbox: Path, tmp_path: Path
 ) -> None:
     root = with_pattern(inbox, "(unclosed")
-    manifest = (root / "pack.yaml").read_text()
-    (root / "pack.yaml").write_text(
+    manifest = (root / "agent.yaml").read_text()
+    (root / "agent.yaml").write_text(
         manifest.replace("id: mendari/patient-inbox-router", "id: outsider/inbox", 1)
     )
     client = TestClient(
@@ -179,7 +179,7 @@ def test_an_invalid_pattern_lists_the_pack_and_never_fails_health(
 def test_the_shipped_patterns_load_and_compile_cheaply() -> None:
     with cpu_time() as spent:
         for root in sorted(INBOX_DIR.parent.iterdir()):
-            if (root / "pack.yaml").is_file():
+            if (root / "agent.yaml").is_file():
                 re.purge()
                 load_pack(root)
     assert spent() < 1

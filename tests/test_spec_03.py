@@ -23,10 +23,10 @@ from mendari.core.spec import SPEC_VERSION, PackManifest
 from mendari.errors import PackValidationError
 from mendari.evals.harness import load_dataset
 from mendari.standards.fhir import FhirAdapter, newer_keys
-from tests.conftest import INBOX_DIR, ROOT
+from tests.conftest import INBOX_DIR, ROOT, fixture_agents
 from tests.test_fhir_decisions import script
 
-MINI = ROOT / "tests" / "fixtures" / "packs" / "prescreen-mini"
+MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "prescreen-mini"
 ICD = "http://hl7.org/fhir/sid/icd-10-cm"
 SITE = "https://site.example/fhir/CodeSystem/conditions"  # a fictional site's own codes
 PATIENT = {"resourceType": "Patient", "id": "p1", "birthDate": "1970-01-01"}
@@ -99,14 +99,14 @@ def mini(
     `changes` (a top-level mapping's keys merged, any other value replaced)."""
     root = tmp_path / "pack"
     shutil.copytree(MINI, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["spec_version"] = spec
     manifest["code_systems"] = [
         {"url": ICD, "name": "ICD-10-CM"},
         {"url": SITE, "name": "A fictional site's condition codes"},
         *({"url": url, "name": f"Fictional: {url}"} for url in systems),
     ]
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     mapping = yaml.safe_load((root / "fhir" / "mapping.yaml").read_text())
     for key, value in changes.items():
         if isinstance(value, dict) and isinstance(mapping.get(key), dict):
@@ -158,14 +158,14 @@ def test_a_0_3_criteria_key_in_a_0_2_pack_is_refused_at_load(
         criteria["questions"]["t2d_diagnosis"]["checks"].append(check)
         (root / "logic" / "criteria.yaml").write_text(yaml.safe_dump(criteria, sort_keys=False))
         if member:  # the criteria variant only as both members of a composite
-            manifest = yaml.safe_load((root / "pack.yaml").read_text())
+            manifest = yaml.safe_load((root / "agent.yaml").read_text())
             slot = manifest["providers"]["structured"]
             plain = slot["variants"].pop("criteria")
             escalate = dict.fromkeys(slot["answers"], "unknown")
             members = {"a": plain, "b": dict(plain)}
             slot["variants"]["both"] = {"type": "any_of", "escalate": escalate, "members": members}
             slot["use"] = "both"
-            (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+            (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
         return root
 
     problem = f"logic/criteria.yaml: [{where!r}] use spec 0.3 criteria features"
@@ -214,14 +214,14 @@ def inbox_at_0_1(root: Path) -> Path:
     """A copy of the inbox pack as spec 0.1: its 0.2 features (a `min_probability` rule,
     question `display` and `names`, `card.provenance`) left out."""
     shutil.copytree(INBOX_DIR, root, ignore=shutil.ignore_patterns("data", "evals"))
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["spec_version"] = "0.1"
     manifest["card"].pop("provenance")
     for question in manifest["questions"].values():
         question.pop("display", None)
         question.pop("names", None)
     manifest.pop("evaluation", None)
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     policy = yaml.safe_load((root / "policy.yaml").read_text())
     policy["rules"] = [r for r in policy["rules"] if "min_probability" not in r["when"]]
     (root / "policy.yaml").write_text(yaml.safe_dump(policy, sort_keys=False))
@@ -242,11 +242,11 @@ def test_every_0_1_and_0_2_pack_still_loads_and_maps_identically() -> None:
     moved to spec 0.3, which load held to its bounds and bare placeholders too; and the four
     reference packs with a FHIR mapping decide every case of the 23a golden as it says, input
     hash included (the mapping read the same input, byte for byte)."""
-    roots = sorted(p.parent for p in (ROOT / "tests" / "fixtures").glob("**/pack.yaml"))
+    roots = fixture_agents()
     mapped = 0
     newer = set()
     for root in roots:
-        origin: Origin = "community" if root.parent.name == "community-packs" else "local"
+        origin: Origin = "community" if root.parent.name == "community-agents" else "local"
         pack = load_pack(root, origin=origin)
         if pack.manifest.spec_version == "0.3":
             newer.add(pack.id)
@@ -266,7 +266,7 @@ def test_every_0_1_and_0_2_pack_still_loads_and_maps_identically() -> None:
 def test_a_0_3_manifest_is_a_0_2_manifest() -> None:
     """0.3 adds no manifest key: the inbox's manifest is valid as 0.3, and an engine refuses a
     version it does not know, as an engine that reads only 0.2 refuses a 0.3 pack."""
-    raw = yaml.safe_load((INBOX_DIR / "pack.yaml").read_text())
+    raw = yaml.safe_load((INBOX_DIR / "agent.yaml").read_text())
     raw["policy"] = yaml.safe_load((INBOX_DIR / "policy.yaml").read_text())
     assert PackManifest.model_validate({**raw, "spec_version": "0.3"}).spec_version == "0.3"
     assert SPEC_VERSION == "0.3"

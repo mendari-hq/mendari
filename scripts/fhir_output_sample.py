@@ -49,7 +49,7 @@ RECORDS = (
     ROOT
     / "tests"
     / "fixtures"
-    / "reference-packs"
+    / "reference-agents"
     / "clinical-trial-prescreener"
     / "data"
     / "test.jsonl"

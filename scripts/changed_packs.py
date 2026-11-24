@@ -11,9 +11,9 @@ agent can sit up to four levels deep, as the registry finds it). A file under no
 one left over from a removed agent, is reported as its top folder, `agents/<name>`, which then
 has no manifest: the workflow says it was removed.
 
-Under `community-packs/`, an agent is exactly one folder, `community-packs/<name>`, whatever its
+Under `community-agents/`, an agent is exactly one folder, `community-agents/<name>`, whatever its
 files (a manifest deeper is the agent's mistake, which `mendari community-check` reports).
-Files directly in `community-packs/` (`MAINTAINERS.yaml`, `README.md`) belong to no agent.
+Files directly in `community-agents/` (`MAINTAINERS.yaml`, `README.md`) belong to no agent.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from mendari.core.pack import has_manifest  # noqa: E402
 
 PACKS = "agents"
-COMMUNITY = "community-packs"
+COMMUNITY = "community-agents"
 MAX_DEPTH = 4  # the deepest manifest the registry loads: agents/a/b/c/agent.yaml
 
 
@@ -40,7 +40,7 @@ def pack_dirs(paths: Iterable[str], root: Path) -> list[str]:
     for path in paths:
         parts = PurePosixPath(path).parts
         if len(parts) < 3 or parts[0] not in (PACKS, COMMUNITY):
-            continue  # outside agents/ and community-packs/, or a file directly in one
+            continue  # outside agents/ and community-agents/, or a file directly in one
         if parts[0] == COMMUNITY:
             found.add(str(PurePosixPath(*parts[:2])))
             continue

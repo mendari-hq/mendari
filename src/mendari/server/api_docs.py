@@ -14,9 +14,12 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from pydantic import BaseModel
+
 from mendari import notices
 from mendari.core.pack import Pack
 from mendari.evals.pack_tests import load_cases
+from mendari.evals.share import SharedPack
 from mendari.server import scopes
 
 TAGS = [
@@ -391,6 +394,34 @@ def mounted(schema: dict[str, Any], registry: Mapping[str, Any], *, prefix: str)
         components.setdefault("schemas", {})[f"Registry{name}"] = model
     components.setdefault("securitySchemes", {})["publisherToken"] = PUBLISHER_TOKEN
     schema["tags"] = [*schema.get("tags", []), *REGISTRY_TAGS]
+
+
+# Models an API description lists under the title they set (`model_config`'s `title`), in
+# place of their Python class's name. A class keeps its name until the records it is in change
+# (the JSON key it types is on the wire); what a reader of the description sees is the title.
+TITLED: tuple[type[BaseModel], ...] = (SharedPack,)
+
+
+def titled(schema: dict[str, Any]) -> dict[str, Any]:
+    """The document with each of `TITLED` listed under its title: its component renamed, and
+    every reference to it. One whose title another component already has is left as it is, so a
+    name never stands for two schemas."""
+    schemas = schema.get("components", {}).get("schemas", {})
+    renames = {
+        model.__name__: str(model.model_config["title"])
+        for model in TITLED
+        if model.__name__ in schemas and model.model_config.get("title") not in (None, *schemas)
+    }
+    if not renames:
+        return schema
+    text = json.dumps(schema)
+    for name, title in renames.items():
+        text = text.replace(f'{_SCHEMA_REF}{name}"', f'{_SCHEMA_REF}{title}"')
+    renamed: dict[str, Any] = json.loads(text)
+    renamed["components"]["schemas"] = {
+        renames.get(name, name): model for name, model in renamed["components"]["schemas"].items()
+    }
+    return renamed
 
 
 TOO_MANY = {

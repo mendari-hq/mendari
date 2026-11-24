@@ -181,12 +181,12 @@ def _tagged(tag: str) -> str:
 @pytest.mark.parametrize(
     ("relative", "line", "column", "reason"),
     [
-        ("pack.yaml", 'name: "Referral \\ud800"', 7, SURROGATE),
-        ("pack.yaml", '"x_\\udfff": 1', 1, SURROGATE),
-        ("pack.yaml", "x_blob: !!binary /w==", 9, _tagged("binary")),
-        ("pack.yaml", "x_set: !!set {a}", 8, _tagged("set")),
-        ("pack.yaml", "x_omap: !!omap [a: 1]", 9, _tagged("omap")),
-        ("pack.yaml", "x_pairs: !!pairs [a: 1]", 10, _tagged("pairs")),
+        ("agent.yaml", 'name: "Referral \\ud800"', 7, SURROGATE),
+        ("agent.yaml", '"x_\\udfff": 1', 1, SURROGATE),
+        ("agent.yaml", "x_blob: !!binary /w==", 9, _tagged("binary")),
+        ("agent.yaml", "x_set: !!set {a}", 8, _tagged("set")),
+        ("agent.yaml", "x_omap: !!omap [a: 1]", 9, _tagged("omap")),
+        ("agent.yaml", "x_pairs: !!pairs [a: 1]", 10, _tagged("pairs")),
         ("policy.yaml", 'x_note: "\\ud800"', 9, SURROGATE),
         ("logic/triage_rules.yaml", 'x_name: "\\ud800"', 9, SURROGATE),
     ],
@@ -230,7 +230,7 @@ def test_a_yaml_value_json_cannot_hold_is_refused_at_load_with_its_place(
 @pytest.mark.parametrize(
     ("relative", "text"),
     [
-        ("pack.yaml", "risk:\n  level: 3\n  category: x\n  rationale: a second risk\n"),
+        ("agent.yaml", "risk:\n  level: 3\n  category: x\n  rationale: a second risk\n"),
         ("policy.yaml", "primary: next_step\n"),
         ("fhir/mapping.yaml", "focus: ServiceRequest\n"),
     ],
@@ -524,7 +524,7 @@ def test_the_benchmark_must_be_in_evals(tmp_path: Path, capsys: pytest.CaptureFi
     a JSONDecodeError traceback and the pack's detail answered 500."""
     pack = _outsider(
         tmp_path,
-        _set_key("pack.yaml", "evaluation", {"benchmark": "DECISION_CARD.md"}),
+        _set_key("agent.yaml", "evaluation", {"benchmark": "DECISION_CARD.md"}),
         REFERRAL_DIR,
     )
     problem = "evaluation.benchmark: path 'DECISION_CARD.md' is not in evals/"

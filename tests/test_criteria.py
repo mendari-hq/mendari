@@ -15,7 +15,7 @@ from mendari.errors import PackValidationError
 from mendari.providers import ProviderInfo
 from mendari.providers.criteria import CriteriaProvider
 
-FIXTURE = Path(__file__).parent / "fixtures" / "packs" / "trial-mini"
+FIXTURE = Path(__file__).parent / "fixtures" / "mini-agents" / "trial-mini"
 AS_OF = date(2026, 9, 1)
 YNU = {"yes": "Met.", "no": "Not met.", "unknown": "Cannot tell."}
 
@@ -412,7 +412,7 @@ def windowed(tmp_path: Path) -> Pack:
     """The fixture at spec 0.3 with `WINDOWED` as its criteria."""
     root = tmp_path / "windowed"
     shutil.copytree(FIXTURE, root)
-    manifest = root / "pack.yaml"
+    manifest = root / "agent.yaml"
     manifest.write_text(manifest.read_text().replace('spec_version: "0.2"', 'spec_version: "0.3"'))
     (root / "logic" / "criteria.yaml").write_text(yaml.safe_dump(WINDOWED))
     return load_pack(root)

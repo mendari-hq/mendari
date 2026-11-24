@@ -108,13 +108,13 @@ def pack_with_llm(tmp_path: Path, **router_extra: Any) -> Pack:
     """A copy of the inbox pack with `llm` variants on both slots."""
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     for slot in ("router", "safety_screen"):
         variant = {"type": "llm", "state_fields": STATE_FIELDS}
         if slot == "router":
             variant.update(router_extra)
         manifest["providers"][slot]["variants"]["llm"] = variant
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     return load_pack(root)
 
 

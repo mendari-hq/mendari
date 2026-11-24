@@ -283,7 +283,7 @@ def public_input() -> dict[str, Any]:
         ROOT
         / "tests"
         / "fixtures"
-        / "reference-packs"
+        / "reference-agents"
         / "patient-inbox-router"
         / "data"
         / "red_flags.jsonl"

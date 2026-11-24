@@ -127,7 +127,7 @@ def inbox_copy(tmp_path: Path) -> Path:
     return root
 
 
-@pytest.mark.parametrize("link", ["CHANGELOG.md", "pack.yaml", "logic/extra", "notes"])
+@pytest.mark.parametrize("link", ["CHANGELOG.md", "agent.yaml", "logic/extra", "notes"])
 def test_a_symbolic_link_out_of_the_pack_is_refused(
     inbox_copy: Path, tmp_path: Path, link: str
 ) -> None:
@@ -174,7 +174,7 @@ def test_a_virtualenv_or_cache_in_the_pack_folder_is_not_part_of_the_pack(
     ]
     with pytest.raises(PackValidationError, match="escapes the agent's folder"):
         pack.path(".direnv/secret.txt")
-    manifest = root / "pack.yaml"
+    manifest = root / "agent.yaml"
     (outside / "cases.yaml").write_text("[]\n")
     manifest.write_text(
         manifest.read_text().replace("tests: tests/cases.yaml", "tests: .direnv/cases.yaml", 1)
@@ -210,7 +210,7 @@ def test_a_manifest_path_through_a_hidden_entry_is_refused(inbox_copy: Path, hid
     target = root / hidden
     target.parent.mkdir(parents=True, exist_ok=True)
     (root / "logic" / "routing_rules.yaml").rename(target)
-    manifest = root / "pack.yaml"
+    manifest = root / "agent.yaml"
     manifest.write_text(manifest.read_text().replace("logic/routing_rules.yaml", hidden))
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
@@ -226,7 +226,7 @@ def test_a_manifest_path_to_an_attestation_is_refused(inbox_copy: Path, named: s
     attestations about the pack: they are read by their fixed names, never as its logic."""
     root = inbox_copy
     (root / "logic" / "routing_rules.yaml").rename(root / named)
-    manifest = root / "pack.yaml"
+    manifest = root / "agent.yaml"
     manifest.write_text(manifest.read_text().replace("logic/routing_rules.yaml", named))
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
@@ -313,7 +313,7 @@ def test_a_case_variant_of_a_left_out_path_is_refused(
     target.parent.mkdir(parents=True, exist_ok=True)
     (root / "logic" / "routing_rules.yaml").rename(target)
     assert pack_digest(root) != before  # the rules left the digest
-    manifest = root / "pack.yaml"
+    manifest = root / "agent.yaml"
     manifest.write_text(manifest.read_text().replace("logic/routing_rules.yaml", spelled))
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
@@ -350,7 +350,7 @@ def test_a_cql_library_is_checked_at_load_naming_the_field(
     if problem is not None:
         (root / library).parent.mkdir(parents=True, exist_ok=True)
         (root / "logic" / "criteria.cql").rename(root / library)
-    manifest = root / "pack.yaml"
+    manifest = root / "agent.yaml"
     manifest.write_text(
         manifest.read_text().replace("library: logic/criteria.cql", f"library: {library}")
     )
@@ -387,7 +387,7 @@ def test_pack_path_accepts_only_a_file_the_digest_hashed(inbox_copy: Path) -> No
 def test_the_benchmark_must_be_an_attestation(inbox_copy: Path) -> None:
     """`evaluation.benchmark` is the one manifest path that must be outside the digest: a
     published benchmark is about the pack, and publishing one must not change its identity."""
-    manifest = inbox_copy / "pack.yaml"
+    manifest = inbox_copy / "agent.yaml"
     text = manifest.read_text().replace(
         "benchmark: evals/benchmark.json", "benchmark: logic/benchmark.json"
     )

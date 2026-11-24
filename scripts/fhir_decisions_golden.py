@@ -43,7 +43,7 @@ from mendari.errors import FhirError  # noqa: E402
 from mendari.evals.harness import load_dataset  # noqa: E402
 from mendari.sandbox.fhir_records import message_entries  # noqa: E402
 
-PACKS = ROOT / "tests" / "fixtures" / "reference-packs"  # the fixture packs the golden pins
+PACKS = ROOT / "tests" / "fixtures" / "reference-agents"  # the fixture packs the golden pins
 GOLDEN = ROOT / "tests" / "fixtures" / "fhir" / "decisions-golden.json"
 FORMAT = "mendari.fhir-decisions-golden/1"
 # The day the cases sit at, and the day the packs decide on (`clock.today`).

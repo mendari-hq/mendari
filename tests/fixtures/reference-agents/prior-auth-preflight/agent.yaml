@@ -1,0 +1,401 @@
+spec_version: "0.3"
+id: mendari/prior-auth-preflight
+version: 0.3.1
+name: Prior Authorization Preflight
+summary: >-
+  Checks an order against the patient's payer before it is sent for prior authorization: does
+  this payer require authorization for this service, and does the record have what the payer
+  asks for? Complete requests are queued for submission; the gaps in the others are listed.
+publisher:
+  name: Mendari reference packs
+  type: community
+license: Apache-2.0
+# The code systems the pack's inputs, rules and data use (spec §3). A licensed one says the terms.
+code_systems:
+  - url: https://mendari.co/fhir/CodeSystem/fictional-procedures
+    name: >-
+      Mendari fictional procedure codes: invented for this synthetic example; not CPT, never
+      for billing. A site maps its own codes to these.
+  - url: http://hl7.org/fhir/sid/icd-10-cm
+    name: >-
+      ICD-10-CM (U.S. National Center for Health Statistics: free to use; adapted from the World
+      Health Organization's copyrighted ICD-10, with WHO's authorization, for U.S. government
+      purposes)
+  - url: https://mendari.co/fhir/sid/fictional-payers
+    name: >-
+      Mendari fictional payer identifiers: the synthetic payers' own identifiers (acme, beacon),
+      by which the FHIR mapping reads a payer's Organization; not a real payer identifier
+      system.
+
+risk:
+  level: 1
+  category: clinical information
+  rationale: >-
+    The pack decides whether a prior-authorization request is ready to submit, not whether the
+    service is appropriate. A wrong "ready" leads to a denial and a resubmission; a wrong gap
+    costs staff a few minutes. A possible red flag (which may call for urgent imaging and an
+    expedited review) always goes to a person.
+
+card:
+  # What every surface's status line is derived from (core/status.py).
+  provenance: synthetic
+  intended_use: >-
+    Preflight of outpatient orders that need prior authorization, when the order is signed
+    (CDS Hooks `order-sign`) or before an authorization specialist submits it: identify the
+    payer's requirement set for the service, check each required element in the record, queue
+    complete requests for submission and list the gaps in the others.
+  intended_users:
+    - Prior-authorization specialists and front-office staff
+    - Clinicians signing orders
+    - Health IT teams integrating payer requirements with the EHR
+  patient_population: >-
+    Adults with an order for a lumbar spine MRI, a knee arthroscopy or a sleep study, covered
+    by one of the two synthetic payers the pack knows, with clinic notes in English.
+  out_of_scope:
+    - Deciding medical necessity or approving anything; the payer decides.
+    - Any real payer's policy. Acme and Beacon, their prior-authorization lists and their
+      documentation requirements are synthetic, loosely modelled on common imaging and
+      procedure criteria, and were not written or reviewed by a clinician or a payer.
+    - Medication prior authorization (orders are ServiceRequests only), and submitting the
+      request itself (Da Vinci PAS is later standards work).
+  known_failure_modes:
+    - Only the codes listed in logic/structured.yaml count. A lumbar X-ray billed under
+      another code (for example FX112, four or more views) reads as missing imaging. On the
+      bundled local-site example (datasets/prior-auth-local-site-example.jsonl), which has
+      such X-rays and shorthand notes, prior imaging and the next step are answered wrong more
+      often than on the benchmark, the next step most often on shorthand notes (`mendari eval
+      mendari/prior-auth-preflight --dataset datasets/prior-auth-local-site-example.jsonl`
+      compares the next step with the benchmark, by label and by subgroup, and its report,
+      with `--json`, holds prior imaging). Add a site's codes before use.
+    - Through FHIR, the payer is read from the Organization the Coverage's first payor names,
+      by its identifier in the synthetic payers' system, else from the payor's own identifier
+      as written. A site's own payer identifier (an EHR's payer id on the Organization) is
+      neither, and no site code map translates an identifier yet, so the payer reads as `other`
+      and the result is `not_checked` (how a site's payer id is to be read is the owner's open
+      question). On a real EHR's data, until its payer ids are read, that is every order. A
+      `not_checked` order shows no card at `order-sign` unless its notes may document a red
+      flag, when the clinician signing it sees a card that says so and says nothing of what
+      the payer asks for, and the order is in the review queue at urgent priority. On a payer
+      the pack knows, the order's own card (ready to submit, documentation missing, not
+      required) does not name a possible red flag in its summary; its reasons do, in the
+      detail or behind the audit link. The order, diagnoses and prior procedures are read by
+      their code system wherever the coding sits (the fictional procedure codes, ICD-10-CM).
+      An order is the pack's only when one of its codings is a fictional procedure code it has
+      a requirement set for. A site's own order code listed in logic/structured.yaml counts on
+      JSON input, but through FHIR the order gets no decision until the EHR sends the
+      fictional code beside it. No medication is read, so spec 0.3's rule for when a
+      MedicationRequest's drug is taken (§2.7) plays no part in this pack.
+    - Through FHIR, a note is read only as plain text or HTML, inline or in the Binary its url
+      names (read from the EHR on a CDS hook or the SMART launch). An RTF, PDF or CDA note, or
+      one that cannot be read, makes the pack abstain, and EHRs often keep notes as RTF. So do
+      notes longer than 20,000 characters in all, which the input does not allow (`too_large`;
+      the text is never cut), and more links than one decision reads (20, `cap`). A hook reads
+      every clinical note of the patient, each linked note's Binary counting as one link, so a
+      long record may reach either.
+    - Durations are read as written in the notes ("8 weeks of physical therapy"). A note like
+      "PT since July" cannot be compared with dates by the keyword rules and reads as unclear.
+    - The keyword rules read English notes only and miss phrasings they do not list,
+      including red flags. On hand-written notes they found 7/7 red flags in the set they were
+      written on but 3/6 held out ("breast cancer treated 3 years ago", "numbness around the
+      anus" and "lost 10 pounds without trying" were missed), and 9/11 at the local site. The
+      policy therefore allows AUTO only while the notes are also read by a model
+      (`automation_requires`), and a possible red flag always goes to a person.
+    - The overall probability treats every answer as independent.
+    - The public benchmark is generated from templates written with the pack, so it overstates
+      real-world accuracy. The hand-written note sets are the better guide, and the held-out
+      one was written before the rules.
+  evidence:
+    - title: Synthetic public benchmark
+      note: >-
+        evals/benchmark.json, the `test` split generated by
+        tests/support/synthetic_prior_auth.py; ground truth comes from the generated facts.
+    - title: Hand-written note sets
+      note: >-
+        data/documentation_notes.jsonl (used to write the note rules) and
+        data/documentation_notes_holdout.jsonl (written before the rules and never used to tune
+        them): conservative treatment with enough, too little or unclear duration; red flags
+        and look-alikes; knee mechanical symptoms; sleep apnoea symptoms and insomnia.
+
+inputs:
+  schema: schemas/input.schema.json
+  fhir: fhir/mapping.yaml
+
+questions:
+  # -- from codes (computed in code) -----------------------------------------------------------
+  service:
+    display: "Requirement set"
+    names: {"lumbar_mri": "Lumbar MRI"}
+    instructions: Which requirement set does the ordered service fall under?
+    criteria:
+      lumbar_mri: MRI of the lumbar spine (codes FX101, FX102, FX103).
+      knee_arthroscopy: Knee arthroscopy (codes FX201, FX202).
+      sleep_study: Attended sleep study (codes FX301, FX302).
+      other: Any other service; the pack has no requirement set for it.
+  payer:
+    display: "Payer"
+    instructions: Which payer covers the patient?
+    criteria:
+      acme: Acme Health (synthetic).
+      beacon: Beacon Care (synthetic).
+      other: Any other payer; the pack has no requirement set for it.
+  diagnosis_supports:
+    display: "Supporting diagnosis coded"
+    instructions: Is a diagnosis that supports the ordered service coded?
+    criteria:
+      "yes": >-
+        A supporting diagnosis is coded (lumbar MRI M54.1x or M51.x; knee arthroscopy S83.2x
+        or M23.2x; sleep study G47.33 or R06.83).
+      "no": No supporting diagnosis is coded.
+      unknown: The record does not say.
+  prior_imaging:
+    display: "Required imaging on file"
+    instructions: Is the imaging the payer asks for on file from the last 180 days?
+    criteria:
+      "yes": >-
+        A lumbar spine X-ray (code FX111) for a lumbar MRI, or a knee MRI (FX211 to FX213) for
+        a knee arthroscopy, in the last 180 days.
+      "no": None on file, or older than 180 days.
+      unknown: Imaging is on file without a date.
+
+  # -- from the notes ("unknown" = mentioned, but unclear) ------------------------------------
+  conservative_therapy:
+    display: "6 weeks of conservative treatment"
+    instructions: >-
+      Do the notes document at least 6 weeks of conservative treatment for the problem?
+    criteria:
+      "yes": >-
+        At least 6 weeks of physical therapy, a home exercise programme, anti-inflammatory or
+        pain medicines, or injections, e.g. "8 weeks of physical therapy" or "physiotherapy for
+        2 months".
+      "no": >-
+        No conservative treatment, or less than 6 weeks of it, e.g. "started PT 2 weeks ago"
+        or "no treatment tried yet".
+      unknown: >-
+        Treatment is mentioned but its length is not stated or cannot be worked out, e.g. "has
+        tried some physical therapy".
+  red_flag:
+    display: "Red flag in the notes"
+    instructions: >-
+      Do the notes document a red flag that calls for imaging without waiting for conservative
+      treatment?
+    criteria:
+      "yes": >-
+        A history of cancer, unexplained weight loss, fever with back pain, injection drug use,
+        significant trauma such as a fall from height or a car accident, a progressive
+        neurological deficit such as worsening weakness or foot drop, or saddle numbness or
+        new bladder or bowel dysfunction.
+      "no": >-
+        None documented, documented as absent ("no red flags", "denies fever"), resolved and
+        unrelated, or only in a family member.
+      unknown: A possible red flag is mentioned but unclear.
+  mechanical_symptoms:
+    display: "Mechanical knee symptoms"
+    instructions: Do the notes document mechanical symptoms of the knee?
+    criteria:
+      "yes": The knee locks, catches, gives way or buckles.
+      "no": >-
+        None documented or documented as absent, e.g. pain only, swelling, or painless
+        clicking.
+      unknown: Mentioned but unclear.
+  sleep_symptoms:
+    display: "Sleep apnoea symptoms"
+    instructions: Do the notes document symptoms of obstructive sleep apnoea?
+    criteria:
+      "yes": >-
+        Loud snoring, witnessed pauses in breathing during sleep, or excessive daytime
+        sleepiness such as falling asleep at work or while driving.
+      "no": None documented, documented as absent, or insomnia without these symptoms.
+      unknown: Tiredness or poor sleep without any of these symptoms.
+
+  # -- the next step ---------------------------------------------------------------------------
+  next_step:
+    display: "Next step"
+    names: {"submit_ready": "Ready to submit"}
+    instructions: What should happen to the prior-authorization request next?
+    criteria:
+      submit_ready: >-
+        The payer requires prior authorization and everything it asks for is in the record,
+        so the request can be submitted.
+      needs_attention: >-
+        Something the payer asks for is missing or unclear (listed in the reasons), so staff
+        add it before submitting.
+      not_required: This payer does not require prior authorization for this service.
+      not_checked: The pack has no requirement set for this payer or service.
+    derive:
+      from:
+        - service
+        - payer
+        - diagnosis_supports
+        - prior_imaging
+        - conservative_therapy
+        - red_flag
+        - mechanical_symptoms
+        - sleep_symptoms
+      table:
+        - {any: other, in: [service, payer], then: not_checked}
+        - {any: beacon, in: [payer], when: {service: [sleep_study]}, then: not_required}
+        - {any: ["no", unknown], in: [diagnosis_supports], then: needs_attention}
+        # A clear red flag waives conservative treatment before a lumbar MRI.
+        - any: ["no", unknown]
+          in: [conservative_therapy]
+          when: {service: [lumbar_mri], red_flag: ["no", unknown]}
+          then: needs_attention
+        - any: ["no", unknown]
+          in: [conservative_therapy]
+          when: {service: [knee_arthroscopy]}
+          then: needs_attention
+        # Acme asks for prior imaging; Beacon does not.
+        - any: ["no", unknown]
+          in: [prior_imaging]
+          when: {service: [lumbar_mri, knee_arthroscopy], payer: [acme]}
+          then: needs_attention
+        - any: ["no", unknown]
+          in: [mechanical_symptoms]
+          when: {service: [knee_arthroscopy]}
+          then: needs_attention
+        - any: ["no", unknown]
+          in: [sleep_symptoms]
+          when: {service: [sleep_study]}
+          then: needs_attention
+        - {else: submit_ready}
+
+providers:
+  structured:
+    answers: [service, payer, diagnosis_supports, prior_imaging]
+    use: criteria
+    variants:
+      criteria:
+        type: criteria
+        config: logic/structured.yaml
+  notes:
+    answers: [conservative_therapy, red_flag, mechanical_symptoms, sleep_symptoms]
+    # Offline default; deployments add a model (see known_failure_modes and the policy).
+    use: rules
+    variants:
+      rules:
+        type: rules
+        config: logic/note_rules.yaml
+      jev:
+        type: jev
+        timeout_ms: 5000
+        state_fields: [notes]
+      llm:
+        type: llm
+        reasoning_effort: low
+        state_fields: [notes]
+      rules_and_jev:
+        # Both read the notes; for each question the reader that finds it wins: an element
+        # counts as documented, and a red flag as flagged, if either reader finds it. A Jev
+        # outage leaves the rules answering, and nothing is automated while it is incomplete.
+        type: any_of
+        escalate:
+          conservative_therapy: "yes"
+          red_flag: "yes"
+          mechanical_symptoms: "yes"
+          sleep_symptoms: "yes"
+        members:
+          rules:
+            type: rules
+            config: logic/note_rules.yaml
+          jev:
+            type: jev
+            timeout_ms: 5000
+            state_fields: [notes]
+      rules_and_llm:
+        # As rules_and_jev, with a chat model as the second reader.
+        type: any_of
+        escalate:
+          conservative_therapy: "yes"
+          red_flag: "yes"
+          mechanical_symptoms: "yes"
+          sleep_symptoms: "yes"
+        members:
+          rules:
+            type: rules
+            config: logic/note_rules.yaml
+          llm:
+            type: llm
+            reasoning_effort: low
+            state_fields: [notes]
+
+policy: policy.yaml
+
+evaluation:
+  datasets:
+    calibration: data/calibration.jsonl
+    test: data/test.jsonl
+    # Hand-written notes; the note rules were written on this set.
+    documentation_notes: data/documentation_notes.jsonl
+    # Written before the note rules; never used to write or tune them.
+    documentation_notes_holdout: data/documentation_notes_holdout.jsonl
+  benchmark: evals/benchmark.json
+  benchmark_dataset: test
+  critical:
+    - {question: red_flag, label: "yes"}
+  subgroups: [site, service, payer, style, age_band, sex]
+  degradation_tolerance: 0.03
+
+tests: tests/cases.yaml
+
+audit:
+  store_input: full
+
+cds_hooks:
+  hook: order-sign
+  title: Prior Authorization Preflight
+  description: >-
+    When an order that may need prior authorization is signed, checks the payer's requirements
+    against the record and lists anything missing.
+  prefetch:
+    patient: Patient/{{context.patientId}}
+    coverage: Coverage?patient={{context.patientId}}&status=active
+    conditions: Condition?patient={{context.patientId}}
+    procedures: Procedure?patient={{context.patientId}}
+    notes: DocumentReference?patient={{context.patientId}}&category=clinical-note
+  card:
+    summaries:
+      submit_ready: "Prior auth for {service} ({payer}): ready to submit"
+      needs_attention: "Prior auth for {service} ({payer}): documentation missing"
+      not_required: "No prior auth needed for {service} with {payer}"
+      not_checked: "Prior auth: no requirement set for this payer or service"
+      none: "Prior auth: no suggestion; check the payer's requirements as usual"
+    indicators:
+      submit_ready: info
+      needs_attention: warning
+      not_required: info
+      not_checked: info
+      none: info
+    show: [submit_ready, needs_attention, not_required]
+    # A possible red flag shows a card even on an order the pack has no requirement set for
+    # (`not_checked`, e.g. one under a site's own payer id), in the rule's words (the owner's
+    # choice, 2026-11-07). Other `not_checked` orders stay without a card, as before.
+    also_show:
+      possible-red-flag:
+        summary: >-
+          Possible red flag in the notes: consider urgent imaging and an expedited review; prior
+          auth not checked
+        indicator: critical
+    suggestion: Create a prior-authorization task
+  # Da Vinci CRD: each decided order also comes back with its coverage information (a system
+  # action updating the order), so the EHR can show whether prior authorization and more
+  # documentation are needed. `not_checked` asserts nothing. (No `doc_purpose: [withpa]`: CRD
+  # 2.2.1's constraint crd-ci-q4 rejects it alongside `auth-needed`; the reason says it instead.)
+  coverage_information:
+    submit_ready:
+      covered: covered
+      pa_needed: auth-needed
+      reason: The payer requires prior authorization; the record has what it asks for.
+    needs_attention:
+      covered: covered
+      pa_needed: auth-needed
+      doc_needed: [clinical]
+      reason: >-
+        The payer requires prior authorization, and clinical documentation it asks for is
+        missing from the record; the card lists what.
+    not_required: {covered: covered, pa_needed: no-auth}
+  # Da Vinci DTR: `Questionnaire/$questionnaire-package` serves the documentation the payer asks
+  # for, for the order's service and payer, pre-answered from what the pack found in the record.
+  questionnaire:
+    missing: needs_attention
+    context: [service, payer]
+    title: Prior authorization documentation

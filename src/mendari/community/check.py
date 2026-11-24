@@ -4,7 +4,7 @@
 One entry point for the command line and CI (`scripts/community_check.py`, the `pack-check` job
 of the `packs` workflow). Each rule says, in plain words, what to fix:
 
-- **scope**: the change touches only `community-packs/<name>/` (and `MAINTAINERS.yaml`, for
+- **scope**: the change touches only `community-agents/<name>/` (and `MAINTAINERS.yaml`, for
   that pack's own entry); no `pack.yaml` below the pack's own.
 - **identity**: the folder name and the id `community/<name>` agree; the id is not taken by
   another pack, nor removed (a tombstone in `MAINTAINERS.yaml`); the pack has maintainers; its
@@ -214,7 +214,7 @@ class _Context:
 def check(
     pack_dir: str | Path, *, base: str | None = None, scope: bool = True, owner: bool = False
 ) -> Report:
-    """Every community-pack rule on the folder `pack_dir` (`community-packs/<name>`). With
+    """Every community-pack rule on the folder `pack_dir` (`community-agents/<name>`). With
     `base` (a git commit), the change since it is checked too: `scope` (the files it touches)
     and the update rules. `owner`: the repository's owner made the change, who may edit
     `MAINTAINERS.yaml` beyond the pack's own entry."""
@@ -296,12 +296,12 @@ def _open_base(ctx: _Context, ref: str) -> None:
 # -- scope ---------------------------------------------------------------------------------------
 
 
-README = "README.md"  # community-packs/README.md: documentation, no pack's
+README = "README.md"  # community-agents/README.md: documentation, no pack's
 
 
 def pack_folders(changed: list[str]) -> list[str]:
-    """The community pack folders (`community-packs/<name>`'s names) that `changed` paths
-    touch. Anything under `community-packs/` is a pack's but its README and MAINTAINERS.yaml,
+    """The community pack folders (`community-agents/<name>`'s names) that `changed` paths
+    touch. Anything under `community-agents/` is a pack's but its README and MAINTAINERS.yaml,
     even a path one level deep (a file, or a git submodule, which has no files here)."""
     prefix = COMMUNITY_DIR + "/"
     folders = set()
@@ -317,12 +317,12 @@ def pack_folders(changed: list[str]) -> list[str]:
 def pr_scope_problems(changed: list[str], *, owner: bool) -> list[str]:
     """Why a pull request that changes `changed` (repository paths) is out of scope for a
     community pack, or []: it changes a community pack (or `MAINTAINERS.yaml`) and anything
-    outside one `community-packs/<name>/` folder (`MAINTAINERS.yaml` aside). The owner may
+    outside one `community-agents/<name>/` folder (`MAINTAINERS.yaml` aside). The owner may
     change more."""
     prefix = COMMUNITY_DIR + "/"
     folders = pack_folders(changed)
     if owner or not (folders or prefix + maintainers.FILE in changed):
-        return []  # the owner's change, or none to a pack (community-packs/README.md is docs)
+        return []  # the owner's change, or none to a pack (community-agents/README.md is docs)
     outside = [path for path in changed if not path.startswith(prefix) or path == prefix + README]
     problems = []
     if len(folders) > 1:
@@ -539,7 +539,7 @@ def _unique(ctx: _Context, pack_id: str) -> None:
 def _maintained_dir(ctx: _Context) -> Path:
     from mendari.core import registry
 
-    own = ctx.community_dir.parent / "packs"
+    own = ctx.community_dir.parent / "agents"
     if own.is_dir():
         return own
     return next((path for path in registry._BUNDLED_DIRS if path.is_dir()), own)

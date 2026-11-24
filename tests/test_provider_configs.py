@@ -46,11 +46,11 @@ from mendari.providers.base import Provider, ProviderInfo
 from mendari.providers.llm import CALIBRATION_FORMAT
 from mendari.providers.naive_bayes import FORMAT as NB_FORMAT
 from mendari.server.app import create_app
-from tests.conftest import INBOX_DIR, ROOT
+from tests.conftest import INBOX_DIR, ROOT, fixture_agents
 
 PACKS = INBOX_DIR.parent
 SCHEMA_FILE = ROOT / "docs" / "spec" / "provider-configs.schema.json"
-SORTER = ROOT / "tests" / "fixtures" / "community-packs" / "visit-sorter"
+SORTER = ROOT / "tests" / "fixtures" / "community-agents" / "visit-sorter"
 PACK_ID = "someone/config-test"
 BILL = {"message": "I have a question about my last bill."}
 SENT = ["message"]
@@ -92,7 +92,7 @@ def manifest(
 ) -> dict[str, Any]:
     """The visit sorter, with a second slot for a dosing check: its `rules` and `dosing`
     defaults, and the variants given."""
-    data = yaml.safe_load((SORTER / "pack.yaml").read_text())
+    data = yaml.safe_load((SORTER / "agent.yaml").read_text())
     data["id"] = pack_id
     data["questions"]["too_much"] = {
         "instructions": "Does a stated dose go above the medicine's daily maximum?",
@@ -118,7 +118,7 @@ def template(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """The files every variant above reads, once: tests copy them and write their manifest."""
     root = tmp_path_factory.mktemp("template") / "pack"
     shutil.copytree(SORTER, root)
-    (root / "pack.yaml").unlink()
+    (root / "agent.yaml").unlink()
     files = {
         "logic/criteria.yaml": {
             "questions": {
@@ -172,7 +172,7 @@ def template(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 def write(template: Path, root: Path, data: dict[str, Any]) -> Path:
     shutil.copytree(template, root)
-    (root / "pack.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
     return root
 
 
@@ -516,7 +516,7 @@ def test_a_pulled_reference_copy_keeps_its_config(tmp_path: Path) -> None:
     """A pulled copy of a reference pack (its digest one of this release's) is owned: every
     variant runs with the config the bundled pack runs with, its pinned values included."""
     for source in sorted(PACKS.iterdir()):
-        if not (source / "pack.yaml").is_file():
+        if not (source / "agent.yaml").is_file():
             continue
         root = tmp_path / source.name
         shutil.copytree(source, root)
@@ -536,9 +536,9 @@ def shipped(tmp_path: Path) -> Iterator[tuple[Path, str]]:
     """Every reference pack, the two scaffolds as `mendari new` writes them, and every test
     fixture pack, with the origin each is served from."""
     for source in sorted(PACKS.iterdir()):
-        if (source / "pack.yaml").is_file():
+        if (source / "agent.yaml").is_file():
             yield source, "maintained"
-    plain, community = tmp_path / "plain", tmp_path / "community-packs" / "contributed"
+    plain, community = tmp_path / "plain", tmp_path / "community-agents" / "contributed"
     agent_dir = tmp_path / "agent"
     assert main(["new", str(plain), "--id", "someone/plain", "--publisher", "Test"]) == 0
     assert main(["new", str(community), "--community", "--publisher", "Test"]) == 0
@@ -549,9 +549,8 @@ def shipped(tmp_path: Path) -> Iterator[tuple[Path, str]]:
     yield plain, "local"
     yield community, "community"
     yield agent_dir, "local"
-    for manifest_path in sorted((ROOT / "tests" / "fixtures").glob("**/pack.yaml")):
-        root = manifest_path.parent
-        yield root, "community" if root.parent.name == "community-packs" else "local"
+    for root in fixture_agents():
+        yield root, "community" if root.parent.name == "community-agents" else "local"
 
 
 def test_every_shipped_pack_template_and_fixture_has_no_config_warnings(
@@ -583,7 +582,7 @@ def test_the_provider_config_schema_is_generated() -> None:
     configs = [
         {"type": variant.type, **(variant.model_extra or {})}
         for source in sorted(PACKS.iterdir())
-        if (source / "pack.yaml").is_file()
+        if (source / "agent.yaml").is_file()
         for slot in load_pack(source).manifest.providers.values()
         for variant in slot.variants.values()
     ]

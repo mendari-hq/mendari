@@ -5,11 +5,11 @@ Search order: `MENDARI_AGENTS_PATH` (os.pathsep-separated; `MENDARI_PACKS_PATH`,
 had before, is read while it is unset), then packs pulled from a registry (the verified cache,
 `mendari pull`), then the packs bundled with the installed distribution (or the repository's
 `agents/` directory in a source checkout), then, with `MENDARI_COMMUNITY_AGENTS=on`, the
-repository's `community-packs/`.
+repository's `community-agents/`.
 
 Each directory has an origin (`core/origin.py`): `maintained`, `community`, `hub` or `local`.
 A pack found under a `local` directory takes the origin of where it sits, so a path that holds
-`packs/` (a checkout) still finds the maintained packs as maintained, and `community-packs/` as
+`packs/` (a checkout) still finds the maintained packs as maintained, and `community-agents/` as
 community packs, served only when they are on.
 
 A community pack never shares its id: when one claims an id another pack also claims, the first
@@ -64,7 +64,7 @@ def search_paths() -> list[SearchPath]:
         for p in setting("MENDARI_AGENTS_PATH")[1].split(os.pathsep)
         if p
     ]
-    # Off means off: `MENDARI_AGENTS_PATH` naming community-packs/ does not serve them either.
+    # Off means off: `MENDARI_AGENTS_PATH` naming community-agents/ does not serve them either.
     paths = [entry for entry in paths if community or entry.origin != "community"]
     from mendari.hub.client import packs_cache  # packs pulled from a registry, verified
 
@@ -80,7 +80,7 @@ def search_paths() -> list[SearchPath]:
 
 def origin_of(path: str | Path) -> Origin:
     """The origin of a directory (a search directory, or a pack's) given without one: in the
-    bundled packs, maintained; in the repository's community-packs/, community; in the
+    bundled packs, maintained; in the repository's community-agents/, community; in the
     registry cache, hub; anywhere else, local."""
     from mendari.hub.client import packs_cache
 
@@ -141,7 +141,7 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
                 continue
             origin = base_origin
             if base_origin == "local":
-                # A local path holding packs/ or community-packs/: each pack has the origin of
+                # A local path holding packs/ or community-agents/: each pack has the origin of
                 # where it sits. A community pack is skipped while they are off (off means off).
                 origin = origin_of(root)
                 if origin == "community":

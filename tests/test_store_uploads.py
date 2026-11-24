@@ -104,9 +104,9 @@ def pack_dir(base: Path, pack_id: str = f"{ORG_A}/inbox-router", **extra: Any) -
     if root.exists():
         shutil.rmtree(root)
     shutil.copytree(INBOX_DIR, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"] = pack_id
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     if extra.get("case") is not None:
         cases = root / "tests" / "cases.yaml"
         case = {"name": "planted", "input": extra["case"], "expect": {"not_outcome": "BLOCK"}}
@@ -543,9 +543,9 @@ def test_what_the_security_review_found_is_closed(
         )
         + "\n"
     )
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["evaluation"]["datasets"]["planted"] = "data/planted.ndjson"
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     assert upload(world, root).json()["state"] == "held"
 
     # Two more held, then one that raced past the first check is still refused in the write.
@@ -575,7 +575,7 @@ def test_an_edit_never_changes_which_files_are_trained_and_reserved_prefixes_are
 ) -> None:
     author = world.as_(ORG_A, "pack_author")
     first = upload(world, pack_dir(world.tmp)).json()
-    manifest = (INBOX_DIR / "pack.yaml").read_text()
+    manifest = (INBOX_DIR / "agent.yaml").read_text()
     model = yaml.safe_load(manifest)["providers"]["router"]["variants"]["naive_bayes"]["model_file"]
     pointed = manifest.replace(model, "logic/routing_rules.yaml")
     assert pointed != manifest
@@ -584,7 +584,7 @@ def test_an_edit_never_changes_which_files_are_trained_and_reserved_prefixes_are
         json={
             "files": [
                 {
-                    "path": "pack.yaml",
+                    "path": "agent.yaml",
                     "content": pointed.replace(
                         "mendari/patient-inbox-router", f"{ORG_A}/inbox-router"
                     ),

@@ -28,7 +28,7 @@ from tests.conftest import ROOT
 from tests.support import harder_inbox_draft
 from tests.support import synthetic_inbox_harder as harder
 
-PACK_DIR = ROOT / "tests" / "fixtures" / "reference-packs" / harder.PACK_NAME
+PACK_DIR = ROOT / "tests" / "fixtures" / "reference-agents" / harder.PACK_NAME
 DRAFT_DIR = ROOT / harder.DRAFT_DIR
 Splits = dict[str, list[dict[str, Any]]]
 

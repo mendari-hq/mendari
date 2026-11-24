@@ -417,7 +417,7 @@ def test_the_sandbox_client_calls_an_order_hook_with_the_case_as_the_draft_order
 
 
 def fixtures_dir(name: str) -> Path:
-    return ROOT / "tests" / "fixtures" / "reference-packs" / name
+    return ROOT / "tests" / "fixtures" / "reference-agents" / name
 
 
 # -- the compose sandbox and CI --------------------------------------------------------------------

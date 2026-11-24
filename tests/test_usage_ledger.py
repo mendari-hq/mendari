@@ -240,10 +240,10 @@ def test_a_jev_call_without_a_price_is_unknown_never_zero(
     calm_jev(monkeypatch)
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     jev = manifest["providers"]["safety_screen"]["variants"]["rules_and_jev"]["members"]["jev"]
     jev["cost_per_1k_input_tokens_usd"] = None
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     with AuditStore(db_target) as store:
         Decision(load_pack(root), providers=SCREENED, store=store)(message("Refill please."))
         [row] = rows(store)

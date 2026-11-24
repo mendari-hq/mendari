@@ -91,7 +91,7 @@ PINNED = {
 @pytest.fixture(scope="module")
 def packs() -> dict[str, Pack]:
     return {
-        pack.id: pack for pack in discover([ROOT / "tests" / "fixtures" / "reference-packs"]).packs
+        pack.id: pack for pack in discover([ROOT / "tests" / "fixtures" / "reference-agents"]).packs
     }
 
 
@@ -104,9 +104,9 @@ def inbox_variant(tmp_path: Path, pack_id: str, edit: Callable[[dict[str, Any]],
     """The inbox pack under another id, with its FHIR mapping edited."""
     root = tmp_path / pack_id.replace("/", "-")
     shutil.copytree(INBOX_DIR, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"] = pack_id
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     mapping = yaml.safe_load((root / "fhir" / "mapping.yaml").read_text())
     edit(mapping["task"])
     (root / "fhir" / "mapping.yaml").write_text(yaml.safe_dump(mapping))
@@ -229,7 +229,7 @@ def test_every_shipped_performer_template_is_under_the_cap(packs: dict[str, Pack
 
     shipped = [
         *packs.values(),
-        *discover([ROOT / "agents", ROOT / "tests" / "fixtures" / "packs"]).packs,
+        *discover([ROOT / "agents", ROOT / "tests" / "fixtures" / "mini-agents"]).packs,
     ]
     counted = [
         expansion_count(adapter.performer_template, _performer_choices(pack.manifest))
@@ -397,7 +397,7 @@ def test_sandbox_systems_are_experimental_and_never_served(served: Terminology) 
     assert not any(served.by_url(r["url"]) for r in sandbox)
     schema = json.loads(
         (
-            ROOT / "tests/fixtures/reference-packs/patient-inbox-router/schemas/input.schema.json"
+            ROOT / "tests/fixtures/reference-agents/patient-inbox-router/schemas/input.schema.json"
         ).read_text()
     )
     channels = schema["properties"]["message"]["properties"]["channel"]["enum"]

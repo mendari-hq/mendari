@@ -462,7 +462,7 @@ def test_a_pack_with_a_second_classifier_still_trains_after_a_run_is_kept(
 ) -> None:
     """What a run learned labels one question. A classifier for another question, trained on the
     same dataset, does not count those cases among its examples."""
-    manifest = inbox / "pack.yaml"
+    manifest = inbox / "agent.yaml"
     after = "        config: logic/red_flags.yaml\n      rules_and_jev:\n"
     text = manifest.read_text()
     assert text.count(after) == 1
@@ -553,7 +553,7 @@ def test_the_command_says_so_before_it_runs(
 
 def test_a_pack_with_no_classifier_has_nothing_to_improve(harder: Dataset) -> None:
     with pytest.raises(MendariError, match="no naive_bayes"):
-        improve(load_pack(ROOT / "tests" / "fixtures" / "reference-packs" / "ai-guard"), [harder])
+        improve(load_pack(ROOT / "tests" / "fixtures" / "reference-agents" / "ai-guard"), [harder])
 
 
 def test_a_slot_that_is_not_the_classifiers_is_refused(inbox: Path, harder: Dataset) -> None:
@@ -562,7 +562,7 @@ def test_a_slot_that_is_not_the_classifiers_is_refused(inbox: Path, harder: Data
 
 
 def test_a_pack_whose_other_slots_call_a_model_is_not_judged(inbox: Path, harder: Dataset) -> None:
-    manifest = inbox / "pack.yaml"
+    manifest = inbox / "agent.yaml"
     text = manifest.read_text()
     assert text.count("    use: rules\n") == 1
     manifest.write_text(text.replace("    use: rules\n", "    use: llm\n"))
@@ -580,7 +580,7 @@ def test_a_model_file_named_by_a_path_out_of_the_pack_is_never_written(
 ) -> None:
     """A report-only run writes nothing, whatever a manifest names: not through a path that
     leaves the pack and comes back to its model."""
-    manifest = inbox / "pack.yaml"
+    manifest = inbox / "agent.yaml"
     absolute = str((inbox / MODEL).resolve())
     manifest.write_text(
         manifest.read_text().replace(f"model_file: {MODEL}", f"model_file: {absolute}")

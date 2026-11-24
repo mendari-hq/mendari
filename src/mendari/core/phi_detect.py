@@ -31,7 +31,7 @@ Kinds (`KINDS`):
 
 The verdict (`rejects`): any of the first six kinds rejects alone; name findings reject from
 `NAME_THRESHOLD`. Measured on 2026-11-15 over the 94 files of the five agents now in
-`tests/fixtures/reference-packs` and their synthetic datasets: no finding of any kind, names
+`tests/fixtures/reference-agents` and their synthetic datasets: no finding of any kind, names
 included (110 of their lines hold a listed name, none beside a person's word or another kind),
 so one name finding is enough (`tests/test_phi_detect.py` keeps the measurement).
 

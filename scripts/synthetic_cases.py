@@ -2,8 +2,8 @@
 """Turn a YAML file of case templates into a JSON Lines dataset, so a pack author makes
 synthetic data without writing Python (docs/guides/contributing-an-agent.md).
 
-    uv run python scripts/synthetic_cases.py community-packs/<name>/data/cases.yaml \\
-        --out community-packs/<name>/data/examples.jsonl
+    uv run python scripts/synthetic_cases.py community-agents/<name>/data/cases.yaml \\
+        --out community-agents/<name>/data/examples.jsonl
 
 Each template is an `input`, its `labels`, and optionally `fill`: for each placeholder, the
 values it takes. Every `{placeholder}` in the input's text is replaced by each combination of

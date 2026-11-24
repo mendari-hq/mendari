@@ -25,7 +25,7 @@ from mendari.server.app import create_app
 from mendari.settings import default_providers, parse_providers, providers_for
 from tests.conftest import INBOX_DIR, ROOT
 
-FIXTURES = Path(__file__).parent / "fixtures" / "packs"
+FIXTURES = Path(__file__).parent / "fixtures" / "mini-agents"
 INBOX_SLOTS = {
     "router": {"naive_bayes", "rules", "jev"},
     "safety_screen": {"rules", "rules_and_jev"},
@@ -304,7 +304,7 @@ def test_the_vercel_app_runs_the_jev_defaults(
     for name in ("VERCEL", "DATABASE_URL", "MENDARI_PROVIDERS"):
         monkeypatch.delenv(name, raising=False)
     # A process of its own does not see the tests' fixture packs unless told where they are.
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT / "tests" / "fixtures" / "reference-packs"))
+    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT / "tests" / "fixtures" / "reference-agents"))
     script = (
         _SET_DEFAULTS + "import json; from fastapi.testclient import TestClient; "
         "from mendari.server.vercel import app; "

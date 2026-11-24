@@ -6,7 +6,7 @@ self-declared):
 
 - `maintained`: the agents Mendari bundles (`packs/`, bundled in the wheel).
 - `community`: packs outside developers contributed by pull request, in
-  `community-packs/<name>/` with id `community/<name>`; served only with
+  `community-agents/<name>/` with id `community/<name>`; served only with
   `MENDARI_COMMUNITY_AGENTS=on`.
 - `hub`: packs pulled from a registry, verified, in the local cache.
 - `local`: any other directory (`MENDARI_AGENTS_PATH`, a path given on the command line).
@@ -64,7 +64,7 @@ NOT_OWNED: frozenset[Origin] = frozenset({"hub", "store"})
 COMMUNITY_NAMESPACE = "community"
 # The repository's folder of community agents, by the name it has kept: every message that
 # names the folder reads it here.
-COMMUNITY_FOLDER = "community-packs"
+COMMUNITY_FOLDER = "community-agents"
 # The namespaces of the packs Mendari maintains, which a community pack never claims.
 RESERVED_NAMESPACES: Mapping[str, Origin] = {
     "mendari": "maintained",
@@ -148,7 +148,7 @@ def pulled_record(root: Path) -> dict[str, Any]:
 
 
 def is_community(pack_id: str, origin: Origin) -> bool:
-    """A community pack: found in `community-packs/`, or named in the `community/` namespace
+    """A community pack: found in `community-agents/`, or named in the `community/` namespace
     wherever it was loaded from (a path on the command line), so its limits always apply."""
     return origin == "community" or pack_id.partition("/")[0] == COMMUNITY_NAMESPACE
 
@@ -295,13 +295,13 @@ def long_text(
 
 
 def community_problems(manifest: PackManifest, folder: str) -> list[str]:
-    """Why a pack found in `community-packs/<folder>/` cannot be served, if it cannot."""
+    """Why a pack found in `community-agents/<folder>/` cannot be served, if it cannot."""
     problems = []
     if not COMMUNITY_NAME.match(folder):
         problems.append(f"the folder name {folder!r} must be lowercase letters, digits and dashes")
     if manifest.id != f"{COMMUNITY_NAMESPACE}/{folder}":
         problems.append(
-            f"a community agent in community-packs/{folder}/ has the id "
+            f"a community agent in community-agents/{folder}/ has the id "
             f"{COMMUNITY_NAMESPACE}/{folder}, not {manifest.id}"
         )
     if manifest.risk.level > MAX_COMMUNITY_RISK:

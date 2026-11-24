@@ -382,8 +382,8 @@ def _store_files() -> dict[str, bytes]:
 
     root = INBOX_DIR
     files = {p.relative_to(root).as_posix(): p.read_bytes() for p in pack_files(root)}
-    manifest = files["pack.yaml"].decode().replace(f"id: {INBOX}", f"id: {CLINIC}/inbox", 1)
-    files["pack.yaml"] = manifest.encode()
+    manifest = files["agent.yaml"].decode().replace(f"id: {INBOX}", f"id: {CLINIC}/inbox", 1)
+    files["agent.yaml"] = manifest.encode()
     return files
 
 

@@ -278,7 +278,7 @@ def test_every_summary_expansion_fits_140_characters(tmp_path: Path) -> None:
     each expansion counted here, and `longest` is the longest of them. A summary that can read
     140 or longer is refused from a registry, warned when owned, and refused by `mendari
     validate`; an owned pack's card cuts it to 139."""
-    roots = [p for p in sorted(INBOX_DIR.parent.iterdir()) if (p / "pack.yaml").is_file()]
+    roots = [p for p in sorted(INBOX_DIR.parent.iterdir()) if (p / "agent.yaml").is_file()]
     counted = 0
     for root in roots:
         pack = load_pack(root)
@@ -535,9 +535,9 @@ def _edited(tmp_path: Path, source: Path, edit: Any) -> Path:
     """A copy of a reference pack whose manifest `edit` changed (in place, as a mapping)."""
     root = tmp_path / source.name
     shutil.copytree(source, root)
-    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
     edit(manifest)
-    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     return root
 
 

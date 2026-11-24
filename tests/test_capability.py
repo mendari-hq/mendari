@@ -257,7 +257,7 @@ def test_a_pack_whose_terminology_cannot_be_built_is_reported_not_fatal(tmp_path
     """One pack's broken FHIR mapping must not stop the server (it did not before Phase 2)."""
     broken = tmp_path / "pack"
     shutil.copytree(
-        Path(__file__).parent / "fixtures" / "reference-packs" / "patient-inbox-router", broken
+        Path(__file__).parent / "fixtures" / "reference-agents" / "patient-inbox-router", broken
     )
     (broken / "fhir" / "mapping.yaml").write_text("fhir_version: R5\n")
     # A copy of a maintained pack, standing in for one: `mendari/` is reserved to them.

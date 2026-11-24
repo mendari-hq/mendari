@@ -96,7 +96,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {name: mendari-engine, pack: mendari/portal-message-agent, only: ""}
+          - {name: mendari-engine, agent: mendari/portal-message-agent, only: ""}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -115,19 +115,19 @@ jobs:
       - name: Build both architectures once with their SBOMs, then test and check each (no notes, plans, agent or CI files; every licence and notice; the SBOM's licences)
         env:
           NAME: ${{ matrix.name }}
-          PACK: ${{ matrix.pack }}
+          AGENT: ${{ matrix.agent }}
           ONLY: ${{ matrix.only }}
           TAG: ${{ github.ref_name }}
         run: |
           skopeo --version  # copies images between the archive, docker and the registry
-          docker buildx build --platform linux/amd64,linux/arm64 --build-arg PACK="$ONLY" \
+          docker buildx build --platform linux/amd64,linux/arm64 --build-arg AGENT="$ONLY" \
             --attest "type=sbom,generator=docker.io/docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9" \
             --output "type=oci,dest=/tmp/${NAME}.tar" .
           mkdir -p /tmp/sbom
           for arch in amd64 arm64; do
             image="${NAME}:${TAG}-${arch}"
             skopeo copy --override-arch "$arch" "oci-archive:/tmp/${NAME}.tar" "docker-daemon:${image}"
-            docker run --rm --platform "linux/${arch}" "$image" mendari test "$PACK"
+            docker run --rm --platform "linux/${arch}" "$image" mendari test "$AGENT"
             python3 scripts/check_excluded.py --image "$image"
             python3 scripts/check_image_licences.py --extract-sbom "/tmp/${NAME}.tar" --arch "$arch" \
               --out "/tmp/sbom/${NAME}-${arch}.attestation.json"

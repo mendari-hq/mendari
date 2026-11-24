@@ -112,7 +112,7 @@ def _record(registry: Registry, path: str = PATH) -> Any:
 
 
 def _cached() -> list[Path]:
-    return sorted(packs_cache().rglob("pack.yaml"))
+    return sorted(packs_cache().rglob("agent.yaml"))
 
 
 def _keys_file(path: Path, *keys: Ed25519PrivateKey) -> Path:

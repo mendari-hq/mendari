@@ -125,7 +125,7 @@ def test_a_case_hash_is_keyed_by_the_datasets_own_bytes(tmp_path: Path) -> None:
         ROOT
         / "tests"
         / "fixtures"
-        / "reference-packs"
+        / "reference-agents"
         / "patient-inbox-router"
         / "data"
         / "test.jsonl"
@@ -231,7 +231,7 @@ def test_a_v1_report_still_loads_everywhere(tmp_path: Path) -> None:
     assert normalize(V1)["run"]["id"] == V1["id"]
     assert leaderboard.row(V1)["report_id"] == V1["id"]
     copy = tmp_path / "patient-inbox-router"
-    shutil.copytree(ROOT / "tests" / "fixtures" / "reference-packs" / "patient-inbox-router", copy)
+    shutil.copytree(ROOT / "tests" / "fixtures" / "reference-agents" / "patient-inbox-router", copy)
     shutil.copy(ROOT / "tests" / "fixtures" / "eval-v1-inbox.json", copy / "evals/benchmark.json")
     card = render_card(load_pack(copy))  # the card reads a v1 benchmark as it did
     assert f"| Last validation | {clock.local_date(V1['created_at'])} on `test`" in card
@@ -242,8 +242,8 @@ def test_a_v1_report_still_loads_everywhere(tmp_path: Path) -> None:
 
 def test_a_benchmark_of_the_same_version_is_never_called_an_earlier_one(tmp_path: Path) -> None:
     copy = tmp_path / "patient-inbox-router"
-    shutil.copytree(ROOT / "tests" / "fixtures" / "reference-packs" / "patient-inbox-router", copy)
-    manifest = copy / "pack.yaml"
+    shutil.copytree(ROOT / "tests" / "fixtures" / "reference-agents" / "patient-inbox-router", copy)
+    manifest = copy / "agent.yaml"
     changed = manifest.read_text().replace("summary: >-\n", "summary: >-\n  Changed.\n", 1)
     manifest.write_text(changed)
     pack = load_pack(copy)

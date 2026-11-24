@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: >-
-        A community pack lives in `community-packs/<name>/` with the id `community/<name>`, is at
+        A community pack lives in `community-agents/<name>/` with the id `community/<name>`, is at
         most risk level 1, and recommends without automating (see
         docs/guides/contributing-an-agent.md). Never paste real patient data: describe cases in
         your own words.

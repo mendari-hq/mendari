@@ -13,7 +13,7 @@
 # Set `image:` (twice below) to a release image, e.g. ghcr.io/mendari-hq/mendari-engine:v0.1.0
 # (the tag is `v` and the package version; v0.1.0 is the first release),
 # or an image that serves one agent. No release is published yet: until then,
-# build and push your own (`docker build --build-arg PACK=... .`, see deploy/README.md).
+# build and push your own (`docker build --build-arg AGENT=... .`, see deploy/README.md).
 # Deploy by digest, not by tag: `ghcr.io/...:v0.1.0@sha256:<digest>` (find it with
 # `docker buildx imagetools inspect <image>:<tag>`), so a re-pushed tag never changes what runs.
 # then: kubectl apply -f mendari.yaml

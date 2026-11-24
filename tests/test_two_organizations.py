@@ -1819,9 +1819,9 @@ def _store_archive(org: str, key: Any, note: str) -> bytes:
     with tempfile.TemporaryDirectory() as scratch:
         root = Path(scratch) / "pack"
         shutil.copytree(resolve_pack(INBOX).root, root)
-        manifest = yaml.safe_load((root / "pack.yaml").read_text())
+        manifest = yaml.safe_load((root / "agent.yaml").read_text())
         manifest["id"] = f"{org}/inbox-upload"
-        (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+        (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
         cases = root / "tests" / "cases.yaml"
         cases.write_text(cases.read_text() + f"\n# {note}\n")
         return archive.build(load_pack(root), key)
@@ -1855,7 +1855,7 @@ def served_store(world: World, x: Org) -> None:
             author,
             ("GET", "/api/store/versions/{digest}/file"),
             f"/api/store/versions/{found}/file",
-            params={"path": "pack.yaml"},
+            params={"path": "agent.yaml"},
             expect=404,
         )
     for found in o.ids.get("store version", []):
@@ -1864,7 +1864,7 @@ def served_store(world: World, x: Org) -> None:
             author,
             ("POST", "/api/store/versions/{digest}/edits"),
             f"/api/store/versions/{found}/edits",
-            json={"files": [{"path": "pack.yaml", "content": "x"}]},
+            json={"files": [{"path": "agent.yaml", "content": "x"}]},
             expect=404,
         )
     for found in o.ids.get("store upload", []):
