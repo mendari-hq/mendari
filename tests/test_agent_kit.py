@@ -6,6 +6,7 @@ Mendari would not send is refused, every answer `respond` builds passes the engi
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import threading
 from collections.abc import MutableMapping
@@ -17,7 +18,18 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from mendari import agent_kit
-from mendari.agent_kit import AgentError, Case, create_app, respond
+from mendari.agent_kit import (
+    Action,
+    AgentError,
+    Authorization,
+    Case,
+    authorize,
+    create_app,
+    respond,
+)
+from mendari.core import actions as engine_actions
+from mendari.core import spec
+from mendari.core.spec import ActionSpec
 from mendari.core.spec import Question as SpecQuestion
 from mendari.providers import agent as provider
 from mendari.providers import base
@@ -67,6 +79,11 @@ def test_the_kits_limits_are_the_engines() -> None:
     assert agent_kit.ID_PATTERN.pattern == provider.AGENT_ID_PATTERN
     assert agent_kit.MAX_CALL_TOKENS == base.MAX_CALL_TOKENS
     assert agent_kit.MAX_CALL_COST_USD == base.MAX_CALL_COST_USD
+    # Proposed actions (spec 0.4): the engine's own limits and its name's shape.
+    assert agent_kit.MAX_ACTIONS == engine_actions.MAX_PROPOSED == spec.MAX_ACTIONS
+    assert agent_kit.MAX_ARGUMENT_CHARS == engine_actions.MAX_ARGUMENT_CHARS
+    assert agent_kit.MAX_ARGUMENT_DEPTH == engine_actions.MAX_ARGUMENT_DEPTH
+    assert agent_kit.ACTION_NAME.pattern == engine_actions.NAME.pattern
 
 
 # -- Case.parse -----------------------------------------------------------------------------------
@@ -485,3 +502,274 @@ def test_async_and_sync_handlers_both_answer(token: str) -> None:
     assert failed.json() == {"error": "the agent could not answer (ValueError)"}
     # A plain handler runs off the event loop's thread, so a blocking call cannot stall it.
     assert threads[0] != threads[1]
+
+
+# -- actions (spec 0.4): what the case offers, what the agent proposes, and asking before running --
+
+DECLARED = {
+    "look_up": ActionSpec.model_validate({"description": "Read the list.", "effect": "read"}),
+    "send_reply": ActionSpec.model_validate(
+        {
+            "description": "Send a reply.",
+            "effect": "contact",
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["message"],
+                "properties": {"message": {"type": "string", "maxLength": 2000}},
+            },
+        }
+    ),
+}
+BOTH = {"request": ("refill", 0.95), "urgent_symptoms": ("no", 0.9)}
+
+
+def offered() -> Case:
+    return Case.parse(body_of(actions=DECLARED))
+
+
+def test_a_case_holds_the_actions_the_manifest_declares() -> None:
+    case = offered()
+    assert case.actions == (
+        Action("look_up", "Read the list.", "read", None),
+        Action("send_reply", "Send a reply.", "contact", DECLARED["send_reply"].json_schema),
+    )
+    assert case.action("send_reply").effect == "contact"
+    with pytest.raises(KeyError):
+        case.action("delete_chart")
+    assert Case.parse(body_of()).actions == ()  # an older manifest's request: none
+    for wrong in (
+        "send_reply",
+        [{"name": "send_reply"}],  # no effect
+        [{"name": "Send Reply", "effect": "contact"}],
+        [{"effect": "read"}],
+        ["send_reply"],
+        [{"name": "a", "effect": "read"}] * 2,  # a name twice
+        [{"name": f"a{n}", "effect": "read"} for n in range(agent_kit.MAX_ACTIONS + 1)],
+    ):
+        with pytest.raises(AgentError) as refused:
+            Case.parse({**body_of(), "actions": wrong})
+        assert refused.value.status == 400
+
+
+def test_respond_proposes_actions_the_engine_takes() -> None:
+    case = offered()
+    shown = respond(
+        case,
+        BOTH,
+        actions=[("send_reply", {"message": "Received."}), {"name": "look_up"}],
+    )
+    assert shown["actions"] == [
+        {"name": "send_reply", "arguments": {"message": "Received."}},
+        {"name": "look_up", "arguments": {}},
+    ]
+    validated = validate_response(shown, QUESTIONS, actions=True)
+    assert validated["actions"] == shown["actions"]
+    assert "actions" not in respond(case, BOTH) and "actions" not in respond(case, BOTH, actions=[])
+    # The kit does not check the schema: Mendari does, and blocks that one action.
+    unchecked = respond(case, BOTH, actions=[("send_reply", {"message": 5})])
+    assert validate_response(unchecked, QUESTIONS, actions=True)["actions"][0]["arguments"] == {
+        "message": 5
+    }
+
+
+def nested(levels: int) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for _ in range(levels - 1):
+        value = {"in": value}
+    return value
+
+
+@pytest.mark.parametrize(
+    "proposed",
+    [
+        [("delete_chart", {})],  # not offered
+        [("send_reply", ["a list"])],
+        [("send_reply", "text")],
+        [("send_reply",)],
+        ["send_reply"],
+        [{"name": "send_reply", "arguments": {}, "effect": "read"}],
+        [{"arguments": {}}],
+        [("send_reply", {"message": "x" * agent_kit.MAX_ARGUMENT_CHARS})],
+        [("send_reply", nested(agent_kit.MAX_ARGUMENT_DEPTH + 1))],
+        [("send_reply", {"message": float("nan")})],
+        [("send_reply", {"message": {1, 2}})],
+        [("send_reply", {1: "x"})],
+        [("look_up", {})] * (agent_kit.MAX_ACTIONS + 1),
+        "send_reply",
+        {"name": "send_reply"},
+    ],
+)
+def test_a_proposal_the_contract_does_not_allow_is_refused_before_it_is_sent(
+    proposed: Any,
+) -> None:
+    with pytest.raises(AgentError) as refused:
+        respond(offered(), BOTH, actions=proposed)
+    assert refused.value.status == 502
+    assert "x" * 50 not in refused.value.message  # never an argument's value
+
+
+def test_a_case_that_offers_no_action_proposes_none() -> None:
+    with pytest.raises(AgentError, match="does not offer"):
+        respond(Case.parse(body_of()), BOTH, actions=[("send_reply", {"message": "x"})])
+
+
+_arguments = st.dictionaries(
+    st.text(max_size=8),
+    st.recursive(
+        st.one_of(st.none(), st.booleans(), st.integers(-9, 9), st.text(max_size=20)),
+        lambda inner: st.one_of(
+            st.lists(inner, max_size=3), st.dictionaries(st.text(max_size=5), inner, max_size=3)
+        ),
+        max_leaves=6,
+    ),
+    max_size=4,
+)
+
+
+@settings(derandomize=True, max_examples=200, deadline=None)
+@given(
+    st.lists(
+        st.tuples(st.sampled_from(list(DECLARED)), _arguments), max_size=agent_kit.MAX_ACTIONS
+    ),
+    st.booleans(),
+)
+def test_every_proposal_respond_builds_passes_the_engines_validation(
+    proposed: list[tuple[str, dict[str, Any]]], as_objects: bool
+) -> None:
+    given_actions: list[Any] = (
+        [{"name": name, "arguments": arguments} for name, arguments in proposed]
+        if as_objects
+        else list(proposed)
+    )
+    shown = respond(offered(), BOTH, actions=given_actions)
+    validated = validate_response(shown, QUESTIONS, actions=True)
+    assert validated["actions"] == [
+        {"name": name, "arguments": arguments} for name, arguments in proposed
+    ]
+    for item in validated["actions"]:
+        assert engine_actions.shape_problem(item["name"], item["arguments"]) is None
+
+
+class _Answering:
+    """A local HTTP server that answers every POST with what it was told to."""
+
+    def __init__(self, status: int = 200, body: Any = None, raw: bytes | None = None) -> None:
+        import http.server
+
+        outer = self
+        self.seen: list[tuple[str, dict[str, str], Any]] = []
+        self.status, self.body, self.raw = status, body, raw
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("content-length", 0))
+                sent = json.loads(self.rfile.read(length) or b"null")
+                outer.seen.append(
+                    (self.path, {k.lower(): v for k, v in self.headers.items()}, sent)
+                )
+                payload = outer.raw if outer.raw is not None else json.dumps(outer.body).encode()
+                self.send_response(outer.status)
+                if outer.status in (301, 302, 307):
+                    self.send_header("location", "http://127.0.0.1:9/elsewhere")
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *_: Any) -> None:
+                return
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def __enter__(self) -> _Answering:
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+
+
+RELEASED = {"id": "a-1", "disposition": "released", "reason": "automated", "repeated": False}
+UNREACHABLE = Authorization("blocked", "unreachable", None)
+
+
+def test_authorize_asks_mendari_and_reads_its_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    with _Answering(body=RELEASED) as mendari:
+        found = authorize(
+            "my-clinic/my-agent", "d-1", "send_reply", {"message": "Hi"}, url=mendari.url, key="k1"
+        )
+        assert found == Authorization("released", "automated", "a-1") and found.released
+        ((path, headers, sent),) = mendari.seen
+        assert path == "/api/agents/my-clinic/my-agent/actions"
+        assert headers["authorization"] == "Bearer k1"
+        assert sent == {"decision_id": "d-1", "name": "send_reply", "arguments": {"message": "Hi"}}
+        # From the environment, with no arguments and no key.
+        monkeypatch.setenv("MENDARI_URL", mendari.url + "/")
+        monkeypatch.delenv("MENDARI_KEY", raising=False)
+        assert authorize("my-clinic/my-agent", "d-1", "look_up").released
+        _, headers, sent = mendari.seen[-1]
+        assert "authorization" not in headers and sent["arguments"] == {}
+    for disposition in ("held", "blocked", "denied"):
+        with _Answering(body={**RELEASED, "disposition": disposition, "id": None}) as mendari:
+            found = authorize("a/b", "d-1", "look_up", url=mendari.url)
+            assert (found.disposition, found.released, found.action_id) == (
+                disposition,
+                False,
+                None,
+            )
+
+
+@pytest.mark.parametrize(
+    "answering",
+    [
+        {"status": 500, "body": RELEASED},
+        {"status": 404, "body": {"detail": "no decision"}},
+        {"status": 403, "body": RELEASED},
+        {"status": 302, "body": RELEASED},  # a redirect is not followed
+        {"body": {"id": "a-1", "reason": "automated"}},  # no disposition
+        {"body": {"disposition": "approved", "reason": "x"}},  # not one of the four
+        {"body": {"disposition": "released"}},  # no reason
+        {"body": ["released"]},
+        {"raw": b"not json"},
+    ],
+)
+def test_authorize_fails_closed_on_any_answer_it_cannot_trust(answering: dict[str, Any]) -> None:
+    with _Answering(**answering) as mendari:
+        found = authorize("my-clinic/my-agent", "d-1", "send_reply", url=mendari.url)
+    assert found == UNREACHABLE and not found.released
+
+
+def test_authorize_never_raises_for_a_failure_to_ask(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MENDARI_URL", raising=False)
+    assert authorize("a/b", "d-1", "look_up") == UNREACHABLE  # no address
+    for url in (
+        "http://mendari.example.org",  # not https, and not this machine
+        "ftp://mendari.example.org",
+        "mendari.example.org",
+        "https://",
+        "http://[::1",  # not a URL
+        "http://127.0.0.1:9",  # nothing listens
+    ):
+        assert authorize("a/b", "d-1", "look_up", url=url, timeout_s=2) == UNREACHABLE, url
+    with _Answering(body=RELEASED) as mendari:
+        for agent in ("../../admin", "a/b/c", "A/B", "", "a b/c"):
+            assert authorize(agent, "d-1", "look_up", url=mendari.url) == UNREACHABLE, agent
+        assert authorize("a/b", "d-1", "look_up", {"x": float("nan")}, url=mendari.url) == (
+            UNREACHABLE
+        )
+        assert mendari.seen == []  # none of them was sent
+
+
+def test_authorize_times_out_closed() -> None:
+    import socket
+
+    with socket.socket() as listening:
+        listening.bind(("127.0.0.1", 0))
+        listening.listen(1)  # accepts, and never answers
+        url = f"http://127.0.0.1:{listening.getsockname()[1]}"
+        assert authorize("a/b", "d-1", "look_up", url=url, timeout_s=0.3) == UNREACHABLE

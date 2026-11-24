@@ -165,7 +165,7 @@ def test_an_action_event_names_its_organization_on_an_unmarked_database_too(
     assert store.verify()["ok"]
 
 
-# -- what is never chained: seeded text, searched for everywhere ------------------------------------
+# -- what is never chained: seeded text, searched for everywhere ----------------------------------
 
 
 @pytest.mark.parametrize("mode", list(MODES))

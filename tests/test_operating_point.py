@@ -1743,3 +1743,65 @@ def test_the_guide_names_the_options_the_command_takes() -> None:
     assert (parsed.target_critical_miss, parsed.target_critical_miss_of) == (0.01, "all")
     assert (parsed.target_false_automation, parsed.target_confidence) == (0.02, 0.95)
     assert not re.search(r"\bpacks?\b", text, re.IGNORECASE)  # one vocabulary: an agent
+
+
+# -- proposed actions are part of what the policy decided from (spec 0.4) -------------------------
+
+ACTIONS_MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
+STOP = "action 'renew_prescription' (order) is never released without a person"
+
+
+def test_the_demo_agents_proposals_are_in_what_each_case_decided_from(
+    demo: Pack, demo_run: tuple[Any, list[Any]]
+) -> None:
+    """The demo agent's canned answers propose actions on every case, and one of them is never
+    released without a person: the stop is kept with the case, so the policy applied again
+    gives the run back (the test above), at the agent's threshold and at every other."""
+    _, results = demo_run
+    stopped = [r for r in results if r.policy_inputs is not None and r.policy_inputs.actions]
+    assert 100 < len(stopped) < 600 and all(r.actions for r in results)
+    for result in stopped:
+        assert result.outcome is not Outcome.AUTO
+        assert result.policy_inputs.actions == (
+            "action 'send_acknowledgement' is never released without a person (allow_auto: false)",
+        )
+    cases = op.cases_of(demo_run[0].ledger, results)
+    for threshold in (0.5, 0.75, 0.9, 0.99, 1.0):
+        again = op.decided(op.at_threshold(demo.manifest, threshold), cases)
+        for case, (outcome, _) in zip(cases, again, strict=True):
+            if case.inputs is not None and case.inputs.actions:
+                assert outcome != "AUTO", threshold  # no threshold releases what needs a person
+
+
+def test_a_case_with_a_stopped_action_is_never_automated_at_any_threshold() -> None:
+    """Decided for real by the actions fixture: a plain refill automates exactly from its own
+    confidence down, and the same answer with an order proposed never does, however low the
+    threshold. Applying the policy again is exact for both."""
+    decision = Decision.from_path(ACTIONS_MINI, origin_cap=False)
+    manifest = decision.pack.manifest
+    plain = decision({"message": {"body": "Could you refill my lisinopril?"}})
+    order = decision({"message": {"body": "Please renew my prescription."}})
+    undeclared = decision({"message": {"body": "Try an undeclared thing."}})
+    visit = decision({"message": {"body": "I need to move my appointment."}})
+    results = [plain, order, undeclared, visit]
+    assert [r.outcome.value for r in results] == ["AUTO", *["HUMAN_REVIEW"] * 3]
+    assert plain.policy_inputs is not None and plain.policy_inputs.actions == ()
+    assert order.policy_inputs is not None and order.policy_inputs.actions == (STOP,)
+    assert visit.policy_inputs is not None and visit.policy_inputs.actions == ()  # held, no stop
+    cases = [
+        Case(r.recommendation, (), r.outcome.value, r.recommendation, r.policy_inputs)
+        for r in results
+    ]
+    recorded = [(r.outcome.value, r.recommendation) for r in results]
+    assert op.decided(manifest, cases) == recorded  # exact at the agent's own threshold
+    assert all(case.replays for case in cases)
+    for threshold in op.sequence(manifest.policy.thresholds.review):
+        outcomes = outcomes_at(manifest, cases, threshold)
+        assert outcomes[0] == ("AUTO" if threshold <= 0.95 else "HUMAN_REVIEW"), threshold
+        assert outcomes[1:3] == ["HUMAN_REVIEW", "HUMAN_REVIEW"], threshold  # the stops hold
+        assert outcomes[3] == ("AUTO" if threshold <= 0.70 else "HUMAN_REVIEW"), threshold
+    # The same answers without the stop would automate: it is the stop that holds them.
+    without = Case(
+        "refill", (), "AUTO", "refill", PolicyInputs(order.policy_inputs.answers, {}, None, {})
+    )
+    assert outcomes_at(manifest, [without], 0.9) == ["AUTO"]
