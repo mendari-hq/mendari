@@ -1138,6 +1138,10 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
         if newer and not at_least(m.spec_version, "0.3"):
             problems.append(f"{newer} use spec 0.3 card features; set spec_version: '0.3'")
 
+    second_signal = second_signal_keys(m)
+    if second_signal and m.spec_version != SPEC_04:
+        problems.append(f"{second_signal} use spec 0.4 features; set spec_version: '0.4'")
+
     for critical in m.evaluation.critical:
         critical_question = m.questions.get(critical.question)
         if critical_question is None or critical.label not in critical_question.criteria:
@@ -1176,6 +1180,35 @@ def action_problems(m: PackManifest) -> list[str]:
     if not at_least(m.spec_version, "0.4"):
         problems.append("['actions'] use spec 0.4 features; set spec_version: '0.4'")
     return problems
+
+
+SPEC_04 = "0.4"  # the spec version of an agent's calibration and of a second signal
+
+
+def second_signal_keys(m: PackManifest) -> list[str]:
+    """Where a manifest uses what spec 0.4 adds to a provider variant (ADR-0022), in a variant
+    or a composite's member: an `agent`'s `calibration`, `repeat` on an `agent` or an `llm`,
+    and the `check` composite."""
+    found = []
+    for slot_name, slot in m.providers.items():
+        for name, variant in slot.variants.items():
+            where = f"providers.{slot_name}.variants.{name}"
+            extra = variant.model_extra or {}
+            configs: list[tuple[str, Any]] = [(where, {"type": variant.type, **extra})]
+            members = extra.get("members")
+            if isinstance(members, dict):
+                configs += [(f"{where}.members.{key}", member) for key, member in members.items()]
+            for at, config in configs:
+                if not isinstance(config, dict):
+                    continue
+                kind = config.get("type")
+                if kind == "check":
+                    found.append(f"{at} (type check)")
+                if kind in ("agent", "llm") and "repeat" in config:
+                    found.append(f"{at}.repeat")
+                if kind == "agent" and "calibration" in config:
+                    found.append(f"{at}.calibration")
+    return found
 
 
 def card_summary_problems(m: PackManifest) -> list[str]:

@@ -25,6 +25,7 @@ from mendari.providers.base import (
     prefixed,
 )
 from mendari.providers.cascade import CascadeConfig, CascadeProvider
+from mendari.providers.check import CheckConfig, CheckProvider
 from mendari.providers.cql import CqlConfig, CqlProvider
 from mendari.providers.criteria import CriteriaProvider
 from mendari.providers.dosing import DosingProvider
@@ -51,6 +52,7 @@ PROVIDER_TYPES: dict[str, type[Provider]] = {
         AnyOfProvider,
         CascadeProvider,
         VoteProvider,
+        CheckProvider,
     )
 }
 
@@ -72,6 +74,7 @@ PROVIDER_CONFIG_MODELS: Mapping[str, type[BaseModel]] = {
     AnyOfProvider.type: AnyOfConfig,
     CascadeProvider.type: CascadeConfig,
     VoteProvider.type: VoteConfig,
+    CheckProvider.type: CheckConfig,
 }
 # Where the generated JSON Schema of those configs is published (`config_json_schema`).
 CONFIG_SCHEMA_ID = "https://mendari.co/spec/provider-configs.schema.json"
@@ -147,7 +150,12 @@ def config_json_schema() -> dict[str, Any]:
     Published as `docs/spec/provider-configs.schema.json` (`scripts/provider_config_schema.py`,
     which `--check`s it)."""
     definitions: dict[str, Any] = {}
-    composites = {AnyOfProvider.type, CascadeProvider.type, VoteProvider.type}
+    composites = {
+        AnyOfProvider.type,
+        CascadeProvider.type,
+        VoteProvider.type,
+        CheckProvider.type,
+    }
     for kind, model in sorted(PROVIDER_CONFIG_MODELS.items()):
         schema = model.model_json_schema(ref_template="#/$defs/{model}")
         for name, nested in schema.pop("$defs", {}).items():

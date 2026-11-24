@@ -23,6 +23,7 @@ from mendari.core.pack import Pack
 from mendari.core.spec import Question
 from mendari.errors import PackValidationError, ProviderError, ProviderErrorCode
 from mendari.providers.base import Answer, Provider, ProviderInfo, ProviderOutput, prefixed
+from mendari.providers.signals import Signals, merged
 
 
 class CompositeConfig(BaseModel):
@@ -150,7 +151,10 @@ class CompositeProvider(Provider):
         answers: dict[str, Answer],
         outputs: Mapping[str, ProviderOutput],
         failed: Mapping[str, str],
+        signals: Signals | None = None,
     ) -> ProviderOutput:
+        """`signals`: the composite's own (a check's); else every member's that answered, so a
+        member's cap holds whichever member's answer is used."""
         costs = [output.cost_usd for output in outputs.values()]
         return ProviderOutput(
             answers=answers,
@@ -171,6 +175,7 @@ class CompositeProvider(Provider):
                 for output in outputs.values()
                 for action in output.actions
             ),
+            signals=merged(o.signals for o in outputs.values()) if signals is None else signals,
         )
 
 

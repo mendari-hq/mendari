@@ -20,6 +20,7 @@ from mendari.core.pack import Pack
 from mendari.core.spec import Question
 from mendari.core.text import plain
 from mendari.errors import PackValidationError, ProviderError
+from mendari.providers.signals import Signals
 
 T = TypeVar("T")
 
@@ -83,6 +84,9 @@ class ProviderOutput:
     # The actions an agent proposed with its answers (spec 0.4): asked for, never run. Only an
     # `agent` variant of a 0.4 agent proposes any.
     actions: tuple[Proposed, ...] = ()
+    # What can only lower the decision's automation (`providers/signals.py`): the agent changed
+    # since its confidence was calibrated, or a second signal disagreed.
+    signals: Signals = field(default_factory=Signals)
 
 
 # A decision over its organization's daily quota (`CallBudget.admit_decision`): its remote

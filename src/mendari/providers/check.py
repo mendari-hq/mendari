@@ -1,0 +1,104 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Check: answer with one variant, check with another, and never automate when they disagree
+(ADR-0022; spec 0.4).
+
+    checked:
+      type: check
+      members:
+        agent: {type: agent, ...}         # the first member answers
+        second: {type: llm, model: ...}   # the second checks
+
+The first member's answers are the slot's, as it gave them: its labels, its confidence, its
+distribution. The second member is asked the same questions about the same input, and only its
+labels are read:
+
+- where it gives the first member's answer, nothing changes: agreement raises no confidence
+  and lifts no cap;
+- where it gives another answer to a question the decision turns on
+  (`signals.deciding_questions`), the decision is capped: AUTO becomes HUMAN_REVIEW, the reason
+  `<first> and <second> disagree on <question> (<first>: <label>, <second>: <label>)`. On
+  another question the disagreement is in the evidence only.
+
+A composite like the others (`providers/composite.py`), so budgets, batching, connections, the
+deadline, cost and usage reach both members as they do a vote's. It differs from them in what
+it does with a second answer: `vote` averages it in, `any_of` lets the more alarming answer
+win, `cascade` asks it only when the first is unsure; none of them keeps the first answer and
+holds the decision when the second differs. A second member that fails is recorded as the
+composites record a member's failure (`<member>:<code>` on each question), which the policy
+never automates over. A first member that fails fails the slot: the member that checks never
+answers in its place.
+
+The two members should not be the same model behind the same prompt: what is wanted is a
+second reader with other mistakes. A member that answers from canned examples proves nothing
+by agreeing, and the evidence says so (`Checked.canned`).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+from pydantic import Field
+
+from mendari.errors import ProviderError, ProviderErrorCode
+from mendari.providers.base import ProviderOutput
+from mendari.providers.composite import CompositeConfig, CompositeProvider
+from mendari.providers.signals import Cap, Checked, Signals, deciding_questions
+
+CANNED_NOTE = "check: canned answers, so agreement is not evidence"
+
+
+class CheckConfig(CompositeConfig):
+    # Exactly two, in order: the member that answers, then the member that checks.
+    members: dict[str, dict[str, Any]] = Field(min_length=2, max_length=2)
+
+
+def disagree_reason(first: str, second: str, question: str, answered: str, checked: str) -> str:
+    """The cap's reason: the two members by name, the question, and what each answered."""
+    return f"{first} and {second} disagree on {question} ({first}: {answered}, {second}: {checked})"
+
+
+class CheckProvider(CompositeProvider):
+    type = "check"
+    settings_model = CheckConfig
+
+    def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
+        first, second = self.members
+        outputs: dict[str, ProviderOutput] = {first: self.ask(first, inputs)}
+        failed: dict[str, ProviderErrorCode] = {}
+        try:
+            outputs[second] = self.ask(second, inputs)
+        except ProviderError as error:
+            failed[second] = error.code
+        answered, checking = outputs[first], outputs.get(second)
+        canned = any(output.canned is not None for output in outputs.values())
+        deciding = deciding_questions(self.pack.manifest)
+        caps: list[Cap] = []
+        disagreed: list[str] = []
+        answers = {}
+        for key, answer in answered.answers.items():
+            if checking is None:
+                note = f"check: {second} failed ({failed[second]})"
+            elif checking.answers[key].label == answer.label:
+                note = CANNED_NOTE if canned else f"check: {second} agrees"
+            else:
+                other = checking.answers[key].label
+                note = f"check: {second} answered {other}"
+                if key in deciding:
+                    caps.append(
+                        Cap("check", disagree_reason(first, second, key, answer.label, other))
+                    )
+                    disagreed.append(key)
+            evidence = (note, *(f"{first}:{item}" for item in answer.evidence))
+            answers[key] = self.combined(first, answer, evidence)
+        found = answered.signals
+        if checking is not None:  # its own caps hold too (its calibration's version, say)
+            found = found.merge(
+                Signals(caps=checking.signals.caps, checked=checking.signals.checked)
+            )
+        info = self.info
+        own = Checked(info.slot, info.variant, "check", 2, 1, tuple(disagreed), canned=canned)
+        signals = Signals(
+            caps=(*found.caps, *caps), checked=(*found.checked, own), reported=found.reported
+        )
+        return self.output(answers, outputs, failed, signals)

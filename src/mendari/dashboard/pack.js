@@ -247,7 +247,7 @@ export function providerName(p) {
   return used < models.length ? `${words} (${models.slice(used).join(", ")})` : words;
 }
 
-const COMPOSITES = new Set(["any_of", "cascade", "vote"]);
+const COMPOSITES = new Set(["any_of", "cascade", "vote", "check"]);
 
 // The remote models behind a provider ("rules:rules@1a2b + llm:vendor/model-2" ->
 // ["vendor/model-2"]); local fingerprints ("rules@1a2b") are not a deployment choice. Only a

@@ -32,7 +32,7 @@ from mendari.evals.result import MIN_POSITIVES, counted, false_automation, norma
 FORMAT = "mendari.leaderboard/2"
 PATH = "evals/leaderboard.json"
 PUBLIC_SET = grade.PUBLIC_SET  # what every table of a leaderboard is
-_COMPOSITES = ("any_of", "cascade", "vote")
+_COMPOSITES = ("any_of", "cascade", "vote", "check")
 
 
 _DETERMINISTIC_PREFIXES = ("rules@", "naive_bayes@", "criteria@", "dosing@", "cql:")

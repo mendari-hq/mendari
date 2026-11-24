@@ -56,6 +56,7 @@ from mendari.providers.agent import AgentProvider, ConnectionSource
 from mendari.providers.base import METER, OVER_QUOTA, Meter, Metered
 from mendari.providers.batch import batching
 from mendari.providers.deadline import deadline_until, decision_deadline, due
+from mendari.providers.signals import Signals
 from mendari.settings import FhirValidation, decision_deadline_s
 
 if TYPE_CHECKING:
@@ -137,6 +138,10 @@ class DecisionResult:
     # caller's answer (`to_dict`) and never in the stored record (`to_record`): the chain keeps
     # each as an event, without its arguments.
     actions: tuple[ActionResult, ...] | None = field(default=None, compare=False)
+    # What its providers found that can only lower its automation (`providers/signals.py`: the
+    # agent changed since its confidence was calibrated, a second signal disagreed), with what
+    # an evaluation counts from. In memory only, like `rejected`: the reasons say it in the record.
+    signals: Signals = field(default_factory=Signals, compare=False, repr=False)
 
     @property
     def abstained_unreadable(self) -> bool:
@@ -691,6 +696,7 @@ class Decision:
         proposed: list[Proposed] = []  # the actions the agent asks for (spec 0.4), in order
         checked: list[Checked] = []  # each held against the manifest, once the providers answered
         vouched = True
+        signals = Signals()  # what its providers found that can only lower automation
         meter = Meter()  # its remote calls, as they are made
 
         governance = self.governance
@@ -785,6 +791,7 @@ class Decision:
                             failures.update(output.failures)
                             canned = canned or output.canned
                             proposed.extend(output.actions)
+                            signals = signals.merge(output.signals)
                             tokens_in += output.input_tokens
                             tokens_out += output.output_tokens
                             if cost is not None:
@@ -831,6 +838,7 @@ class Decision:
                     not_offered=tuple(not_offered),
                     canned=canned if self.canned_cap else None,
                     actions=action_stops(checked, vouched=vouched),
+                    caps=signals.reasons(),
                 )
                 policy = policy_inputs.apply(manifest)
                 primary = manifest.questions[manifest.policy.primary]
@@ -878,6 +886,7 @@ class Decision:
             promotion=self.promotion,
             policy_inputs=policy_inputs,
             actions=acted,
+            signals=signals,
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)

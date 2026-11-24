@@ -45,7 +45,7 @@ from mendari.core import actions as proposals
 from mendari.core.pack import Pack
 from mendari.core.spec import ActionSpec, Question, at_least, deployment_env_problem
 from mendari.errors import MendariError, PackValidationError, ProviderError
-from mendari.providers import deadline, reach
+from mendari.providers import agent_calibration, deadline, reach
 from mendari.providers.base import (
     MAX_CALL_COST_USD,
     MAX_CALL_TOKENS,
@@ -64,6 +64,7 @@ from mendari.providers.http import (
     require_https,
     require_secure,
 )
+from mendari.providers.repeat import MAX_RUNS, MIN_RUNS, repeated
 from mendari.standards.fhir_client import origin_of
 
 ENDPOINT_ENV = "MENDARI_AGENT_URL"
@@ -135,6 +136,11 @@ class AgentConfig(BaseModel):
     state_fields: list[str] | None = None
     # Pack-relative JSON or YAML fixture for offline testing and evaluation.
     mock_file: str | None = None
+    # Spec 0.4 (ADR-0022). Per-question temperatures fitted by `mendari calibrate` (a file in
+    # the agent), for the agent version its service reported then: `agent_calibration.py`.
+    calibration: str | None = None
+    # Ask each case this many times and never automate when the runs disagree: `repeat.py`.
+    repeat: int | None = Field(default=None, ge=MIN_RUNS, le=MAX_RUNS)
 
     @field_validator("timeout_seconds", mode="before")
     @classmethod
@@ -172,6 +178,11 @@ class AgentProvider(Provider):
             )
         if self.settings.agent_id is not None:
             self.info = replace(self.info, model=self.settings.agent_id)
+        self.calibration: agent_calibration.Calibration | None = None
+        if self.settings.calibration is not None:
+            self.calibration = agent_calibration.load(
+                self.pack, self.info.slot, self.settings.calibration, self.questions
+            )
 
     @classmethod
     def config_problems(
@@ -185,6 +196,10 @@ class AgentProvider(Provider):
         trained: bool,
     ) -> list[str]:
         settings, problems = cls._settings(where, config, questions, bounded=bounded)
+        if settings is not None and settings.calibration is not None and trained:
+            problems = agent_calibration.file_problems(pack, where, settings.calibration)
+            if problems:
+                return problems
         if settings is None or settings.mock_file is None:
             return problems
         mock_file = settings.mock_file
@@ -325,6 +340,21 @@ class AgentProvider(Provider):
         raise ProviderError("not_configured", f"set {ENDPOINT_ENV}")
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
+        """The agent's answers as the policy sees them: each call's confidence calibrated
+        (`agent_calibration.calibrated`), and the call repeated when the variant says so
+        (`repeat.repeated`). `answer_once` is one call, as the agent answered it."""
+        return repeated(
+            self, self.settings.repeat, lambda: self._calibrated(self.answer_once(inputs))
+        )
+
+    def _calibrated(self, output: ProviderOutput) -> ProviderOutput:
+        if self.calibration is None:
+            return output
+        return agent_calibration.calibrated(
+            self.calibration, output, self.questions, self.settings.agent_id
+        )
+
+    def answer_once(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         live = self.live()
         if live is None:
             if self._mock is not None:
