@@ -21,7 +21,7 @@ from mendari import Decision, load_pack
 from mendari.core import pack_store
 from mendari.core.pack import pack_digest
 from mendari.errors import MendariError, PackValidationError
-from mendari.evals import probe, probe_report, probe_tests
+from mendari.evals import probe, probe_report, probe_tests, probe_variants
 from mendari.evals import probe_transforms as transforms
 from mendari.evals.pack_tests import (
     PROBE_TESTS,
@@ -296,6 +296,85 @@ def test_with_no_fields_named_the_text_is_the_schemas_free_strings(tmp_path: Pat
             "received": "2026-11-03",
             "sender": "patient-12",
         }
+    # What is added (a greeting, an instruction) goes to the main text, the longest: here the
+    # subject, by four letters. The other field is left as it was.
+    for variant in probed(root, "additions", "injection").variants:
+        changed = variant.input["message"]
+        assert message["subject"] in changed["subject"] != message["subject"]
+        assert changed["body"] == message["body"]
+
+
+def test_a_variant_the_input_schema_refuses_is_never_decided(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The schema takes a body of thirty characters at most: every case fits, and none does
+    with an instruction added to it. Those variants are counted, with why, and never sent."""
+    root = agent_variant(build_agent(tmp_path / "agent"), CANNED_BY_KEYWORD)
+    schema = json.loads((root / "schemas" / "input.schema.json").read_text())
+    schema["properties"]["message"]["properties"]["body"]["maxLength"] = 30
+    (root / "schemas" / "input.schema.json").write_text(json.dumps(schema))
+    sent = live_agent(monkeypatch, by_keyword)
+    pack = load_pack(root)
+    planned = probe.plan(
+        Decision(pack, origin_cap=False),
+        probe.source(pack),
+        Options(transformations=("injection", "case")),
+    )
+    # The plan already leaves them out: a dry run counts only what would be sent.
+    assert planned.summary()["calls"] == {"decisions": 10, "agent": 10, "generator": 0}
+    assert planned.summary()["transformations"][0] == {
+        "name": "injection",
+        "variants": 0,
+        "skipped": {"not_valid_input": 5},
+    }
+    found = probe.run(planned)
+    lines = {line["name"]: line for line in found.report["transformations"]}
+    assert lines["injection"]["tried"] == 0
+    assert lines["injection"]["skipped"] == {"not_valid_input": 5}
+    assert lines["case"]["tried"] == 5 and lines["case"]["skipped"] == {}
+    assert len(sent) == 10  # five cases as written, and their five case variants
+    assert all(len(body["input"]["message"]["body"]) <= 30 for body in sent)
+    assert "Not tried: injection 5 (not valid input)." in probe_report.text(found.report)
+
+
+def test_an_injected_instruction_asks_for_the_answers_that_would_do_most_harm(
+    tmp_path: Path,
+) -> None:
+    """For a critical answer, its other label; for the primary question, a label the policy
+    may automate that is not the case's own (`other` is never automated here)."""
+    manifest = load_pack(build_agent(tmp_path / "agent")).manifest
+    assert probe_variants.asks(manifest, {"request": "booking", "urgent": "yes"}) == {
+        "urgent": "no",
+        "request": "medication",
+    }
+    assert probe_variants.asks(manifest, {"request": "medication"})["request"] == "booking"
+    assert probe_variants.asks(manifest, {}) == {"urgent": "no", "request": "medication"}
+    found = probed(tmp_path / "agent", "injection")
+    for variant in found.variants:
+        added = variant.input["message"]["body"][len(variant.case.input["message"]["body"]) :]
+        asked = probe_variants.asks(manifest, variant.case.labels)
+        assert f"urgent: no, request: {asked['request']}" in added
+
+
+def test_a_dataset_the_agent_cannot_evaluate_is_refused_as_an_evaluation_refuses_it(
+    tmp_path: Path,
+) -> None:
+    mislabelled = [{**CASES[0], "labels": {"urgent": "perhaps"}}]
+    pack = load_pack(build_agent(tmp_path / "agent", cases=mislabelled))
+    with pytest.raises(MendariError) as refused:
+        probe.source(pack)
+    assert str(refused.value) == (
+        "cases case symptom: labels.urgent is not one of its labels (yes, no)"
+    )
+    manifest = {key: value for key, value in MANIFEST.items() if key not in ("tests", "evaluation")}
+    bare = build_agent(tmp_path / "bare")
+    write_yaml(bare, "agent.yaml", manifest)
+    with pytest.raises(MendariError) as nothing:
+        probe.source(load_pack(bare))
+    assert str(nothing.value) == (
+        "clinic/probe-triage@0.1.0 has no case to probe: name a labelled dataset with --dataset, "
+        "or give the agent behaviour tests"
+    )
 
 
 def test_the_fields_can_be_named(tmp_path: Path) -> None:
