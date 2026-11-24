@@ -10,7 +10,7 @@
     {
       "name": "mendari-fixtures",
       "runtimeExecutable": "env",
-      "runtimeArgs": ["MENDARI_PACKS_PATH=tests/fixtures/packs", "uv", "run", "mendari", "serve", "--port", "8392", "--db", "var/fixtures.db"],
+      "runtimeArgs": ["MENDARI_AGENTS_PATH=tests/fixtures/mini-agents", "uv", "run", "mendari", "serve", "--port", "8392", "--db", "var/fixtures.db"],
       "port": 8392
     },
     {

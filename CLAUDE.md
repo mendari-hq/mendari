@@ -6,37 +6,67 @@ Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (local) or Postgres (Verc
 
 ```bash
 uv sync                                   # install (dev group included)
-uv run pytest                             # full suite, about 6 min (3,500 tests), warnings are errors
+uv run pytest -n 6                        # full suite, 8,700 tests: about 15 min on six workers; warnings are errors
 uv run pytest -m core                     # the edit loop, about 20 s: manifest loading, decisions, policy, audit
 uv run pytest tests/test_<area>.py        # and the file for what you changed (not with -m core, which filters it)
 uv run pytest --lf                        # after a failing full run: only what failed
-uv run pytest -m browser                  # dashboard in Chromium (once: uv run playwright install chromium)
+uv run pytest -m browser                  # dashboard in Chromium, 430 tests, about 7 min (once: uv run playwright install chromium)
 uv run pytest -m slow                     # the structural R4 gate over HL7's 5,309 R4 examples (if cached)
-# Postgres backend tests (Mendari's own container; never reuse another project's database):
+# Postgres backend tests (Mendari's own container; never reuse another project's database).
+# "too many clients" there is the container's connection limit, not a bug: rerun that file alone.
 docker run -d --name mendari-pg-test -e POSTGRES_PASSWORD=mendari-test \
   -e POSTGRES_DB=mendari_test -p 127.0.0.1:56432:5432 postgres:16-alpine
-MENDARI_TEST_DATABASE_URL=postgresql://postgres:mendari-test@127.0.0.1:56432/mendari_test uv run pytest
-uv run ruff check src tests && uv run ruff format --check src tests
+MENDARI_TEST_DATABASE_URL=postgresql://postgres:mendari-test@127.0.0.1:56432/mendari_test uv run pytest -n 6
+uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
 uv run mypy src tests
 uv run python scripts/check_doc_snippets.py  # the API examples (dashboard/snippets) on a local server
-uv run mendari demo                       # end-to-end smoke test on synthetic data
 uv run mendari demo                       # the bundled demo agent end to end, offline
 uv run python scripts/demo_agent_data.py  # regenerate the demo agent's test set (--check in CI)
+uv run python -m tests.support.fixture_data --kind inbox  # regenerate a test-fixture agent's data
 uv run python scripts/fhir_r4_schema.py   # regenerate the R4 structure rules from HL7's pinned schema
-docker compose up --build                 # HAPI FHIR + engine + worker sandbox
+docker compose up --build                 # HAPI FHIR + engine + worker sandbox, on the demo agent
 ```
 
 ## Rules of the codebase
 
-- **No real PHI, ever.** Test data comes from `mendari.sandbox.synthetic_*`.
+- **No real PHI, ever.** Data is synthetic: the demo agent's comes from
+  `scripts/demo_agent_data.py`, the test fixtures' from `tests/support/synthetic_*`.
 - **Mendari is a separate project.** Never reuse another project's code, connectors,
   credentials, databases, containers or configuration defaults. Before connecting to a local
   port, check which container owns it (`docker ps`).
-- **Agents only.** The product bundles one agent, `agents/portal-message-agent` (its manifest
-  is still named `pack.yaml`; routes are still `/api/packs/...`). The five former Decision Packs
-  are test fixtures (`tests/fixtures/reference-packs`, served by `tests/conftest.py`) and live on
-  the branch `archive/decision-packs`; never add them back to the product. UI and docs say
-  "agent", never "pack".
+- **Agents only.** The product bundles one agent, `agents/portal-message-agent`. The five
+  former Decision Packs are test fixtures (`tests/fixtures/reference-agents`, served by
+  `tests/conftest.py`; their generators, FHIR records and sandbox are `tests/support/`) and
+  live on the branch `archive/decision-packs`. Never add them back to the product, and never
+  name one in `src`, `scripts`, `deploy`, the Dockerfile, `docker-compose.yml` or
+  `pyproject.toml` (`tests/test_former_packs.py`): a command or script that needs a kind of
+  agent the product does not bundle takes `--agent`, and CI gives it the fixture's directory
+  (`tests/fixtures/reference-agents/<name>`).
+- **One vocabulary.** Everything a person reads or types says "agent", never "pack". The
+  rule is `offences` in `tests/test_vocabulary.py`, and four tests hold it, each with a short
+  list of what it leaves alone and why (an entry nothing needs any more fails):
+  `test_vocabulary.py` (the API descriptions, the product's and the scripts' messages, what
+  `mendari new` writes, the Decision Card: add a surface to its `SURFACES`),
+  `test_cli_vocabulary.py` (the command line, and that a hidden name is shown nowhere),
+  `test_vocabulary_docs.py` (the README, `docs/`, the READMEs, the changelog, `.github/`,
+  the deploy templates and compose files) and `test_vocabulary_frontends.py` (the console,
+  the Agent Hub, mendari.co).
+- **Old names still work, each through one helper.** The manifest is `agent.yaml`, and
+  `pack.yaml` still loads (`core/pack.py` `manifest_name`; both in one folder are refused;
+  one fixture keeps the old name on purpose, `tests/fixtures/mini-agents/referral-mini`).
+  Routes are `/api/agents/...`, `/api/store/agents` and the registry's `/v1/agents/...`; the
+  former paths answer the same, outside the API docs (`server/paths.py`: register a renamed
+  route with `paths.route`, and read a path through `paths.current` wherever a rule matches
+  on it, as `tests/test_legacy_routes.py` checks). Four settings were renamed
+  (`legacy.setting`). An archive is written as `.mendari`, and one named `.ohpack` is still
+  read. `mendari pull` caches under `agents/`, and a cache under `packs/` is still read
+  (`hub/client.py` `caches`). The console's address names the agent as `?agent=` and still
+  reads `?pack=` (`dashboard/main.js`); the Hub's page is `/agents/<namespace>/<name>`, and
+  `/packs/...` redirects. Not renamed yet: JSON keys (`pack`, `pack_id`), the `pack`
+  parameter of `/smart/launch`, database columns, Python identifiers, and the paths the Hub
+  asks the registry at (`hub/lib/registry.ts` says when); a model whose class holds the old
+  word is listed in the API description under the title it sets (`server/api_docs.py`
+  `TITLED`).
 - **The demo agent's data is derived.** `scripts/demo_agent_data.py` writes its `test.jsonl`;
   edit the script, rerun it and commit both. Its canned agent misses paraphrased urgent
   messages on purpose: the evaluation is meant to catch it.
@@ -58,8 +88,10 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 
 ## Layout
 
-See README "Project layout". Spec: `docs/spec/agent-manifest-0.2.md` (0.1 still loads). Decisions:
-`docs/decisions/`. Lessons: `tasks/lessons.md`. Plan and status: `tasks/todo.md` (the vision plan at its top; its Definition of shipped and
-build prompts are in `notes/vision-audit.md`, Phase 4). Plans, reviews
-and the build log: `notes/` (outside the docs site and the sdist; `docs/` is only what readers
-of the site need).
+See README "Project layout". Spec: `docs/spec/agent-manifest-0.2.md`, with the FHIR mapping of
+`agent-manifest-0.3.md` (0.1 and 0.2 still load). Decisions: `docs/decisions/`. Lessons:
+`tasks/lessons.md`. Plan and status: `tasks/todo.md` (the current plan at its top, "the
+engineering to A+", with the table of names every wave follows; the vision plan below it,
+whose Definition of shipped and build prompts are in `notes/vision-audit.md`, Phase 4). Plans,
+reviews and the build log: `notes/` (outside the docs site and the sdist; `docs/` is only what
+readers of the site need).
