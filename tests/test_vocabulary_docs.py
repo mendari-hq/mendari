@@ -101,10 +101,6 @@ _ARCHIVE = (
     "a signed archive holds an agent's files under `pack/` (`hub/archive.py`): the format's "
     "own name, which signatures cover, renamed with the stored formats (wave 6)"
 )
-_TEMPLATE = (
-    "the address of the pull request template, whose file is `.github/PULL_REQUEST_TEMPLATE/"
-    "pack.md`: renamed with the forms in `.github/`, which this test does not hold"
-)
 # A text left alone in the files a pattern names (`*`: any of them): (files, text) -> why.
 ALLOWED: dict[tuple[str, str], str] = {
     ("docs/spec/agent-manifest-0.2.md", "A manifest named `pack.yaml`"): "the spec's one "
@@ -137,8 +133,6 @@ ALLOWED: dict[tuple[str, str], str] = {
         "/smart/launch?pack=<agent id>",
     ): "the launch route's query parameter is `pack` (`server/smart_routes.py`): a name on the "
     "wire, which an EHR's registered launch address may hold, renamed with the wire names",
-    ("docs/guides/contributing-an-agent.md", "?template=pack.md"): _TEMPLATE,
-    ("docs/guides/contributing-an-agent.md", "--template pack.md"): _TEMPLATE,
     ("docs/spec/provider-configs.schema.json", "the pack file its config is in"): "generated "
     "from a docstring of `mendari.providers` (scripts/provider_config_schema.py; "
     "tests/test_provider_configs.py holds the file to it): reworded where the docstring is",

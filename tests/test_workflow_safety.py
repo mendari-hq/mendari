@@ -609,7 +609,7 @@ def test_terminology_validation_runs_on_a_schedule_and_never_on_a_pull_request()
     assert as_offline == offline["steps"]
 
 
-# -- the pack workflow ----------------------------------------------------------------------------
+# -- the agents workflow --------------------------------------------------------------------------
 
 
 def _changed_packs() -> ModuleType:
@@ -622,7 +622,7 @@ def _changed_packs() -> ModuleType:
 
 
 def test_a_pack_directory_is_data_never_code() -> None:
-    packs = (ROOT / ".github" / "workflows" / "packs.yml").read_text()
+    packs = (ROOT / ".github" / "workflows" / "agents.yml").read_text()
     assert "scripts/changed_packs.py" in packs
     assert "read -r -d ''" in packs  # NUL-separated names, read whole
     for unsafe in ("resolve_pack('$", '"$dir")', "cut -d/", "$(git diff", "for name in $("):
@@ -631,13 +631,14 @@ def test_a_pack_directory_is_data_never_code() -> None:
 
 def test_pack_check_runs_on_every_pull_request() -> None:
     # A required check must report on every pull request: a path filter would leave it pending.
-    workflow = _workflow(ROOT / ".github" / "workflows" / "packs.yml")
+    workflow = _workflow(ROOT / ".github" / "workflows" / "agents.yml")
+    assert workflow["name"] == "agents"  # a check is shown as `agents / agent-check`
     assert _triggers(workflow) == {"pull_request": None}
-    assert list(workflow["jobs"]) == ["pack-check"]
-    steps = workflow["jobs"]["pack-check"]["steps"]
+    assert list(workflow["jobs"]) == ["agent-check"]
+    steps = workflow["jobs"]["agent-check"]["steps"]
     assert steps[0]["with"]["fetch-depth"] == 0  # the base commit, for the diff and benchmarks
-    find = next(step for step in steps if step.get("name") == "Find the changed packs")
-    assert "no pack changes" in find["run"]
+    find = next(step for step in steps if step.get("name") == "Find the changed agents")
+    assert "no agent changes" in find["run"]
     maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
     assert 'case "$dir" in agents/*)' in maintained["run"]  # community packs go the other way
     (community,) = [step for step in steps if "community_check.py" in step.get("run", "")]
@@ -682,8 +683,8 @@ def test_the_pack_workflow_finds_a_manifest_by_either_name() -> None:
     """A folder with no manifest is "removed", and nothing of it is checked: so the workflow
     looks for both names, `agent.yaml` and `pack.yaml`. Looking for `pack.yaml` alone, it took
     the bundled agent for a removed one and skipped its validation, tests and evaluation gate."""
-    workflow = _workflow(ROOT / ".github" / "workflows" / "packs.yml")
-    steps = workflow["jobs"]["pack-check"]["steps"]
+    workflow = _workflow(ROOT / ".github" / "workflows" / "agents.yml")
+    steps = workflow["jobs"]["agent-check"]["steps"]
     maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
     removed = 'if [ ! -f "$dir/agent.yaml" ] && [ ! -f "$dir/pack.yaml" ]; then'
     assert removed in maintained["run"] and "was removed" in maintained["run"]

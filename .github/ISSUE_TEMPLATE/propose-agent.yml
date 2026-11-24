@@ -1,18 +1,18 @@
-name: Propose a pack
-description: A community pack you would like to contribute. The owner answers before you build it.
-labels: [pack, idea]
+name: Propose an agent
+description: A community agent you would like to contribute. The owner answers before you build it.
+labels: [agent, idea]
 body:
   - type: markdown
     attributes:
       value: >-
-        A community pack lives in `community-agents/<name>/` with the id `community/<name>`, is at
+        A community agent lives in `community-agents/<name>/` with the id `community/<name>`, is at
         most risk level 1, and recommends without automating (see
         docs/guides/contributing-an-agent.md). Never paste real patient data: describe cases in
         your own words.
   - type: input
     id: name
     attributes:
-      label: Pack name
+      label: Agent name
       description: Lowercase letters, digits and dashes. The id will be `community/<name>`.
       placeholder: refill-router
     validations:

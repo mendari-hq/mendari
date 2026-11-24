@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The eval gate for one changed pack (workflow `packs`): its metrics against `main`'s benchmark
+"""The eval gate for one changed agent (workflow `agents`): its metrics against `main`'s benchmark
 as Markdown for the job summary; exit 1 on a regression (mendari.evals.gate).
 
     uv run python scripts/pack_gate.py agents/NAME --report new.json [--main main.json]

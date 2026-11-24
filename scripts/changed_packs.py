@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The pack directories a pull request changes (workflow `packs`, job `pack-check`),
+"""The agent directories a pull request changes (workflow `agents`, job `agent-check`),
 NUL-separated on stdout, so a directory name is never word-split or put into code, whatever
 characters it holds.
 

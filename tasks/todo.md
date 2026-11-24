@@ -4177,6 +4177,18 @@ After the community-packs PR (`claude/community-packs`) is merged and the reposi
 (A9). Each step says where to click and what to check after. Nothing here is done by a build
 session.
 
+**Names since wave 1 (2026-11-23).** The steps below are as they were written, before the one
+vocabulary. Read them with today's names: the required check is `agent-check` (workflow
+`agents`; it was `pack-check` of `packs`); the pull request template is `agent.md`
+(`?template=agent.md`); the issue forms are "Agent content" and "Propose an agent", and they
+apply the label `agent`, so create `agent`, `agent:new`, `agent:update` and `good first agent`
+where step 1 says `pack`; the folder is `community-agents/`, the guide
+`docs/guides/contributing-an-agent.md`, the settings `MENDARI_COMMUNITY_AGENTS` and
+`MENDARI_AGENTS`, the route `/api/agents/...`. As of that day the `main` ruleset (step 3, made
+2026-10-08) still requires `pack-check`, and it and the classic branch rule both require
+`reference-pack`, which no job has reported since the agents-only change (#343) named it
+`demo-agent`: replace both names there.
+
 1. **B8, labels.** Issues → Labels → New label, for each of: `pack` (pack content and
    proposals), `pack:new`, `pack:update`, `needs-clinical-review` (no clinician named in the
    PR), `clinical-review:provided`, `risk-level-change`, `patient-safety` (blocks every other

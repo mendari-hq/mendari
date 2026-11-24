@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """`mendari community-check`: what CI enforces on a community pack, before anyone reviews it.
 
-One entry point for the command line and CI (`scripts/community_check.py`, the `pack-check` job
-of the `packs` workflow). Each rule says, in plain words, what to fix:
+One entry point for the command line and CI (`scripts/community_check.py`, the `agent-check`
+job of the `agents` workflow). Each rule says, in plain words, what to fix:
 
 - **scope**: the change touches only `community-agents/<name>/` (and `MAINTAINERS.yaml`, for
   that pack's own entry); no `pack.yaml` below the pack's own.

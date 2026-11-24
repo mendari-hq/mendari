@@ -133,8 +133,8 @@ where the agent lives, never from `publisher.type`, which every agent declares f
 7. **Open the pull request.** Sign off every commit (`git commit -s`, the
     [Developer Certificate of Origin](https://github.com/mendari-hq/mendari/blob/main/CONTRIBUTING.md#sign-off-the-developer-certificate-of-origin)).
     Change only `community-agents/<name>/` and your entry in `MAINTAINERS.yaml`. Use the pull
-    request template for a community agent: add `?template=pack.md` (the template's file name)
-    to the address of the "Open a pull request" page, or run `gh pr create --template pack.md`.
+    request template for a community agent: add `?template=agent.md` (the template's file name)
+    to the address of the "Open a pull request" page, or run `gh pr create --template agent.md`.
     It asks for the risk level and why, who reviewed the clinical content, how the data was
     made, the providers, and the CHANGELOG entry.
 

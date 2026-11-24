@@ -27,8 +27,8 @@ under its own url, and is at most risk level 1.
 7. Open a pull request that changes only `community-agents/<name>/` and your entry in
    `MAINTAINERS.yaml`.
 
-**What CI checks.** The `pack-check` job runs `mendari community-check` on every community agent
-a pull request changes:
+**What CI checks.** The `agent-check` job runs `mendari community-check` on every community
+agent a pull request changes:
 
 - scope: only the agent's own folder, plus its entry in `MAINTAINERS.yaml`; no git submodule;
 - identity: the id `community/<name>` matches the folder, is not taken by another agent nor

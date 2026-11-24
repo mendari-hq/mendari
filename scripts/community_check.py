@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The community-pack half of the `pack-check` job (workflow `packs`): every pull request runs it.
+"""The community half of the `agent-check` job (workflow `agents`): every pull request runs it.
 
     uv run python scripts/community_check.py --base BASE_SHA --actor AUTHOR \\
         --head-repo OWNER/REPO --repo OWNER/REPO --base-ref BRANCH --default-branch BRANCH \\

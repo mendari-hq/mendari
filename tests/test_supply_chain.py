@@ -151,7 +151,7 @@ def _docker_built_tags(script: str) -> set[str]:
 
 def test_the_workflows_and_files_are_there() -> None:
     names = {p.name for p in WORKFLOWS}
-    assert {"ci.yml", "release.yml", "packs.yml", "conformance.yml", "terminology.yml"} <= names
+    assert {"ci.yml", "release.yml", "agents.yml", "conformance.yml", "terminology.yml"} <= names
     assert "images.yml" not in names  # images are published by release.yml, after its build
     assert all(p.exists() for p in COMPOSE_FILES)
 

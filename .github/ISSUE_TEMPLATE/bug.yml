@@ -5,8 +5,8 @@ body:
   - type: markdown
     attributes:
       value: >-
-        Never paste real patient data. Use synthetic examples (`mendari sandbox generate`
-        makes some).
+        Never paste real patient data. Use synthetic examples (the demo agent's are in
+        `agents/portal-message-agent/data/examples.jsonl`).
   - type: textarea
     id: what
     attributes:
@@ -17,7 +17,7 @@ body:
     id: steps
     attributes:
       label: How to reproduce it
-      description: Commands, a pack id and version, a synthetic input.
+      description: Commands, an agent id and version, a synthetic input.
       render: shell
     validations:
       required: true

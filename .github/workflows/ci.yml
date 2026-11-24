@@ -20,7 +20,7 @@ jobs:
       matrix:
         python: ["3.11", "3.12", "3.13"]
     env:
-      # Run the full suite (with Postgres, linters and pack tests) on 3.12 and the fast core
+      # Run the full suite (with Postgres, linters and agent tests) on 3.12 and the fast core
       # compatibility suite on 3.11/3.13 on both pull requests and pushes to main.
       MENDARI_TEST_DATABASE_URL: ${{ matrix.python == '3.12' && 'postgresql://postgres:mendari-test@localhost:5432/mendari_test' || '' }}
     steps:
@@ -84,7 +84,7 @@ jobs:
           MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
           MENDARI_DATASETS_PATH: tests/fixtures/datasets
         run: for agent in tests/fixtures/reference-agents/*/; do uv run mendari test "$agent"; done
-      - name: Every community pack passes its behaviour tests (a core change that breaks one shows here)
+      - name: Every community agent passes its behaviour tests (a core change that breaks one shows here)
         if: matrix.python == '3.12'
         run: |
           failed=0
@@ -748,9 +748,9 @@ jobs:
           docker run --rm mendari-engine:ci python -c "
           from fastapi.testclient import TestClient
           from mendari.server.app import create_app
-          packs = TestClient(create_app(db_path='/tmp/a.db')).get('/api/agents').json()
-          assert [p['id'] for p in packs] == ['mendari/portal-message-agent'], packs
-          print('serves', packs[0]['id'])
+          served = TestClient(create_app(db_path='/tmp/a.db')).get('/api/agents').json()
+          assert [a['id'] for a in served] == ['mendari/portal-message-agent'], served
+          print('serves', served[0]['id'])
           "
 
   image-sbom:
