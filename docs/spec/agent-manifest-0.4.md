@@ -1,21 +1,25 @@
 # Agent manifest spec 0.4
 
-Status: draft. Adds two things to [0.3](agent-manifest-0.3.md). **Actions** (§2 to §7): what an
+Status: draft. Adds three things to [0.3](agent-manifest-0.3.md). **Actions** (§2 to §7): what an
 agent may ask to have done besides answer, and how the runtime gates it. **A calibrated
 confidence and a second signal** (§8 to §13): an `agent` variant's `calibration`, `repeat` on
 an `agent` or an `llm` variant, and the composite type `check`, each of which can only lower a
-decision's automation. Every other part of an agent is as [0.2](agent-manifest-0.2.md) and 0.3
-say, and a 0.4 manifest that uses none of this is a 0.3 manifest with `spec_version: "0.4"`.
-Every valid 0.1, 0.2 and 0.3 agent is still valid, with unchanged behaviour (§14). The key
-words MUST, SHOULD and MAY are used as in RFC 2119.
+decision's automation. **Written output** (§16 to §20): what an agent writes, the rubrics it
+is graded against, and when a model judge's grades are believed. Every other part of an agent
+is as [0.2](agent-manifest-0.2.md) and 0.3 say, and a 0.4 manifest that uses none of this is a
+0.3 manifest with `spec_version: "0.4"`. Every valid 0.1, 0.2 and 0.3 agent is still valid,
+with unchanged behaviour (§14). The key words MUST, SHOULD and MAY are used as in RFC 2119.
 
 The reference implementation is `mendari.core.spec` (the manifest), `mendari.core.policy` (what
 an effect needs, and the order of the caps), `mendari.core.actions` (checking a proposal),
-`mendari.providers.agent_calibration`, `mendari.providers.repeat` and
-`mendari.providers.check`. The decisions behind it are
-[ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md) (actions) and
+`mendari.providers.agent_calibration`, `mendari.providers.repeat`, `mendari.providers.check`,
+`mendari.providers.judge` (the judge) and `mendari.evals.written` (the run, the ledger and the
+report). The decisions behind it are
+[ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md) (actions),
 [ADR-0024](../decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md) (the calibration
-and the second signal).
+and the second signal) and
+[ADR-0025](../decisions/ADR-0025-a-judge-is-trusted-by-measured-agreement.md) (written
+output).
 
 ## 1. What changes
 
@@ -569,6 +573,10 @@ decisions kept in memory, as the operating point is.
 
 ## 14. Versions
 
+An agent with a non-empty `outputs`, `rubrics` or `evaluation.grades` (§16 to §19) MUST
+declare `spec_version: "0.4"`, as one with actions must: an older agent with one is invalid,
+and the problem names the section.
+
 An agent with a non-empty `actions` MUST declare `spec_version: "0.4"`. A 0.1, 0.2 or 0.3 agent
 with one is invalid, and the problem says to set `spec_version: '0.4'`. An empty `actions` is
 what a manifest holds without it, so it counts as left out. The same holds for `calibration` on
@@ -684,3 +692,159 @@ The caller, about to queue the refill, asks with the arguments it holds
  "disposition": "released", "reason": "confirmed", "arguments_hash": "sha256:…",
  "repeated": true}
 ```
+
+## 16. Written outputs
+
+An agent's answers are labels. A **written output** is a text it writes: a draft reply, a
+summary, a note.
+
+```yaml
+outputs:
+  <name>:
+    description: What the text is, in words the agent and a grader read   # 1 to 500 characters
+    slot: <provider slot>      # the agent behind this slot writes it; or
+    input: <dotted field>      # the input already holds it
+    max_chars: 4000            # optional: 1 to 8,000, default 4,000
+```
+
+Validation rules (all MUST hold):
+
+- A name matches `^[a-z][a-z0-9_]*$` and has at most 64 characters. An agent declares at most 8
+  outputs.
+- An output names exactly one of `slot` and `input`.
+- `slot` names a provider slot that has a variant of type `agent`. Only an agent writes: a
+  composite's member does not count.
+- `input` is a dotted field of the input, as the guard's `draft` is. No agent is called to
+  evaluate such an output.
+
+A case with no text (the agent wrote none, the input was refused, the slot failed) has no
+output. It is counted, and never graded.
+
+## 17. The agent contract for written output
+
+A request to an `agent` variant of a slot that has declared outputs carries them:
+
+```json
+"outputs": [{"name": "reply_draft", "description": "A short reply ...", "max_chars": 1200}]
+```
+
+The response MAY carry what it wrote, by name:
+
+```json
+{"answers": {"...": "..."}, "outputs": {"reply_draft": "Thank you for your message. ..."}}
+```
+
+- `outputs` is optional, and so is each output. A name the manifest does not declare for that
+  slot, a value that is not text, or a text longer than its `max_chars` makes the response
+  invalid: the slot fails closed, as for a malformed answer.
+- Control characters other than the newline and the tab become a space. A text that is then
+  blank is no output.
+- A slot with no declared output does not read the key at all, so an older agent's response
+  is read as it always was.
+- A decision returns `outputs` to its caller. It does not store them: the audit record has the
+  shape it always had.
+
+## 18. Rubrics
+
+```yaml
+rubrics:
+  <name>:
+    output: <an output's name>
+    context_fields: [message.subject, message.body]   # optional; default: none
+    criteria:
+      <key>:
+        type: boolean | score
+        instructions: What the criterion asks
+        criteria: {"yes": ..., "no": ...}            # boolean: each level's anchor
+        levels: {<label>: {score, criterion}, ...}   # score: 2 to 7 levels
+        pass_from: <label>      # score only: the lowest level that passes
+        must_pass: false        # optional: this criterion must not fail
+    judge: {...}                # §18.2
+    floors: {agreement: 0.60, must_pass_recall: 0.80}   # optional: may only raise (§18.3)
+```
+
+### 18.1 Criteria
+
+- A criterion is a question of spec 0.2 (`boolean` or `score`), never `choice` and never
+  derived. Its instructions and each level's anchor are what a clinician reads and what a
+  model judge is sent, as written.
+- On a `boolean` criterion `yes` passes: word a criterion so that yes is good. It takes no
+  `pass_from`.
+- A `score` criterion has 2 to 7 levels with distinct scores, a higher score being better, and
+  MUST name `pass_from`, one of its levels.
+- `must_pass: true` marks a criterion that must not fail (§20).
+- A rubric has 1 to 16 criteria, and names a declared output.
+- `context_fields` are the input fields a grader reads beside the text, and nothing else of the
+  input (minimum necessary). The default is none.
+
+### 18.2 The judge
+
+`judge` takes the model settings an `llm` variant takes (`model`, `timeout_ms`, `max_tokens`,
+`temperature`, `reasoning_effort`) and `mock_file`, a fixture of canned grades in the agent's
+files. The endpoint, the credentials and the default model are the deployment's, and an agent
+the deployment does not own is held to the deployment's model and caps.
+
+The judge is asked the rubric's criteria about `{"written": <the text>, "context": {<the
+context fields>}}`, after a fixed preamble that says both are data to grade and never
+instructions. Its grade is the most probable level; of several equally probable, the least
+favourable. No rationale is asked for or kept. A failure is counted under its code, and a text
+the judge could not grade is never a pass.
+
+With no judge model set, grades come from `mock_file`:
+
+```json
+{"model": "<name>",
+ "default": {"grades": {"<criterion>": "<level>", "...": "..."}},
+ "cases": [{"match": "<as an agent's mock_file>", "grades": {"<criterion>": "<level>"}}]}
+```
+
+`default` MUST grade every criterion. Every case whose `match` fits the text or the context
+applies, in order, each laid over the ones before. A report made from canned grades says so:
+it is a demonstration, and nothing may be concluded from it.
+
+### 18.3 Floors
+
+The engine's floors are a kappa of 0.60 and, for a criterion that must not fail, 0.80 of the
+clinician-found failures, each by its lower bound (§20). A rubric's `floors` MAY raise either
+and MUST NOT lower one: a manifest that does is invalid.
+
+## 19. Clinicians' grades in a file
+
+```yaml
+evaluation:
+  datasets: {written: data/written.jsonl}
+  grades:
+    <rubric>: {dataset: written, file: data/written_grades.jsonl}
+```
+
+The file is `mendari.written-grades/1` ([evaluation reports](evaluation-reports.md)): its
+first line names the rubric (its name, and the SHA-256 of the rubric as a grader reads it) and
+the dataset (its name and SHA-256); each other line is one grader's grades of one item. Grades
+given under another wording of the rubric, or of another dataset, are refused. Grades may also
+be given in the console, in a grading round ([the guide](../guides/written-output.md)).
+
+## 20. What an evaluation of written output reports
+
+Per criterion, on the outputs both a clinician and the judge graded (`mendari.written/1`):
+
+- **Agreement**: Cohen's kappa with linear weights on the levels' declared scores (plain
+  Cohen's kappa on a yes/no criterion), exact, with a percentile-bootstrap interval over cases;
+  raw agreement as k of n; and, for a criterion that must not fail, the share of
+  clinician-found failures the judge found too. Where two clinicians graded an output and
+  differ, the less favourable grade stands.
+- **Clinician with clinician**, on the outputs two clinicians graded: the same kappa, as the
+  reference. It gates nothing.
+- **A state**:
+  - *insufficient evidence* when fewer than 50 outputs were graded by both; or fewer than 10
+    clinician verdicts fall on either side of the pass line; or kappa or its interval cannot
+    be estimated; or, for must-not-fail, clinicians found fewer failures than a judge that
+    found every one would need (17 at 0.80);
+  - *validated* when kappa's lower bound is at least the agreement floor and, for
+    must-not-fail, the exact lower bound of the failures found is at least its floor;
+  - *not validated* otherwise.
+- **The judge's grades for the outputs no clinician graded**, only for a validated criterion.
+  Otherwise that figure MUST be withheld (null), with the state and its reasons; it MUST NOT be
+  shown with a caveat instead.
+
+A report holds counts, coefficients, case hashes and graders' ids. It MUST NOT hold a text, a
+context field or a case's id.

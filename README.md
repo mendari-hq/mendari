@@ -139,7 +139,11 @@ adds that no automation threshold keeps such critical misses to 1% with 95% conf
 is the agent, not the threshold. And a
 [probe](https://github.com/mendari-hq/mendari/blob/main/docs/guides/finding-failures.md)
 rewrites cases in ways that keep their meaning (a typing error, a line break, an instruction
-slipped in) to find the failures nobody wrote a case for.
+slipped in) to find the failures nobody wrote a case for. Last, it grades
+[what the agent wrote](https://github.com/mendari-hq/mendari/blob/main/docs/guides/written-output.md)
+against a rubric: a judge's grades are shown only for the criterion on which it agrees with
+the graders, and withheld for the rest. The demo's graders are simulated and its judge's grades
+are canned, and it says so.
 
 ### 2. Scaffold, validate, test and evaluate your own
 

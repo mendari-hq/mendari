@@ -732,6 +732,7 @@ written: JSON on `/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth
 | Evaluations | caller | 6 an hour |
 | Exports (the audit FHIR export, the feedback export) | caller | 10 an hour |
 | A labeller's calls (`/api/labelling`, memberships mode with the evaluation-set keys; each case shown is chained) | person | 60 a minute, 30 at once |
+| A grader's calls over written output (`/api/written/labelling`, memberships mode under PHI mode `encrypt`; each text shown is chained) | person | 60 a minute, 30 at once |
 | An agent author's writes to the agent store (`/api/store`, with `MENDARI_AGENT_STORE=on`: an upload's parts, copies, edits, tests, jobs' slices) | person | 240 an hour, 60 at once |
 
 `MENDARI_RATE_LIMITS` is `on` (the default with sign-in), `log` (count and log what would be
