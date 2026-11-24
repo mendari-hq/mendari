@@ -392,9 +392,16 @@ def test_the_demo_probes_its_agent_and_says_whose_answers_those_are(
     monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
     assert main(["demo"]) == 0
     out = capsys.readouterr().out
-    before, _, section = out.partition("\n== 4. Find the failures nobody wrote down ")
-    assert "== 3. Before going live: evaluate the agent " in before and section
+    before, _, rest = out.partition("\n== 4. Find the failures nobody wrote down ")
+    assert "== 3. Before going live: evaluate the agent " in before and rest
+    section, _, closing = rest.partition("\n== What next ")
     lines = section.splitlines()[1:]
+    # What a variant is, in a sentence; then the probe's own report, from its second line.
+    assert " ".join(lines[:2]) == (
+        "Each case is rewritten six ways that keep its meaning (a typing error, a line break, an "
+        "instruction slipped in): an answer that then changes is a failure."
+    )
+    lines = lines[2:]
     assert lines[0].startswith("40 of the ") and "seed 0. Text changed: message.body." in lines[0]
     assert lines[1].startswith("280 decisions, none of them a call to an agent: its answers are ")
     assert lines[1].endswith("set MENDARI_AGENT_URL and probe again.")
@@ -402,9 +409,10 @@ def test_the_demo_probes_its_agent_and_says_whose_answers_those_are(
     (verdict,) = [line for line in lines if line.startswith("Verdict")]
     assert verdict.startswith("Verdict (canned answers): not ready. ")
     assert verdict.endswith("These are canned answers: set MENDARI_AGENT_URL and probe your agent.")
+    assert lines[-1] == verdict  # the section ends as the probe's report does
     assert "Findings, worst first (3 of " in section
-    after = section.partition(verdict)[2]
-    assert "mendari probe my-agent --write" in after  # how each failure becomes a test
+    # How each failure becomes a test is among the demo's last words.
+    assert "  mendari probe my-agent " in closing and "kept as tests (--write)" in closing
     # The section names cases by id only: none of the messages section 1 printed is in it.
     assert "chest" not in section and "refill my" not in section
 

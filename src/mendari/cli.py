@@ -3823,6 +3823,7 @@ def cmd_new(args: argparse.Namespace) -> int:
             f"MENDARI_AGENT_URL=https://your-agent.example/decide mendari eval {target} "
             "--dataset examples",
             f"mendari eval {target} --dataset examples --provider reader=rules",
+            f"mendari probe {target}",
         ]
     for step in steps:
         print(f"  {step}")

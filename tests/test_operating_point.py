@@ -1494,55 +1494,99 @@ def test_nothing_edits_the_manifest(tmp_path: Path, capsys: pytest.CaptureFixtur
     assert written["run"]["operating_point"]["change"]["line"] == "auto: 0.93"
 
 
-def test_the_demos_verdict_is_its_operating_point(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_next(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    demo: Pack,
+    demo_run: tuple[Any, list[Any]],
 ) -> None:
+    """The demo's closing, after the evaluation and the probe: the evaluation's verdict, the
+    operating point (the block's own summary, then what to do), then the commands. Short, and
+    in that order."""
     monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT / "agents"))  # as a release finds it
     run_demo()
     out = capsys.readouterr().out
-    section = out[out.index("\nOperating point\n") : out.index("\nVerdict: ")]
-    said = " ".join(section.split())
+    before, heading, closing = out.partition("\n== What next ")
+    assert heading and before.index("\n== 3. Before going live") < before.index("\n== 4. Find ")
+    # The counts the verdict says are the evaluation's own, two sections up.
+    assert "critical urgent_symptoms=yes: 81 of 114 detected, 9 would have been automated" in before
+    lines = closing.splitlines()[1:]
+    assert [line.split(":")[0] for line in lines if not line.startswith(" ")] == [
+        "Verdict",
+        "Operating point",
+        "Next",
+    ]
+    said = " ".join(" ".join(lines).split())
     assert said.startswith(
-        "Operating point No automation threshold can be certified for critical misses at most "
-        "1% with 95% confidence."
+        "Verdict: not ready. On the test set the agent did not detect 33 of 114 urgent messages, "
+        "and 9 of them would have been automated: critical misses, which no person reads. "
+        "Operating point: No automation threshold can be certified for critical misses at most "
+        "1% with 95% confidence. No threshold fixes this: fix the agent, or add a rule or a "
+        "second signal, and evaluate again before it decides anything alone. "
+        "Next: mendari new my-agent --id my-clinic/my-agent an agent of your own, "
     )
-    assert "needs at least 299 critical cases (urgent_symptoms=yes) with none automated" in said
-    assert (
-        "\nVerdict: not ready. The agent missed 33 urgent messages, and 9 of them would have gone "
-        "out with no person reading them. No automation threshold fixes that: fix the agent, or "
-        "add a rule or a second signal, and evaluate again before it decides anything alone.\n"
-    ) in out
+    assert len(lines) == 10 and max(map(len, lines[:-1])) <= 100  # the last holds an address
+    assert out.endswith(lines[-1] + "\n")  # and nothing comes after it
+    # The operating point's first sentence is the block's own summary, as `mendari eval` prints
+    # it for the target the demo holds the agent to.
+    from mendari.sandbox.demo import TARGETS
+
+    run, results = demo_run
+    block = op.build(demo.manifest, run.ledger, results, TARGETS)
+    assert Targets(critical_miss=0.01) == TARGETS  # what the demo holds the agent to
+    assert f"Operating point: {block['summary']} No threshold fixes this: " in said
 
 
-def test_the_demos_verdict_follows_the_status() -> None:
-    from mendari.sandbox.demo import _verdict
+def test_the_demos_verdict_and_advice_follow_the_operating_points_status() -> None:
+    from mendari.sandbox.demo import advice, verdict
 
-    guarantee = "With 95% confidence, at the automation threshold 0.93 critical misses stay low."
-    change = {"from": 0.9, "to": 0.93}
-    held = {"status": op.SUPPORTED, "guarantee": guarantee}
-    assert _verdict(held, 0, 0) == (
-        "its automation threshold holds on this set. Every urgent message in this set was "
-        f"caught. {guarantee}"
+    def urgent(cases: int, detected: int, misses: int) -> list[dict[str, int]]:
+        return [{"n": cases, "detected": detected, "auto_missed": misses}]
+
+    held = {"status": op.SUPPORTED, "summary": "The agent's automation threshold 0.90 holds."}
+    assert verdict(held, urgent(10, 10, 0)) == (
+        "its automation threshold holds on this set. On the test set the agent detected each "
+        "of the 10 urgent messages."
     )
-    other = {"status": op.RECOMMENDED, "change": change, "current_supported": False}
-    assert _verdict(other, 4, 2) == (
-        "not ready at its automation threshold 0.90. The agent missed 4 urgent messages, and 2 "
-        "of them would have gone out with no person reading them. These cases support 0.93: "
-        "change that one line of its manifest, and evaluate again before it decides anything "
-        "alone."
+    assert advice(held) == (
+        "The agent's automation threshold 0.90 holds. Nothing to change: evaluate again when "
+        "the agent or its cases change."
     )
-    more = {**other, "current_supported": True, "guarantee": guarantee}
-    assert _verdict(more, 3, 0).startswith(
-        "its automation threshold holds on this set, and these cases support 0.93 too, which "
-        "automates more. The agent missed 3 urgent messages, and a person sees each of them. "
+    change = {"from": 0.9, "to": 0.93, "line": "auto: 0.93"}
+    other = {
+        "status": op.RECOMMENDED,
+        "change": change,
+        "current_supported": False,
+        "summary": "Recommended automation threshold 0.93.",
+    }
+    assert verdict(other, urgent(10, 6, 2)) == (
+        "not ready at its automation threshold 0.90. On the test set the agent did not detect "
+        "4 of 10 urgent messages, and 2 of them would have been automated: critical misses, "
+        "which no person reads."
     )
-    small = {"status": op.NONE_CERTIFIED, "cannot_fix": []}
-    assert _verdict(small, 0, 0).startswith(
-        "not ready. Every urgent message in this set was caught. No automation threshold can be "
-        "certified on this set: fix the agent or add cases, and evaluate again"
+    assert advice(other) == (
+        "Recommended automation threshold 0.93. To adopt it, change one line of the agent's "
+        "manifest (`auto: 0.93`), then evaluate again."
+    )
+    more = {**other, "current_supported": True}
+    assert verdict(more, urgent(10, 7, 0)) == (
+        "its automation threshold holds on this set. On the test set the agent did not detect "
+        "3 of 10 urgent messages, and a person reads each of them."
+    )
+    small = {"status": op.NONE_CERTIFIED, "cannot_fix": [], "summary": "None can be certified."}
+    assert verdict(small, urgent(3, 3, 0)).startswith("not ready. On the test set the agent ")
+    assert advice(small) == (
+        "None can be certified. Fix the agent or add cases, and evaluate again before it decides "
+        "anything alone."
+    )
+    beyond = {**small, "cannot_fix": [{"risk": op.CRITICAL_MISS}]}
+    assert advice(beyond) == (
+        "None can be certified. No threshold fixes this: fix the agent, or add a rule or a "
+        "second signal, and evaluate again before it decides anything alone."
     )
     none = {"status": op.NOTHING_AUTOMATED, "summary": "The policy automates no case."}
-    assert _verdict(none, 0, 0).endswith("The policy automates no case.")
+    assert verdict(none, urgent(3, 3, 0)).startswith("review. ")
+    assert advice(none) == "The policy automates no case."
 
 
 def with_a_benchmark(root: Path, report: dict[str, Any]) -> Pack:

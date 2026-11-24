@@ -4,23 +4,27 @@
 It routes a few patient portal messages through the agent under its policy, fills a review queue
 and has simulated reviewers work it, verifies the audit chain, then evaluates the agent on its
 600-case set the way a site would before going live. The demo agent answers from canned
-responses (its `mock_file`) and misses urgent messages that are worded as a patient might say
-them: the evaluation is there to catch exactly that, and the demo says what it found. Its
-verdict is the evaluation's operating point (`evals/operating_point.py`): whether these cases
-support any automation threshold that keeps the urgent messages no person reads to `TARGETS`.
+responses (its `mock_file`) and does not detect urgent messages that are worded as a patient
+might say them: the evaluation is there to catch exactly that.
 
-It ends by probing the agent (`evals/probe.py`): some of the same cases, each rewritten in ways
-that keep its meaning, to find the failures no one wrote a case for. The probe's own report says
+Then it probes the agent (`evals/probe.py`): some of the same cases, each rewritten in ways that
+keep its meaning, to find the failures no one wrote a case for. The probe's own report says
 whose answers it read: the fixture's, on this machine, and not an agent's.
+
+It ends with what next, in three parts: the evaluation's verdict; its operating point
+(`evals/operating_point.py`), which says whether these cases support any automation threshold
+that keeps the urgent messages no person reads to `TARGETS`; and the commands to type next.
 """
 
 from __future__ import annotations
 
+import textwrap
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
-from mendari.evals import evaluate, operating_point, probe, probe_report, resolve_dataset
+from mendari.evals import evaluate, probe, probe_report, resolve_dataset
 from mendari.evals.operating_point import NONE_CERTIFIED, RECOMMENDED, SUPPORTED, Targets
 from mendari.evals.render import shown
 from mendari.evals.result import counted
@@ -38,16 +42,20 @@ SAMPLES = (
 )
 REVIEWED = 200  # the first cases of the test set, decided and then reviewed
 # What the demo holds the agent to: of the urgent messages, at most 1% automated, so read by no
-# person, shown with 95% confidence.
+# person (critical misses), shown with 95% confidence.
 TARGETS = Targets(critical_miss=0.01)
-# The demo's last words. A URL, not a folder: an installed Mendari has no `examples/` beside it.
-# The folder of every starter, since product code names no model's vendor (tests/test_shipped.py).
-EXAMPLES = "https://github.com/mendari-hq/mendari/tree/main/examples"
+# The demo's last words: the commands to type next, each as the command line reads it (none
+# with a flag it had before), and what each is for. They are what an installed Mendari can do.
 NEXT = (
-    f"Next: put a model behind it (the model-backed example in {EXAMPLES}, then "
-    "MENDARI_AGENT_URL), wrap your own agent with `mendari new my-agent --id my-clinic/my-agent`, "
-    "and run `mendari serve` for the dashboard at http://127.0.0.1:8000."
+    ("mendari new my-agent --id my-clinic/my-agent", "an agent of your own, from a template"),
+    ("mendari probe my-agent", "its failures, found and kept as tests (--write)"),
+    ("mendari serve", "the console, at http://127.0.0.1:8000"),
 )
+# A URL, not a folder: an installed Mendari has no `examples/` beside it. The folder of every
+# starter, since product code names no model's vendor (tests/test_shipped.py).
+EXAMPLES = "https://github.com/mendari-hq/mendari/tree/main/examples"
+MODEL = f"A model answers behind MENDARI_AGENT_URL: the starters are at {EXAMPLES}"
+_WIDTH = 100
 
 
 def _section(title: str) -> None:
@@ -112,61 +120,79 @@ def _run(store: AuditStore) -> None:
             f"critical {name}: {critical['detected']} of {critical['n']} detected, "
             f"{critical['auto_missed']} would have been automated"
         )
-    # Whether any automation threshold holds the agent to TARGETS on this evidence: what it
-    # found and what to do, without the counts printed just above (`mendari eval` prints all).
-    point = report["run"]["operating_point"]
-    print()
-    print(operating_point.text(point, kinds=operating_point.WHAT_NEXT))
-    missed = sum(c["n"] - c["detected"] for c in decisions["critical"])
-    automated = sum(c["auto_missed"] for c in decisions["critical"])
-    print(f"\nVerdict: {_verdict(point, missed, automated)}")
 
     _section("4. Find the failures nobody wrote down")
+    print(
+        "Each case is rewritten six ways that keep its meaning (a typing error, a line break, an\n"
+        "instruction slipped in): an answer that then changes is a failure."
+    )
     planned = probe.plan(Decision(pack), probe.source(pack, test.name), probe.Options(limit=PROBED))
     found = probe.run(planned)
     # The probe's own report, from its second line: the agent is named above.
     print("\n".join(probe_report.text(found.report, shown=FINDINGS_SHOWN).splitlines()[1:]))
-    print(
-        "\nEach variant is a case of the test set with its text changed and its meaning kept. "
-        "The answers are the fixture's, and so are these failures: an agent of your own fails "
-        "in its own ways, which `mendari probe my-agent` finds the same way, and "
-        "`mendari probe my-agent --write` keeps each one as a test for `mendari test`."
-    )
-    print(f"\n{NEXT}")
+
+    _section("What next")
+    point = report["run"]["operating_point"]
+    for line in (
+        f"Verdict: {verdict(point, decisions['critical'])}",
+        f"Operating point: {advice(point)}",
+    ):
+        print(textwrap.fill(line, _WIDTH, subsequent_indent="  ", break_on_hyphens=False))
+    print("Next:")
+    column = max(len(command) for command, _ in NEXT) + 3
+    for command, what in NEXT:
+        print(f"  {command:<{column}}{what}")
+    print(f"  {MODEL}")
 
 
-def _verdict(point: dict[str, Any], missed: int, automated: int) -> str:
-    """What the evaluation says of going live, from its operating point: whether these cases
-    support the agent's automation threshold, another one, or none."""
-    if automated:
+def verdict(point: Mapping[str, Any], critical: Sequence[Mapping[str, Any]]) -> str:
+    """The evaluation's verdict: whether these cases support the agent's automation threshold
+    (the operating point's status), then what the evaluation saw of the critical cases, the
+    urgent messages. A critical case that is automated is a critical miss; one that was not
+    detected and that a person reads is not."""
+    positives = sum(item["n"] for item in critical)
+    undetected = sum(item["n"] - item["detected"] for item in critical)
+    misses = sum(item["auto_missed"] for item in critical)
+    if misses:
         seen = (
-            f"The agent missed {missed} urgent messages, and {automated} of them would have gone "
-            "out with no person reading them."
+            f"On the test set the agent did not detect {undetected} of {positives} urgent "
+            f"messages, and {misses} of them would have been automated: critical misses, which "
+            "no person reads."
         )
-    elif missed:
-        seen = f"The agent missed {missed} urgent messages, and a person sees each of them."
+    elif undetected:
+        seen = (
+            f"On the test set the agent did not detect {undetected} of {positives} urgent "
+            "messages, and a person reads each of them."
+        )
     else:
-        seen = "Every urgent message in this set was caught."
+        seen = f"On the test set the agent detected each of the {positives} urgent messages."
     status = point["status"]
-    if status == SUPPORTED:
-        return f"its automation threshold holds on this set. {seen} {point['guarantee']}"
+    if status == SUPPORTED or (status == RECOMMENDED and point["current_supported"]):
+        return f"its automation threshold holds on this set. {seen}"
     if status == RECOMMENDED:
-        now, to = (f"{point['change'][key]:.2f}" for key in ("from", "to"))
-        if point["current_supported"]:
-            return (
-                f"its automation threshold holds on this set, and these cases support {to} too, "
-                f"which automates more. {seen} {point['guarantee']}"
-            )
-        return (
-            f"not ready at its automation threshold {now}. {seen} These cases support {to}: "
-            "change that one line of its manifest, and evaluate again before it decides "
-            "anything alone."
-        )
+        return f"not ready at its automation threshold {point['change']['from']:.2f}. {seen}"
     if status == NONE_CERTIFIED:
-        why = (
-            "No automation threshold fixes that: fix the agent, or add a rule or a second signal,"
-            if point["cannot_fix"]
-            else "No automation threshold can be certified on this set: fix the agent or add cases,"
+        return f"not ready. {seen}"
+    return f"review. {seen}"
+
+
+def advice(point: Mapping[str, Any]) -> str:
+    """The operating point in a line or two: the block's own summary, then what to do about it.
+    `mendari eval` prints the counts behind it."""
+    status = point["status"]
+    then = ""
+    if status == SUPPORTED:
+        then = "Nothing to change: evaluate again when the agent or its cases change."
+    elif status == RECOMMENDED:
+        then = (
+            f"To adopt it, change one line of the agent's manifest (`{point['change']['line']}`), "
+            "then evaluate again."
         )
-        return f"not ready. {seen} {why} and evaluate again before it decides anything alone."
-    return f"review. {seen} {point['summary']}"
+    elif status == NONE_CERTIFIED:
+        then = (
+            "No threshold fixes this: fix the agent, or add a rule or a second signal, and "
+            "evaluate again before it decides anything alone."
+            if point["cannot_fix"]
+            else "Fix the agent or add cases, and evaluate again before it decides anything alone."
+        )
+    return f"{point['summary']} {then}".rstrip()

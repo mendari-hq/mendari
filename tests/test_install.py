@@ -11,7 +11,6 @@ themselves are tested here; the run is CI's, since it installs from the package 
 from __future__ import annotations
 
 import importlib.util
-import re
 import shlex
 import sys
 import tomllib
@@ -77,17 +76,22 @@ def test_the_server_extra_is_still_accepted_and_adds_nothing() -> None:
 def test_the_demo_ends_with_what_an_installed_mendari_can_do() -> None:
     """Its last words name a URL, not a folder of the clone (an installed Mendari has no
     `examples/` beside it), and commands as the command line reads them, with no flag it had
-    before (`mendari new --agent`)."""
-    assert demo.EXAMPLES in demo.NEXT and " examples/" not in demo.NEXT
+    before (`mendari new --agent`): an agent of one's own, its failures, the console."""
+    assert demo.EXAMPLES in demo.MODEL and " examples/" not in demo.MODEL
     prefix = f"{REPOSITORY}/tree/main/"
     assert demo.EXAMPLES.startswith(prefix)
     assert (ROOT / demo.EXAMPLES.removeprefix(prefix)).is_dir()
-    commands = [shlex.split(command) for command in re.findall(r"`(mendari [^`]+)`", demo.NEXT)]
-    assert [command[1] for command in commands] == ["new", "serve"]
+    commands = [shlex.split(command) for command, _ in demo.NEXT]
+    assert [command[:2] for command in commands] == [
+        ["mendari", "new"],
+        ["mendari", "probe"],
+        ["mendari", "serve"],
+    ]
     parser = build_parser()
     for command in commands:
         parser.parse_args(command[1:])  # a usage error raises
-    assert "--agent" not in demo.NEXT
+    said = " ".join(part for row in demo.NEXT for part in row) + demo.MODEL
+    assert "--agent" not in said and "`" not in said
 
 
 # -- what the wheel holds -------------------------------------------------------------------------
