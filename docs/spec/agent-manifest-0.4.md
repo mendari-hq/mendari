@@ -7,7 +7,7 @@ with `spec_version: "0.4"`. Every valid 0.1, 0.2 and 0.3 agent is still valid, w
 behaviour (§8). The key words MUST, SHOULD and MAY are used as in RFC 2119. The reference
 implementation is `mendari.core.spec` (the section), `mendari.core.policy` (what an effect
 needs) and `mendari.core.actions` (checking a proposal). The decision behind it is
-[ADR-0022](../decisions/ADR-0022-an-agent-proposes-actions.md).
+[ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md).
 
 ## 1. What changes
 
@@ -133,7 +133,7 @@ actions:
 ## 3. What an effect needs
 
 The runtime sets this, and an agent cannot change it but by tightening
-([ADR-0002](../decisions/ADR-0002-runtime-enforced-risk-caps.md), ADR-0022). Each declared
+([ADR-0002](../decisions/ADR-0002-runtime-enforced-risk-caps.md), ADR-0023). Each declared
 action has a **gate**:
 
 | Gate | Effects | Released |
@@ -376,7 +376,7 @@ person decides:
 ```json
 {"id": "7d0b…", "outcome": "HUMAN_REVIEW", "recommendation": "refill", "priority": "routine",
  "reasons": ["confidence 0.95 >= auto threshold 0.90",
-             "action 'queue_refill' is never released without a person (allow_auto: false): a person decides"],
+             "action 'queue_refill' is never released without a person (allow_auto: false); a person decides"],
  "actions": [
    {"id": "a1…", "name": "draft_reply", "effect": "draft", "disposition": "released",
     "reason": "with_decision", "arguments": {"message": "Your refill request is with the pharmacy."},

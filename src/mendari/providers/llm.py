@@ -105,7 +105,7 @@ class LlmConfig(BaseModel):
     # Per-question temperatures fitted by `mendari calibrate` (a file in the pack).
     calibration: str | None = None
     batch: bool = True
-    # Spec 0.4 (ADR-0022): ask each case this many times and never automate when the runs
+    # Spec 0.4 (ADR-0024): ask each case this many times and never automate when the runs
     # disagree (`providers/repeat.py`). A repeated variant shares no call with another slot.
     repeat: int | None = Field(default=None, ge=MIN_RUNS, le=MAX_RUNS)
 

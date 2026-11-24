@@ -115,7 +115,7 @@ def test_an_order_is_never_released_without_a_person(agent: Decision) -> None:
     assert (result.outcome, result.recommendation) == (Outcome.HUMAN_REVIEW, "refill")
     assert result.reasons == (
         "confidence 0.95 >= auto threshold 0.90",
-        "action 'renew_prescription' (order) is never released without a person: a person decides",
+        "action 'renew_prescription' (order) is never released without a person; a person decides",
     )
     assert shown(result) == [
         ("look_up_medications", "read", "released", "with_decision"),
@@ -130,7 +130,7 @@ def test_an_action_the_manifest_tightens_is_never_released_without_a_person(
     result = agent(message("Put it in the queue, please."))
     assert (result.outcome, result.recommendation) == (Outcome.HUMAN_REVIEW, "refill")
     assert result.reasons[-1] == (
-        "action 'queue_refill' is never released without a person (allow_auto: false): "
+        "action 'queue_refill' is never released without a person (allow_auto: false); "
         "a person decides"
     )
     assert shown(result) == [
@@ -198,7 +198,7 @@ def test_an_undeclared_action_is_blocked_and_the_decision_goes_to_a_person(
         ("delete_chart_sentinel", None, "blocked", "undeclared"),
     ]
     assert result.reasons[-1] == (
-        "the agent proposed an action its manifest does not declare: a person decides"
+        "the agent proposed an action its manifest does not declare; a person decides"
     )
     undeclared = (result.actions or ())[1]
     assert (undeclared.declared, undeclared.effect) == (False, None)
@@ -214,7 +214,7 @@ def test_arguments_that_fail_their_schema_block_the_action_and_lower_the_decisio
     assert (result.outcome, result.recommendation) == (Outcome.HUMAN_REVIEW, "refill")
     assert shown(result) == [("send_reply", "contact", "blocked", "invalid_arguments")]
     assert result.reasons[-1] == (
-        "action 'send_reply': its arguments do not match its schema: a person decides"
+        "action 'send_reply': its arguments do not match its schema; a person decides"
     )
     (blocked,) = result.actions or ()
     assert blocked.problems == (
@@ -279,7 +279,7 @@ def test_a_composites_member_may_not_propose(tmp_path: Path) -> None:
         ("send_reply", "contact", "blocked", "composite_member"),
     ]
     assert result.reasons[-1] == (
-        "a composite's member proposed an action, which this version does not take: "
+        "a composite's member proposed an action, which this version does not take; "
         "a person decides"
     )
     # A composite whose members propose nothing decides as it did.
@@ -617,7 +617,7 @@ def test_the_bundled_agent_proposes_what_the_demo_shows() -> None:
     ]
     assert question.reasons == (
         "confidence 0.82 is below the auto threshold 0.90 for 'other'",
-        "action 'send_acknowledgement' is never released without a person (allow_auto: false): "
+        "action 'send_acknowledgement' is never released without a person (allow_auto: false); "
         "a person decides",
     ) or question.reasons[-1].startswith("action 'send_acknowledgement' is never released")
     urgent = demo(message("Please refill my inhaler. Also I have had chest pain since last night."))

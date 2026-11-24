@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""An external agent's confidence, calibrated (ADR-0022, `providers/agent_calibration.py`): the
+"""An external agent's confidence, calibrated (ADR-0024, `providers/agent_calibration.py`): the
 fit against scipy and statsmodels, that it never changes which answer wins, `mendari calibrate`
 and what its file records, the calibration on every path a decision is made by, the version cap,
 and what the evaluation and the Decision Card say."""
@@ -511,7 +511,7 @@ def test_the_version_cap_changes_no_outcome_that_is_not_auto(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, respond: dict[str, Any], outcome: Outcome
 ) -> None:
     """It never raises automation: a decision that was going to a person still does, with the
-    same recommendation and priority, and the reason added for whoever reads it."""
+    same recommendation and priority, and the same reason added for whoever reads it."""
     capped = calibrated_agent(tmp_path, {"request": 1.0})
     plain = scaffold(tmp_path, "plain")
     serve(monkeypatch, [respond])
@@ -519,7 +519,7 @@ def test_the_version_cap_changes_no_outcome_that_is_not_auto(
     assert with_cap.outcome is without.outcome is outcome
     assert with_cap.recommendation == without.recommendation
     assert with_cap.priority == without.priority and with_cap.rule == without.rule
-    assert with_cap.reasons == (*without.reasons, CHANGED)
+    assert with_cap.reasons == (*without.reasons, f"{CHANGED}; a person decides")
 
 
 def test_canned_answers_are_left_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

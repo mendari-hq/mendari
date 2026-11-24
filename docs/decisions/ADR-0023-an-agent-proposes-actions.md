@@ -1,4 +1,4 @@
-# ADR-0022: An agent proposes actions, the runtime releases them, and the caller runs them
+# ADR-0023: An agent proposes actions, the runtime releases them, and the caller runs them
 
 ## Status
 Accepted (2026-11-24), for wave 4 of the plan in `tasks/todo.md`. Specified in

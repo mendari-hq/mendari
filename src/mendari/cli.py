@@ -731,7 +731,7 @@ def _calibration_set_note(pack: Pack, name: str) -> None:
 
 
 def _calibrate_agent(args: argparse.Namespace, pack: Pack, provider: Any) -> int:
-    """`mendari calibrate` for an `agent` variant (ADR-0022): the live agent is asked about each
+    """`mendari calibrate` for an `agent` variant (ADR-0024): the live agent is asked about each
     labelled case once, and one temperature per question is fitted on its own confidence, for
     the version its service reported (`providers/agent_calibration.py`)."""
     from mendari.evals import resolve_dataset

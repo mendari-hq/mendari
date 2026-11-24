@@ -161,7 +161,7 @@ DECISION_KINDS = frozenset(
         # A clinician's feedback on a CDS Hooks card (LP-23f): codes and ids only.
         CARD_FEEDBACK,
         # An action an agent proposed, or a caller asked about, and a held action's release or
-        # denial by the decision's reviewer (spec 0.4, ADR-0022): ids, the declared name, the
+        # denial by the decision's reviewer (spec 0.4, ADR-0023): ids, the declared name, the
         # effect, the disposition, a reason code and a hash of the arguments. Never the
         # arguments, nor a name the manifest does not declare.
         "action.proposed",

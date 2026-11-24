@@ -375,7 +375,7 @@ def _actions(pack: Pack) -> list[str]:
 
 
 def _confidence(pack: Pack) -> list[str]:
-    """The card's Confidence section (ADR-0022), from the manifest and the calibration files
+    """The card's Confidence section (ADR-0024), from the manifest and the calibration files
     the digest covers: for each `agent` variant (a composite's member too), whether its
     confidence is calibrated, on how many cases and when, or that it is not; and each second
     signal a variant carries. Nothing for an agent with neither."""

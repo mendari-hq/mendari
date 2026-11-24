@@ -446,7 +446,12 @@ class Decision:
                 )
             else:
                 found = disposition(
-                    gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=vouched),
+                    gate_of(
+                        spec.effect,
+                        allow_auto=spec.allow_auto,
+                        vouched=vouched,
+                        agreed=not item.proposed.disputed,
+                    ),
                     outcome=policy.outcome,
                     recommendation=policy.recommendation,
                     review=review,

@@ -23,21 +23,40 @@ Order of evaluation:
    (final at once) become HUMAN_REVIEW, and the reason says so whatever the outcome. Nothing
    lifts it, governance included. Without sign-in (`mendari demo`, tests, a local dashboard)
    the server passes none and nothing changes.
-7. The `actions` cap (spec 0.4, ADR-0022): a proposed action that could not be released with an
-   AUTO decision (one the manifest does not declare, arguments that do not match their schema, a
-   composite member's proposal, or an action never released without a person) turns AUTO into
+7. The caps a provider found while it answered (`lowered`, ADR-0024, `providers/signals.py`),
+   in this order: the version cap (the agent changed since its confidence was calibrated), then
+   the second signal's (repeated runs disagreed, then a second model disagreed). They come
+   first of the two new caps because they are about the answers the steps above just decided
+   from: how far the confidence can be believed, then whether the answer held when it was asked
+   again. AUTO becomes HUMAN_REVIEW; a decision already going to a person (HUMAN_REVIEW,
+   ABSTAIN) keeps its outcome and gets the same reason; a BLOCK stands, with the cap as a note
+   (a block is final: no person decides). Nothing lifts one, governance included, and no
+   manifest switches one off.
+8. The `actions` cap (spec 0.4, ADR-0023), last: what the agent asks to do, once what it
+   answered is settled. A proposed action that could not be released with an AUTO decision (one
+   the manifest does not declare, arguments that do not match their schema, a composite
+   member's proposal, or an action never released without a person) turns AUTO into
    HUMAN_REVIEW, with the reason; a decision already going to a person keeps its outcome and
-   gets the same reason, and a BLOCK stands (it blocks every action). Nothing lifts it.
-8. The caps a provider found while it answered (`lowered`, ADR-0022, `providers/signals.py`):
-   the agent changed since its confidence was calibrated, repeated runs disagreed, or a second
-   model disagreed. AUTO becomes HUMAN_REVIEW, the reason is given whatever the outcome, and no
-   other outcome changes. Nothing lifts one, governance included, and no manifest switches one
-   off. It is applied after `apply_policy`, by `PolicyInputs.apply`, which every decision and
-   every replay of one goes through.
+   gets the same reason, and a BLOCK stands and says nothing more (it blocks every action).
+   Nothing lifts it.
+
+Steps 3 to 8 only lower automation: none turns any outcome into AUTO, and none turns a
+decision that goes to a person into a BLOCK. `apply_policy` is all eight, and it is the only
+way a decision, or a replay of one (`PolicyInputs.apply`), gets its outcome.
+
+How the reasons read. The first says what the rules or the thresholds decided; each cap that
+applies follows, in the order above, once. A reason of steps 7 and 8 ends "; a person decides"
+(`PERSON_DECIDES`) wherever a person does, so several read as one list:
+
+    confidence 0.97 >= auto threshold 0.90
+    the agent changed since its confidence was calibrated (was 2.1.0, is 2.2.0); a person decides
+    2 of 3 runs agreed on request; a person decides
+    action 'renew_prescription' (order) is never released without a person; a person decides
 
 What a declared action needs before it is released is here too, beside the risk caps and never
-in a manifest: `EFFECT_GATES` (an effect's gate), `gate_of` (a manifest and the agent's origin
-may only tighten it) and `disposition` (the gate, by the decision's state).
+in a manifest: `EFFECT_GATES` (an effect's gate), `gate_of` (a manifest, the agent's origin and
+a second signal that did not agree on the proposal may only tighten it) and `disposition` (the
+gate, by the decision's state).
 """
 
 from __future__ import annotations
@@ -104,6 +123,7 @@ def apply_policy(
     site_code: Sequence[str] = (),
     not_offered: Sequence[str] = (),
     canned: str | None = None,
+    caps: Sequence[str] = (),
     actions: Sequence[str] = (),
 ) -> PolicyResult:
     """`variants` is the running variant of each provider slot, for `automation_requires`;
@@ -117,9 +137,11 @@ def apply_policy(
     nothing else changes. `not_offered` names each limitation of a list read without a source the
     site declared its EHR does not offer (`limitation`): the same cap, its own reason. `canned`
     says why the answers are canned (`ProviderOutput.canned`): AUTO and a rule's BLOCK become
-    HUMAN_REVIEW, and the reason is given whatever the outcome. `actions` says, for each
-    proposed action that could not be released with an AUTO decision, why (`action_stops`): AUTO
-    becomes HUMAN_REVIEW, and nothing else changes."""
+    HUMAN_REVIEW, and the reason is given whatever the outcome. `caps` are the reasons a provider
+    found that the decision may not be automated (`Signals.reasons`: the version cap, then the
+    second signal's), and `actions` says, for each proposed action that could not be released
+    with an AUTO decision, why (`action_stops`): for either, AUTO becomes HUMAN_REVIEW, and
+    nothing else changes (`lowered`, `_action_capped`)."""
     translated = tuple(sorted(set(site_code)))
     limits = tuple(dict.fromkeys(not_offered))
     policy = manifest.policy
@@ -224,10 +246,12 @@ def apply_policy(
     for limit in limits:
         if not any(reason.startswith(f"{limit}: a person decides") for reason in reasons):
             reasons.append(f"{limit}: a person decides")  # likewise: no outcome changes
-    outcome = _action_cap(outcome, actions, reasons)  # after every other cap: reasons only added
     if outcome is Outcome.ABSTAIN:
         recommendation = None
-    return PolicyResult(outcome, recommendation, priority, tuple(reasons), rule_name)
+    decided = PolicyResult(outcome, recommendation, priority, tuple(reasons), rule_name)
+    # Steps 7 and 8, after every other cap and in this order: each only adds reasons, and
+    # turns AUTO into HUMAN_REVIEW and no other outcome into anything.
+    return _action_capped(lowered(decided, caps), actions)
 
 
 @dataclass(frozen=True)
@@ -247,16 +271,13 @@ class PolicyInputs:
     site_code: Sequence[str] = ()
     not_offered: Sequence[str] = ()
     canned: str | None = None
+    # Why a provider says the decision may not be automated (`lowered`): each a reason, the
+    # version cap of a calibration first, then the second signal's (`Signals.reasons`).
+    caps: Sequence[str] = ()
     # Why each proposed action could not be released with an AUTO decision (`action_stops`).
     actions: Sequence[str] = ()
-    # Why a provider says the decision may not be automated (`lowered`): each a reason.
-    caps: Sequence[str] = ()
 
     def apply(self, manifest: PackManifest) -> PolicyResult:
-        return lowered(self.decide(manifest), self.caps)
-
-    def decide(self, manifest: PackManifest) -> PolicyResult:
-        """`apply_policy` on what was kept, before the providers' own caps (`lowered`)."""
         return apply_policy(
             manifest,
             self.answers,
@@ -269,24 +290,46 @@ class PolicyInputs:
             site_code=self.site_code,
             not_offered=self.not_offered,
             canned=self.canned,
+            caps=self.caps,
             actions=self.actions,
         )
 
 
-def _action_cap(outcome: Outcome, stops: Sequence[str], reasons: list[str]) -> Outcome:
-    """The `actions` cap: with any stop, AUTO becomes HUMAN_REVIEW, and a decision already going
-    to a person keeps its outcome; either way each stop is a reason, once. A BLOCK stands and
-    says nothing more: it blocks every action. Never raises an outcome."""
-    if not stops or outcome is Outcome.BLOCK:
-        return outcome
-    for stop in dict.fromkeys(stops):
-        reason = f"{stop}: a person decides"
-        if reason not in reasons:
-            reasons.append(reason)
-    return Outcome.HUMAN_REVIEW if outcome is Outcome.AUTO else outcome
+# How a reason of steps 7 and 8 ends wherever a person decides (as the `canned` cap's does).
+PERSON_DECIDES = "; a person decides"
 
 
-# -- actions (spec 0.4, ADR-0022) -----------------------------------------------------------------
+def lowered(result: PolicyResult, caps: Sequence[str]) -> PolicyResult:
+    """`result` under the caps its providers found (step 7, ADR-0024): with any, AUTO becomes
+    HUMAN_REVIEW, each cap a reason that says a person decides. A result that already goes to a
+    person (HUMAN_REVIEW, ABSTAIN) keeps its outcome, its recommendation, its priority and its
+    rule, and gets the same reasons; a BLOCK keeps them too and gets each cap as it is (a block
+    is final: no person decides). It can only lower automation: AUTO is never what it returns
+    unless there is no cap and `result` was AUTO, and no other outcome changes."""
+    found = tuple(dict.fromkeys(caps))
+    if not found:
+        return result
+    if result.outcome is not Outcome.BLOCK:
+        found = tuple(f"{reason}{PERSON_DECIDES}" for reason in found)
+    added = tuple(reason for reason in found if reason not in result.reasons)
+    outcome = Outcome.HUMAN_REVIEW if result.outcome is Outcome.AUTO else result.outcome
+    return replace(result, outcome=outcome, reasons=(*result.reasons, *added))
+
+
+def _action_capped(result: PolicyResult, stops: Sequence[str]) -> PolicyResult:
+    """`result` under the `actions` cap (step 8): with any stop, AUTO becomes HUMAN_REVIEW, and
+    a decision already going to a person keeps its outcome; either way each stop is a reason
+    that says a person decides, once. A BLOCK stands and says nothing more: it blocks every
+    action. Never raises an outcome."""
+    if not stops or result.outcome is Outcome.BLOCK:
+        return result
+    found = (f"{stop}{PERSON_DECIDES}" for stop in dict.fromkeys(stops))
+    added = tuple(reason for reason in found if reason not in result.reasons)
+    outcome = Outcome.HUMAN_REVIEW if result.outcome is Outcome.AUTO else result.outcome
+    return replace(result, outcome=outcome, reasons=(*result.reasons, *added))
+
+
+# -- actions (spec 0.4, ADR-0023) -----------------------------------------------------------------
 # What a declared action needs before it is released. The runtime's, as the risk caps are
 # (ADR-0002): a manifest names an action's effect and may tighten its gate (`allow_auto:
 # false`); nothing in a manifest, and nothing an agent proposes, loosens one.
@@ -324,17 +367,22 @@ def stricter(one: Gate, other: Gate) -> Gate:
     return max(one, other, key=GATES.index)
 
 
-def gate_of(effect: Effect, *, allow_auto: bool = True, vouched: bool = True) -> Gate:
+def gate_of(
+    effect: Effect, *, allow_auto: bool = True, vouched: bool = True, agreed: bool = True
+) -> Gate:
     """A declared action's gate: its effect's (`EFFECT_GATES`), and never looser. The manifest
     tightens it with `allow_auto: false` (never without a person). For an agent the deployment
     has not `vouched` for (a community agent, or one from a registry whose digest its
     organization has not approved, or that is recalled), an effect is a claim nobody here
     checked: nothing it proposes is released without a person, so `read` and `draft` take the
-    gate of `write`."""
+    gate of `write`. A proposal its second signal did not agree on (`agreed` false: only some
+    repeated runs proposed it, or a check's second member proposed another; `Proposed.disputed`)
+    is never released without a person either, whatever its effect: an agent unsure of what to
+    do is not left to do it."""
     gate = EFFECT_GATES[effect]
     if not vouched:
         gate = stricter(gate, Gate.AUTO)
-    if not allow_auto:
+    if not allow_auto or not agreed:
         gate = Gate.PERSON
     return gate
 
@@ -418,30 +466,9 @@ def disposition(
     return "blocked", "no_reviewer"
 
 
-PERSON_DECIDES = "; a person decides"
-
-
-def lowered(result: PolicyResult, caps: Sequence[str]) -> PolicyResult:
-    """`result` under the caps its providers found (step 7, ADR-0022): with any, AUTO becomes
-    HUMAN_REVIEW, each cap a reason that says a person decides. A result that is not AUTO keeps
-    its outcome, its recommendation, its priority and its rule, and gets each cap as a reason
-    (without "a person decides": a rule's BLOCK is still final). It can only lower automation:
-    AUTO is never what it returns unless there is no cap and `result` was AUTO."""
-    reasons = tuple(dict.fromkeys(caps))
-    if not reasons:
-        return result
-    if result.outcome is Outcome.AUTO:
-        return replace(
-            result,
-            outcome=Outcome.HUMAN_REVIEW,
-            reasons=(*result.reasons, *(f"{reason}{PERSON_DECIDES}" for reason in reasons)),
-        )
-    return replace(result, reasons=(*result.reasons, *reasons))
-
-
 def canned_reason(canned: str) -> str:
     """The `canned` cap's reason: why the answers are canned, and that a person decides."""
-    return f"{canned}; a person decides"
+    return f"{canned}{PERSON_DECIDES}"
 
 
 def limitation(name: str, types: Sequence[str], attested_by: str) -> str:

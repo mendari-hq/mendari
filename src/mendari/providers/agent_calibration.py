@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""An external agent's confidence, calibrated (ADR-0022).
+"""An external agent's confidence, calibrated (ADR-0024).
 
 An `agent` variant's confidence is a number the agent reports about itself, and the policy
 automates on it. `mendari calibrate` asks the live agent about labelled cases and fits, for each

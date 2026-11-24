@@ -95,7 +95,7 @@ def manifest(
     defaults, and the variants given."""
     data = yaml.safe_load((SORTER / "agent.yaml").read_text())
     data["id"] = pack_id
-    data["spec_version"] = "0.4"  # the `check` composite is spec 0.4's (ADR-0022)
+    data["spec_version"] = "0.4"  # the `check` composite is spec 0.4's (ADR-0024)
     data["questions"]["too_much"] = {
         "instructions": "Does a stated dose go above the medicine's daily maximum?",
         "criteria": {"yes": "Above it.", "no": "Within it.", "unknown": "Cannot tell."},

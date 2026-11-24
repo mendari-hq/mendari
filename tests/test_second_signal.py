@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""A second signal that only lowers automation (ADR-0022): repeated runs
+"""A second signal that only lowers automation (ADR-0024): repeated runs
 (`providers/repeat.py`), the two-model check (`providers/check.py`), what the policy does with
 either (`policy.lowered`), what `mendari eval` reports of them (`evals/confidence.py`), and the
 operating point, which stays exact with them on."""
@@ -917,12 +917,12 @@ def test_the_record_the_spec_and_the_guide_say_what_the_engine_says() -> None:
     fit is the one the fitter holds to, and the record is decided."""
     docs = ROOT / "docs"
     record = (
-        docs / "decisions" / "ADR-0022-a-checked-confidence-and-a-second-signal.md"
+        docs / "decisions" / "ADR-0024-a-checked-confidence-and-a-second-signal.md"
     ).read_text(encoding="utf-8")
     spec = (docs / "spec" / "agent-manifest-0.4-second-signal.md").read_text(encoding="utf-8")
     guide = (docs / "guides" / "calibration-and-a-second-signal.md").read_text(encoding="utf-8")
     assert record.startswith(
-        "# ADR-0022: A confidence that was checked, and a second signal that only lowers "
+        "# ADR-0024: A confidence that was checked, and a second signal that only lowers "
         "automation\n\n## Status\nAccepted\n\nDecided by the maintainer on 2026-11-24, before "
         "the repository was public, so no comment period ran; open to revision when it is.\n"
     )

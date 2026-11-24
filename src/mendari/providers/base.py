@@ -175,6 +175,8 @@ class Provider(ABC):
     type: ClassVar[str]
     # Remote providers make network calls: they are metered, rate-limited and parallelised.
     remote: bool = False
+    # Whether its output may propose actions (spec 0.4): an `agent` variant of a 0.4 agent.
+    proposes: bool = False
 
     def __init__(
         self,

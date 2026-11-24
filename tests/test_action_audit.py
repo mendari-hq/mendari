@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Actions in the audit trail, and their review (spec 0.4 sections 6 and 7, ADR-0022).
+"""Actions in the audit trail, and their review (spec 0.4 sections 6 and 7, ADR-0023).
 
 The chain records every proposal and its resolution: ids, the declared name, the effect, the
 disposition, a reason code and a hash of the arguments. It never holds the arguments, nor a name

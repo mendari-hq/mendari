@@ -12,7 +12,7 @@ was released.
 
 This guide walks through it with the bundled demo agent, `agents/portal-message-agent`. The
 rules are in [agent manifest spec 0.4](../spec/agent-manifest-0.4.md), and the reasons in
-[ADR-0022](../decisions/ADR-0022-an-agent-proposes-actions.md).
+[ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md).
 
 ## See it in a minute
 

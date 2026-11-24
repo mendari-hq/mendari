@@ -13,7 +13,7 @@ what it says, and about two checks that send an unstable answer to a person:
 
 The first changes the number. The other two never do: they can only turn an automated decision
 into one a person reviews. The reasons behind each rule are in
-[ADR-0022](../decisions/ADR-0022-a-checked-confidence-and-a-second-signal.md), and the manifest
+[ADR-0024](../decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md), and the manifest
 keys in [spec 0.4](../spec/agent-manifest-0.4-second-signal.md). All three need
 `spec_version: "0.4"`.
 

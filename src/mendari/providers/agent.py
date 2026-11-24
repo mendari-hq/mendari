@@ -136,7 +136,7 @@ class AgentConfig(BaseModel):
     state_fields: list[str] | None = None
     # Pack-relative JSON or YAML fixture for offline testing and evaluation.
     mock_file: str | None = None
-    # Spec 0.4 (ADR-0022). Per-question temperatures fitted by `mendari calibrate` (a file in
+    # Spec 0.4 (ADR-0024). Per-question temperatures fitted by `mendari calibrate` (a file in
     # the agent), for the agent version its service reported then: `agent_calibration.py`.
     calibration: str | None = None
     # Ask each case this many times and never automate when the runs disagree: `repeat.py`.
@@ -167,14 +167,14 @@ class AgentProvider(Provider):
         self._mock: dict[str, Any] | None = None
         # Only a 0.4 agent's response may propose actions: an older agent's `actions` key is
         # not read, as any key the contract does not name never was.
-        self._proposes = at_least(self.pack.manifest.spec_version, "0.4")
+        self.proposes = at_least(self.pack.manifest.spec_version, "0.4")
         if self.settings.mock_file is not None:
             self._mock = _load_fixture_file(
                 self.pack,
                 self.settings.mock_file,
                 self.questions,
                 self.info.slot,
-                actions=self._proposes,
+                actions=self.proposes,
             )
         if self.settings.agent_id is not None:
             self.info = replace(self.info, model=self.settings.agent_id)
@@ -398,7 +398,7 @@ class AgentProvider(Provider):
             # list, checked the host, and gave the client that opens public addresses only.
             allowed=live.source == "organization" and live.allowed,
         )
-        parsed = validate_response(raw, self.questions, actions=self._proposes)
+        parsed = validate_response(raw, self.questions, actions=self.proposes)
         usage = parsed["usage"]
         self.metered(usage["input_tokens"], usage["output_tokens"], usage["cost_usd"])
         return self._build_output(parsed, used_mock=False)
@@ -413,7 +413,7 @@ class AgentProvider(Provider):
         matched = _match_fixture_response(self._mock, state)
         if matched is None:
             raise ProviderError("invalid_response", "no mock case matched input")
-        parsed = validate_response(matched, self.questions, actions=self._proposes)
+        parsed = validate_response(matched, self.questions, actions=self.proposes)
         return self._build_output(parsed, used_mock=True)
 
     def _build_output(self, parsed: dict[str, Any], *, used_mock: bool) -> ProviderOutput:

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""What an evaluation says of the confidence the policy cuts on (ADR-0022): whether each model
+"""What an evaluation says of the confidence the policy cuts on (ADR-0024): whether each model
 variant's confidence is calibrated and what the calibration does on these cases
 (`mendari.calibration-report/1`), and what a second signal does on them
 (`mendari.second-signal/1`).
@@ -355,7 +355,7 @@ def second_signal(
             group["extra_calls"] += found.extra_calls
             if found.canned:
                 group["canned"] += 1
-            elif found.disagreed:
+            elif found.differed:
                 group["disagreed"] += 1
                 group[_sorted(kinds[index])] += 1
 

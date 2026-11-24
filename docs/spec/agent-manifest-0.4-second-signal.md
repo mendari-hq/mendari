@@ -13,7 +13,7 @@ each place it is used:
 Every other part of an agent is as [0.3](agent-manifest-0.3.md) and
 [0.2](agent-manifest-0.2.md) say. The key words MUST, SHOULD and MAY are used as in RFC 2119.
 The reasons for each rule are in
-[ADR-0022](../decisions/ADR-0022-a-checked-confidence-and-a-second-signal.md); the reference
+[ADR-0024](../decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md); the reference
 implementation is `mendari.providers.agent_calibration`, `mendari.providers.repeat`,
 `mendari.providers.check` and `mendari.core.policy.lowered`.
 

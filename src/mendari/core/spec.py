@@ -1139,7 +1139,7 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
             problems.append(f"{newer} use spec 0.3 card features; set spec_version: '0.3'")
 
     second_signal = second_signal_keys(m)
-    if second_signal and m.spec_version != SPEC_04:
+    if second_signal and not at_least(m.spec_version, "0.4"):
         problems.append(f"{second_signal} use spec 0.4 features; set spec_version: '0.4'")
 
     for critical in m.evaluation.critical:
@@ -1182,11 +1182,8 @@ def action_problems(m: PackManifest) -> list[str]:
     return problems
 
 
-SPEC_04 = "0.4"  # the spec version of an agent's calibration and of a second signal
-
-
 def second_signal_keys(m: PackManifest) -> list[str]:
-    """Where a manifest uses what spec 0.4 adds to a provider variant (ADR-0022), in a variant
+    """Where a manifest uses what spec 0.4 adds to a provider variant (ADR-0024), in a variant
     or a composite's member: an `agent`'s `calibration`, `repeat` on an `agent` or an `llm`,
     and the `check` composite."""
     found = []

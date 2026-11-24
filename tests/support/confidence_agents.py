@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Small agents built in a temporary directory, with a live agent service that a test scripts
-(tests of calibration, repeated runs and the two-model check: ADR-0022).
+(tests of calibration, repeated runs and the two-model check: ADR-0024).
 
 The agent is what `mendari new` writes (the questions `request` and `urgent_symptoms`,
 answered by the slot `reader`), never the bundled demo agent. Its service is a function a test

@@ -1,4 +1,4 @@
-# ADR-0022: A confidence that was checked, and a second signal that only lowers automation
+# ADR-0024: A confidence that was checked, and a second signal that only lowers automation
 
 ## Status
 Accepted

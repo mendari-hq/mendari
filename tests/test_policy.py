@@ -236,10 +236,10 @@ def test_a_stopped_action_turns_auto_into_human_review_and_changes_nothing_else(
         plain.priority,
         plain.rule,
     )
-    assert stopped.reasons == (*plain.reasons, f"{STOP}: a person decides")
+    assert stopped.reasons == (*plain.reasons, f"{STOP}; a person decides")
     # Each stop once, in order, however often it is given.
     several = apply_policy(manifest, answers, {}, None, SCREENED, actions=(STOP, UNDECLARED, STOP))
-    assert several.reasons[-2:] == (f"{STOP}: a person decides", f"{UNDECLARED}: a person decides")
+    assert several.reasons[-2:] == (f"{STOP}; a person decides", f"{UNDECLARED}; a person decides")
     assert apply_policy(manifest, answers, {}, None, SCREENED, actions=()) == plain
 
 
@@ -256,9 +256,9 @@ def test_a_decision_already_going_to_a_person_keeps_its_outcome_and_gets_the_rea
     stopped = apply_policy(manifest, answers, {}, None, SCREENED, actions=(STOP,))
     assert plain.outcome is stopped.outcome is outcome
     assert (stopped.recommendation, stopped.priority) == (plain.recommendation, plain.priority)
-    assert stopped.reasons == (*plain.reasons, f"{STOP}: a person decides")
+    assert stopped.reasons == (*plain.reasons, f"{STOP}; a person decides")
     assert [reason for reason in stopped.reasons if reason.startswith(STOP)] == [
-        f"{STOP}: a person decides"
+        f"{STOP}; a person decides"
     ]
 
 
@@ -294,14 +294,14 @@ def test_the_stop_is_kept_with_the_cap_that_also_lowered_the_decision(inbox_pack
     assert held.outcome is Outcome.HUMAN_REVIEW
     assert held.reasons[-2:] == (
         "automation is on hold: an operator's hold",
-        f"{STOP}: a person decides",
+        f"{STOP}; a person decides",
     )
     risky = at_level(manifest, RiskLevel.TIME_CRITICAL)
     capped = apply_policy(risky, answers, {}, None, SCREENED, actions=(STOP,))
     assert capped.outcome is Outcome.HUMAN_REVIEW
     assert capped.reasons[-2:] == (
         "risk level 4 requires human review",
-        f"{STOP}: a person decides",
+        f"{STOP}; a person decides",
     )
     # Governance lifts the risk cap at levels 2 and 3, and never this one.
     approved = GovernanceOverride(approved_by="CMIO", reference="AI-committee-2026-09")

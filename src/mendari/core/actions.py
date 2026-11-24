@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Actions: what an agent asks to have done besides answer (spec 0.4, ADR-0022).
+"""Actions: what an agent asks to have done besides answer (spec 0.4, ADR-0023).
 
 An agent's manifest declares the actions it may propose, each with an effect
 (`core/spec.py` `ActionSpec`). The agent proposes some with its answers, or a caller asks about
@@ -23,7 +23,7 @@ import json
 import re
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from jsonschema.protocols import Validator
@@ -80,13 +80,18 @@ Source = Literal["answer", "request"]  # proposed with the agent's answer, or as
 
 @dataclass(frozen=True)
 class Proposed:
-    """One action as proposed: its name and arguments, which provider slot proposed it, and why
-    its carrier refuses it, if it does (a composite sets `composite_member`)."""
+    """One action as proposed: its name and arguments, which provider slot proposed it, why
+    its carrier refuses it, if it does (a composite sets `composite_member`), and whether a
+    second signal did not agree on it (`disputed`: only some of a variant's repeated runs
+    proposed it, or a check's second member proposed another; `providers/repeat.py`,
+    `providers/check.py`). A disputed proposal is never released without a person
+    (`policy.gate_of`)."""
 
     name: str
     arguments: Mapping[str, Any]
     slot: str | None = None
     refused: Reason | None = None
+    disputed: bool = False
 
 
 @dataclass(frozen=True)
@@ -241,16 +246,24 @@ def proposals_problem(raw: Any) -> str | None:
     return None
 
 
+def key(proposal: Proposed) -> tuple[str, str]:
+    """What makes two proposals the same one: the name and the arguments, as canonical JSON."""
+    return proposal.name, canonical(proposal.arguments)
+
+
 def distinct(proposals: Iterable[Proposed]) -> list[Proposed]:
-    """The proposals in order, two with the same name and the same arguments counted once."""
-    seen: set[tuple[str, str]] = set()
-    kept = []
+    """The proposals in order, two with the same name and the same arguments counted once: the
+    first of them, and the stricter one where they differ (one that is refused, or disputed)."""
+    kept: dict[tuple[str, str], Proposed] = {}
     for proposal in proposals:
-        key = (proposal.name, canonical(proposal.arguments))
-        if key not in seen:
-            seen.add(key)
-            kept.append(proposal)
-    return kept
+        first = kept.setdefault(key(proposal), proposal)
+        if (proposal.refused and not first.refused) or (proposal.disputed and not first.disputed):
+            kept[key(proposal)] = replace(
+                first,
+                refused=first.refused or proposal.refused,
+                disputed=first.disputed or proposal.disputed,
+            )
+    return list(kept.values())
 
 
 def validators(manifest: PackManifest) -> dict[str, Validator]:

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The gate on actions (spec 0.4 sections 3 and 5, ADR-0022): `core/policy.py` says what each
+"""The gate on actions (spec 0.4 sections 3 and 5, ADR-0023): `core/policy.py` says what each
 effect needs before an action is released, and `core/actions.py` checks a proposal against the
 manifest.
 

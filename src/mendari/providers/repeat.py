@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Repeated runs: ask the same question N times, and never automate when the runs disagree
-(ADR-0022; spec 0.4, `repeat` on an `agent` or `llm` variant, 2 to 5).
+(ADR-0024; spec 0.4, `repeat` on an `agent` or `llm` variant, 2 to 5).
 
     agent:
       type: agent
@@ -21,6 +21,15 @@ with each. So, for each of the slot's questions:
 
 Agreement changes nothing: it raises no confidence and lifts no cap.
 
+The actions the runs proposed (spec 0.4, an `agent` variant) are held to the same rule
+(`_proposals`). The slot proposes each distinct one, a name with its arguments, in the order
+first proposed. One that every one of the N runs proposed is carried as it is. One that only
+some runs proposed (a run that failed proposed nothing) is carried `disputed`: the decision is
+capped, the reason `2 of 3 runs proposed action <name>` (or `the 3 runs proposed action <name>
+with different arguments`), and the action is held for the decision's reviewer and never
+released without one, whatever its effect (`policy.gate_of`). A reason names a declared action
+only, and never an argument.
+
 Every run is the provider's own single call, made in turn: each one is charged to the daily
 budget and the organization's quota, counted and priced by the decision's meter, and held to
 the decision's one deadline, which the N share. Its tokens and cost are the sum of the runs
@@ -35,12 +44,21 @@ they are asked once, the evidence says so, and no agreement is claimed (`Checked
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 
+from mendari.core import actions as proposals
+from mendari.core.spec import PackManifest
 from mendari.errors import ProviderError
 from mendari.providers.base import Answer, Provider, ProviderOutput
-from mendari.providers.signals import Cap, Checked, Signals, deciding_questions, merged
+from mendari.providers.signals import (
+    Cap,
+    Checked,
+    Signals,
+    deciding_questions,
+    merged,
+    proposed_what,
+)
 
 MIN_RUNS, MAX_RUNS = 2, 5
 CANNED_NOTE = "repeat: asked once, canned answers cannot vary, so no agreement is claimed"
@@ -53,6 +71,36 @@ def agreed_reason(agreed: int, runs: int, question: str, failed: list[str]) -> s
         codes = ", ".join(sorted(set(failed)))
         reason += f" ({len(failed)} failed: {codes})"
     return reason
+
+
+def _proposals(
+    manifest: PackManifest, outputs: Sequence[ProviderOutput], runs: int
+) -> tuple[tuple[proposals.Proposed, ...], list[str]]:
+    """The actions the runs proposed, as the slot proposes them, and why they did not agree.
+    Each distinct proposal (a name with its arguments) once, in the order first proposed; one
+    that fewer than `runs` runs proposed is `disputed` (`outputs` are the runs that answered: a
+    run that failed proposed nothing). A reason for each action's name the runs differed on."""
+    found: dict[tuple[str, str], proposals.Proposed] = {}
+    times: Counter[tuple[str, str]] = Counter()  # the runs that proposed exactly this
+    named: Counter[str] = Counter()  # the runs that proposed an action of this name
+    for output in outputs:
+        own = proposals.distinct(output.actions)
+        for proposal in own:
+            found.setdefault(proposals.key(proposal), proposal)
+            times[proposals.key(proposal)] += 1
+        named.update({proposal.name for proposal in own})
+    combined = tuple(
+        proposal if times[key] == runs else replace(proposal, disputed=True)
+        for key, proposal in found.items()
+    )
+    reasons = []
+    for name in dict.fromkeys(proposal.name for proposal in combined if proposal.disputed):
+        what = proposed_what(manifest, name)
+        if named[name] == runs:
+            reasons.append(f"the {runs} runs proposed {what} with different arguments")
+        else:
+            reasons.append(f"{named[name]} of {runs} runs proposed {what}")
+    return combined, list(dict.fromkeys(reasons))
 
 
 def repeated(
@@ -113,9 +161,19 @@ def repeated(
         if key in chosen.signals.reported:
             reported[key] = chosen.signals.reported[key]
 
+    proposed, differed = _proposals(provider.pack.manifest, outputs, runs)
+    caps += [Cap("repeat", reason) for reason in differed]
     found = merged(output.signals for output in outputs)
     costs = [output.cost_usd for output in outputs]
-    checked = Checked(info.slot, info.variant, "repeat", runs, runs - 1, tuple(disagreed))
+    checked = Checked(
+        info.slot,
+        info.variant,
+        "repeat",
+        runs,
+        runs - 1,
+        tuple(disagreed),
+        proposals=sum(proposal.disputed for proposal in proposed),
+    )
     return ProviderOutput(
         answers=answers,
         input_tokens=sum(output.input_tokens for output in outputs),
@@ -123,6 +181,7 @@ def repeated(
         cost_usd=None if any(cost is None for cost in costs) else sum(c or 0.0 for c in costs),
         extra={**outputs[0].extra, "repeat": {"runs": runs, "answered": len(outputs)}},
         failures={key: code for output in outputs for key, code in output.failures.items()},
+        actions=proposed,
         signals=Signals(
             caps=(*found.caps, *caps), checked=(*found.checked, checked), reported=reported
         ),

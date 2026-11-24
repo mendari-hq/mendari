@@ -19,6 +19,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mendari.core.actions import Proposed
 from mendari.core.pack import Pack
 from mendari.core.spec import Question
 from mendari.errors import PackValidationError, ProviderError, ProviderErrorCode
@@ -152,10 +153,20 @@ class CompositeProvider(Provider):
         outputs: Mapping[str, ProviderOutput],
         failed: Mapping[str, str],
         signals: Signals | None = None,
+        actions: tuple[Proposed, ...] | None = None,
     ) -> ProviderOutput:
         """`signals`: the composite's own (a check's); else every member's that answered, so a
-        member's cap holds whichever member's answer is used."""
+        member's cap holds whichever member's answer is used. `actions`: the proposals the
+        composite takes (a check's: its first member's); else none is taken."""
         costs = [output.cost_usd for output in outputs.values()]
+        if actions is None:
+            # A member's proposals are not taken (spec 0.4 section 4.2): each is carried
+            # refused, so it is blocked and the decision goes to a person.
+            actions = tuple(
+                replace(action, refused="composite_member")
+                for output in outputs.values()
+                for action in output.actions
+            )
         return ProviderOutput(
             answers=answers,
             input_tokens=sum(output.input_tokens for output in outputs.values()),
@@ -168,13 +179,7 @@ class CompositeProvider(Provider):
             if failed
             else {},
             canned=next((o.canned for o in outputs.values() if o.canned is not None), None),
-            # A member's proposals are not taken in this version (spec 0.4 section 4.2): each
-            # is carried refused, so it is blocked and the decision goes to a person.
-            actions=tuple(
-                replace(action, refused="composite_member")
-                for output in outputs.values()
-                for action in output.actions
-            ),
+            actions=actions,
             signals=merged(o.signals for o in outputs.values()) if signals is None else signals,
         )
 
