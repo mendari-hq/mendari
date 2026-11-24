@@ -642,10 +642,16 @@ def _validate_outputs(raw: Any, declared: Mapping[str, WrittenOutput]) -> dict[s
             raise _invalid(f"output {name!r} is not text")
         if len(text) > output.max_chars:
             raise _invalid(f"output {name!r} is longer than its max_chars")
-        cleaned = _OUTPUT_CTRL.sub(" ", text).strip()
+        cleaned = clean_output(text)
         if cleaned:
             written[name] = cleaned
     return written
+
+
+def clean_output(text: str) -> str:
+    """A written text as it is kept and graded: control characters other than the newline and
+    the tab a space, and no blank at either end. Empty for a text that says nothing."""
+    return _OUTPUT_CTRL.sub(" ", text).strip()
 
 
 def _validate_actions(raw: Any) -> list[dict[str, Any]]:

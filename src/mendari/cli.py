@@ -873,6 +873,79 @@ def _write_ledger(out: Path, ledger: bytes, name: str) -> None:
             stale.unlink(missing_ok=True)
 
 
+def cmd_written_eval(args: argparse.Namespace) -> int:
+    """`mendari written eval`: the agent writes (or the input is read), the judge grades, and
+    the report says how far the judge agrees with clinicians. Nothing is recorded."""
+    from mendari.evals import resolve_dataset, written
+    from mendari.evals.ledger import case_hash
+    from mendari.evals.render import written_report_text
+    from mendari.providers.judge import Judge
+
+    if args.seed < 0:
+        raise MendariError("--seed is 0 or more")
+    if not 1 <= args.resamples <= MAX_RESAMPLES:
+        raise MendariError(f"--resamples is 1 to {MAX_RESAMPLES}")
+    decision = _decision(args, origin_cap=False)  # the agent's own answers, as `mendari eval`
+    pack = decision.pack
+    if args.rubric not in pack.manifest.rubrics:
+        known = ", ".join(pack.manifest.rubrics) or "none"
+        raise MendariError(f"{pack.id} has no rubric {args.rubric!r} (its rubrics: {known})")
+    dataset = resolve_dataset(pack, args.dataset)
+    whole = dataset
+    if args.limit:
+        dataset = dataset.head(args.limit)
+    judge = Judge(pack, args.rubric, mode=args.judge)
+    workers = args.workers or (8 if decision.is_remote or not judge.canned else 1)
+    run = written.run(decision, dataset, args.rubric, judge=judge, workers=workers)
+    grades = _written_grades(args, pack, whole)
+    found = written.report(run.ledger, grades, seed=args.seed, resamples=args.resamples)
+    report = written.run_report(found, run.ledger)
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        if not out.exists() or out.is_file():  # a file: its ledger goes beside it, first
+            _write_ledger(out, run.ledger.dumps(), run.ledger.file_name)
+        else:  # a device such as /dev/stdout
+            print("note: --out is not a file, so no ledger is written beside it", file=sys.stderr)
+        out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    if args.json:
+        _print_json(report)  # case hashes only
+    else:
+        ids = {case_hash(dataset.case_key, r["id"]): r["id"] for r in dataset.records}
+        print(written_report_text(report, ids))
+    return 0
+
+
+def _written_grades(args: argparse.Namespace, pack: Pack, dataset: Any) -> Any:
+    """The clinicians' grades a written-output run is compared with: `--grades`, else the file
+    the agent declares for the rubric when its dataset is the one run, else none. A file of
+    another dataset than the one run is refused, as one of another rubric wording is."""
+    from mendari.evals import written
+
+    manifest = pack.manifest
+    scales = {
+        key: [level for level, _ in criterion.scale()]
+        for key, criterion in manifest.rubrics[args.rubric].criteria.items()
+    }
+    declared = manifest.evaluation.grades.get(args.rubric)
+    if args.grades:
+        where = args.grades
+        try:
+            raw = Path(where).read_bytes()
+        except OSError as error:
+            raise MendariError(f"--grades: cannot read the file ({type(error).__name__})") from None
+    elif declared is not None and declared.dataset == args.dataset:
+        where, raw = declared.file, pack.read_bytes(declared.file)
+    else:
+        return None
+    header, grades = written.load_grades(raw, where=where, scales=scales)
+    if header["rubric"]["name"] != args.rubric:
+        raise MendariError(f"{where}: its grades are of another rubric than {args.rubric}")
+    if header["dataset"]["sha256"] != dataset.sha256:
+        raise MendariError(f"{where}: its grades are of another dataset than the one run")
+    return grades
+
+
 def cmd_compare(args: argparse.Namespace) -> int:
     from mendari.core.registry import resolve_pack
     from mendari.evals import paired
@@ -4431,7 +4504,7 @@ GROUPS = (
         (),
         (
             *("data", "leaderboard", "agreement", "calibrate", "train", "improve"),
-            *("feedback", "evalset", "scoreboard"),
+            *("feedback", "evalset", "scoreboard", "written"),
         ),
     ),
     Group(
@@ -6106,6 +6179,60 @@ def build_parser() -> argparse.ArgumentParser:
     )
     store_purge.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     store_purge.set_defaults(handler=cmd_store_purge)
+
+    written = sub.add_parser(
+        "written",
+        help="what an agent wrote: clinician rubrics and a judge whose agreement is measured",
+    ).add_subparsers(dest="written_command", required=True)
+    written_eval = written.add_parser(
+        "eval", help="grade an agent's written output with the judge, beside clinicians' grades"
+    )
+    written_eval.description = (
+        "Runs every case of a dataset: the agent writes its output (or the input is read), and "
+        "the rubric's judge grades each text. With clinicians' grades, reports per criterion how "
+        "far the judge agrees with them (weighted kappa, with its interval) beside how far "
+        "clinicians agree with each other, and gives the judge's grades for the outputs no "
+        "clinician graded only where that agreement clears the floors; otherwise they are "
+        "withheld. With no judge model set, grades are canned: a demonstration only. The report "
+        "holds counts and hashes, never a text."
+    )
+    _agent_argument(written_eval)
+    written_eval.add_argument("--rubric", required=True, help="one of the agent's rubrics, by name")
+    written_eval.add_argument(
+        "--dataset", required=True, help="one of the agent's datasets, by name, or a JSONL path"
+    )
+    written_eval.add_argument(
+        "--provider",
+        action="append",
+        metavar="SLOT=VARIANT",
+        help="use a non-default provider variant (repeatable)",
+    )
+    written_eval.add_argument("--limit", type=int, help="only run the first N cases")
+    written_eval.add_argument(
+        "--workers", type=int, help="parallel cases (default: 8 with a remote call, else 1)"
+    )
+    written_eval.add_argument(
+        "--judge",
+        choices=("auto", "canned", "live"),
+        default="auto",
+        help="auto (default): a model when one is set, else the rubric's canned grades; or force "
+        "either",
+    )
+    written_eval.add_argument(
+        "--grades",
+        metavar="FILE",
+        help="clinicians' grades (mendari.written-grades/1); default: the agent's own for this "
+        "rubric and dataset, if it declares any",
+    )
+    written_eval.add_argument("--out", help="write the full JSON report here, its ledger beside it")
+    written_eval.add_argument("--json", action="store_true", help="print the JSON report")
+    written_eval.add_argument(
+        "--seed", type=int, default=0, help="the bootstrap's seed (default 0)"
+    )
+    written_eval.add_argument(
+        "--resamples", type=int, default=2000, help="bootstrap resamples (default 2000)"
+    )
+    written_eval.set_defaults(handler=cmd_written_eval)
 
     evalset = sub.add_parser(
         "evalset", help="hidden evaluation sets: the key holder's (LP-11)"
