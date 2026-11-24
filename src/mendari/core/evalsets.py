@@ -3517,3 +3517,12 @@ def stored_aggregates(set_id: str, value: Any, chained: Mapping[str, Any] | None
         f"evaluation set {set_id}'s stored aggregates are not those its chain committed to "
         "when they were stored: nothing is shown; run `mendari audit verify --evalsets`"
     )
+
+
+# What a grading round of written output (`core/written.py`) shares with blind labelling: who may
+# be assigned (the `labeller` role, never beside a role that manages the organization's sets),
+# how a list of people is read, and how an answer is held to its questions.
+labeller_membership = _labeller_membership
+labeller_in = _labeller_in
+user_ids = _user_ids
+label_problem = _label_problem
