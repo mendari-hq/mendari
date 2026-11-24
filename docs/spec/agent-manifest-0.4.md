@@ -760,7 +760,7 @@ rubrics:
         pass_from: <label>      # score only: the lowest level that passes
         must_pass: false        # optional: this criterion must not fail
     judge: {...}                # §18.2
-    floors: {agreement: 0.60, must_pass_recall: 0.80}   # optional: may only raise (§18.3)
+    floors: {agreement: 0.60, must_pass_recall: 0.80}   # optional: may only tighten (§18.3)
 ```
 
 ### 18.1 Criteria
@@ -806,7 +806,11 @@ it is a demonstration, and nothing may be concluded from it.
 
 The engine's floors are a kappa of 0.60 and, for a criterion that must not fail, 0.80 of the
 clinician-found failures, each by its lower bound (§20). A rubric's `floors` MAY raise either
-and MUST NOT lower one: a manifest that does is invalid.
+(`agreement`, `must_pass_recall`) and MUST NOT lower one: a manifest that does is invalid.
+
+The engine also sets a ceiling: a judge may fail to grade at most 0.05 of the outputs
+clinicians graded, and of the rest (§20). A rubric MAY lower it (`max_judge_errors`) and MUST
+NOT raise it.
 
 ## 19. Clinicians' grades in a file
 
@@ -827,24 +831,50 @@ be given in the console, in a grading round ([the guide](../guides/written-outpu
 
 Per criterion, on the outputs both a clinician and the judge graded (`mendari.written/1`):
 
-- **Agreement**: Cohen's kappa with linear weights on the levels' declared scores (plain
-  Cohen's kappa on a yes/no criterion), exact, with a percentile-bootstrap interval over cases;
-  raw agreement as k of n; and, for a criterion that must not fail, the share of
-  clinician-found failures the judge found too. Where two clinicians graded an output and
+- **Agreement over the levels**: Cohen's kappa with linear weights on the levels' declared
+  scores (plain Cohen's kappa on a yes/no criterion), exact, with a percentile-bootstrap
+  interval over cases; and raw agreement as k of n. Where two clinicians graded an output and
   differ, the less favourable grade stands.
-- **Clinician with clinician**, on the outputs two clinicians graded: the same kappa, as the
-  reference. It gates nothing.
+- **Agreement on pass or fail.** What is published of a judge is a pass share, so agreement
+  over the levels is not enough: a judge one level kinder at the pass line agrees closely on
+  the scale and disagrees on who passes. A report therefore also gives, on the same outputs:
+  plain Cohen's kappa on pass or fail, with its interval (the same number as the kappa above on
+  a yes/no criterion); the judge's pass share beside the clinicians'; and an exact two-sided
+  McNemar test on the discordant pairs (a binomial test at 0.05), which says whether the judge
+  leans lenient or strict.
+- **Failures found**, for a criterion that must not fail: of the outputs clinicians failed,
+  those the judge failed too. An output the judge could not grade counts as one it did not
+  find.
+- **What the judge could not grade**: how many of the outputs clinicians graded, and how many
+  of the rest. Such an output is never a pass.
+- **Clinician with clinician**, on the outputs two clinicians graded: the weighted kappa, as
+  the reference. It gates nothing.
 - **A state**:
   - *insufficient evidence* when fewer than 50 outputs were graded by both; or fewer than 10
-    clinician verdicts fall on either side of the pass line; or kappa or its interval cannot
-    be estimated; or, for must-not-fail, clinicians found fewer failures than a judge that
-    found every one would need (17 at 0.80);
-  - *validated* when kappa's lower bound is at least the agreement floor and, for
-    must-not-fail, the exact lower bound of the failures found is at least its floor;
-  - *not validated* otherwise.
-- **The judge's grades for the outputs no clinician graded**, only for a validated criterion.
-  Otherwise that figure MUST be withheld (null), with the state and its reasons; it MUST NOT be
-  shown with a caveat instead.
+    clinician verdicts fall on either side of the pass line; or either kappa or its interval
+    cannot be estimated; or, for must-not-fail, clinicians found fewer failures than a judge
+    that found every one would need (17 at 0.80);
+  - *not validated* when, the evidence being sufficient, any of these holds: the lower bound
+    of the kappa over the levels, or of the kappa on pass or fail, is under the agreement
+    floor; for must-not-fail, the exact lower bound of the failures found is under its floor;
+    the judge leans lenient (the McNemar test rejects symmetry and it passes more outputs than
+    clinicians do); or it could not grade more than 0.05 of the outputs clinicians graded, or
+    of the rest;
+  - *validated* otherwise. A judge that leans strict stays eligible, and the report flags it.
+- **The judge's grades for the outputs no clinician graded**, only for a validated criterion,
+  with how many of them it could not grade. Otherwise that figure MUST be withheld (null), with
+  the state and its reasons; it MUST NOT be shown with a caveat instead.
+
+A state MUST NOT be decided on fewer than 2,000 bootstrap resamples: with a handful the
+interval is a few draws, not a bound. An implementation MUST NOT let whoever reads the result
+choose the bootstrap's seed after grades exist: `mendari written eval` uses a constant, and a
+grading round uses the seed fixed and recorded when the round was made. A report states its
+seed and its resamples.
+
+What is withheld is the report's figure. The run's ledger (`mendari.written-ledger/1`, written
+beside a report and kept with a grading round) still holds each grade the judge gave, by case
+hash: it is the record a result is recomputed from, so whoever holds a ledger can count them.
+Publish a report; treat a ledger as the working record it is.
 
 A report holds counts, coefficients, case hashes and graders' ids. It MUST NOT hold a text, a
 context field or a case's id.

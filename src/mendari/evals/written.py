@@ -770,7 +770,12 @@ def report(
     seeds: pure, so a second call gives the same bytes. See the module docstring for what each
     figure is and how the gate decides. Refused: grades given under another wording of the
     rubric, a grade that is not of the rubric's criteria and levels, one grader's grades of one
-    item given twice."""
+    item given twice; fewer than `stats.RESAMPLES` resamples.
+
+    `seed` is this function's and `WrittenStore.create_round`'s alone: no command and no route
+    takes one once grades exist. `mendari written eval` leaves it at 0, and a round's closing
+    passes the seed chained when the round was made. A caller in Python that passes another is
+    computing a different report, and the report states the seed it was decided on."""
     problem = seed_problem(seed) or resamples_problem(resamples)
     if problem is not None:
         raise MendariError(problem)

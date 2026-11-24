@@ -33,10 +33,18 @@ plain_language                   judge insufficient evidence  ...; judged share 
 ```
 
 **The demo's graders are simulated and its judge's grades are canned.** The graders are made
-by `scripts/demo_agent_data.py` from the facts each synthetic message was generated with. The
-figures show how the report works. Nothing may be concluded from them. The demo's `safe_to_send`
-fails for a reason: its canned agent misses urgent messages worded as a patient would, so its
-acknowledgement tells those patients to expect an answer in two business days.
+by `scripts/demo_agent_data.py` from the facts each synthetic message was generated with, and
+the canned judge is a list of phrases in `fixtures/mock_judge.json`. Both are rules the
+maintainers wrote, keyed on the same phrases, so the three states are staged: the section shows
+how the gate works, and says nothing about how good any real judge is.
+
+What the staging shows is this. The canned agent misses urgent messages worded as a patient
+would, so its acknowledgement tells those patients to expect an answer in two business days,
+and the simulated graders fail those texts on `safe_to_send`. The canned judge fails only the
+ones whose message says "chest" or "breath": it finds about half of the failures the graders
+find. That is why it is not validated there, and why its figure is withheld. On
+`says_what_happens_next` the judge's rule is nearly the graders' own, so it is validated. On
+`plain_language` almost nothing fails, so there is too little evidence either way.
 
 The full report:
 
@@ -121,7 +129,9 @@ mendari written round assign <round> --grader user:... --grader user:... --db "$
 ```
 
 Graders hold the `labeller` role, and whoever administers the organization is never assigned.
-Each sampled text goes to one grader, and one in four also to a second (`--double`). A grader
+Each sampled text goes to one grader, and one in four also to a second (`--double`). The
+round's seed (`round create --seed`, 0 unless given) fixes the sample, the assignments and the
+report's bootstrap. A grader
 opens **Written output** in the console and grades one text at a time. They see the text, the
 context the rubric names and the rubric's words. They never see the judge's grade or another
 grader's, and nobody is told which texts are graded twice. `mendari written round progress`
@@ -152,17 +162,36 @@ Per criterion:
 |---|---|
 | clinicians, passing | of the outputs clinicians graded, how many pass: k of n with its exact interval |
 | clinician with clinician | on outputs two clinicians graded, their weighted kappa: the reference |
-| judge with clinicians | on outputs both graded, the judge's weighted kappa with its interval |
-| failures the judge found | must-not-fail only: of the outputs clinicians failed, how many the judge failed too |
+| judge with clinicians | on outputs both graded, the judge's weighted kappa over the levels, with its interval |
+| on pass or fail | on the same outputs: kappa on pass or fail, the clinicians' pass share beside the judge's, and whether the judge leans lenient or strict |
+| failures the judge found | must-not-fail only: of the outputs clinicians failed, how many the judge failed too. One it could not grade is not found |
+| the judge could not grade | how many of the outputs clinicians graded, and of the rest. Never a pass |
 | the judge on this criterion | `validated`, `not validated` or `insufficient evidence`, with reasons |
-| judged, outputs no clinician graded | the judge's pass share for the rest, or **withheld** |
+| judged, outputs no clinician graded | the judge's pass share for the rest, with how many it could not grade, or **withheld** |
 
-The judge is **validated** on a criterion when the lower bound of its kappa with clinicians is
-at least 0.60 and, on a criterion that must not fail, the lower bound of the failures it found
-is at least 0.80. The evidence is **insufficient** when fewer than 50 outputs were graded by
-both, fewer than 10 clinician verdicts fall on either side of the pass line, or clinicians
-found fewer failures than a judge that found every one would need (17). A manifest may raise
-the two floors (`floors:` in the rubric) and may not lower them.
+A report publishes a pass share, so the judge has to agree with clinicians on **who passes**,
+not only on the scale. A judge that gives the passing level wherever clinicians gave the one
+below it agrees closely over the levels and passes three times as many outputs.
+
+The judge is **validated** on a criterion when all of these hold:
+
+- the lower bound of its kappa with clinicians is at least 0.60, over the levels and on pass or
+  fail alike;
+- it does not lean lenient: an exact McNemar test on the outputs the two disagree about does
+  not show it passing more than clinicians do;
+- it could grade all but 5% of the outputs clinicians graded, and of the rest;
+- on a criterion that must not fail, the lower bound of the failures it found is at least 0.80.
+
+The evidence is **insufficient** when fewer than 50 outputs were graded by both, fewer than 10
+clinician verdicts fall on either side of the pass line, or clinicians found fewer failures
+than a judge that found every one would need (17). A manifest may tighten these in the
+rubric's `floors:` (raise `agreement` and `must_pass_recall`, lower `max_judge_errors`) and may
+not loosen them.
+
+A state is decided on 2,000 bootstrap resamples or more, never fewer, and nobody chooses the
+bootstrap's seed afterwards: `mendari written eval` uses a constant, and a round uses the seed
+given when it was made (`round create --seed`), which is recorded in the audit trail. The
+report states both.
 
 Where two clinicians differ on an output, the less favourable grade stands and the output is
 counted as disputed.
@@ -178,6 +207,16 @@ What to do with each state:
 
 A report names cases by hash. On the command line, whoever holds the dataset is shown case
 ids. No report, ledger, log line or audit event holds a text.
+
+**Withheld means withheld from the report.** The ledger written beside `--out`, and the one a
+round stores, hold each grade the judge gave, by case hash: a ledger is the record a result is
+recomputed from. Share a report; keep a ledger as the working record it is.
+
+**A stored report is checked against the audit trail.** Closing a round records the report's
+hash in the audit chain. The console shows a round's report only while the stored report still
+has that hash, and `mendari audit verify` checks every closed round's report and every stored
+grade. A round whose closing was interrupted reads `closing`: run
+`mendari written round close` on it again to finish.
 
 ## Limits
 

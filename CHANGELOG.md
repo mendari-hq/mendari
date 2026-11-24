@@ -42,7 +42,10 @@ The first release (not yet published).
   gives, per criterion, the judge's weighted kappa with clinicians beside clinician with
   clinician, and one of three states: validated, not validated, insufficient evidence. The
   judge's grades for the texts no clinician graded are reported only where the criterion is
-  validated; below the floors they are withheld, not shown with a caveat
+  validated; below the floors they are withheld, not shown with a caveat. To be validated a
+  judge must also agree with clinicians on pass or fail, not lean lenient (an exact McNemar
+  test), and have graded all but 5% of the outputs; a state is decided on 2,000 resamples or
+  more, with a seed nobody chooses afterwards
   ([Evaluating written output](docs/guides/written-output.md)). With it:
   - `mendari written eval` runs an agent on a dataset and reports it, with clinicians' grades
     from a file; `mendari written round create | assign | progress | close | list` runs a
@@ -55,7 +58,9 @@ The first release (not yet published).
     shows the rounds of an agent that declares a rubric;
   - three tables (`written_rounds`, `written_items`, `written_assignments`) and six audit
     events (`written.*`); no existing table changes. A round's texts are sealed under the PHI
-    key, re-sealed by a key rotation, erased by retention and erased when the round closes;
+    key, re-sealed by a key rotation, erased by retention and erased when the round closes.
+    A closed round's report is served only while it is the one the audit trail committed to,
+    and `mendari audit verify` checks every closed round's report and every stored grade;
   - the Decision Card and the committee packet say what an agent writes and how it is graded;
   - the demo agent is 0.3.0: it writes the text of its acknowledgement, with a rubric, a canned
     judge and simulated graders, each marked as such. `mendari demo` gains a sixth section.

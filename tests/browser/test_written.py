@@ -10,7 +10,8 @@ server under PHI mode `encrypt` (tests/browser/access_site.py) and sessions plan
 - blind: nothing of the round's ledger reaches the page (a planted judge), nor anyone's grade;
 - a criterion left ungraded is said beside that criterion, and nothing is recorded;
 - a reader of the agent sees its rounds under Evaluations: no report while a round is open, and
-  once closed the report, with "withheld" where the judge is not validated;
+  once closed the report, with "withheld" where the judge is not validated; a round left
+  closing says so and how to finish it, and a report edited in the database is not shown;
 - axe-core finds nothing on either screen.
 
 Every text is synthetic. Run with `uv run pytest -m browser`."""
@@ -28,7 +29,7 @@ from playwright.sync_api import Browser, Locator, Page, expect
 
 from mendari import Decision, load_pack
 from mendari.core.pack import Pack
-from mendari.core.written import WrittenStore
+from mendari.core.written import CLOSING_NOTE, REPORT_MISMATCH, WrittenStore
 from mendari.evals import written
 from mendari.evals.harness import load_dataset
 from mendari.evals.written import WrittenLedger, WrittenRun
@@ -38,6 +39,7 @@ from tests.browser.access_site import Site, memberships, person, running
 from tests.browser.test_accessibility import violations
 from tests.conftest import ROOT, encrypted_store
 from tests.test_auth import IDP
+from tests.test_evalset_store import tamper
 
 pytestmark = pytest.mark.browser
 
@@ -198,5 +200,59 @@ def test_a_reader_sees_the_rounds_and_a_closed_ones_report(grading: Grading) -> 
         "withheld"
     )  # never a figure where the judge is not validated
     expect(panel).to_contain_text(JUDGE_MARK)  # the report names its judge, once closed
+    # What a state was decided on is on the page: agreement on pass or fail, what the judge
+    # could not grade, and the seed and resamples nobody chose afterwards.
+    expect(panel.locator('[data-table="written-report"] thead th')).to_contain_text(
+        ["Passing, on the outputs both graded", "The judge could not grade"]
+    )
+    expect(rows.first).to_contain_text("on pass or fail:")
+    expect(panel).to_contain_text("Bootstrap seed 0, 2000 resamples.")
     assert "Thank you for your message" not in page.content()
     assert violations(page) == []
+
+
+def test_a_round_left_closing_says_so_and_how_to_finish(
+    grading: Grading, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    grading.grader("ada")
+    grading.grader("bo")
+    round_id = grading.round(["ada", "bo"])
+
+    def interrupted(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("interrupted")
+
+    monkeypatch.setattr(written, "report", interrupted)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        grading.rounds.close(round_id, by="ops")
+    monkeypatch.undo()
+    page = grading.site.window(grading.grader("vera", "viewer"))
+    page.goto("/?agent=mendari-test/written-mini#evals/written")
+    panel = page.locator(f'[data-round="{round_id}"]')
+    expect(panel).to_contain_text("Closing: not finished")
+    expect(panel.locator("[data-round-note]")).to_have_text(CLOSING_NOTE)
+    expect(panel).to_contain_text("round close` on it again to finish")
+    expect(panel).to_contain_text("No report is shown.")
+    expect(panel.locator('[data-table="written-report"]')).to_have_count(0)
+
+
+def test_a_report_edited_in_the_database_is_not_shown(grading: Grading) -> None:
+    grading.grader("ada")
+    grading.grader("bo")
+    round_id = grading.round(["ada", "bo"])
+    report = grading.rounds.close(round_id, by="ops")["report"]
+    forged = json.loads(json.dumps(report))
+    for measured in forged["criteria"].values():
+        measured["validation"] = {"state": "validated", "reasons": []}
+    tamper(
+        grading.rounds.store,
+        "UPDATE written_rounds SET report = ? WHERE id = ?",
+        (json.dumps(forged, sort_keys=True, separators=(",", ":")), round_id),
+    )
+    page = grading.site.window(grading.grader("vera", "viewer"))
+    page.goto("/?agent=mendari-test/written-mini#evals/written")
+    panel = page.locator(f'[data-round="{round_id}"]')
+    expect(panel.locator("[data-round-note]")).to_have_text(REPORT_MISMATCH)
+    expect(panel).to_contain_text("does not match the audit trail")
+    expect(panel).to_contain_text("No report is shown.")
+    expect(panel.locator('[data-table="written-report"]')).to_have_count(0)
+    assert "validated" not in panel.inner_text()

@@ -93,8 +93,27 @@ README or the front ends, outside an explicit list of those names.
   did not agree on is held and never released without a person, the operating point stays
   exact with all of it on, and the committee packet says each. With it: an origin is allowed
   only by an administrator of a named operator organization (ADR-0021, narrowed).
-- [ ] **Wave 5. Written output.** Rubrics a clinician grades, a model judge, and the judge's
+- [x] **Wave 5. Written output.** Rubrics a clinician grades, a model judge, and the judge's
   measured agreement with clinicians before its scores are reported.
+  **Built (branch `wave5/written-output`, on wave 4 and not yet merged):** the manifest declares
+  an agent's written outputs and the rubrics clinicians grade them by (spec 0.4, §16 to §20);
+  the model judge that grades every output with the same rubric (`providers/judge.py`);
+  `mendari written eval` and its report (`evals/written.py`): per criterion, the judge's kappa
+  with clinicians beside clinician with clinician, and one of three states. A judged share is
+  reported only where the judge is validated and is withheld otherwise (ADR-0025). Blind
+  grading rounds with sealed texts, erased when a round closes (`core/written.py`,
+  `mendari written round ...`, the console's grading screen and rounds tab); the Decision Card
+  and the committee packet say what was measured; the demo's section 6, which says its states
+  are staged. After review: a judge must also agree on pass or fail, not lean lenient (exact
+  McNemar) and have graded all but 5% of the outputs; a state takes 2,000 resamples or more
+  and a seed nobody picks afterwards; a stored report and every stored grade are checked
+  against the audit chain.
+  **Phase 2, not built:** nothing here gates a release. A validated judge's grade holding a
+  written output for a person at run time, and so a validation carried from one run to another
+  set or to live decisions; adjudication of the outputs two clinicians disagree on (today the
+  less favourable grade stands); a review screen with a retention window (today a round's texts
+  are erased when it closes); a better interval than the percentile bootstrap, which is slightly
+  liberal on small samples (ADR-0025, Consequences).
 - [ ] **Wave 6 (the owner's go).** The wire and storage names, as a versioned format change.
 - [ ] **Last.** The README and the docs caught up with every wave; the grade taken again.
 

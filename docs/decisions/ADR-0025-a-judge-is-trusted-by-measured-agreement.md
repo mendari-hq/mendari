@@ -52,13 +52,29 @@ read caveats: a number that is shown is a number that is used.
    validated* otherwise. Floors are held against lower bounds, as the grading method's are, so
    a small sample fails closed.
 
+   Agreement over the levels is not enough for a figure that is a pass share. A judge that
+   gives the passing level wherever clinicians gave the one below it has a weighted kappa near
+   0.8 on a seven-level scale and passes three times as many outputs. So a criterion is
+   validated only if, on the outputs both graded:
+
+   - plain kappa on pass or fail also clears the agreement floor, by its lower bound;
+   - the judge does not lean lenient: an exact two-sided McNemar test on the discordant pairs
+     (binomial, at 0.05) does not reject symmetry with the judge passing more than clinicians.
+     A judge that leans strict stays eligible and is flagged;
+   - it could grade all but 5% of the outputs clinicians graded, and of the rest. An output it
+     could not grade is never a pass, and on a must-not-fail criterion a clinician-failed
+     output it could not grade is a failure it did not find.
+
+   A state is decided on 2,000 resamples or more, and nobody chooses the seed once grades
+   exist: a command uses a constant, a round the seed chained when it was made.
+
 5. **Below the floor the judge's figure is withheld.** The judge's pass share for the texts no
    clinician graded is in the report only for a validated criterion. Otherwise it is null,
    with the state and its reasons. It is not shown with a warning.
 
-6. **The floors are the engine's.** A manifest may raise the two agreement floors and may not
-   lower them, as policy may only lower automation. Every report repeats the four numbers it
-   was decided on.
+6. **The floors are the engine's.** A manifest may raise the two agreement floors and lower
+   the ceiling on what a judge could not grade, never the reverse, as policy may only lower
+   automation. Every report repeats the five numbers it was decided on.
 
 7. **Grades bind to the text and to the rubric's wording.** An item's id is a keyed hash of the
    case, the output's name and the exact text; a grade for another text is stale, counted and
@@ -80,6 +96,10 @@ read caveats: a number that is shown is a number that is used.
 11. **A judge on the agent's own model is flagged, not refused.** Models favour their own text,
     and the engine learns the agent's model only when the agent reports one.
 
+12. **What a round stores is held to what the chain committed to.** A closed round's report
+    is served only while its hash is the one its closing chained, and a full verification of
+    the audit chain checks every closed round's report and every stored grade's commitment.
+
 ## Consequences
 
 - An agent's evaluation can cover what it writes without presenting an unmeasured judge as a
@@ -91,6 +111,17 @@ read caveats: a number that is shown is a number that is used.
   together.
 - A validation holds for one run. Carrying a validated judge to another set, or to live
   decisions, is not decided here.
+- **The interval is slightly liberal on small samples.** The percentile bootstrap's lower bound
+  for kappa covers a little less than it claims: with the true kappa at the floor, a simulation
+  put its miss rate at 3.5% to 4.2% against a nominal 2.5% at 50 to 100 paired outputs. That is
+  one reason 50 outputs graded by both, and 10 on each side of the pass line, are the minimum.
+  A better interval (bias-corrected, or studentized) is future work.
+- **The reference is slightly strict where two clinicians graded.** The less favourable grade
+  stands, so random disagreement between graders moves verdicts toward failing, and an
+  accurate judge then looks a little lenient beside them. That errs against the judge.
+- **Withheld means withheld from the report.** A run's ledger holds each grade the judge gave,
+  by case hash, because a result is recomputed from it. A ledger is a working record, not
+  something to publish.
 - Three tables are added (`written_rounds`, `written_items`, `written_assignments`) and no
   existing one changes.
 

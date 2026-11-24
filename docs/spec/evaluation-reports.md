@@ -1244,7 +1244,7 @@ so a second run gives the same bytes; `result_sha256` covers everything but `run
 | `ledger` | the ledger's id and how many cases it holds |
 | `judge` | its model, `canned`, `prompt_sha256`, and `same_model_as_agent` |
 | `seeds` | the bootstrap's seed, its resamples and the level (0.95) |
-| `floors` | `agreement`, `must_pass_recall`, `min_paired`, `min_each_side`: the four the report was decided on |
+| `floors` | `agreement`, `must_pass_recall`, `max_judge_errors`, `min_paired`, `min_each_side`: the five the report was decided on |
 | `cases` | `n`; `with_output`; `no_output` by reason; `judged`; `judge_errors` by code; `graded`; `graded_twice`; `stale_grades` (grades of a text the run did not produce: counted, never used) |
 | `graders` | each grader's id, with how many grades they gave |
 | `simulated_graders` | whether the grades file says its graders are simulated |
@@ -1253,12 +1253,26 @@ so a second run gives the same bytes; `result_sha256` covers everything but `run
 
 Per criterion: `scale` (levels, scores, `pass_from`); `must_pass`; `clinicians` (`passing` as k
 of n with its exact interval, `levels` counted, `disputed`); `clinician_agreement` (`cases`,
-`agreement`, `kappa`); `judge_agreement` (`cases`, `agreement`, `kappa`, `pass_fail`, and
-`failures_found` for a criterion that must not fail); `validation` (`state`: `validated`,
-`not validated` or `insufficient evidence`, with its `reasons`); `judged` (the judge's
-`passing` share and `levels` for the outputs no clinician graded: present only when the state
-is `validated`, null otherwise); and `cases` (ledger hashes of the outputs clinicians failed,
-of those the judge passed all the same, and of the disputed ones, at most 50 each).
+`agreement`, `kappa`); `judge_agreement`; `judge_errors` (the outputs the judge could not grade:
+`paired`, of those clinicians graded, and `ungraded`, of the rest, each `{k, n}`); `validation`
+(`state`: `validated`, `not validated` or `insufficient evidence`, with its `reasons`); `judged`
+(the judge's `passing` share and `levels` for the outputs no clinician graded, and
+`could_not_grade`, how many of them it could not: present only when the state is `validated`,
+null otherwise); and `cases` (ledger hashes of the outputs clinicians failed, of those the
+judge passed all the same, and of the disputed ones, at most 50 each).
+
+`judge_agreement`, on the outputs both graded: `cases`; `agreement`; `kappa` (weighted, over
+the levels); `pass_fail_kappa` (plain kappa on pass or fail: what a pass share is about, and
+the same as `kappa` on a yes/no criterion); `pass_fail` (the four counts); `passing` (the
+`clinicians`' pass share and the `judge`'s on those same outputs); `symmetry` (`p`, the exact
+two-sided McNemar p-value on the discordant pairs; `alpha`, 0.05; `leaning`: `lenient`,
+`strict` or null); and `failures_found` for a criterion that must not fail, where an output
+the judge could not grade counts as not found.
+
+A report is never computed on fewer than 2,000 resamples, and `seeds` states the seed and the
+resamples it was decided on. The judged share is withheld from the report, not from the
+ledger: a ledger holds each grade the judge gave, by case hash, since a result is recomputed
+from it.
 
 A `kappa` is stored as `mendari.agreement/1` stores a coefficient: its estimate and its
 interval to six places, or `not_estimable` with its reason. The gate is decided on the
