@@ -34,6 +34,8 @@ from tests.conftest import INBOX_DIR, INPUT_HASH_KEY, PHI_KEY, ROOT, message
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 BEFORE = ROOT / "tests" / "fixtures" / "audit" / "before-actions.sqlite.gz"
+# The same decisions, written by `main` as it was before waves 3 and 4 (commit 1c8c87d2).
+MAIN = ROOT / "tests" / "fixtures" / "audit" / "main-1c8c87d2.sqlite.gz"
 REFILL = "Could you refill my lisinopril?"  # AUTO: a draft and a contact released
 ORDER = "Please renew my prescription."  # HUMAN_REVIEW: a read released, an order held
 QUEUE = "Put it in the queue, please."  # HUMAN_REVIEW: a write the manifest tightens, held
@@ -692,6 +694,41 @@ def test_that_database_takes_the_new_events_and_still_verifies(before: Path) -> 
     assert rows(before, "audit_events")[:10] == events  # what was chained is as it was
     with AuditStore(before, read_only=True) as reading:
         assert reading.verify()["ok"]
+
+
+def test_a_database_written_by_main_verifies_and_keeps_every_row(tmp_path: Path) -> None:
+    """A database `main` wrote (commit 1c8c87d2, before waves 3 and 4) still verifies once this
+    code has opened it, with the same chain head, and no row of any table it had is changed.
+    What a start adds to it is wave 3's and is listed here whole: three tables and one column,
+    all empty. Wave 4 adds nothing, as the database of wave 3 above shows."""
+    path = tmp_path / "main.sqlite"
+    path.write_bytes(gzip.decompress(MAIN.read_bytes()))
+
+    def tables_of(found: list[tuple[Any, ...]]) -> dict[str, str]:
+        return {name: sql for kind, name, _, sql in found if kind == "table"}
+
+    before = tables_of(schema(path))
+    kept = {name: rows(path, name) for name in before}
+    assert len(kept["audit_events"]) == 10 and len(kept["decisions"]) == 6
+    with AuditStore(path) as store:  # opened for writing: its migrations run here
+        assert not store.unmigrated
+        found = store.verify(notes=True)
+        assert found["ok"] and found["events"] == 10
+        assert found["notes"] == {"checked": 3, "erased": 0, "unchecked": 0}
+        assert found["head"] == "b8edecb73704abf7e47183f7522f2131e5896ca7cb1db31cbedf2f845c38e2ef"
+        assert len(store.pending_reviews(limit=50)) == 4  # and it is read as it was written
+    after = tables_of(schema(path))
+    assert sorted(set(after) - set(before)) == ["agent_connections", "store_pins", "system_runs"]
+    assert set(before) <= set(after)
+    assert [name for name in before if before[name] != after[name]] == ["store_versions"]
+    for name, was in kept.items():
+        assert rows(path, name) == was, name  # no stored row was rewritten, in any table
+    for added in ("agent_connections", "store_pins", "system_runs", "store_versions"):
+        assert rows(path, added) == []
+    # A second start changes nothing more.
+    with AuditStore(path) as store:
+        assert store.verify()["ok"]
+    assert tables_of(schema(path)) == after
 
 
 def test_no_table_or_column_was_added_for_actions() -> None:

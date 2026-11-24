@@ -9,6 +9,9 @@ its own, `<copy>`), then compress what it writes:
     PYTHONPATH=<copy>/src python make_before_actions.py <copy> before-actions.sqlite
     gzip -9 -n before-actions.sqlite
 
+`main-1c8c87d2.sqlite.gz` beside it is the same, written by `main` as it was before waves 3
+and 4 (an export of commit 1c8c87d2 as `<copy>`).
+
 It records, with the inbox fixture agent on synthetic messages: decisions that wait for review,
 an abstention and a refused input, a review with a note, a rating with a note, a downstream
 outcome, and a follow-up event with a note. PHI mode off, no keys: the plain database a local
