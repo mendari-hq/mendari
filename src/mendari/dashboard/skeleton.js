@@ -23,6 +23,7 @@ const SHAPES = {
   evalsets: () => `${bar("tabs")}${rows(5)}`,
   "registry-review": () => `${repeat(2, bar("card"))}`,
   store: () => `${bar("tabs")}${repeat(2, bar("card"))}`,
+  agents: () => `${bar("tabs")}${repeat(3, bar("card"))}`,
 };
 
 export function skeleton(view) {

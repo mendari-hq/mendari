@@ -1261,6 +1261,8 @@ const ACTIVITY_TEXT = {
   "pack_version.retired": "Agent store version's promotion retired",
   "store_dataset.proposal_accepted": "Proposed test accepted for an agent store version",
   "store_dataset.proposal_dismissed": "Proposed test dismissed for an agent store version",
+  "agent_connection.set": "Agent connection set",
+  "agent_connection.cleared": "Agent connection cleared",
 };
 
 // What an event is about, by its chain id's prefix (core/audit.py SUBJECT_TABLES).
@@ -1270,6 +1272,7 @@ const SUBJECT_TEXT = {
   invitation: "Invitation", access: "Request to join", evalset: "Hidden evaluation set",
   pack_version: "Agent store version", store_key: "Agent store author key",
   store_dataset: "Agent store dataset", store_job: "Agent store evaluation job",
+  agent_connection: "Agent connection",
 };
 
 // Who acted: the first of these a payload has, or a kind's own (standards/audit_fhir.py _ACTORS).

@@ -1281,7 +1281,7 @@ ol.rules p { margin: var(--space-1) 0; }
   .nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--color-border); padding: var(--space-2); }
   .nav-section-label { display: none; }
   .nav a[data-view="patient"], .nav a[data-view="access"] { order: 0; }
-  .nav a[data-view="overview"] { order: 1; }
+  .nav a[data-view="overview"], .nav a[data-view="agents"] { order: 1; }
   .nav a[data-view="review"] { order: 2; }
   .nav a[data-view="audit"] { order: 3; }
   .nav a[data-view="evals"] { order: 4; }
@@ -1404,3 +1404,31 @@ ol.rules p { margin: var(--space-1) 0; }
   .adoption-step { grid-template-columns: auto 1fr; }
   .adoption-action { grid-column: 2; justify-self: start; }
 }
+
+/* Agents (agents.js): each agent a card with whether it acts on its own, why not, and its
+   actions; the registry's search; an agent's listing, what was checked beside what is claimed. */
+.agent-head { gap: var(--space-2); align-items: baseline; }
+.agent-head h3 { margin: 0; }
+.agent-card > p { margin: var(--space-1) 0; }
+.agent-card > .callout { margin: var(--space-3) 0; }
+.agent-why { margin: var(--space-2) 0; padding-left: var(--space-5); }
+.agent-card dl.facts { margin-top: var(--space-2); }
+.agent-card .adoption-steps { margin-bottom: var(--space-3); }
+.agent-actions { margin-top: var(--space-3); gap: var(--space-2); }
+.hub-search { margin-top: var(--space-4); flex-wrap: nowrap; }
+.hub-search input { min-width: 0; }
+.hub-facts { margin-top: var(--space-4); align-items: start; }
+.hub-facts > .panel { margin-top: 0; }
+#agents-body > h2 { margin-top: var(--space-6); }
+/* An agent's connection (connection.js): its form at a readable width, on the card and in the
+   dialog the Agents view opens. */
+.connection-form { max-width: 40rem; margin-top: var(--space-4); }
+.connection-form > h3 { margin: 0 0 var(--space-2); }
+.connection-form input { width: 100%; margin: var(--space-1) 0 var(--space-3); }
+.connection > dl.facts { margin: var(--space-2) 0; }
+dialog.connection-dialog { width: min(640px, calc(100vw - 2 * var(--space-4))); }
+/* The fields of the Agents view's own dialogs (evaluate, start serving): one to a line. */
+.agent-fields fieldset { margin: var(--space-3) 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.agent-fields label:has(> input[type="checkbox"]) { display: flex; gap: var(--space-2); align-items: baseline; }
+.agent-fields > label { display: block; font-weight: var(--weight-medium); }
+.agent-fields :is(input:not([type="checkbox"]), select) { width: 100%; margin: var(--space-1) 0 var(--space-2); }

@@ -35,7 +35,7 @@ PACKS = [
     "mendari/prior-auth-preflight",
     "mendari/referral-router",
 ]
-VIEWS = ["overview", "review", "audit", "evals", "feedback", "card", "try"]
+VIEWS = ["overview", "agents", "review", "audit", "evals", "feedback", "card", "try"]
 PHONE: ViewportSize = {"width": 390, "height": 844}
 DOCS_SITE = "https://mendari-hq.github.io/mendari/"  # mkdocs.yml site_url
 

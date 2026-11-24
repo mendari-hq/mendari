@@ -17,6 +17,7 @@ import "./registry.js";
 import "./labelling.js";
 import "./evalsets.js";
 import "./store.js";
+import "./agents.js";
 import { defaultPack, packOptions } from "./pack.js";
 import { setupPalette } from "./palette.js";
 import { onHashChange, render, route, views } from "./router.js";
