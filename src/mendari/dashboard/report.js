@@ -2,6 +2,7 @@
 // Evaluation report: stats, reliability, threshold sweep, per label, confusion, subgroups.
 
 import { chartHtml } from "./charts.js";
+import { operatingPointView } from "./operatingpoint.js";
 import { criticalText } from "./pack.js";
 import { tableHtml } from "./table.js";
 import { copyText, esc, evidenceMark, figureHtml, icon, money, num, share, shown, slotText, stat, storageGet, time } from "./ui.js";
@@ -54,6 +55,7 @@ export function reportView(r) {
       ${small("Latency p50 / p95", `${num(run.latency_ms?.p50, 2)} / ${num(run.latency_ms?.p95, 2)} ms`)}
       ${small("Cost / decision", r.cost.per_decision_usd === null ? "unknown" : money(r.cost.per_decision_usd))}
     </div>
+    ${operatingPointView(r)}
     <div class="grid-2">
       <div class="panel"><h2>Reliability</h2>${reliabilityChart(q.calibration, f.calibration ?? [], id)}</div>
       <div class="panel"><h2>Threshold sweep</h2>${sweepChart(r.threshold_sweep, f.sweep ?? [], r.policy?.thresholds?.auto, d.outcome_rates.AUTO === 0, id)}${thresholdSimulator(r.threshold_sweep, f.sweep ?? [], r.policy?.thresholds?.auto, id)}</div>
