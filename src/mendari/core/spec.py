@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Agent manifest, spec versions 0.1, 0.2 and 0.3.
+"""Agent manifest, spec versions 0.1 to 0.4.
 
 A pack declares *questions* (a fixed set of labels, each with human-readable criteria).
 Providers answer questions with probability distributions; the policy turns answers into
@@ -7,12 +7,16 @@ one of four outcomes. Spec 0.2 adds `boolean` and `score` question types and *de
 questions computed from other answers by a decision table. See docs/spec/agent-manifest-0.2.md.
 Spec 0.3 changes the FHIR mapping (docs/spec/agent-manifest-0.3.md), which
 `standards/fhir.py` reads and checks, and adds two card keys (§5: `refused` and
-`cds_hooks.card.also_show`); its manifest is otherwise a 0.2 manifest.
+`cds_hooks.card.also_show`); its manifest is otherwise a 0.2 manifest. Spec 0.4 adds `actions`
+(docs/spec/agent-manifest-0.4.md): what an agent may ask to have done besides answer, each with
+an effect; what an effect needs before it is released is the runtime's (`core/policy.py`).
 """
 
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Mapping
 from enum import IntEnum, StrEnum
 from typing import Annotated, Any, Literal, TypeGuard
 
@@ -25,9 +29,31 @@ from mendari.core.templates import (
     unknown_placeholders,
 )
 
-SPEC_VERSION = "0.3"  # the newest spec version this engine reads
+SPEC_VERSIONS = ("0.1", "0.2", "0.3", "0.4")  # every spec version this engine reads, in order
+SPEC_VERSION = SPEC_VERSIONS[-1]  # the newest
 MAX_VERSION_CHARS = 64
 MAX_DERIVE_ROWS = 10
+
+# Actions (spec 0.4 section 2): how many an agent declares, and the bounds of each.
+MAX_ACTIONS = 16
+MAX_ACTION_NAME_CHARS = 64
+MAX_ACTION_DESCRIPTION = 300
+MAX_ACTION_SCHEMA_CHARS = 4_000  # one arguments schema, as JSON
+MAX_ACTION_SCHEMA_DEPTH = 4  # objects inside objects
+MAX_ACTION_PROPERTIES = 32
+MAX_ACTION_ENUM = 100
+MAX_ACTION_ENUM_CHARS = 200
+MAX_ACTIONS_CHARS = 32_000  # the declared actions as one request sends them, as JSON
+
+
+def at_least(version: str, wanted: str) -> bool:
+    """Whether spec `version` is `wanted` or newer, by their place in `SPEC_VERSIONS`. Every
+    check of "this feature needs spec X" asks this, never equality: a later version keeps what
+    an earlier one added. A version this engine does not read is none of them."""
+    if version not in SPEC_VERSIONS:
+        return False
+    return SPEC_VERSIONS.index(version) >= SPEC_VERSIONS.index(wanted)
+
 
 _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
@@ -222,6 +248,18 @@ class Priority(StrEnum):
     URGENT = "urgent"
     ASAP = "asap"
     STAT = "stat"
+
+
+class Effect(StrEnum):
+    """What a declared action does (spec 0.4 section 2.1), mildest first: an action that fits
+    two takes the later one. The author's declaration, as the risk level is; what each needs
+    before an action is released is the runtime's (`core/policy.py` `EFFECT_GATES`)."""
+
+    READ = "read"  # reads data and changes nothing
+    DRAFT = "draft"  # prepares something a person sees before it takes effect
+    WRITE = "write"  # changes the chart or another system of record
+    CONTACT = "contact"  # sends something to a patient, or to anyone outside the care team
+    ORDER = "order"  # places an order or a prescription, or changes treatment
 
 
 class _Strict(BaseModel):
@@ -597,6 +635,162 @@ class AuditConfig(_Strict):
     store_input: Literal["full", "hash"] = "full"
 
 
+# The JSON Schema keywords an action's arguments schema may use (spec 0.4 section 2.2): no
+# pattern, format, `$ref` or combinator, so checking arguments a model wrote costs no more than
+# reading them.
+ACTION_SCHEMA_KEYWORDS = frozenset(
+    {
+        "type", "properties", "required", "additionalProperties", "items", "enum", "const",
+        "minLength", "maxLength", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+        "minItems", "maxItems", "title", "description",
+    }
+)  # fmt: skip
+_ACTION_TYPES = ("object", "array", "string", "integer", "number", "boolean")
+_ACTION_PROPERTY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
+_ACTION_COUNTS = ("minLength", "maxLength", "minItems", "maxItems")
+_ACTION_BOUNDS = ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum")
+
+
+def _scalar(value: Any) -> bool:
+    """A value an `enum` or a `const` may hold: no object and no list, a text of bounded length."""
+    if isinstance(value, str):
+        return len(value) <= MAX_ACTION_ENUM_CHARS
+    return value is None or isinstance(value, bool | int | float)
+
+
+def action_schema_problems(schema: Any) -> list[str]:
+    """Why `schema` is not an arguments schema spec 0.4 section 2.2 allows, or nothing: the
+    closed keyword set, each keyword's own shape, and the bounds. Walked with a stack, never by
+    recursion: a manifest is another party's file. Each problem names where in the schema,
+    never a value."""
+    if not isinstance(schema, dict):
+        return ["it must be a mapping"]
+    try:
+        size = len(json.dumps(schema, allow_nan=False))
+    except (TypeError, ValueError, RecursionError):
+        return ["it must hold only what JSON carries"]
+    if size > MAX_ACTION_SCHEMA_CHARS:
+        return [f"it is longer than {MAX_ACTION_SCHEMA_CHARS:,} characters as JSON"]
+    problems: list[str] = []
+    stack: list[tuple[str, Any, int]] = [("(root)", schema, 1)]
+    while stack and len(problems) < 10:
+        where, node, depth = stack.pop()
+        if not isinstance(node, dict):
+            problems.append(f"{where}: a schema is a mapping")
+            continue
+        unknown = sorted(str(key) for key in set(node) - ACTION_SCHEMA_KEYWORDS)
+        if unknown:
+            shown = ", ".join(key[:40] for key in unknown[:5])
+            problems.append(f"{where}: keywords an arguments schema may not use: {shown}")
+            continue
+        kind = node.get("type")
+        if not isinstance(kind, str) or kind not in _ACTION_TYPES:
+            problems.append(f"{where}: `type` is one of {', '.join(_ACTION_TYPES)}")
+            continue
+        problems.extend(f"{where}: {problem}" for problem in _keyword_problems(node))
+        if kind == "object":
+            if depth > MAX_ACTION_SCHEMA_DEPTH:
+                problems.append(f"{where}: objects nest at most {MAX_ACTION_SCHEMA_DEPTH} deep")
+                continue
+            if node.get("additionalProperties") is not False:
+                problems.append(f"{where}: an object sets `additionalProperties: false`")
+            properties = node.get("properties", {})
+            if not isinstance(properties, dict) or len(properties) > MAX_ACTION_PROPERTIES:
+                problems.append(
+                    f"{where}: `properties` is a mapping of at most {MAX_ACTION_PROPERTIES}"
+                )
+                continue
+            named = [key for key in properties if isinstance(key, str)]
+            if len(named) != len(properties) or not all(_ACTION_PROPERTY.match(k) for k in named):
+                problems.append(f"{where}: a property's name matches {_ACTION_PROPERTY.pattern}")
+                continue
+            required = node.get("required", [])
+            if not isinstance(required, list) or not all(
+                isinstance(key, str) and key in properties for key in required
+            ):
+                problems.append(f"{where}: `required` names only the object's properties")
+            inside = "" if where == "(root)" else f"{where}."
+            stack.extend((f"{inside}{key}", properties[key], depth + 1) for key in named)
+        elif "properties" in node or "required" in node or "additionalProperties" in node:
+            problems.append(f"{where}: only an object has properties")
+        if kind == "array":
+            if "items" in node:
+                stack.append((f"{where}[]", node["items"], depth))
+        elif "items" in node:
+            problems.append(f"{where}: only an array has `items`")
+    return problems[:10]
+
+
+def _keyword_problems(node: Mapping[str, Any]) -> list[str]:
+    """What is wrong with one schema's own keywords (`action_schema_problems`), each named."""
+    problems = []
+    for key in ("title", "description"):
+        if key in node and not isinstance(node[key], str):
+            problems.append(f"`{key}` is a text")
+    for key in _ACTION_COUNTS:
+        count = node.get(key)
+        if key in node and (isinstance(count, bool) or not isinstance(count, int) or count < 0):
+            problems.append(f"`{key}` is a whole number, 0 or more")
+    for key in _ACTION_BOUNDS:
+        bound = node.get(key)
+        if key in node and (isinstance(bound, bool) or not isinstance(bound, int | float)):
+            problems.append(f"`{key}` is a number")
+    if "enum" in node:
+        values = node["enum"]
+        if not isinstance(values, list) or not 1 <= len(values) <= MAX_ACTION_ENUM:
+            problems.append(f"`enum` lists 1 to {MAX_ACTION_ENUM} values")
+        elif not all(_scalar(value) for value in values):
+            problems.append(
+                "an `enum` value is no object or list, and a text of at most "
+                f"{MAX_ACTION_ENUM_CHARS} characters"
+            )
+    if "const" in node and not _scalar(node["const"]):
+        problems.append("`const` is no object or list")
+    return problems
+
+
+class ActionSpec(_Strict):
+    """One action an agent may propose (spec 0.4 section 2): what it does in words a reviewer
+    reads (shown on the Decision Card and sent to the agent as written), its effect, and
+    optionally a JSON Schema for its arguments. `allow_auto: false` only tightens: the action is
+    then never released without a person, whatever its effect. No key loosens the runtime's rule
+    (`core/policy.py`): `allow_auto: true` is the default and changes nothing, on an `order` too
+    (a dumped manifest writes the default, and must load)."""
+
+    description: str = Field(min_length=1, max_length=MAX_ACTION_DESCRIPTION)
+    effect: Effect
+    allow_auto: bool = True
+    json_schema: dict[str, Any] | None = Field(default=None, alias="schema")
+
+    @field_validator("description")
+    @classmethod
+    def _described(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("an action needs a description a person can read")
+        return value
+
+    @field_validator("json_schema")
+    @classmethod
+    def _arguments_schema(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        problems = action_schema_problems(value)
+        if problems:
+            raise ValueError("schema: " + "; ".join(problems))
+        return value
+
+    def request(self, name: str) -> dict[str, Any]:
+        """The action as a request to the agent declares it (spec 0.4 section 4.1)."""
+        declared: dict[str, Any] = {
+            "name": name,
+            "description": self.description,
+            "effect": self.effect.value,
+        }
+        if self.json_schema is not None:
+            declared["schema"] = self.json_schema
+        return declared
+
+
 # The most characters a CDS Hooks card's summary has: CDS Hooks 2.0 says under 140 (Inferno's CRD
 # kit fails a summary of 140), checked at load for every text a pack's summary can give
 # (`card_summary_problems`).
@@ -723,7 +917,7 @@ def prefetch_problems(hooks: CdsHooksConfig | None) -> list[str]:
 
 
 class PackManifest(_Strict):
-    spec_version: Literal["0.1", "0.2", "0.3"]
+    spec_version: Literal["0.1", "0.2", "0.3", "0.4"]
     id: str
     version: str
     name: str
@@ -742,6 +936,9 @@ class PackManifest(_Strict):
     audit: AuditConfig = AuditConfig()
     cds_hooks: CdsHooksConfig | None = None
     guard: GuardConfig | None = None
+    # What the agent may ask to have done besides answer (spec 0.4), by name, in the manifest's
+    # order. Empty: none, as for every agent before 0.4.
+    actions: dict[str, ActionSpec] = {}
 
     @field_validator("id")
     @classmethod
@@ -938,7 +1135,7 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
         newer = (["cds_hooks.card.also_show"] if card.also_show else []) + (
             [f"cds_hooks.card key {REFUSED!r}"] if card.names_refused() else []
         )
-        if newer and m.spec_version in ("0.1", "0.2"):
+        if newer and not at_least(m.spec_version, "0.3"):
             problems.append(f"{newer} use spec 0.3 card features; set spec_version: '0.3'")
 
     for critical in m.evaluation.critical:
@@ -950,6 +1147,34 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
         and m.evaluation.benchmark_dataset not in m.evaluation.datasets
     ):
         problems.append("evaluation.benchmark_dataset must name one of evaluation.datasets")
+    problems.extend(action_problems(m))
+    return problems
+
+
+def action_problems(m: PackManifest) -> list[str]:
+    """What spec 0.4 holds the `actions` section to beyond each action's own shape: the names,
+    how many, how long they are together as one request sends them, and the spec version. An
+    empty `actions` is the default a dumped manifest carries: it counts as left out."""
+    if not m.actions:
+        return []
+    problems = []
+    for name in m.actions:
+        if not _KEY.match(name) or len(name) > MAX_ACTION_NAME_CHARS:
+            shown = name if len(name) <= MAX_ACTION_NAME_CHARS else name[:40] + "..."
+            problems.append(
+                f"action name {shown!r} must match {_KEY.pattern}, at most "
+                f"{MAX_ACTION_NAME_CHARS} characters"
+            )
+    if len(m.actions) > MAX_ACTIONS:
+        problems.append(f"an agent declares at most {MAX_ACTIONS} actions")
+    sent = json.dumps([spec.request(name) for name, spec in m.actions.items()])
+    if len(sent) > MAX_ACTIONS_CHARS:
+        problems.append(
+            f"actions are longer than {MAX_ACTIONS_CHARS:,} characters together, as a request "
+            "sends them"
+        )
+    if not at_least(m.spec_version, "0.4"):
+        problems.append("['actions'] use spec 0.4 features; set spec_version: '0.4'")
     return problems
 
 

@@ -44,7 +44,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from mendari.core import clock
 from mendari.core.pack import Pack
-from mendari.core.spec import Outcome, PackManifest, Priority
+from mendari.core.spec import Outcome, PackManifest, Priority, at_least
 from mendari.core.templates import (
     UNKNOWN,
     expansion_count,
@@ -1393,7 +1393,7 @@ def older_spec_problems(mapping: FhirMapping, manifest: PackManifest) -> list[st
     """A 0.1 or 0.2 pack's mapping uses no spec 0.3 key: the problem names each one it does
     (`newer_keys`). `load_pack` refuses such a pack wherever it comes from (`version_problems`),
     as `spec.cross_reference_problems` refuses 0.2 features in a 0.1 pack."""
-    newer = [] if manifest.spec_version == SPEC_03 else newer_keys(mapping)
+    newer = [] if at_least(manifest.spec_version, SPEC_03) else newer_keys(mapping)
     return [f"{newer} use spec 0.3 mapping features; set spec_version: '0.3'"] if newer else []
 
 
@@ -1403,7 +1403,7 @@ def version_problems(pack: Pack) -> list[str]:
     `FhirAdapter.for_pack` checks at load). A mapping that is not of the mapping's shape gives
     none here: it is refused where it is read, as before (the adapter, `mendari validate`)."""
     relative = pack.manifest.inputs.fhir
-    if relative is None or pack.manifest.spec_version == SPEC_03:
+    if relative is None or at_least(pack.manifest.spec_version, SPEC_03):
         return []
     try:
         mapping = read_mapping(pack)
@@ -1433,7 +1433,7 @@ def mapping_problems(mapping: FhirMapping, manifest: PackManifest, *, held: bool
     MedicationRequest's only. With `held` (a pack the deployment does not own, or any in
     `mendari validate`), a field tries at most `MAX_PATHS` paths and a code set has at most
     `MAX_CODE_SET_CODES` codes."""
-    if manifest.spec_version != SPEC_03:
+    if not at_least(manifest.spec_version, SPEC_03):
         return older_spec_problems(mapping, manifest)
     declared = {use.url for use in manifest.code_systems}
     problems: list[str] = []
