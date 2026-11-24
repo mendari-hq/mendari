@@ -3294,14 +3294,63 @@ def cmd_monitor(args: argparse.Namespace) -> int:
 
 
 def cmd_packet(args: argparse.Namespace) -> int:
-    """The committee packet of one agent (`core/packet.py`), from the server's database: one
-    page to print, or the JSON it is made from (--json), written to --out or printed. For one
-    organization with --org, otherwise every organization of the deployment together.
+    """The committee packet of one agent (`core/packet.py`): one page to print, or the JSON it
+    is made from (--json), written to --out or printed.
 
-    Nothing is recorded: the database is opened read-only, and the command works with the
-    server down. What only a running server knows (sign-in, sessions, the schedule, the model
-    each part runs) is shown as not known; the rest is read from this environment's settings,
-    which should be the server's, and the page says it was made from the command line."""
+    **With --db**, from the server's database: for one organization with --org, otherwise every
+    organization of the deployment together. Nothing is recorded: the database is opened
+    read-only, and the command works with the server down. What only a running server knows
+    (sign-in, sessions, the schedule, the model each part runs) is shown as not known; the rest
+    is read from this environment's settings, which should be the server's, and the page says
+    it was made from the command line.
+
+    **Without --db**, from the agent's files alone (`packet.build_alone`): what a publisher
+    hands a hospital before any deployment exists. No database is opened or made, and no
+    setting of this machine is read; the sections on a deployment's data say that none was
+    read, and why. --org and --days count a deployment's decisions, so they are refused."""
+    from mendari.core import packet
+
+    pack = resolve_pack(args.pack)
+    if args.db is None:
+        if args.org is not None or args.days is not None:
+            raise MendariError(
+                "--org and --days count a deployment's decisions: give --db, the server's "
+                "database, with them. Without --db the packet is made from the agent's files "
+                "alone"
+            )
+        built = packet.build_alone(pack)
+    else:
+        built = _deployment_packet(args, pack)
+    text = json.dumps(built, indent=2) + "\n" if args.json else packet.render_html(built)
+    # Said beside the document, never in it twice: the packet says the same on its cover.
+    alone = (
+        "no --db: made from the agent's files alone, so it holds no deployment's data, and "
+        "says so in each section that would. A site adds --db with its server's database"
+        if args.db is None
+        else ""
+    )
+    if not args.out:
+        sys.stdout.write(text)
+        if alone:
+            print(f"note: {alone}", file=sys.stderr)
+        return 0
+    target = Path(args.out)
+    if target.is_symlink():  # the write would land wherever the link points
+        raise MendariError(f"{target} is a symbolic link; not writing through it")
+    target.write_text(text, encoding="utf-8")
+    print(
+        f"wrote {target}: {pack.id} {pack.version}, {len(built['sections'])} sections, "
+        f"{len(built['not_stated'])} items not stated",
+        file=sys.stderr,
+    )
+    if alone:
+        print(f"note: {alone}", file=sys.stderr)
+    return 0
+
+
+def _deployment_packet(args: argparse.Namespace, pack: Pack) -> dict[str, Any]:
+    """`mendari packet --db`: the packet of `pack` as the deployment whose database this is
+    holds it (`packet.build`), read with this environment's settings."""
     from mendari.alerts import alert_settings
     from mendari.core import packet, tenancy
     from mendari.core.checkpoint import checkpoint_key, key_id
@@ -3311,7 +3360,6 @@ def cmd_packet(args: argparse.Namespace) -> int:
     from mendari.providers.agent import ENDPOINT_ENV
     from mendari.settings import retention_days
 
-    pack = resolve_pack(args.pack)
     phi = phi_policy()  # before any work, so a bad setting fails at once
     alerts = alert_settings()
     signer = checkpoint_key()
@@ -3331,29 +3379,15 @@ def cmd_packet(args: argparse.Namespace) -> int:
                 providers=recorded_providers(store, pack),
                 seen_from="command line",
             )
-            built = packet.build(
+            return packet.build(
                 store,
                 pack,
                 deployment=deployment,
-                days=args.days,
+                days=packet.DEFAULT_DAYS if args.days is None else args.days,
                 organization=args.org,
                 holds=store.holds(args.org),
                 records=store.deployments(pack.id, limit=20),
             )
-    text = json.dumps(built, indent=2) + "\n" if args.json else packet.render_html(built)
-    if not args.out:
-        sys.stdout.write(text)
-        return 0
-    target = Path(args.out)
-    if target.is_symlink():  # the write would land wherever the link points
-        raise MendariError(f"{target} is a symbolic link; not writing through it")
-    target.write_text(text, encoding="utf-8")
-    print(
-        f"wrote {target}: {pack.id} {pack.version}, {len(built['sections'])} sections, "
-        f"{len(built['not_stated'])} items not stated",
-        file=sys.stderr,
-    )
-    return 0
 
 
 def cmd_alerts_test(args: argparse.Namespace) -> int:
@@ -5833,25 +5867,29 @@ def build_parser() -> argparse.ArgumentParser:
         "to print",
     )
     packet_cmd.description = (
-        "The committee packet of one agent, at the version this deployment serves: what it is "
-        "and who made it, its risk level and what the runtime enforces, how a person stays in "
-        "the loop, the publisher's evidence and this site's, monitoring, change control, data "
-        "handling and approvals; then what nobody has stated, and a crosswalk to four published "
-        "frameworks. It is read from the server's database, which is opened read-only and may "
-        "be read with the server down. It holds counts, ids and dates, never a case's text, and "
-        "it is a reading aid: not signed, and not a certification."
+        "The committee packet of one agent: what it is and who made it, its risk level and "
+        "what the runtime enforces, how a person stays in the loop, the publisher's evidence "
+        "and a site's, monitoring, change control, data handling and approvals; then what "
+        "nobody has stated, and a crosswalk to four published frameworks. With --db it is the "
+        "version that deployment serves, read from the server's database, which is opened "
+        "read-only and may be read with the server down. Without --db it is made from the "
+        "agent's files alone, as a publisher makes it before any deployment exists: the "
+        "sections on a deployment's data then say that none was read, and no database is "
+        "opened or made. It holds counts, ids and dates, never a case's text, and it is a "
+        "reading aid: not signed, and not a certification."
     )
     packet_cmd.add_argument(
         "--db",
-        default="var/mendari.db",
-        help="the server's database: a SQLite path or a postgresql:// URL (default var/mendari.db)",
+        help="the server's database: a SQLite path or a postgresql:// URL (default: none, and "
+        "the packet is made from the agent's files alone)",
     )
-    packet_cmd.add_argument("--org", help="one organization (default: every organization together)")
+    packet_cmd.add_argument(
+        "--org", help="with --db: one organization (default: every organization together)"
+    )
     packet_cmd.add_argument(
         "--days",
         type=_monitored_days,
-        default=90,
-        help="the days its counts cover, 14 to 180 (default 90)",
+        help="with --db: the days its counts cover, 14 to 180 (default 90)",
     )
     packet_cmd.add_argument("--out", metavar="FILE", help="write it here (default: print it)")
     packet_cmd.add_argument("--json", action="store_true", help="the packet as JSON, not as a page")
