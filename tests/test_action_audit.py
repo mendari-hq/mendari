@@ -642,6 +642,16 @@ def before(tmp_path: Path) -> Path:
     return path
 
 
+# The tables wave 5 adds (grading rounds of written output, `core/written.py`): new tables
+# only, so opening an older database changes nothing it had.
+WRITTEN_TABLES = ("written_assignments", "written_items", "written_rounds")
+
+
+def named_in(made: list[tuple[Any, ...]]) -> set[tuple[Any, Any]]:
+    """Each table and index of a schema, by its kind and name."""
+    return {(kind, name) for kind, name, _, _ in made}
+
+
 def schema(path: Path) -> list[tuple[Any, ...]]:
     with closing(sqlite3.connect(path)) as connection:
         return connection.execute(
@@ -673,8 +683,16 @@ def test_a_database_made_before_actions_verifies_and_is_not_changed_by_opening_i
         for item in store.query(limit=50):  # read as before: no action on any of them
             got = store.get(item["id"])
             assert got is not None and "actions" not in got
-    # No table, column or index was added, and no stored row was rewritten.
-    assert schema(before) == made
+    # Nothing it had was changed, and no stored row was rewritten: actions (wave 4) added no
+    # table, column or index. What a start adds since is wave 5's and is listed here whole:
+    # three tables for grading rounds of written output, with their indexes, all empty.
+    after = schema(before)
+    assert [item for item in after if item in made] == made
+    added = [(kind, name) for kind, name, _, _ in after if (kind, name) not in named_in(made)]
+    assert sorted(name for kind, name in added if kind == "table") == list(WRITTEN_TABLES)
+    assert {table for kind, name, table, _ in after if (kind, name) in added} == set(WRITTEN_TABLES)
+    for table in WRITTEN_TABLES:
+        assert rows(before, table) == []
     assert rows(before, "audit_events") == events and rows(before, "decisions") == decisions
 
 
@@ -699,8 +717,9 @@ def test_that_database_takes_the_new_events_and_still_verifies(before: Path) -> 
 def test_a_database_written_by_main_verifies_and_keeps_every_row(tmp_path: Path) -> None:
     """A database `main` wrote (commit 1c8c87d2, before waves 3 and 4) still verifies once this
     code has opened it, with the same chain head, and no row of any table it had is changed.
-    What a start adds to it is wave 3's and is listed here whole: three tables and one column,
-    all empty. Wave 4 adds nothing, as the database of wave 3 above shows."""
+    What a start adds to it is listed here whole: wave 3's three tables and one column, and
+    wave 5's three tables for grading rounds, all empty. Wave 4 adds nothing, as the database
+    of wave 3 above shows."""
     path = tmp_path / "main.sqlite"
     path.write_bytes(gzip.decompress(MAIN.read_bytes()))
 
@@ -718,12 +737,19 @@ def test_a_database_written_by_main_verifies_and_keeps_every_row(tmp_path: Path)
         assert found["head"] == "b8edecb73704abf7e47183f7522f2131e5896ca7cb1db31cbedf2f845c38e2ef"
         assert len(store.pending_reviews(limit=50)) == 4  # and it is read as it was written
     after = tables_of(schema(path))
-    assert sorted(set(after) - set(before)) == ["agent_connections", "store_pins", "system_runs"]
+    assert sorted(set(after) - set(before)) == [
+        "agent_connections",
+        "store_pins",
+        "system_runs",
+        *WRITTEN_TABLES,
+    ]
     assert set(before) <= set(after)
     assert [name for name in before if before[name] != after[name]] == ["store_versions"]
     for name, was in kept.items():
         assert rows(path, name) == was, name  # no stored row was rewritten, in any table
     for added in ("agent_connections", "store_pins", "system_runs", "store_versions"):
+        assert rows(path, added) == []
+    for added in WRITTEN_TABLES:
         assert rows(path, added) == []
     # A second start changes nothing more.
     with AuditStore(path) as store:

@@ -916,6 +916,133 @@ def cmd_written_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _written_store(target: str | None, *, writes: bool) -> tuple[Any, str]:
+    """The deployment's database for `mendari written round`: given, or $DATABASE_URL. To write,
+    it must be a server's (`_servers_database`: a mistyped path is refused) and is opened under
+    the deployment's PHI mode, which decides how a round's texts are kept. Otherwise opened
+    read-only: nothing is created, migrated or marked. Returns the round store
+    (`core/written.py`) and the database's name as shown (no password)."""
+    from mendari.core.phi import phi_policy
+    from mendari.core.written import WrittenStore
+
+    if target is None:
+        target = os.environ.get("DATABASE_URL", "").strip() or None
+    if target is None:
+        raise MendariError("give --db (the server's database) or set DATABASE_URL")
+    if not writes:
+        return WrittenStore(_read_store(target)), _shown(target)
+    shown = _servers_database(target, used=True, also=("written_rounds",))
+    return WrittenStore(AuditStore(target, phi=phi_policy())), shown
+
+
+def cmd_written_round_create(args: argparse.Namespace) -> int:
+    """A new grading round of an organization, from one run: the agent writes for every case
+    (or the input is read), the judge grades each text, and a seeded sample of the texts is kept
+    in the server's database for clinicians to grade in the console. Prints ids and counts."""
+    from mendari.evals import resolve_dataset, written
+    from mendari.providers.judge import Judge
+
+    store, shown = _written_store(args.db, writes=True)
+    with store.store:
+        if store.store.phi.mode == "hash":  # before a model is asked for anything
+            raise MendariError(
+                "PHI mode hash keeps no patient text: a round keeps the texts to grade; switch "
+                "to encrypt"
+            )
+        if store.store.organizations() and store.store.organization(args.org) is None:
+            raise MendariError(f"no organization {args.org} in {shown}: create it first")
+        decision = _decision(args, origin_cap=False)
+        pack = decision.pack
+        if args.rubric not in pack.manifest.rubrics:
+            known = ", ".join(pack.manifest.rubrics) or "none"
+            raise MendariError(f"{pack.id} has no rubric {args.rubric!r} (its rubrics: {known})")
+        dataset = resolve_dataset(pack, args.dataset)
+        if args.limit:
+            dataset = dataset.head(args.limit)
+        judge = Judge(pack, args.rubric, mode=args.judge)
+        workers = args.workers or (8 if decision.is_remote or not judge.canned else 1)
+        run = written.run(decision, dataset, args.rubric, judge=judge, workers=workers)
+        made = store.create_round(
+            args.org,
+            pack,
+            args.rubric,
+            run,
+            sample=args.sample,
+            seed=args.seed,
+            created_by=_command_line_actor(),
+        )
+    _print_json(made)
+    print(
+        f"created in {shown}: give its items to graders with "
+        f"`mendari written round assign {made['round']} --grader USER --grader USER`",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_written_round_assign(args: argparse.Namespace) -> int:
+    """Give an open round's items to graders, by user id: one grader an item, a seeded share
+    of them a second. Prints how many assignments each grader got, never which items are graded
+    twice."""
+    store, shown = _written_store(args.db, writes=True)
+    with store.store:
+        made = store.assign(args.round_id, args.grader, double=args.double, seed=args.seed)
+    _print_json(made)
+    print(
+        f"{made['assigned']} assignment(s) made and {made['withdrawn']} withdrawn in {shown}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_written_round_progress(args: argparse.Namespace) -> int:
+    """How a round's grading stands: its items, its assignments by state and each grader's,
+    by user id. Counts only; read-only."""
+    store, _ = _written_store(args.db, writes=False)
+    with store.store:
+        _print_json(store.progress(args.round_id))
+    return 0
+
+
+def cmd_written_round_close(args: argparse.Namespace) -> int:
+    """Close a round: its report is computed from the judge's grades and the graders', and
+    every text the round kept is erased. Prints the report (hashes, never a text)."""
+    from mendari.evals.render import written_report_text
+
+    if args.seed < 0:
+        raise MendariError("--seed is 0 or more")
+    if not 1 <= args.resamples <= MAX_RESAMPLES:
+        raise MendariError(f"--resamples is 1 to {MAX_RESAMPLES}")
+    store, shown = _written_store(args.db, writes=True)
+    with store.store:
+        closed = store.close(
+            args.round_id, by=_command_line_actor(), seed=args.seed, resamples=args.resamples
+        )
+    if args.json:
+        _print_json(closed["report"])
+    else:
+        print(written_report_text(closed["report"]))
+    print(
+        f"closed in {shown}: {closed['graded']} grade(s) kept, {closed['erased']} text(s) erased",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_written_round_list(args: argparse.Namespace) -> int:
+    """Every round (of `--org`, of `--agent`), with its state and counts: ids and counts,
+    read-only. A closed round's report is in the console and in `mendari written round close`'s
+    answer; here, its hash."""
+    store, _ = _written_store(args.db, writes=False)
+    with store.store:
+        rounds = store.rounds(args.org, args.agent)
+    for found in rounds:
+        report = found.pop("report")
+        found["report_sha256"] = None if report is None else report.get("result_sha256")
+    _print_json(rounds)
+    return 0
+
+
 def _written_grades(args: argparse.Namespace, pack: Pack, dataset: Any) -> Any:
     """The clinicians' grades a written-output run is compared with: `--grades`, else the file
     the agent declares for the rubric when its dataset is the one run, else none. A file of
@@ -6233,6 +6360,93 @@ def build_parser() -> argparse.ArgumentParser:
         "--resamples", type=int, default=2000, help="bootstrap resamples (default 2000)"
     )
     written_eval.set_defaults(handler=cmd_written_eval)
+    written_round = written.add_parser(
+        "round", help="grading rounds: clinicians grade a run's outputs in the console"
+    ).add_subparsers(dest="written_round_command", required=True)
+    round_create = written_round.add_parser(
+        "create", help="a new round of an organization, from one run of an agent on a dataset"
+    )
+    round_create.description = (
+        "Runs every case of a dataset as `mendari written eval` does, then keeps a seeded "
+        "sample of the texts in the server's database for the organization's graders. The "
+        "texts are sealed under the deployment's PHI key (PHI mode encrypt) and erased when "
+        "the round closes. Prints ids and counts, never a text."
+    )
+    _agent_argument(round_create)
+    round_create.add_argument("--rubric", required=True, help="one of the agent's rubrics, by name")
+    round_create.add_argument(
+        "--dataset", required=True, help="one of the agent's datasets, by name, or a JSONL path"
+    )
+    round_create.add_argument("--org", required=True, help="the organization whose graders grade")
+    round_create.add_argument(
+        "--sample", type=int, required=True, help="how many of the run's outputs to keep to grade"
+    )
+    round_create.add_argument("--seed", type=int, default=0, help="the draw's seed (default 0)")
+    round_create.add_argument(
+        "--provider",
+        action="append",
+        metavar="SLOT=VARIANT",
+        help="use a non-default provider variant (repeatable)",
+    )
+    round_create.add_argument("--limit", type=int, help="only run the first N cases")
+    round_create.add_argument(
+        "--workers", type=int, help="parallel cases (default: 8 with a remote call, else 1)"
+    )
+    round_create.add_argument(
+        "--judge",
+        choices=("auto", "canned", "live"),
+        default="auto",
+        help="auto (default): a model when one is set, else the rubric's canned grades",
+    )
+    round_create.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    round_create.set_defaults(handler=cmd_written_round_create)
+    round_assign = written_round.add_parser(
+        "assign", help="give a round's items to graders (user ids), a share of them to two"
+    )
+    round_assign.add_argument("round_id", metavar="ROUND", help="the round's id")
+    round_assign.add_argument(
+        "--grader",
+        action="append",
+        required=True,
+        metavar="USER",
+        help="a grader's user id, as the members list shows it (repeatable)",
+    )
+    round_assign.add_argument(
+        "--double",
+        type=float,
+        default=0.25,
+        help="the share of items a second grader also grades (default 0.25; 0 for none)",
+    )
+    round_assign.add_argument("--seed", type=int, default=0, help="the draw's seed (default 0)")
+    round_assign.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    round_assign.set_defaults(handler=cmd_written_round_assign)
+    round_progress = written_round.add_parser(
+        "progress", help="how a round's grading stands (ids and counts)"
+    )
+    round_progress.add_argument("round_id", metavar="ROUND", help="the round's id")
+    round_progress.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    round_progress.set_defaults(handler=cmd_written_round_progress)
+    round_close = written_round.add_parser(
+        "close", help="close a round: compute its report and erase the texts it kept"
+    )
+    round_close.add_argument("round_id", metavar="ROUND", help="the round's id")
+    round_close.add_argument("--json", action="store_true", help="print the JSON report")
+    round_close.add_argument("--seed", type=int, default=0, help="the bootstrap's seed (default 0)")
+    round_close.add_argument(
+        "--resamples", type=int, default=2000, help="bootstrap resamples (default 2000)"
+    )
+    round_close.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    round_close.set_defaults(handler=cmd_written_round_close)
+    round_list = written_round.add_parser(
+        "list", help="every round with its state and counts (ids and counts)"
+    )
+    round_list.add_argument("--org", help="only this organization's")
+    # A new command: `--agent` only (the older `--pack` spelling was never its option).
+    round_list.add_argument(
+        "--agent", dest="agent", metavar="AGENT", help="only this agent's (namespace/name)"
+    )
+    round_list.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    round_list.set_defaults(handler=cmd_written_round_list)
 
     evalset = sub.add_parser(
         "evalset", help="hidden evaluation sets: the key holder's (LP-11)"

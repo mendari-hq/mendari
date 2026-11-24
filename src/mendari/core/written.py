@@ -565,7 +565,7 @@ class WrittenStore:
             for row in rows
         ]
 
-    # -- a grader's ---------------------------------------------------------------------------------
+    # -- a grader's -------------------------------------------------------------------------------
 
     def next_item(self, user_id: str, *, org: str) -> dict[str, Any] | None:
         """What a grader grades next: their oldest open assignment in an open round of `org`,
