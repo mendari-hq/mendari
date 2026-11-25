@@ -331,7 +331,7 @@ def test_the_one_machine_install_end_to_end(site: Install) -> None:
     assert registry["state"] == "not_set" and "./mendari-site install" in registry["action"]
     [mine] = [member for member in adopting.get("/api/auth/members").json() if member["you"]]
     given = adopting.put(
-        f"/api/auth/members/{mine['id']}/roles", json={"roles": ["admin", "pack_author"]}
+        f"/api/auth/members/{mine['id']}/roles", json={"roles": ["admin", "agent_author"]}
     )
     assert given.status_code == 200, given.text
     stored = adopting.get("/api/store/agents")

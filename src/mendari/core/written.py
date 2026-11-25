@@ -56,8 +56,8 @@ from mendari.errors import LabelError, MendariError, NoAssignment
 from mendari.evals import stats, written
 
 if TYPE_CHECKING:
+    from mendari.core.agent import Agent
     from mendari.core.db import Session
-    from mendari.core.pack import Pack
 
 OPEN, CLOSING, CLOSED = "open", "closing", "closed"
 MAX_ITEMS = 2_000  # the outputs one round keeps to grade
@@ -220,10 +220,10 @@ def grade_ref(
     return hashlib.sha256(_GRADE_PREFIX + salt + _canonical(said).encode()).hexdigest()
 
 
-def rubric_header(pack: Pack, rubric_name: str) -> dict[str, Any]:
+def rubric_header(agent: Agent, rubric_name: str) -> dict[str, Any]:
     """What a round keeps of its rubric, in the clear: the manifest's own words, as a grader
     reads them (`next_item`), and the hash grades are bound to."""
-    manifest = pack.manifest
+    manifest = agent.manifest
     rubric = manifest.rubrics[rubric_name]
     output = manifest.outputs[rubric.output]
     return {
@@ -287,7 +287,7 @@ class WrittenStore:
     def create_round(
         self,
         org: str,
-        pack: Pack,
+        agent: Agent,
         rubric_name: str,
         run: written.WrittenRun,
         *,
@@ -295,7 +295,7 @@ class WrittenStore:
         seed: int = 0,
         created_by: str,
     ) -> dict[str, Any]:
-        """A new open round of `org` from one run of `pack` on its rubric: `sample` of the run's
+        """A new open round of `org` from one run of `agent` on its rubric: `sample` of the run's
         outputs, drawn with `seed` and kept in the run's order, each with its context; the
         run's ledger whole. `seed` is the round's from then on, chained with its making: its
         assignments' draws and its report's bootstrap use it, so neither is chosen later. The
@@ -314,13 +314,13 @@ class WrittenStore:
             )
         if phi.mode == "off":
             self.store.refuse_plaintext()
-        if rubric_name not in pack.manifest.rubrics:
-            raise MendariError(f"{pack.id} has no rubric {rubric_name!r}")
+        if rubric_name not in agent.manifest.rubrics:
+            raise MendariError(f"{agent.id} has no rubric {rubric_name!r}")
         if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
             raise MendariError("the seed is a whole number, 0 or more")
-        header = {**rubric_header(pack, rubric_name), "seed": seed}
+        header = {**rubric_header(agent, rubric_name), "seed": seed}
         said = run.ledger.header
-        if said["pack"].get("digest") != pack.digest or said["rubric"].get("name") != rubric_name:
+        if said["agent"].get("digest") != agent.digest or said["rubric"].get("name") != rubric_name:
             raise MendariError("the run is of another agent or rubric than the round's")
         if said["rubric"].get("sha256") != header["rubric_sha256"]:
             raise MendariError("the run was made under another wording of the rubric")
@@ -353,14 +353,14 @@ class WrittenStore:
             else:
                 self.store._refuse_retired(db)
             db.all(
-                "INSERT INTO written_rounds (id, org, pack_id, pack_digest, rubric, "
+                "INSERT INTO written_rounds (id, org, agent_id, agent_digest, rubric, "
                 "rubric_sha256, header, ledger, state, created_by, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     round_id,
                     org,
-                    pack.id,
-                    pack.digest,
+                    agent.id,
+                    agent.digest,
                     rubric_name,
                     header["rubric_sha256"],
                     _canonical(header),
@@ -381,8 +381,8 @@ class WrittenStore:
             _add_usage(db, org, "evaluation", run.usage)
             payload = {
                 "round": round_id,
-                "pack_id": pack.id,
-                "pack_digest": pack.digest,
+                "agent_id": agent.id,
+                "agent_digest": agent.digest,
                 "rubric": rubric_name,
                 "rubric_sha256": header["rubric_sha256"],
                 "ledger": run.ledger.id,
@@ -682,7 +682,7 @@ class WrittenStore:
             "graders": dict(sorted(graders.items())),
         }
 
-    def rounds(self, org: str | None, pack_id: str | None = None) -> list[dict[str, Any]]:
+    def rounds(self, org: str | None, agent_id: str | None = None) -> list[dict[str, Any]]:
         """`org`'s rounds (every organization's, if None: the command line), oldest first,
         optionally one agent's: ids, the rubric and its hash, the state, times, counts and,
         once closed, the stored report. Never a text, a context or a single grade.
@@ -697,11 +697,11 @@ class WrittenStore:
             if org is not None:
                 where.append("r.org = ?")
                 params.append(org)
-            if pack_id is not None:
-                where.append("r.pack_id = ?")
-                params.append(pack_id)
+            if agent_id is not None:
+                where.append("r.agent_id = ?")
+                params.append(agent_id)
             rows = db.all(
-                "SELECT r.id, r.org, r.pack_id, r.pack_digest, r.rubric, r.rubric_sha256, "
+                "SELECT r.id, r.org, r.agent_id, r.agent_digest, r.rubric, r.rubric_sha256, "
                 "r.state, r.created_by, r.created_at, r.closed_at, r.report, "
                 "(SELECT count(*) FROM written_items i WHERE i.round_id = r.id) AS items, "
                 "(SELECT count(*) FROM written_assignments a WHERE a.round_id = r.id "
@@ -733,8 +733,8 @@ class WrittenStore:
             {
                 "id": str(row["id"]),
                 "org": str(row["org"]),
-                "pack_id": str(row["pack_id"]),
-                "pack_digest": str(row["pack_digest"]),
+                "agent_id": str(row["agent_id"]),
+                "agent_digest": str(row["agent_digest"]),
                 "rubric": str(row["rubric"]),
                 "rubric_sha256": str(row["rubric_sha256"]),
                 "state": str(row["state"]),

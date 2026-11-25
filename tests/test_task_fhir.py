@@ -11,10 +11,10 @@ from typing import Any
 
 import pytest
 
-from mendari import AuditStore, Decision, DecisionResult, Pack
+from mendari import Agent, AuditStore, Decision, DecisionResult
 from mendari.core.phi import PhiPolicy
 from mendari.standards import audit_fhir, task_fhir
-from mendari.standards.fhir import PACK_ID_SYSTEM
+from mendari.standards.fhir import AGENT_ID_SYSTEM
 from tests.conftest import ROOT, message
 
 EMERGENCY = "Crushing chest pain and my left arm is numb"  # stat HUMAN_REVIEW -> nurse
@@ -32,12 +32,12 @@ SCREEN_AGENT = {"screen": "agent"}
 # then rated (no version), then corrected downstream. `seq` is global, so this decision's events
 # are sparse.
 DECISION_ID = "2b3f6c1e-8d4a-4f0b-9c71-5e2d8a6b4c90"
-PACK = "mendari-test/triage"
+AGENT = "mendari-test/triage"
 VERSION = "1.0.0"
 REASON = "confidence 0.92 is below the auto threshold 0.95 for 'front_desk'"
 # The CodeSystem of the primary question's labels, which a Task's codings name whether or not
 # the deployment still serves the agent (`terminology.py` generates it).
-SYSTEM = f"https://mendari.co/packs/{PACK}/CodeSystem/destination"
+SYSTEM = f"https://mendari.co/agents/{AGENT}/CodeSystem/destination"
 
 
 def chain_item() -> dict[str, Any]:
@@ -54,8 +54,8 @@ def chain_item() -> dict[str, Any]:
     return {
         "id": DECISION_ID,
         "created_at": "2026-10-01T14:00:00.000+00:00",
-        "pack_id": PACK,
-        "pack_version": VERSION,
+        "agent_id": AGENT,
+        "agent_version": VERSION,
         "outcome": "HUMAN_REVIEW",
         "recommendation": "front_desk",
         "priority": "routine",
@@ -133,7 +133,10 @@ def test_versions_follow_the_events_that_change_the_result() -> None:
     ]
     assert "end" not in first["executionPeriod"]
     assert reviewed["executionPeriod"]["end"] == observed["executionPeriod"]["end"]
-    assert first["owner"]["identifier"] == {"system": PACK_ID_SYSTEM, "value": f"{PACK}@{VERSION}"}
+    assert first["owner"]["identifier"] == {
+        "system": AGENT_ID_SYSTEM,
+        "value": f"{AGENT}@{VERSION}",
+    }
     assert reviewed["owner"] == {"display": "rn-1"}
     assert observed["relevantHistory"] == [
         {"reference": f"{BASE}/Provenance/{DECISION_ID}-p{seq}"} for seq in (2, 10, 12)
@@ -148,19 +151,19 @@ def test_outputs_come_from_the_events_not_the_overwritten_column() -> None:
     assert outputs(observed) == {**outputs(reviewed), "observed-label": "pharmacy"}
     codings = [o["valueCoding"] for o in observed["output"] if "valueCoding" in o]
     assert {c["system"] for c in codings} == {SYSTEM}
-    assert all("display" not in c for c in codings)  # the display is the pack's criteria
+    assert all("display" not in c for c in codings)  # the display is the agent's criteria
 
 
-def test_rendering_does_not_depend_on_which_packs_are_served() -> None:
+def test_rendering_does_not_depend_on_which_agents_are_served() -> None:
     """A decision of a pack this deployment no longer serves keeps its canonical codings."""
     item = chain_item()
-    item["pack_id"] = "someone/retired-pack"
+    item["agent_id"] = "someone/retired-agent"
     task = task_fhir.current_task(item)
     codings = [o["valueCoding"] for o in task["output"] if "valueCoding" in o]
     assert {c["system"] for c in codings} == {
-        "https://mendari.co/packs/someone/retired-pack/CodeSystem/destination"
+        "https://mendari.co/agents/someone/retired-agent/CodeSystem/destination"
     }
-    assert task["meta"]["tag"][0]["code"] == f"someone/retired-pack@{VERSION}"
+    assert task["meta"]["tag"][0]["code"] == f"someone/retired-agent@{VERSION}"
 
 
 def test_without_a_base_nothing_points_anywhere() -> None:
@@ -191,9 +194,9 @@ def test_status_is_a_function_of_two_columns(review_status: str, refused: int, s
 # -- from a real store ---------------------------------------------------------------------
 
 
-def decide(store: AuditStore, pack: Pack, body: str | None) -> DecisionResult:
+def decide(store: AuditStore, agent: Agent, body: str | None) -> DecisionResult:
     body_or_empty = message(body) if body is not None else {"message": {}}
-    return Decision(pack, providers=SCREEN_AGENT, store=store)(body_or_empty)
+    return Decision(agent, providers=SCREEN_AGENT, store=store)(body_or_empty)
 
 
 def current(store: AuditStore, decision_id: str) -> dict[str, Any]:
@@ -202,7 +205,7 @@ def current(store: AuditStore, decision_id: str) -> dict[str, Any]:
     return task_fhir.current_task(item, BASE)
 
 
-def test_each_kind_of_decision_from_the_store(store: AuditStore, triage_agent: Pack) -> None:
+def test_each_kind_of_decision_from_the_store(store: AuditStore, triage_agent: Agent) -> None:
     automated = decide(store, triage_agent, ROUTINE)
     waiting = decide(store, triage_agent, EMERGENCY)
     abstained = decide(store, triage_agent, UNSURE)
@@ -217,7 +220,7 @@ def test_each_kind_of_decision_from_the_store(store: AuditStore, triage_agent: P
 
     auto = current(store, automated.id)
     assert (auto["status"], auto["meta"]["versionId"]) == ("completed", "1")
-    assert auto["owner"]["identifier"]["system"] == PACK_ID_SYSTEM
+    assert auto["owner"]["identifier"]["system"] == AGENT_ID_SYSTEM
     assert "end" in auto["executionPeriod"]
     assert outputs(auto)["recommendation"] == automated.recommendation
 
@@ -238,7 +241,7 @@ def test_each_kind_of_decision_from_the_store(store: AuditStore, triage_agent: P
 
 
 def test_the_latest_version_agrees_with_the_columns_search_reads(
-    store: AuditStore, triage_agent: Pack
+    store: AuditStore, triage_agent: Agent
 ) -> None:
     """Search filters status in SQL over the same columns (`task_status`)."""
     ids = [decide(store, triage_agent, body).id for body in (ROUTINE, EMERGENCY, UNSURE, None)]
@@ -252,7 +255,7 @@ def test_the_latest_version_agrees_with_the_columns_search_reads(
 
 
 def test_versions_match_the_provenances_of_the_audit_trail(
-    store: AuditStore, triage_agent: Pack
+    store: AuditStore, triage_agent: Agent
 ) -> None:
     result = decide(store, triage_agent, EMERGENCY)
     store.resolve_review(result.id, final_label="billing", reviewer="rn-1")
@@ -276,7 +279,7 @@ def test_versions_match_the_provenances_of_the_audit_trail(
 
 @pytest.mark.parametrize("mode", ["off", "hash", "encrypt"])
 def test_no_case_text_or_notes_in_any_phi_mode(
-    tmp_path: Path, triage_agent: Pack, mode: str
+    tmp_path: Path, triage_agent: Agent, mode: str
 ) -> None:
     key = os.urandom(32) if mode == "encrypt" else b""
     store = AuditStore(tmp_path / "phi.db", phi=PhiPolicy(mode=mode, key=key))  # type: ignore[arg-type]

@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.core import accounts
 from mendari.errors import AuthError, InvitationRefused
 from tests.conftest import message
@@ -43,7 +43,7 @@ def test_the_tables_are_made_empty_and_read_so(db_target: str) -> None:
 
 
 def test_the_bootstrap_adds_the_owner_once_and_rewrites_nothing(
-    store: AuditStore, triage_agent: Pack
+    store: AuditStore, triage_agent: Agent
 ) -> None:
     inputs = message("Can I get a refill?")
     store.record(Decision(triage_agent)(inputs), inputs)
@@ -377,11 +377,11 @@ def test_roles_are_known_and_an_organization_keeps_an_admin(store: AuditStore) -
         store.add_membership(org="clinic-a", roles=["root"], created_by="cli", user_id=ada["id"])
     admin = store.add_membership(
         org="clinic-a",
-        roles=["admin", "labeller", "pack_author"],
+        roles=["admin", "agent_author", "labeller"],
         created_by="cli",
         user_id=ada["id"],
     )
-    assert admin["roles"] == ["admin", "labeller", "pack_author"]
+    assert admin["roles"] == ["admin", "agent_author", "labeller"]
     with pytest.raises(ValueError, match="already a member"):
         store.add_membership(org="clinic-a", roles=["viewer"], created_by="cli", user_id=ada["id"])
     with pytest.raises(ValueError, match="without an administrator"):
@@ -493,7 +493,7 @@ def test_the_membership_roles_are_the_servers_and_the_reserved_ones() -> None:
     assert accounts.PERSON_ROLES == ROLES
     assert set(accounts.MEMBERSHIP_ROLES) == {
         *ROLES,
-        "pack_author",
+        "agent_author",
         "labeller",
         "registry_reviewer",
     }

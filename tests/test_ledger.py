@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The per-case ledger and the mendari.eval/2 result (LP-10): a result is computed only from its
+"""The per-case ledger and the mendari.eval/1 result (LP-10): a result is computed only from its
 ledger and seed, byte for byte the same on a second run and when recomputed from the parsed
 ledger; the ledger holds no input text and no case id; a stored report is chained; and two runs
 compare case by case."""
@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari import Decision, Pack, load_pack
+from mendari import Agent, Decision, load_agent
 from mendari.cli import main
 from mendari.core.audit import AuditStore
 from mendari.core.card import render_card
@@ -40,11 +40,11 @@ from tests.support.engine import published
 @pytest.fixture(scope="module")
 def runs() -> tuple[Any, Any, Any]:
     """Two runs of the triage fixture on its `test` set (300 cases), and the set."""
-    from mendari.core.registry import resolve_pack
+    from mendari.core.registry import resolve_agent
 
-    pack = resolve_pack("mendari-test/triage")
-    dataset = resolve_dataset(pack, "test")
-    return evaluation(Decision(pack), dataset), evaluation(Decision(pack), dataset), dataset
+    agent = resolve_agent("mendari-test/triage")
+    dataset = resolve_dataset(agent, "test")
+    return evaluation(Decision(agent), dataset), evaluation(Decision(agent), dataset), dataset
 
 
 def test_a_second_run_gives_byte_identical_results_and_ledgers(runs: Any) -> None:
@@ -103,7 +103,7 @@ def test_a_case_hash_is_keyed_by_the_datasets_own_bytes(tmp_path: Path) -> None:
 
 
 def test_two_cases_with_one_id_are_refused_before_any_decision(
-    tmp_path: Path, triage_agent: Pack
+    tmp_path: Path, triage_agent: Agent
 ) -> None:
     line = json.dumps({"id": "x", "input": {"message": {"body": "Refill please."}}})
     (tmp_path / "twice.jsonl").write_text(f"{line}\n{line}\n")
@@ -121,7 +121,7 @@ def test_two_cases_with_one_id_are_refused_before_any_decision(
     assert calls == []  # refused before a provider is asked
 
 
-def test_a_dataset_without_its_case_key_is_refused(runs: Any, triage_agent: Pack) -> None:
+def test_a_dataset_without_its_case_key_is_refused(runs: Any, triage_agent: Agent) -> None:
     _, _, dataset = runs
     with pytest.raises(MendariError, match="no case key"):
         evaluation(Decision(triage_agent), replace(dataset.head(3), case_key=b""))
@@ -200,10 +200,10 @@ def test_a_benchmark_of_the_same_version_is_never_called_an_earlier_one(tmp_path
     changed = yaml.safe_load(manifest.read_text())
     changed["summary"] = f"Changed. {changed['summary']}"
     manifest.write_text(yaml.safe_dump(changed, sort_keys=False, allow_unicode=True))
-    pack = load_pack(copy)
-    card = render_card(pack)  # a new digest, the version unchanged
-    assert f"This benchmark was measured on version {pack.version} before its last change" in card
-    assert f"earlier version {pack.version}" not in card
+    agent = load_agent(copy)
+    card = render_card(agent)  # a new digest, the version unchanged
+    assert f"This benchmark was measured on version {agent.version} before its last change" in card
+    assert f"earlier version {agent.version}" not in card
 
 
 def test_evaluating_again_keeps_exactly_one_ledger(tmp_path: Path) -> None:
@@ -246,8 +246,8 @@ def test_a_stored_report_keeps_its_ledger_and_is_chained(tmp_path: Path) -> None
         "report": report["run"]["id"],
         "result_sha256": report["result_sha256"],
         "ledger": report["ledger"]["id"],
-        "pack_id": "mendari-test/triage",
-        "pack_digest": report["pack"]["digest"],
+        "agent_id": "mendari-test/triage",
+        "agent_digest": report["agent"]["digest"],
         "dataset_sha256": report["dataset"]["sha256"],
         "org": "default",
     }
@@ -306,10 +306,10 @@ def test_the_evidence_floor_follows_alpha(
     assert accuracy["evidence"] == evidence  # the smallest p that many cases give, vs alpha
 
 
-def test_runs_on_another_dataset_or_pack_are_refused(runs: Any) -> None:
+def test_runs_on_another_dataset_or_agent_are_refused(runs: Any) -> None:
     run, _, dataset = runs
     with pytest.raises(MendariError, match="A was not run on this dataset"):
         paired.compare(run.ledger, run.ledger, dataset_sha256="0" * 64)
-    other = Ledger({**run.ledger.header, "pack": {"id": "x/y"}}, run.ledger.cases)
+    other = Ledger({**run.ledger.header, "agent": {"id": "x/y"}}, run.ledger.cases)
     with pytest.raises(MendariError, match="different agents"):
         paired.compare(run.ledger, other, dataset_sha256=dataset.sha256)

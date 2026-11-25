@@ -151,7 +151,7 @@ SITE_SWEEP = (5, 6, 7, 8, 9)  # deciles: the sweep's thresholds a site report's 
 
 
 def site(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Every figure the registry shows of one site report (`mendari.site-report/2`, LP-22c),
+    """Every figure the registry shows of one site report (`mendari.site-report/1`, LP-22c),
     computed from its counts: none is a rate the site sent. A figure over a suppressed (null)
     count is null ("n/a").
 
@@ -303,7 +303,7 @@ def _standing(row: Mapping[str, Any], version: str | None) -> dict[str, Any]:
     if row["rank"] is not None:
         return {"standing_text": None}
     if row["standing"] == ranking.EARLIER:
-        why = ranking.measured_on(row.get("pack_version"), row.get("pack_digest"), version)
+        why = ranking.measured_on(row.get("agent_version"), row.get("agent_digest"), version)
         return {"standing_text": why}
     return {"standing_text": row["standing"]}
 
@@ -314,7 +314,7 @@ def _row(row: Mapping[str, Any]) -> dict[str, Any]:
         "false_automation": _stored(row.get("false_automation")),
         "automation": counted(row.get("auto_rate"), row["n"]),
         "critical": [critical(c) for c in row["critical"] if c["n"]],
-        # Each critical figure says its label when the pack has several, as the card does
+        # Each critical figure says its label when the agent has several, as the card does
         # (`leaderboard.critical_text`), whether or not they all have positives here.
         "critical_named": len(row["critical"]) > 1,
         "questions": {

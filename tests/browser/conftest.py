@@ -27,7 +27,7 @@ import yaml
 from fastapi.dependencies import models as fastapi_models
 from playwright.sync_api import Browser, Page
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari.core.registry import SearchPath
 from mendari.evals import leaderboard
 from mendari.evals.harness import evaluation, resolve_dataset
@@ -69,7 +69,7 @@ SEEDED = [
 def _forget_endpoints() -> None:
     """Lets stopped servers' apps go. FastAPI caches what each endpoint is in module-level LRU
     caches (4,096 entries) keyed by the endpoint, and every Mendari endpoint is a closure over its
-    app: about 47 apps (their stores, packs and models) stayed alive at once, and the suite's
+    app: about 47 apps (their stores, agents and models) stayed alive at once, and the suite's
     memory and full garbage collections grew with every test that serves one. Production builds
     one app, so only tests need this."""
     for cached in vars(fastapi_models).values():
@@ -94,7 +94,7 @@ def published(source: Path, target: Path, compared: Mapping[str, list[dict[str, 
     data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
     data["evaluation"]["benchmark"] = BENCHMARK
     manifest.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    agent = load_pack(target)
+    agent = load_agent(target)
     benchmark_dataset = agent.manifest.evaluation.benchmark_dataset
     assert benchmark_dataset is not None, agent.id
     run = evaluation(Decision(agent), resolve_dataset(agent, benchmark_dataset))
@@ -175,7 +175,7 @@ def live_server(tmp_path_factory: pytest.TempPathFactory, served_agents: Path) -
     app = create_app(
         db_path=db,
         datasets_dir=datasets,
-        packs_paths=[SearchPath(served_agents, "maintained")],
+        agents_paths=[SearchPath(served_agents, "maintained")],
     )
     with serving(app) as port:
         base = f"http://127.0.0.1:{port}"
@@ -190,8 +190,8 @@ def base_url(live_server: str) -> str:
 
 
 @pytest.fixture(scope="session")
-def pack_ids(live_server: str) -> list[str]:
-    return [pack["id"] for pack in httpx.get(f"{live_server}/api/agents").json()]
+def agent_ids(live_server: str) -> list[str]:
+    return [agent["id"] for agent in httpx.get(f"{live_server}/api/agents").json()]
 
 
 @pytest.fixture

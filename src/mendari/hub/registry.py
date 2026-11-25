@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The registry: namespaces, publisher keys, immutable signed pack versions, and search.
+"""The registry: namespaces, publisher keys, immutable signed agent versions, and search.
 
 - **Namespaces** are owned by publishers. Each has a publisher type (community, verified,
-  institutional) that the registry's reviewers set after verification; a pack's own
+  institutional) that the registry's reviewers set after verification; an agent's own
   `publisher.type` is only what it claims. Each namespace registers Ed25519 public keys.
 - **Publishing** (`PUT /v1/agents/{ns}/{name}/{version}`, with a namespace's owned token) accepts an
   archive only if:
   - its signature verifies with one of the namespace's keys;
-  - its manifest names this pack and version;
+  - its manifest names this agent and version;
   - none of its files holds a case `mendari feedback export` wrote
     (`archive.refuse_site_cases`: a site's cases, which a client refuses to archive, and which
     a client that did not look still cannot publish);
@@ -18,12 +18,12 @@
 
   Versions are immutable.
 - **What a version shows** (ADR-0012): only what the registry checked or rendered itself,
-  in two groups. `checked`: the signing key, the archive's SHA-256, the pack digest, the engine
+  in two groups. `checked`: the signing key, the archive's SHA-256, the agent digest, the engine
   it was checked on, the card (rendered here from the files the digest covers, never the
   uploaded one) and the review status. `claimed`: what the publisher says (its name and type,
   the risk level it declares, the licence and summary). An uploaded card, benchmark or
   leaderboard is never shown: it stays in the signed archive, unread.
-- **Reads** (no token): packs, versions, archives, namespaces and their keys, and search, of
+- **Reads** (no token): agents, versions, archives, namespaces and their keys, and search, of
   every listed namespace (see Claims).
 - **The chain.** Every write appends a hash-chained event in the same transaction
   (`hub_events`: namespaces, claims, publisher types, tokens, keys, publishes, site reports,
@@ -65,7 +65,7 @@
   (`MENDARI_REGISTRY_SIGNING_KEY`) the registry signs a `mendari.registry-acceptance/1` record
   for each version when it becomes listed: at publish in a listed namespace, or at approval for
   the versions published while the claim was pending. Never for a refused namespace, and never
-  without the key. It is served as `checked.accepted` (null: none), chained `pack.accepted`,
+  without the key. It is served as `checked.accepted` (null: none), chained `agent.accepted`,
   and `RegistryStore.countersign` (`mendari registry countersign`) signs the listed versions
   that have none. A version written straight into the database has none, and a client that
   trusts the registry's key refuses it.
@@ -77,7 +77,7 @@
   (under the engine) or the operator's commands on the database (`mendari registry ...`).
 
 Storage is the shared database layer (`core/db.py`): SQLite locally, Postgres deployed. Archives
-are small (a pack is a few MB), so they live in the database.
+are small (an agent is a few MB), so they live in the database.
 """
 
 from __future__ import annotations
@@ -107,16 +107,16 @@ from starlette.concurrency import run_in_threadpool
 
 from mendari import __version__
 from mendari.core import clock
+from mendari.core.agent import Agent
 from mendari.core.audit import GENESIS, _canonical, _chain_hash
 from mendari.core.db import Backend, Baseline, Session, connect
 from mendari.core.https_only import is_local_host
-from mendari.core.pack import Pack
 from mendari.core.rate_buckets import SCHEMA as RATE_SCHEMA
 from mendari.core.rate_buckets import RateBuckets
 from mendari.core.registry import version_key
 from mendari.errors import HubError, MendariError
 from mendari.evals import figures
-from mendari.evals.share import JOINERS, SiteReportV2, composite_members, where
+from mendari.evals.share import JOINERS, SiteReportV1, composite_members, where
 from mendari.hub import (
     acceptance,
     archive,
@@ -141,9 +141,9 @@ _VERSION = re.compile(r"^(?=.{1,64}\Z)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\Z")
 # What the registry stores of each version it publishes (`describe`): with the card it rendered
 # itself from the files the digest covers, never the uploaded card, benchmark or leaderboard
 # (ADR-0012).
-VERSION_FORMAT = "mendari.registry-version/2"
+VERSION_FORMAT = "mendari.registry-version/1"
 # The card the registry renders, at most (a shipped one is about 30 KB): it is stored with the
-# version and sent with every read of the pack.
+# version and sent with every read of the agent.
 MAX_CARD_BYTES = 1_000_000
 _LOCK = 0x0E4_4B0B  # the registry's Postgres advisory lock (the audit store has its own)
 
@@ -383,20 +383,20 @@ ROWS: dict[str, tuple[str, Callable[[Mapping[str, Any]], str]]] = {
     "claims": ("hub_claims", lambda row: str(row["namespace"])),
     "versions": (
         "hub_versions",
-        lambda row: _pack_subject(row["namespace"], row["name"], row["version"]),
+        lambda row: _version_subject(row["namespace"], row["name"], row["version"]),
     ),
     "reviews": ("hub_reviews", lambda row: str(row["id"])),
     "yanks": (
         "hub_yanks",
-        lambda row: _pack_subject(row["namespace"], row["name"], row["version"]),
+        lambda row: _version_subject(row["namespace"], row["name"], row["version"]),
     ),
     "deletions": (
         "hub_deletions",
-        lambda row: _pack_subject(row["namespace"], row["name"], row["version"]),
+        lambda row: _version_subject(row["namespace"], row["name"], row["version"]),
     ),
     "acceptances": (
         "hub_acceptances",
-        lambda row: _pack_subject(row["namespace"], row["name"], row["version"]),
+        lambda row: _version_subject(row["namespace"], row["name"], row["version"]),
     ),
     # Sites and their keys (LP-22d, hub/sites.py).
     "sites": ("hub_sites", lambda row: str(row["id"])),
@@ -448,7 +448,7 @@ def _now_ms() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
-def _pack_subject(namespace: str, name: str, version: str) -> str:
+def _version_subject(namespace: str, name: str, version: str) -> str:
     return f"{namespace}/{name}@{version}"
 
 
@@ -483,7 +483,7 @@ def _not_genuine(db: Session, version: Mapping[str, Any]) -> str | None:
     """Why a stored version is not one the registry could have accepted (None: it is), checked
     again from what is stored before it is counter-signed after the fact: its archive is there
     and hashes to its name, is signed by a key of its namespace, and its signed manifest names
-    this pack, version, digest and that key. A row written straight into the database with no
+    this agent, version, digest and that key. A row written straight into the database with no
     archive a namespace key signed fails here."""
     stored = json.loads(version["metadata"])
     digest, publisher_key = stored.get("digest"), stored.get("key_id")
@@ -522,7 +522,7 @@ def _countersign(
     db: Session, key: Ed25519PrivateKey, version: Mapping[str, Any], by: str, *, verified: bool
 ) -> bool:
     """Counter-sign one version as it becomes listed (`hub/acceptance.py`), in the caller's
-    exclusive session: the record, and its chained `pack.accepted`. `verified`: the caller
+    exclusive session: the record, and its chained `agent.accepted`. `verified`: the caller
     verified its archive itself (this publish, or `_not_genuine` just now); otherwise it is
     checked again from what is stored. False, and nothing written, for one that fails."""
     if not verified and _not_genuine(db, version) is not None:
@@ -531,7 +531,7 @@ def _countersign(
     digest, publisher_key = stored["digest"], stored["key_id"]
     namespace, name, number = _key(version)
     record = acceptance.sign(
-        pack=f"{namespace}/{name}",
+        agent=f"{namespace}/{name}",
         version=number,
         digest=digest,
         archive_sha256=str(version["archive_sha256"]),
@@ -545,9 +545,9 @@ def _countersign(
     )
     record_event(
         db,
-        "pack.accepted",
-        _pack_subject(namespace, name, number),
-        {f: record[f] for f in ("pack", "version", "digest", "archive_sha256", "key_id")}
+        "agent.accepted",
+        _version_subject(namespace, name, number),
+        {f: record[f] for f in ("agent", "version", "digest", "archive_sha256", "key_id")}
         | {"by": by},
         row=("acceptances", "namespace = ? AND name = ? AND version = ?", _key(version)),
     )
@@ -1056,7 +1056,7 @@ class RegistryStore(
                 (id, day),
             )
 
-    # -- packs ----------------------------------------------------------------------------------
+    # -- agents ----------------------------------------------------------------------------------
 
     def publish(
         self, namespace: str, name: str, version: str, data: bytes, *, by: str = "operator"
@@ -1070,7 +1070,7 @@ class RegistryStore(
         if not keys:
             raise HubError(f"namespace {namespace!r} has no publisher key")
         own = _signing_key()  # a key that is set and is not one fails here, before any work
-        try:  # so does a setting that is not one: the operator's to fix, never the pack's
+        try:  # so does a setting that is not one: the operator's to fix, never the agent's
             checks = regression.enabled()
         except MendariError as error:
             raise HubError(f"the registry cannot check versions: {error}", 503) from None
@@ -1087,14 +1087,14 @@ class RegistryStore(
         with tempfile.TemporaryDirectory() as scratch:
             try:
                 # Checked on the engine its pullers run, against this release's bundled agents.
-                pack = archive.extract(verified, Path(scratch) / "pack", origin="hub")
+                agent = archive.extract(verified, Path(scratch) / "agent", origin="hub")
                 # What `mendari validate` refuses, refused here (LP-20b, `evals/validation.py`).
-                _refuse_invalid(pack)
-                metadata = describe(pack, verified)
+                _refuse_invalid(agent)
+                metadata = describe(agent, verified)
                 if checks:  # in a child process of its own (`hub/regression.py`)
                     with regression.slot():  # at most a few at once; else 503, try again
                         metadata["regression"] = regression.check(
-                            Path(scratch) / "pack", self._previous_check(namespace, name, version)
+                            Path(scratch) / "agent", self._previous_check(namespace, name, version)
                         )
             except HubError:
                 raise
@@ -1142,10 +1142,10 @@ class RegistryStore(
             claim = db.one("SELECT org, status FROM hub_claims WHERE namespace = ?", (namespace,))
             record_event(
                 db,
-                "pack.published",
-                _pack_subject(namespace, name, version),
+                "agent.published",
+                _version_subject(namespace, name, version),
                 {
-                    "pack": f"{namespace}/{name}",
+                    "agent": f"{namespace}/{name}",
                     "version": version,
                     "digest": metadata["digest"],
                     "archive_sha256": verified.sha256,
@@ -1206,7 +1206,7 @@ class RegistryStore(
         It signs after the fact, so it trusts nothing it has not checked: it refuses to run on
         a database whose chain does not verify (`verify`: a planted or changed row), and each
         version is checked again from what is stored (`_not_genuine`: its archive, signed by a
-        key of its namespace, naming this pack, version and digest). `signed` names the versions
+        key of its namespace, naming this agent, version and digest). `signed` names the versions
         signed; `skipped` those that failed that check, each with why.
 
         The chain is unkeyed, so one rewritten whole verifies. Given a `checkpoint` (a statement
@@ -1241,9 +1241,9 @@ class RegistryStore(
                 why = _not_genuine(db, version)
                 if why is None:
                     _countersign(db, own, version, by, verified=True)
-                    signed.append(_pack_subject(*_key(version)))
+                    signed.append(_version_subject(*_key(version)))
                 else:
-                    skipped.append(f"{_pack_subject(*_key(version))}: {why}")
+                    skipped.append(f"{_version_subject(*_key(version))}: {why}")
         return {
             "signed": signed,
             "skipped": skipped,
@@ -1316,7 +1316,7 @@ class RegistryStore(
     def namespace_versions(
         self, namespace: str, viewer: Viewer = PUBLIC, *, limit: int = 5
     ) -> tuple[list[dict[str, Any]], int]:
-        """The newest published versions of one namespace the viewer reads, across its packs
+        """The newest published versions of one namespace the viewer reads, across its agents
         (`limit` at most), and how many it has in all: what a reviewer looks at before deciding
         its claim (LP-19e). Only those rows are read: a version's stored card is up to 1 MB."""
         with self._db.session(exclusive=False) as db:
@@ -1382,7 +1382,7 @@ class RegistryStore(
         return bytes(row["data"])
 
     def reports(self, namespace: str, name: str, viewer: Viewer = PUBLIC) -> dict[str, Any]:
-        """A pack's signed site reports (LP-22f), for a viewer who reads the pack: each
+        """An agent's signed site reports (LP-22f), for a viewer who reads the agent: each
         `verified: true`, with its site, key, ticket and figures, and the count of those
         superseded by a correction."""
         with self._db.session(exclusive=False) as db:
@@ -1429,11 +1429,11 @@ class RegistryStore(
             )
             record_event(
                 db,
-                "pack.reviewed",
-                _pack_subject(namespace, name, version),
+                "agent.reviewed",
+                _version_subject(namespace, name, version),
                 {
                     "review_id": review_id,
-                    "pack": f"{namespace}/{name}",
+                    "agent": f"{namespace}/{name}",
                     "version": version,
                     "digest": found["digest"],
                     "risk_level": risk_level,
@@ -1446,13 +1446,13 @@ class RegistryStore(
         return self.version(namespace, name, version, REVIEWER)
 
     def recalled(self, viewer: Viewer = PUBLIC) -> list[dict[str, Any]]:
-        """Every recalled version the viewer reads: pack, version, its yank record and its
+        """Every recalled version the viewer reads: agent, version, its yank record and its
         deletion."""
         with self._db.session(exclusive=False) as db:
             recalls = _recalls(db, "", ())
             unlisted = self._unlisted(db)
         return [
-            {"pack": f"{ns}/{name}", "version": version, **{"yank": None, "deleted": None, **r}}
+            {"agent": f"{ns}/{name}", "version": version, **{"yank": None, "deleted": None, **r}}
             for (ns, name, version), r in sorted(recalls.items())
             if viewer.reads(ns, unlisted)
         ]
@@ -1466,7 +1466,7 @@ class RegistryStore(
         self, namespace: str, name: str, version: str, record: Mapping[str, Any], *, by: str
     ) -> dict[str, Any]:
         """Store a yank record for one version, after checking it: its fields name exactly this
-        version (pack, version, digest, archive), its time is now (within `MAX_SKEW_S`), and its
+        version (agent, version, digest, archive), its time is now (within `MAX_SKEW_S`), and its
         signature holds with a key of the namespace's (`signer: publisher`) or the registry's
         own (`signer: registry`). A version is recalled once (409)."""
         found = self.version(namespace, name, version, REVIEWER)
@@ -1474,7 +1474,7 @@ class RegistryStore(
         if problem:
             raise HubError(f"not a yank: {problem}")
         expected = {
-            "pack": f"{namespace}/{name}",
+            "agent": f"{namespace}/{name}",
             "version": version,
             "digest": found["digest"],
             "archive_sha256": found["archive_sha256"],
@@ -1514,8 +1514,8 @@ class RegistryStore(
             )
             record_event(
                 db,
-                "pack.yanked",
-                _pack_subject(namespace, name, version),
+                "agent.yanked",
+                _version_subject(namespace, name, version),
                 {
                     **expected,
                     "severity": record["severity"],
@@ -1539,7 +1539,7 @@ class RegistryStore(
             raise HubError(f"this registry has no signing key ({yank.KEY_ENV})", 409)
         found = self.version(namespace, name, version, REVIEWER)
         record = yank.sign(
-            pack=f"{namespace}/{name}",
+            agent=f"{namespace}/{name}",
             version=version,
             digest=found["digest"],
             archive_sha256=found["archive_sha256"],
@@ -1581,10 +1581,10 @@ class RegistryStore(
                 )
             record_event(
                 db,
-                "pack.deleted",
-                _pack_subject(namespace, name, version),
+                "agent.deleted",
+                _version_subject(namespace, name, version),
                 {
-                    "pack": f"{namespace}/{name}",
+                    "agent": f"{namespace}/{name}",
                     "version": version,
                     "archive_sha256": found["archive_sha256"],
                     "archive_removed": removed,
@@ -1696,7 +1696,7 @@ class RegistryStore(
         }
 
     def latest(self, viewer: Viewer = PUBLIC) -> list[dict[str, Any]]:
-        """The newest version of every pack the viewer reads that is not recalled (yanked or
+        """The newest version of every agent the viewer reads that is not recalled (yanked or
         deleted), with its namespace's publisher type."""
         with self._db.session(exclusive=False) as db:
             rows = db.all("SELECT * FROM hub_versions")
@@ -1783,7 +1783,7 @@ def _version_row(
     accepted: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """A version as every read serves it: what was stored at publish (`describe`: the card the
-    registry rendered, never anything the pack carried about itself), and the two groups
+    registry rendered, never anything the agent carried about itself), and the two groups
     (ADR-0012)."""
     stored = json.loads(row["metadata"])
     served = {
@@ -1842,7 +1842,7 @@ def _checked(
         # every file with its SHA-256 (`archive.verify`).
         "signature": {"algorithm": "Ed25519", "key_id": version.get("key_id"), "verified": True},
         "archive_sha256": version.get("archive_sha256"),
-        # The digest the signed manifest names, which the pack loaded with, on `engine`.
+        # The digest the signed manifest names, which the agent loaded with, on `engine`.
         "digest": version.get("digest"),
         "engine": version.get("engine"),
         # The registry's release whose bundled agents that engine was chosen against: a puller
@@ -1881,7 +1881,7 @@ def _regression(stored: Any) -> dict[str, Any] | None:
 
 
 def _claimed(version: Mapping[str, Any], review: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """What the publisher says about the pack, as its manifest says it: not checked."""
+    """What the publisher says about the agent, as its manifest says it: not checked."""
     risk = version.get("risk")
     risk = risk if isinstance(risk, dict) else {}
     return {
@@ -1898,8 +1898,8 @@ def _claimed(version: Mapping[str, Any], review: Mapping[str, Any] | None = None
     }
 
 
-def _unknown_names(report: SiteReportV2, names: Mapping[str, Any], primary: Any) -> str | None:
-    """What in a site's report the published pack does not name (a kind of name, never the
+def _unknown_names(report: SiteReportV1, names: Mapping[str, Any], primary: Any) -> str | None:
+    """What in a site's report the published agent does not name (a kind of name, never the
     name itself: it would be echoed to whoever sent it), or None."""
     questions: Mapping[str, list[str]] = names.get("questions") or {}
     slots: Mapping[str, Mapping[str, str]] = names.get("slots") or {}
@@ -1928,17 +1928,17 @@ def _unknown_names(report: SiteReportV2, names: Mapping[str, Any], primary: Any)
     return None
 
 
-# At most this many of an invalid pack's problems are named in a refusal; the rest are counted.
+# At most this many of an invalid agent's problems are named in a refusal; the rest are counted.
 MAX_NAMED_PROBLEMS = 5
 
 
-def _refuse_invalid(pack: Pack) -> None:
-    """A `HubError` naming what the one validation function finds wrong with a pack the
+def _refuse_invalid(agent: Agent) -> None:
+    """A `HubError` naming what the one validation function finds wrong with an agent the
     publisher sent (`validation.problems`: its kind, file, place and line, never a case's
     text); nothing otherwise."""
     from mendari.evals.validation import problems
 
-    found = problems(pack)
+    found = problems(agent)
     if not found:
         return
     named = "; ".join(problem.text for problem in found[:MAX_NAMED_PROBLEMS])
@@ -1947,21 +1947,21 @@ def _refuse_invalid(pack: Pack) -> None:
     raise HubError(f"the agent is not valid (`mendari validate`): {named}{rest}")
 
 
-def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
-    """What the registry shows and searches: from the files the pack's digest covers, never from
+def describe(agent: Agent, verified: archive.Verified) -> dict[str, Any]:
+    """What the registry shows and searches: from the files the agent's digest covers, never from
     what it carries about itself (the uploaded card, benchmark and leaderboard, ADR-0012)."""
     from mendari.core.card import render_card
 
-    m = pack.manifest
+    m = agent.manifest
     return {
         "format": VERSION_FORMAT,
-        "pack_name": m.name,
+        "agent_name": m.name,
         "summary": " ".join(m.summary.split()),
         "license": m.license,
         "claimed_publisher": {"name": m.publisher.name, "type": m.publisher.type},
-        # Derived from the manifest's `card.provenance` (`core/status.py`): a pack only ever
+        # Derived from the manifest's `card.provenance` (`core/status.py`): an agent only ever
         # lowers what it claims here.
-        "status_label": pack.status_label,
+        "status_label": agent.status_label,
         "risk": {"level": int(m.risk.level), "category": m.risk.category},
         "questions": sorted(m.questions),
         "primary": m.policy.primary,
@@ -2007,13 +2007,13 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
                 *([f"CDS Hooks {m.cds_hooks.hook}"] if m.cds_hooks else []),
             ]
         ),
-        "digest": pack.digest,
+        "digest": agent.digest,
         "key_id": verified.key_id,
         # The engine its pullers run it on (ADR-0009): a copy of a bundled agent of this
         # registry's release keeps the maintained one; every other pack runs bounded.
-        "engine": "bounded" if pack.bounded else "maintained",
+        "engine": "bounded" if agent.bounded else "maintained",
         "engine_release": __version__,
-        "card_markdown": render_card(pack, report=None, board=None, rendered_by="registry"),
+        "card_markdown": render_card(agent, report=None, board=None, rendered_by="registry"),
     }
 
 
@@ -2029,7 +2029,7 @@ class PublisherTypeRequest(BaseModel):
 
 class ReviewRequest(BaseModel):
     risk_level: int = Field(ge=0, le=4)
-    # Chained for good and shown on the Hub: a short line about the pack, never case text.
+    # Chained for good and shown on the Hub: a short line about the agent, never case text.
     note: str = Field(default="", max_length=300)
 
     @field_validator("note")
@@ -2119,7 +2119,7 @@ class NamespaceAnswer(BaseModel):
     keys: list[PublisherKey]
     listed: bool
     claim: dict[str, Any] | None
-    packs: list[str] = Field(title="Agents")
+    agents: list[str] = Field(title="Agents")
 
 
 # The key route's body, described by reference as FastAPI would (`_registry_app` adds the schema).
@@ -2373,12 +2373,12 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         return store.head()
 
     @app.get("/v1/health")
-    def health() -> dict[str, Any]:  # the listed packs, whoever asks
+    def health() -> dict[str, Any]:  # the listed agents, whoever asks
         return {
             "status": "ok",
             "version": __version__,
             "storage": store.backend,
-            "packs": len(store.latest()),
+            "agents": len(store.latest()),
         }
 
     @app.post("/v1/namespaces/{namespace}/keys", status_code=201, openapi_extra=_KEY_REQUEST_BODY)
@@ -2400,8 +2400,8 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
     def namespace(request: Request, namespace: str) -> dict[str, Any]:
         viewer = viewer_of(request)
         found = store.namespace(namespace, viewer)
-        packs = sorted(p["id"] for p in store.latest(viewer) if p["namespace"] == namespace)
-        return {**found, "packs": packs}
+        agents = sorted(p["id"] for p in store.latest(viewer) if p["namespace"] == namespace)
+        return {**found, "agents": agents}
 
     @app.put("/v1/agents/{namespace}/{name}/{version}", status_code=201)
     async def publish(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
@@ -2443,7 +2443,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
     )
     async def recall(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         """Recall a version: the namespace's publisher sends a `mendari.yank/1` record it signed
-        with one of the namespace's keys (`mendari yank`). Chained `pack.yanked`; a version is
+        with one of the namespace's keys (`mendari yank`). Chained `agent.yanked`; a version is
         recalled once. The registry's own recall, signed with its key, is a reviewer's (under
         the engine) or the operator's (`mendari registry recall`)."""
         await run_in_threadpool(require_publisher, request, namespace)
@@ -2473,7 +2473,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         return store.recalled(viewer_of(request))
 
     @app.get("/v1/agents/{namespace}/{name}", name="agent")
-    def pack(request: Request, namespace: str, name: str) -> dict[str, Any]:
+    def agent(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """An agent: its versions, the recalled ones apart, and its newest version that is not
         recalled (`latest`, null when every version is)."""
         viewer = viewer_of(request)
@@ -2493,14 +2493,14 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         }
 
     @app.get("/v1/agents/{namespace}/{name}/tickets", name="agent_tickets")
-    def pack_tickets(request: Request, namespace: str, name: str) -> dict[str, Any]:
+    def agent_tickets(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """An agent's tickets by verified site, digest and configuration: how many were
         reported, are unreported (open or expired) and were withdrawn (LP-22e). No commitment
         and no secret is served."""
-        return {"id": f"{namespace}/{name}", "tickets": store.pack_tickets(namespace, name)}
+        return {"id": f"{namespace}/{name}", "tickets": store.agent_tickets(namespace, name)}
 
     @app.get("/v1/agents/{namespace}/{name}/site-evidence", name="agent_site_evidence")
-    def pack_site_evidence(request: Request, namespace: str, name: str) -> dict[str, Any]:
+    def agent_site_evidence(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """What sites' signed reports say of an agent (`mendari.site-evidence/1`, LP-22g): per
         digest and configuration, each site's k of n, then the pooled figures and the
         homogeneity test, worked out on read from the verified counts. Never part of a rank."""
@@ -2583,14 +2583,14 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         return Response(image, status, media_type=BADGE_TYPE)
 
     @app.get("/v1/agents/{namespace}/{name}/{version}", name="agent_version")
-    def pack_version(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
+    def agent_version(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         viewer = viewer_of(request)
         return served(store.version(namespace, name, version, viewer), viewer)
 
     def served(version: dict[str, Any], viewer: Viewer) -> dict[str, Any]:
         """A version with what the registry knows of its namespace now: the publisher type its
         administrators set after checking who publishes there (a checked fact, unlike the type
-        the pack claims). Figures are worked out on read (mendari.evals.figures), never stored."""
+        the agent claims). Figures are worked out on read (mendari.evals.figures), never stored."""
         publisher_type = store.namespace(version["namespace"], viewer)["publisher_type"]
         return {
             **version,
@@ -2600,7 +2600,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         }
 
     @app.get("/v1/agents/{namespace}/{name}/{version}/archive", name="agent_archive")
-    def pack_archive(request: Request, namespace: str, name: str, version: str) -> Response:
+    def agent_archive(request: Request, namespace: str, name: str, version: str) -> Response:
         viewer = viewer_of(request)
         found = store.version(namespace, name, version, viewer)
         if found["deleted"] is not None:
@@ -2773,7 +2773,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         found = []
         for item in store.latest(viewer_of(request)):
             text = " ".join(
-                [item["id"], item["pack_name"], item["summary"], *item["questions"]]
+                [item["id"], item["agent_name"], item["summary"], *item["questions"]]
             ).lower()
             if words and not all(word in text for word in words):
                 continue

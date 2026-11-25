@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for shadow mode, validation brief, cross-pack queue summary, and override export."""
+"""Tests for shadow mode, validation brief, cross-agent queue summary, and override export."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def test_validation_brief_json_markdown_gates_shadow_pilot_and_overrides(
     hold = client.post(
         "/api/holds",
         json={
-            "pack_id": INBOX_ID,
+            "agent_id": INBOX_ID,
             "reason": "shadow pilot: 7-day validation against clinicians",
             "actor": "cmio-1",
             "duration_hours": 168,
@@ -93,9 +93,9 @@ def test_validation_brief_json_markdown_gates_shadow_pilot_and_overrides(
     resp = client.get(f"{INBOX_URL}/validation-brief?days=30&minutes_per_case=4")
     assert resp.status_code == 200
     brief = resp.json()
-    assert brief["format"] == "mendari.validation-brief/2"
+    assert brief["format"] == "mendari.validation-brief/1"
     assert brief["signed"] is False and "not signed" in brief["about"]  # it says what it is
-    assert brief["pack"]["id"] == INBOX_ID
+    assert brief["agent"]["id"] == INBOX_ID
     assert brief["shadow_pilot"]["active"] is True
     assert brief["shadow_pilot"]["hold_id"] == hold.json()["id"]
     assert brief["volume"]["total"] == 2
@@ -130,8 +130,8 @@ def test_validation_brief_json_markdown_gates_shadow_pilot_and_overrides(
     assert f"`{override_label}`" in md
 
 
-def test_review_summary_reports_cross_pack_pending_and_stat_counts(client: TestClient) -> None:
-    """`/api/review/summary` aggregates pending and stat counts across packs without PHI."""
+def test_review_summary_reports_cross_agent_pending_and_stat_counts(client: TestClient) -> None:
+    """`/api/review/summary` aggregates pending and stat counts across agents without PHI."""
     client.post(
         f"{INBOX_URL}/decide",
         json={"message": {"body": "Severe chest pain radiating to left arm"}},
@@ -146,10 +146,10 @@ def test_review_summary_reports_cross_pack_pending_and_stat_counts(client: TestC
 
     resp = client.get("/api/review/summary")
     assert resp.status_code == 200
-    by_pack = {row["pack_id"]: row for row in resp.json()}
-    assert by_pack[INBOX_ID]["pending"] >= 1
-    assert by_pack[INBOX_ID]["stat"] >= 1
-    assert by_pack[REFERRAL_ID]["pending"] >= 1
+    by_agent = {row["agent_id"]: row for row in resp.json()}
+    assert by_agent[INBOX_ID]["pending"] >= 1
+    assert by_agent[INBOX_ID]["stat"] >= 1
+    assert by_agent[REFERRAL_ID]["pending"] >= 1
 
 
 def test_feedback_export_overrides_source_excludes_confirmed_reviews(client: TestClient) -> None:

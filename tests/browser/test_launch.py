@@ -106,7 +106,7 @@ def launch(context: BrowserContext, base: str, ehr: fake.FakeEhr, patient: str) 
     """The EHR opens Mendari in a new window, on `patient`."""
     ehr.patient = patient
     page = context.new_page()
-    query = urlencode({"iss": fake.ISS, "launch": "xyz", "pack": CHART})
+    query = urlencode({"iss": fake.ISS, "launch": "xyz", "agent": CHART})
     page.goto(f"{base}/smart/launch?{query}")
     return page
 
@@ -143,7 +143,7 @@ def test_a_launch_that_replaces_the_window_s_mid_render_is_never_shown(
         route.fulfill(response=answer)
 
     a.route("**/api/smart/session", race)
-    a.evaluate("document.querySelector('#pack-select').dispatchEvent(new Event('change'))")
+    a.evaluate("document.querySelector('#agent-select').dispatchEvent(new Event('change'))")
     replaced = a.locator(".empty-state h2")
     expect(replaced).to_have_text("This window's launch was replaced")
     expect(a.locator(".patient-name")).to_have_count(0)

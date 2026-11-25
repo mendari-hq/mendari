@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// Decision Card: the pack as a document, sections linked as routes ("#card/policy").
+// Decision Card: the agent as a document, sections linked as routes ("#card/policy").
 
 import { cardConnection } from "./connection.js";
-import { effectBadge, holdsFor, originBadge, providerWords, statusNotice } from "./pack.js";
+import { effectBadge, holdsFor, originBadge, providerWords, statusNotice } from "./manifest.js";
 import { render, views } from "./router.js";
 import { $, actionDialog, api, copyText, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError, whileBusy } from "./ui.js";
 
@@ -32,8 +32,8 @@ function conditionText(when) {
 
 // Whether this deployment automates at all, and when. The thresholds say when a decision may be
 // automated; the caps in core/policy.py (risk level, required providers) can rule it out entirely,
-// and at levels 2-3 only the organization's approval of this exact version lifts the risk cap. A
-// pack from a registry also needs its organization's approval of its digest (`registry`), and
+// and at levels 2-3 only the organization's approval of this exact version lifts the risk cap. An
+// agent from a registry also needs its organization's approval of its digest (`registry`), and
 // never automates while a recall its last pull recorded stands (core/decision.py `_origin_holds`).
 function automationText(d, governance, registry) {
   const p = d.manifest.policy;
@@ -60,7 +60,7 @@ function automationText(d, governance, registry) {
   return `${approved}At confidence ${p.thresholds.auto.toFixed(2)} or more${exceptions ? ` (${exceptions}; see Policy)` : ""}. ${review}`;
 }
 
-// Where this pack runs: one row each time its version, providers or release changed somewhere.
+// Where this agent runs: one row each time its version, providers or release changed somewhere.
 // In memberships mode they are the deployment operator's (null: not served, ADR-0008).
 function deploymentsSection(rows) {
   if (rows === null) return `<p class="prose muted">Kept by the deployment's operator: where and how this agent runs is recorded on the server, not shown to each organization.</p>`;
@@ -71,7 +71,7 @@ function deploymentsSection(rows) {
     <thead><tr><th scope="col">Since</th><th scope="col">Environment</th><th scope="col">Version</th><th scope="col">Providers</th><th scope="col">Release</th></tr></thead>
     <tbody>${rows.map((r) => `<tr><td class="nowrap"><time datetime="${esc(r.started_at)}" title="${esc(time(r.started_at))}">${esc(shortTime(r.started_at))}</time></td>
       <td>${esc(r.environment)}</td>
-      <td>v${esc(r.pack_version)} <span class="mono muted">${esc(r.pack_digest.slice(7, 19))}</span></td>
+      <td>v${esc(r.agent_version)} <span class="mono muted">${esc(r.agent_digest.slice(7, 19))}</span></td>
       <td>${providers(r.providers)}</td><td class="mono">${esc(r.release)}</td></tr>`).join("")}</tbody>
   </table></div>`;
 }
@@ -103,7 +103,7 @@ views.card = async (main, params) => {
   const d = state.detail;
   const m = d.manifest;
   const p = m.policy;
-  const query = `pack_id=${encodeURIComponent(state.packId)}`;
+  const query = `agent_id=${encodeURIComponent(state.agentId)}`;
   const [governance, deployments, holds, registry] = await Promise.all([
     api(`/api/governance?${query}`),
     deploymentRecords(query),
@@ -215,14 +215,14 @@ views.card = async (main, params) => {
   wireApproval(main);
   if (registry) wireRegistry(main, registry, d);
   wireHolds(main, holds, d);
-  cardConnection(state.packId); // read apart: the card never waits for it (connection.js)
+  cardConnection(state.agentId); // read apart: the card never waits for it (connection.js)
   main.querySelector("[data-copy]").addEventListener("click", (event) =>
     copyText(event.currentTarget.dataset.copy, "Digest copied", "Copying isn't available here: select the digest and copy it"));
   return cardSection(params[0]);
 };
 
-// What the pack's risk level allows, the approval in force, and (for people who may approve)
-// approving or revoking. An approval is for this exact pack: a new version needs a new one.
+// What the agent's risk level allows, the approval in force, and (for people who may approve)
+// approving or revoking. An approval is for this exact agent: a new version needs a new one.
 function approvalSection(g, d, registry) {
   if (g.risk_level >= 4) return `<p class="prose">Risk level 4: never automated. No approval can change that.</p>`;
   if (!g.approvable) {
@@ -257,7 +257,7 @@ function wireApproval(main) {
         await api("/api/governance", {
           method: "POST",
           body: JSON.stringify({
-            pack_id: state.packId, reference: $("#approval-reference").value, days: Number($("#approval-days").value),
+            agent_id: state.agentId, reference: $("#approval-reference").value, days: Number($("#approval-days").value),
             approver: $("#approval-approver")?.value || null,
           }),
         });
@@ -282,10 +282,10 @@ function wireApproval(main) {
   });
 }
 
-// A pack pulled from a registry (origin `hub`; LP-18d, ADR-0012 §6) never automates, and its own
+// An agent pulled from a registry (origin `hub`; LP-18d, ADR-0012 §6) never automates, and its own
 // rules never block alone, until your organization approves its exact digest
 // (GET/POST /api/registry-approvals, DELETE /api/registry-approvals/{id}). The approval is keyed
-// on the pack and its digest, so it lives on the pack's card: what is approved, by whom, when and
+// on the agent and its digest, so it lives on the agent's card: what is approved, by whom, when and
 // why; approving (a reference, then a dialog saying what it allows and what it never lifts) and
 // revoking for people with `approve`.
 const fromRegistry = (d) => d.origin === "hub";
@@ -309,7 +309,7 @@ function registrySection(r) {
   const a = r.active;
   const status = a
     ? `<div class="callout neutral" id="registry-active"><b>Approved for automation</b> by ${esc(a.approver)} (${esc(a.reference)}),
-        ${esc(time(a.created_at))}, for digest <span class="mono">${esc(shortDigest(a.pack_digest))}</span>, until revoked.
+        ${esc(time(a.created_at))}, for digest <span class="mono">${esc(shortDigest(a.agent_digest))}</span>, until revoked.
         ${may("approve") ? `<button type="button" data-registry-revoke="${esc(a.id)}">Revoke</button>` : ""}</div>`
     : `<p class="prose"><b>Not approved here.</b> A person reviews every decision this agent's policy would automate, and every
         case its own rules would block, until your organization approves this exact version
@@ -327,20 +327,20 @@ function registrySection(r) {
   </div>`;
 }
 
-// Every approval of this pack in your organization, newest first: of this digest or another,
+// Every approval of this agent in your organization, newest first: of this digest or another,
 // in force or revoked.
 function registryHistory(rows, digest) {
   if (!rows.length) return "";
   const when = (iso) => `<time datetime="${esc(iso)}" title="${esc(time(iso))}">${esc(shortTime(iso))}</time>`;
   const status = (row) => {
     if (row.revoked_at) return `Revoked by ${esc(row.revoked_by)}, ${when(row.revoked_at)}`;
-    return row.pack_digest === digest ? "In force" : "Another version, not served here";
+    return row.agent_digest === digest ? "In force" : "Another version, not served here";
   };
   return `<div class="panel table-wrap mt-2"><table>
     <caption class="sr-only">Approvals of this agent from a registry, newest first</caption>
     <thead><tr><th scope="col">Approved</th><th scope="col">Digest</th><th scope="col">By</th><th scope="col">Reference</th><th scope="col">Status</th></tr></thead>
     <tbody>${rows.map((row) => `<tr><td class="nowrap">${when(row.created_at)}</td>
-      <td class="mono">${esc(shortDigest(row.pack_digest))}</td><td>${esc(row.approver)}</td>
+      <td class="mono">${esc(shortDigest(row.agent_digest))}</td><td>${esc(row.approver)}</td>
       <td>${esc(row.reference)}</td><td>${status(row)}</td></tr>`).join("")}</tbody>
   </table></div>`;
 }
@@ -353,7 +353,7 @@ function wireRegistry(main, r, d) {
     const registry = r.pulled?.registry;
     const approved = await actionDialog({
       title: "Approve this agent from a registry?",
-      body: `<p>Your organization approves <b>${esc(d.manifest.name)}</b> <span class="mono">${esc(r.pack_id)}</span> v${esc(d.manifest.version)},
+      body: `<p>Your organization approves <b>${esc(d.manifest.name)}</b> <span class="mono">${esc(r.agent_id)}</span> v${esc(d.manifest.version)},
           digest <code class="break-anywhere">${esc(r.digest)}</code>${registry ? `, from ${esc(registry)}` : ""}, to automate under its own policy.</p>
         <p>Once approved, what this agent's policy automates is no longer sent to a person because the agent came from a
           registry, and its own rules' blocks take effect without a person.</p>
@@ -362,7 +362,7 @@ function wireRegistry(main, r, d) {
       action: "Approve",
       run: () => api("/api/registry-approvals", {
         method: "POST",
-        body: JSON.stringify({ pack_id: r.pack_id, pack_digest: r.digest, reference, approver }),
+        body: JSON.stringify({ agent_id: r.agent_id, agent_digest: r.digest, reference, approver }),
       }),
     });
     if (!approved) return;
@@ -383,7 +383,7 @@ function wireRegistry(main, r, d) {
   });
 }
 
-// Automation holds (AuditStore.hold_automation): stopping automation for this pack at once,
+// Automation holds (AuditStore.hold_automation): stopping automation for this agent at once,
 // without a redeploy, and lifting it. A hold set from the command line covers every
 // organization and is lifted there. Holding is one click (it only lowers automation); lifting
 // raises it again, so it is asked about first, as every other change that takes a safeguard away.
@@ -395,7 +395,7 @@ function holdSection(holds, d) {
     ? `set by the deployment's operator, ${esc(time(h.set_at))}.`
     : `${esc(h.reason)}. Set by ${esc(h.set_by)}, ${esc(time(h.set_at))}.`);
   const listed = covering.map((h) => `<div class="callout danger"><b>Automation on hold</b>
-      (${h.pack_id ? "this agent" : "every agent"}${h.org ? "" : ", every organization"}): ${why(h)}
+      (${h.agent_id ? "this agent" : "every agent"}${h.org ? "" : ", every organization"}): ${why(h)}
       ${may("approve") && h.org ? `<button type="button" data-lift="${esc(h.id)}">Lift</button>` : ""}</div>`).join("");
   const form = may("approve") ? `<form class="approve-form" id="hold-form">
       <label for="hold-reason">Reason</label>
@@ -408,7 +408,7 @@ function holdSection(holds, d) {
 // What lifting `hold` does, in the words of the dialog that asks first: the pack decides on its
 // own again, and what still stops it from automating stays.
 function liftText(hold, d) {
-  const who = hold?.pack_id
+  const who = hold?.agent_id
     ? `<b>${esc(d.manifest.name)}</b> decides on its own again`
     : `Every agent of your organization decides on its own again, <b>${esc(d.manifest.name)}</b> included`;
   return `<p>${who}: what its policy automates is no longer sent to a person because of this hold.</p>
@@ -422,7 +422,7 @@ function wireHolds(main, holds, d) {
     const button = event.currentTarget.querySelector('button[type="submit"]');
     whileBusy(button, "Holding…", async () => {
       try {
-        await api("/api/holds", { method: "POST", body: JSON.stringify({ pack_id: state.packId, reason: $("#hold-reason").value }) });
+        await api("/api/holds", { method: "POST", body: JSON.stringify({ agent_id: state.agentId, reason: $("#hold-reason").value }) });
         toast("Automation held: a person reviews every decision");
         if (main.isConnected) render();
       } catch (error) {

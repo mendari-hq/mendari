@@ -2,17 +2,17 @@
 """Publisher evaluations, signed and checked (ADR-0020).
 
 A publisher publishes an evaluation of one listed version, one per configuration and public
-dataset, as a `mendari.publisher-evaluation/2` record it signs with one of its namespace's keys
+dataset, as a `mendari.publisher-evaluation/1` record it signs with one of its namespace's keys
 (the keys of `mendari keys register`) and sends with the namespace's publisher token (`mendari
 push AGENT --key publisher.key --evaluate NAME` for every configuration, or `mendari eval AGENT
 --dataset NAME --publish --key publisher.key` for one):
 
-    {"format": "mendari.publisher-evaluation/2",
-     "pack": {"id": "mendari/portal-message-agent", "version": "0.1.2", "digest": "sha256:…"},
+    {"format": "mendari.publisher-evaluation/1",
+     "agent": {"id": "mendari/portal-message-agent", "version": "0.1.2", "digest": "sha256:…"},
      "configuration": {"reader": "rules"},          # a variant for every slot
      "dataset": {"name": "test", "sha256": "<64 hex>", "n": 600,
                  "provenance": "synthetic", "labelled_by": "the script that wrote the cases"},
-     "report": {...mendari.site-report/2 counts...},
+     "report": {...mendari.site-report/1 counts...},
      "claimed": {"latency_ms_p50": 1.2, "latency_ms_p95": 3.4, "cost_usd_per_decision": null,
                  "failed_cases": 0},                 # cases a provider failed on
      "models": ["mock-portal-agent"],
@@ -87,8 +87,8 @@ from mendari.evals.result import ERROR, MIN_POSITIVES
 from mendari.evals.share import (
     MIN_DATASET,
     Name,
-    SharedPack,
-    SiteReportV2,
+    SharedAgent,
+    SiteReportV1,
     adds_up,
     counted_report,
 )
@@ -97,12 +97,12 @@ from mendari.hub import archive
 from mendari.hub.yank import printable_line
 
 if TYPE_CHECKING:
+    from mendari.core.agent import Agent
     from mendari.core.db import Backend
-    from mendari.core.pack import Pack
     from mendari.evals.harness import Evaluation
 
-FORMAT_V2 = "mendari.publisher-evaluation/2"
-FORMAT = FORMAT_V2  # what `build` signs, and the one format a registry takes
+FORMAT_V1 = "mendari.publisher-evaluation/1"
+FORMAT = FORMAT_V1  # what `build` signs, and the one format a registry takes
 FORMATS = (FORMAT,)
 LISTING_FORMAT = "mendari.publisher-evaluations/1"
 # The signature scheme's own name: the format follows it in the signed bytes
@@ -185,7 +185,7 @@ def _one_line(text: str) -> str:
 
 
 class DescribedDataset(EvaluatedDataset):
-    """A dataset as `mendari.publisher-evaluation/2` names it: also what its cases were built
+    """A dataset as `mendari.publisher-evaluation/1` names it: also what its cases were built
     from, as the agent's manifest says it (null: the manifest does not say), and who labelled
     them, in the publisher's own words (null: not said)."""
 
@@ -196,7 +196,7 @@ class DescribedDataset(EvaluatedDataset):
     )
 
 
-class ClaimedV2(Claimed):
+class ClaimedV1(Claimed):
     """As `Claimed`, and how many of the dataset's cases a provider failed on: there the engine
     sent the case to a person, so those cases say nothing of the configuration. A whole count,
     of the dataset's n."""
@@ -207,17 +207,17 @@ class ClaimedV2(Claimed):
 Models = Annotated[list[Annotated[str, Field(pattern=_MODEL_NAME)]], Field(max_length=MAX_MODELS)]
 
 
-class PublisherEvaluationV2(_Closed):
-    """`mendari.publisher-evaluation/2`: the agent, the configuration, the dataset (with its
+class PublisherEvaluationV1(_Closed):
+    """`mendari.publisher-evaluation/1`: the agent, the configuration, the dataset (with its
     provenance and who labelled it), the run's counts, the publisher's own claims and models,
     and the Mendari release that ran the evaluation."""
 
-    format: Literal["mendari.publisher-evaluation/2"]
-    pack: SharedPack
+    format: Literal["mendari.publisher-evaluation/1"]
+    agent: SharedAgent
     configuration: Annotated[dict[Name, Name], Field(min_length=1, max_length=64)]
     dataset: DescribedDataset
-    report: SiteReportV2
-    claimed: ClaimedV2
+    report: SiteReportV1
+    claimed: ClaimedV1
     models: Models
     engine: Annotated[str, Field(pattern=r"^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$")]
     created_at: Annotated[str, Field(pattern=_TIME)]
@@ -225,10 +225,10 @@ class PublisherEvaluationV2(_Closed):
     signature: Annotated[str, Field(min_length=1, max_length=200)]
 
 
-Evaluated = PublisherEvaluationV2
-_MODELS: dict[str, type[PublisherEvaluationV2]] = {FORMAT_V2: PublisherEvaluationV2}
-_FIELDS = frozenset(PublisherEvaluationV2.model_fields) | {
-    name for model in (DescribedDataset, ClaimedV2) for name in model.model_fields
+Evaluated = PublisherEvaluationV1
+_MODELS: dict[str, type[PublisherEvaluationV1]] = {FORMAT_V1: PublisherEvaluationV1}
+_FIELDS = frozenset(PublisherEvaluationV1.model_fields) | {
+    name for model in (DescribedDataset, ClaimedV1) for name in model.model_fields
 }
 
 
@@ -286,25 +286,25 @@ def signature_holds(record: Mapping[str, Any], public: Ed25519PublicKey) -> bool
     return archive.key_id(public) == record.get("key_id")
 
 
-def calls_a_model(pack: Pack, configuration: Mapping[str, str]) -> bool:
-    """Whether a configuration of the pack runs any provider that is not local (a local type,
+def calls_a_model(agent: Agent, configuration: Mapping[str, str]) -> bool:
+    """Whether a configuration of the agent runs any provider that is not local (a local type,
     or a composite of those): the registry's rule, by the providers' types alone."""
     for slot, variant in configuration.items():
-        spec = pack.manifest.providers[slot].variants[variant]
+        spec = agent.manifest.providers[slot].variants[variant]
         if not is_local({"type": spec.type, **(spec.model_extra or {})}):
             return True
     return False
 
 
 def build(
-    pack: Pack,
+    agent: Agent,
     run: Evaluation,
     *,
     key: Ed25519PrivateKey,
     at: str | None = None,
     labelled_by: str | None = None,
 ) -> dict[str, Any]:
-    """The signed record of one run of `pack` (`mendari push --evaluate`, `mendari eval
+    """The signed record of one run of `agent` (`mendari push --evaluate`, `mendari eval
     --publish`): its counts from the run's ledger, its configuration, its dataset by name,
     SHA-256 and size, with what the manifest says its data was built from and, when the
     publisher says it (`labelled_by`, one line), who labelled it; the models that answered, the
@@ -320,16 +320,16 @@ def build(
     cost = (report.get("cost") or {}).get("per_decision_usd")
     fields = {
         "format": FORMAT,
-        "pack": dict(header["pack"]),
+        "agent": dict(header["agent"]),
         "configuration": configuration,
         "dataset": {
             "name": dataset["name"],
             "sha256": dataset["sha256"],
             "n": dataset["n"],
-            "provenance": pack.manifest.card.provenance,
+            "provenance": agent.manifest.card.provenance,
             "labelled_by": labelled_by,
         },
-        "report": counted_report(run.ledger, remote_consent=calls_a_model(pack, configuration)),
+        "report": counted_report(run.ledger, remote_consent=calls_a_model(agent, configuration)),
         "claimed": {
             "latency_ms_p50": _number(latency.get("p50")),
             "latency_ms_p95": _number(latency.get("p95")),
@@ -456,8 +456,8 @@ class EvaluationStore:
         evaluation = parse(record)
         if skewed(evaluation.created_at):
             raise HubError("created_at: it is not now: sign it again")
-        if (evaluation.pack.id, evaluation.pack.version) != (f"{namespace}/{name}", version):
-            raise HubError("pack: it is not this agent and version")
+        if (evaluation.agent.id, evaluation.agent.version) != (f"{namespace}/{name}", version):
+            raise HubError("agent: it is not this agent and version")
         keys = {
             str(k["key_id"]): str(k["public_pem"])
             for k in self.namespace(namespace, REVIEWER)["keys"]  # type: ignore[attr-defined]
@@ -470,8 +470,8 @@ class EvaluationStore:
         found = self.version(namespace, name, version, REVIEWER)  # type: ignore[attr-defined]
         if found["yank"] is not None or found["deleted"] is not None or not found["listed"]:
             raise HubError("version: it is recalled, deleted or not listed", 409)
-        if evaluation.pack.digest != found["digest"]:
-            raise HubError("pack.digest: it is not this version's digest", 409)
+        if evaluation.agent.digest != found["digest"]:
+            raise HubError("agent.digest: it is not this version's digest", 409)
         evaluation_key = evaluation_id(record)
         known = self._evaluation_row(evaluation_key)
         if known is not None:  # the same signed record again: nothing written, nothing chained
@@ -492,8 +492,8 @@ class EvaluationStore:
         report = evaluation.report
         if {slot: p.variant for slot, p in report.providers.items()} != configuration:
             raise HubError("report.providers: they are not the configuration")
-        if report.pack != evaluation.pack:
-            raise HubError("report.pack: it is not the evaluation's agent")
+        if report.agent != evaluation.agent:
+            raise HubError("report.agent: it is not the evaluation's agent")
         unknown = _unknown_names(report, names, found.get("primary"))
         if unknown:
             raise HubError(f"report: it names {unknown} the agent does not have")
@@ -521,18 +521,18 @@ class EvaluationStore:
             )
 
         with tempfile.TemporaryDirectory() as scratch:
-            pack_dir = Path(scratch) / "pack"
-            self._archived(namespace, found, pack_dir)
-            from mendari.core.pack import load_pack
+            agent_dir = Path(scratch) / "agent"
+            self._archived(namespace, found, agent_dir)
+            from mendari.core.agent import load_agent
             from mendari.evals.harness import resolve_dataset
 
             try:
-                pack = load_pack(pack_dir, origin="hub")
-                if evaluation.dataset.name not in pack.manifest.evaluation.datasets:
+                agent = load_agent(agent_dir, origin="hub")
+                if evaluation.dataset.name not in agent.manifest.evaluation.datasets:
                     raise HubError(
                         "dataset.name: it is not a dataset the agent's manifest declares"
                     )
-                dataset = resolve_dataset(pack, evaluation.dataset.name)
+                dataset = resolve_dataset(agent, evaluation.dataset.name)
             except HubError:
                 raise
             except Exception as error:  # the publisher's content: named, never a 500
@@ -541,7 +541,7 @@ class EvaluationStore:
                 raise HubError("dataset.sha256: it is not the archived dataset's")
             if len(dataset.records) != evaluation.dataset.n:
                 raise HubError("dataset.n: it is not the archived dataset's")
-            if evaluation.dataset.provenance != pack.manifest.card.provenance:
+            if evaluation.dataset.provenance != agent.manifest.card.provenance:
                 raise HubError(
                     "dataset.provenance: it is not what the agent's manifest says its data was "
                     "built from (`card.provenance`)"
@@ -549,7 +549,7 @@ class EvaluationStore:
             rerun = CALLS_A_MODEL
             if local:
                 with regression.slot():  # at most a few at once; else 503, try again
-                    measured = regression.rerun(pack_dir, configuration, evaluation.dataset.name)
+                    measured = regression.rerun(agent_dir, configuration, evaluation.dataset.name)
                 if measured.get("status") != "measured":
                     raise HubError(
                         "the registry's re-run did not finish: the evaluation is not taken", 409
@@ -600,9 +600,9 @@ class EvaluationStore:
                 subject,
                 {
                     "evaluation_id": evaluation_key,
-                    "pack": f"{namespace}/{name}",
+                    "agent": f"{namespace}/{name}",
                     "version": version,
-                    "digest": evaluation.pack.digest,
+                    "digest": evaluation.agent.digest,
                     "configuration": configuration,
                     "dataset": evaluation.dataset.name,
                     "dataset_sha256": evaluation.dataset.sha256,
@@ -667,7 +667,7 @@ class EvaluationStore:
     def _answer(row: Mapping[str, Any]) -> dict[str, Any]:
         return {
             "id": row["id"],
-            "pack": f"{row['namespace']}/{row['name']}",
+            "agent": f"{row['namespace']}/{row['name']}",
             "version": row["version"],
             "configuration": held_configuration(row),
             "dataset": row["dataset"],
@@ -767,7 +767,7 @@ class EvaluationStore:
         revoked = self.revoked_keys(namespace)
         return {
             "format": LISTING_FORMAT,
-            "pack": f"{namespace}/{name}",
+            "agent": f"{namespace}/{name}",
             "version": version,
             "note": NOTE,
             "evaluations": [as_listed(row, keys, revoked) for row in rows],
@@ -809,8 +809,8 @@ def checked(
         parsed = parse(record)
         named = (
             evaluation_id(record),
-            parsed.pack.id,
-            parsed.pack.version,
+            parsed.agent.id,
+            parsed.agent.version,
             _canonical_text(dict(parsed.configuration)),
             parsed.dataset.name,
             parsed.key_id,

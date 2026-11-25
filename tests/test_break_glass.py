@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.core.audit import SESSION_GROUPS, break_glass_reason
 from mendari.server import auth as auth_module
@@ -140,7 +140,7 @@ def put_every_kind(store: AuditStore) -> int:
 
 
 def test_ending_sessions_ends_a_group_s_kinds_and_never_a_claim(
-    db_target: str, triage_agent: Pack, capsys: pytest.CaptureFixture[str]
+    db_target: str, triage_agent: Agent, capsys: pytest.CaptureFixture[str]
 ) -> None:
     store = AuditStore(db_target)
     Decision(triage_agent, store=store)({"message": {"body": "Refill please."}})  # a server's

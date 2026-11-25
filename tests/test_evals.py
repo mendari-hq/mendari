@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from mendari import Decision, Outcome, Pack
+from mendari import Agent, Decision, Outcome
 from mendari.core.card import render_card
 from mendari.errors import MendariError
 from mendari.evals import (
@@ -18,7 +18,7 @@ from mendari.evals import (
     load_dataset,
     metrics,
     resolve_dataset,
-    run_pack_tests,
+    run_behaviour_tests,
 )
 from tests.conftest import calm_agent
 from tests.support.engine import benchmark
@@ -26,7 +26,7 @@ from tests.support.engine import benchmark
 DRUGS = ("metformin", "lisinopril", "atorvastatin", "levothyroxine", "amlodipine", "sertraline")
 
 
-def local_site(base: Path, triage: Pack) -> Path:
+def local_site(base: Path, triage: Agent) -> Path:
     """A site's own cases for the triage fixture (synthetic): its `test` set, and 60 text
     messages asking whether a medicine is ready, in words its keyword rules cannot place, so
     the site's routing degrades on `sms`."""
@@ -97,7 +97,7 @@ def test_dataset_loading_errors(tmp_path: Path) -> None:
         load_dataset(bad)
 
 
-def test_benchmark_report_shape(triage_agent: Pack) -> None:
+def test_benchmark_report_shape(triage_agent: Agent) -> None:
     """With the screen's canned agent, which the policy lets automate, about half the cases are
     automated. Its canned answers miss some same-day symptoms, on purpose: the report counts
     each one it automated (`auto_missed`), for the gate to refuse."""
@@ -121,12 +121,12 @@ def test_benchmark_report_shape(triage_agent: Pack) -> None:
 
 
 def test_reports_never_contain_case_text(triage: Decision) -> None:
-    dataset = resolve_dataset(triage.pack, "calibration")
+    dataset = resolve_dataset(triage.agent, "calibration")
     serialized = json.dumps(evaluate(triage, dataset))
     assert dataset.records[0]["input"]["message"]["body"] not in serialized
 
 
-def test_local_validation_localises_degradation(triage_agent: Pack, tmp_path: Path) -> None:
+def test_local_validation_localises_degradation(triage_agent: Agent, tmp_path: Path) -> None:
     baseline = benchmark()  # the triage fixture's test set, on its default providers
     local = evaluate(Decision(triage_agent), load_dataset(local_site(tmp_path, triage_agent)))
     comparison = compare(local, baseline, triage_agent.manifest.evaluation.degradation_tolerance)
@@ -233,7 +233,7 @@ def test_a_baseline_without_its_counts_is_compared_with_n_a() -> None:
 def test_a_baseline_with_malformed_figures_cannot_be_compared(
     spoil: Callable[[dict[str, Any]], None],
 ) -> None:
-    """A published benchmark is the pack author's file: one whose accuracy was null passed the
+    """A published benchmark is the agent author's file: one whose accuracy was null passed the
     card's checks and made POST .../evals answer 500 (TypeError in compare)."""
     baseline = benchmark()
     local = copy.deepcopy(baseline)
@@ -243,12 +243,12 @@ def test_a_baseline_with_malformed_figures_cannot_be_compared(
     assert "published benchmark" in comparison["reason"] and comparison["findings"] == []
 
 
-def test_pack_behaviour_tests_pass(triage: Decision) -> None:
-    outcomes = run_pack_tests(triage)
+def test_agent_behaviour_tests_pass(triage: Decision) -> None:
+    outcomes = run_behaviour_tests(triage)
     assert outcomes and all(o.passed for o in outcomes), [o for o in outcomes if not o.passed]
 
 
-def test_decision_card_renders(triage_agent: Pack) -> None:
+def test_decision_card_renders(triage_agent: Agent) -> None:
     card = render_card(triage_agent)
     for heading in (
         "## Intended use",
@@ -261,11 +261,11 @@ def test_decision_card_renders(triage_agent: Pack) -> None:
 
 
 def test_parallel_evaluation_matches_sequential(
-    triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # A live agent service in both slots (in place of the network): evaluated in parallel.
     router = Decision(triage_agent, providers=calm_agent(monkeypatch))
-    dataset = resolve_dataset(router.pack, "calibration").head(60)
+    dataset = resolve_dataset(router.agent, "calibration").head(60)
     sequential = evaluate(router, dataset)
     parallel = evaluate(router, dataset, workers=4)
     for key in ("questions", "decisions", "subgroups", "misclassified"):

@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The eval gate for pack changes: no merge that regresses a pack's critical metrics.
+"""The eval gate for agent changes: no merge that regresses an agent's critical metrics.
 
-A pull request that touches a pack evaluates it on its benchmark dataset and compares the
+A pull request that touches an agent evaluates it on its benchmark dataset and compares the
 result with the benchmark published on `main`:
 
 - every critical label (`evaluation.critical`) keeps its detection rate, and a critical case
   that was never automated stays that way;
-- the primary question's accuracy, and the false-automation rate, stay within the pack's
+- the primary question's accuracy, and the false-automation rate, stay within the agent's
   `degradation_tolerance`.
 
-A new pack has nothing to compare with; its metrics are shown and it passes.
+A new agent has nothing to compare with; its metrics are shown and it passes.
 
 The same gate is what `mendari eval --no-worse-than RESULT` runs for anyone's agent, in their own
 CI (docs/guides/evaluate-in-ci.md), beside limits they state (`Limits`): what a result must be
@@ -165,8 +165,8 @@ def _table(rows: list[dict[str, Any]], base: str) -> list[str]:
     ]
 
 
-def markdown(pack_id: str, rows: list[dict[str, Any]], failures: list[str], new: bool) -> str:
-    lines = [f"### {pack_id}", ""]
+def markdown(agent_id: str, rows: list[dict[str, Any]], failures: list[str], new: bool) -> str:
+    lines = [f"### {agent_id}", ""]
     if new:
         lines += ["A new agent: nothing on `main` to compare with.", ""]
     lines += _table(rows, "main")
@@ -282,13 +282,13 @@ def baseline_problem(baseline: Any, agent_id: str, primary: str) -> str | None:
     not_a_result = "not an evaluation result (`mendari eval --out` writes one)"
     if not isinstance(baseline, Mapping):
         return not_a_result
-    pack, dataset = baseline.get("pack"), baseline.get("dataset")
+    agent, dataset = baseline.get("agent"), baseline.get("dataset")
     questions, decisions = baseline.get("questions"), baseline.get("decisions")
-    if not isinstance(pack, Mapping) or not isinstance(dataset, Mapping):
+    if not isinstance(agent, Mapping) or not isinstance(dataset, Mapping):
         return not_a_result
     if not isinstance(questions, Mapping) or not isinstance(decisions, Mapping):
         return not_a_result
-    if pack.get("id") != agent_id:
+    if agent.get("id") != agent_id:
         return f"a result of another agent, not of {agent_id}"
     malformed = "its figures are not an evaluation result's"
     question = questions.get(primary, {})

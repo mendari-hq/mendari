@@ -2,16 +2,16 @@
 // Feedback: the page, and the right / wrong controls with the optional right answer.
 
 import { ratingCell } from "./audit.js";
-import { inputView } from "./pack.js";
+import { inputView } from "./manifest.js";
 import { render, views } from "./router.js";
 import { TABLES } from "./table.js";
-import { $, api, download, emptyState, esc, icon, outcomeBadge, packPath, priorityBadge, signedIn, stat, state, storageGet, storageSet, time, toastError, whileBusy } from "./ui.js";
+import { $, api, download, emptyState, esc, icon, outcomeBadge, agentPath, priorityBadge, signedIn, stat, state, storageGet, storageSet, time, toastError, whileBusy } from "./ui.js";
 
 views.feedback = async (main) => {
   const rating = storageGet("oh.feedback.rating", "down");
   const [items, stats] = await Promise.all([
-    api(`/api/feedback?pack_id=${encodeURIComponent(state.packId)}${rating ? `&rating=${rating}` : ""}&limit=200`),
-    api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
+    api(`/api/feedback?agent_id=${encodeURIComponent(state.agentId)}${rating ? `&rating=${rating}` : ""}&limit=200`),
+    api(`/api/stats?agent_id=${encodeURIComponent(state.agentId)}`),
   ]);
   const f = stats.feedback;
   main.innerHTML = `
@@ -29,7 +29,7 @@ views.feedback = async (main) => {
         <option value="" ${rating === "" ? "selected" : ""}>All (${f.up + f.down})</option>
       </select>
       <span class="grow"></span>
-      <a class="button" id="feedback-export" href="${packPath()}/feedback/export?rating=down" download>${icon("download")} Download the wrong cases (JSONL)</a>
+      <a class="button" id="feedback-export" href="${agentPath()}/feedback/export?rating=down" download>${icon("download")} Download the wrong cases (JSONL)</a>
     </div>
     ${items.length ? items.map(feedbackCard).join("") : emptyState({
       icon: "message", title: "Nothing rated yet",

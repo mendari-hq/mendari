@@ -20,7 +20,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, CallBudget, Decision, Pack, load_pack
+from mendari import Agent, AuditStore, CallBudget, Decision, load_agent
 from mendari.cli import main
 from mendari.core import audit as audit_module
 from mendari.core import clock, tenancy
@@ -88,7 +88,7 @@ def rows(store: AuditStore, **filters: Any) -> list[dict[str, Any]]:
 
 
 def test_each_decision_s_remote_calls_are_counted_for_its_organization(
-    db_target: str, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    db_target: str, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A decision whose two slots shared one call (a batch) counts that call once."""
     gateway(monkeypatch)
@@ -128,7 +128,7 @@ def test_each_decision_s_remote_calls_are_counted_for_its_organization(
 
 
 def test_a_cost_is_unknown_unless_every_call_was_priced(
-    db_target: str, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    db_target: str, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The fake gateway prices its first answer and not its second (no `cost`), then fails:
     three calls, one priced, so the cost is unknown, never the one price nor zero."""
@@ -158,7 +158,7 @@ def test_a_cost_is_unknown_unless_every_call_was_priced(
 
 @pytest.mark.parametrize("status", [500, 200])
 def test_a_decision_whose_sent_call_failed_has_an_unknown_cost_never_zero(
-    triage_agent: Pack, monkeypatch: pytest.MonkeyPatch, status: int
+    triage_agent: Agent, monkeypatch: pytest.MonkeyPatch, status: int
 ) -> None:
     """The call was sent (and may be billed) but no answer priced it: the decision's own
     `cost_usd`, like the ledger, is unknown. It said 0.0, as if the call were free."""
@@ -173,7 +173,7 @@ def test_a_decision_whose_sent_call_failed_has_an_unknown_cost_never_zero(
 
 
 def test_a_call_the_budget_or_a_quota_refused_is_not_counted(
-    db_target: str, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    db_target: str, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     gateway(monkeypatch)
     with AuditStore(db_target) as store:
@@ -186,7 +186,7 @@ def test_a_call_the_budget_or_a_quota_refused_is_not_counted(
 
 
 def test_an_evaluation_s_calls_are_its_organization_s_evaluations(
-    db_target: str, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    db_target: str, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Run with workers (each decision its own meter, across threads), recorded with the report
     in one transaction, apart from the organization's decisions."""
@@ -233,7 +233,7 @@ def test_a_request_never_sent_is_never_counted(
     schema = json.loads(path.read_text(encoding="utf-8"))
     schema["properties"]["message"]["properties"]["body"]["maxLength"] = 10_000
     path.write_text(json.dumps(schema), encoding="utf-8")
-    longer = load_pack(root)
+    longer = load_agent(root)
     with AuditStore(db_target) as store:
         asked = Decision(
             longer, providers=LLM, store=store, budget=CallBudget(store, {"llm": None})
@@ -248,7 +248,7 @@ def test_a_request_never_sent_is_never_counted(
 
 
 def test_figures_no_call_could_report_never_reach_the_ledger(
-    db_target: str, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    db_target: str, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An endpoint that reports more tokens than any call holds is refused (the decision goes to
     a person, and is recorded); a cost no call costs is not believed: unknown."""
@@ -273,7 +273,7 @@ def test_figures_no_call_could_report_never_reach_the_ledger(
 
 
 def test_usage_is_written_in_the_decision_s_and_the_report_s_own_transaction(
-    db_target: str, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    db_target: str, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     gateway(monkeypatch)
     dataset = resolve_dataset(triage_agent, "test").head(2)

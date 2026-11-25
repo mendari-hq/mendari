@@ -14,8 +14,8 @@ import pytest
 import yaml
 
 import mendari
+from mendari.core.agent import Agent, agent_digest, load_agent
 from mendari.core.card import render_card
-from mendari.core.pack import Pack, load_pack, pack_digest
 from mendari.core.reference import bundled_dir
 from mendari.evals import figures as figures_module
 from mendari.evals import stats
@@ -35,11 +35,11 @@ from tests.support.registry import with_lookahead
 
 # The agent `Registry.publish()` publishes, in its own namespace (`FIXTURE_NAMESPACE`), with its
 # own token and key (`Registry.fixture_publisher`); and a second, at risk level 2.
-TRIAGE = load_pack(TRIAGE_DIR)
-CLINICAL = load_pack(CLINICAL_DIR)
+TRIAGE = load_agent(TRIAGE_DIR)
+CLINICAL = load_agent(CLINICAL_DIR)
 
 
-def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> None:
+def test_a_signed_agent_is_published_once_and_read_back(registry: Registry) -> None:
     published = registry.publish()
     assert published.status_code == 201, published.text
     body = published.json()
@@ -55,8 +55,8 @@ def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> No
     assert "benchmark" not in body and "leaderboard" not in body
     again = registry.publish()
     assert again.status_code == 409 and "immutable" in again.text
-    pack = registry.client.get(f"/v1/agents/{TRIAGE.id}").json()
-    assert pack["versions"] == [TRIAGE.version] and pack["latest"]["digest"] == TRIAGE.digest
+    agent = registry.client.get(f"/v1/agents/{TRIAGE.id}").json()
+    assert agent["versions"] == [TRIAGE.version] and agent["latest"]["digest"] == TRIAGE.digest
 
 
 def test_the_archive_downloads_byte_for_byte(registry: Registry) -> None:
@@ -102,7 +102,7 @@ def test_an_archive_signed_by_an_unregistered_key_is_refused(registry: Registry)
     assert refused.status_code == 422 and "not trusted" in refused.text
 
 
-def test_the_archive_must_be_the_pack_and_version_in_the_url(registry: Registry) -> None:
+def test_the_archive_must_be_the_agent_and_version_in_the_url(registry: Registry) -> None:
     refused = registry.publish(version="9.9.9")
     assert refused.status_code == 422 and "not this agent and version" in refused.text
 
@@ -111,10 +111,10 @@ def test_verification_sets_the_publisher_type(registry: Registry) -> None:
     registry.publish()
     patched = registry.operator.set_publisher_type(FIXTURE_NAMESPACE, "verified", by="operator")
     assert patched["publisher_type"] == "verified"
-    pack = registry.client.get(f"/v1/agents/{TRIAGE.id}").json()
-    assert pack["latest"]["publisher_type"] == "verified"
+    agent = registry.client.get(f"/v1/agents/{TRIAGE.id}").json()
+    assert agent["latest"]["publisher_type"] == "verified"
     namespace = registry.client.get(f"/v1/namespaces/{FIXTURE_NAMESPACE}").json()
-    assert namespace["packs"] == [TRIAGE.id]
+    assert namespace["agents"] == [TRIAGE.id]
     key = registry.fixture_publisher()[1]
     assert namespace["keys"][0]["key_id"] == archive.key_id(key.public_key())
     found = registry.client.get("/v1/search", params={"publisher_type": "verified"}).json()
@@ -208,20 +208,20 @@ def test_the_registry_computes_every_rate_it_shows(registry: Registry, tmp_path:
 # -- a publisher's content is refused with a reason, never a server error ------------------------
 
 
-def test_a_pack_that_fails_to_load_in_any_way_is_refused_not_a_server_error(
+def test_an_agent_that_fails_to_load_in_any_way_is_refused_not_a_server_error(
     registry: Registry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """R2: only a Mendari error from loading the published pack was caught; any other (raised by
+    """R2: only a Mendari error from loading the published agent was caught; any other (raised by
     the publisher's content) was a 500. It is refused, named by its type alone."""
 
     def load(*args: Any, **options: Any) -> Any:
-        raise RecursionError("text from the pack")
+        raise RecursionError("text from the agent")
 
-    monkeypatch.setattr(archive, "load_pack", load)
+    monkeypatch.setattr(archive, "load_agent", load)
     refused = registry.publish()
     assert refused.status_code == 422, refused.text
     assert "the agent does not load (RecursionError)" in refused.text
-    assert "text from the pack" not in refused.text
+    assert "text from the agent" not in refused.text
 
 
 @pytest.mark.parametrize(
@@ -245,12 +245,12 @@ def test_uploaded_attestations_of_any_shape_are_never_read(
     registry: Registry, tmp_path: Path, relative: str, content: bytes
 ) -> None:
     """T12 made a malformed benchmark or card a 500; since LP-18 the registry reads neither
-    (ADR-0012): whatever the pack carries about itself publishes, unread, and shows nothing."""
-    root = tmp_path / "pack"
+    (ADR-0012): whatever the agent carries about itself publishes, unread, and shows nothing."""
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE.root, root)
     (root / relative).parent.mkdir(exist_ok=True)
     (root / relative).write_bytes(content)
-    answer = registry.publish(load_pack(root))
+    answer = registry.publish(load_agent(root))
     assert answer.status_code == 201, answer.text
     body = answer.json()
     assert "benchmark" not in body and "leaderboard" not in body
@@ -260,11 +260,11 @@ def test_uploaded_attestations_of_any_shape_are_never_read(
 def test_an_over_long_version_is_refused_and_search_keeps_working(
     registry: Registry, tmp_path: Path
 ) -> None:
-    """T10: a pack whose manifest named a version of 4,400 digits was stored, after which
+    """T10: an agent whose manifest named a version of 4,400 digits was stored, after which
     `GET /v1/search` compared it with `int()` and answered 500 for every caller."""
     assert registry.publish().status_code == 201
     huge = "1" + "0" * 4400 + ".0.0"
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE.root, root)
     manifest = (
         (root / "agent.yaml")
@@ -272,10 +272,10 @@ def test_an_over_long_version_is_refused_and_search_keeps_working(
         .replace(f"version: {TRIAGE.version}", f"version: '{huge}'", 1)
     )
     (root / "agent.yaml").write_text(manifest)
-    signed = Pack(
+    signed = Agent(
         manifest=TRIAGE.manifest.model_copy(update={"version": huge}),
         root=root,
-        digest=pack_digest(root),
+        digest=agent_digest(root),
         input_schema=TRIAGE.input_schema,
     )
     refused = registry.publish(signed)
@@ -299,7 +299,7 @@ def test_a_deeply_nested_attestation_is_shown_as_none_and_search_keeps_working(
     One nested 300 levels deep was committed, then the response serializer gave up (about 255
     levels): the publish was a 500, and so was `GET /v1/search` for everyone, for good."""
     assert registry.publish(CLINICAL).status_code == 201
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE.root, root)
     (root / "evals").mkdir()
     primary = {"n": True, "accuracy": float("nan")}
@@ -309,7 +309,7 @@ def test_a_deeply_nested_attestation_is_shown_as_none_and_search_keeps_working(
     }
     (root / "evals" / "benchmark.json").write_text(json.dumps(benchmark))
     (root / "evals" / "leaderboard.json").write_text(json.dumps({"rows": _nested(300)}))
-    answer = registry.publish(load_pack(root))
+    answer = registry.publish(load_agent(root))
     assert answer.status_code == 201, answer.text
     assert "benchmark" not in answer.json() and "leaderboard" not in answer.json()
     assert registry.client.get("/v1/search").status_code == 200
@@ -320,8 +320,8 @@ def test_a_deeply_nested_attestation_is_shown_as_none_and_search_keeps_working(
 def test_metadata_that_cannot_be_served_is_refused_before_it_is_stored(
     registry: Registry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def describe(pack: Any, verified: Any) -> dict[str, Any]:
-        return {"pack_name": "x", "deep": _nested(300)}
+    def describe(agent: Any, verified: Any) -> dict[str, Any]:
+        return {"agent_name": "x", "deep": _nested(300)}
 
     monkeypatch.setattr(registry_module, "describe", describe)
     refused = registry.publish()
@@ -335,14 +335,14 @@ def test_metadata_that_cannot_be_served_is_refused_before_it_is_stored(
 def test_a_composite_whose_members_cannot_run_is_refused_at_publish(
     registry: Registry, tmp_path: Path
 ) -> None:
-    """Every variant and member is checked when a pack loads (LP-16e): a composite whose
+    """Every variant and member is checked when an agent loads (LP-16e): a composite whose
     members are a list, or keyed by what YAML reads as a date (once a 500, then published
     without them), is refused naming the variants, before anything is stored; the owned copy
     it was made from loads, with them as warnings, and without them it publishes, its
     composites' members named. On the triage fixture, whose patterns all run on RE2: a changed
-    copy (at a new version: at its own it is refused, F) is checked on the engine for packs from
+    copy (at a new version: at its own it is refused, F) is checked on the engine for agents from
     a registry (ADR-0009)."""
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE.root, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["version"] = "9.9.9"
@@ -354,7 +354,7 @@ def test_a_composite_whose_members_cannot_run_is_refused_at_publish(
     }
     variants["listed"] = {"type": "check", "members": [rules, agent]}
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    owned = load_pack(root)
+    owned = load_agent(root)
     assert [warning.partition(":")[0] for warning in owned.warnings] == [
         "providers.screen.variants.dated",
         "providers.screen.variants.listed",
@@ -369,7 +369,7 @@ def test_a_composite_whose_members_cannot_run_is_refused_at_publish(
 
     del variants["dated"], variants["listed"]
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    published = registry.publish(load_pack(root))
+    published = registry.publish(load_agent(root))
     assert published.status_code == 201, published.text
     members = published.json()["names"]["members"]["screen"]
     composites = {
@@ -380,25 +380,25 @@ def test_a_composite_whose_members_cannot_run_is_refused_at_publish(
     assert composites and set(members) == composites
 
 
-def _at_version(tmp_path: Path, source: Pack, version: str) -> Pack:
-    """A copy of a reference pack at another version: not the copy in this release."""
+def _at_version(tmp_path: Path, source: Agent, version: str) -> Agent:
+    """A copy of a reference agent at another version: not the copy in this release."""
     root = tmp_path / source.id.replace("/", "-")
     shutil.copytree(source.root, root)
     manifest = (root / "agent.yaml").read_text()
     (root / "agent.yaml").write_text(
         manifest.replace(f"version: {source.version}", f"version: {version}", 1)
     )
-    return load_pack(root)
+    return load_agent(root)
 
 
 def test_a_publish_is_checked_on_the_engine_its_pullers_run(
     registry: Registry, tmp_path: Path
 ) -> None:
-    """A pack that is not a reference pack of the registry's release is checked as its pullers
+    """An agent that is not a reference agent of the registry's release is checked as its pullers
     will load it, on RE2: a triage copy at a new version with a lookahead, which `re` runs and
     RE2 cannot, is refused before anything is stored; the triage fixture at a new version
     publishes."""
-    changed = load_pack(with_lookahead(_at_version(tmp_path / "changed", TRIAGE, "9.9.9").root))
+    changed = load_agent(with_lookahead(_at_version(tmp_path / "changed", TRIAGE, "9.9.9").root))
     assert not changed.bounded  # an owned copy loads, on `re`
     refused = registry.publish(changed)
     assert refused.status_code == 422, refused.text
@@ -408,7 +408,7 @@ def test_a_publish_is_checked_on_the_engine_its_pullers_run(
     assert published.status_code == 201, published.text
 
 
-def test_the_registry_publishes_the_reference_packs_of_its_own_release(
+def test_the_registry_publishes_the_reference_agents_of_its_own_release(
     registry: Registry,
 ) -> None:
     """`scripts/hub_seed.py` and CI's `hub-e2e` publish the release's bundled agents unchanged
@@ -416,29 +416,29 @@ def test_the_registry_publishes_the_reference_packs_of_its_own_release(
     the registry's release, checked on the maintained engine."""
     root = bundled_dir()
     assert root is not None
-    packs = [load_pack(d) for d in sorted(root.iterdir()) if (d / "agent.yaml").is_file()]
-    assert packs
-    for pack in packs:
-        published = registry.publish(pack)
-        assert published.status_code == 201, (pack.id, published.text)
-        assert published.json()["engine"] == "maintained", pack.id
+    agents = [load_agent(d) for d in sorted(root.iterdir()) if (d / "agent.yaml").is_file()]
+    assert agents
+    for agent in agents:
+        published = registry.publish(agent)
+        assert published.status_code == 201, (agent.id, published.text)
+        assert published.json()["engine"] == "maintained", agent.id
 
 
 def _registry_card(root: Path) -> str:
-    """The card the registry renders for the pack at `root`: from its digested files alone."""
-    pack = load_pack(root, origin="hub")
-    return render_card(pack, report=None, board=None, rendered_by="registry")
+    """The card the registry renders for the agent at `root`: from its digested files alone."""
+    agent = load_agent(root, origin="hub")
+    return render_card(agent, report=None, board=None, rendered_by="registry")
 
 
 def test_a_forged_card_benchmark_and_leaderboard_show_only_what_the_registry_rendered(
     registry: Registry, tmp_path: Path
 ) -> None:
-    """The vision audit's reproduction: a risk-2 pack whose uploaded card says risk 1, with a
+    """The vision audit's reproduction: a risk-2 agent whose uploaded card says risk 1, with a
     benchmark and a leaderboard better than anything measured, was accepted and shown as sent.
     The registry now shows the card it rendered from the digested files (risk 2, declared by the
-    publisher), and no uploaded figure anywhere: not in the version, the pack, search or the
+    publisher), and no uploaded figure anywhere: not in the version, the agent, search or the
     reports route (ADR-0012)."""
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(CLINICAL.root, root)
     assert CLINICAL.manifest.risk.level == 2
     forged_card = "# Decision Card\n\n| Risk level | **1**, administrative |\n\nAccuracy 99.9%\n"
@@ -449,7 +449,7 @@ def test_a_forged_card_benchmark_and_leaderboard_show_only_what_the_registry_ren
     (root / "evals" / "benchmark.json").write_text(json.dumps(benchmark))
     board = {"rows": [{"variant": "rules", "accuracy": 0.999}]}
     (root / "evals" / "leaderboard.json").write_text(json.dumps(board))
-    forged = load_pack(root)
+    forged = load_agent(root)
     assert forged.digest == CLINICAL.digest  # none of it is in the digest
 
     assert registry.publish(forged).status_code == 201
@@ -527,7 +527,7 @@ def test_publisher_text_in_the_registrys_card_is_plain_text(tmp_path: Path) -> N
     changelog) made headings, tables, rules, images and bold review claims in the card the
     registry renders, beside its own lines. In the registry's card every publisher string is one
     line of plain text: the card has the structure of the same pack's card with plain words."""
-    hostile = load_pack(_hostile_copy(tmp_path), origin="hub")
+    hostile = load_agent(_hostile_copy(tmp_path), origin="hub")
     plain = tmp_path / "plain"
     shutil.copytree(_hostile_copy(tmp_path / "again"), plain)
     manifest = yaml.safe_load((plain / "agent.yaml").read_text())
@@ -542,12 +542,12 @@ def test_publisher_text_in_the_registrys_card_is_plain_text(tmp_path: Path) -> N
     (plain / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     (plain / "CHANGELOG.md").write_text("# Changelog\n\n## 1.0.0\n\n- first\n\n# x\n\nTitle\n")
 
-    def card(pack: Pack) -> str:
-        return render_card(pack, report=None, board=None, rendered_by="registry")
+    def card(agent: Agent) -> str:
+        return render_card(agent, report=None, board=None, rendered_by="registry")
 
     shown = card(hostile)
     body, _, history = shown.partition("## Version history")
-    plain_body = card(load_pack(plain, origin="hub")).partition("## Version history")[0]
+    plain_body = card(load_agent(plain, origin="hub")).partition("## Version history")[0]
     assert _structure(body) == _structure(plain_body)
     # The changelog: its version headings, one level down, and its list items; nothing else.
     assert [line for line in _structure(history) if line != "-"] == ["###", "---"]
@@ -556,9 +556,9 @@ def test_publisher_text_in_the_registrys_card_is_plain_text(tmp_path: Path) -> N
         assert made not in shown, made
     assert "\\# Checked by the registry \\| Benchmark accuracy \\| 0\\.99 \\|" in shown
     assert "evidence" in shown and "(`https://a) **Verified** [z](https://b`)" in shown
-    # A pack of one's own keeps its Markdown as its author wrote it (`mendari card`).
+    # An agent of one's own keeps its Markdown as its author wrote it (`mendari card`).
     assert "\n# Checked by the registry\n" in render_card(
-        load_pack(_hostile_copy(tmp_path / "own"))
+        load_agent(_hostile_copy(tmp_path / "own"))
     )
 
 
@@ -567,10 +567,10 @@ def test_a_changelog_that_is_not_utf8_is_refused_and_a_huge_card_too(
 ) -> None:
     """The registry reads the changelog for its card: one that is not text is refused with its
     reason (422, never a 500). A card over `MAX_CARD_BYTES` is refused before it is stored."""
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE.root, root)
     (root / "CHANGELOG.md").write_bytes(b"\xff\xfe not text")
-    refused = registry.publish(_at_version(tmp_path / "v", load_pack(root), "9.9.9"))
+    refused = registry.publish(_at_version(tmp_path / "v", load_agent(root), "9.9.9"))
     assert refused.status_code == 422, refused.text
     assert "CHANGELOG.md" in refused.json()["detail"]
     monkeypatch.setattr(registry_module, "MAX_CARD_BYTES", 1000)
@@ -600,7 +600,7 @@ def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_
             },
             "archive_sha256": archive_sha256,
             "digest": TRIAGE.digest,
-            "engine": "maintained",  # a copy of a reference pack of the registry's release
+            "engine": "maintained",  # a copy of a reference agent of the registry's release
             "engine_release": mendari.__version__,
             "card": "rendered",
             "status_label": TRIAGE.status_label,
@@ -629,17 +629,17 @@ def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_
     assert shown["checked"]["engine"] == "bounded"
 
 
-def test_a_publish_that_shadows_a_reference_pack_is_refused(
+def test_a_publish_that_shadows_a_reference_agent_is_refused(
     registry: Registry, tmp_path: Path
 ) -> None:
-    """F: a pack with a reference pack's id and version but other files would take its place
+    """F: an agent with a reference agent's id and version but other files would take its place
     wherever it is pulled. The registry refuses it before anything is stored, saying why; the
     same files at a new version publish."""
     root = tmp_path / "shadow"
     shutil.copytree(TRIAGE.root, root)
     rules = root / "logic" / "router_rules.yaml"
     rules.write_text(rules.read_text() + "# one more line\n")
-    refused = registry.publish(load_pack(root))
+    refused = registry.publish(load_agent(root))
     assert refused.status_code == 422, refused.text
     reason = refused.json()["detail"]
     assert reason.startswith("the agent does not load: ")
@@ -647,5 +647,6 @@ def test_a_publish_that_shadows_a_reference_pack_is_refused(
     assert "never takes a bundled agent's place" in reason and "remove" not in reason
     assert registry.client.get("/v1/search").json() == []
     assert (
-        registry.publish(_at_version(tmp_path / "new", load_pack(root), "9.9.9")).status_code == 201
+        registry.publish(_at_version(tmp_path / "new", load_agent(root), "9.9.9")).status_code
+        == 201
     )

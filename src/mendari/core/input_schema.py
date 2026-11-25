@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""A pack's input schema: self-contained, and checked without reaching outside the pack.
+"""An agent's input schema: self-contained, and checked without reaching outside the agent.
 
 jsonschema resolves a `$ref` it does not find in the document by fetching it: any URL (so the
-server calls an address the pack chose, on every input check, with no timeout) or a local file
-(`file://`, outside the pack). A nested `$schema`, or a `$dynamicAnchor` reached from a
-metaschema, makes it check part of the input against another document than the pack's. So at
+server calls an address the agent chose, on every input check, with no timeout) or a local file
+(`file://`, outside the agent). A nested `$schema`, or a `$dynamicAnchor` reached from a
+metaschema, makes it check part of the input against another document than the agent's. So at
 load (`check`) an input schema must be self-contained:
 
 - `$ref`, `$dynamicRef` and `$recursiveRef` start with `#` and resolve to a schema in the
@@ -12,21 +12,21 @@ load (`check`) an input schema must be self-contained:
 - `$schema`, if present, is at the root and names 2020-12; `$id` is only at the root;
 - there is no `$dynamicAnchor`;
 - there is no `format: "regex"`: jsonschema checks it by compiling the caller's string with
-  `re`, which an input can make arbitrarily slow, and no shipped pack uses it.
+  `re`, which an input can make arbitrarily slow, and no shipped agent uses it.
 
 The whole document is searched, not only keyword positions: a `$ref` can make any object in it
 a schema; each object once, by identity. The validator (`validator`) also has a registry that
 retrieves nothing, so a reference can never leave the document even if a check were missed.
 
 The schema patterns of an agent on the bounded engine (an agent the deployment does not own: one
-from a registry or a store that is not a bundled agent of this release, `Pack.bounded`) run on
+from a registry or a store that is not a bundled agent of this release, `Agent.bounded`) run on
 RE2, like its rules (`core/patterns.py`): its validator's `pattern`,
 `patternProperties` and `additionalProperties` (and so `propertyNames`, which checks keys with
 the same keywords) search with RE2, and every other pack's validator is jsonschema's own,
 unchanged. Its validator also checks the decision's time budget each time it applies a schema
 (`patterns.check_time`), so a schema whose keywords apply many times over (`$ref`s that fan out,
 a subschema on many items) stops at the budget; it is built without the root's `$schema` (which
-may only name 2020-12), so jsonschema never swaps it for its own. And such a pack's schema uses
+may only name 2020-12), so jsonschema never swaps it for its own. And such an agent's schema uses
 only keywords whose work stays within the budget, `$ref` only to its own `$defs`
 (`bounded_problems`): jsonschema works some others out on its own, outside any check
 (`unevaluatedProperties`, `unevaluatedItems`, `contains`), or compares every pair of items at
@@ -60,8 +60,8 @@ from mendari.core.schema_graph import _components, _graph, _Node
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
 _REFERENCES = ("$ref", "$dynamicRef", "$recursiveRef")
-# The bounds on the input schema of a pack the deployment owns (`expansion_problems`). The shipped
-# packs' schemas nest at most 6 deep, chain at most 1 `$ref`, and apply at most 2 schema objects
+# The bounds on the input schema of an agent the deployment owns (`expansion_problems`). The shipped
+# agents' schemas nest at most 6 deep, chain at most 1 `$ref`, and apply at most 2 schema objects
 # to one value (`tests/test_input_schema.py`).
 MAX_SCHEMA_NESTING = 32  # objects and lists inside each other, in the document
 MAX_REF_CHAIN = 16  # `$ref`s one after another on any path through the schema
@@ -70,7 +70,7 @@ _COUNTED = 10**9  # counts stop here: past it, a message says "more than 1,000,0
 
 
 def problems(schema: Any) -> list[str]:
-    """Why a pack's input schema is not self-contained (module docstring); [] if it is."""
+    """Why an agent's input schema is not self-contained (module docstring); [] if it is."""
     found: list[str] = []
     references: list[tuple[str, str]] = []
     stack: list[tuple[str, Any]] = [("", schema)]
@@ -116,7 +116,7 @@ def problems(schema: Any) -> list[str]:
             try:
                 target = resolver.lookup(reference).contents
             # `referencing` raises more than Unresolvable on an odd pointer (a ValueError for
-            # `#/required/abc`, a TypeError through a boolean): every one is the pack's problem.
+            # `#/required/abc`, a TypeError through a boolean): every one is the agent's problem.
             except Exception:
                 found.append(f"input schema: {here}: {reference!r} is not in the schema")
                 continue
@@ -126,7 +126,7 @@ def problems(schema: Any) -> list[str]:
 
 
 def expansion_problems(schema: Any) -> list[str]:
-    """Why the input schema of a pack the deployment owns would multiply the work of checking an
+    """Why the input schema of an agent the deployment owns would multiply the work of checking an
     input, or could not be checked (module docstring); [] if it is within the bounds. The schema
     has passed `problems` and jsonschema's own check. Counted without recursion, over the graph
     of its schema objects (`core/schema_graph.py`), each once: `schema_runs`' count in
@@ -401,7 +401,7 @@ _UNBOUNDED = frozenset(
 
 
 def bounded_problems(schema: Any) -> list[str]:
-    """Why the input schema of an agent on the bounded engine (`Pack.bounded`: one from a
+    """Why the input schema of an agent on the bounded engine (`Agent.bounded`: one from a
     registry or a store) cannot run as such an agent's must; [] if it can.
     It uses only the keywords above (and `x-...` annotations): jsonschema's others either walk
     the schema on their own, outside the time budget (`unevaluatedProperties`,
@@ -444,7 +444,7 @@ def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | N
     """Why the schema of an agent on the bounded engine may not hold `key: value` at `path`, or
     None."""
     if key.startswith("x-"):
-        return None  # an annotation of the pack's own
+        return None  # an annotation of the agent's own
     if key not in _DATA | _SCHEMA | _SCHEMA_MAPS | _SCHEMA_LISTS:
         instead = _INSTEAD.get(key, "an annotation of your own is x-<name>")
         why = (
@@ -480,9 +480,9 @@ def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | N
 
 
 def validator(schema: dict[str, Any], *, formats: bool = True, bounded: bool = False) -> Validator:
-    """A Draft 2020-12 validator for a pack's input schema (one `problems` passed) whose
+    """A Draft 2020-12 validator for an agent's input schema (one `problems` passed) whose
     registry retrieves nothing; `formats` checks `format` too. With `bounded` (an agent on the
-    bounded engine, `Pack.bounded`), it runs its patterns on RE2 (module docstring)."""
+    bounded engine, `Agent.bounded`), it runs its patterns on RE2 (module docstring)."""
     cls = _Re2Validator if bounded else Draft202012Validator
     checker = cls.FORMAT_CHECKER if formats else None
     if bounded and isinstance(schema, dict):  # never swapped for jsonschema's own (above)

@@ -27,7 +27,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.core import site_codes
 from mendari.core.decision import DecisionResult
 from mendari.core.phi import PhiPolicy
@@ -228,7 +228,7 @@ class Ehr:
 
 @pytest.fixture
 def agent(tmp_path: Path) -> Decision:
-    return Decision(load_pack(linked_agent(tmp_path / "agents")))
+    return Decision(load_agent(linked_agent(tmp_path / "agents")))
 
 
 def decide(
@@ -241,7 +241,7 @@ def decide(
 
 def mapped(decision: Decision, ehr: Ehr | None, *resources: dict[str, Any]) -> dict[str, Any]:
     """The agent's input from the record, after the linked reads when there is an EHR."""
-    adapter = FhirAdapter.for_pack(decision.pack)
+    adapter = FhirAdapter.for_agent(decision.agent)
     indexed = adapter.index(bundle(*resources))
     if ehr is not None:
         Linker.of(ehr.client()).read(adapter.mapping, indexed)
@@ -256,7 +256,7 @@ def serve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ehr: Ehr) -> TestClie
     monkeypatch.setattr(cds_hooks, "FhirClient", patched)
     linked_agent(tmp_path / "agents")
     agents = [SearchPath(tmp_path / "agents", "local")]
-    return TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=agents))
+    return TestClient(create_app(db_path=tmp_path / "a.db", agents_paths=agents))
 
 
 def hook(*notes: dict[str, Any], server: str | None = EHR, **record: Any) -> dict[str, Any]:
@@ -537,7 +537,7 @@ def test_a_linked_resource_is_checked_as_the_record_is(
         "type": "collection",
         "entry": [{"resource": patient}, {"resource": held}],
     }
-    strict = Decision(agent.pack, fhir_validation=mode)
+    strict = Decision(agent.agent, fhir_validation=mode)
     payer = organization(f"{LINK_MARK}-o1", "ACME-77")
     clean, _ = strict.decide_fhir(record, links=Linker.of(Ehr(payer).client()))
     assert clean.input_issues == () and clean.answers  # the record and its payer decide
@@ -584,7 +584,7 @@ def test_the_payer_is_read_by_its_coverage_reference(agent: Decision) -> None:
         ehr.requests.clear()
         assert mapped(agent, ehr, *record)["patient"]["payer"] == "ACME-77", record
         assert ehr.reads() == reads, record
-        adapter = FhirAdapter.for_pack(agent.pack)
+        adapter = FhirAdapter.for_agent(agent.agent)
         read = Linker.of(ehr.client()).read(adapter.mapping, adapter.index(bundle(*record)))
         assert [f"{r['resourceType']}/{r['id']}" for r in read] == reads, record
 
@@ -649,17 +649,17 @@ def test_a_linked_resource_is_read_through_the_organizations_site_code_map(tmp_p
     field.update(path="Medication.code.coding", code_set="anticoagulants")
     sets = {"anticoagulants": {"system": RXNORM, "codes": ["11289"]}}
     root = linked_agent(tmp_path / "agents", medications, use="agent", code_sets=sets)
-    pack = load_pack(root)
+    agent = load_agent(root)
     site_code = SITE_DRUG_CODES["11289"]  # the site's formulary code for warfarin (fictional)
     translation = {"system": SITE_DRUGS, "code": site_code, "as": "11289"}
     given = {"default": {"version": "2026-11-06.1", "sets": {"anticoagulants": [translation]}}}
     maps = site_codes.parse(json.dumps(given), signed_in=False)
-    site_codes.check(maps, [pack])
+    site_codes.check(maps, [agent])
     site_drug = medication("m1", site_code, SITE_DRUGS)
     order = request_for("r1", "Medication/m1")
 
     ehr = Ehr(site_drug)
-    through, _ = Decision(pack, site_codes=maps).decide_fhir(
+    through, _ = Decision(agent, site_codes=maps).decide_fhir(
         bundle(order), links=Linker.of(ehr.client())
     )
     assert ehr.reads() == ["Medication/m1"]
@@ -670,11 +670,11 @@ def test_a_linked_resource_is_read_through_the_organizations_site_code_map(tmp_p
     assert "site code translated (anticoagulants): a person decides" in through.reasons
 
     ehr = Ehr(medication("m1", "11289", RXNORM))
-    own, _ = Decision(pack, site_codes=maps).decide_fhir(
+    own, _ = Decision(agent, site_codes=maps).decide_fhir(
         bundle(order), links=Linker.of(ehr.client())
     )
     ehr = Ehr(site_drug)
-    alone, _ = Decision(pack).decide_fhir(bundle(order), links=Linker.of(ehr.client()))
+    alone, _ = Decision(agent).decide_fhir(bundle(order), links=Linker.of(ehr.client()))
     assert own.outcome is alone.outcome is Outcome.AUTO
     assert own.answers["on_anticoagulant"].label == "yes"  # read the agent's own way
     assert alone.answers["on_anticoagulant"].label == "no"  # the site's code, untranslated
@@ -691,7 +691,7 @@ def test_a_request_its_list_leaves_out_is_not_read_for_its_links(tmp_path: Path)
     medications = copy.deepcopy(MEDICATIONS)
     period = {"start": "start", "end": "end"}
     medications["resources"]["MedicationRequest"]["medication_period"] = period
-    decision = Decision(load_pack(linked_agent(tmp_path / "agents", medications)))
+    decision = Decision(load_agent(linked_agent(tmp_path / "agents", medications)))
     ehr = Ehr(medication("m1", "RX-1"))
     gone = {**request_for("r3", "Medication/gone"), "status": "entered-in-error"}
     record = (request_for("r1", "Medication/m1"), gone)
@@ -745,7 +745,7 @@ def test_without_a_server_a_link_is_not_fetched_and_says_so(
         json={
             "resourceType": "Parameters",
             "parameter": [
-                {"name": "pack", "valueString": AGENT},
+                {"name": "agent", "valueString": AGENT},
                 {"name": "data", "resource": bundle(*record)},
             ],
         },
@@ -817,7 +817,7 @@ def test_no_note_text_reaches_the_coverage_record_reasons_or_the_chain(
         tmp_path / "a.db",
         phi=PhiPolicy(mode="encrypt", key=os.urandom(32), hash_key=INPUT_HASH_KEY),
     )
-    decision = Decision(agent.pack, store=store)
+    decision = Decision(agent.agent, store=store)
     ehr = Ehr(
         binary(f"{LINK_MARK}-b1", f"Seen today. {NOTE_MARK}."),
         organization(f"{LINK_MARK}-o1", f"{LINK_MARK}-payer"),
@@ -863,14 +863,14 @@ def test_an_agent_whose_mapping_reads_no_link_makes_no_linker(
     agent that reads a message (the triage fixture, the bundled demo agent) gets none, whatever
     the request names, so nothing is read for it, nor is its server even checked."""
     request = {"fhirServer": EHR}  # not on the allow-list yet
-    chart = Decision(load_pack(CHART_DIR))
-    assert reads_links(FhirAdapter.for_pack(chart.pack).mapping)
+    chart = Decision(load_agent(CHART_DIR))
+    assert reads_links(FhirAdapter.for_agent(chart.agent).mapping)
     with pytest.raises(FhirError, match="allow-list"):
         cds_hooks.linker(chart, request)
     for folder in (TRIAGE_DIR, DEMO_AGENT_DIR):
-        reader = load_pack(folder)
+        reader = load_agent(folder)
         assert reader.manifest.inputs.fhir is not None and reader.manifest.cds_hooks is not None
-        assert not reads_links(FhirAdapter.for_pack(reader).mapping), reader.id
+        assert not reads_links(FhirAdapter.for_agent(reader).mapping), reader.id
         assert cds_hooks.linker(Decision(reader), request) is None, reader.id
     monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", ORIGIN)
     assert cds_hooks.linker(chart, request) is not None
@@ -892,7 +892,7 @@ def test_the_record_holds_what_was_read_by_its_link_only(agent: Decision) -> Non
     assert payer["follow"]["reached"] == 1 and payer["values"] == 1
     assert json.dumps(first.data_coverage) == json.dumps(again.data_coverage)
     assert ehr.reads() == ["Organization/o1"]
-    adapter = FhirAdapter.for_pack(agent.pack)
+    adapter = FhirAdapter.for_agent(agent.agent)
     indexed = adapter.index(bundle(coverage("Organization/o1")))
     Linker.of(ehr.client()).read(adapter.mapping, indexed)
     assert "Organization" not in indexed and list(indexed.linked) == ["Organization/o1"]

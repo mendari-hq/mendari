@@ -104,6 +104,6 @@ def test_fhir_decide_picks_the_referral_among_other_orders(twin: Decision) -> No
     two["entry"].append({"resource": checked("o2", "0DJ08ZZ")})
     with pytest.raises(FhirError, match="exactly one ServiceRequest"):
         twin.decide_fhir(two)
-    adapter = FhirAdapter.for_pack(twin.pack)
+    adapter = FhirAdapter.for_agent(twin.agent)
     assert [o["id"] for o in adapter.focus_resources(two)] == [ON_FILE, "o2"]
     assert adapter.focus_resources(None) == []

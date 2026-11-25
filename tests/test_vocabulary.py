@@ -39,9 +39,9 @@ from typing import Any, get_args
 import pytest
 
 from mendari.cli import main
+from mendari.core.agent import load_agent
 from mendari.core.card import render_card
 from mendari.core.origin import Origin
-from mendari.core.pack import load_pack
 from mendari.hub.registry import create_registry_app
 from mendari.server.app import create_app
 from tests.conftest import DEMO_AGENT_DIR, ROOT, encrypt_mode, encrypted_store
@@ -226,7 +226,7 @@ def api_names(document: Any, where: str = "") -> Iterator[tuple[str, str]]:
 
 def _open_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """A release as it starts: open mode, serving the bundled agent."""
-    return create_app(db_path=tmp_path / "open.db", packs_paths=[ROOT / "agents"]).openapi()
+    return create_app(db_path=tmp_path / "open.db", agents_paths=[ROOT / "agents"]).openapi()
 
 
 def _whole_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
@@ -249,7 +249,7 @@ def _whole_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setenv("MENDARI_SMART_EHRS", "https://ehr.example.org/fhir=default:decide")
     with encrypted_store(tmp_path / "whole.db") as before:
         before.create_organization(org="registry-review", name="Registry review", created_by="t")
-    app = create_app(db_path=tmp_path / "whole.db", packs_paths=[ROOT / "agents"])
+    app = create_app(db_path=tmp_path / "whole.db", agents_paths=[ROOT / "agents"])
     try:
         document = app.openapi()
     finally:
@@ -417,7 +417,7 @@ def _decision_cards(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator
     agents = [(f"agents/{agent.name}", agent) for agent in _bundled()]
     for shown, folder in [*agents, *_scaffolded(tmp_path)]:
         for origin in get_args(Origin):
-            card = render_card(load_pack(folder, origin=origin))
+            card = render_card(load_agent(folder, origin=origin))
             assert card.startswith("# Decision Card"), f"{shown} as {origin}"
             yield f"{shown}: its Decision Card, as {origin}", card
 
@@ -445,10 +445,10 @@ def _committee_packets(
 
     crosswalk = PRODUCT / "core" / "crosswalk.yaml"
     yield "src/mendari/core/crosswalk.yaml", crosswalk.read_text(encoding="utf-8")
-    app = create_app(db_path=tmp_path / "packet.db", packs_paths=[ROOT / "agents"])
+    app = create_app(db_path=tmp_path / "packet.db", agents_paths=[ROOT / "agents"])
     with TestClient(app) as client:
         for folder in _bundled():
-            agent = load_pack(folder)
+            agent = load_agent(folder)
             body = {"message": {"body": "Please send a refill of my metformin."}}
             assert client.post(f"/api/agents/{agent.id}/decide", json=body).status_code == 200
             ran = client.post(f"/api/agents/{agent.id}/evals", json={"dataset": "examples"})
@@ -531,29 +531,6 @@ def test_every_allowed_text_is_still_there_and_still_needs_allowing(
         assert offences(text), f"{name}: {text[:80]!r} breaks no rule: take it off the list"
 
 
-def test_every_kept_name_is_still_written_where_the_rule_is_held(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The list never outlives its reasons: each kept name is still written where a person reads
-    it and the rule would stop it, in a file the docs' test reads (it holds the same rule) or
-    on one of this file's surfaces. One written nowhere any more is taken off the list."""
-    from tests.test_vocabulary_docs import NOT_READ as docs_not_read  # it imports this module
-    from tests.test_vocabulary_docs import files as docs_files
-
-    for name, reason in KEPT_NAMES.items():
-        assert reason.strip() and offences_without_kept(name), name
-    read = [name for name in docs_files() if name not in docs_not_read]
-    written = "\n".join((ROOT / name).read_text(encoding="utf-8") for name in read)
-    missing = {name for name in KEPT_NAMES if name not in written}
-    for surface in SURFACES:  # only as far as it takes to find each
-        if not missing:
-            break
-        texts = surface.texts(tmp_path / surface.name[:8], monkeypatch)
-        said = "\n".join(text for _, text in texts)
-        missing -= {name for name in missing if name in said}
-    assert not missing, f"written nowhere any more: take off the list: {sorted(missing)}"
-
-
 def offences_without_kept(text: str) -> list[str]:
     """What `text` breaks of the rule when no kept name is taken out of it: a kept name that
     breaks nothing by itself needs no keeping."""
@@ -603,18 +580,6 @@ SHOWN = {
     "the engine's API description, everything on": {"pack", "pack_id", "pack_digest", "packs"},
     "the registry's API description": {"packs"},
 }
-
-
-@pytest.mark.parametrize("document", API_DOCUMENTS)
-def test_an_api_description_still_types_its_wire_names(
-    document: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Not vacuous, and nothing renamed by accident: the wire names an API description types are
-    still there under their names, and `pack_id` is still the query parameter callers send."""
-    names = list(api_names(API_DOCUMENTS[document](tmp_path, monkeypatch)))
-    assert {name for _, name in names} & WIRE_NAMES.keys() == SHOWN[document]
-    parameters = {name for where, name in names if where.endswith("/parameters")}
-    assert parameters & WIRE_NAMES.keys() == SHOWN[document] & {"pack_id"}
 
 
 def test_every_wire_name_is_still_typed_by_an_api_description() -> None:

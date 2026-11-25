@@ -20,12 +20,12 @@ import httpx
 import pytest
 import yaml
 
-from mendari import AuditStore, Decision, GovernanceOverride, load_pack
+from mendari import AuditStore, Decision, GovernanceOverride, load_agent
 from mendari.cli import main
 from mendari.core import actions
 from mendari.core.decision import DecisionResult
 from mendari.core.spec import Outcome
-from mendari.errors import PackValidationError
+from mendari.errors import AgentValidationError
 from mendari.providers.agent import ENDPOINT_ENV, validate_response
 from tests.conftest import DEMO_AGENT_DIR, ROOT, message
 
@@ -250,7 +250,7 @@ def test_no_reason_record_or_problem_holds_an_argument_or_an_undeclared_name(
     for sentinel in SENTINELS:
         assert sentinel not in kept, sentinel
     # A reason names an action only when the manifest declares it.
-    declared = set(agent.pack.manifest.actions)
+    declared = set(agent.agent.manifest.actions)
     for reason in result.reasons:
         if reason.startswith("action '"):
             assert reason.split("'")[1] in declared
@@ -320,7 +320,7 @@ def test_a_well_formed_live_response_is_gated_as_a_canned_one_is(
     # The request carried the declared actions, in the manifest's order, each as declared.
     (request,) = seen
     assert [a["name"] for a in request["actions"]] == list(
-        Decision.from_path(MINI).pack.manifest.actions
+        Decision.from_path(MINI).agent.manifest.actions
     )
     assert request["actions"][0] == {
         "name": "look_up_medications",
@@ -337,7 +337,7 @@ def test_a_mock_file_whose_response_proposes_what_the_contract_does_not_allow_is
         mock["default"]["actions"] = [{"name": "Send Reply", "arguments": {}}]
 
     folder = copy_of(tmp_path, mock=malformed)
-    with pytest.raises(PackValidationError, match="default: an action's name must match"):
+    with pytest.raises(AgentValidationError, match="default: an action's name must match"):
         Decision.from_path(folder)
     assert main(["validate", str(folder)]) != 0
     assert "an action's name must match" in capsys.readouterr().err
@@ -361,9 +361,9 @@ def test_a_registry_agent_is_vouched_for_once_its_organization_approves_its_dige
     tmp_path: Path,
 ) -> None:
     folder = copy_of(tmp_path, manifest=unblocked, mock=one_question)
-    pulled = load_pack(folder, origin="hub")
+    pulled = load_agent(folder, origin="hub")
     unapproved = Decision(pulled)
-    approved = Decision(pulled, origin_approval=lambda pack: True)
+    approved = Decision(pulled, origin_approval=lambda agent: True)
     assert not unapproved.vouched() and approved.vouched()
     assert unapproved.automation_stopped() is not None and approved.automation_stopped() is None
     body = message("Could you refill my lisinopril?")
@@ -375,7 +375,7 @@ def test_a_registry_agent_is_vouched_for_once_its_organization_approves_its_dige
     assert {disposition for _, _, disposition, _ in shown(released)} == {"released"}
     # Recalled by its registry: held again, whatever the approval says.
     recalled = Decision(
-        pulled, origin_approval=lambda pack: True, recall_source=lambda pack: "recalled"
+        pulled, origin_approval=lambda agent: True, recall_source=lambda agent: "recalled"
     )
     assert not recalled.vouched()
     assert {disposition for _, _, disposition, _ in shown(recalled(body))} == {"held"}
@@ -391,10 +391,10 @@ def test_write_and_contact_are_released_only_where_the_risk_level_allows_auto(
     def risky(raw: dict[str, Any]) -> None:
         raw["risk"]["level"] = level
 
-    pack = load_pack(copy_of(tmp_path, manifest=risky))
+    agent = load_agent(copy_of(tmp_path, manifest=risky))
     approval = GovernanceOverride(approved_by="CMIO", reference="AI-committee-2026-11")
     body = message("Could you refill my lisinopril?")
-    plain, governed = Decision(pack)(body), Decision(pack, governance=approval)(body)
+    plain, governed = Decision(agent)(body), Decision(agent, governance=approval)(body)
     automated = [
         ("draft_reply", "draft", "released", "with_decision"),
         ("send_reply", "contact", "released", "automated"),
@@ -408,19 +408,19 @@ def test_write_and_contact_are_released_only_where_the_risk_level_allows_auto(
     # nothing lets a level 4 agent.
     assert shown(governed) == (automated if level <= 3 else held)
     assert (governed.outcome is Outcome.AUTO) is (level <= 3)
-    assert Decision(pack).automation_stopped() == (
+    assert Decision(agent).automation_stopped() == (
         None if level <= 1 else f"risk level {level} requires human review"
     )
-    assert (Decision(pack, governance=approval).automation_stopped() is None) is (level <= 3)
+    assert (Decision(agent, governance=approval).automation_stopped() is None) is (level <= 3)
     # An order waits for a person at every level, approval or not.
-    for decision in (Decision(pack), Decision(pack, governance=approval)):
+    for decision in (Decision(agent), Decision(agent, governance=approval)):
         order = decision(message("Please renew my prescription."))
         assert order.outcome is Outcome.HUMAN_REVIEW
         assert shown(order)[1] == ("renew_prescription", "order", "held", "awaiting_review")
 
 
 def test_a_hold_stops_releases_as_it_stops_automation(agent: Decision) -> None:
-    held = Decision(agent.pack, hold_source=lambda pack: "an operator's hold")
+    held = Decision(agent.agent, hold_source=lambda agent: "an operator's hold")
     result = held(message("Could you refill my lisinopril?"))
     assert result.outcome is Outcome.HUMAN_REVIEW
     assert shown(result) == [
@@ -439,7 +439,7 @@ def test_a_hold_stops_releases_as_it_stops_automation(agent: Decision) -> None:
 def test_a_response_proposes_actions_only_where_they_are_read() -> None:
     """`validate_response` reads a response's `actions` only for a variant that may propose
     them (an `agent`'s): without, the key is not read, whatever it holds."""
-    questions = Decision.from_path(MINI).pack.manifest.questions
+    questions = Decision.from_path(MINI).agent.manifest.questions
     malformed = answers(actions="anything at all, even this")
     assert "actions" not in validate_response(malformed, questions)
     assert validate_response(answers(), questions, actions=True)["actions"] == []
@@ -471,7 +471,7 @@ def test_a_0_4_agent_that_declares_nothing_is_as_it_was_until_its_agent_proposes
 
 
 def test_the_bundled_agent_proposes_what_the_demo_shows() -> None:
-    demo = Decision(load_pack(DEMO_AGENT_DIR))
+    demo = Decision(load_agent(DEMO_AGENT_DIR))
     refill = demo(message("Can you send a refill of my metformin to the pharmacy?"))
     assert refill.outcome is Outcome.AUTO
     assert shown(refill) == [("assign_queue", "write", "released", "automated")]
@@ -491,7 +491,7 @@ def test_the_bundled_agent_proposes_what_the_demo_shows() -> None:
     assert (urgent.outcome, urgent.priority.value) == (Outcome.HUMAN_REVIEW, "urgent")
     assert shown(urgent) == [("assign_queue", "write", "held", "awaiting_review")]
     # Its rules variant proposes nothing: only an agent proposes.
-    rules = Decision(load_pack(DEMO_AGENT_DIR), providers={"reader": "rules"})
+    rules = Decision(load_agent(DEMO_AGENT_DIR), providers={"reader": "rules"})
     assert rules(message("Can you send a refill of my metformin to the pharmacy?")).actions == ()
 
 

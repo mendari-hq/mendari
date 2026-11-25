@@ -20,7 +20,7 @@ order of its scores, and the answer's label is kept as the agent gave it.
 The fit is a file of the agent (`mendari.agent-calibration/1`), named by the variant's
 `calibration` key as an `llm` variant's is, so the agent's digest, its archive and its signature
 cover it. It records what it was fitted on (the dataset, its sha256, the number of cases, the
-date) and for which agent: the variant's `agent_id` and the `agent_version` the agent's service
+date) and for which agent: the variant's `service_id` and the `service_version` the agent's service
 reported while it was asked. A question with fewer than `MIN_CASES` labelled cases is not
 fitted and is left as reported; so is one whose best temperature is at the edge of the search
 (an agent right on every case has no temperature: sharpening it further always fits better).
@@ -43,9 +43,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.core.spec import Question
-from mendari.errors import MendariError, PackValidationError, ProviderError
+from mendari.errors import AgentValidationError, MendariError, ProviderError
 from mendari.providers.base import ProviderOutput, read_problems
 from mendari.providers.calibration import (
     fit_temperature,
@@ -70,8 +70,8 @@ NOT_CALIBRATED = "not calibrated"
 class Calibration:
     """A fitted calibration file, as a provider and a card read it."""
 
-    agent_id: str | None
-    agent_version: str
+    service_id: str | None
+    service_version: str
     model: str | None
     temperatures: Mapping[str, float]
     questions: Mapping[str, Mapping[str, Any]]
@@ -81,24 +81,24 @@ class Calibration:
     cases: int
     date: str
 
-    def changed(self, agent_id: str | None, reported_version: str | None) -> str | None:
+    def changed(self, service_id: str | None, reported_version: str | None) -> str | None:
         """Why this calibration is not the running agent's, as the cap's reason, or None when
-        it is: the variant's `agent_id` and the version the service reports are the ones it
+        it is: the variant's `service_id` and the version the service reports are the ones it
         was fitted for. A service that reports no version is not the one it was fitted for."""
-        if agent_id == self.agent_id and reported_version == self.agent_version:
+        if service_id == self.service_id and reported_version == self.service_version:
             return None
-        was, now = self.agent_version, reported_version or NOT_REPORTED
-        if agent_id != self.agent_id:
-            was = f"{self.agent_id or 'no agent_id'} {was}"
-            now = f"{agent_id or 'no agent_id'} {now}"
+        was, now = self.service_version, reported_version or NOT_REPORTED
+        if service_id != self.service_id:
+            was = f"{self.service_id or 'no service_id'} {was}"
+            now = f"{service_id or 'no service_id'} {now}"
         return changed_reason(was, now)
 
     def words(self) -> str:
         """What a card and a report say of it, in one clause."""
-        agent = f"{self.agent_id} " if self.agent_id else ""
+        service = f"{self.service_id} " if self.service_id else ""
         return (
             f"calibrated on {self.cases:,} cases of {self.dataset} ({self.date}) for "
-            f"{agent}version {self.agent_version}"
+            f"{service}version {self.service_version}"
         )
 
 
@@ -120,13 +120,15 @@ def shape_problems(where: str, data: Any) -> list[str]:
     """Why `data` is not a calibration file, or nothing."""
     if not isinstance(data, dict) or data.get("format") != FORMAT:
         return [f"{where}: not an agent calibration file ({FORMAT})"]
-    agent, fitted_on = data.get("agent"), data.get("fitted_on")
+    service, fitted_on = data.get("service"), data.get("fitted_on")
     temperatures = data.get("temperatures")
     problems = []
-    if not isinstance(agent, dict) or not isinstance(agent.get("version"), str):
-        problems.append(f"{where}: the calibration file does not say which agent version it is for")
-    elif agent.get("id") is not None and not isinstance(agent["id"], str):
-        problems.append(f"{where}: the calibration file's agent id is not a name")
+    if not isinstance(service, dict) or not isinstance(service.get("version"), str):
+        problems.append(
+            f"{where}: the calibration file does not say which service version it is for"
+        )
+    elif service.get("id") is not None and not isinstance(service["id"], str):
+        problems.append(f"{where}: the calibration file's service id is not a name")
     if not isinstance(temperatures, dict) or not all(
         isinstance(key, str) and _temperature(value) for key, value in temperatures.items()
     ):
@@ -147,23 +149,23 @@ def shape_problems(where: str, data: Any) -> list[str]:
     return problems
 
 
-def file_problems(pack: Pack, where: str, relative: str) -> list[str]:
+def file_problems(agent: Agent, where: str, relative: str) -> list[str]:
     """Why the agent's file `relative` cannot be read as a calibration, or nothing."""
-    data, problems = read_problems(lambda: pack.read_json(relative))
+    data, problems = read_problems(lambda: agent.read_json(relative))
     return problems or shape_problems(where, data)
 
 
 def of(data: Mapping[str, Any], questions: Mapping[str, Any] | None = None) -> Calibration:
     """A calibration file's content (one `shape_problems` passes), with the temperatures of
     `questions` alone when given."""
-    agent, fitted_on = data["agent"], data["fitted_on"]
-    model = agent.get("model")
+    service, fitted_on = data["service"], data["fitted_on"]
+    model = service.get("model")
     sha256 = fitted_on.get("sha256")
     stated = data.get("questions")
     not_fitted = data.get("not_fitted")
     return Calibration(
-        agent_id=agent.get("id"),
-        agent_version=agent["version"],
+        service_id=service.get("id"),
+        service_version=service["version"],
         model=model if isinstance(model, str) else None,
         temperatures={
             key: float(value)
@@ -179,37 +181,37 @@ def of(data: Mapping[str, Any], questions: Mapping[str, Any] | None = None) -> C
     )
 
 
-def load(pack: Pack, where: str, relative: str, questions: Mapping[str, Question]) -> Calibration:
-    """The calibration an `agent` variant names, or `PackValidationError`."""
-    problems = file_problems(pack, where, relative)
+def load(agent: Agent, where: str, relative: str, questions: Mapping[str, Question]) -> Calibration:
+    """The calibration an `agent` variant names, or `AgentValidationError`."""
+    problems = file_problems(agent, where, relative)
     if problems:
-        raise PackValidationError(pack.id, problems)
-    return of(pack.read_json(relative), questions)
+        raise AgentValidationError(agent.id, problems)
+    return of(agent.read_json(relative), questions)
 
 
-def status(pack: Pack, config: Mapping[str, Any]) -> Calibration | str:
+def status(agent: Agent, config: Mapping[str, Any]) -> Calibration | str:
     """What a card says of an `agent` variant's (or member's) confidence, from its config
     alone: its calibration, or why it has none (`NOT_CALIBRATED`, or the file's problem)."""
     relative = config.get("calibration")
     if not isinstance(relative, str):
         return NOT_CALIBRATED
-    problems = file_problems(pack, "its calibration", relative)
+    problems = file_problems(agent, "its calibration", relative)
     if problems:
         return f"{NOT_CALIBRATED} ({problems[0]})"
-    return of(pack.read_json(relative))
+    return of(agent.read_json(relative))
 
 
 def calibrated(
     calibration: Calibration,
     output: ProviderOutput,
     questions: Mapping[str, Question],
-    agent_id: str | None,
+    service_id: str | None,
 ) -> ProviderOutput:
     """`output` as the policy will see it: see the module docstring."""
     if output.canned is not None:
         return output
-    reported_version = output.extra.get("agent_version")
-    reason = calibration.changed(agent_id, reported_version)
+    reported_version = output.extra.get("service_version")
+    reason = calibration.changed(service_id, reported_version)
     if reason is not None:
         cap = Signals(caps=(Cap("calibration", reason),))
         note = f"{NOT_CALIBRATED}: {reason}"
@@ -252,7 +254,7 @@ def fit(
     temperature per question on its answers. Returns the calibration file's content.
 
     Refused (`MendariError`): an agent that answers from its canned examples (they are not its
-    confidence), a service that reports no `agent_version` (a calibration is for a version), and
+    confidence), a service that reports no `service_version` (a calibration is for a version), and
     one that reported more than one version while it was asked (the cases are of two agents)."""
     from mendari.evals import metrics
     from mendari.parallel import parallel_map
@@ -280,7 +282,7 @@ def fit(
         if isinstance(output, str):
             failures[output] = failures.get(output, 0) + 1
             continue
-        version = output.extra.get("agent_version")
+        version = output.extra.get("service_version")
         versions[version] = versions.get(version, 0) + 1
         if isinstance(output.extra.get("model"), str):
             models[output.extra["model"]] = models.get(output.extra["model"], 0) + 1
@@ -290,8 +292,8 @@ def fit(
         raise MendariError(f"{where}: the agent answered no case ({failures})")
     if None in versions:
         raise MendariError(
-            f"{where}: the agent's service reports no agent_version, and a calibration is "
-            "fitted for a version: have the service report one (`agent_version` in its answer)"
+            f"{where}: the agent's service reports no service_version, and a calibration is "
+            "fitted for a version: have the service report one (`service_version` in its answer)"
         )
     if len(versions) > 1:
         raise MendariError(
@@ -342,8 +344,8 @@ def fit(
     (version,) = versions
     return {
         "format": FORMAT,
-        "agent": {
-            "id": provider.settings.agent_id,
+        "service": {
+            "id": provider.settings.service_id,
             "version": version,
             "model": max(models, key=lambda name: models[name]) if models else None,
         },

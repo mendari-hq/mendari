@@ -79,7 +79,7 @@ providers:
         config: logic/rules.yaml
       agent:
         type: agent
-        agent_id: clinical-review
+        service_id: clinical-review
         state_fields: [note.text]
         mock_file: fixtures/mock.json
 

@@ -19,7 +19,7 @@ import yaml
 
 from mendari import __version__
 from mendari.cli import CI_GUIDE, CI_TEMPLATE, CI_WORKFLOW, main
-from mendari.core.pack import load_pack, pack_digest
+from mendari.core.agent import agent_digest, load_agent
 from mendari.hub import archive
 from tests.conftest import ROOT
 from tests.test_ci_action import CI, DEMO, action, pytestmark_bash, use
@@ -84,7 +84,7 @@ def test_new_writes_a_workflow_that_uses_the_action_at_this_releases_tag(
         "max-critical-misses": "0",
     }
     assert all(check["with"][name] == inputs[name]["default"] for name in check["with"])
-    assert check["with"]["dataset"] in load_pack(agent).manifest.evaluation.datasets
+    assert check["with"]["dataset"] in load_agent(agent).manifest.evaluation.datasets
     assert checkout["uses"].startswith("actions/checkout@")
 
 
@@ -136,10 +136,10 @@ def test_the_workflow_is_no_part_of_the_agent(tmp_path: Path) -> None:
     what they are without it: a hidden folder is not the agent's."""
     agent = scaffolded(tmp_path)
     assert main(["validate", str(agent)]) == 0
-    with_it = pack_digest(agent)
-    assert not [path for path in archive.pack_files(agent) if ".github" in path.parts]
+    with_it = agent_digest(agent)
+    assert not [path for path in archive.agent_files(agent) if ".github" in path.parts]
     shutil.rmtree(agent / ".github")
-    assert pack_digest(agent) == with_it
+    assert agent_digest(agent) == with_it
     assert main(["validate", str(agent)]) == 0
 
 

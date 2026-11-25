@@ -3,10 +3,10 @@
 LP-23d).
 
 Every decision made from FHIR carries this record (`DecisionResult.data_coverage`), so a site
-can see how a pack read its EHR's data: for the focus, each mapped field and each mapped list,
+can see how an agent read its EHR's data: for the focus, each mapped field and each mapped list,
 
-- the paths looked for, the code systems the pack declares (`code_systems`) and the codes the
-  pack itself looks for (its `focus_where` values or code set, and a field's `map` keys);
+- the paths looked for, the code systems the agent declares (`code_systems`) and the codes the
+  agent itself looks for (its `focus_where` values or code set, and a field's `map` keys);
 - the resources of the path's type, counted, and the number of values found;
 - codings counted by declared system, every other system as one count (`other`);
 - what could not be read, as reason codes (`READ_REASONS`) with their counts: a prefetch read
@@ -25,7 +25,7 @@ says how many references it found and how many resources they reached inside the
 `medication_period`'s two keys among its fields. An `attachment_text` note that could not be
 read counts by `fhir.read_attachment`'s reason (`unsupported_type`, `undecodable`,
 `not_fetched`); an attachment with neither data nor a link has nothing to read and counts for
-nothing, as for `base64_text`. A note field whose joined text is longer than the pack's input
+nothing, as for `base64_text`. A note field whose joined text is longer than the agent's input
 lets it be counts once as `too_large` (`fhir.overlong`, LP-23k).
 
 Linked reads (LP-23h, `standards/linked.py`) add what they read to the record, so a note whose
@@ -89,7 +89,7 @@ from mendari.standards.fhir import (
 
 FORMAT = "mendari.data-coverage/1"
 READ_REASONS: frozenset[str] = frozenset(get_args(ReadReason))
-OTHER = "other"  # every coding whose system the pack does not declare, as one count
+OTHER = "other"  # every coding whose system the agent does not declare, as one count
 _ATTACHMENT_DATA = "data"
 _NOTES = ("base64_text", "attachment_text")  # the transforms that read attachments
 
@@ -179,7 +179,7 @@ def measure(
 ) -> dict[str, Any]:
     """The data-coverage record of one decision. `indexed` is the record as the mapping read it
     (`FhirAdapter.index`); `unreadable` the prefetch keys that could not be read, each with its
-    reason; `systems` the code systems the pack declares; `sources` the pack's prefetch
+    reason; `systems` the code systems the agent declares; `sources` the agent's prefetch
     templates, which say what resource type each key reads, so a field or a list whose resources
     could not be read says so, and a list read and empty does not; `site_codes` the site's
     translations the input was read with (LP-23i), so a `code_set` field counts the paths, values
@@ -297,7 +297,7 @@ def _prefetch(
 
 
 def _focus_codes(mapping: FhirMapping) -> list[str]:
-    """The pack's own codes `focus_where` looks for: its `in` values, or (spec 0.3, LP-23k) its
+    """The agent's own codes `focus_where` looks for: its `in` values, or (spec 0.3, LP-23k) its
     code set's codes, sorted; none without `focus_where`."""
     where = mapping.focus_where
     if where is None:
@@ -404,7 +404,7 @@ def _field(
     mapped: FieldMapping, kind: str | None, looked: LookedFor, found: _Found, declared: list[str]
 ) -> dict[str, Any]:
     """What one field looked for and found: its paths as the mapping says them, in the order
-    tried (a list field's relative to its resource), the pack's codes and the systems it looks
+    tried (a list field's relative to its resource), the agent's codes and the systems it looks
     in, the values found and, for a field that reads codings, its concepts' codings by declared
     system; with `follow`, its references and what they reached."""
     coded = _coded(mapped, kind)

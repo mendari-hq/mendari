@@ -3,19 +3,6 @@
     "agent": {
       "additionalProperties": false,
       "properties": {
-        "agent_id": {
-          "anyOf": [
-            {
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Agent Id"
-        },
         "calibration": {
           "anyOf": [
             {
@@ -78,6 +65,19 @@
           ],
           "default": null,
           "title": "Repeat"
+        },
+        "service_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Service Id"
         },
         "state_fields": {
           "anyOf": [

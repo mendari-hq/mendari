@@ -19,7 +19,7 @@ from types import ModuleType
 
 import pytest
 
-from mendari.core.pack import load_pack
+from mendari.core.agent import load_agent
 from mendari.core.spec import licensed_systems
 from tests.conftest import FIXTURE_AGENTS
 
@@ -81,7 +81,7 @@ def agent_of(relative: str) -> Path | None:
     return None
 
 
-def test_cpt_is_in_no_pack_dataset_or_fixture() -> None:
+def test_cpt_is_in_no_agent_dataset_or_fixture() -> None:
     assert [path for path, systems in named().items() if CPT in systems] == []
 
 
@@ -94,15 +94,17 @@ def test_a_licensed_system_is_only_where_it_is_declared_or_allowed() -> None:
         # agent may not.
         root = agent_of(path)
         assert root is not None, f"{path} names {systems}"
-        manifest = load_pack(root).manifest
+        manifest = load_agent(root).manifest
         declared = {use.url: use.licence_note for use in manifest.code_systems}
         for system in systems:
             assert declared.get(system), f"{path}: {system} without a licence_note"
 
 
-@pytest.mark.parametrize("pack", sorted(p.parent.name for p in FIXTURE_AGENTS.glob("*/agent.yaml")))
-def test_every_reference_pack_says_its_licence_and_loads(pack: str) -> None:
-    manifest = load_pack(FIXTURE_AGENTS / pack).manifest
+@pytest.mark.parametrize(
+    "agent", sorted(p.parent.name for p in FIXTURE_AGENTS.glob("*/agent.yaml"))
+)
+def test_every_reference_agent_says_its_licence_and_loads(agent: str) -> None:
+    manifest = load_agent(FIXTURE_AGENTS / agent).manifest
     assert manifest.license == "Apache-2.0"
     for use in manifest.code_systems:
         assert (use.licence_note is not None) == bool(licensed_systems(use.url)), use
@@ -133,13 +135,15 @@ def test_the_package_scan_finds_snomed_ct_however_it_is_written(tmp_path: Path) 
     shaped += "is not one, add it to NOT_CONCEPT_IDS in scripts/check_snomed.py with why"
     with zipfile.ZipFile(wheel, "w") as archive:
         archive.writestr("mendari/_datasets/a.jsonl", '{"code": "44054006"}\n')
-        archive.writestr("mendari/_packs/b/fhir.json", '{"system": "http:\\/\\/snomed.info\\/sct"}')
+        archive.writestr(
+            "mendari/_agents/b/fhir.json", '{"system": "http:\\/\\/snomed.info\\/sct"}'
+        )
         archive.writestr("mendari/c.py", 'OID = "2.16.840.1.113883.6.96"\n')
         archive.writestr("mendari/d.md", "see http://snomed.info/id/3457005 for the concept\n")
         archive.writestr("mendari/core/spec.py", '"http://snomed.info/sct"\n')  # allowed
         archive.writestr("mendari/e.json", '{"p": 0.3457005, "sha": "a44054006f", "n": 134570051}')
         # Any id, not only the ones the repository has used: diabetes mellitus and hypertension.
-        archive.writestr("mendari/_packs/f/rules.yaml", 'codes: ["E11*", "73211009", "38341003"]')
+        archive.writestr("mendari/_agents/f/rules.yaml", 'codes: ["E11*", "73211009", "38341003"]')
         archive.writestr("mendari/g.md", "Coded 3457005. Or 73211008, whose check digit is wrong.")
         # The vendored code's numbers are not codes, but a known id is found there too.
         archive.writestr("mendari/dashboard/vendor/h.js", "x=106217008;y=808000;z=22298006")
@@ -147,13 +151,13 @@ def test_the_package_scan_finds_snomed_ct_however_it_is_written(tmp_path: Path) 
     found = [line for name, text in check.members(wheel) for line in check.findings(name, text)]
     assert found == [
         "mendari/_datasets/a.jsonl: SNOMED CT concept id 44054006",
-        "mendari/_packs/b/fhir.json: names SNOMED CT (its url, OID or a concept URI)",
+        "mendari/_agents/b/fhir.json: names SNOMED CT (its url, OID or a concept URI)",
         "mendari/c.py: names SNOMED CT (its url, OID or a concept URI)",
         "mendari/d.md: SNOMED CT concept id 3457005",
         "mendari/d.md: a SNOMED CT concept URI",
         "mendari/d.md: names SNOMED CT (its url, OID or a concept URI)",
-        f"mendari/_packs/f/rules.yaml: 38341003 {shaped}",
-        f"mendari/_packs/f/rules.yaml: 73211009 {shaped}",
+        f"mendari/_agents/f/rules.yaml: 38341003 {shaped}",
+        f"mendari/_agents/f/rules.yaml: 73211009 {shaped}",
         "mendari/g.md: SNOMED CT concept id 3457005",
         "mendari/dashboard/vendor/h.js: SNOMED CT concept id 22298006",
     ]

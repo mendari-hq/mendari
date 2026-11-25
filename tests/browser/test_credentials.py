@@ -40,7 +40,7 @@ from tests.browser.access_site import (
 from tests.browser.conftest import TRIAGE
 from tests.browser.test_access import member_of, pins
 from tests.browser.test_accessibility import violations
-from tests.browser.test_dashboard import PHONE, SMALL_TARGETS, open_pack
+from tests.browser.test_dashboard import PHONE, SMALL_TARGETS, open_agent
 from tests.conftest import DASHBOARD, encrypt_mode, security_lines, signed_in
 from tests.test_auth import CLIENT, IDP
 from tests.test_backend_services import EC_KEY, RSA_KEY, Signer
@@ -530,7 +530,7 @@ def test_creating_rotating_and_replacing_wait_for_the_notice(page: Page) -> None
     page.route(f"**/api/auth/clients/{CLIENT_ID}/keys", minting(replaced, 200, []))
     acknowledging = page.get_by_role("button", name="I understand: synthetic data only")
 
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     page.goto(f"/?agent={TRIAGE}#admin/keys")
     page.fill("#key-name", "ehr")
     page.get_by_role("button", name="Create key").click()

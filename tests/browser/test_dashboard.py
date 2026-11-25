@@ -19,7 +19,7 @@ import httpx
 import pytest
 from playwright.sync_api import Browser, Locator, Page, Route, ViewportSize, expect
 
-from mendari import Pack, load_pack
+from mendari import Agent, load_agent
 from mendari.evals import figures
 from mendari.evals.render import shown
 from mendari.server import api_docs
@@ -30,7 +30,7 @@ pytestmark = pytest.mark.browser
 
 # The agents the live server serves (tests/browser/conftest.py), as `/api/agents` lists them, and
 # the names they go by.
-PACKS = [CHART, CLINICAL, TRIAGE]
+AGENTS = [CHART, CLINICAL, TRIAGE]
 TRIAGE_NAME = "Synthetic Triage (test fixture)"
 CLINICAL_NAME = "Synthetic Clinical Review (test fixture)"
 CHART_NAME = "Synthetic Chart Summary (test fixture)"
@@ -76,15 +76,15 @@ def show(page: Page, view: str) -> None:
     expect(page.locator("#view")).not_to_have_attribute("aria-busy", "true")
 
 
-def open_pack(page: Page, pack_id: str, view: str = "overview") -> None:
-    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(pack_id)})")
+def open_agent(page: Page, agent_id: str, view: str = "overview") -> None:
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(agent_id)})")
     show(page, view)
 
 
-def served(folder: Path, pack_id: str) -> Pack:
-    """The agent the live server serves as `pack_id`: its published copy in `folder` (the
+def served(folder: Path, agent_id: str) -> Agent:
+    """The agent the live server serves as `agent_id`: its published copy in `folder` (the
     `served_agents` fixture), with its benchmark and leaderboard."""
-    return load_pack(folder / pack_id.split("/", 1)[1])
+    return load_agent(folder / agent_id.split("/", 1)[1])
 
 
 # What one call to an agent's service costs a deployment (synthetic, in dollars), and how many
@@ -95,13 +95,13 @@ CALLS = {"agent": 1, "checked": 1, "repeated": 3}
 
 
 def counted_board(
-    pack: Pack, *, positives: int | None = None, priced: bool = False
+    agent: Agent, *, positives: int | None = None, priced: bool = False
 ) -> dict[str, Any]:
-    """The pack's published leaderboard as the server serves it (`figures.board`). With
+    """The agent's published leaderboard as the server serves it (`figures.board`). With
     `positives`, each critical label's counts are scaled to that many positives (synthetic), so
     the rows rank: the fixtures' own sets have too few positives for any row to rank. `priced`:
     each row costs what its calls to a service would (`CALLS`, synthetic)."""
-    board = json.loads(pack.attestation("evals/leaderboard.json").read_text())
+    board = json.loads(agent.attestation("evals/leaderboard.json").read_text())
     for row in board["rows"]:
         if positives is not None:
             row["critical"] = [
@@ -112,7 +112,7 @@ def counted_board(
         if priced:
             calls = sum(CALLS.get(p["variant"], 0) for p in row["providers"].values())
             row["cost_per_decision_usd"] = calls * CALL_USD
-    return figures.board(board, pack.digest, pack.version)
+    return figures.board(board, agent.digest, agent.version)
 
 
 def board_group(board: dict[str, Any], dataset: str) -> int:
@@ -120,32 +120,32 @@ def board_group(board: dict[str, Any], dataset: str) -> int:
     return next(i for i, group in enumerate(board["groups"]) if group["dataset"] == dataset)
 
 
-def serve_board(page: Page, pack_id: str, board: dict[str, Any]) -> None:
-    """Answer the pack's detail with `board` as its leaderboard."""
+def serve_board(page: Page, agent_id: str, board: dict[str, Any]) -> None:
+    """Answer the agent's detail with `board` as its leaderboard."""
 
     def handle(route: Route) -> None:
         body = route.fetch().json()
         body["leaderboard"] = board
         route.fulfill(json=body)
 
-    page.route(re.compile(rf".*/api/agents/{re.escape(pack_id)}$"), handle)
+    page.route(re.compile(rf".*/api/agents/{re.escape(agent_id)}$"), handle)
 
 
-@pytest.mark.parametrize("pack_id", PACKS)
+@pytest.mark.parametrize("agent_id", AGENTS)
 def test_every_view_renders_without_errors(
-    page: Page, console_errors: list[str], pack_id: str
+    page: Page, console_errors: list[str], agent_id: str
 ) -> None:
-    open_pack(page, pack_id)
+    open_agent(page, agent_id)
     for view in VIEWS:
         show(page, view)
         expect(page.locator("main")).not_to_contain_text("Could not load this view")
     assert console_errors == []
 
 
-@pytest.mark.parametrize("pack_id", [TRIAGE, CLINICAL])
-def test_no_view_scrolls_sideways_on_a_phone(page: Page, pack_id: str) -> None:
+@pytest.mark.parametrize("agent_id", [TRIAGE, CLINICAL])
+def test_no_view_scrolls_sideways_on_a_phone(page: Page, agent_id: str) -> None:
     page.set_viewport_size(PHONE)
-    open_pack(page, pack_id)
+    open_agent(page, agent_id)
     for view in VIEWS:
         show(page, view)
         assert page.evaluate("document.documentElement.scrollWidth") <= PHONE["width"], view
@@ -153,12 +153,12 @@ def test_no_view_scrolls_sideways_on_a_phone(page: Page, pack_id: str) -> None:
 
 def test_the_sandbox_notice_stays_on_a_phone(page: Page) -> None:
     page.set_viewport_size(PHONE)
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.locator(".tag")).to_be_visible()
 
 
 def test_an_audit_record_opens_in_a_drawer_from_the_keyboard(page: Page) -> None:
-    open_pack(page, TRIAGE, "audit")
+    open_agent(page, TRIAGE, "audit")
     opener = page.locator("#audit-table button.open-record").first
     decision_id = opener.get_attribute("data-id")
     opener.focus()
@@ -179,8 +179,10 @@ def test_an_audit_record_opens_in_a_drawer_from_the_keyboard(page: Page) -> None
 
 
 def test_a_record_link_opens_its_drawer(page: Page, live_server: str) -> None:
-    latest = httpx.get(f"{live_server}/api/audit", params={"pack_id": TRIAGE, "limit": 1}).json()[0]
-    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(TRIAGE)})")
+    latest = httpx.get(f"{live_server}/api/audit", params={"agent_id": TRIAGE, "limit": 1}).json()[
+        0
+    ]
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
     page.goto(f"/#audit/{latest['id']}")
     dialog = page.get_by_role("dialog")
     expect(dialog).to_contain_text(latest["id"])
@@ -213,7 +215,7 @@ def test_a_fhir_decision_shows_what_it_read_in_its_record(axe_page: Page, live_s
     assert axe_page.evaluate(BARE_PERCENT_IN, ".drawer section.coverage") == []
     assert not re.search(r"\d+\s+(?:of|out of|/)\s*\d+", panel.inner_text())  # no k of n
     assert violations(axe_page) == []
-    latest = httpx.get(f"{live_server}/api/audit", params={"pack_id": CLINICAL, "limit": 1}).json()
+    latest = httpx.get(f"{live_server}/api/audit", params={"agent_id": CLINICAL, "limit": 1}).json()
     axe_page.goto(f"/?agent={CLINICAL}#audit/{latest[0]['id']}")
     expect(axe_page.get_by_role("dialog")).to_contain_text(latest[0]["id"])
     expect(axe_page.locator(".drawer section.coverage")).to_have_count(0)
@@ -242,59 +244,59 @@ def test_a_list_of_several_resource_types_shows_a_row_per_source(
     assert violations(axe_page) == []
 
 
-def test_a_shared_link_opens_the_pack_it_was_copied_from(page: Page, live_server: str) -> None:
-    """The pack is in the address, so a link beats whatever pack the viewer chose last, a record
-    link opens over that pack's list, and moving between views keeps it."""
-    latest = httpx.get(f"{live_server}/api/audit", params={"pack_id": CLINICAL, "limit": 1}).json()[
-        0
-    ]
-    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(TRIAGE)})")
+def test_a_shared_link_opens_the_agent_it_was_copied_from(page: Page, live_server: str) -> None:
+    """The agent is in the address, so a link beats whatever agent the viewer chose last, a record
+    link opens over that agent's list, and moving between views keeps it."""
+    latest = httpx.get(
+        f"{live_server}/api/audit", params={"agent_id": CLINICAL, "limit": 1}
+    ).json()[0]
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
     page.goto(f"/?agent={CLINICAL}#audit/{latest['id']}")
     expect(page.get_by_role("dialog")).to_contain_text(latest["id"])
-    expect(page.locator("#pack-select")).to_have_value(CLINICAL)
+    expect(page.locator("#agent-select")).to_have_value(CLINICAL)
     page.get_by_role("button", name="Close").click()
     page.locator('.nav a[data-view="review"]').click()
     expect(page).to_have_url(re.compile(f"\\?agent={CLINICAL}#review$"))
-    expect(page.locator("#pack-select")).to_have_value(CLINICAL)
+    expect(page.locator("#agent-select")).to_have_value(CLINICAL)
 
 
-def test_choosing_a_pack_puts_it_in_the_address(page: Page) -> None:
-    open_pack(page, TRIAGE, "overview")
+def test_choosing_an_agent_puts_it_in_the_address(page: Page) -> None:
+    open_agent(page, TRIAGE, "overview")
     expect(page).to_have_url(re.compile(f"\\?agent={TRIAGE}#overview$"))
-    page.select_option("#pack-select", CLINICAL)
+    page.select_option("#agent-select", CLINICAL)
     expect(page).to_have_url(re.compile(f"\\?agent={CLINICAL}#overview$"))
     expect(page.locator("main h1")).to_have_text(CLINICAL_NAME)
 
 
-def test_an_unknown_pack_in_the_address_falls_back_to_the_last_one(page: Page) -> None:
-    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(CLINICAL)})")
+def test_an_unknown_agent_in_the_address_falls_back_to_the_last_one(page: Page) -> None:
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(CLINICAL)})")
     page.goto("/?agent=someone/else#overview")
-    expect(page.locator("#pack-select")).to_have_value(CLINICAL)
+    expect(page.locator("#agent-select")).to_have_value(CLINICAL)
     expect(page).to_have_url(re.compile(f"\\?agent={CLINICAL}#overview$"))
 
 
-def test_going_back_across_a_pack_change_shows_that_pack(page: Page) -> None:
-    open_pack(page, TRIAGE, "overview")
+def test_going_back_across_an_agent_change_shows_that_agent(page: Page) -> None:
+    open_agent(page, TRIAGE, "overview")
     page.locator('.nav a[data-view="audit"]').click()
     expect(page.locator("main h1")).to_have_text("Audit trail")
-    page.select_option("#pack-select", CLINICAL)
+    page.select_option("#agent-select", CLINICAL)
     expect(page).to_have_url(re.compile(f"\\?agent={CLINICAL}#audit$"))
     page.go_back()
     expect(page).to_have_url(re.compile(f"\\?agent={TRIAGE}#overview$"))
-    expect(page.locator("#pack-select")).to_have_value(TRIAGE)
+    expect(page.locator("#agent-select")).to_have_value(TRIAGE)
     expect(page.locator("main h1")).to_have_text(TRIAGE_NAME)
 
 
-def test_a_pack_that_answers_late_does_not_replace_the_one_chosen_after_it(page: Page) -> None:
+def test_an_agent_that_answers_late_does_not_replace_the_one_chosen_after_it(page: Page) -> None:
     """Choosing the clinical review, then going back to the triage agent before the review has
     loaded: when the review's answer finally arrives it is dropped, and the triage agent stays."""
-    open_pack(page, TRIAGE, "overview")
+    open_agent(page, TRIAGE, "overview")
     page.locator('.nav a[data-view="audit"]').click()
     expect(page.locator("main h1")).to_have_text("Audit trail")
     held: list[Route] = []
     page.route(f"**/api/agents/{CLINICAL}", lambda route: held.append(route))
     with page.expect_request(f"**/api/agents/{CLINICAL}"):
-        page.select_option("#pack-select", CLINICAL)
+        page.select_option("#agent-select", CLINICAL)
     page.go_back()
     expect(page.locator("main h1")).to_have_text(TRIAGE_NAME)
     for route in held:
@@ -302,7 +304,7 @@ def test_a_pack_that_answers_late_does_not_replace_the_one_chosen_after_it(page:
     page.unroute(f"**/api/agents/{CLINICAL}")
     page.wait_for_timeout(300)  # time for the late answer and any render it could start
     expect(page.locator("main h1")).to_have_text(TRIAGE_NAME)
-    expect(page.locator("#pack-select")).to_have_value(TRIAGE)
+    expect(page.locator("#agent-select")).to_have_value(TRIAGE)
 
 
 def test_going_back_from_one_record_to_another_keeps_the_drawer_open(
@@ -311,9 +313,9 @@ def test_going_back_from_one_record_to_another_keeps_the_drawer_open(
     """Replacing an open drawer must not run the old drawer's close handler (which returns the
     URL to the list and so closed the new drawer too)."""
     first, second = httpx.get(
-        f"{live_server}/api/audit", params={"pack_id": TRIAGE, "limit": 2}
+        f"{live_server}/api/audit", params={"agent_id": TRIAGE, "limit": 2}
     ).json()
-    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(TRIAGE)})")
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
     page.goto(f"/#audit/{first['id']}")
     expect(page.get_by_role("dialog")).to_contain_text(first["id"])
     page.goto(f"/#audit/{second['id']}")
@@ -325,7 +327,7 @@ def test_going_back_from_one_record_to_another_keeps_the_drawer_open(
 
 def test_a_new_view_starts_at_the_top_with_its_heading_focused(page: Page) -> None:
     page.set_viewport_size({"width": 1280, "height": 400})
-    open_pack(page, TRIAGE, "audit")
+    open_agent(page, TRIAGE, "audit")
     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
     assert page.evaluate("window.scrollY") > 0
     page.locator('.nav a[data-view="evals"]').click()
@@ -334,9 +336,9 @@ def test_a_new_view_starts_at_the_top_with_its_heading_focused(page: Page) -> No
     assert page.evaluate("window.scrollY") == 0
 
 
-@pytest.mark.parametrize("pack_id", [TRIAGE, CLINICAL])
-def test_every_control_has_an_accessible_name(page: Page, pack_id: str) -> None:
-    open_pack(page, pack_id)
+@pytest.mark.parametrize("agent_id", [TRIAGE, CLINICAL])
+def test_every_control_has_an_accessible_name(page: Page, agent_id: str) -> None:
+    open_agent(page, agent_id)
     for view in ["review", "audit", "evals", "feedback", "try"]:
         show(page, view)
         assert page.evaluate(UNNAMED) == [], view
@@ -347,7 +349,7 @@ def test_every_control_has_an_accessible_name(page: Page, pack_id: str) -> None:
 
 
 def test_decide_shows_progress_and_blocks_a_second_submit(page: Page) -> None:
-    open_pack(page, TRIAGE, "try")
+    open_agent(page, TRIAGE, "try")
     held: list[Route] = []
     page.route("**/decide", lambda route: held.append(route))
     page.get_by_role("button", name="Chest pain").click()
@@ -363,7 +365,7 @@ def test_decide_shows_progress_and_blocks_a_second_submit(page: Page) -> None:
 
 
 def test_the_record_example_picker_matches_the_input(page: Page) -> None:
-    open_pack(page, CLINICAL, "try")
+    open_agent(page, CLINICAL, "try")
     expect(page.locator("#example")).to_have_value("0")
     expect(page.locator("#expected")).to_contain_text("The agent's test expects")
 
@@ -371,7 +373,7 @@ def test_the_record_example_picker_matches_the_input(page: Page) -> None:
 @pytest.mark.parametrize("scheme", ["light", "dark"])
 def test_buttons_and_badges_meet_aa_contrast(page: Page, scheme: str) -> None:
     page.emulate_media(color_scheme=scheme)  # type: ignore[arg-type]
-    open_pack(page, TRIAGE, "audit")
+    open_agent(page, TRIAGE, "audit")
     pairs = page.evaluate(CONTRAST, "main .badge") + page.evaluate(CONTRAST, "#view button.primary")
     show(page, "evals")
     pairs += page.evaluate(CONTRAST, "#view button.primary")
@@ -384,9 +386,9 @@ def test_times_are_eastern_whatever_the_viewer_clock(browser: Browser, base_url:
     context = browser.new_context(base_url=base_url, timezone_id="Asia/Tokyo")
     page = context.new_page()
     try:
-        page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(TRIAGE)})")
+        page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
         show(page, "audit")
-        latest = httpx.get(f"{base_url}/api/audit", params={"pack_id": TRIAGE, "limit": 1}).json()
+        latest = httpx.get(f"{base_url}/api/audit", params={"agent_id": TRIAGE, "limit": 1}).json()
         eastern = ZoneInfo("America/New_York")
         at = datetime.fromisoformat(latest[0]["created_at"]).astimezone(eastern)
         hour = at.hour % 12 or 12
@@ -404,7 +406,7 @@ def test_times_are_eastern_whatever_the_viewer_clock(browser: Browser, base_url:
 
 def test_the_theme_choice_is_kept_across_reloads(page: Page) -> None:
     page.emulate_media(color_scheme="light")
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     html = page.locator("html")
     expect(html).to_have_attribute("data-theme", "light")
     page.get_by_role("button", name="Dark").click()
@@ -433,7 +435,7 @@ def test_the_theme_is_set_before_any_app_code_runs(
 
 def test_system_theme_follows_the_system_setting_live(page: Page) -> None:
     page.emulate_media(color_scheme="light")
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.get_by_role("button", name="System")).to_have_attribute("aria-pressed", "true")
     page.emulate_media(color_scheme="dark")
     expect(page.locator("html")).to_have_attribute("data-theme", "dark")
@@ -443,7 +445,7 @@ def test_the_leaderboard_shows_its_listing_and_marks_the_deployed_row(page: Page
     """Every set is public, so the comparison is a regression check, not a ranking (LP-17g): no
     rank column. The rows were measured on this version, with too few positives for any to rank,
     and each says so under its name."""
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     expect(page).to_have_url(re.compile("#evals$"))
     compare = page.get_by_role("link", name="Provider comparison")
     expect(compare).to_have_attribute("aria-current", "page")
@@ -470,7 +472,7 @@ def test_the_leaderboard_shows_its_listing_and_marks_the_deployed_row(page: Page
     note = page.locator("#board .table-note").first
     expect(note).to_contain_text("all rows: router = Rules")
     # And at risk level 2 nothing is automated, in any configuration.
-    page.select_option("#pack-select", CLINICAL)
+    page.select_option("#agent-select", CLINICAL)
     note = page.locator("#board .table-note").first
     expect(note).to_contain_text(f"Automated {shown(figures.of(0, 120))} in every configuration")
 
@@ -486,7 +488,7 @@ def test_a_template_board_shows_no_rank_and_keeps_its_order_when_sorted(
     rows = [r for r in board["rows"] if r["group"] == group]
     assert [r["rank"] for r in rows] == list(range(1, len(rows) + 1))  # all rank, as data
     serve_board(page, TRIAGE, board)
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.get_by_role("button", name=board["groups"][group]["label"]).click()
     table = page.locator("#board table.data").first
     listed = """(table) => [...table.querySelectorAll('tbody tr')].map((tr) =>
@@ -518,7 +520,7 @@ def test_a_template_board_shows_no_rank_and_keeps_its_order_when_sorted(
 def test_the_dashboard_prints_a_figure_as_the_card_does(page: Page) -> None:
     """ui.js's port of render.shown, checked against what Python prints for 2,401 figures and 601
     bounds (tests/fixtures/shown.json), the exact rounding ties among them."""
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     fixture = json.loads((ROOT / "tests" / "fixtures" / "shown.json").read_text())
     wrong = page.evaluate(
         """async (fixture) => {
@@ -569,7 +571,7 @@ def monitoring_week(start: str, end: str, agreed: int, labelled: int, overridden
 
 
 MONITORING = {
-    "pack": {"id": TRIAGE},
+    "agent": {"id": TRIAGE},
     "days": 30,
     "benchmark": {
         "accuracy": 0.97,
@@ -636,7 +638,7 @@ assert "main" not in BARE_PERCENT_IN.split("return")[0]
 
 
 @pytest.mark.parametrize(
-    ("pack_id", "view"),
+    ("agent_id", "view"),
     [
         (TRIAGE, "evals/report"),
         (CLINICAL, "evals/report"),
@@ -646,7 +648,7 @@ assert "main" not in BARE_PERCENT_IN.split("return")[0]
     ],
 )
 def test_no_share_of_cases_is_a_bare_percentage(
-    page: Page, served_agents: Path, pack_id: str, view: str
+    page: Page, served_agents: Path, agent_id: str, view: str
 ) -> None:
     """Every share of cases on the evaluation, overview and monitoring views is k of n with its
     interval (LP-10); a percentage is only ever a figure's interval or bound, or an axis."""
@@ -655,7 +657,7 @@ def test_no_share_of_cases_is_a_bare_percentage(
     priced = counted_board(served(served_agents, TRIAGE), priced=True)
     serve_board(page, TRIAGE, priced)  # with its accuracy figures and cost chart
     page.route("**/api/monitoring?*", lambda route: route.fulfill(json=MONITORING))
-    open_pack(page, pack_id, view.split("/")[0])
+    open_agent(page, agent_id, view.split("/")[0])
     if "/" in view:
         page.goto(f"/#{view}")
         expect(page.locator("#evals-body")).to_contain_text("Per label")
@@ -672,9 +674,9 @@ def test_no_share_of_cases_is_a_bare_percentage(
 def test_a_leaderboard_with_no_rows_leaves_the_other_evaluation_views(
     page: Page, served_agents: Path
 ) -> None:
-    pack = served(served_agents, TRIAGE)
-    serve_board(page, TRIAGE, figures.board({"rows": []}, pack.digest, pack.version))
-    open_pack(page, TRIAGE, "evals")
+    agent = served(served_agents, TRIAGE)
+    serve_board(page, TRIAGE, figures.board({"rows": []}, agent.digest, agent.version))
+    open_agent(page, TRIAGE, "evals")
     expect(page.locator("main")).not_to_contain_text("Could not load this view")
     expect(page.get_by_role("link", name="Provider comparison")).to_have_count(0)
     expect(page.locator("#evals-body")).to_contain_text("Per label")  # the report comes first
@@ -696,7 +698,7 @@ def test_a_report_with_nothing_labelled_for_its_question_still_shows(
         route.fulfill(json=body)
 
     page.route(re.compile(rf".*/api/agents/{re.escape(TRIAGE)}$"), handle)
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.goto("/#evals/report")
     body = page.locator("#evals-body")
     expect(body).to_contain_text("Per label")
@@ -709,11 +711,11 @@ def test_a_report_with_nothing_labelled_for_its_question_still_shows(
 def test_a_model_is_named_whole_unless_a_composite_joins_its_members(page: Page) -> None:
     """An endpoint's model id can hold colons (a Bedrock version, an Ollama tag); only a
     composite's model is "member:model" parts, as leaderboard.config_label reads it."""
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     named = page.evaluate(
         """async () => {
-          const pack = await import(new URL("/static/pack.js", location).href);
-          const name = (variant, type, model) => pack.providerName({ variant, type, model });
+          const agent = await import(new URL("/static/manifest.js", location).href);
+          const name = (variant, type, model) => agent.providerName({ variant, type, model });
           return [
             name("llm", "llm", "anthropic.claude-sonnet-5-20261001-v1:0"),
             name("llm", "llm", "llama3.1:8b"),
@@ -736,13 +738,13 @@ def test_the_picker_groups_every_origin_and_leaves_no_agent_out(page: Page) -> N
     """With agents from several origins, the picker groups them by origin: one from an
     organization's store has its group, and one of an origin the console does not know is in a
     group of its own, never dropped."""
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     grouped = page.evaluate(
         """async () => {
-          const pack = await import(new URL("/static/pack.js", location).href);
+          const agent = await import(new URL("/static/manifest.js", location).href);
           const agent = (id, origin) => ({ id, name: id, version: "1.0.0", origin });
           const box = document.createElement("select");
-          box.innerHTML = pack.packOptions([
+          box.innerHTML = agent.agentOptions([
             agent("a/maintained", "maintained"), agent("a/pulled", "hub"),
             agent("a/stored", "store"), agent("a/local", "local"), agent("a/new", "elsewhere"),
           ]);
@@ -760,7 +762,7 @@ def test_the_picker_groups_every_origin_and_leaves_no_agent_out(page: Page) -> N
 
 
 def test_the_leaderboard_remembers_the_dataset(page: Page) -> None:
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.get_by_role("button", name=re.compile(r"^critical n=")).click()
     expect(page.locator("#board caption")).to_contain_text("critical · n=")
     page.reload()
@@ -769,7 +771,7 @@ def test_the_leaderboard_remembers_the_dataset(page: Page) -> None:
 
 
 def test_evaluation_views_have_their_own_urls(page: Page) -> None:
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.get_by_role("link", name="Run on a dataset").click()
     expect(page).to_have_url(re.compile("#evals/run$"))
     expect(page.get_by_label("Dataset")).to_be_visible()
@@ -780,7 +782,7 @@ def test_evaluation_views_have_their_own_urls(page: Page) -> None:
 
 
 def test_subgroups_are_grouped_lowest_first(page: Page) -> None:
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.goto("/#evals/report")
     groups = page.locator("details.group")
     expect(groups.first).to_be_visible()
@@ -793,7 +795,7 @@ def test_subgroups_are_grouped_lowest_first(page: Page) -> None:
 
 def test_the_leaderboard_keeps_the_configuration_in_view_on_a_phone(page: Page) -> None:
     page.set_viewport_size(PHONE)
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     container = page.locator("#board .table-scroll").first
     assert container.evaluate("el => el.scrollWidth > el.clientWidth")  # it scrolls sideways...
     for selector in ["thead th:first-child", "tbody tr:first-child td.config-cell"]:
@@ -844,7 +846,7 @@ def test_the_daily_chart_starts_at_the_first_decision(page: Page) -> None:
     """A young deployment's chart is not a run of empty days: it starts at the first decision, and
     the days in between with nothing to show are real zeros."""
     serve_daily(page, [(eastern_days_ago(8), 5), (eastern_days_ago(1), 2)])
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     marks = page.locator(f"{DAILY} .mark")
     expect(marks).to_have_count(9)  # eight days ago .. today; nothing before the first decision
     for mark, total in zip(marks.all(), [5, 0, 0, 0, 0, 0, 0, 2, 0], strict=True):
@@ -857,14 +859,14 @@ def test_the_daily_chart_starts_at_the_first_decision(page: Page) -> None:
 
 def test_the_daily_chart_shows_the_last_30_days_and_the_table_shows_all(page: Page) -> None:
     serve_daily(page, [(eastern_days_ago(back), 1) for back in range(44, -1, -1)])
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.locator(f"{DAILY} .mark")).to_have_count(30)
     expect(page.locator(DAILY)).to_contain_text("The last 30 days")
     expect(page.locator(f"{DAILY} details.chart-data tbody tr")).to_have_count(45)
 
 
 def test_chart_marks_are_reached_and_read_with_the_keyboard(page: Page) -> None:
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.goto("/#evals/report")
     sweep = page.locator('figure.chart[data-chart^="sweep"]')
     marks = sweep.locator(".mark")
@@ -894,7 +896,7 @@ def test_chart_marks_are_reached_and_read_with_the_keyboard(page: Page) -> None:
 
 def test_every_chart_has_a_summary_and_its_data_table(page: Page) -> None:
     serve_daily(page, [(eastern_days_ago(9), 3), (eastern_days_ago(0), 4)])
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.locator(DAILY)).to_be_visible()
     seen = 0
     for target in ["#overview", "#evals/report"]:
@@ -916,10 +918,10 @@ def test_every_chart_has_a_summary_and_its_data_table(page: Page) -> None:
 
 
 # The chart fixture has the longest question names (e.g. in its report's per-question stats).
-@pytest.mark.parametrize("pack_id", PACKS)
-def test_charts_fit_a_phone_and_keep_their_text_readable(page: Page, pack_id: str) -> None:
+@pytest.mark.parametrize("agent_id", AGENTS)
+def test_charts_fit_a_phone_and_keep_their_text_readable(page: Page, agent_id: str) -> None:
     page.set_viewport_size(PHONE)
-    open_pack(page, pack_id)
+    open_agent(page, agent_id)
     for target in ["#overview", "#evals", "#evals/report", "#try"]:
         page.goto(f"/{target}")
         expect(page.locator("main h1")).to_be_visible()
@@ -940,7 +942,7 @@ def test_charts_fit_a_phone_and_keep_their_text_readable(page: Page, pack_id: st
 def test_charts_switch_with_the_theme_without_a_reload(page: Page) -> None:
     page.emulate_media(color_scheme="light")
     serve_daily(page, [(eastern_days_ago(9), 3), (eastern_days_ago(0), 4)])
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     column = page.locator(f"{DAILY} .seg.f-AUTO").first
     light = column.evaluate("el => getComputedStyle(el).fill")
     page.get_by_role("button", name="Dark").click()
@@ -958,7 +960,7 @@ def chart_name(cell: str) -> str:
 
 def test_the_cost_chart_rings_the_deployed_configuration(page: Page, served_agents: Path) -> None:
     serve_board(page, TRIAGE, counted_board(served(served_agents, TRIAGE), priced=True))
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     chart = page.locator('figure.chart[data-chart^="cost"]')
     configs = page.locator("#board table.data").first.locator("tbody .config").all_inner_texts()
     expect(chart.locator(".mark").first).to_be_visible()
@@ -1007,7 +1009,7 @@ def test_the_cost_chart_names_the_deployed_and_the_unbeaten_never_the_first(
         figures={**deployed["figures"], "accuracy": beats_deployed["figures"]["accuracy"]},
     )
     serve_board(page, TRIAGE, board)
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.get_by_role("button", name=board["groups"][group]["label"]).click()
     table = page.locator("#board table.data").first
 
@@ -1036,7 +1038,7 @@ REFILL = "Hi, I need a refill on my lisinopril. I have about three pills left."
 def engine_detail(page: Page, body: str) -> None:
     """Decide the message `body` on the triage fixture in Try it, then open its record, where
     the engine's charts are."""
-    open_pack(page, TRIAGE, "try")
+    open_agent(page, TRIAGE, "try")
     page.locator("#body").fill(body)
     page.get_by_role("button", name="Decide").click()
     page.get_by_role("link", name=re.compile("^Engine detail")).click()
@@ -1059,7 +1061,7 @@ def test_probability_bars_are_coloured_by_what_the_label_does(page: Page) -> Non
 
 
 def test_the_confusion_matrix_shades_only_the_mistakes(page: Page) -> None:
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.goto("/#evals/report")
     page.get_by_text("Confusion matrix").click()
     table = page.locator("table.data", has_text="True label")
@@ -1073,7 +1075,7 @@ def test_the_confusion_matrix_shades_only_the_mistakes(page: Page) -> None:
 def test_the_threshold_sweep_does_not_claim_automation_that_never_happens(page: Page) -> None:
     """At risk level 2 the clinical review automates nothing; the sweep is a what-if and says
     so."""
-    open_pack(page, CLINICAL, "evals")
+    open_agent(page, CLINICAL, "evals")
     page.goto("/#evals/report")
     sweep = page.locator('figure.chart[data-chart^="sweep"]')
     expect(sweep).to_contain_text("Automation threshold 0.90")
@@ -1086,7 +1088,7 @@ def test_the_threshold_sweep_does_not_claim_automation_that_never_happens(page: 
         route.fulfill(json=body)
 
     page.route(f"**/api/agents/{TRIAGE}", automating)
-    page.select_option("#pack-select", TRIAGE)
+    page.select_option("#agent-select", TRIAGE)
     expect(page.locator("#evals-body")).to_contain_text("Destination accuracy")
     expect(page.locator('figure.chart[data-chart^="sweep"]')).not_to_contain_text("Nothing was")
 
@@ -1102,11 +1104,11 @@ def decide_triage(base: str, body: str) -> dict[str, Any]:
 
 
 def test_the_overview_leads_with_what_people_act_on(page: Page) -> None:
-    open_pack(page, TRIAGE)
-    deployed = page.locator(".pack-header .deployed")
+    open_agent(page, TRIAGE)
+    deployed = page.locator(".agent-header .deployed")
     expect(deployed).to_contain_text("Screen: Rules")  # words first...
     expect(deployed).to_contain_text("Router: Rules")
-    expect(page.locator(".pack-header .mono")).to_contain_text("router=rules")  # codes below
+    expect(page.locator(".agent-header .mono")).to_contain_text("router=rules")  # codes below
     primary = page.locator(".stats-primary .stat")
     expect(primary).to_have_count(4)
     waiting = primary.nth(1)
@@ -1124,7 +1126,7 @@ def test_only_administrators_are_offered_the_chain_verification(page: Page) -> N
     page.route("**/api/auth/me", lambda route: route.fulfill(json=me))
     asked: list[str] = []
     page.on("request", lambda r: asked.append(r.url) if "/api/audit/verify" in r.url else None)
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.locator(".stats-primary .stat")).to_have_count(4)
     expect(page.locator(".stats-secondary")).not_to_contain_text("Audit chain")
     show(page, "audit")
@@ -1139,7 +1141,7 @@ def test_the_audit_trail_exports_as_fhir_and_says_the_checkpoint_is_not_set_up(
 ) -> None:
     """Open mode, no MENDARI_CHECKPOINT_KEY: the checkpoint is one quiet line, and the agent's
     trail downloads as FHIR NDJSON named for the agent and the deployment's day."""
-    open_pack(page, TRIAGE, "audit")
+    open_agent(page, TRIAGE, "audit")
     expect(page.locator("#checkpoint")).to_have_text(
         "Signed daily checkpoint: not set up on this deployment."
     )
@@ -1152,12 +1154,12 @@ def test_the_audit_trail_exports_as_fhir_and_says_the_checkpoint_is_not_set_up(
     assert any(r["resourceType"] == "AuditEvent" for r in exported)
 
 
-def test_a_pack_without_decisions_says_what_to_do(page: Page) -> None:
+def test_an_agent_without_decisions_says_what_to_do(page: Page) -> None:
     def no_decisions(route: Route) -> None:
         route.fulfill(json={**route.fetch().json(), "decisions": 0})
 
     page.route("**/api/stats*", no_decisions)
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.locator(".stats-primary")).to_have_count(0)  # no wall of zeros
     empty = page.locator(".empty-state")
     expect(empty).to_contain_text("No decisions yet")
@@ -1169,7 +1171,7 @@ def test_stat_reviews_come_first_and_focus_moves_to_the_next_card(
 ) -> None:
     for _ in range(2):
         decide_triage(live_server, "Crushing chest pain and my left arm is numb")
-    open_pack(page, TRIAGE, "review")
+    open_agent(page, TRIAGE, "review")
     expect(page.locator(".review-group h2").first).to_contain_text("Stat")
     cards = page.locator(".review-card")
     first, second = cards.nth(0), cards.nth(1)
@@ -1183,7 +1185,7 @@ def test_stat_reviews_come_first_and_focus_moves_to_the_next_card(
 
 
 def test_the_result_leads_with_the_outcome_and_takes_focus(page: Page) -> None:
-    open_pack(page, TRIAGE, "try")
+    open_agent(page, TRIAGE, "try")
     page.locator("#body").fill(ABUSIVE)
     page.get_by_role("button", name="Decide").click()
     title = page.locator("#result-title")
@@ -1209,7 +1211,7 @@ def test_a_wrong_rating_takes_the_right_answer_and_can_be_changed(
 ) -> None:
     decision = decide_triage(live_server, REFILL)
     page.add_init_script("localStorage.setItem('oh.reviewer', 'browser-rater')")
-    open_pack(page, TRIAGE, "audit")
+    open_agent(page, TRIAGE, "audit")
     page.locator(f'#audit-table button.open-record[data-id="{decision["id"]}"]').click()
     dialog = page.get_by_role("dialog")
     wrong, right = (dialog.get_by_role("button", name=n, exact=True) for n in ("Wrong", "Right"))
@@ -1234,7 +1236,7 @@ def test_a_wrong_rating_takes_the_right_answer_and_can_be_changed(
     expect(wrong).to_have_attribute("aria-pressed", "false")
     expect(row.locator(".rated.up")).to_be_visible()
     expect(row.locator(".rated.down")).to_have_count(0)
-    current = httpx.get(f"{live_server}/api/feedback", params={"pack_id": TRIAGE}).json()
+    current = httpx.get(f"{live_server}/api/feedback", params={"agent_id": TRIAGE}).json()
     mine = [f for f in current if f["decision_id"] == decision["id"]]
     assert [(f["reporter"], f["rating"]) for f in mine] == [("browser-rater", "up")]
 
@@ -1248,7 +1250,7 @@ def test_the_feedback_page_leads_with_the_cases_to_act_on(page: Page, live_serve
         f"{live_server}/api/audit/{decision['id']}/feedback",
         json={"rating": "down", "reporter": "page-test", "expected": expected},
     )
-    open_pack(page, TRIAGE, "feedback")
+    open_agent(page, TRIAGE, "feedback")
     ready = page.locator(".stats-primary .stat", has_text="Ready to become tests")
     expect(ready.locator(".stat-value")).not_to_have_text("0")
     card = page.locator(".feedback-card", has=page.locator(f'a[href="#audit/{decision["id"]}"]'))
@@ -1269,7 +1271,7 @@ def test_a_note_shows_to_whoever_may_read_it_and_is_sealed_for_others(
         f"{live_server}/api/audit/{decision['id']}/feedback",
         json={"rating": "down", "reporter": "note-test", "note": note},
     )
-    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(TRIAGE)})")
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
     page.goto(f"/#audit/{decision['id']}")
     rated = page.get_by_role("dialog").locator(".timeline li", has_text="Feedback recorded")
     expect(rated.locator(".event-note")).to_have_text(f"Note: {note}")
@@ -1305,7 +1307,7 @@ def test_phi_mode_hash_offers_no_note_field(page: Page) -> None:
         route.fulfill(json={**route.fetch().json(), "phi_mode": "hash"})
 
     page.route("**/api/health", hashing)
-    open_pack(page, TRIAGE, "try")
+    open_agent(page, TRIAGE, "try")
     page.get_by_role("button", name="Decide").click()
     page.locator("#result").get_by_role("button", name="Wrong").click()
     expect(page.locator("#result .fb-save")).to_be_visible()
@@ -1313,7 +1315,7 @@ def test_phi_mode_hash_offers_no_note_field(page: Page) -> None:
 
 
 def test_the_decision_card_is_a_document_with_linked_sections(page: Page) -> None:
-    open_pack(page, TRIAGE, "card")
+    open_agent(page, TRIAGE, "card")
     page.get_by_role("navigation", name="On this page").get_by_role("link", name="Policy").click()
     expect(page).to_have_url(re.compile("#card/policy$"))
     heading = page.get_by_role("heading", name="Policy", exact=True)
@@ -1327,7 +1329,7 @@ def test_the_decision_card_is_a_document_with_linked_sections(page: Page) -> Non
 
 
 @pytest.mark.parametrize(
-    ("pack_id", "automates"),
+    ("agent_id", "automates"),
     [
         (TRIAGE, "Not with the deployed providers: automation needs screen"),
         (CLINICAL, "Not without an approval: at risk level 2 a person reviews every decision"),
@@ -1335,11 +1337,11 @@ def test_the_decision_card_is_a_document_with_linked_sections(page: Page) -> Non
     ],
 )
 def test_the_card_says_whether_this_deployment_automates(
-    page: Page, pack_id: str, automates: str
+    page: Page, agent_id: str, automates: str
 ) -> None:
     """The thresholds alone would say "automates at 0.90" for agents that never automate here;
     one whose canned answers automate in open mode says so."""
-    open_pack(page, pack_id, "card")
+    open_agent(page, agent_id, "card")
     expect(page.locator("dl.facts")).to_contain_text(automates)
 
 
@@ -1351,24 +1353,24 @@ def test_with_a_model_in_the_screen_the_card_says_the_inbox_automates(page: Page
         route.fulfill(json=body)
 
     page.route(f"**/api/agents/{TRIAGE}", screened)
-    open_pack(page, TRIAGE, "card")
+    open_agent(page, TRIAGE, "card")
     expect(page.locator("dl.facts")).to_contain_text(
         "At confidence 0.90 or more (some labels need more, some are never automated; see Policy)."
     )
 
 
 def test_the_overview_names_the_slots_running_without_a_model(page: Page) -> None:
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     note = page.get_by_role("note").filter(has_text="Running without a model")
     expect(note).to_contain_text("Running without a model: Router, Screen.")
-    open_pack(page, CLINICAL)
+    open_agent(page, CLINICAL)
     note = page.get_by_role("note").filter(has_text="Running without a model")
     expect(note).to_contain_text("Running without a model: Reader.")
 
 
 def test_the_digest_copies(page: Page) -> None:
     page.context.grant_permissions(["clipboard-read", "clipboard-write"])
-    open_pack(page, TRIAGE, "card")
+    open_agent(page, TRIAGE, "card")
     page.get_by_role("button", name="Copy the digest").click()
     expect(page.locator("#toast")).to_have_text("Digest copied")
     assert page.evaluate("navigator.clipboard.readText()").startswith("sha256:")
@@ -1379,7 +1381,7 @@ def test_a_digest_that_cannot_be_copied_says_what_to_select(page: Page) -> None:
     page.add_init_script(
         "navigator.clipboard.writeText = () => Promise.reject(new Error('denied'))"
     )
-    open_pack(page, TRIAGE, "card")
+    open_agent(page, TRIAGE, "card")
     page.get_by_role("button", name="Copy the digest").click()
     expect(page.locator("#toast")).to_have_text(
         "Copying isn't available here: select the digest and copy it"
@@ -1396,7 +1398,7 @@ def test_an_evaluation_that_calls_remote_models_asks_first(page: Page) -> None:
     runs: list[str] = []
     page.on("request", lambda r: runs.append(r.url) if r.url.endswith("/evals") else None)
     page.route(f"**/api/agents/{TRIAGE}", remote)
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.goto("/#evals/run")
     run = page.get_by_role("button", name="Run evaluation")
     run.click()
@@ -1410,7 +1412,7 @@ def test_an_evaluation_that_calls_remote_models_asks_first(page: Page) -> None:
 
 
 def test_an_evaluation_that_runs_locally_needs_no_confirmation(page: Page) -> None:
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.goto("/#evals/run")
     expect(page.locator("#evals-body")).to_contain_text("runs locally: no remote calls")
     page.get_by_role("button", name="Run evaluation").click()
@@ -1441,7 +1443,7 @@ HEADING_PROBLEMS = """() => {
 
 
 def test_keyboard_users_can_skip_to_the_content(page: Page) -> None:
-    open_pack(page, TRIAGE, "feedback")
+    open_agent(page, TRIAGE, "feedback")
     page.evaluate("document.activeElement.blur()")
     page.goto(f"/?agent={TRIAGE}#feedback")  # the same document: tabbing starts from the top
     page.keyboard.press("Tab")
@@ -1452,11 +1454,11 @@ def test_keyboard_users_can_skip_to_the_content(page: Page) -> None:
     expect(page.locator("main h1")).to_be_focused()
 
 
-@pytest.mark.parametrize("pack_id", [TRIAGE, CLINICAL])
-def test_headings_are_in_order_and_tables_have_headers(page: Page, pack_id: str) -> None:
+@pytest.mark.parametrize("agent_id", [TRIAGE, CLINICAL])
+def test_headings_are_in_order_and_tables_have_headers(page: Page, agent_id: str) -> None:
     """What a screen reader navigates by: one h1 per view, no skipped heading level, and every
     table says what its columns are."""
-    open_pack(page, pack_id)
+    open_agent(page, agent_id)
     for view in VIEWS:
         show(page, view)
         assert page.evaluate(HEADING_PROBLEMS) == [], view
@@ -1469,7 +1471,7 @@ def test_headings_are_in_order_and_tables_have_headers(page: Page, pack_id: str)
 def test_after_a_blocked_result_tab_reaches_its_controls_with_a_ring(page: Page) -> None:
     """The solid red header holds the headline only; the first Tab after it reaches the result's
     own controls (the codes, then the record), each with a visible focus ring."""
-    open_pack(page, TRIAGE, "try")
+    open_agent(page, TRIAGE, "try")
     page.locator("#body").fill(ABUSIVE)
     page.get_by_role("button", name="Decide").click()
     expect(page.locator("#result-title")).to_be_focused()
@@ -1485,7 +1487,7 @@ def test_a_view_that_fails_to_load_says_so_and_can_retry(page: Page) -> None:
         "**/api/stats*",
         lambda route: route.fulfill(status=503, json={"detail": "database is waking up"}),
     )
-    open_pack(page, TRIAGE, "review")
+    open_agent(page, TRIAGE, "review")
     page.goto("/#overview")
     failure = page.get_by_role("alert").filter(has_text="Could not load this view")
     expect(failure).to_contain_text("database is waking up")
@@ -1495,7 +1497,7 @@ def test_a_view_that_fails_to_load_says_so_and_can_retry(page: Page) -> None:
 
 
 def test_errors_are_announced_at_once(page: Page) -> None:
-    open_pack(page, TRIAGE, "review")
+    open_agent(page, TRIAGE, "review")
     page.fill("#reviewer", "")
     page.locator(".review-card button.primary").first.click()
     expect(page.locator("#announce-alert")).to_have_text("Enter a reviewer name first")
@@ -1505,7 +1507,7 @@ def test_errors_are_announced_at_once(page: Page) -> None:
 
 def test_the_phone_section_list_shows_where_you_are(page: Page) -> None:
     page.set_viewport_size(PHONE)
-    open_pack(page, TRIAGE, "card")  # near the end of the list
+    open_agent(page, TRIAGE, "card")  # near the end of the list
     nav = page.locator(".nav")
     active = nav.locator("a.active")
     expect(active).to_have_text("Decision Card")
@@ -1520,7 +1522,7 @@ def test_the_phone_section_list_shows_where_you_are(page: Page) -> None:
 
 # -- Try it forms for record agents ---------------------------------------------------------------
 
-RECORD_PACKS = [CHART, CLINICAL]  # the served agents whose input is a record, not a message
+RECORD_AGENTS = [CHART, CLINICAL]  # the served agents whose input is a record, not a message
 
 
 def declared(schema: dict[str, Any], value: Any) -> bool:
@@ -1540,18 +1542,18 @@ def view_button(page: Page, name: str) -> Locator:
     return page.get_by_role("group", name="Edit the input as").get_by_role("button", name=name)
 
 
-@pytest.mark.parametrize("pack_id", RECORD_PACKS)
+@pytest.mark.parametrize("agent_id", RECORD_AGENTS)
 def test_the_form_carries_every_example_unchanged(
-    page: Page, live_server: str, pack_id: str
+    page: Page, live_server: str, agent_id: str
 ) -> None:
-    """Each behaviour-test example goes into the form generated from the pack's input schema and
+    """Each behaviour-test example goes into the form generated from the agent's input schema and
     comes out as the same record: the form never adds, drops or retypes a value. (An example of a
     field the schema refuses has no field in the form to go into: none of those.)"""
-    examples = httpx.get(f"{live_server}/api/agents/{pack_id}/examples").json()
-    schema = httpx.get(f"{live_server}/api/agents/{pack_id}").json()["input_schema"]
+    examples = httpx.get(f"{live_server}/api/agents/{agent_id}/examples").json()
+    schema = httpx.get(f"{live_server}/api/agents/{agent_id}").json()["input_schema"]
     held = [index for index, example in enumerate(examples) if declared(schema, example["input"])]
     assert len(held) > 1
-    open_pack(page, pack_id, "try")
+    open_agent(page, agent_id, "try")
     expect(page.locator("#record-form [data-path]").first).to_be_visible()  # the form by default
     for index in held:
         example = examples[index]
@@ -1562,7 +1564,7 @@ def test_the_form_carries_every_example_unchanged(
 
 
 def test_editing_a_form_field_changes_the_decision(page: Page) -> None:
-    open_pack(page, CLINICAL, "try")
+    open_agent(page, CLINICAL, "try")
     page.select_option(
         "#example",
         label="mild pain of two days is care at home, which a person confirms at risk level 2",
@@ -1575,7 +1577,7 @@ def test_editing_a_form_field_changes_the_decision(page: Page) -> None:
 
 
 def test_rows_are_added_and_removed_from_the_keyboard(page: Page) -> None:
-    open_pack(page, CHART, "try")
+    open_agent(page, CHART, "try")
     rows = page.locator('#record-form [data-array*="conditions"] tbody tr')
     before = rows.count()
     assert before > 0
@@ -1602,7 +1604,7 @@ def test_rows_are_added_and_removed_from_the_keyboard(page: Page) -> None:
 
 
 def test_invalid_json_stays_in_the_json_view(page: Page) -> None:
-    open_pack(page, CLINICAL, "try")
+    open_agent(page, CLINICAL, "try")
     view_button(page, "JSON").click()
     page.fill("#record", '{"note": ')
     view_button(page, "Form").click()
@@ -1612,7 +1614,7 @@ def test_invalid_json_stays_in_the_json_view(page: Page) -> None:
 
 
 def test_a_required_field_is_asked_for_before_deciding(page: Page) -> None:
-    open_pack(page, CLINICAL, "try")
+    open_agent(page, CLINICAL, "try")
     decided: list[str] = []
     page.on("request", lambda r: decided.append(r.url) if r.url.endswith("/decide") else None)
     page.get_by_label("Text").fill("")
@@ -1622,7 +1624,7 @@ def test_a_required_field_is_asked_for_before_deciding(page: Page) -> None:
 
 
 def test_the_input_view_is_remembered(page: Page) -> None:
-    open_pack(page, CLINICAL, "try")
+    open_agent(page, CLINICAL, "try")
     view_button(page, "JSON").click()
     page.reload()
     expect(view_button(page, "JSON")).to_have_attribute("aria-pressed", "true")
@@ -1654,7 +1656,7 @@ def test_nothing_shifts_while_a_tablet_page_loads(browser: Browser, base_url: st
 
 def test_content_uses_a_wide_screen(page: Page) -> None:
     page.set_viewport_size({"width": 1920, "height": 1000})
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     box = page.locator("main").bounding_box()
     assert box is not None and box["width"] == 1440
     left_gap, right_gap = box["x"] - 200, 1920 - (box["x"] + box["width"])  # beside the 200 px nav
@@ -1684,12 +1686,12 @@ def test_a_zoomed_rate_axis_says_where_it_starts(page: Page, served_agents: Path
         route.fulfill(json=body)
 
     page.route(re.compile(rf".*/api/agents/{re.escape(TRIAGE)}$"), zoomed)
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.goto("/#evals/report")
     sweep = page.locator('figure.chart[data-chart^="sweep"]')
     expect(sweep.locator(".chart-axis-note")).to_have_text("The vertical axis starts at 90%.")
     expect(sweep.locator("path.axis-break")).to_have_count(1)
-    page.select_option("#pack-select", CLINICAL)  # it automates nothing: the axis starts at 0
+    page.select_option("#agent-select", CLINICAL)  # it automates nothing: the axis starts at 0
     expect(page.locator('figure.chart[data-chart^="sweep"] .chart-axis-note')).to_be_hidden()
 
 
@@ -1707,7 +1709,7 @@ def test_touch_screens_get_44_px_targets(browser: Browser, base_url: str) -> Non
     context = browser.new_context(base_url=base_url, has_touch=True, is_mobile=True, viewport=PHONE)
     page = context.new_page()
     try:
-        page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(TRIAGE)})")
+        page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
         for view in ["audit", "evals/report", "review", "try"]:
             page.goto(f"/#{view}")
             expect(page.locator("main h1")).to_be_visible()
@@ -1726,7 +1728,7 @@ def test_configurations_are_named_once(page: Page, served_agents: Path) -> None:
     model = "rules:rules@1a2b + llm:vendor/model-2"
     row["providers"]["router"] = {"variant": "rules_and_llm", "type": "check", "model": model}
     serve_board(page, TRIAGE, board)
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     configs = page.locator("#board table").first.locator("tbody .config").all_inner_texts()
     assert any("Rules + model-2" in c for c in configs)
     assert not any("model-2 model-2" in " ".join(c.split()) for c in configs)
@@ -1738,7 +1740,7 @@ def test_a_record_drawer_is_titled_in_words(page: Page, live_server: str) -> Non
         f"{live_server}/api/agents/{TRIAGE}/decide",
         json={"message": {"body": "Crushing chest pain and my left arm is numb"}},
     ).json()
-    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(TRIAGE)})")
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
     page.goto(f"/#audit/{decision['id']}")
     expect(page.locator("#drawer-title")).to_have_text("Human review · Nurse")
 
@@ -1756,7 +1758,7 @@ STAT_ROWS = """() => { const rows = {};
 @pytest.mark.parametrize("width", [768, 1024])
 def test_tablets_get_the_full_width_with_sections_across_the_top(page: Page, width: int) -> None:
     page.set_viewport_size({"width": width, "height": 900})
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     assert page.evaluate(NAV_DIRECTION) == "row"
     assert page.evaluate("document.querySelector('main').getBoundingClientRect().width") == width
     assert page.evaluate(TOP_BAR_HEIGHT) <= 56  # one row
@@ -1768,25 +1770,25 @@ def test_tablets_get_the_full_width_with_sections_across_the_top(page: Page, wid
 
 def test_phones_get_a_56_px_top_bar_with_settings_in_a_sheet(page: Page) -> None:
     page.set_viewport_size(PHONE)
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     assert page.evaluate(TOP_BAR_HEIGHT) <= 56
     settings = page.get_by_role("button", name="Settings")
-    expect(page.locator("#pack-select")).to_be_hidden()
+    expect(page.locator("#agent-select")).to_be_hidden()
     settings.click()
     expect(settings).to_have_attribute("aria-expanded", "true")
     expect(page.get_by_text("Agent", exact=True)).to_be_visible()
     expect(page.get_by_role("button", name="Dark")).to_be_visible()
     page.keyboard.press("Escape")
-    expect(page.locator("#pack-select")).to_be_hidden()
+    expect(page.locator("#agent-select")).to_be_hidden()
     expect(settings).to_be_focused()
     settings.click()
-    page.select_option("#pack-select", CLINICAL)
+    page.select_option("#agent-select", CLINICAL)
     expect(settings).to_have_attribute("aria-expanded", "false")  # choosing an agent closes it
     expect(page.locator("main h1")).to_contain_text(CLINICAL_NAME)
 
 
 def test_a_view_keeps_its_shape_while_it_loads(page: Page) -> None:
-    open_pack(page, TRIAGE, "review")
+    open_agent(page, TRIAGE, "review")
     held: list[Route] = []
     page.route("**/api/stats*", lambda route: held.append(route))
     with page.expect_request("**/api/stats*"):  # held from here on: the view waits for it
@@ -1807,7 +1809,7 @@ def test_a_view_keeps_its_shape_while_it_loads(page: Page) -> None:
 
 
 def test_an_evaluation_run_shows_it_is_alive(page: Page) -> None:
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.goto("/#evals/run")
     held: list[Route] = []
     page.route(
@@ -1839,7 +1841,7 @@ def test_an_override_waits_five_seconds_and_can_be_undone(page: Page, live_serve
         ),
     )
     page.clock.install()
-    open_pack(page, TRIAGE, "review")
+    open_agent(page, TRIAGE, "review")
     card = page.locator(f'.review-card[data-id="{decision["id"]}"]')
     pharmacy = card.get_by_role("button", name="Pharmacy", exact=True)
     pharmacy.click()
@@ -1872,7 +1874,7 @@ def test_g_then_c_goes_to_the_card_without_confirming_a_review(
             resolved.append(r.url) if r.method == "POST" and "/api/review/" in r.url else None
         ),
     )
-    open_pack(page, TRIAGE, "review")
+    open_agent(page, TRIAGE, "review")
     card = page.locator(f'.review-card[data-id="{decision["id"]}"]')
     card.focus()
     page.keyboard.press("g")
@@ -1881,14 +1883,14 @@ def test_g_then_c_goes_to_the_card_without_confirming_a_review(
     page.wait_for_timeout(500)
     assert resolved == []
     pending = httpx.get(
-        f"{live_server}/api/review", params={"pack_id": TRIAGE, "limit": 500}
+        f"{live_server}/api/review", params={"agent_id": TRIAGE, "limit": 500}
     ).json()
     assert decision["id"] in [item["id"] for item in pending]
 
 
 def test_leaving_the_queue_sends_a_held_override(page: Page, live_server: str) -> None:
     decision = decide_triage(live_server, "Crushing chest pain once more, sweating")
-    open_pack(page, TRIAGE, "review")
+    open_agent(page, TRIAGE, "review")
     card = page.locator(f'.review-card[data-id="{decision["id"]}"]')
     card.get_by_role("button", name="Billing", exact=True).click()
     with page.expect_request(lambda r: r.method == "POST" and decision["id"] in r.url) as request:
@@ -1907,7 +1909,7 @@ def test_a_short_history_is_a_line_per_day_not_a_chart(page: Page) -> None:
             {"date": eastern_days_ago(1), "BLOCK": 1},
         ],
     )
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.locator(DAILY)).to_have_count(0)
     days = page.locator(".day-summary li")
     expect(days).to_have_count(2)
@@ -1934,7 +1936,7 @@ def test_the_period_sets_the_figures_and_compares_with_the_one_before(page: Page
             },
         ],
     )
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     stats = page.locator(".stats-primary .stat")
     automated, overrides = stats.nth(0), stats.nth(2)
     expect(page.get_by_role("button", name="30 days")).to_have_attribute("aria-pressed", "true")
@@ -1966,7 +1968,7 @@ def test_the_outcome_mix_names_segments_that_have_room(page: Page) -> None:
     serve_history(
         page, [{"date": eastern_days_ago(0), "AUTO": 12, "HUMAN_REVIEW": 7, "ABSTAIN": 1}]
     )
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     segment = page.locator(".stack > span")
     expect(segment.nth(0)).to_have_class(re.compile("labelled"))
     expect(segment.nth(0)).to_contain_text("Automated 12")
@@ -1991,7 +1993,7 @@ def test_configurations_at_the_same_point_share_one_labelled_mark(
     as accurate; the agent and the agent checked by the rules each call the service once, so
     they cost the same too: one mark for the two, naming both."""
     serve_board(page, TRIAGE, counted_board(served(served_agents, TRIAGE), priced=True))
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.get_by_role("button", name=re.compile(r"^critical n=")).click()
     chart = page.locator('figure.chart[data-chart^="cost"]').last
     expect(chart.locator(".mark")).to_have_count(3)  # four configurations, two in one place
@@ -2000,7 +2002,7 @@ def test_configurations_at_the_same_point_share_one_labelled_mark(
 
 
 def test_line_charts_name_their_lines_where_there_is_room(page: Page) -> None:
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.goto("/#evals/report")
     sweep = page.locator('figure.chart[data-chart^="sweep"]')
     expect(sweep).to_have_class(re.compile("direct"))
@@ -2017,7 +2019,7 @@ ANIMATION = "(el) => getComputedStyle(el).animationName"
 
 
 def test_the_drawer_slides_in_and_out(page: Page) -> None:
-    open_pack(page, TRIAGE, "audit")
+    open_agent(page, TRIAGE, "audit")
     page.locator("#audit-table button.open-record").first.click()
     drawer = page.locator(".drawer")
     assert drawer.evaluate(ANIMATION) == "drawer-in"
@@ -2033,7 +2035,7 @@ def test_a_view_fades_in_where_its_skeleton_was(page: Page) -> None:
         "window.fades = 0; document.addEventListener('animationstart', (e) => {"
         " if (e.target.id === 'view' && e.animationName === 'fade-in') window.fades++; }, true)"
     )
-    open_pack(page, TRIAGE, "overview")
+    open_agent(page, TRIAGE, "overview")
     view = page.locator("#view")
     expect(view).to_have_class(re.compile("view-enter"))
     assert view.evaluate(ANIMATION) == "fade-in"
@@ -2045,7 +2047,7 @@ def test_a_view_fades_in_where_its_skeleton_was(page: Page) -> None:
 
 def test_nothing_moves_under_reduced_motion(page: Page) -> None:
     page.emulate_media(reduced_motion="reduce")
-    open_pack(page, TRIAGE, "audit")
+    open_agent(page, TRIAGE, "audit")
     assert page.locator("#view").evaluate(ANIMATION) == "none"  # the view appears at once
     page.locator("#audit-table button.open-record").first.click()
     assert page.locator(".drawer").evaluate(ANIMATION) == "none"
@@ -2056,7 +2058,7 @@ def test_nothing_moves_under_reduced_motion(page: Page) -> None:
 def test_empty_views_say_what_goes_there_and_offer_one_action(page: Page) -> None:
     page.route("**/api/review?*", lambda route: route.fulfill(json=[]))
     page.route("**/api/feedback?*", lambda route: route.fulfill(json=[]))
-    open_pack(page, TRIAGE, "review")
+    open_agent(page, TRIAGE, "review")
     for view, title, action in [
         ("review", "Nothing waiting for review", "Open the audit trail"),
         ("feedback", "Nothing rated yet", "Try a decision"),
@@ -2069,7 +2071,7 @@ def test_empty_views_say_what_goes_there_and_offer_one_action(page: Page) -> Non
 
 
 def test_the_brand_is_a_mark_and_stat_labels_read_as_labels(page: Page) -> None:
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.locator(".brand svg.logo")).to_be_visible()
     expect(page.locator(".brand")).not_to_contain_text("◆")
     label = page.locator(".stats-primary .stat-label").first
@@ -2088,10 +2090,10 @@ UNDER_24 = """() => [...document.querySelectorAll('main a[href], main button, ma
   .map((el) => el.outerHTML.slice(0, 80))"""
 
 
-@pytest.mark.parametrize("pack_id", [TRIAGE, CLINICAL])
-def test_every_control_is_at_least_24_px(page: Page, pack_id: str) -> None:
+@pytest.mark.parametrize("agent_id", [TRIAGE, CLINICAL])
+def test_every_control_is_at_least_24_px(page: Page, agent_id: str) -> None:
     page.set_viewport_size(PHONE)
-    open_pack(page, pack_id)
+    open_agent(page, agent_id)
     for view in [*VIEWS, "evals/report", "evals/run"]:
         page.goto(f"/#{view}")
         expect(page.locator("main h1")).to_be_visible()
@@ -2112,7 +2114,7 @@ SMART_SESSION = {
     "fhir_user": "Practitioner/pr-1",
     "scope": "launch openid fhirUser patient/*.rs",
     "expires_at": 4102444800,
-    "pack": CHART,
+    "agent": CHART,
 }
 SMART_PATIENT = {
     "id": "chart-us-core-1",
@@ -2155,7 +2157,7 @@ def smart_launched(page: Page, decided: list[Any]) -> None:
 
 
 def test_without_a_launch_the_patient_view_stays_out_of_the_way(page: Page) -> None:
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.locator('.nav a[data-view="patient"]')).to_be_hidden()
     page.goto(f"/?agent={TRIAGE}#patient")
     expect(page.locator(".empty-state h2")).to_have_text("No EHR launch")
@@ -2178,7 +2180,7 @@ def test_an_ehr_launch_shows_the_patient_and_decides_their_work_items(page: Page
     expect(item.get_by_role("link", name=re.compile("Open the decision"))).to_have_attribute(
         "href", "#audit/d-1"
     )
-    assert decided == [{"pack_id": CHART, "focus": "Patient/chart-us-core-1"}]
+    assert decided == [{"agent_id": CHART, "focus": "Patient/chart-us-core-1"}]
 
 
 def test_ending_the_ehr_session_hides_the_patient_view(page: Page) -> None:
@@ -2199,7 +2201,7 @@ def test_the_patient_view_fits_a_phone(page: Page) -> None:
 
 # -- SMART on FHIR: a browser that only launched (sign-in on, no one signed in) --------------------
 
-LAUNCH_PACKS = [{"id": CHART, "name": CHART_NAME}, {"id": TRIAGE, "name": TRIAGE_NAME}]
+LAUNCH_AGENTS = [{"id": CHART, "name": CHART_NAME}, {"id": TRIAGE, "name": TRIAGE_NAME}]
 DECIDED = {
     "decision": {
         "id": "d-1",
@@ -2243,20 +2245,20 @@ def launch_only(page: Page, session: dict[str, Any]) -> list[str]:
 
 
 def launched_as(launch_id: str) -> dict[str, Any]:
-    return {**SMART_SESSION, "launch_id": launch_id, "packs": LAUNCH_PACKS}
+    return {**SMART_SESSION, "launch_id": launch_id, "agents": LAUNCH_AGENTS}
 
 
 def test_a_launch_alone_opens_the_patient_view_only(page: Page) -> None:
     """The EHR opened this window (`#patient/<launch id>`) and no one is signed in: the patient
-    view is the only section, the packs are the launch's, the decision is shown in place with
+    view is the only section, the agents are the launch's, the decision is shown in place with
     no link into the audit trail, and nothing outside the launch's routes is asked for."""
     asked = launch_only(page, launched_as("L1"))
     page.goto(f"/?agent={CHART}#patient/L1")
     expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
     expect(page.locator(".nav a:visible")).to_have_count(1)
     expect(page.locator(".nav a:visible")).to_have_text("This patient")
-    names = [pack["name"] for pack in LAUNCH_PACKS]
-    expect(page.locator("#pack-select option")).to_have_text(names)
+    names = [agent["name"] for agent in LAUNCH_AGENTS]
+    expect(page.locator("#agent-select option")).to_have_text(names)
     expect(page.locator("#signed-in")).to_be_hidden()
     item = page.locator(".work-item")
     item.get_by_role("button", name="Decide").click()
@@ -2410,20 +2412,20 @@ def signed_in_as(page: Page, *roles: str) -> None:
 
 
 def test_open_mode_shows_no_sign_in(page: Page) -> None:
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.locator("#signed-in")).to_be_hidden()
 
 
 def test_the_bar_says_who_is_signed_in(page: Page) -> None:
     signed_in_as(page, "reviewer")
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.locator("#signed-in-name")).to_have_text("Nurse Kim · Reviewer")
     expect(page.get_by_role("button", name="Sign out")).to_be_visible()
 
 
 def test_only_administrators_see_the_evaluation_run(page: Page) -> None:
     signed_in_as(page, "reviewer")
-    open_pack(page, TRIAGE, "evals")
+    open_agent(page, TRIAGE, "evals")
     page.goto(f"/?agent={TRIAGE}#evals/run")
     expect(page.locator("#evals-body")).to_contain_text(
         "Running an evaluation is for administrators"
@@ -2447,14 +2449,14 @@ def test_a_viewer_reads_but_is_not_offered_what_the_server_would_refuse(
 def test_who_is_signed_in_closes_the_phone_settings_sheet(page: Page) -> None:
     page.set_viewport_size({"width": 390, "height": 844})
     signed_in_as(page, "reviewer")
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     page.get_by_role("button", name="Settings").click()
     sheet, signed_in = page.locator("#topbar-actions"), page.locator("#signed-in")
     expect(signed_in).to_be_visible()
     sheet_box, row = sheet.bounding_box(), signed_in.bounding_box()
     assert sheet_box and row
     assert row["width"] > sheet_box["width"] - 40  # a row of its own, not squeezed into a column
-    assert row["y"] > page.locator("#pack-select").bounding_box()["y"]  # type: ignore[index]
+    assert row["y"] > page.locator("#agent-select").bounding_box()["y"]  # type: ignore[index]
 
 
 def test_a_signed_in_reviewer_reviews_under_their_own_name(page: Page) -> None:
@@ -2468,7 +2470,7 @@ def test_a_session_that_ended_says_so_and_offers_the_way_back(page: Page) -> Non
     """The server ended the session (30 minutes idle, or its 8 hours): the next call is a 401,
     and the person is told so, on screen until they act, with a sign-in that comes back here."""
     signed_in_as(page, "reviewer")
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     banner = page.locator("#session-ended")
     expect(banner).to_be_hidden()
     ended = {"detail": "sign in first, or send an API key"}
@@ -2484,7 +2486,7 @@ def test_a_session_that_ended_says_so_and_offers_the_way_back(page: Page) -> Non
 
 def test_open_mode_never_says_a_session_ended(page: Page) -> None:
     """Without sign-in a 401 cannot be a session's end: the error is shown as it comes."""
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     refused = {"detail": "refused here"}
     page.route("**/api/review?*", lambda route: route.fulfill(status=401, json=refused))
     page.goto(f"/?agent={TRIAGE}#review")
@@ -2492,8 +2494,8 @@ def test_open_mode_never_says_a_session_ended(page: Page) -> None:
     expect(page.locator("#session-ended")).to_be_hidden()
 
 
-def test_a_level_2_pack_can_be_approved_to_automate_from_its_card(page: Page) -> None:
-    open_pack(page, CLINICAL, "card")
+def test_a_level_2_agent_can_be_approved_to_automate_from_its_card(page: Page) -> None:
+    open_agent(page, CLINICAL, "card")
     page.goto(f"/?agent={CLINICAL}#card/approval")
     section = page.locator("#card-approval")
     expect(section).to_contain_text(
@@ -2510,8 +2512,8 @@ def test_a_level_2_pack_can_be_approved_to_automate_from_its_card(page: Page) ->
     expect(section.get_by_role("button", name="Approve automation")).to_be_visible()
 
 
-def test_the_card_lists_where_the_pack_runs(page: Page) -> None:
-    open_pack(page, TRIAGE, "card")
+def test_the_card_lists_where_the_agent_runs(page: Page) -> None:
+    open_agent(page, TRIAGE, "card")
     page.goto(f"/?agent={TRIAGE}#card/deployments")
     rows = page.locator("#card-deployments tbody tr")
     expect(rows).to_have_count(1)
@@ -2519,14 +2521,14 @@ def test_the_card_lists_where_the_pack_runs(page: Page) -> None:
     expect(rows.first).to_contain_text("router rules")
 
 
-def test_a_level_1_pack_needs_no_approval(page: Page) -> None:
-    open_pack(page, TRIAGE, "card")
+def test_a_level_1_agent_needs_no_approval(page: Page) -> None:
+    open_agent(page, TRIAGE, "card")
     page.goto(f"/?agent={TRIAGE}#card/approval")
     expect(page.locator("#card-approval")).to_contain_text("No approval is needed")
 
 
 def test_monitoring_shows_the_last_week_against_the_benchmark(page: Page) -> None:
-    open_pack(page, TRIAGE, "monitoring")
+    open_agent(page, TRIAGE, "monitoring")
     expect(page.locator("main h1")).to_have_text("Monitoring")
     expect(page.locator(".stats-primary .stat")).to_have_count(4)
     expect(page.locator(".stat").first).to_contain_text("benchmark")
@@ -2542,7 +2544,7 @@ def test_monitoring_draws_the_weekly_trend(page: Page) -> None:
         route.fulfill(json=report)
 
     page.route("**/api/monitoring?*", with_weeks)
-    open_pack(page, TRIAGE, "monitoring")
+    open_agent(page, TRIAGE, "monitoring")
     chart = page.locator('figure[data-chart="monitoring-trend"]')
     expect(chart.locator("svg")).to_be_visible()
     expect(chart).to_contain_text("Sep 30")
@@ -2556,7 +2558,7 @@ def monitoring_report(**changes: Any) -> dict[str, Any]:
     """A /api/monitoring answer whose reviewed and whole-set figures differ, so the view shows
     which it compares."""
     report: dict[str, Any] = {
-        "pack": {"id": TRIAGE},
+        "agent": {"id": TRIAGE},
         "days": 30,
         "benchmark": {
             "accuracy": 0.97,
@@ -2625,7 +2627,7 @@ def test_monitoring_alerts_lead_the_page(page: Page) -> None:
         ]
     )
     page.route("**/api/monitoring?*", lambda route: route.fulfill(json=report))
-    open_pack(page, TRIAGE, "monitoring")
+    open_agent(page, TRIAGE, "monitoring")
     expect(page.locator(".callout.danger")).to_contain_text(
         f"Accuracy below the benchmark: reviewed decisions: accuracy {shown(figures.of(20, 30))}"
     )
@@ -2642,8 +2644,8 @@ def test_monitoring_alerts_lead_the_page(page: Page) -> None:
     ).to_be_visible()
 
 
-def test_monitoring_says_a_pack_from_a_registry_is_not_compared(page: Page) -> None:
-    """LP-18h: the monitor takes no benchmark for a pulled pack (`from_registry`)."""
+def test_monitoring_says_an_agent_from_a_registry_is_not_compared(page: Page) -> None:
+    """LP-18h: the monitor takes no benchmark for a pulled agent (`from_registry`)."""
     bench = {
         **monitoring_report()["benchmark"],
         "accuracy": None,
@@ -2655,7 +2657,7 @@ def test_monitoring_says_a_pack_from_a_registry_is_not_compared(page: Page) -> N
     }
     report = monitoring_report(benchmark=bench)
     page.route("**/api/monitoring?*", lambda route: route.fulfill(json=report))
-    open_pack(page, TRIAGE, "monitoring")
+    open_agent(page, TRIAGE, "monitoring")
     main = page.locator("main")
     expect(main).to_contain_text(
         "Not compared with the benchmark: the agent is from a registry, and the benchmark it "
@@ -2677,7 +2679,7 @@ def test_monitoring_says_why_the_benchmark_is_not_compared(page: Page) -> None:
     quick = {**week, "latency_ms": {"n": 30, "p50": 1.1, "p95": 1.4, "mean": 1.2}}
     report = monitoring_report(benchmark=bench, other_versions={"0.4.0": 1}, weeks=[week, quick])
     page.route("**/api/monitoring?*", lambda route: route.fulfill(json=report))
-    open_pack(page, TRIAGE, "monitoring")
+    open_agent(page, TRIAGE, "monitoring")
     main = page.locator("main")
     expect(main).to_contain_text(
         "Not compared with the benchmark: the benchmark ran other providers or models than this "
@@ -2725,7 +2727,7 @@ def test_an_automated_stratum_alert_marks_its_own_stat(page: Page) -> None:
     }
     report = monitoring_report(benchmark=bench, last_7_days=week, alerts=[alert])
     page.route("**/api/monitoring?*", lambda route: route.fulfill(json=report))
-    open_pack(page, TRIAGE, "monitoring")
+    open_agent(page, TRIAGE, "monitoring")
     stats = page.locator(".stats-primary .stat")
     expect(stats).to_have_count(5)
     expect(stats.first).not_to_have_class(re.compile(r"tone-danger"))
@@ -2745,6 +2747,6 @@ def test_an_input_kept_encrypted_says_who_can_read_it(page: Page, live_server: s
         route.fulfill(json=record)
 
     page.route(f"**/api/audit/{decided['id']}", restricted)
-    open_pack(page, TRIAGE, "audit")
+    open_agent(page, TRIAGE, "audit")
     page.goto(f"/?agent={TRIAGE}#audit/{decided['id']}")
     expect(page.locator(".drawer")).to_contain_text("Input kept encrypted (PHI mode)")

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """A paired comparison of two evaluation runs on the same cases (`mendari compare A B --dataset X`,
-LP-10), from their ledgers: two configurations, or two versions of a pack. Unlike
-`mendari.evals.compare` (one run against the pack's published benchmark, different cases), every
+LP-10), from their ledgers: two configurations, or two versions of an agent. Unlike
+`mendari.evals.compare` (one run against the agent's published benchmark, different cases), every
 figure here is on the cases both runs share, so a difference is the configurations', not the cases'.
 
 Each figure is k of n in each run with its exact 95% interval; the cases where the two disagree
@@ -36,7 +36,7 @@ Event = Callable[[Case], bool | None]  # None: the figure does not apply to this
 
 
 def load(path: str | Path, *, flag: str) -> Ledger:
-    """A ledger: a `.jsonl` ledger, or a `mendari.eval/2` report whose ledger is beside it in
+    """A ledger: a `.jsonl` ledger, or a `mendari.eval/1` report whose ledger is beside it in
     `ledgers/` (as `mendari eval --out` writes it)."""
     path = Path(path)
     where = f"{flag} {path.name}"
@@ -128,12 +128,12 @@ def compare(
     lineage: bool = False,
 ) -> dict[str, Any]:
     """A against B on the cases both ran, from the dataset whose sha256 is given. `lineage`: A
-    and B may be packs of other ids that ask the same questions, a pack store's draft and the
-    pack it was copied from (LP-20g)."""
+    and B may be agents of other ids that ask the same questions, an agent store's draft and the
+    agent it was copied from (LP-20g)."""
     for name, ledger in (("A", a), ("B", b)):
         if ledger.header["dataset"]["sha256"] != dataset_sha256:
             raise MendariError(f"{name} was not run on this dataset (its sha256 differs)")
-    if not lineage and a.header["pack"]["id"] != b.header["pack"]["id"]:
+    if not lineage and a.header["agent"]["id"] != b.header["agent"]["id"]:
         raise MendariError("A and B are evaluations of different agents")
     if (
         a.header["questions"] != b.header["questions"]
@@ -205,9 +205,9 @@ def compare(
     order = {name: i for i, name in enumerate(_figures(a))}
     return {
         "format": FORMAT,
-        "pack": a.header["pack"]["id"],
-        "a": {"ledger": a.id, "pack": a.header["pack"], "providers": a.header["providers"]},
-        "b": {"ledger": b.id, "pack": b.header["pack"], "providers": b.header["providers"]},
+        "agent": a.header["agent"]["id"],
+        "a": {"ledger": a.id, "agent": a.header["agent"], "providers": a.header["providers"]},
+        "b": {"ledger": b.id, "agent": b.header["agent"], "providers": b.header["providers"]},
         "dataset": {
             "sha256": dataset_sha256,
             "paired": len(pairs),
@@ -231,7 +231,7 @@ def text(result: Mapping[str, Any], ids: Mapping[str, Any] | None = None) -> str
     """The comparison in words; `ids` (local only) names each changed case by its id."""
     dataset = result["dataset"]
     lines = [
-        f"{result['pack']}: A against B on {dataset['paired']} shared cases "
+        f"{result['agent']}: A against B on {dataset['paired']} shared cases "
         f"(only in A: {dataset['only_in_a']}, only in B: {dataset['only_in_b']})",
         f"Holm-adjusted over: {', '.join(result['holm_family'])} (alpha {result['alpha']}); "
         f"k of n [exact {result['interval_level']:.0%} interval, Clopper-Pearson]",

@@ -48,7 +48,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from mendari.core import actions as proposals
-from mendari.core.spec import PackManifest
+from mendari.core.spec import AgentManifest
 from mendari.errors import ProviderError
 from mendari.providers.base import Answer, Provider, ProviderOutput
 from mendari.providers.signals import (
@@ -74,7 +74,7 @@ def agreed_reason(agreed: int, runs: int, question: str, failed: list[str]) -> s
 
 
 def _proposals(
-    manifest: PackManifest, outputs: Sequence[ProviderOutput], runs: int
+    manifest: AgentManifest, outputs: Sequence[ProviderOutput], runs: int
 ) -> tuple[tuple[proposals.Proposed, ...], list[str]]:
     """The actions the runs proposed, as the slot proposes them, and why they did not agree.
     Each distinct proposal (a name with its arguments) once, in the order first proposed; one
@@ -134,7 +134,7 @@ def repeated(
         assert first_error is not None
         raise first_error
 
-    deciding = deciding_questions(provider.pack.manifest)
+    deciding = deciding_questions(provider.agent.manifest)
     answers: dict[str, Answer] = {}
     caps: list[Cap] = []
     disagreed: list[str] = []
@@ -161,7 +161,7 @@ def repeated(
         if key in chosen.signals.reported:
             reported[key] = chosen.signals.reported[key]
 
-    proposed, differed = _proposals(provider.pack.manifest, outputs, runs)
+    proposed, differed = _proposals(provider.agent.manifest, outputs, runs)
     caps += [Cap("repeat", reason) for reason in differed]
     found = merged(output.signals for output in outputs)
     costs = [output.cost_usd for output in outputs]

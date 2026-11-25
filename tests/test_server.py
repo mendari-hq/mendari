@@ -17,7 +17,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from mendari import load_pack
+from mendari import load_agent
 from mendari.core import db as db_module
 from mendari.core import patterns
 from mendari.core.audit import AuditStore
@@ -46,7 +46,7 @@ from tests.support.platform import (
 )
 from tests.test_auth import FakeIdp, sign_in, signing_in_with
 
-PACK = TRIAGE_API
+AGENT = TRIAGE_API
 INBOX = TRIAGE  # the agent the tests decide with: the triage fixture
 LOCAL = "local-site-example"  # its local site's dataset (`local_site`)
 # The triage fixture's slots on its default providers: the keyword rules in both, where it
@@ -67,14 +67,14 @@ def attested_client(db_target: str, tmp_path: Path, agent_copy: Callable[..., Pa
     root = agent_copy(manifest=names_its_benchmark)
     attested(root)
     datasets = local_site(tmp_path / "datasets")
-    return TestClient(create_app(db_path=db_target, datasets_dir=datasets, packs_paths=[root]))
+    return TestClient(create_app(db_path=db_target, datasets_dir=datasets, agents_paths=[root]))
 
 
-def test_packs_and_card(client: TestClient) -> None:
-    packs = client.get("/api/agents").json()
-    assert [p["id"] for p in packs] == [agent.id for agent in bundled_agents()]
-    detail = client.get(PACK).json()
-    triage = load_pack(TRIAGE_DIR).manifest
+def test_agents_and_card(client: TestClient) -> None:
+    agents = client.get("/api/agents").json()
+    assert [p["id"] for p in agents] == [agent.id for agent in bundled_agents()]
+    detail = client.get(AGENT).json()
+    triage = load_agent(TRIAGE_DIR).manifest
     assert {slot: p["variant"] for slot, p in detail["active_providers"].items()} == {
         slot: spec.use for slot, spec in triage.providers.items()
     }
@@ -86,7 +86,7 @@ def test_packs_and_card(client: TestClient) -> None:
 
 def test_decide_review_and_audit_flow(client: TestClient) -> None:
     decision = client.post(
-        f"{PACK}/decide", json={"message": {"body": "Crushing chest pain"}}
+        f"{AGENT}/decide", json={"message": {"body": "Crushing chest pain"}}
     ).json()
     assert decision["outcome"] == "HUMAN_REVIEW" and decision["priority"] == "stat"
 
@@ -109,8 +109,8 @@ def test_decide_review_and_audit_flow(client: TestClient) -> None:
 
 
 def test_datasets_are_listed_with_their_size(client: TestClient, tmp_path: Path) -> None:
-    datasets = {d["name"]: d["n"] for d in client.get(f"{PACK}/datasets").json()}
-    detail = client.get(PACK).json()
+    datasets = {d["name"]: d["n"] for d in client.get(f"{AGENT}/datasets").json()}
+    detail = client.get(AGENT).json()
     assert list(datasets) == detail["datasets"]  # the same names, in the same order
     local = tmp_path / "datasets" / f"{LOCAL}.jsonl"
     assert datasets[LOCAL] == len(local.read_text().splitlines())
@@ -119,14 +119,14 @@ def test_datasets_are_listed_with_their_size(client: TestClient, tmp_path: Path)
 
 
 def test_invalid_input_is_a_recorded_block_not_an_http_error(client: TestClient) -> None:
-    response = client.post(f"{PACK}/decide", json={"message": {"body": ""}})
+    response = client.post(f"{AGENT}/decide", json={"message": {"body": ""}})
     assert response.status_code == 200 and response.json()["outcome"] == "BLOCK"
 
 
 def test_fhir_endpoint_returns_task(client: TestClient) -> None:
-    body = client.post(f"{PACK}/fhir/decide", json=BUNDLE).json()
+    body = client.post(f"{AGENT}/fhir/decide", json=BUNDLE).json()
     assert body["task"]["resourceType"] == "Task"
-    missing = client.post(f"{PACK}/fhir/decide", json={"resourceType": "Bundle", "entry": []})
+    missing = client.post(f"{AGENT}/fhir/decide", json={"resourceType": "Bundle", "entry": []})
     assert missing.status_code == 422
 
 
@@ -136,7 +136,7 @@ def test_cds_hooks_endpoints(client: TestClient) -> None:
     assert set(services) == {
         service_id(agent) for agent in bundled_agents() if agent.manifest.cds_hooks is not None
     }
-    triage = services[service_id(load_pack(TRIAGE_DIR))]
+    triage = services[service_id(load_agent(TRIAGE_DIR))]
     response = client.post(
         f"/cds-services/{triage['id']}",
         json={
@@ -152,16 +152,16 @@ def test_cds_hooks_endpoints(client: TestClient) -> None:
 
 def test_local_validation_via_api(attested_client: TestClient) -> None:
     client = attested_client
-    # Each pack is offered only the local datasets that label its questions.
-    assert "clinical-local-site-example" not in client.get(PACK).json()["datasets"]
-    report = client.post(f"{PACK}/evals", json={"dataset": LOCAL}).json()
+    # Each agent is offered only the local datasets that label its questions.
+    assert "clinical-local-site-example" not in client.get(AGENT).json()["datasets"]
+    report = client.post(f"{AGENT}/evals", json={"dataset": LOCAL}).json()
     assert report["comparison"]["status"] == "degraded"
     assert client.get("/api/evals").json()[0]["run"]["id"] == report["run"]["id"]
     # Evaluation traffic does not enter the operational audit log.
     assert client.get("/api/stats").json()["decisions"] == 0
-    assert client.post(f"{PACK}/evals", json={"dataset": "../../etc/passwd"}).status_code == 404
-    wrong_pack = client.post(f"{PACK}/evals", json={"dataset": "clinical-local-site-example"})
-    assert wrong_pack.status_code == 404
+    assert client.post(f"{AGENT}/evals", json={"dataset": "../../etc/passwd"}).status_code == 404
+    wrong_agent = client.post(f"{AGENT}/evals", json={"dataset": "clinical-local-site-example"})
+    assert wrong_agent.status_code == 404
 
 
 def test_reports_and_leaderboards_are_served_with_their_figures(
@@ -174,7 +174,7 @@ def test_reports_and_leaderboards_are_served_with_their_figures(
     from mendari.evals.result import result_of, result_sha256
 
     client = attested_client
-    detail = client.get(PACK).json()
+    detail = client.get(AGENT).json()
     published = detail["benchmark"]
     assert published["dataset"]["name"] == "test"  # its benchmark set
     measured = published["questions"]["destination"]
@@ -182,7 +182,7 @@ def test_reports_and_leaderboards_are_served_with_their_figures(
     board = detail["leaderboard"]
     assert board["ranking"]["method"] == "mendari.rank/1" and board["groups"]
     assert all("figures" in row and "standing_text" in row for row in board["rows"])
-    report = client.post(f"{PACK}/evals", json={"dataset": LOCAL}).json()
+    report = client.post(f"{AGENT}/evals", json={"dataset": LOCAL}).json()
     assert report["figures"]["accuracy"] == figures.counted(
         report["questions"]["destination"]["accuracy"], report["questions"]["destination"]["n"]
     )
@@ -201,7 +201,7 @@ def test_a_stored_report_figures_cannot_be_read_from_is_served_with_none(
 ) -> None:
     from mendari import AuditStore
 
-    agent = load_pack(TRIAGE_DIR)
+    agent = load_agent(TRIAGE_DIR)
     odd = evaluate(Decision(agent), resolve_dataset(agent, "critical"))
     critical = odd["decisions"]["critical"][0]
     critical["detected"] = 99  # more than its positives
@@ -227,25 +227,25 @@ ANCHORED = """\
 """
 
 
-def test_examples_are_the_packs_behaviour_tests(
+def test_examples_are_the_agents_behaviour_tests(
     client: TestClient, tmp_path: Path, agent_copy: Callable[..., Path]
 ) -> None:
-    examples = client.get(f"{PACK}/examples").json()
+    examples = client.get(f"{AGENT}/examples").json()
     cases = yaml.safe_load((TRIAGE_DIR / "tests" / "cases.yaml").read_text())
     assert [e["name"] for e in examples] == [case["name"] for case in cases]
     emergency = next(e for e in examples if e["name"].startswith("chest pain is a possible"))
     assert emergency["expect"]["recommendation"] == "nurse"
-    decision = client.post(f"{PACK}/decide", json=emergency["input"]).json()
+    decision = client.post(f"{AGENT}/decide", json=emergency["input"]).json()
     assert (decision["recommendation"], decision["priority"]) == ("nurse", "stat")
     assert decision["reasons"][0].startswith("rule possible-emergency:")
     assert client.get("/api/agents/mendari/missing/examples").status_code == 404
     # YAML anchors are resolved: every example is a complete input that decides as tested.
     copy = agent_copy()
     (copy / "tests" / "cases.yaml").write_text(ANCHORED)
-    served = TestClient(create_app(db_path=tmp_path / "anchored.db", packs_paths=[copy]))
-    first, second = served.get(f"{PACK}/examples").json()
+    served = TestClient(create_app(db_path=tmp_path / "anchored.db", agents_paths=[copy]))
+    first, second = served.get(f"{AGENT}/examples").json()
     assert second["input"] == {"message": {**first["input"]["message"], "channel": "sms"}}
-    decided = served.post(f"{PACK}/decide", json=second["input"]).json()
+    decided = served.post(f"{AGENT}/decide", json=second["input"]).json()
     assert decided["recommendation"] == second["expect"]["recommendation"] == "pharmacy"
 
 
@@ -293,7 +293,7 @@ def test_health_reports_deployment_state(client: TestClient) -> None:
     assert health["storage"] in {"sqlite", "postgres"}
     assert health["timezone"] == "America/New_York"
     assert health["providers"][TRIAGE] == OFFLINE
-    # No model set up: every pack runs its offline readers where it offers a model.
+    # No model set up: every agent runs its offline readers where it offers a model.
     assert health["without_model"][TRIAGE] == ["router", "screen"]
     assert health["without_model"] == {
         agent.id: slots for agent in bundled_agents() if (slots := slots_without_model(agent, {}))
@@ -324,7 +324,7 @@ def test_remote_evaluations_are_capped_and_budgeted(
     llm_set_up(monkeypatch)
     monkeypatch.setattr(llm, "post_json", unreachable)
     app = create_app(db_path=db_target, providers={"router": "llm"}, budget_limits={"llm": 5})
-    report = TestClient(app).post(f"{PACK}/evals", json={"dataset": "test"}).json()
+    report = TestClient(app).post(f"{AGENT}/evals", json={"dataset": "test"}).json()
     assert report["dataset"]["n"] == 200 and report["dataset"]["limit"] == 200
     assert report["providers"]["router"]["model"] == "test-model"
     # Five calls fit the budget (and time out); the rest are refused by the budget.
@@ -339,7 +339,7 @@ def test_calls_that_cannot_authenticate_use_no_budget(
     client = TestClient(
         create_app(db_path=db_target, providers={"router": "llm"}, budget_limits={"llm": 5})
     )
-    report = client.post(f"{PACK}/evals", json={"dataset": "critical"}).json()
+    report = client.post(f"{AGENT}/evals", json={"dataset": "critical"}).json()
     critical = (TRIAGE_DIR / "data" / "critical.jsonl").read_text().splitlines()
     assert report["errors"] == {"credential_unavailable": len(critical)}
     assert client.get("/api/health").json()["llm"]["calls_today"] == 0
@@ -366,9 +366,9 @@ def test_the_api_reference_describes_every_operation(client: TestClient) -> None
     # release serves it: test_a_release_offers_the_demo_agent_first), one example each.
     exampled = [example["summary"].split(":")[0] for example in examples.values()]
     assert exampled == [agent.id for agent in bundled_agents()]
-    for pack_id, example in zip(exampled, examples.values(), strict=True):
-        decided = client.post(f"/api/agents/{pack_id}/decide", json=example["value"]).json()
-        assert decided["outcome"] != "BLOCK", (pack_id, decided["reasons"])
+    for agent_id, example in zip(exampled, examples.values(), strict=True):
+        decided = client.post(f"/api/agents/{agent_id}/decide", json=example["value"]).json()
+        assert decided["outcome"] != "BLOCK", (agent_id, decided["reasons"])
 
     def offered(path: str) -> list[str]:
         operation = schema["paths"][path]["post"]
@@ -390,7 +390,7 @@ def test_a_release_offers_the_demo_agent_first(
     reference names it: "Try it out" decides with its own examples, the FHIR example is its
     FHIR mapping's, and the label examples are its own."""
     monkeypatch.delenv("MENDARI_AGENT_URL", raising=False)  # its offline fixture
-    client = TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=[ROOT / "agents"]))
+    client = TestClient(create_app(db_path=tmp_path / "a.db", agents_paths=[ROOT / "agents"]))
     schema = client.get("/openapi.json").json()
     decide = schema["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
@@ -408,7 +408,7 @@ def test_a_release_offers_the_demo_agent_first(
     assert decided["decision"]["recommendation"] == "refill"
     # A grader's grades (`LabelRequest`), as read: the demo agent's rubric, each criterion with
     # one of its levels.
-    (agent,) = discover([ROOT / "agents"]).packs
+    (agent,) = discover([ROOT / "agents"]).agents
     (labels,) = LabelRequest.model_json_schema()["properties"]["labels"]["examples"]
     (rubric,) = agent.manifest.rubrics.values()
     levels = {name: [level for level, _ in c.scale()] for name, c in rubric.criteria.items()}
@@ -416,11 +416,11 @@ def test_a_release_offers_the_demo_agent_first(
     assert all(level in levels[name] for name, level in labels.items()), labels
 
 
-# -- health does no pack work in the request (LP-16d) ----------------------------------------
-# Every served pack is built at start-up and health reads what start-up found: it builds no
-# Decision, records no deployment and waits on no lock, whatever a pack holds or a decision is
+# -- health does no agent work in the request (LP-16d) ----------------------------------------
+# Every served agent is built at start-up and health reads what start-up found: it builds no
+# Decision, records no deployment and waits on no lock, whatever an agent holds or a decision is
 # doing (a signed-in caller's session may be refreshed, as on any route).
-# A pack's deployment is recorded on its first use instead (tests/test_governance.py).
+# An agent's deployment is recorded on its first use instead (tests/test_governance.py).
 HEALTH_BOUND_S = 0.1  # health alone takes milliseconds
 BUSY_HEALTH_BOUND_S = 0.5  # beside a decision spending its whole CPU budget in another thread
 # Ten thousand characters (the most a bounded agent reads) on which each of `SLOW` takes about
@@ -457,13 +457,13 @@ def outside_copy(
 
 
 def decisions_built(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """The pack id of every Decision built from here on (one that fails to build included)."""
+    """The agent id of every Decision built from here on (one that fails to build included)."""
     built: list[str] = []
     original = Decision.__init__
 
-    def init(self: Decision, pack: Any, **kwargs: Any) -> None:
-        built.append(pack.id)
-        original(self, pack, **kwargs)
+    def init(self: Decision, agent: Any, **kwargs: Any) -> None:
+        built.append(agent.id)
+        original(self, agent, **kwargs)
 
     monkeypatch.setattr(Decision, "__init__", init)
     return built
@@ -556,7 +556,7 @@ def interpreter_ticks() -> Iterator[list[float]]:
             gc.enable()
 
 
-def test_health_builds_no_pack_in_the_request(
+def test_health_builds_no_agent_in_the_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     idp = FakeIdp()
@@ -579,49 +579,49 @@ def test_health_records_no_deployment(db_target: str, monkeypatch: pytest.Monkey
     assert client.get("/api/deployments").json() == []  # nor did start-up record anything
     message = {"message": {"body": "Can I move my appointment to Friday?"}}
     for _ in range(2):
-        assert client.post(f"{PACK}/decide", json=message).status_code == 200
+        assert client.post(f"{AGENT}/decide", json=message).status_code == 200
     with AuditStore(db_target) as store:
         rows = store.deployments(None)
         with store._db.session(exclusive=False) as session:
             chained = session.all(
                 "SELECT event FROM audit_events WHERE decision_id LIKE ?", ("deployment:%",)
             )
-    assert [row["pack_id"] for row in rows] == [INBOX]  # the pack used, recorded once
+    assert [row["agent_id"] for row in rows] == [INBOX]  # the agent used, recorded once
     assert [row["event"] for row in chained] == ["deployment.recorded"]
 
 
-def test_health_answers_within_its_bound_with_a_pathological_pack_loaded(
+def test_health_answers_within_its_bound_with_a_pathological_agent_loaded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, agent_copy: Callable[..., Path]
 ) -> None:
-    """An owned pack runs its patterns on `re`, so a decision on this one would hold the
+    """An owned agent runs its patterns on `re`, so a decision on this one would hold the
     interpreter for as long as it backtracks (LP-16 conflict 15); loaded, it costs health
     nothing, from the first call on."""
     nested = [{"name": "nested", "pattern": "(a+)+$", "weight": 8}]
     root = outside_copy(agent_copy, "someone/triage", nested)
     paths = [SearchPath(root.parent, "local"), SearchPath(FIXTURE_AGENTS, "maintained")]
-    client = TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=paths))
+    client = TestClient(create_app(db_path=tmp_path / "a.db", agents_paths=paths))
     built = decisions_built(monkeypatch)
     for _ in range(3):
         assert timed_health(client) < HEALTH_BOUND_S
     health = client.get("/api/health").json()
     assert health["providers"]["someone/triage"] == OFFLINE
-    assert health["packs_by_origin"]["local"] == 1
+    assert health["agents_by_origin"]["local"] == 1
     assert built == []
 
 
-def test_health_answers_within_its_bound_while_a_registry_packs_decision_runs(
+def test_health_answers_within_its_bound_while_a_registry_agents_decision_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, agent_copy: Callable[..., Path]
 ) -> None:
-    """A pack the deployment does not own runs its patterns on RE2, outside the interpreter
+    """An agent the deployment does not own runs its patterns on RE2, outside the interpreter
     lock, within a CPU budget per decision: while one decision spends all of it, health keeps
     answering, and neither builds a Decision."""
     slow = [{"name": f"slow{i}", "pattern": p, "weight": 8} for i, p in enumerate(SLOW)]
     root = outside_copy(agent_copy, "someone/triage", slow, any_length=True)
     paths = [SearchPath(root.parent, "hub")]
-    client = TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=paths))
+    client = TestClient(create_app(db_path=tmp_path / "a.db", agents_paths=paths))
     built = decisions_built(monkeypatch)
     searches = searches_timed(monkeypatch)
-    assert client.get("/api/health").json()["packs_by_origin"] == {"hub": 1}
+    assert client.get("/api/health").json()["agents_by_origin"] == {"hub": 1}
     answer: dict[str, Any] = {}
 
     def decide() -> None:
@@ -661,15 +661,15 @@ def test_health_answers_within_its_bound_while_a_registry_packs_decision_runs(
     assert decided.json()["outcome"] != "AUTO"
 
 
-def test_an_unbuildable_pack_is_built_once(
+def test_an_unbuildable_agent_is_built_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, agent_copy: Callable[..., Path]
 ) -> None:
-    """Start-up builds every served pack once; one whose providers cannot be built is never
+    """Start-up builds every served agent once; one whose providers cannot be built is never
     built again: health lists it, and each decision on it answers 422 with the same reason."""
-    pack_id = "outsider/triage"
+    agent_id = "outsider/triage"
 
     def unbuildable(manifest: dict[str, Any]) -> None:
-        manifest["id"] = pack_id
+        manifest["id"] = agent_id
         router = manifest["providers"]["router"]
         router["use"] = "agent"  # its default, whose config has a key no agent variant takes
         router["variants"]["agent"]["bogus"] = 1
@@ -677,19 +677,19 @@ def test_an_unbuildable_pack_is_built_once(
     outside = agent_copy(manifest=unbuildable)
     built = decisions_built(monkeypatch)
     client = TestClient(
-        create_app(db_path=tmp_path / "c.db", packs_paths=[outside, FIXTURE_AGENTS])
+        create_app(db_path=tmp_path / "c.db", agents_paths=[outside, FIXTURE_AGENTS])
     )
     for _ in range(5):
         invalid = client.get("/api/health").json()["invalid"]
-        assert list(invalid) == [pack_id]
-        assert "Extra inputs are not permitted" in invalid[pack_id]
+        assert list(invalid) == [agent_id]
+        assert "Extra inputs are not permitted" in invalid[agent_id]
     case = yaml.safe_load((TRIAGE_DIR / "tests" / "cases.yaml").read_text())[0]
-    refused = [client.post(f"/api/agents/{pack_id}/decide", json=case["input"]) for _ in range(2)]
+    refused = [client.post(f"/api/agents/{agent_id}/decide", json=case["input"]) for _ in range(2)]
     assert [answer.status_code for answer in refused] == [422, 422]
     reasons = [(answer.json()["error"], answer.json()["detail"]) for answer in refused]
-    assert reasons == [("PackValidationError", invalid[pack_id])] * 2
-    assert sorted(built) == sorted(set(built)) and built.count(pack_id) == 1
-    assert len(built) == len(bundled_agents()) + 1  # every served pack, once
+    assert reasons == [("AgentValidationError", invalid[agent_id])] * 2
+    assert sorted(built) == sorted(set(built)) and built.count(agent_id) == 1
+    assert len(built) == len(bundled_agents()) + 1  # every served agent, once
 
 
 def test_a_negative_limit_is_not_no_limit(client: TestClient) -> None:
@@ -697,7 +697,7 @@ def test_a_negative_limit_is_not_no_limit(client: TestClient) -> None:
     each input read and chained under PHI mode) and Postgres answered 500 for it."""
     for _ in range(3):
         assert (
-            client.post(f"{PACK}/decide", json={"message": {"body": "Chest pain"}}).status_code
+            client.post(f"{AGENT}/decide", json={"message": {"body": "Chest pain"}}).status_code
             == 200
         )
     for path in ("/api/audit", "/api/review", "/api/feedback", "/api/deployments"):

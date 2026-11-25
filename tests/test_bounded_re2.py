@@ -20,12 +20,12 @@ from typing import Any, cast
 import pytest
 from jsonschema import Draft202012Validator
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari.core import input_schema, patterns
-from mendari.core.pack import authored_patterns
+from mendari.core.agent import authored_patterns
 from mendari.core.re2_syntax import translate
 from mendari.core.registry import SearchPath, discover
-from mendari.errors import PackValidationError
+from mendari.errors import AgentValidationError
 from mendari.providers.rules import RulesProvider
 from tests.conftest import DEMO_AGENT_DIR, FIXTURE_AGENTS, FIXTURE_NAMESPACE, ROOT
 from tests.support.engine import RULES, SCHEMA, SORTER_ID, pulled, sorter
@@ -64,16 +64,16 @@ IDS = [
 LIMIT_S = 1.0
 
 
-def bounded_pack(
+def bounded_agent(
     base: Path,
     *,
     rules: Sequence[str] = (),
     schema: dict[str, Any] | None = None,
-    pack_id: str = SORTER_ID,
+    agent_id: str = SORTER_ID,
 ) -> Path:
     """The synthetic sorter under `base`, with `rules` as its billing patterns, its message up to
     10,000 characters, and `schema` merged into the message's schema. Loaded with `pulled`, it
-    runs on the bounded engine; with `load_pack`, it is the deployment's own."""
+    runs on the bounded engine; with `load_agent`, it is the deployment's own."""
 
     def billing(config: dict[str, Any]) -> None:
         if rules:
@@ -85,7 +85,7 @@ def bounded_pack(
         document["properties"]["message"]["maxLength"] = 10_000
         document["properties"]["message"].update(schema or {})
 
-    return sorter(base, rules=billing, schema=message, pack_id=pack_id)
+    return sorter(base, rules=billing, schema=message, agent_id=agent_id)
 
 
 def billing_patterns(decision: Decision) -> list[Any]:
@@ -105,11 +105,11 @@ def timed(decision: Decision, inputs: dict[str, Any]) -> tuple[float, Any]:
 
 
 @pytest.mark.parametrize(("pattern", "text"), SLOW, ids=IDS)
-def test_a_bounded_packs_rules_decide_slow_patterns_fast(
+def test_a_bounded_agents_rules_decide_slow_patterns_fast(
     tmp_path: Path, pattern: str, text: str
 ) -> None:
-    pack = pulled(bounded_pack(tmp_path, rules=[pattern]))
-    decision = Decision(pack)
+    agent = pulled(bounded_agent(tmp_path, rules=[pattern]))
+    decision = Decision(agent)
     timed(decision, {"message": "warm"})  # translation tables, compiled once a process
     seconds, result = timed(decision, {"message": text[:9_990]})  # with the key: 9,997
     assert seconds < LIMIT_S, f"{seconds:.2f} s"
@@ -117,11 +117,11 @@ def test_a_bounded_packs_rules_decide_slow_patterns_fast(
 
 
 @pytest.mark.parametrize(("pattern", "text"), SLOW, ids=IDS)
-def test_a_bounded_packs_schema_patterns_decide_slow_patterns_fast(
+def test_a_bounded_agents_schema_patterns_decide_slow_patterns_fast(
     tmp_path: Path, pattern: str, text: str
 ) -> None:
     schema = {"not": {"pattern": pattern}}  # runs the pattern on every message
-    root = bounded_pack(tmp_path, schema=schema)
+    root = bounded_agent(tmp_path, schema=schema)
     document = json.loads((root / SCHEMA).read_text())
     document["properties"]["extra"] = {"type": "object", "patternProperties": {pattern: {}}}
     document["properties"]["names"] = {"type": "object", "propertyNames": {"pattern": pattern}}
@@ -135,25 +135,25 @@ def test_a_bounded_packs_schema_patterns_decide_slow_patterns_fast(
     assert not any("characters" in problem for problem in result.schema_problems)
 
 
-def test_the_same_patterns_stay_on_re_in_any_other_pack(tmp_path: Path) -> None:
+def test_the_same_patterns_stay_on_re_in_any_other_agent(tmp_path: Path) -> None:
     """The deployment's own agent. Never run on the slow texts: `re` would take minutes."""
-    root = bounded_pack(tmp_path, rules=[p for p, _ in SLOW], pack_id="local/visit-sorter")
-    pack = load_pack(root)
-    assert not pack.bounded
+    root = bounded_agent(tmp_path, rules=[p for p, _ in SLOW], agent_id="local/visit-sorter")
+    agent = load_agent(root)
+    assert not agent.bounded
     for text, _ in SLOW:
         assert type(patterns.compile(text, patterns.RULES_FLAGS)) is re.Pattern
-    decision = Decision(pack)
+    decision = Decision(agent)
     compiled = billing_patterns(decision)
     assert all(type(regex) is re.Pattern for regex in compiled)
     assert [regex.pattern for regex in compiled] == [p for p, _ in SLOW]
     assert decision.decide({"message": "a question?"}).answers["topic"].label == "billing"
-    validator = input_schema.validator(pack.input_schema)
+    validator = input_schema.validator(agent.input_schema)
     assert type(validator) is Draft202012Validator
 
 
-def test_a_bounded_packs_rules_run_on_re2(tmp_path: Path) -> None:
-    pack = pulled(bounded_pack(tmp_path, rules=[r"\bbill(?:ing)?\b"]))
-    decision = Decision(pack)
+def test_a_bounded_agents_rules_run_on_re2(tmp_path: Path) -> None:
+    agent = pulled(bounded_agent(tmp_path, rules=[r"\bbill(?:ing)?\b"]))
+    decision = Decision(agent)
     assert all(type(regex) is not re.Pattern for regex in billing_patterns(decision))
     assert decision.decide({"message": "A BILLING question"}).answers["topic"].label == "billing"
     assert decision.decide({"message": "billings"}).answers["topic"].label == "other"
@@ -173,22 +173,22 @@ def test_a_bounded_packs_rules_run_on_re2(tmp_path: Path) -> None:
         (r"pain++", "a possessive quantifier"),
     ],
 )
-def test_a_pattern_re2_cannot_run_makes_a_bounded_pack_invalid(
+def test_a_pattern_re2_cannot_run_makes_a_bounded_agent_invalid(
     tmp_path: Path, pattern: str, says: str
 ) -> None:
-    root = bounded_pack(tmp_path, rules=[pattern])
-    with pytest.raises(PackValidationError) as raised:
+    root = bounded_agent(tmp_path, rules=[pattern])
+    with pytest.raises(AgentValidationError) as raised:
         pulled(root)
     (problem,) = raised.value.problems
     assert problem.startswith(f"{RULES}: questions.topic.labels.billing[0] (p0): uses {says}")
     assert "RE2 (the engine agents from a registry or a store run on) does not have: " in problem
-    root = bounded_pack(tmp_path / "schema", schema={"pattern": pattern})
-    with pytest.raises(PackValidationError) as raised:
+    root = bounded_agent(tmp_path / "schema", schema={"pattern": pattern})
+    with pytest.raises(AgentValidationError) as raised:
         pulled(root)
     (problem,) = raised.value.problems
     assert problem.startswith(f"input schema: properties/message/pattern: uses {says}")
     # The same pattern, in an agent the deployment owns, loads as before.
-    load_pack(bounded_pack(tmp_path / "local", rules=[pattern], pack_id="local/sorter"))
+    load_agent(bounded_agent(tmp_path / "local", rules=[pattern], agent_id="local/sorter"))
 
 
 @pytest.mark.parametrize(
@@ -199,8 +199,8 @@ def test_a_pattern_re2_cannot_run_makes_a_bounded_pack_invalid(
     ],
 )
 def test_a_pattern_re2_cannot_compile_is_named(tmp_path: Path, pattern: str, says: str) -> None:
-    with pytest.raises(PackValidationError) as raised:
-        pulled(bounded_pack(tmp_path, rules=[pattern]))
+    with pytest.raises(AgentValidationError) as raised:
+        pulled(bounded_agent(tmp_path, rules=[pattern]))
     (problem,) = raised.value.problems
     assert says in problem
 
@@ -210,15 +210,15 @@ def test_a_bounded_schema_may_not_hold_unevaluated_and_pattern_properties(
 ) -> None:
     """jsonschema's `unevaluatedProperties` searches `patternProperties` with `re`."""
     schema = {"type": "object", "patternProperties": {"^x": {}}, "unevaluatedProperties": False}
-    root = bounded_pack(tmp_path, schema={})
+    root = bounded_agent(tmp_path, schema={})
     document = json.loads((root / SCHEMA).read_text())
     document["properties"]["extra"] = schema
     (root / SCHEMA).write_text(json.dumps(document))
-    with pytest.raises(PackValidationError) as raised:
+    with pytest.raises(AgentValidationError) as raised:
         pulled(root)
     (problem,) = raised.value.problems
     assert problem.startswith("input schema: properties/extra/unevaluatedProperties: ")
-    load_pack(root)  # the same agent as the deployment's own: as before
+    load_agent(root)  # the same agent as the deployment's own: as before
     # Written down in the spec.
     pages = sorted((ROOT / "docs" / "spec").glob("agent-manifest*.md"))
     text = " ".join(" ".join(page.read_text().split()) for page in pages)
@@ -245,7 +245,7 @@ def test_a_refused_pattern_says_what_to_write_instead(pattern: str, says: str, n
     assert problem.endswith('(see "Patterns run on RE2" in docs/guides/authoring-an-agent.md)')
 
 
-def test_a_deployment_without_bounded_packs_never_imports_re2(tmp_path: Path) -> None:
+def test_a_deployment_without_bounded_agents_never_imports_re2(tmp_path: Path) -> None:
     """RE2, the rewriting and the caps are imported only for an agent the deployment does not
     own: the Vercel function (and every deployment until it runs one) loads none of them."""
     code = (
@@ -259,8 +259,8 @@ def test_a_deployment_without_bounded_packs_never_imports_re2(tmp_path: Path) ->
     assert ran.stdout.strip() == "[]"
 
 
-def test_a_bounded_packs_validator_checks_keys_and_texts_on_re2(tmp_path: Path) -> None:
-    root = bounded_pack(tmp_path, schema={"pattern": r"^\S"})
+def test_a_bounded_agents_validator_checks_keys_and_texts_on_re2(tmp_path: Path) -> None:
+    root = bounded_agent(tmp_path, schema={"pattern": r"^\S"})
     document = json.loads((root / SCHEMA).read_text())
     document["properties"]["codes"] = {
         "type": "object",
@@ -269,10 +269,10 @@ def test_a_bounded_packs_validator_checks_keys_and_texts_on_re2(tmp_path: Path) 
         "additionalProperties": False,
     }
     (root / SCHEMA).write_text(json.dumps(document))
-    pack = pulled(root)
-    validator = input_schema.validator(pack.input_schema, bounded=True)
+    agent = pulled(root)
+    validator = input_schema.validator(agent.input_schema, bounded=True)
     assert type(validator) is not Draft202012Validator
-    decision = Decision(pack)
+    decision = Decision(agent)
     assert decision.validate({"message": "ok", "codes": {"ab": 1, "été": 2}}) == [
         "codes: has a field the schema does not allow"
     ]
@@ -291,8 +291,8 @@ def test_a_bounded_packs_validator_checks_keys_and_texts_on_re2(tmp_path: Path) 
 
 
 def test_a_lone_surrogate_in_a_text_is_read_as_a_replacement_character(tmp_path: Path) -> None:
-    pack = pulled(bounded_pack(tmp_path, rules=[r"bill.?\?"]))
-    decision = Decision(pack)
+    agent = pulled(bounded_agent(tmp_path, rules=[r"bill.?\?"]))
+    decision = Decision(agent)
     result = decision.decide({"message": "bill\ud800?"})
     assert result.answers["topic"].label == "billing"
 
@@ -425,25 +425,25 @@ def test_ignoring_case_matches_what_re_matches_for_every_class() -> None:
 def maintained_agents() -> list[Any]:
     """The agents the deployment owns that the engine's tests read: the bundled demo agent and
     the test fixtures' agents (by their namespace, whatever else their folder holds)."""
-    found = discover([SearchPath(FIXTURE_AGENTS, "maintained")]).packs
-    fixtures = [pack for pack in found if pack.id.startswith(f"{FIXTURE_NAMESPACE}/")]
-    return [*fixtures, load_pack(DEMO_AGENT_DIR)]
+    found = discover([SearchPath(FIXTURE_AGENTS, "maintained")]).agents
+    fixtures = [agent for agent in found if agent.id.startswith(f"{FIXTURE_NAMESPACE}/")]
+    return [*fixtures, load_agent(DEMO_AGENT_DIR)]
 
 
 def maintained_cases() -> list[tuple[str, str, int, list[str]]]:
     """Every maintained pattern, with the texts of its agent's datasets and examples."""
-    packs = maintained_agents()
+    agents = maintained_agents()
     cases = []
-    for pack in packs:
+    for agent in agents:
         texts: list[str] = []
-        for path in sorted((pack.root / "data").glob("*.jsonl")):
+        for path in sorted((agent.root / "data").glob("*.jsonl")):
             for line in path.read_text().splitlines():
                 if line.strip():
                     texts += strings(json.loads(line))
         texts = sorted(set(texts))
         cases += [
-            (pack.id, where, flags, [pattern, *texts])
-            for where, pattern, flags in authored_patterns(pack)
+            (agent.id, where, flags, [pattern, *texts])
+            for where, pattern, flags in authored_patterns(agent)
         ]
     return cases
 
@@ -465,10 +465,10 @@ def test_every_maintained_pattern_means_the_same_on_re2() -> None:
     a test fixture's agent fails here."""
     cases = maintained_cases()
     differ, refused, compared = [], [], 0
-    for pack_id, where, flags, (pattern, *texts) in cases:
+    for agent_id, where, flags, (pattern, *texts) in cases:
         problem = patterns.problem(pattern, flags, bounded=True)
         if problem:
-            refused.append((pack_id, where, problem))
+            refused.append((agent_id, where, problem))
             continue
         compared += 1
         expected = re.compile(pattern, flags)
@@ -476,8 +476,8 @@ def test_every_maintained_pattern_means_the_same_on_re2() -> None:
         for text in texts:
             a, b = expected.search(text), found.search(text)
             if (a and a.start()) != (b and b.start()):
-                differ.append((pack_id, where, text[:60]))
+                differ.append((agent_id, where, text[:60]))
     assert refused == [] and differ == []
     assert compared == len(cases) > 40
     # Each agent's patterns are among them.
-    assert {pack_id for pack_id, *_ in cases} == {pack.id for pack in maintained_agents()}
+    assert {agent_id for agent_id, *_ in cases} == {agent.id for agent in maintained_agents()}

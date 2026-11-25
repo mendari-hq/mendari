@@ -16,11 +16,11 @@ from mendari import notices
 from mendari.server import api_docs
 from tests.browser.conftest import CHART, TRIAGE
 from tests.browser.test_accessibility import violations
-from tests.browser.test_dashboard import PACKS, open_pack, signed_in_as
+from tests.browser.test_dashboard import AGENTS, open_agent, signed_in_as
 
 pytestmark = pytest.mark.browser
 
-FHIR_PACKS = [CHART, TRIAGE]  # the served agents with a FHIR mapping (not the clinical review)
+FHIR_AGENTS = [CHART, TRIAGE]  # the served agents with a FHIR mapping (not the clinical review)
 
 
 def fhir_example() -> dict[str, Any]:
@@ -35,20 +35,20 @@ def mode(page: Page, name: str) -> None:
     page.get_by_role("group", name="Edit the input as").get_by_role("button", name=name).click()
 
 
-@pytest.mark.parametrize("pack_id", PACKS)
-def test_each_mode_is_offered_only_where_the_pack_takes_it(page: Page, pack_id: str) -> None:
-    open_pack(page, pack_id, "try")
+@pytest.mark.parametrize("agent_id", AGENTS)
+def test_each_mode_is_offered_only_where_the_agent_takes_it(page: Page, agent_id: str) -> None:
+    open_agent(page, agent_id, "try")
     expect(page.locator("#decide")).to_be_visible()
     fhir = page.get_by_role("group", name="Edit the input as").get_by_role("button", name="FHIR")
-    expect(fhir).to_have_count(1 if pack_id in FHIR_PACKS else 0)
-    if pack_id == TRIAGE:
+    expect(fhir).to_have_count(1 if agent_id in FHIR_AGENTS else 0)
+    if agent_id == TRIAGE:
         page.get_by_role("button", name="Refill", exact=True).click()
     page.locator("#decide").click()
     expect(page.locator("#result-title")).to_be_focused()
 
 
 def test_fhir_input_decides(page: Page) -> None:
-    open_pack(page, TRIAGE, "try")
+    open_agent(page, TRIAGE, "try")
     mode(page, "FHIR")
     expect(page.locator("#body")).to_be_hidden()
     page.get_by_label("FHIR R4 JSON").fill(json.dumps(fhir_example()))
@@ -59,9 +59,9 @@ def test_fhir_input_decides(page: Page) -> None:
     expect(page.get_by_label("FHIR R4 JSON")).to_be_visible()
 
 
-@pytest.mark.parametrize("pack_id", [CHART])
-def test_fhir_errors_are_said_under_the_input(page: Page, pack_id: str) -> None:
-    open_pack(page, pack_id, "try")
+@pytest.mark.parametrize("agent_id", [CHART])
+def test_fhir_errors_are_said_under_the_input(page: Page, agent_id: str) -> None:
+    open_agent(page, agent_id, "try")
     mode(page, "FHIR")
     expect(page.locator("#record-form")).to_be_hidden()
     expect(page.locator("#example")).to_be_hidden()
@@ -114,7 +114,7 @@ def test_the_new_routes_ask_for_the_notice_like_decide(page: Page) -> None:
 
     page.route("**/api/notice**", notice)
     page.route("**/fhir/decide", fhir_decide)
-    open_pack(page, TRIAGE, "try")
+    open_agent(page, TRIAGE, "try")
     mode(page, "FHIR")
     page.get_by_label("FHIR R4 JSON").fill(json.dumps(fhir_example()))
     page.locator("#decide").click()
@@ -127,7 +127,7 @@ def test_the_new_routes_ask_for_the_notice_like_decide(page: Page) -> None:
 @pytest.mark.parametrize("axe_page", ["light", "dark"], indirect=True)
 def test_the_new_states_pass_axe(axe_page: Page) -> None:
     page = axe_page
-    open_pack(page, TRIAGE, "try")
+    open_agent(page, TRIAGE, "try")
     mode(page, "FHIR")
     page.get_by_label("FHIR R4 JSON").fill("{")
     page.locator("#decide").click()

@@ -1,7 +1,7 @@
 {
   "format": "mendari.fhir-decisions-golden/1",
   "today": "2026-10-17",
-  "packs": {
+  "agents": {
     "mendari-test/triage": {
       "dataset": "test",
       "cases": [

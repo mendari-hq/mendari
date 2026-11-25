@@ -7,7 +7,7 @@
       "lastUpdated": "2026-10-01T14:00:00.004+00:00",
       "tag": [
         {
-          "system": "https://mendari.co/fhir/CodeSystem/decision-pack",
+          "system": "https://mendari.co/fhir/CodeSystem/agent-version",
           "code": "mendari-test/triage@1.0.0"
         }
       ]
@@ -43,7 +43,7 @@
     },
     "owner": {
       "identifier": {
-        "system": "https://mendari.co/fhir/NamingSystem/decision-pack",
+        "system": "https://mendari.co/fhir/NamingSystem/agent-version",
         "value": "mendari-test/triage@1.0.0"
       },
       "display": "Mendari engine · mendari-test/triage@1.0.0"
@@ -59,7 +59,7 @@
           "text": "recommendation"
         },
         "valueCoding": {
-          "system": "https://mendari.co/packs/mendari-test/triage/CodeSystem/destination",
+          "system": "https://mendari.co/agents/mendari-test/triage/CodeSystem/destination",
           "code": "front_desk"
         }
       }
@@ -78,7 +78,7 @@
       "lastUpdated": "2026-10-01T14:20:00.000+00:00",
       "tag": [
         {
-          "system": "https://mendari.co/fhir/CodeSystem/decision-pack",
+          "system": "https://mendari.co/fhir/CodeSystem/agent-version",
           "code": "mendari-test/triage@1.0.0"
         }
       ]
@@ -127,7 +127,7 @@
           "text": "recommendation"
         },
         "valueCoding": {
-          "system": "https://mendari.co/packs/mendari-test/triage/CodeSystem/destination",
+          "system": "https://mendari.co/agents/mendari-test/triage/CodeSystem/destination",
           "code": "front_desk"
         }
       },
@@ -136,7 +136,7 @@
           "text": "final-label"
         },
         "valueCoding": {
-          "system": "https://mendari.co/packs/mendari-test/triage/CodeSystem/destination",
+          "system": "https://mendari.co/agents/mendari-test/triage/CodeSystem/destination",
           "code": "billing"
         }
       },
@@ -164,7 +164,7 @@
       "lastUpdated": "2026-10-01T15:00:00.000+00:00",
       "tag": [
         {
-          "system": "https://mendari.co/fhir/CodeSystem/decision-pack",
+          "system": "https://mendari.co/fhir/CodeSystem/agent-version",
           "code": "mendari-test/triage@1.0.0"
         }
       ]
@@ -213,7 +213,7 @@
           "text": "recommendation"
         },
         "valueCoding": {
-          "system": "https://mendari.co/packs/mendari-test/triage/CodeSystem/destination",
+          "system": "https://mendari.co/agents/mendari-test/triage/CodeSystem/destination",
           "code": "front_desk"
         }
       },
@@ -222,7 +222,7 @@
           "text": "final-label"
         },
         "valueCoding": {
-          "system": "https://mendari.co/packs/mendari-test/triage/CodeSystem/destination",
+          "system": "https://mendari.co/agents/mendari-test/triage/CodeSystem/destination",
           "code": "billing"
         }
       },
@@ -237,7 +237,7 @@
           "text": "observed-label"
         },
         "valueCoding": {
-          "system": "https://mendari.co/packs/mendari-test/triage/CodeSystem/destination",
+          "system": "https://mendari.co/agents/mendari-test/triage/CodeSystem/destination",
           "code": "pharmacy"
         }
       }

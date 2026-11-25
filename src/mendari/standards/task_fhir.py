@@ -26,10 +26,10 @@ feedback notes. `note` holds the decision's reasons, except for a refused input:
 before the Phase 2 privacy fix can quote the input in those. Reviewer names appear in `owner`, as
 they do in the audit export.
 
-**The same in every configuration.** Label codings are in the pack's question CodeSystem
-(`terminology.question_system`) whether or not this deployment still serves the pack, so a version
+**The same in every configuration.** Label codings are in the agent's question CodeSystem
+(`terminology.question_system`) whether or not this deployment still serves the agent, so a version
 renders the same wherever and whenever it is read. They carry no display: a label's display is
-its criteria (`fhir.display`), which only the pack holds.
+its criteria (`fhir.display`), which only the agent holds.
 
 **The derivation is code.** A release that changes what a version renders changes an existing
 version under the same versionId. Tests pin the JSON for a fixed chain; any change to it is a
@@ -42,7 +42,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
 from mendari.standards import audit_fhir
-from mendari.standards.fhir import DECISION_ID_SYSTEM, OUTCOME_SYSTEM, PACK_TAG_SYSTEM, narrative
+from mendari.standards.fhir import AGENT_TAG_SYSTEM, DECISION_ID_SYSTEM, OUTCOME_SYSTEM, narrative
 from mendari.standards.terminology import question_system
 
 
@@ -90,10 +90,10 @@ def _version(
     review = None if reviewed is None else reviewed["payload"]
     observed = [e["payload"] for e in made if e["event"] == "outcome.recorded"]
     status = task_status(_review_status(item, review), item["refused"])
-    pack = f"{item['pack_id']}@{item['pack_version']}"
+    agent = f"{item['agent_id']}@{item['agent_version']}"
     version = str(len(made))
     summary = (
-        f"Decision {item['id']} by {pack}: {item['outcome']}, status {status}, version "
+        f"Decision {item['id']} by {agent}: {item['outcome']}, status {status}, version "
         f"{version} ({latest['event']}), recorded {latest['created_at']}."
     )
     period = {"start": item["created_at"]}
@@ -105,7 +105,7 @@ def _version(
         "meta": {
             "versionId": version,
             "lastUpdated": latest["created_at"],
-            "tag": [{"system": PACK_TAG_SYSTEM, "code": pack}],
+            "tag": [{"system": AGENT_TAG_SYSTEM, "code": agent}],
         },
         "text": narrative(summary),
         "identifier": [{"system": DECISION_ID_SYSTEM, "value": item["id"]}],
@@ -116,7 +116,7 @@ def _version(
         },
         "intent": "order",
         "priority": item["priority"],
-        "code": {"text": f"Decide with {pack}"},
+        "code": {"text": f"Decide with {agent}"},
         "authoredOn": item["created_at"],
         "executionPeriod": period,
         "owner": {"display": str(review["reviewer"])} if review else audit_fhir.engine(item),
@@ -150,7 +150,7 @@ def _outputs(
     """Recommendation and fallback from the record; the reviewer's label and whether it
     overrode the recommendation from the review; the latest observed label."""
     record = item["record"]
-    system = question_system(item["pack_id"], record["primary"])
+    system = question_system(item["agent_id"], record["primary"])
     if record.get("recommendation") is not None:
         yield _output("recommendation", {"valueCoding": _label(system, record["recommendation"])})
     if record.get("fallback"):

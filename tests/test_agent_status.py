@@ -3,7 +3,7 @@
 
 The agents the tests bundle (the test fixtures') are synthetic examples, not clinically
 reviewed and not for patient care. The line is derived from the manifest's `card.provenance`,
-never written by the pack; without it a pack is only "not clinically reviewed". Questions and
+never written by the agent; without it an agent is only "not clinically reviewed". Questions and
 labels may carry the names a person reads (`display`, `names`), with the key as words when they
 do not."""
 
@@ -16,16 +16,16 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from mendari import Decision, Pack
+from mendari import Agent, Decision
 from mendari.core.card import render_card
 from mendari.core.registry import discover
-from mendari.core.spec import PackManifest, readable
+from mendari.core.spec import AgentManifest, readable
 from mendari.core.status import NOT_REVIEWED, SYNTHETIC_EXAMPLE, status_label, title
 from mendari.server.app import create_app
 from mendari.standards import cds_hooks
 from tests.conftest import ROOT
 
-REFERENCE = sorted((p for p in discover().packs if p.origin == "maintained"), key=lambda p: p.id)
+REFERENCE = sorted((p for p in discover().agents if p.origin == "maintained"), key=lambda p: p.id)
 # A synthetic portal message as the triage fixture's FHIR mapping reads one: a refill, for which
 # its CDS service shows a card.
 COMMUNICATION: dict[str, Any] = {
@@ -46,23 +46,23 @@ def test_the_label_says_what_the_plan_requires() -> None:
     assert SYNTHETIC_EXAMPLE == "Synthetic example. Not clinically reviewed. Not for patient care."
 
 
-def _manifest(pack: Pack, edit: Any) -> PackManifest:
-    raw = pack.manifest.model_dump(by_alias=True, exclude_none=True)
+def _manifest(agent: Agent, edit: Any) -> AgentManifest:
+    raw = agent.manifest.model_dump(by_alias=True, exclude_none=True)
     edit(raw)
-    return PackManifest.model_validate(raw)
+    return AgentManifest.model_validate(raw)
 
 
-@pytest.mark.parametrize("pack", REFERENCE, ids=lambda p: p.id)
-def test_every_reference_pack_says_it_is_a_synthetic_example(pack: Pack) -> None:
-    assert pack.manifest.card.provenance == "synthetic"
-    assert pack.status_label == SYNTHETIC_EXAMPLE
-    for card in (render_card(pack), (pack.root / "DECISION_CARD.md").read_text()):
+@pytest.mark.parametrize("agent", REFERENCE, ids=lambda p: p.id)
+def test_every_reference_agent_says_it_is_a_synthetic_example(agent: Agent) -> None:
+    assert agent.manifest.card.provenance == "synthetic"
+    assert agent.status_label == SYNTHETIC_EXAMPLE
+    for card in (render_card(agent), (agent.root / "DECISION_CARD.md").read_text()):
         lines = card.splitlines()
         assert lines[0].startswith("# Decision Card: ")
         assert lines[2] == f"**{SYNTHETIC_EXAMPLE}**"
 
 
-def test_the_line_follows_provenance_and_nothing_else(triage_agent: Pack) -> None:
+def test_the_line_follows_provenance_and_nothing_else(triage_agent: Agent) -> None:
     def provenance(value: str | None) -> Any:
         def edit(raw: dict[str, Any]) -> None:
             raw["card"].pop("provenance", None)
@@ -87,7 +87,7 @@ def test_the_api_says_it(tmp_path: Path) -> None:
 
 
 def test_cds_hooks_say_it_in_discovery_and_on_every_card(triage: Decision) -> None:
-    service = cds_hooks.discovery([triage.pack])["services"][0]
+    service = cds_hooks.discovery([triage.agent])["services"][0]
     assert service["usageRequirements"].startswith(SYNTHETIC_EXAMPLE)
     response = cds_hooks.invoke(
         triage,
@@ -101,11 +101,11 @@ def test_cds_hooks_say_it_in_discovery_and_on_every_card(triage: Decision) -> No
     assert response["cards"][0]["detail"].splitlines()[0].startswith(f"*{SYNTHETIC_EXAMPLE}*")
 
 
-def test_the_readme_lists_the_reference_packs_as_synthetic_examples() -> None:
+def test_the_readme_lists_the_reference_agents_as_synthetic_examples() -> None:
     assert SYNTHETIC_EXAMPLE in (ROOT / "README.md").read_text()
 
 
-def test_display_names_are_checked(triage_agent: Pack) -> None:
+def test_display_names_are_checked(triage_agent: Agent) -> None:
     def named(**fields: Any) -> Any:
         def edit(raw: dict[str, Any]) -> None:
             raw["questions"]["destination"].update(fields)
@@ -127,4 +127,4 @@ def test_display_names_are_checked(triage_agent: Pack) -> None:
 def test_a_key_reads_as_words() -> None:
     assert readable("medical_assistant") == "Medical assistant"
     assert readable("yes") == "Yes"
-    assert readable("egfr_30_or_more") == "Egfr 30 or more"  # why packs name their questions
+    assert readable("egfr_30_or_more") == "Egfr 30 or more"  # why agents name their questions

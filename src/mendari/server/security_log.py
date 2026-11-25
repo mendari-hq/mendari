@@ -24,7 +24,7 @@ a person can quote it and the line be found.
 
 **Access lines** (`event: request`): one per `/api`, `/fhir`, `/cds-services`, `/auth` and
 `/smart` request, refused ones included, but not `/api/health` and `/api/health/ready`
-(probes) or static files. Where the pack registry is mounted (`MENDARI_REGISTRY=on`, LP-19d),
+(probes) or static files. Where the agent registry is mounted (`MENDARI_REGISTRY=on`, LP-19d),
 one per `/registry/` request too, with the registry's own route template under the mount
 (`/registry/v1/agents/{namespace}/{name}`) and `anonymous` as its actor: the engine reads no
 credential there, and a publisher token is never a field.
@@ -54,13 +54,13 @@ daily cap, reason `principal_decisions`, once a day per principal per instance),
 `admin.key.created|rotated|revoked` (a rotation names the old key and its
 replacement), `auth.key.replaced_used` (a rotated key used during its overlap, once per instance),
 `admin.registry_namespace.claimed`, `admin.registry_key.added` and
-`admin.registry_token.created|revoked` (an organization's administrators in the pack registry
+`admin.registry_token.created|revoked` (an organization's administrators in the agent registry
 under the engine, LP-19d: the namespace, the key's id or the token's id, never a token),
 `admin.registry_claim.approved|refused`, `admin.registry_namespace.publisher_type_set` and
-`admin.registry_pack.reviewed|recalled|deleted` (the registry's reviewers, LP-19e: the
+`admin.registry_agent.reviewed|recalled|deleted` (the registry's reviewers, LP-19e: the
 reviewer's id, the review organization, and the namespace or `namespace/name@version`),
 `admin.client.registered|keys_replaced|revoked`, `governance.approved|revoked`,
-`registry_pack.approved|revoked`, `eval.run`,
+`registry_agent.approved|revoked`, `eval.run`,
 `export.audit|audit.administrative|feedback`, `phi.inputs.read` (decision ids and a count),
 `written.item.read` (a grader shown their next text of a grading round of written output,
 ADR-0025: the round's id) and `written.graded` (their grades recorded: the round's id; or

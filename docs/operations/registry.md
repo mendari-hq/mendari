@@ -267,7 +267,7 @@ dataset ([ADR-0020](../decisions/ADR-0020-publisher-evaluations.md)): `mendari p
 publisher.key --evaluate NAME` publishes the version and every configuration's evaluation in
 one step, and `mendari eval AGENT --dataset NAME --publish --key publisher.key` one
 configuration ([Publishing an agent's evaluations](../guides/publishing-evaluations.md)). Each
-sends a `mendari.publisher-evaluation/2` record
+sends a `mendari.publisher-evaluation/1` record
 ([the format](../spec/evaluation-reports.md#publisher-evaluations-mendaripublisher-evaluation2);
 a `/1` record from an older client is still taken, and shown with what it does not state as
 not stated)
@@ -438,7 +438,7 @@ mendari registry claims  --db var/registry.db [--org ORG] [--status pending]   #
   to its own token and a reviewer, and its token reads the note.
 - Each step is chained with the organization, who ran the command and why (`namespace.created`
   and `namespace.claimed`, then `namespace.approved` or `namespace.refused`), and every
-  `pack.published` records the organization and whether the version was listed then.
+  `agent.published` records the organization and whether the version was listed then.
 - Over the registry's own routes nobody reads as a reviewer: reviewers read through the
   engine's routes, and the operator with the commands (`mendari registry claims`).
 
@@ -618,7 +618,7 @@ reviewer role sees this screen alone. Through the API:
   `reviewer`), and a claim's decision with the claim's organization. A review's `reviewer` is
   served with the version, as before: an id, not a name. The security log gets
   `admin.registry_claim.approved|refused`, `admin.registry_namespace.publisher_type_set` and
-  `admin.registry_pack.reviewed|recalled|deleted`, with ids only.
+  `admin.registry_agent.reviewed|recalled|deleted`, with ids only.
 - Notes and reasons are one printable line, 300 characters at most, kept for good: about the
   agent or the publisher, never case text.
 
@@ -696,7 +696,7 @@ signature on a version it never accepted. It therefore:
   agent, version and digest. One that fails is skipped and printed with why, and the command
   exits 1. An approval makes the same check on the versions published while the claim was
   pending;
-- prints the versions it signed, chains each record (`pack.accepted`) with who ran it, and signs
+- prints the versions it signed, chains each record (`agent.accepted`) with who ran it, and signs
   nothing the second time. It needs the key, and never creates a database.
 
 Run it again after any stretch in which the registry served without its key. A signing key that

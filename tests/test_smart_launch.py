@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from mendari.cli import main
-from mendari.core.pack import Pack, load_pack
+from mendari.core.agent import Agent, load_agent
 from mendari.errors import MendariError
 from mendari.sandbox import DEMO_AGENT, smart_launch
 from mendari.sandbox.code_systems import SANDBOX_TAG
@@ -38,10 +38,10 @@ TRIAGE_ID = "mendari-test/triage"
 CHECKED = ",".join(f"{ICD10PCS}|{code}" for code in sorted(ORDERS))
 
 
-def twin(base: Path) -> Pack:
+def twin(base: Path) -> Agent:
     """The chart-summary fixture's order-sign twin: its focus is a ServiceRequest whose code is
     one of its code set `checked_orders`."""
-    return load_pack(order_sign(base))
+    return load_agent(order_sign(base))
 
 
 def test_the_launch_value_is_what_the_launcher_decodes() -> None:
@@ -71,7 +71,7 @@ def test_a_patient_with_a_work_item_is_found(
     assert seen[0]["url"] == "http://fhir:8080/fhir/ServiceRequest"
     assert seen[0]["headers"]["cache-control"] == "no-cache"  # HAPI caches searches
     with pytest.raises(MendariError, match="mendari-test/clinical-review has no FHIR mapping"):
-        smart_launch.find_patient("http://fhir:8080/fhir", load_pack(CLINICAL_DIR))
+        smart_launch.find_patient("http://fhir:8080/fhir", load_agent(CLINICAL_DIR))
 
 
 def test_an_agents_work_is_found_by_what_its_mapping_focuses_on(tmp_path: Path) -> None:
@@ -80,14 +80,14 @@ def test_an_agents_work_is_found_by_what_its_mapping_focuses_on(tmp_path: Path) 
     whose mapping says which of a type count, by a code set, also asks for those codes, so it
     never takes another agent's orders, and one that takes every order of the type asks for no
     code."""
-    assert smart_launch.focus_search(load_pack(DEMO_AGENT_DIR)) == ("Communication", {})
-    assert smart_launch.focus_search(load_pack(TRIAGE_DIR)) == ("Communication", {})
-    assert smart_launch.focus_search(load_pack(CHART_DIR)) == ("Patient", {})
+    assert smart_launch.focus_search(load_agent(DEMO_AGENT_DIR)) == ("Communication", {})
+    assert smart_launch.focus_search(load_agent(TRIAGE_DIR)) == ("Communication", {})
+    assert smart_launch.focus_search(load_agent(CHART_DIR)) == ("Patient", {})
     assert smart_launch.focus_search(twin(tmp_path)) == ("ServiceRequest", {"code": CHECKED})
     every = order_sign(
         tmp_path, {"focus_where": None}, agent_id="mendari-test/every-order", folder="every-order"
     )
-    assert smart_launch.focus_search(load_pack(every)) == ("ServiceRequest", {})
+    assert smart_launch.focus_search(load_agent(every)) == ("ServiceRequest", {})
 
 
 def test_an_order_patient_is_found_beside_other_synthetic_orders(
@@ -124,7 +124,7 @@ def test_an_order_patient_is_found_beside_other_synthetic_orders(
     assert found == checked[0]["subject"]["reference"].rsplit("/", 1)[-1]
     assert asked[0]["code"] == CHECKED
     with pytest.raises(MendariError):  # no Communication here
-        smart_launch.find_patient("http://fhir:8080/fhir", load_pack(TRIAGE_DIR))
+        smart_launch.find_patient("http://fhir:8080/fhir", load_agent(TRIAGE_DIR))
     assert "code" not in asked[1]
 
 
@@ -189,7 +189,7 @@ def test_the_launch_reads_its_session_as_the_dashboard_does(
         engine=engine,
         launcher=launcher,
         fhir="",
-        agent=load_pack(DEMO_AGENT_DIR),
+        agent=load_agent(DEMO_AGENT_DIR),
         patient="1",
     )
     assert done["session_ended"] and done["decided"][0]["decision_id"] == "d-1"
@@ -309,7 +309,7 @@ def test_expecting_an_organization_needs_the_engines_database() -> None:
             engine="http://e",
             launcher="http://l",
             fhir="http://f",
-            agent=load_pack(DEMO_AGENT_DIR),
+            agent=load_agent(DEMO_AGENT_DIR),
             expect_org="o",
         )
 

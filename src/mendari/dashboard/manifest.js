@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// Pack-generic rendering: inputs, providers and what labels lead to.
+// Agent-generic rendering: inputs, providers and what labels lead to.
 
 import { chartHtml } from "./charts.js";
 import { recordHtml } from "./record.js";
 import { esc, num, pct, slotText, state } from "./ui.js";
 
 // A pack's words for its questions and labels (spec 0.2 `display`, `names`), else the key as
-// words, spelled as the server spells it (core/spec.py `readable`). A pack's names are its
+// words, spelled as the server spells it (core/spec.py `readable`). An agent's names are its
 // author's claim, so the code stays one click away: `named` puts it beside the name, shown only
 // once someone presses "Show codes" (`codesToggle`).
 export const readable = (key) => {
@@ -31,7 +31,7 @@ export function wireCodes(scope) {
   }));
 }
 
-// A decision's reasons in words, for the main view. A rule's reason is the pack author's own
+// A decision's reasons in words, for the main view. A rule's reason is the agent author's own
 // sentence; the engine's reasons are said plainly, keeping what a person must know (which answer
 // is missing, that safety checks may be incomplete, what a refused input lacks). Only reasons the
 // engine alone needs are left to the decision record: a threshold that was met. Anything else not
@@ -86,21 +86,21 @@ export function answerChart(id, question, a) {
     ${a.evidence?.length ? `<div class="chips mt-2">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`;
 }
 
-export const originBadge = (pack) => (pack?.origin_label
-  ? `<span class="badge origin">${esc(pack.origin_label)}</span>`
+export const originBadge = (agent) => (agent?.origin_label
+  ? `<span class="badge origin">${esc(agent.origin_label)}</span>`
   : "");
 
-// What the pack is (`status_label`, derived from its card.provenance, never written by the pack):
-// a synthetic example, and not clinically reviewed, wherever the pack is shown.
-export const statusNotice = (pack) => (pack?.status_label
-  ? `<p class="callout warning status-notice"><b>${esc(pack.status_label)}</b></p>`
+// What the agent is (`status_label`, derived from its card.provenance, never written by the agent):
+// a synthetic example, and not clinically reviewed, wherever the agent is shown.
+export const statusNotice = (agent) => (agent?.status_label
+  ? `<p class="callout warning status-notice"><b>${esc(agent.status_label)}</b></p>`
   : "");
 
-// The automation holds in force (GET /api/holds) that cover this pack: its own, or every pack's.
-export const holdsFor = (holds, pack) => (holds ?? []).filter((h) =>
-  (h.pack_id == null || h.pack_id === pack.id) && (h.pack_digest == null || h.pack_digest === pack.digest));
+// The automation holds in force (GET /api/holds) that cover this agent: its own, or every agent's.
+export const holdsFor = (holds, agent) => (holds ?? []).filter((h) =>
+  (h.agent_id == null || h.agent_id === agent.id) && (h.agent_digest == null || h.agent_digest === agent.digest));
 
-export const holdNotice = (holds, pack) => (holdsFor(holds, pack).length
+export const holdNotice = (holds, agent) => (holdsFor(holds, agent).length
   ? `<p class="callout danger hold-notice"><b>Automation is on hold.</b> A person reviews every decision this agent would
       have automated, with the same recommendation and priority. See the Decision Card.</p>`
   : "");
@@ -114,23 +114,23 @@ const ORIGIN_GROUPS = [
   ["local", "Local agents"],
 ];
 
-export function packOptions(packs) {
+export function agentOptions(agents) {
   const option = (p) => `<option value="${esc(p.id)}">${esc([p.name, p.version].filter(Boolean).join(" "))}</option>`;
   const originOf = (p) => p.origin ?? "maintained";
   const listed = new Set(ORIGIN_GROUPS.map(([origin]) => origin));
-  const others = [...new Set(packs.map(originOf).filter((origin) => !listed.has(origin)))];
+  const others = [...new Set(agents.map(originOf).filter((origin) => !listed.has(origin)))];
   const groups = [...ORIGIN_GROUPS, ...others.map((origin) => [origin, origin])]
-    .map(([origin, label]) => [label, packs.filter((p) => originOf(p) === origin)])
+    .map(([origin, label]) => [label, agents.filter((p) => originOf(p) === origin)])
     .filter(([, members]) => members.length);
-  if (groups.length < 2) return packs.map(option).join("");
+  if (groups.length < 2) return agents.map(option).join("");
   return groups.map(([label, members]) => `<optgroup label="${esc(label)}">${members.map(option).join("")}</optgroup>`).join("");
 }
 
-// The pack a first visit opens on: the first maintained one, else the first served.
-export const defaultPack = (packs) => (packs.find((p) => p.origin === "maintained") ?? packs[0]).id;
+// The agent a first visit opens on: the first maintained one, else the first served.
+export const defaultAgent = (agents) => (agents.find((p) => p.origin === "maintained") ?? agents[0]).id;
 
-// Packs whose input is a patient message keep a message-shaped UI.
-export const isMessagePack = () => Boolean(state.detail.input_schema?.properties?.message);
+// Agents whose input is a patient message keep a message-shaped UI.
+export const isMessageAgent = () => Boolean(state.detail.input_schema?.properties?.message);
 
 // `restricted`: PHI mode `encrypt` kept the input, but this role may not read it (the server says).
 export function inputView(input, { restricted = false } = {}) {
@@ -191,7 +191,7 @@ function modelText(id) {
   return id.split("/").pop();
 }
 
-// What choosing this label leads to under the pack's own policy: a block rule is danger; a review
+// What choosing this label leads to under the agent's own policy: a block rule is danger; a review
 // rule, or a primary label the policy never automates, is warning. Other labels get no tone.
 export function labelTone(question, label) {
   const policy = state.detail.manifest.policy;

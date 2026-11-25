@@ -41,31 +41,31 @@ export default async function PublisherPage({ params }: { params: Promise<Params
         <Link href="/">Agent Hub</Link>
       </nav>
 
-      <header className="pack-hero">
-        <div className="pack-hero-meta row">
-          <span className="mono pack-id-pill">@{found.name}</span>
+      <header className="agent-hero">
+        <div className="agent-hero-meta row">
+          <span className="mono agent-id-pill">@{found.name}</span>
           <span className={badgeClass ? `badge ${badgeClass}` : "badge"}>{found.publisher_type}</span>
         </div>
         <h1>{found.display_name}</h1>
         <p className="lead">{TYPE_WORDS[found.publisher_type] ?? found.publisher_type}</p>
         <p className="publisher-meta muted">
-          {found.packs.length} published {found.packs.length === 1 ? "agent" : "agents"} · {live} signing{" "}
+          {found.agents.length} published {found.agents.length === 1 ? "agent" : "agents"} · {live} signing{" "}
           {live === 1 ? "key" : "keys"}
           {revoked ? <> ({revoked} revoked)</> : null}
         </p>
       </header>
 
-      <section className="panel" aria-labelledby="publisher-packs-heading">
-        <h2 id="publisher-packs-heading">Published agents</h2>
-        {found.packs.length ? (
-          <ul className="publisher-packs">
-            {found.packs.map((id) => {
+      <section className="panel" aria-labelledby="publisher-agents-heading">
+        <h2 id="publisher-agents-heading">Published agents</h2>
+        {found.agents.length ? (
+          <ul className="publisher-agents">
+            {found.agents.map((id) => {
               const [ns = found.name, ...rest] = id.split("/");
-              const packName = rest.join("/");
-              const href = `/agents/${encodeURIComponent(ns)}/${encodeURIComponent(packName)}`;
+              const agentName = rest.join("/");
+              const href = `/agents/${encodeURIComponent(ns)}/${encodeURIComponent(agentName)}`;
               return (
                 <li key={id}>
-                  <Link href={href} className="publisher-pack-link">
+                  <Link href={href} className="publisher-agent-link">
                     <span className="mono">{id}</span>
                     <span className="card-cta" aria-hidden="true">Inspect →</span>
                   </Link>

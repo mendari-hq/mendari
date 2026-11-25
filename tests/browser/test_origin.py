@@ -16,7 +16,7 @@ from mendari.core.audit import AuditStore
 from mendari.server.app import create_app
 from mendari.server.origin import OWN_REQUEST
 from tests.browser.conftest import TRIAGE, serving
-from tests.browser.test_dashboard import open_pack, show
+from tests.browser.test_dashboard import open_agent, show
 from tests.conftest import encrypt_mode, security_lines, signed_in
 
 pytestmark = pytest.mark.browser
@@ -127,7 +127,7 @@ def test_the_dashboard_works_in_a_browser_without_fetch_metadata(
 
     context.route(f"{base}/**", without_fetch_metadata)
     page = context.new_page()
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.locator("#signed-in")).to_be_visible()
     show(page, "review")
     show(page, "audit")

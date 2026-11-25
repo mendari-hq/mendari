@@ -48,7 +48,7 @@ import httpx
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.errors import MendariError
 from mendari.sandbox.code_systems import SANDBOX_TAG
 from mendari.sandbox.smart_launch import focus_search
@@ -211,7 +211,7 @@ class SandboxClient:
 
 
 def sandbox_calls(
-    agent: Pack, fhir: str, *, limit: int = 5, http: Http | None = None
+    agent: Agent, fhir: str, *, limit: int = 5, http: Http | None = None
 ) -> list[HookCall]:
     """One call of the agent's CDS service for each of up to `limit` of the sandbox's cases
     for it on the FHIR server: the tagged resources its FHIR mapping focuses on, as `mendari

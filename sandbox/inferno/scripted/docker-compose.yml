@@ -47,7 +47,7 @@ services:
     # Mendari in open mode (no sign-in), PHI mode `off`, for the SMART App Launch and Bulk Data
     # client suites: Inferno plays the EHR (its authorization server and FHIR server, at
     # http://nginx), and the engine is the client. One agent, the bundled demo agent, so a
-    # launch needs no `pack` (Inferno adds `iss` and `launch` to the registered launch URL, and
+    # launch needs no `agent` (Inferno adds `iss` and `launch` to the registered launch URL, and
     # nothing else). The scopes leave out `openid fhirUser`: the kit's SMART configuration has
     # no jwks_uri and its id_token no nonce, both of which Mendari's sign-in refuses
     # (sandbox/inferno/README.md).

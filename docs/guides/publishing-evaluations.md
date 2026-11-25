@@ -74,15 +74,15 @@ mendari eval my-agent --dataset test --provider reader=rules --publish --key key
 
 ## What is published, and what is not
 
-Each configuration's result is one signed record, `mendari.publisher-evaluation/2`:
+Each configuration's result is one signed record, `mendari.publisher-evaluation/1`:
 
 ```json
-{"format": "mendari.publisher-evaluation/2",
- "pack": {"id": "my-clinic/my-agent", "version": "0.3.0", "digest": "sha256:…"},
+{"format": "mendari.publisher-evaluation/1",
+ "agent": {"id": "my-clinic/my-agent", "version": "0.3.0", "digest": "sha256:…"},
  "configuration": {"reader": "rules"},
  "dataset": {"name": "test", "sha256": "<64 hex>", "n": 600,
              "provenance": "synthetic", "labelled_by": "The script that wrote the cases"},
- "report": {"format": "mendari.site-report/2", "…": "…"},
+ "report": {"format": "mendari.site-report/1", "…": "…"},
  "claimed": {"latency_ms_p50": 0.05, "latency_ms_p95": 0.07,
              "cost_usd_per_decision": 0.0, "failed_cases": 0},
  "models": ["rules@33463eddba9c"],

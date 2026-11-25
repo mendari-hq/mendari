@@ -31,7 +31,7 @@ wrapped mid-phrase is still read as two lines. Every other character that ends a
 (a lone carriage return, a vertical tab, a form feed, the line and paragraph separators) is
 white space, as a pattern has always read it. Nothing else changes: no case folding (patterns
 ignore case themselves), no compatibility folding (the "fi" ligature, full-width letters and the
-micro sign stay as they are), no spelling (`rules` may tolerate typos, a pack's choice).
+micro sign stay as they are), no spelling (`rules` may tolerate typos, an agent's choice).
 
 Three things a pattern matched in the text as received and does not match in its plain form,
 each as the same words typed on a keyboard already decide:

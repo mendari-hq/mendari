@@ -18,7 +18,7 @@
             └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Spec and agent loading** (`core/spec.py`, `core/pack.py`): pydantic models, cross-reference
+- **Spec and agent loading** (`core/spec.py`, `core/agent.py`): pydantic models, cross-reference
   validation, file confinement, content digest.
 - **Registry** (`core/registry.py`): resolves `namespace/name[@version]` from
   `MENDARI_AGENTS_PATH`, the registry cache and the bundled agents. Each agent carries the
@@ -26,7 +26,7 @@
   version an organization's agent store serves). The origin, never the manifest's
   `publisher.type` (self-declared), sets the label every surface shows, such as "Maintained by
   Mendari" or "From a registry".
-  The origin and the digest choose the engine an agent's patterns run on (`Pack.bounded`): an agent
+  The origin and the digest choose the engine an agent's patterns run on (`Agent.bounded`): an agent
   the deployment does not own (a pulled one, or a store's, that is not a copy of an agent
   bundled with the installed release, `core/reference.py`) runs on RE2 with caps, input limits and a CPU
   budget per decision; the others on `re`, their input schemas bounded in shape at load

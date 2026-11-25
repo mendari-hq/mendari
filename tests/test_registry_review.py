@@ -208,7 +208,7 @@ def test_a_reviewer_does_not_decide_their_own_claim(world: World) -> None:
     )
     assert made.status_code == 201, made.text
     key = world.key()
-    world.publish(world.pack(), key, bearer(str(world.mint()["token"])))
+    world.publish(world.agent(), key, bearer(str(world.mint()["token"])))
     as_reviewer = world.person(REVIEW_ORG, "registry_reviewer", sub="both")  # ...who reviews
     (item,) = world.http.get(REVIEW, headers=as_reviewer).json()["pending"]
     assert item["own"] is True
@@ -310,18 +310,18 @@ def test_approval_refusal_review_recall_and_deletion_are_chained_by_the_reviewer
             "namespace.approved",
             "namespace.refused",
             "namespace.publisher_type_set",
-            "pack.reviewed",
-            "pack.yanked",
-            "pack.deleted",
+            "agent.reviewed",
+            "agent.yanked",
+            "agent.deleted",
         )
     ]
     assert [e["event"] for e in events] == [
         "namespace.approved",
         "namespace.refused",
         "namespace.publisher_type_set",
-        "pack.reviewed",
-        "pack.yanked",
-        "pack.deleted",
+        "agent.reviewed",
+        "agent.yanked",
+        "agent.deleted",
     ]
     assert [e.get("by", e.get("reviewer")) for e in events] == [who] * 6
     same = world.http.post(sent[2][0], json=sent[2][1], headers=rita)  # nothing changed:
@@ -351,9 +351,9 @@ def test_approval_refusal_review_recall_and_deletion_are_chained_by_the_reviewer
         "admin.registry_claim.approved",
         "admin.registry_claim.refused",
         "admin.registry_namespace.publisher_type_set",
-        "admin.registry_pack.reviewed",
-        "admin.registry_pack.recalled",
-        "admin.registry_pack.deleted",
+        "admin.registry_agent.reviewed",
+        "admin.registry_agent.recalled",
+        "admin.registry_agent.deleted",
     ):
         assert (logged[event]["actor"], logged[event]["org"]) == (who, REVIEW_ORG), event
 
@@ -411,7 +411,7 @@ def test_the_recall_needs_the_signing_key_and_says_so(
     body = {"reason": "a fault", "severity": "critical"}
     unkeyed = world.http.post(f"{VERSION}/recall", json=body, headers=rita)
     assert unkeyed.status_code == 409 and yank.KEY_ENV in unkeyed.text
-    assert not [e for e in world.events() if e["event"] == "pack.yanked"]
+    assert not [e for e in world.events() if e["event"] == "agent.yanked"]
     signing_key(monkeypatch)
     recalled = world.http.post(f"{VERSION}/recall", json=body, headers=rita)
     assert recalled.status_code == 201, recalled.text
@@ -460,9 +460,9 @@ def test_the_operators_commands_set_a_type_review_recall_and_delete(
     ]
     assert [e["event"] for e in events] == [
         "namespace.publisher_type_set",
-        "pack.reviewed",
-        "pack.yanked",
-        "pack.deleted",
+        "agent.reviewed",
+        "agent.yanked",
+        "agent.deleted",
     ]
     assert (
         main(["registry", "review", "acme/inbox", *db, "--risk-level", "1", "--reason", "x"]) != 0

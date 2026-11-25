@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mendari import cli, load_pack
+from mendari import cli, load_agent
 from mendari.cli import GROUPS, build_parser, main, overview
 from mendari.sandbox import DEMO_AGENT
 
@@ -41,6 +41,7 @@ AGENT_OPTIONS = {
     "bulk dataset": ["--ndjson", "export", "--labels", "labels.jsonl", "--out", "cases.jsonl"],
     "monitor": [],
     "store versions": ["--org", "clinic-a"],
+    "written round list": [],
 }
 # In the command line's source, the strings that are names, not words: keys of stored and
 # signed records, and what the commands read an argument as.
@@ -102,7 +103,7 @@ def test_another_word_is_not_taken_for_it(text: str) -> None:
     assert not OLD_WORD.search(text)
 
 
-def test_no_usage_or_help_says_pack() -> None:
+def test_no_usage_or_help_says_agent() -> None:
     root = build_parser()
     every = list(parsers(root))
     assert len(every) > 100  # the whole tree: every command and subcommand
@@ -116,7 +117,7 @@ def test_no_usage_or_help_says_pack() -> None:
         assert not OLD_WORD.search(overview(root, everything=everything))
 
 
-def test_no_message_says_pack() -> None:
+def test_no_message_says_agent() -> None:
     """What a command prints or raises: every string of the source but its docstrings and the
     names of things (`NAMES`), which stay until the records they are in change."""
     tree = ast.parse(Path(cli.__file__).read_text(encoding="utf-8"))
@@ -159,7 +160,7 @@ def test_an_error_names_what_is_typed_now(capsys: pytest.CaptureFixture[str]) ->
 def test_list_names_the_setting_that_finds_agents(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli, "discover", lambda: SimpleNamespace(packs=[], problems={}))
+    monkeypatch.setattr(cli, "discover", lambda: SimpleNamespace(agents=[], problems={}))
     assert main(["list"]) == 0
     assert capsys.readouterr().err == (
         "No agents found. Set MENDARI_AGENTS_PATH or run from a checkout.\n"
@@ -169,19 +170,19 @@ def test_list_names_the_setting_that_finds_agents(
 # -- what is typed ------------------------------------------------------------------------------
 
 
-def test_every_option_that_names_an_agent_is_still_read_as_pack() -> None:
+def test_every_option_that_names_an_agent_is_still_read_as_agent() -> None:
     root = build_parser()
     named = {
         command
         for command, parser in parsers(root)
         for action in parser._actions
-        if action.option_strings and action.dest == "pack"
+        if action.option_strings and action.dest == "agent"
     }
     assert named == set(AGENT_OPTIONS)  # a new one is added there, and so checked below
     for command, rest in AGENT_OPTIONS.items():
         argv = [*command.split(), *rest]
-        assert root.parse_args([*argv, "--agent", AGENT]).pack == AGENT, command
-        assert root.parse_args([*argv, f"--agent={AGENT}"]).pack == AGENT, command
+        assert root.parse_args([*argv, "--agent", AGENT]).agent == AGENT, command
+        assert root.parse_args([*argv, f"--agent={AGENT}"]).agent == AGENT, command
 
 
 def test_a_sandbox_command_names_the_demo_agent(
@@ -193,7 +194,7 @@ def test_a_sandbox_command_names_the_demo_agent(
     for command, rest in AGENT_OPTIONS.items():
         if not command.startswith("sandbox "):
             continue
-        assert parse([*command.split(), *rest]).pack == DEMO_AGENT, command
+        assert parse([*command.split(), *rest]).agent == DEMO_AGENT, command
         said = " ".join(helped(capsys, *command.split(), "--help").split())
         assert "(default: the bundled demo agent)" in said, command
     # No command of the sandbox, or any other, names an agent the product does not bundle.
@@ -211,7 +212,7 @@ def test_new_writes_an_agent(tmp_path: Path) -> None:
 
     plain = tmp_path / "plain"
     assert main(["new", str(plain), "--id", "my-clinic/my-agent"]) == 0
-    reader = load_pack(plain).manifest.providers["reader"]
+    reader = load_agent(plain).manifest.providers["reader"]
     assert reader.use == "agent" and reader.variants["agent"].type == "agent"
     assert "fixtures/mock_agent.json" in files(plain)  # it answers offline as written
 

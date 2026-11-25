@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Per-pack images (MENDARI_AGENTS) and the templates in deploy/: the one-machine install
+"""Per-agent images (MENDARI_AGENTS) and the templates in deploy/: the one-machine install
 (`deploy/site`: its compose file, its front, its daily jobs and the script that drives them),
 the on-prem template and Kubernetes."""
 
@@ -47,7 +47,7 @@ def templates() -> list[Path]:
     return found
 
 
-def test_a_per_pack_server_serves_only_its_pack(
+def test_a_per_agent_server_serves_only_its_agent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MENDARI_AGENTS", "mendari-test/clinical-review")
@@ -56,7 +56,7 @@ def test_a_per_pack_server_serves_only_its_pack(
     assert client.get("/api/agents/mendari-test/triage").status_code == 404
 
 
-def test_a_pack_that_is_not_installed_fails_at_startup(
+def test_an_agent_that_is_not_installed_fails_at_startup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MENDARI_AGENTS", "mendari-test/clinical-reveiw")  # a typo

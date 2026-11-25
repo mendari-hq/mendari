@@ -87,7 +87,7 @@ def test_every_line_is_json_with_allowed_keys_and_never_a_secret(
     session = app.cookies["__Host-mendari_session"]
     capsys.readouterr()
     decided = app.post(DECIDE, json=message(CASE_TEXT), headers=machine).json()
-    app.get("/api/audit", params={"pack_id": QUERY_VALUE})
+    app.get("/api/audit", params={"agent_id": QUERY_VALUE})
     app.get(f"/api/audit/{decided['id']}")
     app.get("/fhir/Task", params={"identifier": QUERY_VALUE})
     app.post("/fhir/Task/_search", data={"status": QUERY_VALUE})
@@ -296,12 +296,12 @@ def test_changes_exports_evaluations_and_input_reads_are_logged_with_ids(
     capsys.readouterr()
     made = client.post("/api/auth/keys", json={"name": "ehr", "role": "service"}, headers=admin)
     assert client.delete(f"/api/auth/keys/{made.json()['id']}", headers=admin).status_code == 204
-    body = {"pack_id": APPROVABLE, "reference": "minutes 12", "days": 30}
+    body = {"agent_id": APPROVABLE, "reference": "minutes 12", "days": 30}
     approval = client.post("/api/governance", json=body, headers=governance).json()
     assert client.delete(f"/api/governance/{approval['id']}", headers=governance).status_code == 204
     run = {"dataset": "test", "limit": 3}
     assert client.post(f"/api/agents/{INBOX}/evals", json=run, headers=admin).status_code == 200
-    client.get("/api/audit/export/fhir", params={"pack_id": QUERY_VALUE}, headers=admin)
+    client.get("/api/audit/export/fhir", params={"agent_id": QUERY_VALUE}, headers=admin)
     administrative = client.get(
         "/api/audit/administrative/export/fhir",
         params={"since": "2026-01-01T00:00:00Z"},
@@ -440,7 +440,7 @@ def test_each_ehr_launch_is_logged_with_its_reason_and_never_its_values(
     assert forged.status_code == 400 and "Reference" in forged.text
     assert client.get("/smart/callback", params={"error": "access_denied"}).status_code == 400
     assert client.get("/smart/launch").status_code == 422  # no iss or launch
-    elsewhere = {"iss": "https://evil.example/fhir", "launch": QUERY_VALUE, "pack": INBOX}
+    elsewhere = {"iss": "https://evil.example/fhir", "launch": QUERY_VALUE, "agent": INBOX}
     assert client.get("/smart/launch", params=elsewhere).status_code != 302
     started = smart_launch(client)
     state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]

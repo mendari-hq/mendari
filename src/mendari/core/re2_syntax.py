@@ -2,9 +2,9 @@
 r"""The patterns of an agent on the bounded engine, written in Python's `re` syntax, rewritten
 for RE2.
 
-A pack author writes `re` patterns (the spec, the guide and every maintained pack use them).
+An agent author writes `re` patterns (the spec, the guide and every maintained agent use them).
 The patterns of an agent the deployment does not own (one from a registry or a store that is
-not a bundled agent of this release: `Pack.bounded`) run on RE2 (`core/patterns.py`),
+not a bundled agent of this release: `Agent.bounded`) run on RE2 (`core/patterns.py`),
 which never backtracks.
 `translate` parses a pattern the way `re` does (`re._parser`, the same parse `re.compile`
 makes) and writes out an RE2 pattern that matches the same text, spelling out what `re` means

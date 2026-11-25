@@ -12,15 +12,15 @@ from typing import Any
 
 import pytest
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.core.audit import GENESIS, _chain_hash
 from tests.conftest import message
 from tests.test_chain_orgs import tamper
 
 
-def decide(store: AuditStore, pack: Pack, count: int) -> list[str]:
-    decision = Decision(pack, store=store)
+def decide(store: AuditStore, agent: Agent, count: int) -> list[str]:
+    decision = Decision(agent, store=store)
     return [decision(message(f"Refill number {n}, please.")).id for n in range(count)]
 
 
@@ -45,7 +45,7 @@ def rewrite_from(store: AuditStore, seq: int) -> None:
 
 
 def test_a_checkpoint_is_the_verified_head_and_later_checks_start_from_it(
-    db_target: str, triage_agent: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     with AuditStore(db_target) as store:
         assert store.record_checkpoint() == {
@@ -82,7 +82,7 @@ def test_a_checkpoint_is_the_verified_head_and_later_checks_start_from_it(
 
 
 def test_a_change_after_the_checkpoint_is_caught_and_one_before_by_a_full_verification(
-    db_target: str, triage_agent: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     with AuditStore(db_target) as store:
         before = decide(store, triage_agent, 2)
@@ -110,7 +110,7 @@ def record_of(store: AuditStore, decision_id: str) -> str:
 
 
 def test_a_chain_rewritten_from_before_a_checkpoint_or_cut_short_of_it_is_caught(
-    db_target: str, triage_agent: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     with AuditStore(db_target) as store:
         decide(store, triage_agent, 3)
@@ -136,7 +136,7 @@ def test_a_chain_rewritten_from_before_a_checkpoint_or_cut_short_of_it_is_caught
 
 
 def test_the_commands_record_a_checkpoint_and_verify_from_it(
-    tmp_path: Path, triage_agent: Pack, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, triage_agent: Agent, capsys: pytest.CaptureFixture[str]
 ) -> None:
     db = str(tmp_path / "a.db")
     with AuditStore(db) as store:

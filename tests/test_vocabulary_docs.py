@@ -132,29 +132,10 @@ ALLOWED: dict[tuple[str, str], str] = {
         "docs/decisions/ADR-*.md",
         "Terminology updated 2026-11-23: what this record called a pack is an agent.",
     ): "the line under a decision record's status that says which word its text replaced",
-    **{
-        ("*", f"`{name}`"): _PYTHON
-        for name in (
-            "Pack.attestation",
-            "Pack.bounded",
-            "Pack.community",
-            "Pack.path",
-            "Pack.read_bytes",
-            "Pack.read_text",
-            "Pack.warnings",
-            "core/pack.py",
-        )
-    },
-    ("*", "`pack/`"): _ARCHIVE,
-    ("docs/security/threat-model.md", "`pack//<absolute path>`"): _ARCHIVE,
+    **{("*", f"`{name}`"): _PYTHON for name in ("Pack.warnings",)},
     ("*", "`packs/<namespace>/<name>/<version>`"): "the folder the registry cache had until "
     "2026-11, which nothing reads any more: the pages that still name it are rewritten with the "
     "docs",
-    (
-        "docs/guides/connecting-an-ehr.md",
-        "/smart/launch?pack=<agent id>",
-    ): "the launch route's query parameter is `pack` (`server/smart_routes.py`): a name on the "
-    "wire, which an EHR's registered launch address may hold, renamed with the wire names",
 }
 
 

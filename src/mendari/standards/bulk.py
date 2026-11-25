@@ -15,8 +15,8 @@ Authentication is none (the sandbox), a bearer token, or SMART Backend Services:
 `client_credentials` grant with a `private_key_jwt` assertion signed RS384 or ES384, for which the
 token endpoint comes from the server's SMART configuration.
 
-`dataset` turns an export into a pack's evaluation dataset: one case per resource the pack
-decides about (with that patient's other resources, through the pack's FHIR mapping), and labels
+`dataset` turns an export into an agent's evaluation dataset: one case per resource the agent
+decides about (with that patient's other resources, through the agent's FHIR mapping), and labels
 joined from a file the site provides, keyed by an identifier system. Ground truth lives in chart
 review, not in the EHR, so the export supplies the inputs and the site supplies the answers.
 """
@@ -307,7 +307,7 @@ def dataset(
     *,
     key_system: str,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Cases for the pack: each focus resource with its patient's record, labelled by the
+    """Cases for the agent: each focus resource with its patient's record, labelled by the
     identifier (in `key_system`) of the focus or, failing that, of its patient. Returns the
     labelled cases and counts of what was left out."""
     patients = {r["id"]: r for r in resources if r["resourceType"] == "Patient" and r.get("id")}

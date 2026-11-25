@@ -119,8 +119,8 @@ def report_text(report: dict[str, Any]) -> str:
     auto = d["automation"]
     providers = "  ".join(f"{slot}={p['variant']}" for slot, p in report["providers"].items())
     lines = [
-        f"Agent       {report['pack']['id']} {report['pack']['version']} "
-        f"({report['pack']['digest'][:19]}…)",
+        f"Agent       {report['agent']['id']} {report['agent']['version']} "
+        f"({report['agent']['digest'][:19]}…)",
         f"Providers   {providers}",
         f"Dataset     {report['dataset']['name']} (n={report['dataset']['n']})",
         f"Proportions {INTERVALS}",
@@ -210,7 +210,7 @@ def report_markdown(
     ledger hash (known only where the dataset is), else by the hash, and never by their text.
     A name the manifest does not hold to a pattern (the dataset's, a model's, an id) is shown
     as code, never rendered."""
-    pack, primary = report["pack"], report["primary"]
+    agent, primary = report["agent"], report["primary"]
     question = report["questions"].get(primary)
     decisions = report["decisions"]
     counts = decisions["outcome_counts"]
@@ -247,7 +247,7 @@ def report_markdown(
         for variant, words in confidence_rows(report)
     ]
     lines = [
-        f"### Evaluation of {code(pack['id'])} {code(pack['version'])} on "
+        f"### Evaluation of {code(agent['id'])} {code(agent['version'])} on "
         f"{code(report['dataset']['name'])} ({total} cases)",
         "",
         f"Providers: {providers}.{answered} Proportions are {INTERVALS}.",
@@ -345,11 +345,11 @@ def written_report_text(report: Mapping[str, Any], ids: Mapping[str, Any] | None
     criterion is validated (otherwise "withheld"). Every share is k of n with its exact
     interval. Counts, coefficients and case hashes only; with `ids` (hash to case id, for
     whoever holds the dataset) the cases are named by id, as `mendari compare` names them."""
-    pack, rubric, cases = report["pack"], report["rubric"], report["cases"]
+    agent, rubric, cases = report["agent"], report["rubric"], report["cases"]
     judge, floors, seeds = report["judge"], report["floors"], report["seeds"]
     missing = cases["no_output"]
     lines = [
-        f"Written output: rubric {rubric['name']} of {pack['id']}@{pack['version']} "
+        f"Written output: rubric {rubric['name']} of {agent['id']}@{agent['version']} "
         f"({report['format']})",
         f"  output {rubric['output']['name']} ({rubric['output']['source']}), dataset "
         f"{report['dataset']['name']}",

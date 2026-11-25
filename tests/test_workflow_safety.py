@@ -3,7 +3,7 @@
 trigger runs a fork's code with secrets or a write token, every token is read-only unless a job
 publishes from its environment in a workflow only a person starts (the release jobs, whose
 environments must have reviewers, and the docs deploy), no
-expression is pasted into a shell script, and a pack directory a pull request names is data,
+expression is pasted into a shell script, and an agent directory a pull request names is data,
 never code. Nothing is published on a tag push. Also: every file has a code owner, the history
 is scanned for secrets, and every commit of a pull request is signed off."""
 
@@ -325,7 +325,7 @@ def test_the_secret_guard_catches_an_unguarded_use() -> None:
 
 
 def test_every_file_has_a_code_owner() -> None:
-    # One person on the `*` rule: the pack check takes that person for the repository's owner.
+    # One person on the `*` rule: the agent check takes that person for the repository's owner.
     lines = (ROOT / ".github" / "CODEOWNERS").read_text().splitlines()
     rules = [line.split() for line in lines if line.strip() and not line.startswith("#")]
     assert rules[0] == ["*", "@Junebugg1214"]
@@ -593,24 +593,24 @@ def test_terminology_validation_runs_on_a_schedule_and_never_on_a_pull_request()
 # -- the agents workflow --------------------------------------------------------------------------
 
 
-def _changed_packs() -> ModuleType:
-    path = ROOT / "scripts" / "changed_packs.py"
-    spec = importlib.util.spec_from_file_location("changed_packs", path)
+def _changed_agents() -> ModuleType:
+    path = ROOT / "scripts" / "changed_agents.py"
+    spec = importlib.util.spec_from_file_location("changed_agents", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def test_a_pack_directory_is_data_never_code() -> None:
-    packs = (ROOT / ".github" / "workflows" / "agents.yml").read_text()
-    assert "scripts/changed_packs.py" in packs
-    assert "read -r -d ''" in packs  # NUL-separated names, read whole
-    for unsafe in ("resolve_pack('$", '"$dir")', "cut -d/", "$(git diff", "for name in $("):
-        assert unsafe not in packs, unsafe
+def test_an_agent_directory_is_data_never_code() -> None:
+    agents = (ROOT / ".github" / "workflows" / "agents.yml").read_text()
+    assert "scripts/changed_agents.py" in agents
+    assert "read -r -d ''" in agents  # NUL-separated names, read whole
+    for unsafe in ("resolve_agent('$", '"$dir")', "cut -d/", "$(git diff", "for name in $("):
+        assert unsafe not in agents, unsafe
 
 
-def test_pack_check_runs_on_every_pull_request() -> None:
+def test_agent_check_runs_on_every_pull_request() -> None:
     # A required check must report on every pull request: a path filter would leave it pending.
     workflow = _workflow(ROOT / ".github" / "workflows" / "agents.yml")
     assert workflow["name"] == "agents"  # a check is shown as `agents / agent-check`
@@ -620,20 +620,20 @@ def test_pack_check_runs_on_every_pull_request() -> None:
     assert steps[0]["with"]["fetch-depth"] == 0  # the base commit, for the diff and benchmarks
     find = next(step for step in steps if step.get("name") == "Find the changed agents")
     assert "no agent changes" in find["run"]
-    maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
+    maintained = next(step for step in steps if "agent_gate.py" in step.get("run", ""))
     assert 'case "$dir" in agents/*)' in maintained["run"]  # only the bundled agents' folders
     # No step reads who made the change or owns the repository: nothing is decided by person.
     for unwanted in ("github.actor", "repository_owner", "user.login"):
         assert unwanted not in json.dumps(steps), unwanted
 
 
-def test_the_pack_workflow_finds_a_manifest_by_its_name() -> None:
+def test_the_agent_workflow_finds_a_manifest_by_its_name() -> None:
     """A folder with no manifest is "removed", and nothing of it is checked: so the workflow
     looks for the manifest by its name, `agent.yaml`. Looking for another name, it took the
     bundled agent for a removed one and skipped its validation, tests and evaluation gate."""
     workflow = _workflow(ROOT / ".github" / "workflows" / "agents.yml")
     steps = workflow["jobs"]["agent-check"]["steps"]
-    maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
+    maintained = next(step for step in steps if "agent_gate.py" in step.get("run", ""))
     removed = 'if [ ! -f "$dir/agent.yaml" ]; then'
     assert removed in maintained["run"] and "was removed" in maintained["run"]
     # Its dataset checks run after that, on a folder that has the manifest.
@@ -644,15 +644,15 @@ def test_the_pack_workflow_finds_a_manifest_by_its_name() -> None:
                 raise AssertionError(line)
 
 
-def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
-    for pack in (
+def test_changed_files_map_to_their_agent(tmp_path: Path) -> None:
+    for folder in (
         "agents/inbox",
-        "agents/my pack; $(touch x)",
+        "agents/my agent; $(touch x)",
         "agents/group/nested",
         "agents/a/b/c",
     ):
-        (tmp_path / pack).mkdir(parents=True)
-        (tmp_path / pack / "agent.yaml").write_text("id: x/y\n")
+        (tmp_path / folder).mkdir(parents=True)
+        (tmp_path / folder / "agent.yaml").write_text("id: x/y\n")
     for agent in ("agents/renamed", "agents/group/renamed/deeper"):
         (tmp_path / agent).mkdir(parents=True)
         (tmp_path / agent / "agent.yaml").write_text("id: x/y\n")
@@ -661,19 +661,19 @@ def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
         "agents/group/renamed/deeper/data/test.jsonl",
         "agents/inbox/rules/red_flags.yaml",
         "agents/inbox/agent.yaml",
-        "agents/my pack; $(touch x)/tests/cases.yaml",
+        "agents/my agent; $(touch x)/tests/cases.yaml",
         "agents/group/nested/data/test.jsonl",
         "agents/a/b/c/d/e/deep.yaml",  # deeper than a manifest can be: belongs to agents/a/b/c
         "agents/removed/agent.yaml",  # gone from the tree: reported as its top folder
-        "agents/README.md",  # directly in agents/: no pack
+        "agents/README.md",  # directly in agents/: no agent
         "src/mendari/cli.py",
     ]
-    assert _changed_packs().pack_dirs(changed, tmp_path) == [
+    assert _changed_agents().agent_dirs(changed, tmp_path) == [
         "agents/a/b/c",
         "agents/group/nested",
         "agents/group/renamed/deeper",
         "agents/inbox",
-        "agents/my pack; $(touch x)",
+        "agents/my agent; $(touch x)",
         "agents/removed",
         "agents/renamed",
     ]

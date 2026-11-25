@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.core import tenancy
 from mendari.core.audit import ADMINISTRATIVE_KINDS, OFF_DECISION_KINDS
@@ -68,16 +68,16 @@ def seed(store: AuditStore, org: str) -> dict[str, str]:
     store.replace_client_keys(client["client_id"], org, replaced_by="keeper", jwks=jwks())
     store.revoke_client(client["client_id"], revoked_by="ops")
     hold = store.hold_automation(
-        org=org, pack_id=None, pack_digest=None, reason=f"hold {marker}", set_by="ops"
+        org=org, agent_id=None, agent_digest=None, reason=f"hold {marker}", set_by="ops"
     )
     store.lift_hold(hold["id"], lifted_by="ops", org=org)
     with tenancy.acting_for(org):
         approval = store.approve_automation(
-            pack_id=AGENT, pack_digest="d" * 64, risk_level=2, approver="cmo",
+            agent_id=AGENT, agent_digest="d" * 64, risk_level=2, approver="cmo",
             reference=f"minutes {marker}", expires_at="2999-01-01T00:00:00+00:00",
         )  # fmt: skip
         store.revoke_approval(approval["id"], revoked_by="cmo")
-        store.save_report({**REPORT, "id": f"r-{org}", "pack": {"id": AGENT}})
+        store.save_report({**REPORT, "id": f"r-{org}", "agent": {"id": AGENT}})
     invitation = store.create_invitation(
         org=org, email=f"lee@{marker}.example.org", roles=["viewer"], created_by="ops"
     )
@@ -104,7 +104,7 @@ def two(
         headers = {org: admin_of(store, accounts, org) for org in ORGS}
         made = {org: seed(store, org) for org in ORGS}
         everyone = store.hold_automation(
-            org=None, pack_id=None, pack_digest=None, reason="operator drill", set_by="ops"
+            org=None, agent_id=None, agent_digest=None, reason="operator drill", set_by="ops"
         )
         store.purge(30, source="command")
         yield {
@@ -400,7 +400,7 @@ def test_memberships_mode_leaves_the_deployment_wide_views_to_the_operator(
     deployment's holds are the operator's in memberships mode; claims mode is unchanged."""
     client, headers = two["client"], two["headers"][ORGS[0]]
     own = two["store"].hold_automation(
-        org=ORGS[0], pack_id=None, pack_digest=None, reason="clinic drill", set_by="lead"
+        org=ORGS[0], agent_id=None, agent_digest=None, reason="clinic drill", set_by="lead"
     )
     verified = client.get("/api/audit/verify", headers=headers)
     health = client.get("/api/health", headers=headers).json()
@@ -420,7 +420,7 @@ def test_memberships_mode_leaves_the_deployment_wide_views_to_the_operator(
     assert "mendari audit verify" in verified.json()["detail"]
     assert "calls_today" not in health["llm"]
     assert set(health["last_purge"]) == {"at", "retention_days", "source"}
-    assert set(everyone) == {"id", "org", "pack_id", "pack_digest", "set_at"}
+    assert set(everyone) == {"id", "org", "agent_id", "agent_digest", "set_at"}
     assert "operator drill" not in json.dumps(holds)
     assert deployments.status_code == 404
 
@@ -440,13 +440,13 @@ def test_open_mode_reads_every_event_on_no_decision(tmp_path: Path) -> None:
 
 def test_every_kind_on_no_decision_has_an_administrative_code() -> None:
     assert set(audit_fhir._ADMINISTRATIVE) == set(OFF_DECISION_KINDS)
-    published = Terminology.for_packs([]).get("CodeSystem", "audit-administrative-event")
+    published = Terminology.for_agents([]).get("CodeSystem", "audit-administrative-event")
     assert published is not None
     assert {concept["code"] for concept in published["concept"]} == set(OFF_DECISION_KINDS)
 
 
 def test_the_operator_exports_one_organization_or_every_event_on_no_decision(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], triage_agent: Pack
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], triage_agent: Agent
 ) -> None:
     db = str(tmp_path / "cli.db")
     with AuditStore(db) as store:

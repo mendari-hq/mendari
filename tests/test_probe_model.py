@@ -15,10 +15,10 @@ import httpx
 import pytest
 import yaml
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari.errors import MendariError
 from mendari.evals import probe, probe_model, probe_report
-from mendari.evals.pack_tests import PROBE_TESTS, PROBE_UNCONFIRMED, run_pack_tests
+from mendari.evals.behaviour_tests import PROBE_TESTS, PROBE_UNCONFIRMED, run_behaviour_tests
 from mendari.evals.probe import Options, Plan, Probed
 from mendari.evals.probe_cases import Case
 from mendari.evals.probe_model import Writer
@@ -78,9 +78,9 @@ def rewritten(system: str, texts: dict[str, str]) -> dict[str, str]:
 
 
 def planned(root: Path, writer: Writer | None, *names: str, **options: Any) -> Plan:
-    pack = load_pack(root)
+    agent = load_agent(root)
     chosen = Options(transformations=names, **options)
-    return probe.plan(Decision(pack, origin_cap=False), probe.source(pack), chosen, writer=writer)
+    return probe.plan(Decision(agent, origin_cap=False), probe.source(agent), chosen, writer=writer)
 
 
 def probed(root: Path, writer: Writer, *names: str, **options: Any) -> Probed:
@@ -233,7 +233,7 @@ def test_a_denial_a_model_wrote_waits_for_a_person(
     root = build_agent(tmp_path / "agent")
     writer, _ = a_model(monkeypatch, rewritten)
     found = probed(root, writer, "paraphrase", "negation")
-    kept = probe.keep(load_pack(root), found.findings)
+    kept = probe.keep(load_agent(root), found.findings)
     assert len(kept.added) == 2 and len(kept.waiting) == 2
     running = yaml.safe_load((root / PROBE_TESTS).read_text(encoding="utf-8"))
     waiting = yaml.safe_load((root / PROBE_UNCONFIRMED).read_text(encoding="utf-8"))
@@ -243,7 +243,7 @@ def test_a_denial_a_model_wrote_waits_for_a_person(
     assert [case["probe"]["transformation"] for case in waiting] == ["negation"] * 2
     assert [case["probe"]["expected_from"] for case in waiting] == ["model", "model"]
     assert [case["expect"] for case in waiting] == [{"answers": {"urgent": "no"}}] * 2
-    outcomes = run_pack_tests(Decision(load_pack(root), origin_cap=False))
+    outcomes = run_behaviour_tests(Decision(load_agent(root), origin_cap=False))
     assert len(outcomes) == 4  # the agent's own two and the two paraphrases: no denial runs
 
 
@@ -436,13 +436,13 @@ def test_what_a_model_wrote_is_kept_as_a_file_and_tried_again_without_it(
     assert denial["labels"] == {"urgent": "no"} and denial["detail"] == "denies urgent"
     asked = len(sent)
 
-    pack = load_pack(root)
+    agent = load_agent(root)
     again = probe.run(
         probe.plan(
-            Decision(pack, origin_cap=False),
-            probe.source(pack),
+            Decision(agent, origin_cap=False),
+            probe.source(agent),
             Options(transformations=()),
-            given=probe.load_variants(out, pack.manifest),
+            given=probe.load_variants(out, agent.manifest),
         )
     )
     assert len(sent) == asked and again.report["calls"]["generator"] == 0

@@ -10,11 +10,11 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from mendari import Decision, load_pack
-from mendari.core.spec import PackManifest
+from mendari import Decision, load_agent
+from mendari.core.spec import AgentManifest
 from mendari.core.templates import expansions, fill, template_problems, unknown_placeholders
-from mendari.errors import PackValidationError
-from mendari.evals.pack_tests import validate_pack
+from mendari.errors import AgentValidationError
+from mendari.evals.behaviour_tests import validate_agent
 from mendari.standards import cds_hooks
 from mendari.standards.fhir import FhirAdapter
 from tests.conftest import DEMO_AGENT_DIR, TRIAGE_DIR, fixture_agents
@@ -83,7 +83,7 @@ def test_answers_fill_templates_and_missing_ones_read_unknown() -> None:
 
 
 def test_task_and_card_templates_name_answers(tmp_path: Path) -> None:
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     mapping = yaml.safe_load((root / "fhir" / "mapping.yaml").read_text())
     mapping["task"]["performer"] = "triage-team-{urgency}"
@@ -101,19 +101,19 @@ def test_task_and_card_templates_name_answers(tmp_path: Path) -> None:
     assert card["summary"] == "A refill (same-day No)"  # a card reads display names (LP-23f)
 
 
-def test_unknown_placeholders_are_refused_when_the_pack_loads(tmp_path: Path) -> None:
+def test_unknown_placeholders_are_refused_when_the_agent_loads(tmp_path: Path) -> None:
     raw = yaml.safe_load((TRIAGE_DIR / "agent.yaml").read_text())
     raw["cds_hooks"]["card"]["summaries"]["pharmacy"] = "Refill for {study}"
     with pytest.raises(ValidationError, match=r"unknown placeholders \['study'\]"):
-        PackManifest.model_validate(raw)
+        AgentManifest.model_validate(raw)
 
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     mapping = yaml.safe_load((root / "fhir" / "mapping.yaml").read_text())
     mapping["task"]["performer"] = "{team}"
     (root / "fhir" / "mapping.yaml").write_text(yaml.safe_dump(mapping))
-    with pytest.raises(PackValidationError, match=r"task.performer uses unknown placeholders"):
-        FhirAdapter.for_pack(Decision.from_path(root).pack)
+    with pytest.raises(AgentValidationError, match=r"task.performer uses unknown placeholders"):
+        FhirAdapter.for_agent(Decision.from_path(root).agent)
 
 
 # -- bare placeholders (LP-16e) ------------------------------------------------------------------
@@ -145,7 +145,7 @@ def test_template_problems_name_each_placeholder_that_is_not_bare() -> None:
 def with_wording(tmp_path: Path, *, summary: str | None = None, task: str | None = None) -> Path:
     """An outsider's copy of the triage fixture (its own id, so from a registry it is bounded)
     with its `pharmacy` card summary or its Task description replaced."""
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"] = "outsider/triage"
@@ -163,45 +163,45 @@ def with_wording(tmp_path: Path, *, summary: str | None = None, task: str | None
 def test_a_wording_template_takes_bare_placeholders_only(tmp_path: Path, shape: str) -> None:
     """A card summary or a Task text whose placeholder is not bare. From a registry: refused at
     load. Owned: the card summary loads warned; the Task text is read as it always was, so the
-    pack serves; `mendari validate` refuses both. An attribute or an index names no question,
-    so it was refused already wherever the pack comes from, and still is."""
+    agent serves; `mendari validate` refuses both. An attribute or an index names no question,
+    so it was refused already wherever the agent comes from, and still is."""
     reaching = "." in shape or "[" in shape
     card = with_wording(tmp_path / "card", summary=f"A refill ({shape})")
     if reaching:
         for origin in ("hub", "local"):
-            with pytest.raises(PackValidationError, match="uses unknown placeholders"):
-                load_pack(card, origin=origin)
+            with pytest.raises(AgentValidationError, match="uses unknown placeholders"):
+                load_agent(card, origin=origin)
     else:
         problem = f"cds_hooks.card.summaries.pharmacy uses {shape}: {BARE}"
-        with pytest.raises(PackValidationError) as refused:
-            load_pack(card, origin="hub")
+        with pytest.raises(AgentValidationError) as refused:
+            load_agent(card, origin="hub")
         assert refused.value.problems == [problem]
-        owned = load_pack(card)
+        owned = load_agent(card)
         assert owned.warnings == (problem,)
         assert Decision(owned).decide_fhir(BUNDLE)[0].recommendation == "pharmacy"
-        with pytest.raises(PackValidationError, match=re.escape(problem)):
-            validate_pack(owned)
+        with pytest.raises(AgentValidationError, match=re.escape(problem)):
+            validate_agent(owned)
 
     task = with_wording(tmp_path / "task", task=f"Route to {shape}")
     problem = f"fhir/mapping.yaml: task.description uses {shape}: {BARE}"
-    with pytest.raises(PackValidationError) as refused:
-        load_pack(task, origin="hub")
+    with pytest.raises(AgentValidationError) as refused:
+        load_agent(task, origin="hub")
     assert refused.value.problems == [problem]
-    owned = load_pack(task)
+    owned = load_agent(task)
     assert owned.warnings == ()
     if reaching:
         with pytest.raises(
-            PackValidationError, match=r"task\.description uses unknown placeholders"
+            AgentValidationError, match=r"task\.description uses unknown placeholders"
         ):
-            FhirAdapter.for_pack(owned)
+            FhirAdapter.for_agent(owned)
     else:
-        FhirAdapter.for_pack(owned)  # it serves, as before
-        with pytest.raises(PackValidationError, match=re.escape(problem)):
-            validate_pack(owned)
+        FhirAdapter.for_agent(owned)  # it serves, as before
+        with pytest.raises(AgentValidationError, match=re.escape(problem)):
+            validate_agent(owned)
 
 
 def test_fill_renders_a_template_as_it_always_did() -> None:
-    """`fill` is unchanged: what an owned pack's wording renders today, it renders still."""
+    """`fill` is unchanged: what an owned agent's wording renders today, it renders still."""
     result = Decision.from_path(TRIAGE_DIR).decide_fhir(BUNDLE)[0]
     assert fill("{priority!r} {priority:>9}", result, recommendation="x") == "'routine'   routine"
 
@@ -213,15 +213,15 @@ def test_every_shipped_template_is_bare() -> None:
     roots = [DEMO_AGENT_DIR, *fixture_agents()]
     checked = 0
     for root in roots:
-        pack = load_pack(root)
-        assert pack.warnings == (), root
-        hooks, wording = pack.manifest.cds_hooks, []
+        agent = load_agent(root)
+        assert agent.warnings == (), root
+        hooks, wording = agent.manifest.cds_hooks, []
         if hooks is not None and hooks.card is not None:
             wording += list(hooks.card.summaries.values())
-        if pack.manifest.inputs.fhir is not None:
-            task = FhirAdapter.for_pack(pack, bare=True).mapping.task
+        if agent.manifest.inputs.fhir is not None:
+            task = FhirAdapter.for_agent(agent, bare=True).mapping.task
             wording += [text for text in (task.description, task.performer) if text]
         for text in wording:
-            assert template_problems(text, pack.manifest.questions) == [], (root, text)
+            assert template_problems(text, agent.manifest.questions) == [], (root, text)
         checked += len(wording)
     assert checked >= 10  # the chart and triage fixtures' own

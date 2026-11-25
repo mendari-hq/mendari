@@ -16,5 +16,5 @@ import agent
 from mendari_agent_kit import create_app
 
 app = create_app(
-    agent.handler, title="Mendari agent (keyword rules)", agent_version=agent.AGENT_VERSION
+    agent.handler, title="Mendari agent (keyword rules)", service_version=agent.SERVICE_VERSION
 )

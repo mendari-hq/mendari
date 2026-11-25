@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from mendari import AuditStore, CallBudget, Decision, DecisionResult, Outcome, Pack
+from mendari import Agent, AuditStore, CallBudget, Decision, DecisionResult, Outcome
 from mendari.core import tenancy
 from mendari.core.phi import PhiPolicy
 from mendari.errors import ProviderError, ReviewError
@@ -30,7 +30,7 @@ def tamper(store: AuditStore, sql: str, params: tuple[Any, ...] = ()) -> None:
 
 
 @pytest.fixture
-def decide(triage_agent: Pack, store: AuditStore) -> Decide:
+def decide(triage_agent: Agent, store: AuditStore) -> Decide:
     decision = Decision(triage_agent, providers=SCREENED, store=store)
     return lambda body: decision(message(body))
 
@@ -130,7 +130,7 @@ def test_hash_chain_detects_deleted_events(store: AuditStore, decide: Decide) ->
     assert store.verify() == {"ok": False, "events": 2, "broken_at": 3}
 
 
-def test_hash_only_input_storage(triage_agent: Pack, store: AuditStore) -> None:
+def test_hash_only_input_storage(triage_agent: Agent, store: AuditStore) -> None:
     result = Decision(triage_agent)(message(ROUTINE))
     store.record(result, message(ROUTINE), store_input="hash")
     record = store.get(result.id)
@@ -154,7 +154,7 @@ def test_a_lifted_budget_still_counts_calls(store: AuditStore) -> None:
 
 
 def test_exhausted_budget_falls_back_instead_of_automating(
-    triage_agent: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Agent, store: AuditStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LLM_BASE_URL", "https://llm.test/v1")
     monkeypatch.setenv("LLM_MODEL", "test-model")
@@ -170,7 +170,7 @@ def test_exhausted_budget_falls_back_instead_of_automating(
 
 
 def test_unconfigured_provider_does_not_spend_budget(
-    triage_agent: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Agent, store: AuditStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LLM_BASE_URL", "https://llm.test/v1")
     monkeypatch.setenv("LLM_API_KEY", "test-key")
@@ -204,7 +204,7 @@ def test_postgres_store_survives_server_closed_connections(db_target: str) -> No
 # -- scoped, read-only reads for the FHIR routes (Task, AuditEvent, Provenance) ----------------
 
 
-def test_item_is_get_without_a_reader_and_never_writes(triage_agent: Pack, db_target: str) -> None:
+def test_item_is_get_without_a_reader_and_never_writes(triage_agent: Agent, db_target: str) -> None:
     """Under PHI mode `encrypt`, `get(reader=...)` chains an `input.read`; the FHIR reads must
     not, whatever they read."""
     phi = PhiPolicy(mode="encrypt", key=os.urandom(32))
@@ -251,7 +251,7 @@ def test_one_event_by_decision_and_seq(store: AuditStore, decide: Decide) -> Non
     assert store.event(first.id, 10_000) is None
 
 
-def test_another_organization_reads_nothing(store: AuditStore, triage_agent: Pack) -> None:
+def test_another_organization_reads_nothing(store: AuditStore, triage_agent: Agent) -> None:
     with tenancy.acting_for("clinic-a"):
         result = Decision(triage_agent, store=store)(message(EMERGENCY))
         seq = store.events()[0]["seq"]

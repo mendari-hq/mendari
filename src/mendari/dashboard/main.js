@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Boot: theme, time zone, packs, then the first view. Imports every view so it registers.
+// Boot: theme, time zone, agents, then the first view. Imports every view so it registers.
 
 import { chooseOrganization } from "./access.js";
 import { acknowledgeNotice } from "./notice.js";
@@ -18,18 +18,18 @@ import "./registry.js";
 import "./written.js";
 import "./store.js";
 import "./agents.js";
-import { defaultPack, packOptions } from "./pack.js";
+import { defaultAgent, agentOptions } from "./manifest.js";
 import { setupPalette } from "./palette.js";
 import { onHashChange, render, route, views } from "./router.js";
 import { setupSettings } from "./settings.js";
 import { skeleton } from "./skeleton.js";
 import { setupTheme } from "./theme.js";
-import { $, api, DEFAULT_TIMEZONE, esc, focusHeading, loadPack, roleName, shortFormatFor, state, storageGet, storageSet, timeFormatFor, watchEdges } from "./ui.js";
+import { $, api, DEFAULT_TIMEZONE, esc, focusHeading, loadAgent, roleName, shortFormatFor, state, storageGet, storageSet, timeFormatFor, watchEdges } from "./ui.js";
 
 async function boot() {
   setupTheme();
   setupSettings();
-  // The first view's skeleton shows while the packs load, not an empty page.
+  // The first view's skeleton shows while the agents load, not an empty page.
   $("#view").setAttribute("aria-busy", "true");
   $("#view").innerHTML = skeleton(route().view);
   $("#skip-link").addEventListener("click", () => focusHeading($("main h1") ?? $("main"), { scroll: false }));
@@ -38,7 +38,7 @@ async function boot() {
   state.phiMode = health?.phi_mode ?? "off";
   state.backendServices = health?.backend_services ?? null; // the Access view's Clients tab
   state.checkpointKey = health?.checkpoint_key ?? null; // the audit trail's signed checkpoint
-  state.registry = Boolean(health?.registry); // the pack registry is served here (registry.js)
+  state.registry = Boolean(health?.registry); // the agent registry is served here (registry.js)
   try {
     state.timeFormat = timeFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
     state.shortFormat = shortFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
@@ -46,27 +46,27 @@ async function boot() {
   } catch { /* an unknown zone name: keep the default */ }
   // A SMART launch from the EHR leaves a session: the patient's view joins the sections. With
   // sign-in on and no one signed in, the launch is all this browser has: the patient view alone,
-  // with the packs the launch names (the rest of the API would refuse it).
+  // with the agents the launch names (the rest of the API would refuse it).
   // Who is signed in decides what this window may show and which organization it acts for: if
   // that cannot be read, nothing is shown (the error below), never a guess.
   const [session, me] = await Promise.all([api("/api/smart/session").catch(() => null), api("/api/auth/me")]);
   showSignedIn(me);
   // Memberships mode (ADR-0008): a person acting for no organization (none chosen yet, or theirs
   // ended) chooses one or asks to join one; one whose roles grant nothing is told so. Neither
-  // has sections or packs, nor a notice to acknowledge (the server would refuse them all).
+  // has sections or agents, nor a notice to acknowledge (the server would refuse them all).
   const person = state.accounts === "memberships" && me?.signed_in && me.principal.kind === "user";
-  state.store = Boolean(me?.store); // an organization's pack store is served here (store.js)
+  state.store = Boolean(me?.store); // an organization's agent store is served here (store.js)
   if (person) {
     if (me.principal.org === null) state.noAccess = state.memberships.length ? "choose" : "none";
     else if (!me.principal.permissions.length) state.noAccess = "nothing";
-    // A pack author and nothing else (LP-20f): the store's screens where it is served (LP-20j),
+    // An agent author and nothing else (LP-20f): the store's screens where it is served (LP-20j),
     // else the access page saying what the role is for.
     else if (me.principal.permissions.every((p) => p === "author")) {
       if (state.store) state.storeOnly = true;
       else state.noAccess = "author";
     }
-    // A labeller (a grader of written output, ADR-0025) or a reviewer of the pack registry
-    // (LP-19f), or both, and nothing else: no packs to list, no notice, no review queue; just
+    // A labeller (a grader of written output, ADR-0025) or a reviewer of the agent registry
+    // (LP-19f), or both, and nothing else: no agents to list, no notice, no review queue; just
     // their screens. The review screen where the server serves it (this organization is the
     // registry's review organization), and grading where it does (below).
     else if (me.principal.permissions.every((p) => p === "label" || p === "registry_review")) {
@@ -100,14 +100,14 @@ async function boot() {
   showWritten();
   showRegistryReview();
   showStore();
-  const pickPack = async (packId) => {
-    if (!state.packs.some((p) => p.id === packId)) return;
-    await switchPack(packId).catch(() => null); // the view says it (router.js), with Try again
+  const pickAgent = async (agentId) => {
+    if (!state.agents.some((p) => p.id === agentId)) return;
+    await switchAgent(agentId).catch(() => null); // the view says it (router.js), with Try again
     render();
   };
-  setupPalette({ onSelectPack: (packId) => (packId === state.packId ? undefined : pickPack(packId)) });
+  setupPalette({ onSelectAgent: (agentId) => (agentId === state.agentId ? undefined : pickAgent(agentId)) });
   if ((state.noAccess || state.labelOnly || state.reviewOnly || state.storeOnly) && !state.launchOnly) {
-    $(".pack-picker").hidden = true;
+    $(".agent-picker").hidden = true;
     // The docs stay; a labeller or a registry reviewer and nothing else keeps their screens'
     // links.
     const kept = [state.labelOnly && state.written && "written", state.reviewOnly && "registry-review", state.storeOnly && "store"];
@@ -118,26 +118,26 @@ async function boot() {
     return;
   }
   syncNavGroups();
-  state.packs = state.launchOnly ? state.smart.packs ?? [] : await api("/api/agents");
-  const select = $("#pack-select");
-  if (!state.packs.length) {
+  state.agents = state.launchOnly ? state.smart.agents ?? [] : await api("/api/agents");
+  const select = $("#agent-select");
+  if (!state.agents.length) {
     $("#view").removeAttribute("aria-busy");
     $("#view").innerHTML = `<div class="panel empty">No governed agents found on the search path.</div>`;
     return;
   }
-  // Grouped by where each pack comes from when more than one origin is served (pack.js).
-  select.innerHTML = packOptions(state.packs);
-  const known = (id) => state.packs.some((p) => p.id === id);
-  const first = defaultPack(state.packs);
-  const saved = storageGet("oh.pack", first);
-  switchPack([packInAddress(), saved].find(known) ?? first); // a view that reads it waits (router.js)
-  select.addEventListener("change", () => pickPack(select.value));
-  // Back and Forward can cross a pack change. The address then names another pack than the one
+  // Grouped by where each agent comes from when more than one origin is served (manifest.js).
+  select.innerHTML = agentOptions(state.agents);
+  const known = (id) => state.agents.some((p) => p.id === id);
+  const first = defaultAgent(state.agents);
+  const saved = storageGet("oh.agent", first);
+  switchAgent([agentInAddress(), saved].find(known) ?? first); // a view that reads it waits (router.js)
+  select.addEventListener("change", () => pickAgent(select.value));
+  // Back and Forward can cross an agent change. The address then names another agent than the one
   // shown, and the browser fires only popstate (hashchange needs everything but the hash to match).
   window.addEventListener("popstate", async () => {
-    const wanted = packInAddress();
-    if (wanted === state.packId || !known(wanted)) return;
-    await switchPack(wanted).catch(() => null);
+    const wanted = agentInAddress();
+    if (wanted === state.agentId || !known(wanted)) return;
+    await switchAgent(wanted).catch(() => null);
     render({ navigated: true });
   });
   window.addEventListener("hashchange", onHashChange);
@@ -147,15 +147,15 @@ async function boot() {
 // The agent travels in the address ("?agent=mendari/portal-message-agent#review"), so a shared or
 // bookmarked link opens the agent it was copied from, and a record link opens over that agent's
 // list. Without one, the agent last chosen here. Hash links keep the query, so no link builds it.
-function packInAddress() {
+function agentInAddress() {
   return new URLSearchParams(location.search).get("agent");
 }
 
-function switchPack(packId) {
-  $("#pack-select").value = packId;
-  storageSet("oh.pack", packId);
-  history.replaceState(history.state, "", `?agent=${encodeURIComponent(packId).replaceAll("%2F", "/")}${location.hash}`);
-  return loadPack(packId);
+function switchAgent(agentId) {
+  $("#agent-select").value = agentId;
+  storageSet("oh.agent", agentId);
+  history.replaceState(history.state, "", `?agent=${encodeURIComponent(agentId).replaceAll("%2F", "/")}${location.hash}`);
+  return loadAgent(agentId);
 }
 
 // The patient view's link names the launch the window shows ("#patient/<launch id>"): the one in
@@ -238,13 +238,13 @@ function showWritten() {
   $('.nav a[data-view="written"]').hidden = Boolean(state.noAccess) || !views.written.available();
 }
 
-// A reviewer of the pack registry, in its review organization, where the registry is served here
+// A reviewer of the agent registry, in its review organization, where the registry is served here
 // (LP-19f): its review screen (registry.js).
 function showRegistryReview() {
   $('.nav a[data-view="registry-review"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views["registry-review"].available();
 }
 
-// A pack author or someone who may promote, where an organization's pack store is served (LP-20j):
+// An agent author or someone who may promote, where an organization's agent store is served (LP-20j):
 // the store's screens (store.js).
 function showStore() {
   $('.nav a[data-view="store"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views.store.available();

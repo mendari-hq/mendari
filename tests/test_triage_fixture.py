@@ -25,7 +25,7 @@ from typing import Any
 import httpx
 import pytest
 
-from mendari import Decision, Outcome, Pack, load_pack
+from mendari import Agent, Decision, Outcome, load_agent
 from mendari.core.spec import Priority
 from mendari.evals.harness import resolve_dataset
 from mendari.providers.check import CANNED_NOTE as CHECK_CANNED
@@ -59,14 +59,14 @@ def decided(decision: Decision, body: str, **extra: Any) -> tuple[Outcome, str |
 
 
 @pytest.fixture(scope="module")
-def agent_screen(triage_agent: Pack) -> Decision:
+def agent_screen(triage_agent: Agent) -> Decision:
     """The keyword router, with the screen's canned agent: the configuration that automates."""
     return Decision(triage_agent, providers={"screen": "agent"})
 
 
-def test_it_is_the_fixture_the_tests_name(triage_agent: Pack, triage: Decision) -> None:
+def test_it_is_the_fixture_the_tests_name(triage_agent: Agent, triage: Decision) -> None:
     manifest = triage_agent.manifest
-    assert triage_agent.root == TRIAGE_DIR and triage.pack is triage_agent
+    assert triage_agent.root == TRIAGE_DIR and triage.agent is triage_agent
     assert (triage_agent.id, manifest.spec_version, int(manifest.risk.level)) == (
         "mendari-test/triage",
         "0.4",
@@ -131,7 +131,7 @@ def test_the_front_desk_needs_more_confidence_than_the_others(agent_screen: Deci
     assert records.reasons == ("confidence 0.92 is below the auto threshold 0.95 for 'front_desk'",)
 
 
-def test_a_canned_answer_at_each_confidence(triage_agent: Pack) -> None:
+def test_a_canned_answer_at_each_confidence(triage_agent: Agent) -> None:
     """The canned router: 0.95 (automated), 0.75 (a person), 0.40 (no suggestion), and its
     default, 0.55 (a person), each as the service version 2.0.0 the canned file reports."""
     canned = Decision(triage_agent, providers=AGENTS)
@@ -224,7 +224,7 @@ def test_an_input_the_schema_refuses_is_blocked(triage: Decision, given: dict[st
 # -- second signals and calls ---------------------------------------------------------------------
 
 
-def test_a_check_by_the_rules_caps_what_the_agent_missed(triage_agent: Pack) -> None:
+def test_a_check_by_the_rules_caps_what_the_agent_missed(triage_agent: Agent) -> None:
     checked = Decision(triage_agent, providers={"screen": "checked"})
     agreed = checked(message(REFILL))
     assert (agreed.outcome, agreed.recommendation) == (Outcome.AUTO, "pharmacy")
@@ -239,7 +239,7 @@ def test_a_check_by_the_rules_caps_what_the_agent_missed(triage_agent: Pack) -> 
     assert decided(alone, SHORT_OF_BREATH)[:2] == (Outcome.AUTO, "nurse")  # without the check
 
 
-def test_canned_answers_repeated_are_asked_once(triage_agent: Pack) -> None:
+def test_canned_answers_repeated_are_asked_once(triage_agent: Agent) -> None:
     repeated = Decision(triage_agent, providers={"screen": "repeated"})
     result = repeated(message(REFILL))
     assert result.answers["urgency"].evidence[0] == REPEAT_CANNED
@@ -251,7 +251,7 @@ def test_canned_answers_repeated_are_asked_once(triage_agent: Pack) -> None:
 
 
 def test_a_model_with_no_model_set_answers_nothing(
-    triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("LLM_MODEL", raising=False)
     result = Decision(triage_agent, providers={"router": "llm"})(message(REFILL))
@@ -259,7 +259,9 @@ def test_a_model_with_no_model_set_answers_nothing(
     assert result.errors == {"destination": "not_configured"}
 
 
-def test_the_two_models_share_one_call(triage_agent: Pack, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_two_models_share_one_call(
+    triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Both slots have an `llm` variant: on the same model they are asked in one call."""
     monkeypatch.setenv("LLM_MODEL", "example/model-1")
     monkeypatch.setenv("LLM_API_KEY", "test-key")
@@ -307,7 +309,7 @@ def test_the_two_models_share_one_call(triage_agent: Pack, monkeypatch: pytest.M
 
 
 def test_with_sign_in_canned_answers_never_automate_and_live_ones_do(
-    triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A server with sign-in never automates on canned answers (`canned_cap`); the tests that
     need AUTO there answer every `agent` variant from a live service (`calm_agent`)."""
@@ -327,7 +329,7 @@ def test_with_sign_in_canned_answers_never_automate_and_live_ones_do(
 # -- the critical label ---------------------------------------------------------------------------
 
 
-def critical_cases(agent: Pack) -> list[dict[str, Any]]:
+def critical_cases(agent: Agent) -> list[dict[str, Any]]:
     """Every true critical case (`urgency` = `yes`) of every dataset of the fixture."""
     return [
         record
@@ -337,7 +339,7 @@ def critical_cases(agent: Pack) -> list[dict[str, Any]]:
     ]
 
 
-def test_no_critical_case_is_automated_by_default(triage_agent: Pack, triage: Decision) -> None:
+def test_no_critical_case_is_automated_by_default(triage_agent: Agent, triage: Decision) -> None:
     assert [(c.question, c.label) for c in triage_agent.manifest.evaluation.critical] == [
         ("urgency", "yes")
     ]
@@ -347,7 +349,7 @@ def test_no_critical_case_is_automated_by_default(triage_agent: Pack, triage: De
 
 
 def test_the_rules_miss_emergencies_worded_as_a_patient_might(
-    triage_agent: Pack, triage: Decision, agent_screen: Decision
+    triage_agent: Agent, triage: Decision, agent_screen: Decision
 ) -> None:
     """On purpose, as the card says: the screen's rules find every same-day symptom a keyword
     list words, and none worded as a patient might. With the screen's agent, some of those are
@@ -366,11 +368,11 @@ def test_the_rules_miss_emergencies_worded_as_a_patient_might(
 
 
 def test_without_its_gate_the_rules_would_automate_critical_cases(
-    triage_agent: Pack, agent_copy: Callable[..., Path]
+    triage_agent: Agent, agent_copy: Callable[..., Path]
 ) -> None:
     """The `critical` set's purpose: with `automation_requires` gone, the rules alone automate
     some of its cases (beside a confident request), which the safety invariant's check finds."""
-    ungated = Decision(load_pack(agent_copy(policy=lambda p: p.pop("automation_requires"))))
+    ungated = Decision(load_agent(agent_copy(policy=lambda p: p.pop("automation_requires"))))
     records = resolve_dataset(triage_agent, "critical").records
     automated = [r for r in records if ungated(r["input"]).outcome is Outcome.AUTO]
     assert automated
@@ -397,7 +399,7 @@ def test_a_communication_decides_as_its_message_does(triage: Decision) -> None:
 
 
 def test_cards_show_the_teams_a_possible_emergency_and_a_refused_input(
-    triage_agent: Pack, triage: Decision
+    triage_agent: Agent, triage: Decision
 ) -> None:
     hooks = triage_agent.manifest.cds_hooks
     assert hooks is not None and hooks.card is not None
@@ -431,7 +433,7 @@ def test_a_copy_has_tiny_datasets_and_its_edits(agent_copy: Callable[..., Path])
     first = agent_copy(manifest=risk, policy=lower)
     second = agent_copy()
     assert first != second and first.parent == second.parent
-    copied = load_pack(first)
+    copied = load_agent(first)
     assert int(copied.manifest.risk.level) == 2
     assert copied.manifest.policy.thresholds.auto == 0.8
     for name, whole in (("examples", 12), ("test", 300), ("calibration", 200), ("critical", 40)):

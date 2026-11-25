@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """A deterministic detector of text that looks like a real person's details (LP-20d).
 
-The pack store (LP-20f) refuses an upload whose files hold such text, and `mendari data check
+The agent store (LP-20f) refuses an upload whose files hold such text, and `mendari data check
 --phi` reports it.
 It finds shapes and listed names, not people: a filter, never a guarantee, so the store's terms
 still forbid real data.
@@ -355,12 +355,12 @@ def _decoded(path: str, text: str) -> list[tuple[int, str]]:
             return []
         found += [(1, s) for s in _strings(value, budget)]
     elif lower.endswith((".yaml", ".yml")):
-        from mendari.core.pack import parse_yaml
-        from mendari.errors import PackValidationError
+        from mendari.core.agent import parse_yaml
+        from mendari.errors import AgentValidationError
 
         try:
             value = parse_yaml(text.encode("utf-8", "replace"), path, path)
-        except PackValidationError as exc:
+        except AgentValidationError as exc:
             # Alias bombs, excessive depth or expansion limits are refused as unscannable;
             # ordinary malformed YAML falls back to raw-text scanning.
             msg = str(exc).lower()

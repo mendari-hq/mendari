@@ -38,7 +38,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
-from mendari.core.spec import PackManifest
+from mendari.core.spec import AgentManifest
 
 CapKind = Literal["calibration", "repeat", "check"]
 SecondSignal = Literal["repeat", "check"]
@@ -124,14 +124,14 @@ def merged(found: Iterable[Signals]) -> Signals:
     return out
 
 
-def proposed_what(manifest: PackManifest, name: str) -> str:
+def proposed_what(manifest: AgentManifest, name: str) -> str:
     """A proposed action as a cap's reason names it: by its name only when the manifest declares
     it. Any other name is the agent's text, and no reason ever holds an argument."""
     declared = name in manifest.actions
     return f"action {name!r}" if declared else "an action the manifest does not declare"
 
 
-def deciding_questions(manifest: PackManifest) -> frozenset[str]:
+def deciding_questions(manifest: AgentManifest) -> frozenset[str]:
     """The questions a decision turns on: the primary question, each critical question
     (`evaluation.critical`) and each question a policy rule reads. A disagreement on one of them
     caps automation; on another it does not."""

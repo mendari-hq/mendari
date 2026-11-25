@@ -38,7 +38,7 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
-from mendari import Decision, Pack, load_pack
+from mendari import Agent, Decision, load_agent
 from mendari.core.registry import SearchPath, discover
 from mendari.evals import evaluate, leaderboard, resolve_dataset
 from tests.conftest import CLINICAL_DIR, FIXTURE_AGENTS, TRIAGE_DIR
@@ -89,11 +89,11 @@ BUNDLE: dict[str, Any] = {
 }
 
 
-def bundled_agents() -> list[Pack]:
+def bundled_agents() -> list[Agent]:
     """The agents a test server serves as bundled (the fixtures' folder, `FIXTURE_AGENTS`), by
     id, read from their manifests: whichever are there."""
     found = discover([SearchPath(FIXTURE_AGENTS, "maintained")])
-    return sorted(found.packs, key=lambda agent: agent.id)
+    return sorted(found.agents, key=lambda agent: agent.id)
 
 
 def local_site(directory: Path) -> Path:
@@ -113,12 +113,12 @@ def local_site(directory: Path) -> Path:
     return directory
 
 
-def attested(root: Path) -> Pack:
+def attested(root: Path) -> Agent:
     """The copy of the triage fixture at `root` (`agent_copy`, its manifest naming
     `evals/benchmark.json` as its benchmark: `names_its_benchmark`), with what a maintained agent
     commits about itself: its benchmark, an evaluation of its default providers on its benchmark
     set, and a leaderboard of that and of its screen run by its canned agent."""
-    agent = load_pack(root)
+    agent = load_agent(root)
     dataset = resolve_dataset(agent, agent.manifest.evaluation.benchmark_dataset or "test")
     report = evaluate(Decision(agent), dataset)
     screened = evaluate(Decision(agent, providers={"screen": "agent"}, origin_cap=False), dataset)
@@ -126,7 +126,7 @@ def attested(root: Path) -> Pack:
     (root / "evals" / "benchmark.json").write_text(json.dumps(report), encoding="utf-8")
     board = leaderboard.build(agent, [report, screened])
     (root / leaderboard.PATH).write_text(json.dumps(board), encoding="utf-8")
-    return load_pack(root)
+    return load_agent(root)
 
 
 def names_its_benchmark(manifest: dict[str, Any]) -> None:
@@ -239,7 +239,9 @@ class SmartEhr:
 def smart_launch(app: TestClient, agent: str = CHART, iss: str = SMART_ISS) -> Any:
     """The EHR opens Mendari's launch URL for `agent`, from the FHIR base `iss`."""
     return app.get(
-        "/smart/launch", params={"iss": iss, "launch": "xyz", "pack": agent}, follow_redirects=False
+        "/smart/launch",
+        params={"iss": iss, "launch": "xyz", "agent": agent},
+        follow_redirects=False,
     )
 
 

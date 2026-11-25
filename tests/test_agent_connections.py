@@ -24,6 +24,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from mendari.core.agent import Agent, load_agent
 from mendari.core.audit import AuditStore
 from mendari.core.connections import ALLOWED as ALLOWED_BY_AN_OPERATOR
 from mendari.core.connections import (
@@ -37,7 +38,6 @@ from mendari.core.connections import (
     enabled,
 )
 from mendari.core.connections import PUBLIC as PUBLIC_ONLY
-from mendari.core.pack import Pack, load_pack
 from mendari.core.phi import PhiPolicy, key_id
 from mendari.errors import MendariError, ProviderError
 from mendari.providers import reach
@@ -71,7 +71,7 @@ from tests.test_store_uploads import ORG_A, ORG_B, Store, store_world
 DEMO = "mendari/portal-message-agent"
 # An agent that decides on this server (keyword rules in every slot, by default): the triage
 # fixture, served from disk.
-LOCAL = load_pack(TRIAGE_DIR).id
+LOCAL = load_agent(TRIAGE_DIR).id
 # A token a search finds anywhere: no other value in these tests holds this text.
 TOKEN = "zqTOKEN-5f1c0d6e9a3b47c2-never-shown"
 PUBLIC = "93.184.216.34"  # a public address a patched look-up answers; never connected to
@@ -440,7 +440,7 @@ def test_a_connection_is_kept_for_its_organization_sealed_and_chained(db_target:
                 "agent_connection.set",
                 {
                     "org": ORG_A,
-                    "pack_id": DEMO,
+                    "agent_id": DEMO,
                     "origin": "https://agents.example.org",
                     "token": True,
                     "changed_by": "ada",
@@ -453,7 +453,7 @@ def test_a_connection_is_kept_for_its_organization_sealed_and_chained(db_target:
         assert (kept["id"], kept["endpoint"], kept["token"]) == (row["id"], None, None)
         assert events(store)[-1] == (
             "agent_connection.cleared",
-            {"org": ORG_A, "pack_id": DEMO, "changed_by": "bob"},
+            {"org": ORG_A, "agent_id": DEMO, "changed_by": "bob"},
         )
         with pytest.raises(ConnectionRefused):
             connections.clear(ORG_A, DEMO, by="bob")  # none to clear
@@ -532,14 +532,14 @@ def test_a_token_opens_only_for_its_own_row_organization_and_agent(tmp_path: Pat
         connections.set(ORG_A, DEMO, endpoint=ELSEWHERE, token=TOKEN, by="ada")
         connections.set(ORG_B, DEMO, endpoint="https://1.1.1.1/b", token="theirs", by="eve")
         connections.set(ORG_A, LOCAL, endpoint="https://1.1.1.1/c", token="local", by="ada")
-        sealed = {(row["org"], row["pack_id"]): row["token"] for row in rows(store)}
+        sealed = {(row["org"], row["agent_id"]): row["token"] for row in rows(store)}
         with store._db.session(exclusive=True) as db:
             db.all(
-                "UPDATE agent_connections SET token = ? WHERE org = ? AND pack_id = ?",
+                "UPDATE agent_connections SET token = ? WHERE org = ? AND agent_id = ?",
                 (sealed[(ORG_A, DEMO)], ORG_B, DEMO),
             )
             db.all(
-                "UPDATE agent_connections SET token = ? WHERE org = ? AND pack_id = ?",
+                "UPDATE agent_connections SET token = ? WHERE org = ? AND agent_id = ?",
                 (sealed[(ORG_A, DEMO)], ORG_A, LOCAL),
             )
         for org, agent in ((ORG_B, DEMO), (ORG_A, LOCAL)):
@@ -582,12 +582,12 @@ def test_the_switch_is_on_unless_it_says_off(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.fixture
-def agent() -> Pack:
-    return load_pack(DEMO_AGENT_DIR)
+def agent() -> Agent:
+    return load_agent(DEMO_AGENT_DIR)
 
 
 def test_a_live_call_goes_to_the_organizations_connection_then_the_deployments_then_none(
-    agent: Pack, monkeypatch: pytest.MonkeyPatch
+    agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The order, as `AgentProvider.live` states it once; and a token goes only to the address
     it was set with."""
@@ -628,7 +628,7 @@ def test_a_live_call_goes_to_the_organizations_connection_then_the_deployments_t
 
 
 def test_a_connection_that_cannot_be_read_fails_the_call_and_never_falls_through(
-    agent: Pack, monkeypatch: pytest.MonkeyPatch
+    agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sent: list[str] = []
 
@@ -639,7 +639,7 @@ def test_a_connection_that_cannot_be_read_fails_the_call_and_never_falls_through
     monkeypatch.setenv(ENDPOINT_ENV, "https://deployment.test/decide")
     provider = make_agent_provider(agent, handler)
 
-    def unreadable(pack_id: str) -> Connection | None:
+    def unreadable(agent_id: str) -> Connection | None:
         raise MendariError(f"the value does not open: {TOKEN}")
 
     provider.use_connection(unreadable)
@@ -651,7 +651,7 @@ def test_a_connection_that_cannot_be_read_fails_the_call_and_never_falls_through
 
 
 def test_an_organizations_connection_is_called_through_the_public_client_or_the_allow_list(
-    agent: Pack, monkeypatch: pytest.MonkeyPatch, outside: Outside, looked_up: dict[str, list[str]]
+    agent: Agent, monkeypatch: pytest.MonkeyPatch, outside: Outside, looked_up: dict[str, list[str]]
 ) -> None:
     """Without an allow-list a connection goes out through the client that opens public
     addresses only, and its host is checked before each call; with one, through the
@@ -705,9 +705,9 @@ def test_an_administrator_sets_reads_changes_and_clears_their_organizations_conn
     assert seen["connection"]["origin"] == "https://agents.example.org"
     assert seen["connection"]["token"] == "set"
     listed = site.client.get("/api/connections", headers=site.as_(ORG_A, "viewer")).json()
-    [mine] = [item for item in listed["agents"] if item["pack_id"] == DEMO]
+    [mine] = [item for item in listed["agents"] if item["agent_id"] == DEMO]
     assert mine == {key: seen[key] for key in mine}
-    assert {item["pack_id"]: item["applies"] for item in listed["agents"]}[LOCAL] is False
+    assert {item["agent_id"]: item["applies"] for item in listed["agents"]}[LOCAL] is False
 
     changed = put(site, endpoint="https://1.1.1.1/decide")
     assert changed.status_code == 200 and changed.json()["connection"]["token"] == "none"
@@ -729,7 +729,7 @@ def test_an_administrator_sets_reads_changes_and_clears_their_organizations_conn
     assert "agent_connection.cleared" in {item["event"] for item in listed}
 
 
-@pytest.mark.parametrize("role", ["viewer", "reviewer", "governance", "pack_author"])
+@pytest.mark.parametrize("role", ["viewer", "reviewer", "governance", "agent_author"])
 def test_a_role_without_the_right_changes_nothing(lite: Store, role: str) -> None:
     headers = lite.as_(ORG_A, role)
     for refused in (
@@ -740,7 +740,7 @@ def test_a_role_without_the_right_changes_nothing(lite: Store, role: str) -> Non
         assert refused.status_code == 403, refused.text
     assert rows(lite.db) == [] and events(lite.db) == []
     assert lite.client.get(AT, headers=headers).status_code == (
-        403 if role == "pack_author" else 200
+        403 if role == "agent_author" else 200
     )
 
 
@@ -867,8 +867,8 @@ def test_another_organization_neither_sees_nor_changes_a_connection(
     # An agent in one organization's store is no agent at all to another.
     copied = lite.client.post(
         "/api/store/copies",
-        json={"pack": LOCAL, "name": "inbox-copy"},
-        headers=lite.as_(ORG_A, "pack_author"),
+        json={"agent": LOCAL, "name": "inbox-copy"},
+        headers=lite.as_(ORG_A, "agent_author"),
     )
     assert copied.status_code == 201, copied.text
     held = f"/api/connections/{ORG_A}/inbox-copy"
@@ -987,7 +987,7 @@ def test_the_token_is_in_no_answer_no_log_line_and_no_chained_payload(
     kinds = [kind for kind, _ in events(site.db)]
     assert kinds.count("agent_connection.set") == 3 and kinds[-1] == "agent_connection.cleared"
     for _, payload in events(site.db):
-        assert set(payload) <= {"org", "pack_id", "origin", "token", "changed_by"}
+        assert set(payload) <= {"org", "agent_id", "origin", "token", "changed_by"}
         assert payload.get("origin") in (None, service.origin)  # never the path
     assert site.db.verify()["ok"]
 
@@ -1026,8 +1026,8 @@ def test_where_a_decisions_call_goes_for_each_organization(
     # Its token no longer opens (its row changed past the store): the decision fails closed.
     assert put(lite, token=TOKEN + "-2").status_code == 200
     with lite.db._db.session(exclusive=True) as db:
-        row = db.one("SELECT id, org, pack_id FROM agent_connections WHERE org = ?", (ORG_A,))
-        forged = lite.db.phi.seal("connection", TOKEN, "another-row", row["org"], row["pack_id"])
+        row = db.one("SELECT id, org, agent_id FROM agent_connections WHERE org = ?", (ORG_A,))
+        forged = lite.db.phi.seal("connection", TOKEN, "another-row", row["org"], row["agent_id"])
         db.all("UPDATE agent_connections SET token = ? WHERE id = ?", (forged, row["id"]))
     failed = decide(lite)
     assert failed["outcome"] != "AUTO"
@@ -1061,7 +1061,7 @@ def test_the_check_sends_the_agents_own_example_and_says_what_came_back_in_fixed
 
     assert put(lite, token=TOKEN).status_code == 200
     passed = check()
-    assert passed["ok"] is True and passed["pack_id"] == DEMO
+    assert passed["ok"] is True and passed["agent_id"] == DEMO
     assert passed["example"] == "a refill request goes to the refill queue"
     [slot] = passed["checked"]
     assert (slot["ok"], slot["source"], slot["said"]) == (
@@ -1069,7 +1069,7 @@ def test_the_check_sends_the_agents_own_example_and_says_what_came_back_in_fixed
         "organization",
         connection_routes.SAID["ok"],
     )
-    assert (slot["model"], slot["agent_version"]) == ("local-test-agent", "9.9.9")
+    assert (slot["model"], slot["service_version"]) == ("local-test-agent", "9.9.9")
     assert isinstance(slot["latency_ms"], int)
     # What was sent: the agent's first behaviour test, a synthetic example it carries.
     [request] = outside.seen
@@ -1244,13 +1244,13 @@ def test_what_an_operator_allowed_is_kept_with_its_origin_and_chained(
         assert events(store) == [
             (
                 "agent_connection.origin_allowed",
-                {"org": ORG_A, "pack_id": DEMO, "origin": ORIGIN, "allowed_by": "ada"},
+                {"org": ORG_A, "agent_id": DEMO, "origin": ORIGIN, "allowed_by": "ada"},
             ),
             (
                 "agent_connection.set",
                 {
                     "org": ORG_A,
-                    "pack_id": DEMO,
+                    "agent_id": DEMO,
                     "origin": ORIGIN,
                     "token": True,
                     "changed_by": "ada",
@@ -1282,7 +1282,7 @@ def test_what_an_operator_allowed_is_kept_with_its_origin_and_chained(
             "agent_connection.origin_allowed",
             {
                 "org": ORG_A,
-                "pack_id": DEMO,
+                "agent_id": DEMO,
                 "origin": "https://other.example.org",
                 "allowed_by": "cy",
             },
@@ -1333,7 +1333,7 @@ def test_once_the_list_names_an_allowed_origin_the_list_speaks_for_it(
 
 
 def test_an_allowed_origin_is_called_at_public_addresses_only(
-    agent: Pack, monkeypatch: pytest.MonkeyPatch, outside: Outside
+    agent: Agent, monkeypatch: pytest.MonkeyPatch, outside: Outside
 ) -> None:
     """The provider, with a list that does not name the connection's origin: allowed, it goes
     out through the client that opens public addresses only, its host checked before each
@@ -1368,7 +1368,7 @@ def test_an_allowed_origin_is_called_at_public_addresses_only(
 
 
 def test_a_listed_origin_is_called_as_the_deployments_own(
-    agent: Pack, monkeypatch: pytest.MonkeyPatch, outside: Outside
+    agent: Agent, monkeypatch: pytest.MonkeyPatch, outside: Outside
 ) -> None:
     """An origin on the list goes through the deployment's shared client, not the public-only
     one, whether or not anything was allowed for it: the list is the operator's word."""

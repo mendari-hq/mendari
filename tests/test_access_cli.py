@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.core.phi import PhiPolicy
 from tests.conftest import HASH_KEY_B64, INPUT_HASH_KEY, ROOT
@@ -65,11 +65,11 @@ def test_the_preflight_names_each_organization_in_use_without_a_record(
     store = AuditStore(db_target)
     store.create_api_key(name="k", role="viewer", org="clinic-b", created_by="Ada")
     store.hold_automation(
-        org="default", pack_id=None, pack_digest=None, reason="test", set_by="Ada"
+        org="default", agent_id=None, agent_digest=None, reason="test", set_by="Ada"
     )
     with store._db.session(exclusive=True) as db:  # an evaluation report from before tenancy
         db.all(
-            "INSERT INTO eval_reports (id, created_at, pack_id, dataset, report) "
+            "INSERT INTO eval_reports (id, created_at, agent_id, dataset, report) "
             "VALUES ('r1', '2026-10-07T00:00:00+00:00', 'p', 'd', '{}')"
         )
     events = store.verify()["events"]
@@ -150,7 +150,7 @@ def test_a_protected_database_takes_only_keyed_address_digests(
 
 
 def test_the_read_commands_leave_the_database_as_it_was(
-    tmp_path: Path, triage_agent: Pack, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, triage_agent: Agent, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`org list`, `members`, `requests`, `keys`, `clients` and `check` open the database
     read-only: no sidecar file, nothing written; another application's database is refused."""

@@ -21,7 +21,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from mendari import Pack
+from mendari import Agent
 from mendari.core.audit import AuditStore
 from mendari.core.https_only import is_local_host
 from mendari.core.phi import PhiPolicy
@@ -338,7 +338,7 @@ def test_a_refusal_is_logged_with_its_reason_and_answered_with_a_request_id(
 
 
 def test_a_link_to_the_review_queue_from_another_site_is_refused_and_nothing_is_chained(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Under PHI `encrypt`, opening the queue chains an `input.read` per input in the reader's
     name. A link on another site must not make a reviewer's browser do that."""
@@ -484,7 +484,7 @@ def test_cookies_of_a_sign_in_say_samesite_lax_explicitly(
 def test_every_page_sends_mendaris_own_header(tmp_path: Path) -> None:
     """The check reads `OWN_REQUEST`, and Mendari's pages send it on every request they make: each
     script that calls `fetch` sends ui.js's `OWN_REQUEST` (the dashboard's `api` and `download`, the
-    invitation, landing and status pages, the pack store's raw uploads), and the API reference,
+    invitation, landing and status pages, the agent store's raw uploads), and the API reference,
     which imports nothing, names the same header for Swagger UI's requests and its links to the
     document. A plain link on a page reaches only what another site's link may (a public route or a
     page), else it is fetched (the landing's OpenAPI document, `data-openapi`, and the API

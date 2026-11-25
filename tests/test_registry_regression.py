@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The registry's regression check on every publish (LP-18g, `hub/regression.py`): the pack gate
+"""The registry's regression check on every publish (LP-18g, `hub/regression.py`): the agent gate
 on the publisher's own test set, in an isolated job, shown as what it is."""
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari.core.pack import Pack, load_pack
+from mendari.core.agent import Agent, load_agent
 from mendari.errors import MendariError
 from mendari.hub import regression
 from tests.conftest import Registry
@@ -26,11 +26,11 @@ def _checking(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MENDARI_REGISTRY_REGRESSION", "on")
 
 
-def _copy(tmp_path: Path, version: str, edit: Any = None) -> Pack:
-    pack = _at_version(tmp_path / version, TRIAGE, version)
+def _copy(tmp_path: Path, version: str, edit: Any = None) -> Agent:
+    agent = _at_version(tmp_path / version, TRIAGE, version)
     if edit is not None:
-        edit(pack.root)
-    return load_pack(pack.root)
+        edit(agent.root)
+    return load_agent(agent.root)
 
 
 def _worse(root: Path) -> None:
@@ -65,7 +65,7 @@ def test_a_publish_is_checked_on_its_own_test_set_and_shown_as_no_ranking(
     assert figures["benchmark"] is None and figures["leaderboard"] is None
 
 
-def test_a_pack_without_a_test_set_says_so(registry: Registry, tmp_path: Path) -> None:
+def test_an_agent_without_a_test_set_says_so(registry: Registry, tmp_path: Path) -> None:
     def no_test_set(root: Path) -> None:
         manifest = yaml.safe_load((root / "agent.yaml").read_text())
         del manifest["evaluation"]["benchmark_dataset"]
@@ -251,12 +251,12 @@ def test_the_setting(monkeypatch: pytest.MonkeyPatch) -> None:
         regression.enabled()
 
 
-def test_a_setting_that_is_not_one_is_the_operators_never_the_packs(
+def test_a_setting_that_is_not_one_is_the_operators_never_the_agents(
     registry: Registry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A registry whose MENDARI_REGISTRY_REGRESSION is neither on nor off answers 503 with what
-    the setting must be, before any work: never "the pack does not load", which sent the
-    publisher to fix a pack with nothing wrong with it. Nothing is published."""
+    the setting must be, before any work: never "the agent does not load", which sent the
+    publisher to fix an agent with nothing wrong with it. Nothing is published."""
     monkeypatch.setenv("MENDARI_REGISTRY_REGRESSION", "sometimes")
     refused = registry.publish(_copy(tmp_path, "9.9.7"))
     assert refused.status_code == 503, refused.text

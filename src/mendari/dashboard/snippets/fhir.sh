@@ -14,7 +14,7 @@ curl -sS --fail-with-body "$MENDARI/fhir/metadata" | jq '{fhirVersion, software}
 bundle=$(curl -sS --fail-with-body -X POST "$MENDARI/fhir/\$decide" \
   -H "Authorization: Bearer $MENDARI_KEY" -H 'content-type: application/fhir+json' \
   -d '{"resourceType": "Parameters", "parameter": [
-    {"name": "pack", "valueString": "mendari/portal-message-agent"},
+    {"name": "agent", "valueString": "mendari/portal-message-agent"},
     {"name": "data", "resource": {"resourceType": "Bundle", "type": "collection", "entry": [
       {"fullUrl": "urn:uuid:7f1c2a4e-0d1b-4c55-9a51-3c1e2d000001", "resource": {
         "resourceType": "Patient", "id": "example-patient",
@@ -47,5 +47,5 @@ curl -sS --fail-with-body "$MENDARI/api/audit/$id/fhir" -H "Authorization: Beare
 
 # step: export — The whole audit trail as FHIR NDJSON (open mode, or an administrator signed in)
 curl -sS --fail-with-body \
-  "$MENDARI/api/audit/export/fhir?pack_id=mendari/portal-message-agent&since=2026-09-01" \
+  "$MENDARI/api/audit/export/fhir?agent_id=mendari/portal-message-agent&since=2026-09-01" \
   | jq -c '{resourceType, id}'

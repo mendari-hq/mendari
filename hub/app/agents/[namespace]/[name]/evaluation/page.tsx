@@ -54,8 +54,8 @@ const VERSION = /^(?=.{1,64}$)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 const HOST = /^(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])(?::\d{1,5})?$/;
 const PUBLISHER_BADGE = new Set(["verified", "institutional", "community"]);
 // The page's header, as the agent's page styles its own (globals.css), and when recalled.
-const HERO = "pack-hero";
-const HERO_DANGER = "pack-hero-danger";
+const HERO = "agent-hero";
+const HERO_DANGER = "agent-hero-danger";
 // What the engine did with a case, as someone outside the project says it.
 const OUTCOMES: [string, string, string][] = [
   ["AUTO", "Decided automatically", "the agent's answer was acted on with no person reading the case"],
@@ -117,8 +117,8 @@ export default async function EvaluationPage({
       </nav>
 
       <header className={[HERO, evaluation.state === "recalled" ? HERO_DANGER : ""].join(" ").trim()}>
-        <div className="pack-hero-meta row">
-          <span className="mono pack-id-pill">
+        <div className="agent-hero-meta row">
+          <span className="mono agent-id-pill">
             {evaluation.id}
             {agent ? `@${agent.version}` : ""}
           </span>

@@ -46,7 +46,7 @@ The owner decided (2026-10-07):
 
 As built:
 
-- **Which agents.** `Pack.bounded` (`core/origin.py` `bounded`): a community agent, or an agent of
+- **Which agents.** `Agent.bounded` (`core/origin.py` `bounded`): a community agent, or an agent of
   an origin the deployment does not own (`NOT_OWNED`: `hub`, and `store` from LP-20e) whose
   digest is not one of the installed release's bundled agents (`core/reference.py`
   `reference_digests`: the digest of each agent bundled with the release, computed once per
@@ -54,13 +54,13 @@ As built:
   it, the 10,000-character limit, the 10,000 values and 32 levels, the 100-error stop and the
   short schema reasons included. Reasons stored at run time say "an agent from a registry";
   load-time messages name both ("a community or registry agent").
-- **The engine follows the bytes.** Only the digest `load_pack` hashed from the files it then
+- **The engine follows the bytes.** Only the digest `load_agent` hashed from the files it then
   reads chooses the engine: never the manifest (its `id`, `version` or `publisher.type`), the
   digest a registry recorded, nor the `.mendari-verified` marker. The digest covers every file
   in the agent except those under its `evals/`, any `DECISION_CARD.md`, and hidden entries and
   `__pycache__` at any depth (`agent.yaml`, `policy.yaml`, `logic/`, `fhir/`, `data/`, `models/`,
   `schemas/`, `tests/` and any other file are in it); what it leaves out is never read on the
-  decide path (`Pack.read_bytes` reads only files the digest hashed, and only the bytes it
+  decide path (`Agent.read_bytes` reads only files the digest hashed, and only the bytes it
   hashed). So equal digests mean equal behaviour, and one changed byte puts a copy of a
   bundled agent on the community engine.
 - **Every load path.** `archive.extract` takes the origin as a required keyword: the registry's
@@ -69,14 +69,14 @@ As built:
   `Decision.from_path` takes the origin of its path, so a cached agent loaded by its path is
   still an agent from a registry. The registry checks a publish against its own release's
   bundled agents. On every one of these paths, an agent from a registry with a bundled agent's
-  id and a version that ties its (`version_key`) but other files is refused (`core/pack.py`
+  id and a version that ties its (`version_key`) but other files is refused (`core/agent.py`
   `_shadow_problem`, LP-16 F): the cache wins a version tie, so it would be served in the
   bundled agent's place. The registry refuses its publish (`422`), `mendari pull` refuses it
   before it is cached, and one cached before is listed under `/api/health` `invalid`, with the
   directory to remove, while the bundled agent is served.
 - **Little else changes for a pulled agent.** It is labelled "From a registry", may automate
   under its own policy and keeps its own BLOCK rules: community policy stays the community
-  agents' (`Pack.community`). Its rules failing on the budget (`time_budget`) never leave AUTO,
+  agents' (`Agent.community`). Its rules failing on the budget (`time_budget`) never leave AUTO,
   and a failed primary abstains (`core/policy.py`, unchanged).
 - **Its provider configs, as a community agent's (LP-16e, amending the line above, which said it
   keeps its pinned model).** Every variant and member is checked at load against its

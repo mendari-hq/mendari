@@ -271,7 +271,7 @@ def test_the_settings_in_health_need_the_read_permission(
     with signing_in_with(idp, tmp_path, monkeypatch) as client:
         sign_in(client, idp, roles=["viewer"])
         details = client.get("/api/health").json()
-        assert {"phi_mode", "packs", "providers", "llm"} <= set(details)
+        assert {"phi_mode", "agents", "providers", "llm"} <= set(details)
         assert details["sign_in"] is True and details["phi_mode"] == "encrypt"  # never off
         viewer = {"authorization": f"Bearer {key_for(client, idp, role='viewer')}"}
         assert "phi_mode" in client.get("/api/health", headers=viewer).json()

@@ -20,7 +20,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, CallBudget, Decision, Pack
+from mendari import Agent, AuditStore, CallBudget, Decision
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError, ProviderError
 from mendari.providers import http, llm
@@ -101,14 +101,14 @@ def origins(requests: list[httpx.Request]) -> list[str]:
     return [f"{r.url.scheme}://{r.url.netloc.decode()}" for r in requests]
 
 
-def remote(pack: Pack) -> Decision:
+def remote(agent: Agent) -> Decision:
     """The triage fixture with its agent service for a router (asked first) and an LLM screen
     (on the AI Gateway unless LLM_BASE_URL says otherwise)."""
-    return Decision(pack, providers={"router": "agent", "screen": "llm"})
+    return Decision(agent, providers={"router": "agent", "screen": "llm"})
 
 
 def test_no_allow_list_keeps_todays_endpoints(
-    sent: list[httpx.Request], triage_agent: Pack, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    sent: list[httpx.Request], triage_agent: Agent, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Conflict 20's default: unset, or blank, the calls go where they went before, and the
     server starts whatever endpoint the deployment set."""
@@ -129,7 +129,7 @@ def test_no_allow_list_keeps_todays_endpoints(
 def test_a_call_outside_the_allow_list_is_refused_before_it_leaves(
     sent: list[httpx.Request],
     charged: list[str],
-    triage_agent: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The AI Gateway's default is not on the list: the LLM screen is refused before its key is
@@ -170,7 +170,7 @@ def test_a_call_outside_the_allow_list_is_refused_before_it_leaves(
 def test_an_llm_off_the_allow_list_reads_no_key_and_spends_no_budget(
     sent: list[httpx.Request],
     charged: list[str],
-    triage_agent: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The list names nothing for the LLM, at the AI Gateway's default or at an `LLM_BASE_URL`

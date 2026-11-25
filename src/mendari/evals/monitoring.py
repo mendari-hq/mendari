@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""A deployed pack over time: is it still doing what its benchmark says?
+"""A deployed agent over time: is it still doing what its benchmark says?
 
 It compares like with like (LP-21). For the last N whole weeks (N is the days asked for, 14 to
 180, divided by 7 and rounded up, so the week before the last always exists), it reads the
-decisions of the **served version** of the pack, for the organization the request acts for.
+decisions of the **served version** of the agent, for the organization the request acts for.
 Decisions of other versions are only counted, as `other_versions`. The last 7 days and the week
-before hold only decisions made since the pack's current configuration (this build and these
+before hold only decisions made since the agent's current configuration (this build and these
 providers) started, by the deployment records (`configuration_since`); the weekly series shows
 every decision of the version.
 
@@ -18,10 +18,10 @@ every decision of the version.
   - accuracy in each stratum the benchmark measured;
   - how many decisions still await review;
   - the cost per decision, unknown (null) when any decision's cost is unknown.
-- **The reference.** The pack's benchmark counts only when it measured this build of the pack
+- **The reference.** The agent's benchmark counts only when it measured this build of the agent
   (its digest), with the providers that run here (each slot's variant, and its model where the
   server knows it), under the same governance (an approval in force here, or none, as when it
-  was measured). A pack pulled from a registry has none, whatever it carries: its benchmark is
+  was measured). An agent pulled from a registry has none, whatever it carries: its benchmark is
   its publisher's upload, never a reference (ADR-0012), so it is not read. Otherwise there is
   none: `benchmark.comparable` is false and `benchmark.reason` says why (`from_registry`,
   `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`), and
@@ -38,7 +38,7 @@ every decision of the version.
   error recorded (`decisions.provider_errors`), the abstention share, and latency (p50, p95,
   mean of each decide).
 - **Alerts**, each with a minimum amount of evidence:
-  - a stratum's accuracy below the reference's by more than the pack's degradation tolerance,
+  - a stratum's accuracy below the reference's by more than the agent's degradation tolerance,
     beyond doubt: even the top of its exact 95% interval is below (20 decisions or more);
   - drift at or above 0.25 (a common threshold for a real shift), over 50 confidences or more;
   - automated decisions that someone rated wrong (a thumbs-down);
@@ -63,9 +63,9 @@ from mendari.alerts import (
     check_webhook,  # noqa: F401 - where it was, for its callers
     deliver,
 )
+from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore, truth_label
 from mendari.core.card import benchmark
-from mendari.core.pack import Pack
 from mendari.errors import MendariError
 from mendari.evals import figures
 from mendari.evals.render import shown
@@ -98,14 +98,14 @@ Row = Mapping[str, Any]
 
 def monitor(
     store: AuditStore,
-    pack: Pack,
+    agent: Agent,
     *,
     days: int = 30,
     now: datetime | None = None,
     providers: Mapping[str, str] | None = None,
     models: Mapping[str, str | None] | None = None,
 ) -> dict[str, Any]:
-    """`providers` is the variant each of the pack's slots runs here (None: not known, so no
+    """`providers` is the variant each of the agent's slots runs here (None: not known, so no
     benchmark is comparable); `models` the model each runs, where known (a server knows its
     own; a command does not, so a benchmark of a model set by a setting is not comparable)."""
     if not MIN_DAYS <= days <= MAX_DAYS:
@@ -113,19 +113,19 @@ def monitor(
     now = now or datetime.now(UTC)
     weeks = math.ceil(days / 7)
     since = (now - timedelta(days=7 * weeks)).isoformat()
-    rows = store.decision_rows(pack.id, since, version=pack.version)
+    rows = store.decision_rows(agent.id, since, version=agent.version)
     other_versions = {
         version: count
-        for version, count in store.decision_versions(pack.id, since).items()
-        if version != pack.version
+        for version, count in store.decision_versions(agent.id, since).items()
+        if version != agent.version
     }
-    started = _configuration_since(store, pack, providers)
+    started = _configuration_since(store, agent, providers)
     current = [r for r in rows if started is None or _when(r) >= started]
     week_ago, two_weeks_ago = now - timedelta(days=7), now - timedelta(days=14)
     last_week = [r for r in current if _when(r) >= week_ago]
     week_before = [r for r in current if two_weeks_ago <= _when(r) < week_ago]
-    approved = store.active_approval(pack.id, pack.digest) is not None
-    bench = _benchmark(pack, providers, models, approved=approved)
+    approved = store.active_approval(agent.id, agent.digest) is not None
+    bench = _benchmark(agent, providers, models, approved=approved)
     bins = bench.pop("bins")  # what drift compares with, not part of the answer
     made = [r for r in last_week if not r["refused"]]
     drift = _psi(bins, made) if bench["comparable"] else None
@@ -139,7 +139,7 @@ def monitor(
         recent["slow_line_ms"] = line
     wrong_auto = sum(1 for r in last_week if r["outcome"] == "AUTO" and r["rated_wrong"])
     return {
-        "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
+        "agent": {"id": agent.id, "version": agent.version, "digest": agent.digest},
         "days": days,
         "benchmark": bench,
         "other_versions": other_versions,
@@ -173,7 +173,7 @@ def post_alerts(
     None), as one alert to the webhook (`mendari.alerts`): whether it was delivered."""
     alerting = [report for report in reports if report["alerts"]]
     lines = [
-        f"{report['pack']['id']}: [{alert['severity']}] {alert['kind']}: {alert['message']}"
+        f"{report['agent']['id']}: [{alert['severity']}] {alert['kind']}: {alert['message']}"
         for report in alerting
         for alert in report["alerts"]
     ]
@@ -181,7 +181,7 @@ def post_alerts(
         settings,
         event="monitor.alerts",
         org=org,
-        alerts=[{"pack": report["pack"], "alerts": report["alerts"]} for report in alerting],
+        alerts=[{"agent": report["agent"], "alerts": report["alerts"]} for report in alerting],
         lines=lines,
         attempts=attempts,
         timeout=10,
@@ -189,13 +189,13 @@ def post_alerts(
     )
 
 
-def recorded_providers(store: AuditStore, pack: Pack) -> dict[str, str] | None:
-    """The variant each slot runs, from the deployment records of this build of the pack (a
+def recorded_providers(store: AuditStore, agent: Agent) -> dict[str, str] | None:
+    """The variant each slot runs, from the deployment records of this build of the agent (a
     server records one when it first serves it, and again when its providers change), for a
     command that runs no server: the newest record of each environment, when they agree. None
     when no server recorded this build, or two environments run it on other providers."""
     newest: dict[str, dict[str, str]] = {}
-    for record in store.deployments(pack.id, limit=_RECORDS, digest=pack.digest):
+    for record in store.deployments(agent.id, limit=_RECORDS, digest=agent.digest):
         ran = {str(slot): str(variant) for slot, variant in record["providers"].items()}
         newest.setdefault(str(record["environment"]), ran)
     running = list(newest.values())
@@ -205,18 +205,18 @@ def recorded_providers(store: AuditStore, pack: Pack) -> dict[str, str] | None:
 
 
 def _configuration_since(
-    store: AuditStore, pack: Pack, providers: Mapping[str, str] | None
+    store: AuditStore, agent: Agent, providers: Mapping[str, str] | None
 ) -> datetime | None:
-    """When this build of the pack started running on these providers (the deployment records,
+    """When this build of the agent started running on these providers (the deployment records,
     `AuditStore.configuration_started`); None when that is not known (no providers, no record)."""
     if providers is None:
         return None
-    started = store.configuration_started(pack.id, pack.digest, providers, limit=_RECORDS)
+    started = store.configuration_started(agent.id, agent.digest, providers, limit=_RECORDS)
     return None if started is None else datetime.fromisoformat(started)
 
 
 def _number(value: Any) -> float | None:
-    """A share stated in a benchmark, or None when it is not one (a pack's file is checked for
+    """A share stated in a benchmark, or None when it is not one (an agent's file is checked for
     its shape, not each value: what cannot be read is absent, never an error)."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
@@ -238,18 +238,18 @@ def _mapping(value: Any) -> Mapping[str, Any]:
 
 
 def _benchmark(
-    pack: Pack,
+    agent: Agent,
     providers: Mapping[str, str] | None,
     models: Mapping[str, str | None] | None,
     *,
     approved: bool,
 ) -> dict[str, Any]:
     """The benchmark as measured (`accuracy`: the primary question over every case), whether it
-    is comparable here and why not, and the strata's figures the alerts compare with. A pack
+    is comparable here and why not, and the strata's figures the alerts compare with. An agent
     from a registry has none: what it carries is its publisher's upload (ADR-0012)."""
-    from_registry = pack.origin == "hub"
-    report = _mapping(None if from_registry else benchmark(pack))
-    reference = _mapping(_mapping(report.get("questions")).get(pack.manifest.policy.primary))
+    from_registry = agent.origin == "hub"
+    report = _mapping(None if from_registry else benchmark(agent))
+    reference = _mapping(_mapping(report.get("questions")).get(agent.manifest.policy.primary))
     measured = _mapping(report.get("decisions"))
     review = _mapping(measured.get("review"))
     automation = _mapping(measured.get("automation"))
@@ -262,7 +262,7 @@ def _benchmark(
         reason: str | None = "from_registry"
     elif not report:
         reason = "no_benchmark"
-    elif _mapping(report.get("pack")).get("digest") != pack.digest:
+    elif _mapping(report.get("agent")).get("digest") != agent.digest:
         reason = "another_build"
     elif providers is None:
         reason = "providers_unknown"
@@ -288,7 +288,7 @@ def _benchmark(
         # override rate) and automated decisions.
         "reviewed_accuracy": reviewed_accuracy,
         "automated_accuracy": automated_accuracy,
-        "tolerance": pack.manifest.evaluation.degradation_tolerance,
+        "tolerance": agent.manifest.evaluation.degradation_tolerance,
         "comparable": reason is None,
         "reason": reason,
         "figures": {

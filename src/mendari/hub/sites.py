@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Sites and their keys in the registry's store (LP-22d, ADR-0017).
 
-A site is a record owned by an organization: a health system that evaluates packs on its own
+A site is a record owned by an organization: a health system that evaluates agents on its own
 chart-reviewed data and shares signed counts. It is registered `pending`, and only a registry
 reviewer (LP-22i) or the operator's command, with a reason, makes it `verified` (or `refused`);
 its organization or the operator may `close` it. Until it is verified it gets no ticket and
@@ -14,7 +14,7 @@ key and revoking the old one. A revocation says whether the key is thought compr
 is, every report it signed leaves the pooled figures and stays listed as such (LP-22g); if not,
 reports received before it stand.
 
-Who a site is to a pack: a site whose organization holds the pack's namespace (its claim,
+Who a site is to an agent: a site whose organization holds the agent's namespace (its claim,
 LP-19c) is the publisher's own site (`own_site`), listed and left out of the pool.
 
 Every write is chained in the registry's `hub_events` with its row's hash (`site.registered`,
@@ -40,7 +40,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core.origin import COMPOSITE_PROVIDER_TYPES, LOCAL_PROVIDER_TYPES
 from mendari.errors import HubError
-from mendari.evals.share import MIN_DATASET, Name, SharedPack
+from mendari.evals.share import MIN_DATASET, Name, SharedAgent
 from mendari.hub import archive, site_signing
 
 if TYPE_CHECKING:
@@ -186,7 +186,7 @@ class TicketRequest(_Record):
     `site_signing.shape_problem`, its own here (closed)."""
 
     format: Literal["mendari.site-ticket-request/1"]
-    pack: SharedPack
+    agent: SharedAgent
     configuration: Annotated[dict[Name, Name], Field(min_length=1, max_length=64)]
     remote_consent: bool
     commitment: Annotated[str, Field(pattern=r"^hmac-sha256:[0-9a-f]{64}$")]
@@ -654,21 +654,21 @@ class SiteStore:
             request = TicketRequest.model_validate(record)
         except ValidationError:
             raise HubError(
-                f"not a {site_signing.TICKET_REQUEST} record: its fields are `pack` (the agent's "
+                f"not a {site_signing.TICKET_REQUEST} record: its fields are `agent` (the agent's "
                 "id, version and digest), the configuration, remote_consent, the commitment and n"
             ) from None
-        namespace, name = request.pack.id.split("/")
-        # Who signed, first, before anything about the pack is answered; the nonce is spent
+        namespace, name = request.agent.id.split("/")
+        # Who signed, first, before anything about the agent is answered; the nonce is spent
         # here whatever follows, so a refused request is signed again, never replayed.
         with self._db.session(exclusive=True) as db:
             signer = self._checked_record(db, record, site_signing.TICKET_REQUEST)
         try:  # as the public reads it: an unlisted namespace's version does not exist
-            found = self.version(namespace, name, request.pack.version)  # type: ignore[attr-defined]
+            found = self.version(namespace, name, request.agent.version)  # type: ignore[attr-defined]
         except HubError:
             raise HubError("no such published version", 404) from None
         if found.get("yank") or found.get("deleted"):
             raise HubError("that version is recalled: it takes no evaluation", 409)
-        if found.get("digest") != request.pack.digest:
+        if found.get("digest") != request.agent.digest:
             raise HubError("the digest is not the published version's", 409)
         names = found.get("names") or {}
         problem = configuration_problem(request.configuration, names)
@@ -692,17 +692,17 @@ class SiteStore:
             )
             if unlisted:
                 raise HubError("no such published version", 404)
-            if not _recall_free(db, namespace, name, request.pack.version):
+            if not _recall_free(db, namespace, name, request.agent.version):
                 raise HubError("that version is recalled: it takes no evaluation", 409)
             corrected = None
             if request.supersedes is not None:
                 corrected = self.correction_target(  # type: ignore[attr-defined]
-                    db, request.site, request.supersedes, request.pack.digest, configuration
+                    db, request.site, request.supersedes, request.agent.digest, configuration
                 )
             if live_result(
                 db,
                 request.site,
-                request.pack.digest,
+                request.agent.digest,
                 configuration,
                 request.commitment,
                 excluding=None if corrected is None else str(corrected["ticket"]),
@@ -727,8 +727,8 @@ class SiteStore:
                     request.key_id,
                     namespace,
                     name,
-                    request.pack.version,
-                    request.pack.digest,
+                    request.agent.version,
+                    request.agent.digest,
                     configuration,
                     1 if request.remote_consent else 0,
                     request.commitment,
@@ -748,9 +748,9 @@ class SiteStore:
                     "site": request.site,
                     "org": signer["org"],
                     "key_id": request.key_id,
-                    "pack": request.pack.id,
-                    "version": request.pack.version,
-                    "digest": request.pack.digest,
+                    "agent": request.agent.id,
+                    "version": request.agent.version,
+                    "digest": request.agent.digest,
                 },
                 row=("tickets", "id = ?", (ticket_id,)),
             )
@@ -813,8 +813,8 @@ class SiteStore:
             raise HubError("no such ticket", 404)
         return _ticket_shown(row)
 
-    def pack_ticket_rows(self, namespace: str, name: str) -> list[dict[str, Any]]:
-        """A pack's tickets of verified or closed sites, as stored (for site evidence, LP-22g):
+    def agent_ticket_rows(self, namespace: str, name: str) -> list[dict[str, Any]]:
+        """An agent's tickets of verified or closed sites, as stored (for site evidence, LP-22g):
         never the secret's hash, the commitment or the nonce."""
         with self._db.session(exclusive=False) as db:
             if not db.columns("hub_tickets"):
@@ -827,12 +827,12 @@ class SiteStore:
                 (namespace, name),
             )
 
-    def pack_tickets(self, namespace: str, name: str) -> list[dict[str, Any]]:
-        """What a pack's tickets say, for anyone (LP-22e): per site that was issued any (a
+    def agent_tickets(self, namespace: str, name: str) -> list[dict[str, Any]]:
+        """What an agent's tickets say, for anyone (LP-22e): per site that was issued any (a
         closed one too, with its status: closing a site never hides what it did not report),
         digest, configuration and consent, how many tickets were reported, are unreported
         (open, or expired with no report) and were withdrawn, with the first and last dates.
-        No commitment, no secret. A pack the public cannot read is a 404."""
+        No commitment, no secret. An agent the public cannot read is a 404."""
         if not self.versions(namespace, name):  # type: ignore[attr-defined]
             raise HubError("no such agent", 404)
         with self._db.session(exclusive=False) as db:

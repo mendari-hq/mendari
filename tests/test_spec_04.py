@@ -19,20 +19,20 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from mendari import load_pack
+from mendari import load_agent
 from mendari.core import spec
-from mendari.core.pack import manifest_name
+from mendari.core.agent import manifest_name
 from mendari.core.spec import (
     MAX_ACTION_DESCRIPTION,
     MAX_ACTION_SCHEMA_CHARS,
     MAX_ACTIONS,
     SPEC_VERSION,
     ActionSpec,
+    AgentManifest,
     Effect,
-    PackManifest,
     action_schema_problems,
 )
-from mendari.errors import PackValidationError
+from mendari.errors import AgentValidationError
 from mendari.providers.agent import request_body
 from tests.conftest import DEMO_AGENT_DIR, ROOT, fixture_agents
 
@@ -70,18 +70,18 @@ def test_spec_0_4_is_the_one_version_read_and_another_is_refused_saying_so(
     nor a newer one, nor an unquoted 0.4 (YAML reads a number). The refusal names the version."""
     assert SPEC_VERSION == "0.4" and not hasattr(spec, "SPEC_VERSIONS")
     with pytest.raises(ValidationError, match=r'must be "0\.4"') as refused:
-        PackManifest.model_validate({**raw_manifest(), "spec_version": version})
+        AgentManifest.model_validate({**raw_manifest(), "spec_version": version})
     assert "the one spec version this engine reads" in str(refused.value)
     root = tmp_path / "agent"
     shutil.copytree(MINI, root)
     text = (root / "agent.yaml").read_text()
     (root / "agent.yaml").write_text(text.replace('spec_version: "0.4"', "spec_version: 0.4"))
-    with pytest.raises(PackValidationError, match=r'spec_version: must be "0\.4"'):
-        load_pack(root)
+    with pytest.raises(AgentValidationError, match=r'spec_version: must be "0\.4"'):
+        load_agent(root)
 
 
 def test_a_0_4_manifest_with_actions_loads_and_keeps_their_order() -> None:
-    manifest = PackManifest.model_validate(raw_manifest())
+    manifest = AgentManifest.model_validate(raw_manifest())
     assert manifest.spec_version == "0.4"
     assert list(manifest.actions) == [
         "look_up_medications",
@@ -95,14 +95,14 @@ def test_a_0_4_manifest_with_actions_loads_and_keeps_their_order() -> None:
     assert manifest.actions["queue_refill"].allow_auto is False
     assert manifest.actions["send_reply"].allow_auto is True
     assert manifest.actions["look_up_medications"].json_schema is None
-    assert load_pack(MINI).manifest == manifest
+    assert load_agent(MINI).manifest == manifest
 
 
 def test_a_manifest_without_actions_declares_none() -> None:
     """An empty `actions` is what a dumped manifest carries: it counts as left out."""
     raw = raw_manifest()
     for left_out in ({k: v for k, v in raw.items() if k != "actions"}, {**raw, "actions": {}}):
-        assert PackManifest.model_validate(left_out).actions == {}
+        assert AgentManifest.model_validate(left_out).actions == {}
 
 
 def test_every_agent_of_the_repository_loads_again_from_its_own_dump() -> None:
@@ -111,16 +111,16 @@ def test_every_agent_of_the_repository_loads_again_from_its_own_dump() -> None:
     folders = [*fixture_agents(), DEMO_AGENT_DIR]
     assert MINI in folders
     for folder in folders:
-        manifest = load_pack(folder).manifest
+        manifest = load_agent(folder).manifest
         dumped = manifest.model_dump(mode="json", by_alias=True)
-        assert PackManifest.model_validate(dumped) == manifest, folder.name
+        assert AgentManifest.model_validate(dumped) == manifest, folder.name
         assert "actions" in dumped
-    order = PackManifest.model_validate(raw_manifest()).actions["renew_prescription"]
+    order = AgentManifest.model_validate(raw_manifest()).actions["renew_prescription"]
     assert order.effect is Effect.ORDER and order.allow_auto is True
 
 
 def test_the_bundled_agent_and_the_scaffold_are_as_this_wave_left_them() -> None:
-    demo = load_pack(DEMO_AGENT_DIR).manifest
+    demo = load_agent(DEMO_AGENT_DIR).manifest
     assert (demo.spec_version, demo.version) == ("0.4", "0.3.0")  # 0.3.0: what it writes
     assert {name: (a.effect.value, a.allow_auto) for name, a in demo.actions.items()} == {
         "assign_queue": ("write", True),
@@ -160,7 +160,7 @@ def test_a_card_may_word_refused_input_and_a_rules_match() -> None:
             "also_show": {"abusive-message": {"summary": "A person reads this first."}},
         },
     }
-    hooks = PackManifest.model_validate(raw).cds_hooks
+    hooks = AgentManifest.model_validate(raw).cds_hooks
     assert hooks is not None and hooks.card is not None and hooks.card.names_refused()
 
 
@@ -180,7 +180,7 @@ def test_a_manifest_uses_the_second_signal_keys() -> None:
     """`repeat`, `calibration` and the `check` composite are a variant's like any key."""
     raw = raw_manifest()
     raw["providers"]["reader"]["variants"]["agent"]["repeat"] = 3
-    assert PackManifest.model_validate(raw).spec_version == "0.4"
+    assert AgentManifest.model_validate(raw).spec_version == "0.4"
 
 
 # -- the section's own rules ----------------------------------------------------------------------
@@ -205,7 +205,7 @@ def test_an_action_that_is_not_of_the_sections_shape_is_refused(
     action: dict[str, Any], said: str
 ) -> None:
     with pytest.raises(ValidationError, match=said):
-        PackManifest.model_validate(with_action(**action))
+        AgentManifest.model_validate(with_action(**action))
 
 
 @pytest.mark.parametrize(
@@ -215,11 +215,11 @@ def test_an_actions_name_is_a_key_of_at_most_64_characters(name: str) -> None:
     raw = raw_manifest()
     raw["actions"][name] = {"description": "An action.", "effect": "read"}
     with pytest.raises(ValidationError, match="action name") as refused:
-        PackManifest.model_validate(raw)
+        AgentManifest.model_validate(raw)
     assert "a" * 65 not in str(refused.value).split("action name", 1)[1].split("must match")[0]
     raw = raw_manifest()
     raw["actions"]["a" * 64] = {"description": "An action.", "effect": "read"}
-    assert "a" * 64 in PackManifest.model_validate(raw).actions
+    assert "a" * 64 in AgentManifest.model_validate(raw).actions
 
 
 def test_an_agent_declares_at_most_sixteen_actions_of_bounded_size_together() -> None:
@@ -227,10 +227,10 @@ def test_an_agent_declares_at_most_sixteen_actions_of_bounded_size_together() ->
     raw["actions"] = {
         f"action_{n}": {"description": "An action.", "effect": "read"} for n in range(MAX_ACTIONS)
     }
-    assert len(PackManifest.model_validate(raw).actions) == MAX_ACTIONS
+    assert len(AgentManifest.model_validate(raw).actions) == MAX_ACTIONS
     raw["actions"]["one_more"] = {"description": "An action.", "effect": "read"}
     with pytest.raises(ValidationError, match=f"at most {MAX_ACTIONS} actions"):
-        PackManifest.model_validate(raw)
+        AgentManifest.model_validate(raw)
     # Each schema within its own bound, and still too long together as one request sends them.
     values = [f"value-{n:03d}-" + "x" * 180 for n in range(18)]
     big = {**OBJECT, "properties": {"choice": {"type": "string", "enum": values}}}
@@ -240,7 +240,7 @@ def test_an_agent_declares_at_most_sixteen_actions_of_bounded_size_together() ->
         for n in range(MAX_ACTIONS)
     }
     with pytest.raises(ValidationError, match="characters together"):
-        PackManifest.model_validate(raw)
+        AgentManifest.model_validate(raw)
 
 
 # -- the arguments schema: a closed subset --------------------------------------------------------
@@ -265,7 +265,7 @@ ALLOWED: dict[str, Any] = {
 
 def test_a_schema_of_the_subset_is_taken_as_written() -> None:
     assert action_schema_problems(ALLOWED) == []
-    manifest = PackManifest.model_validate(with_schema(ALLOWED))
+    manifest = AgentManifest.model_validate(with_schema(ALLOWED))
     assert manifest.actions["extra"].json_schema == ALLOWED
     # It is sent to the agent as written, with the action's name, description and effect.
     sent = manifest.actions["extra"].request("extra")
@@ -296,7 +296,7 @@ def test_any_other_keyword_makes_the_agent_invalid_named(keyword: str) -> None:
         problems = action_schema_problems(schema)
         assert problems and keyword in problems[0], problems
         with pytest.raises(ValidationError, match="keywords an arguments schema may not use"):
-            PackManifest.model_validate(with_schema(schema))
+            AgentManifest.model_validate(with_schema(schema))
 
 
 def nested(depth: int) -> dict[str, Any]:
@@ -357,11 +357,11 @@ def test_each_bound_of_the_arguments_schema(schema: Any, said: str | None) -> No
     problems = action_schema_problems(schema)
     if said is None:  # a root of another type is a schema of the subset, and takes no object
         assert problems == []
-        assert PackManifest.model_validate(with_schema(schema)).actions["extra"].json_schema
+        assert AgentManifest.model_validate(with_schema(schema)).actions["extra"].json_schema
         return
     assert problems and any(said in problem for problem in problems), problems
     with pytest.raises(ValidationError, match="schema"):
-        PackManifest.model_validate(with_schema(schema))
+        AgentManifest.model_validate(with_schema(schema))
 
 
 def test_the_bounds_themselves_are_allowed() -> None:
@@ -379,7 +379,7 @@ def test_a_schema_too_deep_to_walk_by_recursion_is_a_problem_and_never_a_crash()
     problems = action_schema_problems({**OBJECT, "properties": {"a": schema}})
     assert problems  # too long as JSON, or not what JSON carries: named, not raised
     with pytest.raises(ValidationError):
-        PackManifest.model_validate(with_schema({**OBJECT, "properties": {"a": schema}}))
+        AgentManifest.model_validate(with_schema({**OBJECT, "properties": {"a": schema}}))
 
 
 def test_a_problem_names_where_and_never_a_value() -> None:
@@ -397,7 +397,7 @@ def test_a_problem_names_where_and_never_a_value() -> None:
 
 
 def test_a_request_carries_the_declared_actions_in_order_and_an_older_ones_is_as_it_was() -> None:
-    manifest = PackManifest.model_validate(raw_manifest())
+    manifest = AgentManifest.model_validate(raw_manifest())
     questions = {"request": manifest.questions["request"]}
     inputs = {"message": {"body": "A refill, please."}}
     plain = request_body(manifest.id, "reader", questions, inputs)

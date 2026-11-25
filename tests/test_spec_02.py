@@ -9,13 +9,13 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from mendari import Decision, Outcome, Pack, load_pack
+from mendari import Agent, Decision, Outcome, load_agent
 from mendari.core.card import render_card
 from mendari.core.policy import apply_policy, matches
 from mendari.core.spec import (
     LICENSED_CODE_SYSTEMS,
+    AgentManifest,
     Condition,
-    PackManifest,
     Question,
     is_spdx_expression,
     licensed_systems,
@@ -80,20 +80,20 @@ def test_score_validation(mutate: Any, message: str) -> None:
     raw = manifest_dict()
     mutate(raw)
     with pytest.raises(ValidationError, match=message):
-        PackManifest.model_validate(raw)
+        AgentManifest.model_validate(raw)
 
 
 # -- runtime, policy ---------------------------------------------------------------------------
 
 
-def test_fixture_pack_runs_end_to_end() -> None:
+def test_fixture_agent_runs_end_to_end() -> None:
     decision = Decision.from_path(CLINICAL_DIR)
     result = decision({"note": {"text": "Patient reports mild throat pain for two days."}})
     assert result.primary == "disposition"
     assert result.answers["disposition"].label == "self_care"
     assert result.outcome is Outcome.HUMAN_REVIEW  # risk level 2 caps AUTO
     assert result.answers["severity"].value == pytest.approx(
-        decision.pack.manifest.questions["severity"].expected_score(
+        decision.agent.manifest.questions["severity"].expected_score(
             result.answers["severity"].probabilities
         )
     )
@@ -111,8 +111,8 @@ def test_score_conditions() -> None:
         Condition(question="severity")
 
 
-def test_decision_card_shows_types_levels_and_tables(triage_agent: Pack) -> None:
-    card = render_card(load_pack(CLINICAL_DIR))
+def test_decision_card_shows_types_levels_and_tables(triage_agent: Agent) -> None:
+    card = render_card(load_agent(CLINICAL_DIR))
     assert "| `severe` | 3 | A severe symptom, such as pain the patient cannot bear. |" in card
     assert "Rule **moderate-or-worse**: `severity` expected score ≥ 1.5 ⇒ `HUMAN_REVIEW`" in card
     assert "**`urgency`** *(boolean)*" in render_card(triage_agent)
@@ -136,7 +136,7 @@ def test_min_probability_acts_on_a_labels_probability_not_on_the_winner() -> Non
         Condition(question="urgency", labels=["urgent"], min_probability=0.3, min_confidence=0.2)
 
 
-def test_inbox_escalates_at_the_documented_threshold(triage_agent: Pack) -> None:
+def test_inbox_escalates_at_the_documented_threshold(triage_agent: Agent) -> None:
     """The triage fixture's possible-emergency rule, at P(same-day symptoms) 0.35."""
     answers = {
         "destination": answer("destination", {"pharmacy": 0.97, "nurse": 0.03}),
@@ -169,7 +169,7 @@ def test_inbox_escalates_at_the_documented_threshold(triage_agent: Pack) -> None
     ],
 )
 def test_a_licence_is_an_spdx_expression(licence: str) -> None:
-    PackManifest.model_validate(manifest_dict() | {"license": licence})
+    AgentManifest.model_validate(manifest_dict() | {"license": licence})
 
 
 @pytest.mark.parametrize(
@@ -188,7 +188,7 @@ def test_a_licence_is_an_spdx_expression(licence: str) -> None:
 )
 def test_a_licence_that_is_not_an_spdx_expression_is_refused(licence: str) -> None:
     with pytest.raises(ValidationError, match="SPDX license expression"):
-        PackManifest.model_validate(manifest_dict() | {"license": licence})
+        AgentManifest.model_validate(manifest_dict() | {"license": licence})
 
 
 def test_a_licensed_code_system_needs_its_licence_terms() -> None:
@@ -196,33 +196,35 @@ def test_a_licensed_code_system_needs_its_licence_terms() -> None:
     for url in ("http://snomed.info/sct", "urn:oid:2.16.840.1.113883.6.96",
                 "http://www.ama-assn.org/go/cpt", "urn:oid:2.16.840.1.113883.6.12"):  # fmt: skip
         with pytest.raises(ValidationError, match="whose codes are licensed"):
-            PackManifest.model_validate(manifest_dict() | {"code_systems": [snomed | {"url": url}]})
+            AgentManifest.model_validate(
+                manifest_dict() | {"code_systems": [snomed | {"url": url}]}
+            )
     noted = snomed | {"licence_note": "Used in a SNOMED International member country."}
     free = {"url": "http://loinc.org", "name": "LOINC"}
-    manifest = PackManifest.model_validate(manifest_dict() | {"code_systems": [noted, free]})
+    manifest = AgentManifest.model_validate(manifest_dict() | {"code_systems": [noted, free]})
     assert [use.url for use in manifest.code_systems] == [
         "http://snomed.info/sct",
         "http://loinc.org",
     ]
     with pytest.raises(ValidationError, match="more than once"):
-        PackManifest.model_validate(manifest_dict() | {"code_systems": [free, free]})
+        AgentManifest.model_validate(manifest_dict() | {"code_systems": [free, free]})
     with pytest.raises(ValidationError):
-        PackManifest.model_validate(manifest_dict() | {"code_systems": [free | {"url": "loinc"}]})
+        AgentManifest.model_validate(manifest_dict() | {"code_systems": [free | {"url": "loinc"}]})
 
 
-def test_a_pack_whose_files_name_a_licensed_system_must_declare_it(tmp_path: Path) -> None:
-    root = tmp_path / "pack"
+def test_an_agent_whose_files_name_a_licensed_system_must_declare_it(tmp_path: Path) -> None:
+    root = tmp_path / "agent"
     shutil.copytree(CLINICAL_DIR, root)
     data = root / "logic" / "codes.json"
     data.write_text('{"note": "coded as urn:oid:2.16.840.1.113883.6.96"}\n')
     with pytest.raises(Exception, match=r"logic/codes\.json names SNOMED CT .* declare it"):
-        load_pack(root)
+        load_agent(root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["code_systems"] = [
         {"url": "http://snomed.info/sct", "name": "SNOMED CT", "licence_note": "Member country."}
     ]
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    card = render_card(load_pack(root))
+    card = render_card(load_agent(root))
     assert "- SNOMED CT (`http://snomed.info/sct`). Licence: Member country." in card
 
 
@@ -230,7 +232,7 @@ def test_a_licence_is_short_and_read_without_recursion() -> None:
     nested = "(" * 600 + "MIT" + ")" * 600  # parsed iteratively: no RecursionError
     assert is_spdx_expression(nested)
     with pytest.raises(ValidationError, match="at most 200 characters"):
-        PackManifest.model_validate(manifest_dict() | {"license": nested})
+        AgentManifest.model_validate(manifest_dict() | {"license": nested})
 
 
 @pytest.mark.parametrize(
@@ -277,22 +279,24 @@ def test_other_oids_and_free_systems_name_no_licensed_system() -> None:
 
 def test_a_code_system_may_be_any_absolute_uri() -> None:
     for url in ("urn:ietf:bcp:47", "urn:iso:std:iso:3166", "urn:oid:2.16.840.1.113883.6.1"):
-        PackManifest.model_validate(manifest_dict() | {"code_systems": [{"url": url, "name": "x"}]})
+        AgentManifest.model_validate(
+            manifest_dict() | {"code_systems": [{"url": url, "name": "x"}]}
+        )
     with pytest.raises(ValidationError):
-        PackManifest.model_validate(
+        AgentManifest.model_validate(
             manifest_dict() | {"code_systems": [{"url": "loinc.org", "name": "x"}]}
         )
 
 
 @pytest.mark.parametrize("url", sorted(LICENSED_CODE_SYSTEMS))
-def test_a_pack_naming_a_licensed_system_with_escaped_slashes_must_declare_it(
+def test_an_agent_naming_a_licensed_system_with_escaped_slashes_must_declare_it(
     tmp_path: Path, url: str
 ) -> None:
     """The load check reads every licensed system's url as a JSON serializer may write it, its
     slashes escaped (`http:\\/\\/...`), not only the unit under test."""
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(CLINICAL_DIR, root)
     escaped = url.replace("/", "\\/")
     (root / "logic" / "codes.json").write_text(f'{{"system": "{escaped}"}}\n')
     with pytest.raises(Exception, match="declare it in code_systems with a licence_note"):
-        load_pack(root)
+        load_agent(root)

@@ -178,13 +178,13 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     # The registry's own chain (`hub_events`, LP-18b): only a namespace's publisher writes over
     # its routes (LP-19g); every other act is a reviewer's, below, or the operator's commands.
     (REGISTRY, "POST", "/v1/namespaces/{namespace}/keys"): ("key.added",),
-    (REGISTRY, "PUT", "/v1/agents/{namespace}/{name}/{version}"): ("pack.published",),
+    (REGISTRY, "PUT", "/v1/agents/{namespace}/{name}/{version}"): ("agent.published",),
     # A verified site's signed report, sent with its ticket's secret (LP-22f).
     (REGISTRY, "POST", "/v1/agents/{namespace}/{name}/{version}/reports"): (
         "report.shared",
         "site.ticket_reported",
     ),
-    (REGISTRY, "POST", "/v1/agents/{namespace}/{name}/{version}/yank"): ("pack.yanked",),
+    (REGISTRY, "POST", "/v1/agents/{namespace}/{name}/{version}/yank"): ("agent.yanked",),
     # A publisher's signed evaluation of a listed version (ADR-0020); a later one supersedes.
     (REGISTRY, "POST", "/v1/agents/{namespace}/{name}/{version}/evaluations"): (
         "evaluation.published",
@@ -213,17 +213,17 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     ),
     (ENGINE, "POST", "/api/registry/review/sites/{site_id}"): ("site.verified", "site.refused"),
     (ENGINE, "POST", "/api/registry/review/agents/{namespace}/{name}/{version}"): (
-        "pack.reviewed",
+        "agent.reviewed",
     ),
     (ENGINE, "POST", "/api/registry/review/agents/{namespace}/{name}/{version}/recall"): (
-        "pack.yanked",
+        "agent.yanked",
     ),
     (ENGINE, "POST", "/api/registry/review/agents/{namespace}/{name}/{version}/delete"): (
-        "pack.deleted",
+        "agent.deleted",
     ),
     (ENGINE, "POST", "/api/governance"): ("governance.approved",),
-    (ENGINE, "POST", "/api/registry-approvals"): ("registry_pack.approved",),
-    (ENGINE, "DELETE", "/api/registry-approvals/{approval_id}"): ("registry_pack.revoked",),
+    (ENGINE, "POST", "/api/registry-approvals"): ("registry_agent.approved",),
+    (ENGINE, "DELETE", "/api/registry-approvals/{approval_id}"): ("registry_agent.revoked",),
     (ENGINE, "DELETE", "/api/governance/{approval_id}"): ("governance.revoked",),
     (ENGINE, "POST", "/api/holds"): ("automation.held",),
     (ENGINE, "DELETE", "/api/holds/{hold_id}"): ("automation.lifted",),
@@ -263,13 +263,13 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     # Memberships mode under PHI mode encrypt: a grader's grades of a written output, as their
     # commitment (ADR-0025).
     (ENGINE, "POST", "/api/written/labelling/{assignment_id}"): ("written.graded",),
-    # An organization's pack store (LP-20f; MENDARI_AGENT_STORE=on, memberships mode): each new
+    # An organization's agent store (LP-20f; MENDARI_AGENT_STORE=on, memberships mode): each new
     # version; a draft withdrawn; authors' keys.
-    (ENGINE, "POST", "/api/store/versions"): ("pack_version.created",),
-    (ENGINE, "POST", "/api/store/uploads/{upload_id}/complete"): ("pack_version.created",),
-    (ENGINE, "POST", "/api/store/copies"): ("pack_version.created",),
-    (ENGINE, "POST", "/api/store/versions/{digest}/edits"): ("pack_version.created",),
-    (ENGINE, "DELETE", "/api/store/versions/{digest}"): ("pack_version.withdrawn",),
+    (ENGINE, "POST", "/api/store/versions"): ("store_version.created",),
+    (ENGINE, "POST", "/api/store/uploads/{upload_id}/complete"): ("store_version.created",),
+    (ENGINE, "POST", "/api/store/copies"): ("store_version.created",),
+    (ENGINE, "POST", "/api/store/versions/{digest}/edits"): ("store_version.created",),
+    (ENGINE, "DELETE", "/api/store/versions/{digest}"): ("store_version.withdrawn",),
     (ENGINE, "POST", "/api/store/keys"): ("store_key.added",),
     (ENGINE, "DELETE", "/api/store/keys/{key_id}"): ("store_key.revoked",),
     # Its datasets and evaluation jobs (LP-20g): a job's last slice records its report.
@@ -277,8 +277,8 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/store/jobs"): ("store_job.created",),
     (ENGINE, "POST", "/api/store/jobs/{job_id}/advance"): ("eval.recorded",),
     # Promotion (LP-20h): the version served, and the one it replaced retired with it.
-    (ENGINE, "POST", "/api/store/promotions"): ("pack_version.promoted", "pack_version.retired"),
-    (ENGINE, "POST", "/api/store/promotions/{promotion_id}/retire"): ("pack_version.retired",),
+    (ENGINE, "POST", "/api/store/promotions"): ("store_version.promoted", "store_version.retired"),
+    (ENGINE, "POST", "/api/store/promotions/{promotion_id}/retire"): ("store_version.retired",),
     # The improvement dataset (LP-20i): each input read chained, the dataset with counts only;
     # a proposed test accepted or dismissed.
     (ENGINE, "POST", "/api/store/agents/{namespace}/{name}/improvement"): (
@@ -291,7 +291,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     ),
     # A version added from the deployment's registry (MENDARI_REGISTRY_URL, with the store on):
     # verified, then kept as any new version is.
-    (ENGINE, "POST", "/api/store/pulls"): ("pack_version.created",),
+    (ENGINE, "POST", "/api/store/pulls"): ("store_version.created",),
     # An agent's connection for an organization (ADR-0021): set or changed, and cleared.
     # An operator may allow its origin too, where the deployment's list does not name it.
     (ENGINE, "PUT", "/api/connections/{namespace}/{name}"): (
@@ -302,7 +302,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
 # stored input is chained is checked over every GET route by tests/test_hosted_data.py
-# (test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained); a pack's first
+# (test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained); an agent's first
 # use on a deployment chains `deployment.recorded` on whichever route meets it.
 CHAINED_READS: dict[Route, tuple[str, ...]] = {
     (ENGINE, "GET", "/api/internal/retention"): ("input.purged", "note.erased", "retention.purged"),
@@ -413,7 +413,7 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_REGISTRY", "on")  # the registry mounted, with its people's routes
     monkeypatch.setenv("MENDARI_REGISTRY_REVIEW_ORG", "registry-review")  # and its reviewers'
-    monkeypatch.setenv("MENDARI_AGENT_STORE", "on")  # organizations' pack stores (LP-20f)
+    monkeypatch.setenv("MENDARI_AGENT_STORE", "on")  # organizations' agent stores (LP-20f)
     # A registry to add agents from (never reached here: no route is called).
     monkeypatch.setenv("MENDARI_REGISTRY_URL", "https://hub.example.org")
     with encrypted_store(tmp_path / "engine.db") as before:

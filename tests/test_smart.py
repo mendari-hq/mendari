@@ -181,9 +181,11 @@ def app(tmp_path: Path, ehr: FakeEhr, monkeypatch: pytest.MonkeyPatch) -> Iterat
         yield client
 
 
-def launch(app: TestClient, pack: str = CHART, iss: str = ISS) -> Any:
+def launch(app: TestClient, agent: str = CHART, iss: str = ISS) -> Any:
     return app.get(
-        "/smart/launch", params={"iss": iss, "launch": "xyz", "pack": pack}, follow_redirects=False
+        "/smart/launch",
+        params={"iss": iss, "launch": "xyz", "agent": agent},
+        follow_redirects=False,
     )
 
 
@@ -224,9 +226,9 @@ def test_an_ehr_launch_opens_the_patients_view_with_a_server_side_session(
         "fhir_user": "Practitioner/pr-1",
         "scope": "launch openid fhirUser patient/*.rs",
         "expires_at": session["expires_at"],
-        "pack": CHART,
+        "agent": CHART,
         "launch_id": session["launch_id"],
-        "packs": session["packs"],
+        "agents": session["agents"],
     }
     # The window opens on this launch's patient view, pinned to the launch, the agent named as
     # the console's address names it (`?agent=`).
@@ -236,15 +238,15 @@ def test_an_ehr_launch_opens_the_patients_view_with_a_server_side_session(
 
 def test_each_launch_names_itself_and_the_window_it_opens(app: TestClient, ehr: FakeEhr) -> None:
     """The callback opens the window on `#patient/<launch_id>`, the session names the same
-    launch and the packs it may use, and a later launch in the same browser is another launch:
+    launch and the agents it may use, and a later launch in the same browser is another launch:
     the first window can tell it was replaced (dashboard/patient.js)."""
     first = full_launch(app, ehr)
     one = app.get("/api/smart/session").json()
     assert first.headers["location"].endswith(f"#patient/{one['launch_id']}")
     assert re.fullmatch(r"[0-9a-f]{16}", one["launch_id"])
-    listed = {pack["id"]: pack for pack in app.get("/api/agents").json()}
+    listed = {agent["id"]: agent for agent in app.get("/api/agents").json()}
     # With where each comes from, and the label for it.
-    assert one["packs"] == [
+    assert one["agents"] == [
         {
             "id": i,
             "name": p["name"],
@@ -270,7 +272,7 @@ def test_the_patient_banner_and_work_items_come_from_the_ehr(app: TestClient, eh
         "birthDate": "1959-04-20",
     }
     # The chart fixture decides about the patient: its one work item is the patient's record.
-    items = app.get("/api/smart/focus", params={"pack_id": CHART}).json()
+    items = app.get("/api/smart/focus", params={"agent_id": CHART}).json()
     assert [(i["ref"], i["title"]) for i in items] == [
         (f"Patient/{PATIENT}", "This patient's record")
     ]
@@ -342,7 +344,7 @@ def test_a_launch_on_another_name_moves_to_the_public_url_first(
     """The launch binding cookie is host-only and the callback comes back to MENDARI_PUBLIC_URL:
     a launch on another name begins again there, before anything is bound or written."""
     alias = TestClient(app.app, base_url="https://mendari-abc.vercel.app")
-    params = {"iss": ISS, "launch": "xyz", "pack": CHART}
+    params = {"iss": ISS, "launch": "xyz", "agent": CHART}
     moved = alias.get("/smart/launch", params=params, follow_redirects=False)
     assert moved.status_code == 302 and "set-cookie" not in moved.headers
     location = urlsplit(moved.headers["location"])
@@ -445,10 +447,10 @@ def test_a_work_item_about_another_patient_is_refused(app: TestClient, ehr: Fake
     full_launch(app, ehr)
     other = {**next(r for r in ehr.resources if r["resourceType"] == "Patient"), "id": "someone"}
     ehr.resources.append(other)
-    denied = app.post("/api/smart/decide", json={"pack_id": CHART, "focus": "Patient/someone"})
+    denied = app.post("/api/smart/decide", json={"agent_id": CHART, "focus": "Patient/someone"})
     assert denied.status_code == 403
     order = f"ServiceRequest/{PATIENT}-order"  # the patient's, but not what the agent decides
-    wrong = app.post("/api/smart/decide", json={"pack_id": CHART, "focus": order})
+    wrong = app.post("/api/smart/decide", json={"agent_id": CHART, "focus": order})
     assert wrong.status_code == 422
 
 
@@ -457,7 +459,7 @@ def test_a_focus_id_with_a_trailing_newline_is_refused(app: TestClient, ehr: Fak
     on into the decision's context with its newline."""
     full_launch(app, ehr)
     focus = f"Patient/{PATIENT}\n"
-    refused = app.post("/api/smart/decide", json={"pack_id": CHART, "focus": focus})
+    refused = app.post("/api/smart/decide", json={"agent_id": CHART, "focus": focus})
     assert refused.status_code == 422
 
 
@@ -471,7 +473,7 @@ def test_an_ehr_answer_of_the_wrong_shape_shows_less_never_a_500(
     ehr.resources = [{**r, **wrong.get(r["resourceType"], {})} for r in ehr.resources]
     patient = app.get("/api/smart/patient")
     assert patient.status_code == 200 and patient.json()["name"] is None
-    focus = app.get("/api/smart/focus", params={"pack_id": CHART})  # the patient's record
+    focus = app.get("/api/smart/focus", params={"agent_id": CHART})  # the patient's record
     assert focus.status_code == 200
     # An order of the wrong shape, as a work item of an agent that decides about orders.
     order = {"resourceType": "ServiceRequest", "id": "o1", "code": ["x"], "reasonCode": ["x"]}
@@ -534,7 +536,7 @@ TENANTS = "https://ehrs.example.org"  # one host, two tenants, two organizations
 TENANT_A = f"{TENANTS}/tenant-a/fhir"
 TENANT_B = f"{TENANTS}/tenant-b/fhir"
 REGISTERED = f"{TENANT_A}=clinic-a:decide,{TENANT_B}=clinic-b:decide"
-DECIDE_BODY = {"pack_id": CHART, "focus": f"Patient/{PATIENT}"}
+DECIDE_BODY = {"agent_id": CHART, "focus": f"Patient/{PATIENT}"}
 
 
 def tenant(iss: str) -> FakeEhr:
@@ -735,7 +737,7 @@ def test_a_view_level_launch_cannot_decide(
     app = signed_site(tmp_path / "a.db", monkeypatch, registered, a, b)
     assert full_launch(app, a).status_code == 302
     assert app.get("/api/smart/patient").status_code == 200
-    assert app.get("/api/smart/focus", params={"pack_id": CHART}).status_code == 200
+    assert app.get("/api/smart/focus", params={"agent_id": CHART}).status_code == 200
     a.requests.clear()
     refused = app.post("/api/smart/decide", json=DECIDE_BODY)
     assert refused.status_code == 403 and "to view, not to decide" in refused.text
@@ -899,7 +901,7 @@ def test_a_window_pinned_to_a_replaced_launch_reads_nothing(app: TestClient, ehr
     stale = {"x-mendari-launch": first}
     for answer in (
         app.get("/api/smart/patient", headers=stale),
-        app.get("/api/smart/focus", params={"pack_id": CHART}, headers=stale),
+        app.get("/api/smart/focus", params={"agent_id": CHART}, headers=stale),
         app.post("/api/smart/decide", json=DECIDE_BODY, headers=stale),
     ):
         assert answer.status_code == 409, answer.text
@@ -916,9 +918,9 @@ def test_a_launch_opens_the_dashboard_page_and_nothing_else(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tenants: tuple[FakeEhr, FakeEhr]
 ) -> None:
     """With sign-in on, the launch cookie lets the dashboard page load (no detour to sign in),
-    and is a credential on `/api/smart/` only: the store, packs and API reference stay shut.
+    and is a credential on `/api/smart/` only: the store, agents and API reference stay shut.
     What the dashboard's launch-only mode boots on answers: the session, with the launch's id
-    and the packs it may use, and who is signed in (no one)."""
+    and the agents it may use, and who is signed in (no one)."""
     a, b = tenants
     app = signed_site(tmp_path / "a.db", monkeypatch, REGISTERED, a, b)
     location = full_launch(app, a).headers["location"]
@@ -931,7 +933,7 @@ def test_a_launch_opens_the_dashboard_page_and_nothing_else(
         "origin_label": "Maintained by Mendari",
         "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
     }
-    assert chart in session["packs"]
+    assert chart in session["agents"]
     assert app.get("/", follow_redirects=False).status_code == 200
     for path in ("/api/audit", "/api/agents", "/api/review", "/openapi.json"):
         assert app.get(path).status_code == 401, path

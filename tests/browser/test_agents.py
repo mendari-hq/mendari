@@ -26,7 +26,7 @@ import httpx
 import pytest
 from playwright.sync_api import Browser, Dialog, Page, Route, expect
 
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.hub import archive
 from tests.browser.access_site import Site, dialog, memberships, person, running
 from tests.browser.test_accessibility import violations
@@ -53,12 +53,12 @@ class Adopting:
     tmp: Path
     token: str
     key: Any
-    agent: Pack
+    agent: Agent
 
-    def publish(self, version: str, key: Any = None) -> Pack:
-        pack = as_published(self.tmp, ACME, version)
-        self.hub.client(self.token).push(pack, key or self.key)
-        return pack
+    def publish(self, version: str, key: Any = None) -> Agent:
+        agent = as_published(self.tmp, ACME, version)
+        self.hub.client(self.token).push(agent, key or self.key)
+        return agent
 
     def window(self, sub: str, *roles: str, org: str = CLINIC_A, **options: Any) -> Page:
         """A browser of `sub`'s, a member of `org` with `roles` (axe may be injected in it)."""
@@ -107,15 +107,15 @@ def agents(page: Page, tab: str = "") -> None:
     expect(page.locator("#agents-body")).not_to_have_attribute("aria-busy", "true")
 
 
-def listing(page: Page, pack_id: str = ACME) -> None:
+def listing(page: Page, agent_id: str = ACME) -> None:
     page.goto("about:blank")
-    page.goto(f"/#agents/hub/{pack_id}")
+    page.goto(f"/#agents/hub/{agent_id}")
     expect(page.locator("#agents-body")).not_to_have_attribute("aria-busy", "true")
 
 
-def add(page: Page, pack_id: str = ACME) -> None:
+def add(page: Page, agent_id: str = ACME) -> None:
     """Add the listed version from its page, through the dialog."""
-    listing(page, pack_id)
+    listing(page, agent_id)
     page.get_by_role("button", name=re.compile(r"^Add version")).click()
     dialog(page).get_by_role("button", name="Add", exact=True).click()
 
@@ -124,10 +124,10 @@ def waiting(page: Page) -> Any:
     return page.locator("article[data-waiting]")
 
 
-def decide(world: Adopting, org: str, pack_id: str = ACME) -> httpx.Response:
+def decide(world: Adopting, org: str, agent_id: str = ACME) -> httpx.Response:
     with httpx.Client(base_url=world.site.base) as client:
         return client.post(
-            f"/api/agents/{pack_id}/decide",
+            f"/api/agents/{agent_id}/decide",
             json=REFILL,
             headers=world.headers(f"reviewer-{org}", "reviewer", org=org),
         )
@@ -138,7 +138,7 @@ def test_an_agent_is_found_added_evaluated_and_served_by_someone_else(world: Ado
     the version; Our agents shows it added and not in use, with the next step; the author
     evaluates it and is told someone else starts serving it; a governance member does; it is
     then in use, and the view says why a person still decides every case."""
-    author = world.window("aria", "pack_author", "viewer")
+    author = world.window("aria", "agent_author", "viewer")
     agents(author, "hub")
     card = author.locator(f'article[data-hub="{ACME}"]')
     expect(card.get_by_role("heading")).to_have_text("Portal Message Agent")
@@ -225,13 +225,13 @@ def test_an_agent_is_found_added_evaluated_and_served_by_someone_else(world: Ado
     # The agent picker now has it, and Open shows it in the other views.
     in_use.get_by_role("button", name="Open").click()
     expect(approver).to_have_url(re.compile(r"#overview$"))
-    expect(approver.locator("#pack-select")).to_have_value(ACME)
+    expect(approver.locator("#agent-select")).to_have_value(ACME)
 
 
 def test_whoever_added_it_is_told_someone_else_starts_serving_it(world: Adopting) -> None:
     """A person who is both author and governance adds and evaluates: no control starts
     serving it for them."""
-    both = world.window("dana", "pack_author", "governance")
+    both = world.window("dana", "agent_author", "governance")
     add(both)
     expect(both.locator("#hub-add-result")).to_contain_text("Added and verified.", timeout=30_000)
     agents(both)
@@ -271,7 +271,7 @@ def test_a_reader_reads_the_hub_and_is_told_who_may_add(world: Adopting) -> None
 def test_what_a_registry_says_is_shown_as_text(world: Adopting) -> None:
     """A registry (or a publisher) that answers markup in every field: nothing of it runs or
     becomes an element; it is read as the text it is."""
-    author = world.window("aria", "pack_author", "viewer")
+    author = world.window("aria", "agent_author", "viewer")
     alerts: list[str] = []
 
     def dismissed(shown: Dialog) -> None:
@@ -323,7 +323,7 @@ def test_a_changed_signing_key_asks_before_it_is_accepted(world: Adopting) -> No
     """The publisher signs a later version with a key the organization has not seen: the first
     dialog adds nothing and a second names both keys; cancelled, nothing is added; accepted,
     the version is."""
-    author = world.window("aria", "pack_author", "viewer")
+    author = world.window("aria", "agent_author", "viewer")
     add(author)
     expect(author.locator("#hub-add-result")).to_contain_text("Added and verified.", timeout=30_000)
     private, public = archive.generate_key()
@@ -343,7 +343,7 @@ def test_a_changed_signing_key_asks_before_it_is_accepted(world: Adopting) -> No
     expect(author.get_by_role("button", name="Add version 2.0.0…")).to_be_visible()
     with httpx.Client(base_url=world.site.base) as client:
         kept = client.get(
-            "/api/store/agents", headers=world.headers("aria", "pack_author", "viewer")
+            "/api/store/agents", headers=world.headers("aria", "agent_author", "viewer")
         ).json()
     assert [v["version"] for v in kept[0]["versions"]] == [world.agent.version]
 
@@ -354,7 +354,7 @@ def test_a_changed_signing_key_asks_before_it_is_accepted(world: Adopting) -> No
 
 
 def test_a_recalled_version_cannot_be_added_and_a_refusal_says_why(world: Adopting) -> None:
-    author = world.window("aria", "pack_author", "viewer")
+    author = world.window("aria", "agent_author", "viewer")
     listing(author)
     world.hub.client(world.token).yank(
         "acme", "portal-agent", world.agent.version, reason="misroutes refills",
@@ -379,7 +379,7 @@ def test_a_recalled_version_cannot_be_added_and_a_refusal_says_why(world: Adopti
 
 
 def test_the_view_works_from_the_keyboard_and_on_a_phone(world: Adopting) -> None:
-    author = world.window("aria", "pack_author", "viewer", viewport=PHONE)
+    author = world.window("aria", "agent_author", "viewer", viewport=PHONE)
     agents(author, "hub")
     assert author.evaluate("document.documentElement.scrollWidth") <= PHONE["width"]
     search = author.get_by_label("Search the agent registry")
@@ -427,7 +427,7 @@ def test_without_a_registry_the_hub_says_so_and_our_agents_lists_what_is_served(
 
 
 def test_a_registry_that_does_not_answer_is_said_in_plain_words(world: Adopting) -> None:
-    author = world.window("aria", "pack_author", "viewer")
+    author = world.window("aria", "agent_author", "viewer")
     author.route(
         re.compile(r".*/api/hub/search.*"),
         lambda route: route.fulfill(

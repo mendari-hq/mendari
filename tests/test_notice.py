@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import Decision, Pack, notices
+from mendari import Agent, Decision, notices
 from mendari.core.audit import AuditStore
 from mendari.core.card import render_card
 from mendari.core.registry import discover
@@ -24,7 +24,7 @@ from tests.support.platform import COMMUNICATION, PATIENT, TRIAGE
 
 INBOX = TRIAGE  # the agent these tests decide with
 REFILL = "Hi, I need a refill on my lisinopril. Thanks"
-REFERENCE = sorted((p for p in discover().packs if p.origin == "maintained"), key=lambda p: p.id)
+REFERENCE = sorted((p for p in discover().agents if p.origin == "maintained"), key=lambda p: p.id)
 
 
 @pytest.fixture
@@ -54,14 +54,14 @@ def test_the_hub_says_the_same_words() -> None:
     assert notices.NOTICE in (ROOT / "hub" / "app" / "layout.tsx").read_text()
 
 
-@pytest.mark.parametrize("pack", REFERENCE, ids=lambda p: p.id)
-def test_every_decision_card_carries_it(pack: Pack) -> None:
-    for card in (render_card(pack), (pack.root / "DECISION_CARD.md").read_text()):
+@pytest.mark.parametrize("agent", REFERENCE, ids=lambda p: p.id)
+def test_every_decision_card_carries_it(agent: Agent) -> None:
+    for card in (render_card(agent), (agent.root / "DECISION_CARD.md").read_text()):
         assert card.splitlines()[4] == f"*{notices.NOTICE}*"
 
 
 def test_cds_hooks_carry_it(triage: Decision) -> None:
-    service = cds_hooks.discovery([triage.pack])["services"][0]
+    service = cds_hooks.discovery([triage.agent])["services"][0]
     assert notices.NOTICE in service["usageRequirements"]
     response = cds_hooks.invoke(
         triage,

@@ -9,8 +9,8 @@ only, or an encrypted input without a reader, is counted as skipped, as the rati
 counts it (`evals/feedback.py`).
 
 These are patients' inputs wherever the server holds real data. The dataset is kept in the
-organization's pack store, sealed under the PHI policy, offered to a draft as proposed behaviour
-tests that stay beside it (never written into a pack's files), and may be a job's dataset. It is
+organization's agent store, sealed under the PHI policy, offered to a draft as proposed behaviour
+tests that stay beside it (never written into an agent's files), and may be a job's dataset. It is
 never downloadable: no route returns its cases, no export, registry or site report carries it.
 """
 
@@ -42,18 +42,18 @@ def corrections_dataset(
     store: AuditStore,
     *,
     org: str,
-    pack_ids: Iterable[str],
+    agent_ids: Iterable[str],
     limit: int = 1000,
     reader: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    """(records, skipped) of `org`'s decisions of these packs that a reviewer resolved, newest
+    """(records, skipped) of `org`'s decisions of these agents that a reviewer resolved, newest
     first, `limit` in all. Each read of a kept input is chained for `reader` (as every read of
     one is). Never another organization's: the read acts for `org`."""
     records: list[dict[str, Any]] = []
     skipped = 0
     with tenancy.acting_for(org):
-        for pack_id in dict.fromkeys(pack_ids):
-            for item in store.labelled(pack_id=pack_id, limit=limit, reader=reader):
+        for agent_id in dict.fromkeys(agent_ids):
+            for item in store.labelled(agent_id=agent_id, limit=limit, reader=reader):
                 if item.get("final_label") is None:
                     continue  # an outcome alone is not a reviewer's correction
                 record = item["record"]
@@ -61,7 +61,7 @@ def corrections_dataset(
                 if record.get("input") is None or not isinstance(primary, str):
                     skipped += 1
                     continue
-                pack = record.get("pack") or {}
+                agent = record.get("agent") or {}
                 records.append(
                     {
                         "id": str(item["id"]),
@@ -73,7 +73,7 @@ def corrections_dataset(
                                 "reviewer": _reviewer(item.get("reviewer")),
                                 "at": item.get("resolved_at"),
                                 "overrode": bool(item.get("human_override")),
-                                "digest": pack.get("digest"),
+                                "digest": agent.get("digest"),
                             }
                         },
                     }

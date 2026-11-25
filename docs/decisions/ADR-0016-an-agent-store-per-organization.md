@@ -3,7 +3,7 @@
 ## Status
 Proposed (2026-11-10, LP-20a). Built in steps 20b to 20j (`notes/lp20-plan.md`, 2026-11-16),
 off unless `MENDARI_AGENT_STORE=on`; it stays Proposed until the owner confirms the decisions
-the plan lists, each built to its default. When it is accepted it gives the reserved `pack_author` role
+the plan lists, each built to its default. When it is accepted it gives the reserved `agent_author` role
 of [ADR-0008](ADR-0008-accounts-and-memberships.md) its permission, adds the origin `store` that
 [ADR-0009](ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md) names, and makes
 true [ADR-0004](ADR-0004-machine-access-tokens-and-scopes.md)'s line that a credential never
@@ -16,7 +16,7 @@ A server reads its agents from the file system once, at start-up, and every orga
 served the same ones. So:
 - An organization cannot bring an agent of its own to a hosted server, or change one, without the
   operator installing files.
-- Nobody has permission to write an agent. The `pack_author` role is reserved and grants nothing.
+- Nobody has permission to write an agent. The `agent_author` role is reserved and grants nothing.
 - Nothing checks a dataset beyond its shape, nothing looks for patient identifiers in what is
   uploaded, and nothing compares an upload with the hidden evaluation sets
   ([ADR-0011](ADR-0011-hidden-evaluation-sets.md)), whose index was built for that check.
@@ -58,7 +58,7 @@ The pieces the store needs exist: the bounded engine for agents the deployment d
    case ids are readable by the operator's command alone. Uploads are budgeted, because a held
    answer is still one bit. A deployment with no index key holds no hidden case and records the
    check as not applicable.
-8. **Authors are people who hold `pack_author`.** They upload an archive signed by a key their
+8. **Authors are people who hold `agent_author`.** They upload an archive signed by a key their
    organization registered, or copy an agent the deployment serves, then edit, validate and test a
    draft. A draft never answers a decide request.
 9. **An evaluation is a stored job** that advances in slices a caller asks for, with no worker

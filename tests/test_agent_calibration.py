@@ -23,12 +23,12 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from scipy.optimize import minimize_scalar
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core.card import render_card
 from mendari.core.policy import GovernanceOverride
 from mendari.core.spec import Outcome
-from mendari.errors import MendariError, PackValidationError
+from mendari.errors import AgentValidationError, MendariError
 from mendari.evals.harness import evaluation, load_dataset
 from mendari.evals.render import report_text
 from mendari.mcp import McpServer
@@ -46,9 +46,9 @@ from mendari.providers.calibration import (
 from mendari.server.app import create_app
 from tests.conftest import TRIAGE_DIR
 from tests.support.confidence_agents import (
-    AGENT_ID,
     LABELS,
     REFILL,
+    SERVICE_ID,
     VERSION,
     Simulated,
     answer,
@@ -172,7 +172,7 @@ TEMPERATURE = st.floats(min_value=0.25, max_value=200.0, allow_nan=False)
 
 @cache
 def triage_manifest() -> Any:
-    return load_pack(TRIAGE_DIR).manifest  # any question with three labels or more will do
+    return load_agent(TRIAGE_DIR).manifest  # any question with three labels or more will do
 
 
 @settings(max_examples=300, deadline=None)
@@ -202,12 +202,21 @@ def test_a_calibrated_answer_is_the_answer_the_agent_gave(weights: list[float], 
     top = max(stated, key=lambda label: stated[label])
     info = ProviderInfo("router", "agent", "agent")
     said = Answer("destination", top, stated[top], stated, info)
-    output = ProviderOutput(answers={"destination": said}, extra={"agent_version": VERSION})
+    output = ProviderOutput(answers={"destination": said}, extra={"service_version": VERSION})
     calibration = fitted.Calibration(
-        AGENT_ID, VERSION, None, {"destination": t}, {}, {}, "calibration", None, 400, "2026-11-24"
+        SERVICE_ID,
+        VERSION,
+        None,
+        {"destination": t},
+        {},
+        {},
+        "calibration",
+        None,
+        400,
+        "2026-11-24",
     )
     questions = {"destination": manifest.questions["destination"]}
-    found = fitted.calibrated(calibration, output, questions, AGENT_ID).answers["destination"]
+    found = fitted.calibrated(calibration, output, questions, SERVICE_ID).answers["destination"]
     assert found.label == top
     assert found.confidence == found.probabilities[top] == max(found.probabilities.values())
     assert set(found.probabilities) == set(stated)
@@ -231,7 +240,7 @@ def a_fit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service: Any, n: int 
     simulated = service if isinstance(service, Simulated) else Simulated()
     records = simulated.cases("cal", n, seed=1)
     serve(monkeypatch, service)
-    provider = build_provider(load_pack(root), "reader", "agent")
+    provider = build_provider(load_agent(root), "reader", "agent")
     assert isinstance(provider, AgentProvider)
     return fitted.fit(provider, records, dataset="calibration", sha256="ab" * 32, date="2026-11-24")
 
@@ -242,7 +251,7 @@ def test_an_agent_is_fitted_on_its_own_confidence_for_the_version_it_reports(
     simulated = Simulated(temperature=2.5)
     found = a_fit(tmp_path, monkeypatch, simulated)
     assert found["format"] == "mendari.agent-calibration/1"
-    assert found["agent"] == {"id": AGENT_ID, "version": VERSION, "model": None}
+    assert found["service"] == {"id": SERVICE_ID, "version": VERSION, "model": None}
     assert found["fitted_on"] == {
         "dataset": "calibration",
         "sha256": "ab" * 32,
@@ -275,7 +284,7 @@ def test_a_question_with_too_few_cases_is_not_fitted(
 
 def test_canned_answers_are_not_fitted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(ENDPOINT_ENV, raising=False)
-    provider = build_provider(load_pack(scaffold(tmp_path)), "reader", "agent")
+    provider = build_provider(load_agent(scaffold(tmp_path)), "reader", "agent")
     assert isinstance(provider, AgentProvider)
     with pytest.raises(MendariError, match="canned examples"):
         fitted.fit(provider, Simulated().cases("cal", 200, 1), dataset="c", sha256="", date="d")
@@ -284,7 +293,7 @@ def test_canned_answers_are_not_fitted(tmp_path: Path, monkeypatch: pytest.Monke
 def test_a_service_that_reports_no_version_is_not_fitted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with pytest.raises(MendariError, match="reports no agent_version"):
+    with pytest.raises(MendariError, match="reports no service_version"):
         a_fit(tmp_path, monkeypatch, lambda body: answer(version=None))
 
 
@@ -334,13 +343,13 @@ def test_mendari_calibrate_writes_the_agents_calibration(
     assert written["fitted_on"]["dataset"] == "calibration"
     assert written["fitted_on"]["sha256"] == dataset.sha256
     assert written["fitted_on"]["cases"] == 400
-    assert written["agent"]["version"] == VERSION
+    assert written["service"]["version"] == VERSION
     # The file is one of the agent's: its digest covers it, so a signature does.
-    before = load_pack(root).digest
+    before = load_agent(root).digest
     (root / "models" / "reader-agent-calibration.json").write_text(
         json.dumps({**written, "temperatures": {"request": 1.0}})
     )
-    assert load_pack(root).digest != before
+    assert load_agent(root).digest != before
 
 
 def test_mendari_calibrate_says_when_it_is_given_an_evaluation_set(
@@ -388,7 +397,7 @@ def test_nothing_is_written_when_no_question_has_the_cases(
     ("content", "problem"),
     [
         ({"format": "mendari.llm-calibration/1"}, "not an agent calibration file"),
-        ({"agent": {"id": AGENT_ID}}, "does not say which agent version it is for"),
+        ({"service": {"id": SERVICE_ID}}, "does not say which service version it is for"),
         ({"temperatures": {"request": 0}}, "temperatures are not positive numbers"),
         ({"temperatures": {"request": "hot"}}, "temperatures are not positive numbers"),
         ({"fitted_on": {"dataset": "calibration"}}, "does not say what it was fitted on"),
@@ -400,18 +409,18 @@ def test_a_file_that_is_not_a_calibration_is_refused(
     root = calibrated_agent(tmp_path, {"request": 2.0})
     path = root / "models" / "reader-agent-calibration.json"
     path.write_text(json.dumps({**json.loads(path.read_text()), **content}))
-    pack = load_pack(root)  # the deployment's own agent loads, and says so
-    assert any(problem in warning for warning in pack.warnings)
-    with pytest.raises(PackValidationError, match=problem):
-        build_provider(pack, "reader", "agent")
+    agent = load_agent(root)  # the deployment's own agent loads, and says so
+    assert any(problem in warning for warning in agent.warnings)
+    with pytest.raises(AgentValidationError, match=problem):
+        build_provider(agent, "reader", "agent")
 
 
 def test_no_key_of_a_manifest_switches_the_version_cap_off(tmp_path: Path) -> None:
     """The variant's config is closed: a key that would name the cap is not one it reads, and
     a variant that sets one does not run."""
     root = calibrated_agent(tmp_path, {"request": 2.0}, version_cap=False)
-    with pytest.raises(PackValidationError, match="version_cap"):
-        build_provider(load_pack(root), "reader", "agent")
+    with pytest.raises(AgentValidationError, match="version_cap"):
+        build_provider(load_agent(root), "reader", "agent")
     assert AgentConfig.model_config["extra"] == "forbid"
     about_it = [name for name in AgentConfig.model_fields if "calibrat" in name or "cap" in name]
     assert about_it == ["calibration"]  # the file, and nothing that says how it is enforced
@@ -421,7 +430,7 @@ def test_no_key_of_a_manifest_switches_the_version_cap_off(tmp_path: Path) -> No
 
 
 def decide(root: Path, **kwargs: Any) -> Any:
-    return Decision(load_pack(root), **kwargs)(REFILL)
+    return Decision(load_agent(root), **kwargs)(REFILL)
 
 
 def test_the_policy_sees_the_calibrated_confidence(
@@ -488,7 +497,7 @@ def test_another_version_is_capped_with_the_reason(
 
 
 def test_another_agent_id_is_capped_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = calibrated_agent(tmp_path, {"request": 1.2}, agent_id="another-agent")
+    root = calibrated_agent(tmp_path, {"request": 1.2}, service_id="another-agent")
     serve(monkeypatch, [answer("refill", 0.99)])
     result = decide(root)
     assert result.outcome is Outcome.HUMAN_REVIEW
@@ -562,7 +571,7 @@ def triage_with_an_agent(agent_copy: Callable[..., Path]) -> Path:
         data["providers"]["router"]["use"] = "agent"
         data["providers"]["router"]["variants"]["agent"] = {
             "type": "agent",
-            "agent_id": AGENT_ID,
+            "service_id": SERVICE_ID,
             "state_fields": ["message.subject", "message.body"],
             "calibration": "models/router-agent-calibration.json",
         }
@@ -578,7 +587,7 @@ def triage_with_an_agent(agent_copy: Callable[..., Path]) -> Path:
 def routed(body: dict[str, Any]) -> dict[str, Any]:
     return {
         "answers": {"destination": {"value": "pharmacy", "confidence": CALIBRATED_AT}},
-        "agent_version": VERSION,
+        "service_version": VERSION,
     }
 
 
@@ -598,25 +607,25 @@ def test_the_calibration_is_applied_on_every_path(
     root = triage_with_an_agent(agent_copy)
     serve(monkeypatch, routed)
     routine = {"message": {"body": "A synthetic question about a refill."}}
-    pack = load_pack(root)
+    agent = load_agent(root)
     # In Python, on JSON and on FHIR.
-    is_calibrated(Decision(pack)(routine).to_dict()["answers"]["destination"])
-    is_calibrated(Decision(pack).decide_fhir(BUNDLE)[0].to_dict()["answers"]["destination"])
+    is_calibrated(Decision(agent)(routine).to_dict()["answers"]["destination"])
+    is_calibrated(Decision(agent).decide_fhir(BUNDLE)[0].to_dict()["answers"]["destination"])
     # The server: REST, FHIR, and a CDS hook (its decision is in the audit trail).
     agents = tmp_path / "served"
     agents.mkdir()
     shutil.copytree(root, agents / "triage")
     db = tmp_path / "served.db"
-    client = TestClient(create_app(db_path=db, packs_paths=[agents]))
-    route = f"/api/agents/{pack.id}"
+    client = TestClient(create_app(db_path=db, agents_paths=[agents]))
+    route = f"/api/agents/{agent.id}"
     is_calibrated(client.post(f"{route}/decide", json=routine).json()["answers"]["destination"])
     over_fhir = client.post(f"{route}/fhir/decide", json=BUNDLE).json()
     is_calibrated(over_fhir["decision"]["answers"]["destination"])
-    hook = client.post(f"/cds-services/{pack.id.replace('/', '.')}", json=message_request())
+    hook = client.post(f"/cds-services/{agent.id.replace('/', '.')}", json=message_request())
     assert hook.status_code == 200
     (card,) = hook.json()["cards"]
     with AuditStore(db) as store:
-        records = store.query(pack_id=pack.id)
+        records = store.query(agent_id=agent.id)
         assert len(records) == 3 and card["uuid"] in {record["id"] for record in records}
         for record in records:
             kept = store.get(record["id"])
@@ -625,13 +634,13 @@ def test_the_calibration_is_applied_on_every_path(
     # An MCP tool.
     monkeypatch.setenv("MENDARI_AGENTS_PATH", str(agents))
     with AuditStore(":memory:") as store:
-        params = {"name": "decide", "arguments": {"agent": pack.id, "input": routine}}
+        params = {"name": "decide", "arguments": {"agent": agent.id, "input": routine}}
         call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params}
         answered = McpServer(store).handle(call)
         assert answered is not None
         is_calibrated(answered["result"]["structuredContent"]["answers"]["destination"])
     # An evaluation: its ledger holds the calibrated confidence.
-    run = evaluation(Decision(pack, origin_cap=False), load_dataset(root / "data" / "test.jsonl"))
+    run = evaluation(Decision(agent, origin_cap=False), load_dataset(root / "data" / "test.jsonl"))
     for case in run.ledger.cases:
         _, predicted, confidence, _, _, _ = case["q"]["destination"]
         assert predicted == "pharmacy" and confidence < 0.9
@@ -644,15 +653,15 @@ def test_the_evaluation_reports_the_calibration_before_and_after(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root, simulated = a_calibrated_run(tmp_path, monkeypatch)
-    pack = load_pack(root)
+    agent = load_agent(root)
     dataset = load_dataset(root / "data" / "test.jsonl")
-    run = evaluation(Decision(pack, origin_cap=False), dataset)
+    run = evaluation(Decision(agent, origin_cap=False), dataset)
     block = run.report["run"]["calibration"]
     assert block["format"] == "mendari.calibration-report/1" and block["cases"] == 600
     (entry,) = block["variants"]
     assert (entry["slot"], entry["variant"], entry["status"]) == ("reader", "agent", "calibrated")
     assert entry["fitted"]["cases"] == 400 and entry["fitted"]["dataset"] == "calibration"
-    assert entry["fitted"]["agent"] == {"id": AGENT_ID, "version": VERSION}
+    assert entry["fitted"]["service"] == {"id": SERVICE_ID, "version": VERSION}
     assert entry["same_cases"] is False
     request = entry["questions"]["request"]
     assert request["n"] == 600 and request["rescaled"] == 600
@@ -705,8 +714,8 @@ def test_an_agent_with_no_calibration_says_not_calibrated(
     simulated = Simulated()
     simulated.write(root, "test", 120, seed=2)
     serve(monkeypatch, simulated)
-    pack = load_pack(root)
-    run = evaluation(Decision(pack, origin_cap=False), load_dataset(root / "data" / "test.jsonl"))
+    agent = load_agent(root)
+    run = evaluation(Decision(agent, origin_cap=False), load_dataset(root / "data" / "test.jsonl"))
     (entry,) = run.report["run"]["calibration"]["variants"]
     assert entry["status"] == "not_calibrated" and "fitted" not in entry
     assert "before" not in entry["questions"]["request"]
@@ -716,12 +725,12 @@ def test_an_agent_with_no_calibration_says_not_calibrated(
     assert main(["eval", str(root), "--dataset", "test", "--baseline", "none", "--markdown"]) == 0
     assert "| Confidence of `reader/agent` | `not calibrated` |" in capsys.readouterr().out
     # An agent with no model variant has no row at all.
-    rules = run_with(pack, {"reader": "rules"}, root)
+    rules = run_with(agent, {"reader": "rules"}, root)
     assert "calibration" not in rules["run"] and "Confidence" not in report_text(rules)
 
 
-def run_with(pack: Any, providers: dict[str, str], root: Path) -> dict[str, Any]:
-    decision = Decision(pack, providers=providers, origin_cap=False)
+def run_with(agent: Any, providers: dict[str, str], root: Path) -> dict[str, Any]:
+    decision = Decision(agent, providers=providers, origin_cap=False)
     return evaluation(decision, load_dataset(root / "data" / "test.jsonl")).report
 
 
@@ -731,7 +740,7 @@ def test_the_evaluation_counts_the_cases_of_a_changed_agent(
     root, simulated = a_calibrated_run(tmp_path, monkeypatch)
     simulated.version = "2.2.0"  # the service was upgraded after its calibration
     run = evaluation(
-        Decision(load_pack(root), origin_cap=False), load_dataset(root / "data" / "test.jsonl")
+        Decision(load_agent(root), origin_cap=False), load_dataset(root / "data" / "test.jsonl")
     )
     block = run.report["run"]["calibration"]
     assert block["agent_changed"] == 600
@@ -747,10 +756,10 @@ def test_the_evaluation_counts_the_cases_of_a_changed_agent(
 
 
 def test_the_card_says_whether_the_agents_confidence_is_calibrated(tmp_path: Path) -> None:
-    plain = render_card(load_pack(scaffold(tmp_path, "plain")))
+    plain = render_card(load_agent(scaffold(tmp_path, "plain")))
     assert "## Confidence\n\n- `reader` / `agent`: **not calibrated**." in plain
     assert plain.index("## Providers") < plain.index("## Confidence") < plain.index("## Validation")
-    card = render_card(load_pack(calibrated_agent(tmp_path, {"request": 2.0})))
+    card = render_card(load_agent(calibrated_agent(tmp_path, {"request": 2.0})))
     assert (
         "- `reader` / `agent`: confidence **calibrated** on 400 cases of `calibration` on "
         "2026-11-24, for `starter-portal-agent` version `2.1.0` (questions: `request`). When "
@@ -759,4 +768,4 @@ def test_the_card_says_whether_the_agents_confidence_is_calibrated(tmp_path: Pat
     ) in card
     # An agent with no agent variant (the synthetic sorter: rules and an llm) has no such
     # section.
-    assert "## Confidence" not in render_card(load_pack(sorter(tmp_path / "sorter")))
+    assert "## Confidence" not in render_card(load_agent(sorter(tmp_path / "sorter")))

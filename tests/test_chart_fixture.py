@@ -27,7 +27,7 @@ from unittest import mock
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core import clock, site_codes
 from mendari.core.spec import Outcome
@@ -147,17 +147,17 @@ def test_the_agent_validates_passes_its_tests_with_each_variant_and_evaluates(
         shown = capsys.readouterr().out
         assert "Dataset     test (n=120)" in shown
         assert "Critical follow_up=soon" in shown and "0 automated" in shown
-    pack = load_pack(CHART)
-    assert (pack.id, pack.manifest.spec_version, pack.manifest.risk.level) == (
+    agent = load_agent(CHART)
+    assert (agent.id, agent.manifest.spec_version, agent.manifest.risk.level) == (
         "mendari-test/chart-summary",
         "0.4",
         1,
     )
-    assert pack.warnings == ()
+    assert agent.warnings == ()
 
 
 def test_every_file_says_it_is_a_synthetic_test_fixture() -> None:
-    manifest = load_pack(CHART).manifest
+    manifest = load_agent(CHART).manifest
     for text in (manifest.summary, manifest.card.intended_use):
         assert "synthetic test fixture" in text.lower(), text
         assert "not clinically reviewed" in text.lower(), text
@@ -187,7 +187,7 @@ def test_each_label_comes_from_the_facts_and_every_outcome_is_reached(chart: Dec
             assert (labels["on_anticoagulant"] == "yes") == bool(codes(case) & anticoagulants)
             assert case.conditions  # every chart codes a condition
         assert dict(found) == plan, split
-    rules = Decision(chart.pack, providers={"reader": "rules"})
+    rules = Decision(chart.agent, providers={"reader": "rules"})
     outcomes = set()
     for case in records.cases("test"):
         canned, read = chart.decide(case.input()), rules.decide(case.input())
@@ -206,13 +206,13 @@ def test_a_copy_is_another_agent_with_the_mapping_a_test_gives_it(tmp_path: Path
     site = "https://site.example/fhir/CodeSystem/conditions"
     root = chart_fixture.chart_copy(tmp_path / "copy", systems=(site,))
     for origin in ("local", "hub"):
-        pack = load_pack(root, origin=origin)
-        assert (pack.id, pack.manifest.spec_version, pack.warnings) == (
+        agent = load_agent(root, origin=origin)
+        assert (agent.id, agent.manifest.spec_version, agent.warnings) == (
             chart_fixture.COPY_ID,
             "0.4",
             (),
         )
-    assert site in {use.url for use in load_pack(root).manifest.code_systems}
+    assert site in {use.url for use in load_agent(root).manifest.code_systems}
     changed = chart_fixture.chart_copy(
         tmp_path / "changed",
         {
@@ -224,19 +224,19 @@ def test_a_copy_is_another_agent_with_the_mapping_a_test_gives_it(tmp_path: Path
         },
         use="rules",
     )
-    pack = load_pack(changed)
-    mapping = FhirAdapter.for_pack(pack).mapping
+    agent = load_agent(changed)
+    mapping = FhirAdapter.for_agent(agent).mapping
     assert set(mapping.resources) == {"Patient", "DocumentReference"}
     assert set(mapping.fields) == {"patient.sex", "problems", "notes"}
     assert set(mapping.lists["conditions"].sources()["Condition"].fields) == {"text"}
     assert set(mapping.lists) == {"conditions", "medications"}
-    assert pack.manifest.providers["reader"].use == "rules"
-    twin = load_pack(chart_fixture.order_sign(tmp_path / "twin"))
+    assert agent.manifest.providers["reader"].use == "rules"
+    twin = load_agent(chart_fixture.order_sign(tmp_path / "twin"))
     assert (twin.id, twin.manifest.cds_hooks.hook if twin.manifest.cds_hooks else None) == (
         chart_fixture.ORDERS_ID,
         "order-sign",
     )
-    assert FhirAdapter.for_pack(twin).mapping.focus == "ServiceRequest"
+    assert FhirAdapter.for_agent(twin).mapping.focus == "ServiceRequest"
 
 
 # -- the records ---------------------------------------------------------------------------------
@@ -316,7 +316,7 @@ def test_every_record_reads_back_as_its_case_and_decides_as_it(chart: Decision) 
     """Through the agent's mapping, each case's record gives exactly the case's input (so a
     dataset line and its record decide alike), with the site's own codes beside the standard
     ones too: each coding is found by its system wherever it sits."""
-    adapter = FhirAdapter.for_pack(chart.pack)
+    adapter = FhirAdapter.for_agent(chart.agent)
     for case in [*every_case(), records.SHOWCASE]:
         for site in (None, "beside"):
             assert adapter.read(adapter.index(case.bundle(site=site))).value == case.input(), (
@@ -338,7 +338,7 @@ def test_a_coding_is_read_by_its_system_and_a_site_code_alone_by_the_first_codin
 ) -> None:
     """`[system=...]` finds the ICD-10-CM coding wherever it sits; a condition coded only in the
     site's own codes falls back to the first coding (`paths`), and its code set gives nothing."""
-    adapter = FhirAdapter.for_pack(chart.pack)
+    adapter = FhirAdapter.for_agent(chart.agent)
     case = Case("chart-reading-1", 70, "female", conditions=(Condition("I50.9", "2024-02-10"),))
     own = adapter.read(adapter.index(case.bundle())).value["conditions"]
     beside = adapter.read(adapter.index(case.bundle(site="beside"))).value["conditions"]
@@ -360,7 +360,7 @@ def test_a_requests_drug_is_followed_inside_the_record_and_its_period_derived(
     """A MedicationRequest's drug through a Medication beside it, one it contains, or its own
     concept; its period from its dosage bounds, a duration, or when it was written; and a
     statement's from its own period. The list reads both types, statements first."""
-    adapter = FhirAdapter.for_pack(chart.pack)
+    adapter = FhirAdapter.for_agent(chart.agent)
     medications = adapter.read(adapter.index(records.SHOWCASE.bundle())).value["medications"]
     assert [(m["code"], m["name"], m.get("start"), m.get("end")) for m in medications] == [
         ("6809", "metformin 500 mg tablet", "2021-02-01", None),  # a statement, ongoing
@@ -406,7 +406,7 @@ def test_the_note_is_read_as_text_and_an_rtf_note_abstains(chart: Decision) -> N
     """A note is read as plain text or HTML (a line a block), inline or in the Binary its url
     names; the rules read its words. A note the EHR keeps only as RTF cannot be read: the
     decision abstains, and says so by reason and format, never by its text."""
-    adapter = FhirAdapter.for_pack(chart.pack)
+    adapter = FhirAdapter.for_agent(chart.agent)
     sentences = ("Seen today.", "Follow-up within a week.", "Takes warfarin every day.")
     hypertension = (Condition("I10", "2016-07-07"),)
     forms: tuple[tuple[Form, str], ...] = (
@@ -418,7 +418,7 @@ def test_the_note_is_read_as_text_and_an_rtf_note_abstains(chart: Decision) -> N
         case = Case("chart-note-1", 60, "male", hypertension, notes=(Note(sentences, form),))
         read = adapter.read(adapter.index(case.bundle())).value["notes"]
         assert read == text == case.input()["notes"], form
-    rules = Decision(chart.pack, providers={"reader": "rules"})
+    rules = Decision(chart.agent, providers={"reader": "rules"})
     case = Case("chart-note-2", 60, "male", hypertension, notes=(Note(sentences, "html"),))
     read = rules.decide_fhir(case.bundle())[0]
     assert (read.recommendation, read.answers["on_anticoagulant"].label) == ("soon", "yes")
@@ -439,14 +439,14 @@ def test_a_site_code_is_translated_by_the_site_code_map_and_never_automated(
     map as without, and the decision records the map's version and digest."""
     case = Case("chart-site-1", 58, "male", (Condition("E11.9", "2018-05-02"),))
     maps = site_codes.parse(json.dumps(records.site_code_map()), signed_in=False)
-    mapped = Decision(chart.pack, site_codes=maps)
+    mapped = Decision(chart.agent, site_codes=maps)
     stamp = {"version": "chart-site-1", "sha256": maps.maps["default"].sha256}
     own, _ = mapped.decide_fhir(case.bundle())
     assert (own.outcome, own.recommendation, own.site_codes) == (Outcome.AUTO, "routine", stamp)
     translated, _ = mapped.decide_fhir(case.bundle(site="only"))
     assert (translated.outcome, translated.recommendation) == (Outcome.HUMAN_REVIEW, "routine")
     assert translated.reasons == ("confidence 0.95 >= auto threshold 0.90", SITE_REASON)
-    adapter = FhirAdapter.for_pack(chart.pack)
+    adapter = FhirAdapter.for_agent(chart.agent)
     indexed = adapter.index(case.bundle(site="only"))
     read = adapter.read(indexed, site_codes=maps.maps["default"].sets)
     assert read.translated == (records.CODE_SET,)
@@ -544,7 +544,7 @@ def test_the_order_sign_twin_decides_each_checked_order(tmp_path: Path) -> None:
     the code sits among the order's codings, with the patient's chart, and gives each a card;
     another order (a lab test) gets none. An order coded only in the site's own order code
     counts through the site's map alone, and its decision is never automated."""
-    twin = Decision(load_pack(chart_fixture.order_sign(tmp_path)))
+    twin = Decision(load_agent(chart_fixture.order_sign(tmp_path)))
     case = case_where(
         lambda c: (
             c.labels["follow_up"] == "routine"
@@ -569,12 +569,12 @@ def test_the_order_sign_twin_decides_each_checked_order(tmp_path: Path) -> None:
     assert result.outcome is Outcome.AUTO and task["focus"] == {
         "reference": f"ServiceRequest/{case.id}-order"
     }
-    adapter = FhirAdapter.for_pack(twin.pack)
+    adapter = FhirAdapter.for_agent(twin.agent)
     read = adapter.read(adapter.index(case.bundle(site="beside"))).value
     assert read["order"] == {"code": case.order, "text": records.ORDERS[case.order][1]}
     assert {key: read[key] for key in case.input()} == case.input()  # and the chart, as it is
     maps = site_codes.parse(json.dumps(records.site_code_map(orders=True)), signed_in=False)
-    only, _ = Decision(twin.pack, site_codes=maps).decide_fhir(case.bundle(site="only"))
+    only, _ = Decision(twin.agent, site_codes=maps).decide_fhir(case.bundle(site="only"))
     assert only.outcome is Outcome.HUMAN_REVIEW
     assert only.reasons[-1] == (
         f"site code translated ({records.ORDER_CODE_SET}, {records.CODE_SET}): a person decides"
@@ -586,7 +586,7 @@ def test_the_order_sign_twin_decides_each_checked_order(tmp_path: Path) -> None:
 def test_a_bulk_export_reads_as_the_dataset() -> None:
     """A patient-level Bulk export of the test cases' records (each resource by type, as NDJSON
     gives them), labelled by the dataset: each case's input and labels are the dataset's."""
-    adapter = FhirAdapter.for_pack(load_pack(CHART))
+    adapter = FhirAdapter.for_agent(load_agent(CHART))
     cases = records.cases("test")[:12]
     resources = [r for case in cases for r in case.resources()]
     labels = bulk.load_labels(records.AGENT / "data" / "test.jsonl")

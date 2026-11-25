@@ -24,26 +24,26 @@ from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption,
 
 from mendari.cli import main
 from mendari.core import checkpoint
+from mendari.core.agent import load_agent
 from mendari.core.origin import pulled_record
-from mendari.core.pack import load_pack
 from mendari.errors import HubError
 from mendari.hub import acceptance, yank
 from mendari.hub import client as client_module
 from mendari.hub import registry as registry_module
-from mendari.hub.client import RegistryClient, config_dir, packs_cache, pull
+from mendari.hub.client import RegistryClient, agents_cache, config_dir, pull
 from mendari.hub.registry import REVIEWER, RegistryStore
 from tests.conftest import FIXTURE_NAMESPACE, TRIAGE_DIR, Registry
 from tests.test_hub_client import (  # noqa: F401 - `hub` is the live registry fixture
     SHIPPED,
     HostileRegistry,
     Hub,
-    copy_pack,
+    copy_agent,
     hub,
 )
 from tests.test_registry_claims import Claimed
 
 # The agent `Registry.publish()` publishes, in the test fixtures' namespace.
-TRIAGE = load_pack(TRIAGE_DIR)
+TRIAGE = load_agent(TRIAGE_DIR)
 PATH = f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}"
 SUBJECT = f"{TRIAGE.id}@{TRIAGE.version}"
 NAMESPACE, NAME = TRIAGE.id.split("/")
@@ -114,7 +114,7 @@ def _record(registry: Registry, path: str = PATH) -> Any:
 
 
 def _cached() -> list[Path]:
-    return sorted(packs_cache().rglob("agent.yaml"))
+    return sorted(agents_cache().rglob("agent.yaml"))
 
 
 def _keys_file(path: Path, *keys: Ed25519PrivateKey) -> Path:
@@ -138,7 +138,7 @@ def test_an_accepted_version_carries_a_record_that_verifies(
     assert set(record) == {*acceptance.FIELDS, "signature"}
     assert {name: record[name] for name in acceptance.FIELDS} == {
         "format": "mendari.registry-acceptance/1",
-        "pack": TRIAGE.id,
+        "agent": TRIAGE.id,
         "version": TRIAGE.version,
         "digest": TRIAGE.digest,
         "archive_sha256": version["archive_sha256"],
@@ -155,7 +155,7 @@ def test_an_accepted_version_carries_a_record_that_verifies(
     assert found["checked"]["accepted"] == record
     # Chained after the publish, with the row's hash and no signature bytes of its own.
     last = _events(db_target)[-2:]
-    assert [e["event"] for e in last] == ["pack.published", "pack.accepted"]
+    assert [e["event"] for e in last] == ["agent.published", "agent.accepted"]
     payload = json.loads(last[1]["payload"])
     assert last[1]["subject"] == SUBJECT and payload["row"]["kind"] == "acceptances"
     assert (payload["digest"], payload["key_id"]) == (TRIAGE.digest, own["key_id"])
@@ -217,7 +217,7 @@ def test_a_version_planted_in_the_database_has_no_record_and_is_not_pulled(
 @pytest.mark.parametrize(
     ("field", "other", "problem"),
     [
-        ("pack", "mendari/another", "it names another agent"),
+        ("agent", "mendari/another", "it names another agent"),
         ("version", "9.9.9", "it names another version"),
         ("digest", "sha256:" + "1" * 64, "it names another digest"),
         ("archive_sha256", "2" * 64, "it names another archive sha256"),
@@ -293,22 +293,22 @@ def test_a_pending_version_is_signed_at_approval_and_a_refused_one_never(
     assert acme.publish()["checked"]["accepted"] is None  # pending: not listed, not signed
     assert acme.publish("9.9.9")["checked"]["accepted"] is None
     assert registry.client.get(path, headers=own).json()["checked"]["accepted"] is None
-    assert "pack.accepted" not in [e["event"] for e in _events(db_target)]
+    assert "agent.accepted" not in [e["event"] for e in _events(db_target)]
     with RegistryStore(db_target) as store:  # the backfill signs listed versions only
         assert store.countersign(by="operator") == NOTHING_SIGNED
         store.decide_claim("acme", approve=True, by="user:77aa")
     events = _events(db_target)[-3:]
     assert [(e["event"], e["subject"]) for e in events] == [
         ("namespace.approved", "namespace:acme"),
-        ("pack.accepted", f"acme/inbox@{SHIPPED}"),
-        ("pack.accepted", "acme/inbox@9.9.9"),
+        ("agent.accepted", f"acme/inbox@{SHIPPED}"),
+        ("agent.accepted", "acme/inbox@9.9.9"),
     ]
     assert json.loads(events[1]["payload"])["by"] == "user:77aa"
     key_id = yank.registry_public(_key())["key_id"]
     for version in (SHIPPED, "9.9.9"):
         record = _record(registry, f"/v1/agents/acme/inbox/{version}")
         assert acceptance.problem(record, _key().public_key(), key_id) is None
-        assert (record["pack"], record["version"]) == ("acme/inbox", version)
+        assert (record["agent"], record["version"]) == ("acme/inbox", version)
     with _client(registry) as client:
         assert pulled_record(pull(f"acme/inbox@{SHIPPED}", client).root)["accepted"] is True
     # Listed from then: a later version is signed as it is published.
@@ -320,7 +320,7 @@ def test_a_pending_version_is_signed_at_approval_and_a_refused_one_never(
         store.decide_claim("zeta", approve=False, by="user:77aa")
         assert store.countersign(by="operator") == NOTHING_SIGNED
         assert store.version("zeta", "inbox", SHIPPED, REVIEWER)["checked"]["accepted"] is None
-    assert [e["subject"] for e in _events(db_target) if e["event"] == "pack.accepted"] == [
+    assert [e["subject"] for e in _events(db_target) if e["event"] == "agent.accepted"] == [
         f"acme/inbox@{SHIPPED}",
         "acme/inbox@9.9.9",
         "acme/inbox@9.9.10",
@@ -432,14 +432,14 @@ def test_without_a_key_pull_works_and_says_not_counter_signed(
 ) -> None:
     _keyed(monkeypatch, None)
     token, key = hub.namespace("site-a")
-    hub.client(token).push(copy_pack(tmp_path, "site-a/inbox"), key)
+    hub.client(token).push(copy_agent(tmp_path, "site-a/inbox"), key)
     meta = hub.client().version("site-a", "inbox")
     assert meta["checked"]["accepted"] is None
     assert main(["pull", "site-a/inbox", "--registry", hub.url]) == 0
     out = capsys.readouterr().out
     assert "verified and cached" in out
     assert "not counter-signed: this registry publishes no signing key" in out
-    marker = pulled_record(packs_cache() / "site-a" / "inbox" / SHIPPED)
+    marker = pulled_record(agents_cache() / "site-a" / "inbox" / SHIPPED)
     assert "accepted" in marker and marker["accepted"] is None
     assert "@registry" not in json.dumps(
         json.loads((config_dir() / "trusted_keys.json").read_text())
@@ -459,7 +459,7 @@ def test_without_a_key_pull_works_and_says_not_counter_signed(
     assert (
         "counter-signed by the registry: its record names this version" in capsys.readouterr().out
     )
-    assert pulled_record(packs_cache() / "site-a" / "inbox" / SHIPPED)["accepted"] is True
+    assert pulled_record(agents_cache() / "site-a" / "inbox" / SHIPPED)["accepted"] is True
 
 
 def test_countersign_signs_what_was_published_before_and_twice_changes_nothing(
@@ -472,9 +472,9 @@ def test_countersign_signs_what_was_published_before_and_twice_changes_nothing(
     _keyed(monkeypatch, None)
     assert registry.publish().status_code == 201  # published while the registry had no key
     assert registry.publish(version="9.9.9").status_code == 422  # (the archive names its version)
-    inbox = copy_pack(tmp_path, f"{FIXTURE_NAMESPACE}/inbox")
+    inbox = copy_agent(tmp_path, f"{FIXTURE_NAMESPACE}/inbox")
     assert registry.publish(inbox).status_code == 201
-    gone = copy_pack(tmp_path, f"{FIXTURE_NAMESPACE}/gone")
+    gone = copy_agent(tmp_path, f"{FIXTURE_NAMESPACE}/gone")
     assert registry.publish(gone).status_code == 201
     deleted = registry.operator.delete(
         FIXTURE_NAMESPACE, "gone", SHIPPED, reason="the archive carried a file it must not",
@@ -501,8 +501,8 @@ def test_countersign_signs_what_was_published_before_and_twice_changes_nothing(
     }
     signed = _events(db_target)
     assert [(e["event"], e["subject"]) for e in signed[len(before) :]] == [
-        ("pack.accepted", f"{FIXTURE_NAMESPACE}/inbox@{SHIPPED}"),
-        ("pack.accepted", SUBJECT),
+        ("agent.accepted", f"{FIXTURE_NAMESPACE}/inbox@{SHIPPED}"),
+        ("agent.accepted", SUBJECT),
     ]
     assert json.loads(signed[-1]["payload"])["by"]  # who ran it, on the chain
     record = _record(registry)
@@ -560,7 +560,7 @@ def test_countersign_refuses_a_broken_chain_and_never_signs_a_planted_version(
     """The backfill signs after the fact, so it is the one place a row the registry never
     accepted could gain its signature. It refuses a chain that does not verify; and where the
     chain was rewritten to hide the row, it still signs no version whose stored archive is not
-    signed by a key of its namespace, for this pack, version and digest."""
+    signed by a key of its namespace, for this agent, version and digest."""
     _keyed(monkeypatch, None)
     assert registry.publish().status_code == 201
     _plant(db_target, FIXTURE_NAMESPACE)
@@ -590,7 +590,7 @@ def test_countersign_refuses_a_broken_chain_and_never_signs_a_planted_version(
     with _client(registry) as client, pytest.raises(HubError, match="is not counter-signed"):
         pull(f"{TRIAGE.id}@9.9.9", client)
     # Each other way a stored version is not one the registry accepted, by what the check says.
-    other = HostileRegistry(tmp_path)  # a real archive of the pack, signed by nobody's key here
+    other = HostileRegistry(tmp_path)  # a real archive of the agent, signed by nobody's key here
     sha = hashlib.sha256(other.data).hexdigest()
     with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
         row = db.one("SELECT * FROM hub_versions WHERE version = ?", (TRIAGE.version,))
@@ -623,7 +623,7 @@ def test_approval_never_signs_a_version_planted_while_the_claim_was_pending(
     _plant(db_target, "acme")
     with RegistryStore(db_target) as store:
         store.decide_claim("acme", approve=True, by="user:77aa")
-    assert [e["subject"] for e in _events(db_target) if e["event"] == "pack.accepted"] == [
+    assert [e["subject"] for e in _events(db_target) if e["event"] == "agent.accepted"] == [
         f"acme/inbox@{SHIPPED}"
     ]
     assert _record(registry, f"/v1/agents/acme/inbox/{SHIPPED}") is not None
@@ -677,7 +677,7 @@ def test_a_pin_file_that_cannot_be_read_is_refused_and_is_written_whole(
     assert sorted(path.name for path in pins.parent.iterdir()) == ["trusted_keys.json"]  # no scrap
     whole = pins.read_text()
     _keyed(monkeypatch, None)  # the registry shows no key: with the pins lost, an unsigned pull
-    shutil.rmtree(packs_cache())
+    shutil.rmtree(agents_cache())
     for broken in (whole[: len(whole) // 2], "", "[]", '{"https://registry.example": []}', "\xff"):
         pins.write_text(broken)
         with _client(registry) as client, pytest.raises(HubError, match="cannot be read") as lost:
@@ -716,7 +716,7 @@ def test_one_registry_has_one_pin_however_its_address_is_typed(
     with _client(registry) as client:
         pull(TRIAGE.id, client)  # pinned as https://registry.example
     assert list(json.loads((config_dir() / "trusted_keys.json").read_text())) == [URL]
-    shutil.rmtree(packs_cache())
+    shutil.rmtree(agents_cache())
     _keyed(monkeypatch, OTHER_SEED)  # another key, shown at the same registry typed another way
     with _client(registry, url=typed) as client, pytest.raises(HubError, match="not the one this"):
         pull(TRIAGE.id, client)
@@ -761,7 +761,7 @@ def test_a_machine_can_require_the_counter_signature(
     with _client(registry) as client:
         assert pulled_record(pull(TRIAGE.id, client).root)["accepted"] is None
     # The registry gets its key and counter-signs. `required` takes it, pinned on first use.
-    shutil.rmtree(packs_cache())
+    shutil.rmtree(agents_cache())
     _keyed(monkeypatch)
     with RegistryStore(db_target) as store:
         assert store.countersign(by="operator")["signed"] == [SUBJECT]

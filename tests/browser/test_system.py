@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 from playwright.sync_api import Browser, Page, Route, expect
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari import alerts as alerts_module
 from mendari.core import tenancy
 from mendari.server import smart_check
@@ -56,7 +56,7 @@ def deployment(
     monkeypatch.setenv("MENDARI_OPERATOR_ORG", "clinic-a")
     for name, value in settings.items():
         monkeypatch.setenv(name, value)
-    app = create_app(db_path=db, packs_paths=[ROOT / "agents"])
+    app = create_app(db_path=db, agents_paths=[ROOT / "agents"])
     with encrypted_store(db) as store, serving(app) as port:
         site = Site(f"http://localhost:{port}", store, browser)
         try:
@@ -69,7 +69,7 @@ def deployment(
 def decide(site: Site) -> str:
     """One decision by the demo agent, its input kept sealed: the deployment is new no more."""
     with tenancy.acting_for("clinic-a"):
-        decided = Decision(load_pack(DEMO_AGENT_DIR), store=site.store)(
+        decided = Decision(load_agent(DEMO_AGENT_DIR), store=site.store)(
             message("Please refill my usual prescription.")
         )
     return str(decided.id)
@@ -147,7 +147,7 @@ def test_a_new_deployments_operator_opens_on_finish_setting_up(
         page.locator('.nav a[data-view="audit"]').click()
         expect(page.locator("#audit-table")).to_be_visible()
         page.locator('.nav a[data-view="overview"]').click()
-        expect(page.locator(".pack-hero h1")).to_be_visible()
+        expect(page.locator(".agent-hero h1")).to_be_visible()
         assert [url for url in asked if "/api/stats" in url]  # the overview was read again
         assert not [url for url in asked if "/api/system/checks" in url]
 
@@ -164,7 +164,7 @@ def test_the_panel_ends_at_the_agents_view_where_the_console_has_one(
             """window.addEventListener("DOMContentLoaded", async () => {
               const { views } = await import("/static/router.js");
               views.agents = async (main) => { main.innerHTML = "<h1>Agents</h1>"; };
-              views.agents.packless = true;
+              views.agents.agentless = true;
             });"""
         )
         page.goto("/")
@@ -283,7 +283,7 @@ def test_holding_all_automation_asks_first_takes_a_reason_and_is_lifted_the_same
         expect(held).to_contain_text("Set by lead@example.org")
         expect(page.locator("#system-automation")).not_to_contain_text("Hold all automation…")
         (hold,) = site.store.holds("clinic-a")
-        assert (hold["org"], hold["pack_id"], hold["reason"]) == (
+        assert (hold["org"], hold["agent_id"], hold["reason"]) == (
             "clinic-a",
             None,
             "investigating a missed emergency",
@@ -313,7 +313,11 @@ def test_a_hold_set_for_the_whole_deployment_says_where_it_is_lifted(
     be refused."""
     with deployment(browser, tmp_path / "mendari.db", monkeypatch) as site:
         hold = site.store.hold_automation(
-            org=None, pack_id=None, pack_digest=None, reason="restored from a backup", set_by="ops"
+            org=None,
+            agent_id=None,
+            agent_digest=None,
+            reason="restored from a backup",
+            set_by="ops",
         )
         page = site.window(lead(site))
         system(page)
@@ -499,11 +503,11 @@ def test_only_the_deployments_operators_have_the_system_view_and_the_panel(
             page = site.window(headers)
             asked = requests_of(page)
             page.goto("/")
-            expect(page.locator(".pack-hero h1")).to_be_visible()
+            expect(page.locator(".agent-hero h1")).to_be_visible()
             expect(page.locator("#setup")).to_have_count(0)
             expect(page.locator('.nav a[data-view="system"]')).to_be_hidden()
             page.goto("/#system")  # typed by hand: the overview, and nothing asked
-            expect(page.locator(".pack-hero h1")).to_be_visible()
+            expect(page.locator(".agent-hero h1")).to_be_visible()
             expect(page.locator("main h1")).not_to_have_text("System")
             assert not [url for url in asked if "/api/system/" in url], who
             # The whole chain's verification stays the operator's too.
@@ -526,7 +530,7 @@ def test_the_system_view_and_the_first_run_panel_pass_axe(
 ) -> None:
     with deployment(browser, tmp_path / "mendari.db", monkeypatch) as site:
         site.store.hold_automation(
-            org="clinic-a", pack_id=None, pack_digest=None, reason="a drill", set_by="lead"
+            org="clinic-a", agent_id=None, agent_digest=None, reason="a drill", set_by="lead"
         )
         page = site.window(lead(site), bypass_csp=True, color_scheme=scheme)
         page.route("**/api/system/checks", recalled)

@@ -5,7 +5,7 @@ Configuration comes from the environment:
 - `DATABASE_URL`: pooled Postgres URL (injected by the Neon integration). Required on Vercel:
   functions have no persistent disk, and an audit trail that silently disappears is worse
   than none. `DATABASE_URL_UNPOOLED` (direct) is used for schema setup when present.
-- `MENDARI_PROVIDERS`: provider variants, e.g. `reader=rules`, or scoped to one pack,
+- `MENDARI_PROVIDERS`: provider variants, e.g. `reader=rules`, or scoped to one agent,
   e.g. `mendari/portal-message-agent:reader=rules`. A setting that names a slot or
   variant an agent does not have is skipped and reported in `/api/health`.
 - `MENDARI_LLM_DAILY_LIMIT`: the daily call budget (`none`: no limit).
@@ -42,7 +42,7 @@ Configuration comes from the environment:
   (`/api/internal/monitor`) and the checkpoint at 10:00 (`/api/internal/checkpoint`);
   `MENDARI_RETENTION_DAYS` (default 30); `MENDARI_STATUS_ORG` is the organization the monitor
   leaves out (the status checks').
-- `MENDARI_REGISTRY`: `on` serves the pack registry under this app, on its database, at
+- `MENDARI_REGISTRY`: `on` serves the agent registry under this app, on its database, at
   `/registry/v1/...`, with an administrator's claims and publisher tokens at
   `/api/registry/...` (LP-19d; docs/operations/registry.md). Unset (the default): nothing is
   mounted. A request body there is `MENDARI_MAX_BODY_BYTES` at most, under Vercel's 4.5 MB.
@@ -54,7 +54,7 @@ Configuration comes from the environment:
   `off`): a publish's regression check runs within this function's `maxDuration`
   (`vercel.json`, 300 s; the check stops at 180). The order to turn these on, and the Hub's
   own project, are in deploy/vercel/README.md ("Registry and Hub").
-- `MENDARI_AGENT_STORE`: `on` serves organizations' pack stores at `/api/store/...` (LP-20f;
+- `MENDARI_AGENT_STORE`: `on` serves organizations' agent stores at `/api/store/...` (LP-20f;
   memberships mode only, docs/operations/agent-store.md). Unset (the default): nothing is
   mounted. `MENDARI_STORE_ORG_BYTES` (256 MiB unset) bounds what one organization keeps;
   `MENDARI_STORE_MAX_ARCHIVE_BYTES` (32 MiB unset) an archive, sent in parts each under

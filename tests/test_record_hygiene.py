@@ -24,7 +24,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack, load_pack
+from mendari import Agent, AuditStore, Decision, load_agent
 from mendari.core.phi import PhiMode, PhiPolicy, key_id, phi_policy
 from mendari.errors import MendariError
 from mendari.providers.agent import AgentProvider
@@ -51,8 +51,8 @@ KEYED = re.compile(r"^hmac-sha256:[0-9a-f]{16}:[0-9a-f]{64}$")
 
 
 @pytest.fixture(scope="module")
-def chart() -> Pack:
-    return load_pack(CHART_DIR)
+def chart() -> Agent:
+    return load_agent(CHART_DIR)
 
 
 def marked_bundle(*, conforming: bool = True) -> dict[str, Any]:
@@ -79,7 +79,7 @@ def quoting_agent(monkeypatch: pytest.MonkeyPatch) -> None:
             "follow_up": {"value": "routine", "confidence": 0.95, "rationale": quoted},
             "on_anticoagulant": {"value": "no", "confidence": 0.96, "rationale": quoted},
         }
-        body = {"model": "chart-reader", "agent_version": "1.0.0", "answers": answers}
+        body = {"model": "chart-reader", "service_version": "1.0.0", "answers": answers}
         return httpx.Response(200, json=body)
 
     original = AgentProvider.__init__
@@ -117,7 +117,7 @@ def evidence(record: dict[str, Any]) -> str:
 
 @pytest.mark.parametrize("mode", ["hash", "encrypt"])
 def test_no_lab_value_date_or_patient_id_is_stored(
-    db_target: str, chart: Pack, mode: PhiMode, monkeypatch: pytest.MonkeyPatch
+    db_target: str, chart: Agent, mode: PhiMode, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     quoting_agent(monkeypatch)
     store = AuditStore(db_target, phi=policy(mode))
@@ -143,7 +143,7 @@ def test_no_lab_value_date_or_patient_id_is_stored(
 
 
 def test_a_reviewer_sees_the_evidence_under_encrypt(
-    db_target: str, chart: Pack, monkeypatch: pytest.MonkeyPatch
+    db_target: str, chart: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     quoting_agent(monkeypatch)
     store = AuditStore(db_target, phi=policy("encrypt"))
@@ -164,7 +164,7 @@ def test_a_reviewer_sees_the_evidence_under_encrypt(
 
 
 def test_sealed_details_open_only_for_their_own_decision(
-    tmp_path: Path, chart: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, chart: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     quoting_agent(monkeypatch)
     store = AuditStore(tmp_path / "a.db", phi=policy("encrypt"))
@@ -184,8 +184,8 @@ def test_sealed_details_open_only_for_their_own_decision(
         PhiPolicy(mode="encrypt", key=PHI_KEY).decrypt(first.id, stolen["details"])
 
 
-def test_off_mode_keeps_evidence_unless_the_pack_keeps_only_the_hash(
-    tmp_path: Path, chart: Pack, monkeypatch: pytest.MonkeyPatch
+def test_off_mode_keeps_evidence_unless_the_agent_keeps_only_the_hash(
+    tmp_path: Path, chart: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     quoting_agent(monkeypatch)
     store = AuditStore(tmp_path / "a.db")
@@ -209,7 +209,7 @@ def test_issues_name_a_resource_by_position_in_the_record_and_by_id_to_the_calle
     parameters = {
         "resourceType": "Parameters",
         "parameter": [
-            {"name": "pack", "valueString": CHART},
+            {"name": "agent", "valueString": CHART},
             {"name": "data", "resource": marked_bundle(conforming=False)},
         ],
     }
@@ -248,7 +248,7 @@ def test_the_hash_is_keyed_named_and_stable_under_one_key() -> None:
 
 
 def test_a_decision_records_the_keyed_hash_and_provenance_carries_it(
-    db_target: str, chart: Pack
+    db_target: str, chart: Agent
 ) -> None:
     store = AuditStore(db_target, phi=policy("hash"))
     result, _ = Decision(chart, store=store).decide_fhir(marked_bundle())
@@ -256,7 +256,7 @@ def test_a_decision_records_the_keyed_hash_and_provenance_carries_it(
     item = store.item(result.id)
     assert item is not None and item["record"]["input_hash"] == result.input_hash
     created = {**item["events"][0], "decision_id": result.id, "record": item["record"]}
-    created |= {"pack_id": result.pack_id, "pack_version": result.pack_version}
+    created |= {"agent_id": result.agent_id, "agent_version": result.agent_version}
     provenance = audit_fhir.provenance(created)
     assert provenance["entity"][0]["what"]["identifier"]["value"] == result.input_hash
     store.close()

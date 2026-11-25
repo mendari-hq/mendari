@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Audit trail: the decisions table and each record in the drawer; the signed daily checkpoint
-// (LP-21k, public) and, for administrators, the pack's trail exported as FHIR NDJSON.
+// (LP-21k, public) and, for administrators, the agent's trail exported as FHIR NDJSON.
 
 import { closeDrawer, showDrawer, updateDrawer } from "./drawer.js";
 import { feedbackControls, myRating } from "./feedback.js";
-import { actionName, actionReason, actionsList, answerChart, dispositionBadge, effectBadge, inputView, labelName, statusNotice } from "./pack.js";
+import { actionName, actionReason, actionsList, answerChart, dispositionBadge, effectBadge, inputView, labelName, statusNotice } from "./manifest.js";
 import { route, views, wire } from "./router.js";
 import { drawerSkeleton } from "./skeleton.js";
 import { tableHtml } from "./table.js";
@@ -39,7 +39,7 @@ let visibleIds = [];
 
 views.audit = async (main, params) => {
   const outcome = storageGet("oh.audit.outcome", "");
-  const packId = state.packId;
+  const agentId = state.agentId;
   auditRows = [];
   visibleIds = [];
   main.innerHTML = `
@@ -90,14 +90,14 @@ views.audit = async (main, params) => {
     const filter = $("#outcome-filter").value;
     storageSet("oh.audit.outcome", filter);
     try {
-      const rows = await api(`/api/audit?pack_id=${encodeURIComponent(packId)}&limit=100${filter ? `&outcome=${filter}` : ""}`);
+      const rows = await api(`/api/audit?agent_id=${encodeURIComponent(agentId)}&limit=100${filter ? `&outcome=${filter}` : ""}`);
       const table = $("#audit-table");
-      // Another pack or filter chosen meanwhile, or the view left: this answer is stale.
-      if (!table || state.packId !== packId || $("#outcome-filter")?.value !== filter) return;
+      // Another agent or filter chosen meanwhile, or the view left: this answer is stale.
+      if (!table || state.agentId !== agentId || $("#outcome-filter")?.value !== filter) return;
       auditRows = rows;
       paintTable();
     } catch (error) {
-      if (state.packId === packId) toastError(error.message);
+      if (state.agentId === agentId) toastError(error.message);
     }
   };
   // Rows open their record (the first cell's button does the same from the keyboard).
@@ -128,8 +128,8 @@ views.audit = async (main, params) => {
   }));
   // Fetched, not linked, so the request carries the window's organization (`download`, ui.js).
   $("#export-fhir")?.addEventListener("click", (event) => whileBusy(event.currentTarget, "Exporting…", () => download(
-    `/api/audit/export/fhir?pack_id=${encodeURIComponent(state.packId)}`,
-    `audit-${fileSlug(state.packId)}-${today()}.ndjson`,
+    `/api/audit/export/fhir?agent_id=${encodeURIComponent(state.agentId)}`,
+    `audit-${fileSlug(state.agentId)}-${today()}.ndjson`,
   )));
   showCheckpoint(); // not waited for: the table does not depend on it
   await load();
@@ -232,12 +232,12 @@ async function openRecord(id) {
   // names what is shown, so a slow answer never replaces a newer drawer.
   if (asked !== recordAsked || route().params[0] !== id) return;
   const r = found.record;
-  const samePack = !r.pack_id || r.pack_id === state.packId;
-  const recLabel = (code) => (samePack ? labelName(r.primary ?? state.detail.primary, code) : code);
+  const sameAgent = !r.agent_id || r.agent_id === state.agentId;
+  const recLabel = (code) => (sameAgent ? labelName(r.primary ?? state.detail.primary, code) : code);
   const at = visibleIds.indexOf(id);
   const prevId = at > 0 ? visibleIds[at - 1] : null;
   const nextId = at >= 0 && at < visibleIds.length - 1 ? visibleIds[at + 1] : null;
-  const canReplay = samePack && may("decide") && !found.input_restricted && r.input !== null && r.input !== undefined;
+  const canReplay = sameAgent && may("decide") && !found.input_restricted && r.input !== null && r.input !== undefined;
   const headActions = `
     ${visibleIds.length > 1 && at >= 0 ? `<button type="button" class="icon-button" data-step="${esc(prevId ?? "")}" aria-label="Previous decision ([)" title="Previous decision ([)"${prevId ? "" : " disabled"}>${icon("chevron-left")}</button>
       <button type="button" class="icon-button" data-step="${esc(nextId ?? "")}" aria-label="Next decision (])" title="Next decision (])"${nextId ? "" : " disabled"}>${icon("chevron-right")}</button>` : ""}
@@ -282,7 +282,7 @@ async function openRecord(id) {
   shown.querySelector("[data-copy-id]")?.addEventListener("click", () => copyText(id, "Decision ID copied"));
   shown.querySelector("[data-replay]")?.addEventListener("click", () => {
     state.replayDraft = {
-      packId: state.packId,
+      agentId: state.agentId,
       input: r.input,
       original: { id: r.decision_id, outcome: r.decision?.outcome, recommendation: r.decision?.recommendation },
     };
@@ -308,7 +308,7 @@ const eraseLink = (id) => (may("admin") && state.phiMode === "encrypt" && views.
 // item's key that could not read something a row of its own. Under the table: the prefetch keys
 // that could not be read (with the HTTP status, a number) or that the EHR does not offer, the
 // linked reads, and the declaration of what the EHR does not offer, when one was read under.
-// Counts and the pack's own names only, never a value; never a share.
+// Counts and the agent's own names only, never a value; never a share.
 const readReasons = (counts) => {
   const parts = Object.entries(counts ?? {}).filter(([, n]) => n > 0).map(([reason, n]) => `${esc(reason)} ${num(n, 0)}`);
   return parts.length ? parts.join(", ") : `<span class="muted">none</span>`;

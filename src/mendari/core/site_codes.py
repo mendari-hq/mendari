@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """A site's own codes, translated per organization (LP-23i, `MENDARI_SITE_CODES`).
 
-A pack may name sets of its own codes (`code_sets`) and read a field through one (the
+An agent may name sets of its own codes (`code_sets`) and read a field through one (the
 `code_set` selector, `standards/fhir.py`). A site's EHR often codes the same things its own way:
 a local code system, or another code of a standard one. A site code map says how its codes
-translate into the pack's, one organization at a time:
+translate into the agent's, one organization at a time:
 
     {"<org>": {"version": "<label>",
                "sets": {"<code set>": [{"system": "<uri>", "code": "<site code>",
@@ -13,8 +13,8 @@ translate into the pack's, one organization at a time:
 - **Off unless a deployment sets `MENDARI_SITE_CODES`**: then no code is translated, and every
   decision is made as before. Set, it is inline JSON (a value that starts with `{`) or the path
   of a JSON file, read and checked at startup (`site_codes`): its shape (`parse`), and each
-  translation against the code sets the packs found here declare (`check`), so a translation
-  lands only on a code its set declares, and a set no pack declares stops the server. A refusal
+  translation against the code sets the agents found here declare (`check`), so a translation
+  lands only on a code its set declares, and a set no agent declares stops the server. A refusal
   names the setting, the organization, the code set and the translation's position, never a
   system or a code. A JSON object that gives one key twice is refused, never read as one of its
   meanings.
@@ -22,7 +22,7 @@ translate into the pack's, one organization at a time:
   (`tenancy.current()`; the default one in open mode), never another's. With sign-in off every
   organization is `default`. Only the server reads the setting: the command line (`mendari
   decide --fhir`, `mendari bulk dataset`) reads every record without a map.
-- **The pack's own codes first.** A translation only fills in for the pack's own codes: a field
+- **The agent's own codes first.** A translation only fills in for the agent's own codes: a field
   reads all its paths for one of its set's own codes before a translated one counts
   (`standards.fhir.read_field`), so a record whose own codes give the field a value reads the
   same with a map as without.
@@ -34,11 +34,11 @@ translate into the pack's, one organization at a time:
   `site_codes: {version, sha256}` beside its data-coverage record; it is null otherwise.
 - **Never automated.** A decision whose input took a value through a translation goes from AUTO
   to HUMAN_REVIEW, and so does its rule's BLOCK, final at once (the `site_code` cap,
-  `core/policy.py`), so configuration never makes AUTO that the pack alone could not
+  `core/policy.py`), so configuration never makes AUTO that the agent alone could not
   (Definition of shipped, section 7), and a wrong translation reaches a person. Lifting the cap
   is the owner's call, after the G5-6 `site-validation` prerequisite.
 
-Translations are configuration, not part of a pack: no pack file, logic file or digest changes.
+Translations are configuration, not part of an agent: no agent file, logic file or digest changes.
 A site's own SNOMED CT codes may sit in its map under its own licence; Mendari ships none, and
 its examples are fictional.
 """
@@ -59,20 +59,20 @@ from mendari.core.tenancy import DEFAULT_ORG
 from mendari.errors import MendariError
 
 if TYPE_CHECKING:
-    from mendari.core.pack import Pack
+    from mendari.core.agent import Agent
 
 ENV = "MENDARI_SITE_CODES"
 FORMAT = "mendari.site-codes/1"
 MAX_ORGANIZATIONS = 100
 MAX_TRANSLATIONS = 10_000  # in one organization's map, its sets together
 MAX_FILE_BYTES = 8 * 1024 * 1024
-MAX_SYSTEM = 500  # characters, as a pack's code set system (`standards.fhir.CodeSet`)
-MAX_CODE = 256  # characters, a site's code and the pack's code it translates into
+MAX_SYSTEM = 500  # characters, as an agent's code set system (`standards.fhir.CodeSet`)
+MAX_CODE = 256  # characters, a site's code and the agent's code it translates into
 TRANSLATION_KEYS = ("system", "code", "as")
 MAP_KEYS = ("version", "sets")
 _ORG = re.compile(r"[\x21-\x7e]{1,100}")  # visible ASCII, as a CDS client's `org`
 _VERSION = re.compile(r"[\x21-\x7e]{1,64}")
-_SET = re.compile(r"[a-z][a-z0-9_]{0,63}")  # as a pack names a code set (`standards.fhir`)
+_SET = re.compile(r"[a-z][a-z0-9_]{0,63}")  # as an agent names a code set (`standards.fhir`)
 _SYSTEM = re.compile(r"(?:https?://|urn:)\S+")
 
 # One translation, read-only: {"system": ..., "code": ..., "as": ...}.
@@ -125,24 +125,24 @@ def canonical(org: str, version: str, sets: Mapping[str, Iterable[Translation]])
     return text.encode("ascii")
 
 
-def site_codes(packs: Iterable[Pack], *, signed_in: bool) -> SiteCodeMaps | None:
+def site_codes(agents: Iterable[Agent], *, signed_in: bool) -> SiteCodeMaps | None:
     """`MENDARI_SITE_CODES`, read and checked: None when it is unset, and then no code is
     translated. Inline JSON, or the path of a JSON file (relative to the working directory).
-    Anything wrong in it (`parse`), or a translation the code sets of `packs` do not take
+    Anything wrong in it (`parse`), or a translation the code sets of `agents` do not take
     (`check`), stops the server here, at startup."""
     raw = os.environ.get(ENV, "").strip()
     if not raw:
         return None
     maps = parse(raw if raw.startswith("{") else _read_file(raw), signed_in=signed_in)
-    check(maps, packs)
+    check(maps, agents)
     return maps
 
 
 def parse(raw: str, *, signed_in: bool) -> SiteCodeMaps:
     """The maps `raw` (the setting's JSON) holds, checked for their shape: an object of 1 to
     `MAX_ORGANIZATIONS` organizations (`default` alone with sign-in off), each an object of
-    `version` (1 to 64 visible ASCII characters) and `sets`, an object of code set names (as a
-    pack names them), each a list of one or more translations `{system, code, as}`: `system` a
+    `version` (1 to 64 visible ASCII characters) and `sets`, an object of code set names (as an
+    agent names them), each a list of one or more translations `{system, code, as}`: `system` a
     uri (`http`, `https` or `urn:`), `code` and `as` text without spaces at either end, and no
     site code (system and code) twice in one set; at most `MAX_TRANSLATIONS` in one map."""
     try:
@@ -160,20 +160,20 @@ def parse(raw: str, *, signed_in: bool) -> SiteCodeMaps:
     return SiteCodeMaps(MappingProxyType(maps))
 
 
-def check(maps: SiteCodeMaps, packs: Iterable[Pack]) -> None:
-    """Each map against the code sets `packs` declare (spec 0.3 `code_sets`): every set a map
+def check(maps: SiteCodeMaps, agents: Iterable[Agent]) -> None:
+    """Each map against the code sets `agents` declare (spec 0.3 `code_sets`): every set a map
     names is declared by one of them, and every translation's `as` is a code that set declares
-    in one of them. A translation then applies in a pack whose set of that name lists its `as`,
-    and in no other (`standards.fhir.pick_code`). A pack whose mapping cannot be read declares no
+    in one of them. A translation then applies in an agent whose set of that name lists its `as`,
+    and in no other (`standards.fhir.pick_code`). An agent whose mapping cannot be read declares no
     set here; it is refused where it is read."""
     from mendari.standards.fhir import read_mapping  # core reads a mapping only here
 
     declared: dict[str, set[str]] = {}
-    for pack in packs:
-        if pack.manifest.inputs.fhir is None:
+    for agent in agents:
+        if agent.manifest.inputs.fhir is None:
             continue
         try:
-            mapping = read_mapping(pack)
+            mapping = read_mapping(agent)
         except MendariError:
             continue
         for name, code_set in mapping.code_sets.items():

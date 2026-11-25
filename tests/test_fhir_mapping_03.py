@@ -20,10 +20,10 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari.core.origin import Origin
-from mendari.errors import PackValidationError
-from mendari.evals.pack_tests import validate_pack
+from mendari.errors import AgentValidationError
+from mendari.evals.behaviour_tests import validate_agent
 from mendari.standards import fhir
 from mendari.standards.fhir import (
     MAX_CODE_SET_CODES,
@@ -63,7 +63,7 @@ def adapter(tmp_path: Path, changes: dict[str, Any], *, origin: Origin = "local"
     """The adapter of a copy of the chart-summary agent (`chart_copy`), its mapping changed by
     `changes` and the fictional systems here declared beside its own."""
     root = chart_copy(tmp_path, changes, systems=(MED, PAYER, SITE))
-    return FhirAdapter.for_pack(load_pack(root, origin=origin))
+    return FhirAdapter.for_agent(load_agent(root, origin=origin))
 
 
 def bundle(*resources: dict[str, Any], urls: dict[str, str] | None = None) -> dict[str, Any]:
@@ -117,8 +117,8 @@ def test_a_coding_is_chosen_by_its_system_whatever_its_position(tmp_path: Path) 
     record = [PATIENT, condition("c1", (SITE, "HF"), (ICD, "I50.9"))]
     flagged = {"path": f"code.coding[system={ICD}].code", "map": FLAGS}
     first = {"path": "code.coding[0].code", "map": FLAGS}
-    by_its_system = Decision(load_pack(chart_copy(tmp_path / "b", conditions(flag=flagged))))
-    by_position = Decision(load_pack(chart_copy(tmp_path / "c", conditions(flag=first))))
+    by_its_system = Decision(load_agent(chart_copy(tmp_path / "b", conditions(flag=flagged))))
+    by_position = Decision(load_agent(chart_copy(tmp_path / "c", conditions(flag=first))))
     labels = [
         decision.decide_fhir(bundle(*record))[0].answers["follow_up"].label
         for decision in (by_its_system, by_position)
@@ -474,7 +474,7 @@ def test_a_reference_is_followed_inside_the_record_only(
     assert found["payer"] == "PAYER-A"
 
     hops = {"fields": {"payer": {**payer, "follow": ["Coverage.payor", "Organization.partOf"]}}}
-    with pytest.raises(PackValidationError, match=r"follow\n.*Input should be a valid string"):
+    with pytest.raises(AgentValidationError, match=r"follow\n.*Input should be a valid string"):
         adapter(tmp_path / "hops", hops)
 
 
@@ -635,7 +635,7 @@ def test_an_html_note_is_read_as_text_and_another_type_is_unreadable(tmp_path: P
     rtf_only = read(mapped, note("n2", "application/rtf", "{\\rtf1 Takes warfarin.}"))
     assert "notes" not in rtf_only
 
-    decision = Decision(load_pack(chart_copy(tmp_path / "b", use="rules")))
+    decision = Decision(load_agent(chart_copy(tmp_path / "b", use="rules")))
     labels = []
     for markup in (HTML, "<p>Takes warfarin every day.</p>"):
         result, _ = decision.decide_fhir(bundle(PATIENT, note("n1", "text/html", markup)))
@@ -841,7 +841,7 @@ def test_focus_where_reads_a_code_set_and_a_sites_translation_finds_its_focus(
     one or the other, and an unknown code set is refused at load."""
     from mendari.standards import data_coverage
 
-    mapped = FhirAdapter.for_pack(load_pack(order_sign(tmp_path)))
+    mapped = FhirAdapter.for_agent(load_agent(order_sign(tmp_path)))
     colonoscopy = "0DJD8ZZ"
 
     def order(id_: str, *codings: tuple[str, str]) -> dict[str, Any]:
@@ -884,14 +884,14 @@ def test_focus_where_reads_a_code_set_and_a_sites_translation_finds_its_focus(
     assert coverage["focus"]["paths"] == ["ServiceRequest.code.coding"]
 
     both = {"focus_where": {"in": [colonoscopy]}}  # beside the twin's `code_set`
-    with pytest.raises(PackValidationError, match="either `in` or `code_set`, not both"):
-        FhirAdapter.for_pack(load_pack(order_sign(tmp_path / "both", both)))
+    with pytest.raises(AgentValidationError, match="either `in` or `code_set`, not both"):
+        FhirAdapter.for_agent(load_agent(order_sign(tmp_path / "both", both)))
     unknown = {"focus_where": {"code_set": "nothing"}}
-    with pytest.raises(PackValidationError, match="focus_where names 'nothing'"):
-        FhirAdapter.for_pack(load_pack(order_sign(tmp_path / "unknown", unknown)))
+    with pytest.raises(AgentValidationError, match="focus_where names 'nothing'"):
+        FhirAdapter.for_agent(load_agent(order_sign(tmp_path / "unknown", unknown)))
 
 
-def test_an_outside_packs_new_keys_are_bounded_at_load(tmp_path: Path) -> None:
+def test_an_outside_agents_new_keys_are_bounded_at_load(tmp_path: Path) -> None:
     """An agent the deployment does not own tries at most 4 paths a field and has at most 200
     codes a code set, refused at load past either; an owned agent loads past them and `mendari
     validate` refuses it. A `follow` is one hop for every agent (it takes one path)."""
@@ -911,13 +911,13 @@ def test_an_outside_packs_new_keys_are_bounded_at_load(tmp_path: Path) -> None:
         "fhir/mapping.yaml: lists.conditions.fields.code.paths tries 5 paths, more than 4",
         "fhir/mapping.yaml: code_sets.big has 201 codes, more than 200",
     ]
-    with pytest.raises(PackValidationError) as refused:
-        load_pack(root, origin="hub")
+    with pytest.raises(AgentValidationError) as refused:
+        load_agent(root, origin="hub")
     assert refused.value.problems == problems
-    owned = load_pack(root)
-    assert len(FhirAdapter.for_pack(owned).mapping.code_sets["big"].codes) == 201
-    with pytest.raises(PackValidationError) as refused:
-        validate_pack(owned)
+    owned = load_agent(root)
+    assert len(FhirAdapter.for_agent(owned).mapping.code_sets["big"].codes) == 201
+    with pytest.raises(AgentValidationError) as refused:
+        validate_agent(owned)
     assert refused.value.problems == problems
 
 
@@ -944,8 +944,8 @@ def test_a_0_3_mappings_paths_and_systems_are_checked_at_load(tmp_path: Path) ->
     subset = "dotted element names, each with at most one [n], [*] or [system=<uri>])"
     origins: tuple[Origin, ...] = ("local", "hub")
     for origin in origins:
-        with pytest.raises(PackValidationError) as refused:
-            FhirAdapter.for_pack(load_pack(root, origin=origin))
+        with pytest.raises(AgentValidationError) as refused:
+            FhirAdapter.for_agent(load_agent(root, origin=origin))
         assert [p.removeprefix("fhir/mapping.yaml: ") for p in refused.value.problems] == [
             f"focus_where.path 'identifier[system={other}].value' selects '{other}', which "
             "code_systems lacks",
@@ -1067,7 +1067,7 @@ def test_looked_for_says_what_each_field_and_list_looks_for(tmp_path: Path) -> N
     }
     assert json.dumps(mapped.looked_for()) == json.dumps(mapped.looked_for())
 
-    demo = FhirAdapter.for_pack(load_pack(DEMO_AGENT_DIR)).looked_for()
+    demo = FhirAdapter.for_agent(load_agent(DEMO_AGENT_DIR)).looked_for()
     assert demo == {
         "fields": {
             "message.subject": looked(["Communication.topic.text"]),

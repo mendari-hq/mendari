@@ -3,17 +3,17 @@
 
 `mendari validate`, the registry's publish and the agent store all call
 `validate` or `problems` here, so a pack one of them takes the others take too. It is what
-`load_pack` does not check: the CDS Hooks templates and provider configs held to the rules a
-pack the deployment does not own is refused for (an owned pack loads with them as warnings),
+`load_agent` does not check: the CDS Hooks templates and provider configs held to the rules an
+agent the deployment does not own is refused for (an owned agent loads with them as warnings),
 every provider variant built, the FHIR mapping loaded, the behaviour tests' inputs against the
 input schema, and every declared dataset read and checked.
 
-A problem has a kind, the pack file it is in and a place in that file (a manifest key, a case
+A problem has a kind, the agent file it is in and a place in that file (a manifest key, a case
 number, a case id), so the store and the dashboard can show it; its text is the line
 `mendari validate` has always printed. No problem holds a case's text: inputs are checked by
 schema rule and named by case number or id.
 
-A pack the deployment does not own (`Pack.bounded`) is checked on the engine it runs on: its
+An agent the deployment does not own (`Agent.bounded`) is checked on the engine it runs on: its
 inputs within the limits and the CPU budget a decision gives it (`core/patterns.py`)."""
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ from dataclasses import dataclass
 from typing import Literal
 
 from mendari.core import input_schema
+from mendari.core.agent import MANIFEST, Agent, manifest_template_problems
 from mendari.core.decision import Decision, _schema_rule, _where
 from mendari.core.origin import bounded_reader, shape_problem
-from mendari.core.pack import MANIFEST, Pack, manifest_template_problems
 from mendari.core.patterns import OutOfTime, time_budget
-from mendari.errors import MendariError, PackValidationError
+from mendari.errors import AgentValidationError, MendariError
 
 Kind = Literal["manifest", "provider", "fhir", "tests", "dataset"]
 
@@ -37,7 +37,7 @@ MAX_DATASET_PROBLEMS = 10
 
 @dataclass(frozen=True)
 class Problem:
-    """Why a pack is not valid. `file` is a path inside the pack, `place` where in it (a
+    """Why an agent is not valid. `file` is a path inside the agent, `place` where in it (a
     manifest key such as `providers.rules.variants.default`, `case 3`, `case c-12`, or empty
     for the whole file), `text` the line `mendari validate` prints. Never a case's text."""
 
@@ -53,71 +53,71 @@ class Problem:
         return {"kind": self.kind, "file": self.file, "place": self.place, "text": self.text}
 
 
-def problems(pack: Pack) -> list[Problem]:
-    """Every problem `validate` would refuse `pack` for; an empty list for a valid pack. A
+def problems(agent: Agent) -> list[Problem]:
+    """Every problem `validate` would refuse `agent` for; an empty list for a valid agent. A
     provider that cannot be built and a FHIR mapping that does not load are problems here, not
     exceptions, so a caller holding someone else's files (the registry, the store) shows them."""
-    return _collect(pack, raising=False)
+    return _collect(agent, raising=False)
 
 
-def validate(pack: Pack) -> None:
-    """`mendari validate`: a `PackValidationError` listing every problem, or the error a
+def validate(agent: Agent) -> None:
+    """`mendari validate`: an `AgentValidationError` listing every problem, or the error a
     provider build or the FHIR mapping raised, as the command has always printed them."""
-    found = _collect(pack, raising=True)
+    found = _collect(agent, raising=True)
     if found:
-        raise PackValidationError(pack.id, [str(problem) for problem in found])
+        raise AgentValidationError(agent.id, [str(problem) for problem in found])
 
 
-def _collect(pack: Pack, *, raising: bool) -> list[Problem]:
+def _collect(agent: Agent, *, raising: bool) -> list[Problem]:
     from mendari.providers import build_provider, config_problems
 
     # Every template's and variant's problems, each naming it; the trained files are read
-    # whatever the pack was loaded with. Then what only a build finds: the deployment's model
+    # whatever the agent was loaded with. Then what only a build finds: the deployment's model
     # settings.
     found = [
-        _manifest_problem(pack, "manifest", text)
-        for text in manifest_template_problems(pack.manifest)
-    ] + [_manifest_problem(pack, "provider", text) for text in config_problems(pack)]
-    if pack.manifest.rubrics:
+        _manifest_problem(agent, "manifest", text)
+        for text in manifest_template_problems(agent.manifest)
+    ] + [_manifest_problem(agent, "provider", text) for text in config_problems(agent)]
+    if agent.manifest.rubrics:
         from mendari.providers.judge import rubric_problems
 
         # Each rubric's canned judge: its fixture's shape, criteria and levels.
-        found += [_manifest_problem(pack, "provider", text) for text in rubric_problems(pack)]
+        found += [_manifest_problem(agent, "provider", text) for text in rubric_problems(agent)]
     if found:
         return found
-    for slot, spec in pack.manifest.providers.items():
+    for slot, spec in agent.manifest.providers.items():
         for variant in spec.variants:
             try:
-                build_provider(pack, slot, variant)
+                build_provider(agent, slot, variant)
             except Exception as error:
                 if raising:
                     raise
                 where = f"providers.{slot}.variants.{variant}"
                 problem = f"{where}: {_said(error)}"
                 return [Problem("provider", MANIFEST, where, problem)]
-    if pack.manifest.inputs.fhir:
+    if agent.manifest.inputs.fhir:
         from mendari.standards.fhir import FhirAdapter
 
         # Parse and check the mapping, not only that it exists; its Task text bare, whoever
-        # owns the pack.
+        # owns the agent.
         try:
-            FhirAdapter.for_pack(pack, bare=True)
+            FhirAdapter.for_agent(agent, bare=True)
         except Exception as error:
             if raising:
                 raise
-            return [Problem("fhir", str(pack.manifest.inputs.fhir), "", _said(error))]
-    return input_problems(pack) + dataset_problems(pack) + grades_problems(pack)
+            return [Problem("fhir", str(agent.manifest.inputs.fhir), "", _said(error))]
+    return input_problems(agent) + dataset_problems(agent) + grades_problems(agent)
 
 
-def grades_problems(pack: Pack) -> list[Problem]:
+def grades_problems(agent: Agent) -> list[Problem]:
     """Each grades file the agent declares (`evaluation.grades`, spec 0.4 section 19) reads as
     one, grades the rubric's criteria with their levels, and names the rubric's wording and its
     dataset as they are now (`evals/written.py` `grades_problems`)."""
-    if not pack.manifest.evaluation.grades:
+    if not agent.manifest.evaluation.grades:
         return []
     from mendari.evals.written import grades_problems as found
 
-    return [Problem("dataset", text.split(":", 1)[0], "", text) for text in found(pack)]
+    return [Problem("dataset", text.split(":", 1)[0], "", text) for text in found(agent)]
 
 
 def _said(error: Exception) -> str:
@@ -128,26 +128,26 @@ def _said(error: Exception) -> str:
     return f"it cannot be built ({type(error).__name__})"
 
 
-def _manifest_problem(pack: Pack, kind: Kind, text: str) -> Problem:
+def _manifest_problem(agent: Agent, kind: Kind, text: str) -> Problem:
     # Each starts with the manifest key it is about (`providers.x.variants.y: …`,
     # `cds_hooks.card.summary …`).
     head = text.split(None, 1)[0] if text.strip() else ""
     return Problem(kind, MANIFEST, head.rstrip(":"), text)
 
 
-def input_problems(pack: Pack) -> list[Problem]:
+def input_problems(agent: Agent) -> list[Problem]:
     """Behaviour-test inputs must match the input schema, unless the test expects a BLOCK;
     otherwise the test decides a BLOCK and fails confusingly (e.g. unquoted YAML flow-mapping
     text split into extra keys). Every test `mendari test` runs is checked: the agent's own, and
-    those the probe found (`pack_tests.every_case`). Each problem names the case by its file,
+    those the probe found (`behaviour_tests.every_case`). Each problem names the case by its file,
     number and name, the place in the input and the schema's rule, never the input's value."""
-    from mendari.evals.pack_tests import every_case
+    from mendari.evals.behaviour_tests import every_case
 
-    bounded = pack.bounded  # on the bounded engine, as in a decision
-    reader = bounded_reader(pack.origin)
-    validator = input_schema.validator(pack.input_schema, formats=False, bounded=bounded)
+    bounded = agent.bounded  # on the bounded engine, as in a decision
+    reader = bounded_reader(agent.origin)
+    validator = input_schema.validator(agent.input_schema, formats=False, bounded=bounded)
     found: list[Problem] = []
-    for tests, number, case in every_case(pack):
+    for tests, number, case in every_case(agent):
         if (case.get("expect") or {}).get("outcome") == "BLOCK":
             continue  # a test of the input contract itself
         place = f"case {number}"
@@ -162,7 +162,7 @@ def input_problems(pack: Pack) -> list[Problem]:
         if shape is not None:
             found.append(problem(f"its input is too large: {shape}"))
             continue
-        try:  # such a pack's schema runs within the time budget a decision gives it
+        try:  # such an agent's schema runs within the time budget a decision gives it
             with time_budget() if bounded else nullcontext():
                 for error in validator.iter_errors(case.get("input")):
                     # Where and which rule, in the schema's words, never the value (as a
@@ -181,25 +181,25 @@ def input_problems(pack: Pack) -> list[Problem]:
     return found
 
 
-def dataset_problems(pack: Pack) -> list[Problem]:
+def dataset_problems(agent: Agent) -> list[Problem]:
     """Every dataset `evaluation.datasets` declares reads as JSON Lines, each input matches the
-    input schema as a decision checks it (within its limits and budget for a bounded pack,
-    `Decision.validate`), and each record's labels are the pack's questions and labels
+    input schema as a decision checks it (within its limits and budget for a bounded agent,
+    `Decision.validate`), and each record's labels are the agent's questions and labels
     (`record_problems`). Problems name the file and the case id, never its text."""
     from mendari.evals.harness import record_problems, resolve_dataset
 
-    decision = Decision(pack)
+    decision = Decision(agent)
     found: list[Problem] = []
-    for name, path in pack.manifest.evaluation.datasets.items():
+    for name, path in agent.manifest.evaluation.datasets.items():
         file = str(path)
         try:
-            dataset = resolve_dataset(pack, name)
+            dataset = resolve_dataset(agent, name)
         except MendariError as error:
             found.append(Problem("dataset", file, "", str(error)))
             continue
         problems = [
             Problem("dataset", file, _case_place(text, dataset.name), f"{file}: {text}")
-            for text in record_problems(pack.manifest, dataset)
+            for text in record_problems(agent.manifest, dataset)
         ]
         for record in dataset.records:
             refused = decision.validate(record["input"])

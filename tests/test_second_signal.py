@@ -19,13 +19,13 @@ import yaml
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core.card import render_card
 from mendari.core.decision import CallBudget
 from mendari.core.policy import PERSON_DECIDES, GovernanceOverride, PolicyResult, lowered
 from mendari.core.spec import Outcome, Priority
-from mendari.errors import PackValidationError, ProviderError
+from mendari.errors import AgentValidationError, ProviderError
 from mendari.evals import operating_point as op
 from mendari.evals.harness import build_evaluation, evaluation, load_dataset
 from mendari.providers import PROVIDER_CONFIG_MODELS, PROVIDER_TYPES, build_provider
@@ -62,7 +62,7 @@ def repeating(tmp_path: Path, runs: int = 3, **more: Any) -> Path:
 
 
 def decide(root: Path, **kwargs: Any) -> Any:
-    return Decision(load_pack(root), **kwargs)(REFILL)
+    return Decision(load_agent(root), **kwargs)(REFILL)
 
 
 # -- repeated runs ---------------------------------------------------------------------------------
@@ -146,8 +146,8 @@ def test_a_disagreement_on_a_question_that_decides_nothing_is_evidence_only(
         del manifest["tests"]
 
     root = scaffold(tmp_path, edit=with_a_note)
-    pack = load_pack(root)
-    assert deciding_questions(pack.manifest) == {"request", "urgent_symptoms"}
+    agent = load_agent(root)
+    assert deciding_questions(agent.manifest) == {"request", "urgent_symptoms"}
 
     def said(language: str) -> dict[str, Any]:
         body = answer("refill", 0.97)
@@ -155,7 +155,7 @@ def test_a_disagreement_on_a_question_that_decides_nothing_is_evidence_only(
         return body
 
     serve(monkeypatch, [said("english"), said("spanish"), said("english")])
-    result = Decision(pack)(REFILL)
+    result = Decision(agent)(REFILL)
     assert result.outcome is Outcome.AUTO and result.signals.caps == ()
     assert result.answers["language"].evidence == ("repeat: 2 of 3 runs agreed (others: spanish)",)
     assert result.signals.checked[0].disagreed == ()
@@ -202,8 +202,8 @@ def test_every_run_is_charged_to_the_daily_budget(
     two answers and a refusal, which is a disagreement."""
     requests = serve(monkeypatch, [answer("refill", 0.97)])
     with AuditStore(tmp_path / "audit.db") as store:
-        pack = load_pack(repeating(tmp_path))
-        decision = Decision(pack, store=store, budget=CallBudget(store, {"agent": 5}))
+        agent = load_agent(repeating(tmp_path))
+        decision = Decision(agent, store=store, budget=CallBudget(store, {"agent": 5}))
         first, second, third = decision(REFILL), decision(REFILL), decision(REFILL)
     assert first.outcome is Outcome.AUTO and len(requests) == 5
     assert second.outcome is Outcome.HUMAN_REVIEW
@@ -220,7 +220,7 @@ def test_every_run_is_charged_to_the_organizations_quota(
     requests = serve(monkeypatch, [answer("refill", 0.97)])
     with AuditStore(tmp_path / "audit.db") as store:
         budget = CallBudget(store, {}, org_limits={"agent": 4})
-        decision = Decision(load_pack(repeating(tmp_path)), store=store, budget=budget)
+        decision = Decision(load_agent(repeating(tmp_path)), store=store, budget=budget)
         first, second = decision(REFILL), decision(REFILL)
     assert first.outcome is Outcome.AUTO and len(requests) == 4
     assert second.outcome is Outcome.HUMAN_REVIEW
@@ -289,8 +289,8 @@ def test_canned_answers_are_asked_once_and_claim_no_agreement(
 
 @pytest.mark.parametrize("runs", [1, 6, 0, -3, "three", 2.5, True])
 def test_a_variant_repeats_two_to_five_times(tmp_path: Path, runs: Any) -> None:
-    with pytest.raises(PackValidationError, match="repeat"):
-        build_provider(load_pack(repeating(tmp_path, runs=runs)), "reader", "agent")
+    with pytest.raises(AgentValidationError, match="repeat"):
+        build_provider(load_agent(repeating(tmp_path, runs=runs)), "reader", "agent")
 
 
 # -- repeated runs of an `llm` variant -------------------------------------------------------------
@@ -337,8 +337,8 @@ def test_an_llm_variant_repeats_too_and_shares_no_call(
         return httpx.Response(200, json=completion(content))
 
     install(monkeypatch, handler)
-    pack = load_pack(triage_with_a_repeated_llm(tmp_path))
-    both = Decision(pack, providers={"router": "llm", "screen": "llm"})
+    agent = load_agent(triage_with_a_repeated_llm(tmp_path))
+    both = Decision(agent, providers={"router": "llm", "screen": "llm"})
     result = both({"message": {"body": "A synthetic question about a refill."}})
     assert asked.count(["destination"]) == 3 and asked.count(["urgency", "abusive"]) == 1
     assert result.recommendation == "pharmacy"
@@ -359,8 +359,8 @@ def checking(tmp_path: Path, name: str = "agent", **second: Any) -> Path:
         reader["variants"]["checked"] = {
             "type": "check",
             "members": {
-                "agent": live_member(manifest, agent_id="first-agent"),
-                "second": live_member(manifest, agent_id="second-agent", **second),
+                "agent": live_member(manifest, service_id="first-agent"),
+                "second": live_member(manifest, service_id="second-agent", **second),
             },
         }
         reader["use"] = "checked"
@@ -373,7 +373,7 @@ def two(first: Any, second: Any) -> Any:
     `second`."""
 
     def respond(body: dict[str, Any]) -> Any:
-        return first if body["agent_id"] == "first-agent" else second
+        return first if body["service_id"] == "first-agent" else second
 
     return respond
 
@@ -386,7 +386,7 @@ def test_a_check_that_agrees_changes_nothing(
     requests = serve(monkeypatch, two(answer("refill", 0.91), answer("refill", 0.999)))
     root = checking(tmp_path)
     result = decide(root)
-    assert [request["agent_id"] for request in requests] == ["first-agent", "second-agent"]
+    assert [request["service_id"] for request in requests] == ["first-agent", "second-agent"]
     said = result.answers["request"]
     assert (said.label, said.confidence) == ("refill", 0.91)
     assert said.evidence == ("check: second agrees",)
@@ -448,13 +448,13 @@ def test_a_check_is_a_composite_of_exactly_two_members(tmp_path: Path) -> None:
         def members(manifest: dict[str, Any], count: int = count) -> None:
             names = ["agent", "second", "third"][:count]
             variant(manifest, "checked")["members"] = {
-                name: live_member(manifest, agent_id=f"{name}-agent") for name in names
+                name: live_member(manifest, service_id=f"{name}-agent") for name in names
             }
 
         root = checking(tmp_path, f"with-{count}")
         edit_manifest(root, members)
-        with pytest.raises(PackValidationError, match="members"):
-            build_provider(load_pack(root), "reader", "checked")
+        with pytest.raises(AgentValidationError, match="members"):
+            build_provider(load_agent(root), "reader", "checked")
 
     def nested(manifest: dict[str, Any]) -> None:
         inner = json.loads(json.dumps(variant(manifest, "checked")))  # a copy, not an alias
@@ -462,8 +462,8 @@ def test_a_check_is_a_composite_of_exactly_two_members(tmp_path: Path) -> None:
 
     root = checking(tmp_path, "nested")
     edit_manifest(root, nested)
-    with pytest.raises(PackValidationError, match="unknown member type 'check'"):
-        build_provider(load_pack(root), "reader", "checked")
+    with pytest.raises(AgentValidationError, match="unknown member type 'check'"):
+        build_provider(load_agent(root), "reader", "checked")
 
 
 def test_a_canned_member_proves_nothing_by_agreeing(
@@ -495,7 +495,7 @@ def test_a_member_may_repeat_and_be_calibrated(
         first.update({"repeat": 3, "calibration": "models/c.json"})
 
     root = checking(tmp_path)
-    calibration_file(root, {"request": 1.2}, agent_id="first-agent", relative="models/c.json")
+    calibration_file(root, {"request": 1.2}, service_id="first-agent", relative="models/c.json")
     edit_manifest(root, add)
     requests = serve(monkeypatch, two(answer("refill", 0.99), answer("refill", 0.9)))
     result = decide(root)
@@ -516,12 +516,12 @@ def test_a_member_may_repeat_and_be_calibrated(
 
 
 def test_the_card_names_each_second_signal(tmp_path: Path) -> None:
-    card = render_card(load_pack(repeating(tmp_path)))
+    card = render_card(load_agent(repeating(tmp_path)))
     assert (
         "- `reader` / `agent`: asks each case 3 times; the answer is the majority's with the "
         "lowest confidence among the runs that agree, and a disagreement is never automated."
     ) in card
-    checked = render_card(load_pack(checking(tmp_path, "checked")))
+    checked = render_card(load_agent(checking(tmp_path, "checked")))
     assert (
         "- `reader` / `checked`: `agent` answers and `second` checks; where they disagree, the "
         "decision is never automated."
@@ -586,17 +586,17 @@ def test_no_second_signal_and_no_version_cap_ever_raises_automation(
     def calibrated(manifest: dict[str, Any]) -> None:
         variant(manifest)["calibration"] = "models/c.json"
 
-    plain = Decision(load_pack(scaffold(tmp_path, "plain")))
-    repeated = Decision(load_pack(repeating(tmp_path)))
-    checked = Decision(load_pack(checking(tmp_path, "checked")))
+    plain = Decision(load_agent(scaffold(tmp_path, "plain")))
+    repeated = Decision(load_agent(repeating(tmp_path)))
+    checked = Decision(load_agent(checking(tmp_path, "checked")))
     capped_root = scaffold(tmp_path, "capped", edit=calibrated)
     calibration_file(capped_root, {"request": 1.0}, relative="models/c.json")
-    capped = Decision(load_pack(capped_root))
+    capped = Decision(load_agent(capped_root))
     approved = GovernanceOverride(approved_by="Dr. Synthetic", reference="GOV-1")
 
     def alone(run: Any, **kwargs: Any) -> Outcome:
         serve(monkeypatch, [an_answer(run)])
-        decision = plain if not kwargs else Decision(plain.pack, **kwargs)
+        decision = plain if not kwargs else Decision(plain.agent, **kwargs)
         return decision(REFILL).outcome
 
     @settings(
@@ -628,7 +628,7 @@ def test_no_second_signal_and_no_version_cap_ever_raises_automation(
         # A governance approval lifts none of them.
         if with_repeat.signals.caps:
             serve(monkeypatch, [an_answer(run) for run in runs])
-            again = Decision(repeated.pack, governance=approved)(REFILL)
+            again = Decision(repeated.agent, governance=approved)(REFILL)
             assert again.outcome is not Outcome.AUTO
 
     check()
@@ -695,7 +695,7 @@ def test_the_evaluation_reports_what_the_second_signal_did(
 ) -> None:
     root = constructed(tmp_path, monkeypatch)
     dataset = load_dataset(root / "data" / "scripted.jsonl")
-    run = evaluation(Decision(load_pack(root), origin_cap=False), dataset)
+    run = evaluation(Decision(load_agent(root), origin_cap=False), dataset)
     block = run.report["run"]["second_signal"]
     assert block["format"] == "mendari.second-signal/1" and block["cases"] == 68
     assert block["signals"] == [
@@ -733,7 +733,7 @@ def test_the_evaluation_reports_what_the_second_signal_did(
     assert (wrong["k"], wrong["n"]) == (5, 68)
     assert run.report["decisions"]["critical"][0]["auto_missed"] == 0
     # Without the signal (one run a case), the 19 are automated: 6 wrongly, 3 critical.
-    once = Decision(load_pack(root), origin_cap=False)
+    once = Decision(load_agent(root), origin_cap=False)
     for provider in once.agent_providers():
         provider.settings = provider.settings.model_copy(update={"repeat": None})
     single = evaluation(once, dataset).report
@@ -774,7 +774,7 @@ def test_a_repeat_of_canned_answers_is_reported_as_not_checked(
     monkeypatch.delenv(ENDPOINT_ENV, raising=False)
     root = repeating(tmp_path)
     dataset = load_dataset(root / "data" / "examples.jsonl")
-    run = evaluation(Decision(load_pack(root), origin_cap=False), dataset)
+    run = evaluation(Decision(load_agent(root), origin_cap=False), dataset)
     block = run.report["run"]["second_signal"]
     (signal,) = block["signals"]
     cases = len(dataset.records)
@@ -797,7 +797,7 @@ def test_the_evaluation_reports_a_check_too(
 
     def respond(body: dict[str, Any]) -> dict[str, Any]:
         said = simulated(body)
-        if body["agent_id"] == "second-agent":  # a second reader, right where the first is not
+        if body["service_id"] == "second-agent":  # a second reader, right where the first is not
             token = re.search(r"\b([a-z]+-\d{5})\b", body["input"]["message"]["body"])
             assert token is not None
             truth = simulated.table[token.group(1)][2]
@@ -806,7 +806,7 @@ def test_the_evaluation_reports_a_check_too(
 
     serve(monkeypatch, respond)
     run = evaluation(
-        Decision(load_pack(root), origin_cap=False), load_dataset(root / "data" / "test.jsonl")
+        Decision(load_agent(root), origin_cap=False), load_dataset(root / "data" / "test.jsonl")
     )
     (signal,) = run.report["run"]["second_signal"]["signals"]
     wrong = sum(said != truth for said, _, truth, _ in simulated.table.values())
@@ -846,28 +846,28 @@ def test_applying_the_policy_again_gives_the_run_back_with_every_feature_on(
         token = re.search(r"\b(test-\d{5})\b", body["input"]["message"]["body"])
         assert token is not None
         if token.group(1) in upgraded:
-            said["agent_version"] = "2.2.0"
+            said["service_version"] = "2.2.0"
         return said
 
     serve(monkeypatch, respond)
-    pack = load_pack(root)
+    agent = load_agent(root)
     dataset = load_dataset(root / "data" / "test.jsonl")
     run = evaluation(
-        Decision(pack, origin_cap=False), dataset, targets=op.Targets(false_automation=0.05)
+        Decision(agent, origin_cap=False), dataset, targets=op.Targets(false_automation=0.05)
     )
     results_block = run.report["run"]
     assert results_block["second_signal"]["signals"][0]["disagreed"] > 10
     assert results_block["calibration"]["agent_changed"] == 50
     # The run again, keeping each decision, to replay it.
     simulated.asked.clear()
-    decision = Decision(pack, origin_cap=False)
+    decision = Decision(agent, origin_cap=False)
     results = [decision(record["input"]) for record in dataset.records]
     again = build_evaluation(decision, dataset, results)
     cases = op.cases_of(again.ledger, results)
     recorded = [(result.outcome.value, result.recommendation) for result in results]
     assert all(case.replays for case in cases)
-    assert op.decided(pack.manifest, cases) == recorded
-    assert op.decided(op.at_threshold(pack.manifest, 0.90), cases) == recorded  # its own, again
+    assert op.decided(agent.manifest, cases) == recorded
+    assert op.decided(op.at_threshold(agent.manifest, 0.90), cases) == recorded  # its own, again
     assert op.tally(cases, recorded, 1) == op.tally_of(again.report)
     assert recorded == [(case["o"], case["r"]) for case in run.ledger.cases]  # the same run
     automated = sum(outcome == "AUTO" for outcome, _ in recorded)
@@ -875,8 +875,8 @@ def test_applying_the_policy_again_gives_the_run_back_with_every_feature_on(
     # A capped case is automated at no threshold: the cap is not the threshold's to lift.
     capped = [index for index, result in enumerate(results) if result.signals.caps]
     assert len(capped) > 50
-    for threshold in op.sequence(pack.manifest.policy.thresholds.review):
-        at = op.decided(op.at_threshold(pack.manifest, threshold), cases)
+    for threshold in op.sequence(agent.manifest.policy.thresholds.review):
+        at = op.decided(op.at_threshold(agent.manifest, threshold), cases)
         assert all(at[index][0] != "AUTO" for index in capped)
     # And the block the run printed is the one those counts give.
     point = results_block["operating_point"]

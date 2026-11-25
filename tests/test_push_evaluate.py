@@ -21,7 +21,7 @@ import yaml
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 
 from mendari.cli import _linkable, _publish_run, main
-from mendari.core.pack import load_pack
+from mendari.core.agent import load_agent
 from mendari.errors import MendariError
 from mendari.evals.harness import Evaluation
 from mendari.evals.ledger import Ledger
@@ -235,20 +235,20 @@ def test_push_evaluate_says_when_the_version_is_another_build(
 def test_an_agent_with_many_configurations_is_asked_which_to_evaluate(tmp_path: Path) -> None:
     from mendari.cli import MAX_EVALUATED, _evaluated_configurations
 
-    pack = three_readers(tmp_path)
-    assert _evaluated_configurations(pack, []) == [
+    agent = three_readers(tmp_path)
+    assert _evaluated_configurations(agent, []) == [
         {"reader": "agent"},
         {"reader": "rules"},
         {"reader": "cautious"},
     ]
-    named = _evaluated_configurations(pack, ["reader=rules", "reader=cautious", "reader=rules"])
+    named = _evaluated_configurations(agent, ["reader=rules", "reader=cautious", "reader=rules"])
     assert named == [{"reader": "rules"}, {"reader": "cautious"}]  # once each
     root = tmp_path / "many"
-    shutil.copytree(pack.root, root)
+    shutil.copytree(agent.root, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text(encoding="utf-8"))
     variants = manifest["providers"]["reader"]["variants"]
     for index in range(MAX_EVALUATED):
         variants[f"more{index}"] = dict(variants["rules"])
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
     with pytest.raises(MendariError, match=r"has 11 configurations: name the ones to evaluate"):
-        _evaluated_configurations(load_pack(root), [])
+        _evaluated_configurations(load_agent(root), [])

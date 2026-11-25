@@ -39,7 +39,7 @@ matter:
 
 - It stores and serves the uploaded `DECISION_CARD.md`, the benchmark's accuracy and the
   leaderboard as the agent carries them. The digest leaves those files out (they are
-  attestations, `Pack.attestation`), so the signature only says who uploaded them. A risk-2 agent
+  attestations, `Agent.attestation`), so the signature only says who uploaded them. A risk-2 agent
   whose card says risk 1 is accepted and its card shown (reproduced in the vision audit).
 - The risk level, publisher name and type, summary and licence come from the manifest: the
   publisher's own words, shown beside the registry's checks with nothing to tell them apart.
@@ -112,7 +112,7 @@ Nothing on an agent's page comes from the uploader unchecked.
    time, and any recall the registry served then; a marker from before holds the archive's
    SHA-256 alone). Served, an agent from a registry never automates until its organization
    approves its exact digest (`registry_approvals`, `POST`/`DELETE /api/registry-approvals`,
-   the `approve` permission, chained `registry_pack.approved` and `.revoked`), at any risk
+   the `approve` permission, chained `registry_agent.approved` and `.revoked`), at any risk
    level (2 and 3 need their governance approval too), and never while a recall is known
    (the one its last pull recorded; a running server checks its registry, 18e): AUTO becomes
    HUMAN_REVIEW, as under a hold, and the agent's own rule's BLOCK goes to a person too (final at

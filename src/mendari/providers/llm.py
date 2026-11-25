@@ -3,14 +3,14 @@
 
 By default it calls the Vercel AI Gateway (Claude, open-weight models and others, one API).
 `LLM_BASE_URL` points it at a local OpenAI-compatible server instead (Ollama, vLLM,
-llama.cpp), so the same pack variant runs on an open-source model on-premises.
+llama.cpp), so the same agent variant runs on an open-source model on-premises.
 
 The model is asked for a probability for every label of every question in the slot, and a
 JSON schema makes the shape exact. These are verbalised probabilities, not token logprobs, so
 each question can carry a temperature fitted on held-out data (`mendari calibrate`); the
 evaluation report (ECE, false automation) shows whether they are trustworthy.
 
-Input text is data, never instructions: the questions and rules come from the pack and are
+Input text is data, never instructions: the questions and rules come from the agent and are
 sent as the system prompt; the input goes in the user message as JSON, and the system prompt
 tells the model to classify it, not to follow it. The response contract does not depend on
 the input, and anything outside it is an `invalid_response`.
@@ -24,7 +24,7 @@ Configuration, in order of precedence:
 - credentials: `AI_GATEWAY_API_KEY`, then the deployment's Vercel OIDC token (gateway only);
   local servers use `LLM_API_KEY` when set and no key otherwise.
 
-These variable names are fixed: endpoint and credentials are the deployment's, and a pack that
+These variable names are fixed: endpoint and credentials are the deployment's, and an agent that
 tries to name other variables is refused at load.
 """
 
@@ -42,9 +42,9 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.core.spec import Question, deployment_env_problem
-from mendari.errors import PackValidationError, ProviderError
+from mendari.errors import AgentValidationError, ProviderError
 from mendari.providers import deadline
 from mendari.providers.base import (
     MAX_CALL_COST_USD,
@@ -69,7 +69,7 @@ CALIBRATION_FORMAT = "mendari.llm-calibration/1"
 MAX_QUESTIONS = 16
 MAX_REQUEST_CHARS = 100_000
 SUM_TOLERANCE = 0.1  # verbalised probabilities are renormalised only if they sum to 0.9-1.1
-# The deployment's settings. Fixed: a pack never chooses which variables are read.
+# The deployment's settings. Fixed: an agent never chooses which variables are read.
 MODEL_ENV = "LLM_MODEL"
 BASE_URL_ENV = "LLM_BASE_URL"
 API_KEY_ENV = "AI_GATEWAY_API_KEY"
@@ -102,7 +102,7 @@ class LlmConfig(BaseModel):
     # Only for models that accept them (Claude Sonnet 5 rejects sampling parameters).
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     reasoning_effort: Literal["none", "low", "medium", "high"] | None = None
-    # Per-question temperatures fitted by `mendari calibrate` (a file in the pack).
+    # Per-question temperatures fitted by `mendari calibrate` (a file in the agent).
     calibration: str | None = None
     batch: bool = True
     # Spec 0.4 (ADR-0024): ask each case this many times and never automate when the runs
@@ -118,16 +118,16 @@ class LlmProvider(Provider):
     def __init__(self, *args: Any, client: httpx.Client | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
         settings, problems = self._settings(
-            self.info.slot, self.config, self.questions, bounded=self.pack.bounded
+            self.info.slot, self.config, self.questions, bounded=self.agent.bounded
         )
         if settings is None:
-            raise PackValidationError(self.pack.id, problems)
+            raise AgentValidationError(self.agent.id, problems)
         self.settings = settings
         self._client = client
         # No default model: with none here, the provider is built, but never called.
         model = self.settings.model or os.environ.get(MODEL_ENV, "").strip() or None
         if model is not None and not re.fullmatch(MODEL_PATTERN, model):
-            raise PackValidationError(self.pack.id, [f"{MODEL_ENV}: invalid model"])
+            raise AgentValidationError(self.agent.id, [f"{MODEL_ENV}: invalid model"])
         self.model = model
         self.temperatures = self._load_calibration()
         self.info = replace(self.info, model=model)
@@ -136,15 +136,15 @@ class LlmProvider(Provider):
         """Temperatures fitted for this model; a file fitted on another model is not used."""
         if self.settings.calibration is None:
             return {}
-        data = self.pack.read_json(self.settings.calibration)
+        data = self.agent.read_json(self.settings.calibration)
         if not isinstance(data, dict) or data.get("format") != CALIBRATION_FORMAT:
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: not a calibration file"])
+            raise AgentValidationError(self.agent.id, [f"{self.info.slot}: not a calibration file"])
         if self.model is None or data.get("model") != self.model:
             return {}
         temperatures = data.get("temperatures", {})
         if not isinstance(temperatures, dict):
             problem = f"{self.info.slot}: the calibration file's temperatures are not a mapping"
-            raise PackValidationError(self.pack.id, [problem])
+            raise AgentValidationError(self.agent.id, [problem])
         return {
             q: float(t)
             for q, t in temperatures.items()
@@ -158,7 +158,7 @@ class LlmProvider(Provider):
     @classmethod
     def config_problems(
         cls,
-        pack: Pack,
+        agent: Agent,
         where: str,
         config: Mapping[str, Any],
         questions: Mapping[str, Question],
@@ -171,7 +171,7 @@ class LlmProvider(Provider):
             return problems
         # The calibration file's shape, whichever model it was fitted on: the model that runs
         # can be the deployment's (`LLM_MODEL`), and at build a file fitted on another is unused.
-        data, problems = read_problems(lambda: pack.read_json(calibration))
+        data, problems = read_problems(lambda: agent.read_json(calibration))
         if problems:
             return problems
         if not isinstance(data, dict) or data.get("format") != CALIBRATION_FORMAT:
@@ -186,7 +186,7 @@ class LlmProvider(Provider):
     ) -> tuple[LlmConfig | None, list[str]]:
         """The variant's settings (its closed config, `LlmConfig`), or None and why not: it names
         no environment variable (also checked at load, `core/spec.py`), asks 1 to `MAX_QUESTIONS`
-        questions, and, in a pack the deployment does not own, names its `state_fields`."""
+        questions, and, in an agent the deployment does not own, names its `state_fields`."""
         problem = deployment_env_problem(dict(config))
         if problem is not None:
             return None, [f"{where}: {problem}"]

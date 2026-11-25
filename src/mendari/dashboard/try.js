@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Try it: a message form or a record form generated from the input schema, or FHIR input where the
-// pack maps FHIR; the result.
+// agent maps FHIR; the result.
 
 import { feedbackControls } from "./feedback.js";
 import { schemaForm, wireSchemaForm } from "./form.js";
-import { codesToggle, isMessagePack, labelName, named, plainReasons, questionName, statusNotice, wireCodes } from "./pack.js";
+import { codesToggle, isMessageAgent, labelName, named, plainReasons, questionName, statusNotice, wireCodes } from "./manifest.js";
 import { refreshReviewCount, views, wire } from "./router.js";
 import { guardrailTrace } from "./trace.js";
-import { $, api, copyText, emptyState, esc, focusHeading, icon, may, packPath, pct, PRIORITY_TEXT, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
+import { $, api, copyText, emptyState, esc, focusHeading, icon, may, agentPath, pct, PRIORITY_TEXT, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
 
 const SAMPLES = [
   { label: "Refill", subject: "Refill request", body: "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks" },
@@ -26,14 +26,14 @@ views.try = async (main) => {
     })}`;
     return;
   }
-  return isMessagePack() ? tryMessage(main) : tryRecord(main);
+  return isMessageAgent() ? tryMessage(main) : tryRecord(main);
 };
 
-// What the chosen pack takes besides its own input, as the API reference offers it
+// What the chosen agent takes besides its own input, as the API reference offers it
 // (server/api_docs.py): FHIR where it has a FHIR mapping.
 const takesFhir = () => Boolean(state.detail.manifest?.inputs?.fhir);
 
-// The input switch: each way the pack's input can be given, the one chosen last first.
+// The input switch: each way the agent's input can be given, the one chosen last first.
 const MODE_NAMES = { form: "Form", json: "JSON", fhir: "FHIR" };
 
 function rememberedMode(modes) {
@@ -80,29 +80,29 @@ function decideFhir(button) {
     return $("#fhir-json").focus();
   }
   fhirError("");
-  const targetPack = state.packId;
-  const endpoint = `${packPath()}/fhir/decide`;
+  const targetAgent = state.agentId;
+  const endpoint = `${agentPath()}/fhir/decide`;
   const shadow = shadowChecked();
   return whileBusy(button, "Deciding…", async () => {
     try {
       const answer = await api(endpoint, { method: "POST", headers: shadowHeaders(shadow), body: JSON.stringify(input) });
-      if (state.packId !== targetPack || !$("#result")) return;
+      if (state.agentId !== targetAgent || !$("#result")) return;
       showResult(answer.decision, { task: answer.task, request: { endpoint, body: input, shadow } });
     } catch (error) {
-      if (state.packId === targetPack && $("#fhir-error")) fhirError(error.message);
+      if (state.agentId === targetAgent && $("#fhir-error")) fhirError(error.message);
     }
   });
 }
 
-// The pack's own input, decided.
+// The agent's own input, decided.
 function send(button, input) {
-  const targetPack = state.packId;
-  const endpoint = `${packPath()}/decide`;
+  const targetAgent = state.agentId;
+  const endpoint = `${agentPath()}/decide`;
   const shadow = shadowChecked();
   return whileBusy(button, "Deciding…", async () => {
     try {
       const decision = await api(endpoint, { method: "POST", headers: shadowHeaders(shadow), body: JSON.stringify(input) });
-      if (state.packId !== targetPack || !$("#result")) return;
+      if (state.agentId !== targetAgent || !$("#result")) return;
       showResult(decision, { request: { endpoint, body: input, shadow } });
     } catch (error) {
       toastError(error.message);
@@ -126,9 +126,9 @@ function curlCommand({ endpoint, body, shadow = false }) {
   return `curl -X POST '${url}' \\\n  -H 'Content-Type: application/json'${extra} \\\n  -d '${json}'`;
 }
 
-// Packs whose input is a structured record: edit JSON, starting from the pack's own examples.
+// Agents whose input is a structured record: edit JSON, starting from the agent's own examples.
 async function tryRecord(main) {
-  const examples = await api(`${packPath()}/examples`);
+  const examples = await api(`${agentPath()}/examples`);
   const expected = (e) => Object.entries(e.expect).filter(([k]) => k !== "answers").map(([k, v]) => `${k} ${Array.isArray(v) ? v.join("/") : v}`).join(", ");
   const modes = ["form", "json", ...(takesFhir() ? ["fhir"] : [])];
   main.innerHTML = `
@@ -153,7 +153,7 @@ async function tryRecord(main) {
         <button type="button" class="primary" id="decide">Decide</button></div>
     </div>
     <div id="result"></div>`;
-  // One record, two views: a form generated from the pack's input schema (form.js), or its JSON.
+  // One record, two views: a form generated from the agent's input schema (form.js), or its JSON.
   // Switching carries the record across; the choice is remembered. FHIR input is its own.
   const schema = state.detail.input_schema;
   const formBox = $("#record-form");
@@ -200,7 +200,7 @@ async function tryRecord(main) {
     $("#record").value = JSON.stringify(example?.input ?? {}, null, 2);
     $("#expected").textContent = example && expected(example) ? `The agent's test expects: ${expected(example)}.` : "";
   };
-  const replayMeta = state.replayDraft?.packId === state.packId ? state.replayDraft : null;
+  const replayMeta = state.replayDraft?.agentId === state.agentId ? state.replayDraft : null;
   const replay = replayMeta?.input ?? null;
   state.replayDraft = null;
   if (replay && isObject(replay)) {
@@ -242,7 +242,7 @@ async function tryRecord(main) {
 // `additionalProperties: false`). A schema not given (none for that object) is open.
 const takes = (schema, key) => !schema || Boolean(schema.properties?.[key]) || schema.additionalProperties !== false;
 
-// The message form's fields the pack's input schema takes: a closed schema refuses anything else
+// The message form's fields the agent's input schema takes: a closed schema refuses anything else
 // (one may take a message body and subject only), so the form shows and sends
 // only these.
 function messageFields() {
@@ -298,7 +298,7 @@ async function tryMessage(main) {
     storageSet("oh.try.mode", mode);
     showMode();
   }));
-  const replayMeta = state.replayDraft?.packId === state.packId ? state.replayDraft : null;
+  const replayMeta = state.replayDraft?.agentId === state.agentId ? state.replayDraft : null;
   const replay = replayMeta?.input ?? null;
   state.replayDraft = null;
   if (replay && isObject(replay)) {
@@ -370,7 +370,7 @@ function showResult(result, extra = {}) {
 function decisionView(r, { task = null, request = null } = {}) {
   const urgent = r.outcome === "BLOCK" || r.priority === "stat";
   const why = plainReasons(r);
-  // Every question the pack asks: an answer by name, or that none came (a provider failed).
+  // Every question the agent asks: an answer by name, or that none came (a provider failed).
   const asked = [...new Set([...Object.keys(r.answers), ...Object.keys(r.errors ?? {})])];
   const answers = `<dl class="answers">${asked.map((q) => {
     const a = r.answers[q];

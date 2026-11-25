@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The pack registry under the engine in the dashboard (LP-19f, ADR-0015): an administrator's
+"""The agent registry under the engine in the dashboard (LP-19f, ADR-0015): an administrator's
 Namespaces and Publisher tokens tabs in the Access view (claim, add a key, mint a token shown
 once, revoke), and the registry's review screen for a reviewer of its review organization (the
 claims waiting, what the registry checked beside what the publisher claims, the rendered card as
@@ -7,7 +7,7 @@ text, approve and refuse with a note).
 
 A real server at `localhost` (tests/browser/access_site.py) in memberships mode with
 `MENDARI_REGISTRY=on` and a review organization, sessions planted as `/auth/callback` makes
-them; packs are published over HTTP with the token the page showed. Every address is at
+them; agents are published over HTTP with the token the page showed. Every address is at
 example.org, and every key and token is made for the test. Run with `uv run pytest -m browser`."""
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from playwright.sync_api import Browser, Page, expect
 from mendari.hub import archive
 from tests.browser.access_site import Site, access, dialog, lead, memberships, person, row, running
 from tests.browser.test_accessibility import violations
-from tests.test_hub_client import SHIPPED, copy_pack
+from tests.test_hub_client import SHIPPED, copy_agent
 from tests.test_registry_review import REVIEW_ORG, review_org
 
 pytestmark = pytest.mark.browser
@@ -83,10 +83,10 @@ def mint(page: Page, name: str = "ci", namespace: str = "acme") -> str:
 
 
 def publish(site: Site, tmp_path: Path, key: Any, token: str) -> httpx.Response:
-    pack = copy_pack(tmp_path, "acme/inbox")
+    agent = copy_agent(tmp_path, "acme/inbox")
     return httpx.put(
         f"{site.base}{VERSION}",
-        content=archive.build(pack, key),
+        content=archive.build(agent, key),
         headers={"authorization": f"Bearer {token}"},
     )
 
@@ -96,7 +96,7 @@ def search(site: Site) -> list[str]:
     return [p["id"] for p in found]
 
 
-def test_from_a_claim_to_an_approved_pack(site: Site, tmp_path: Path) -> None:
+def test_from_a_claim_to_an_approved_agent(site: Site, tmp_path: Path) -> None:
     admin = site.window(lead(site))
     claim(admin)
     key = add_key(admin)
@@ -228,12 +228,12 @@ def test_a_reviewer_never_decides_their_own_claim(site: Site, tmp_path: Path) ->
     theirs = rita.locator("article.registry-claim", has_text="review-tools")
     expect(theirs.get_by_role("button", name="Approve review-tools")).to_have_count(0)
     theirs.get_by_role("button", name="Refuse review-tools").click()
-    dialog(rita).get_by_label(re.compile("^Note")).fill("Not a pack publisher.")
+    dialog(rita).get_by_label(re.compile("^Note")).fill("Not an agent publisher.")
     dialog(rita).get_by_role("button", name="Refuse", exact=True).click()
     expect(rita.locator("#registry-queue .empty-state")).to_contain_text("No claims waiting")
     access(both, "namespaces")
     refused = row(both, "namespaces", "review-tools")
-    expect(refused).to_contain_text("Refused: Not a pack publisher.")
+    expect(refused).to_contain_text("Refused: Not an agent publisher.")
     expect(refused.get_by_role("button")).to_have_count(0)
 
 

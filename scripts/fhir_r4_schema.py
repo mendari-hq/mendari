@@ -4,7 +4,7 @@
 The structural gate on FHIR input (`mendari.standards.fhir_structure`) reads that file: the
 definitions of every R4 resource and data type, with JSON types, elements, formats, required
 elements and required codes. The source is the schema published with R4 (CC0), pinned by the
-digest of `fhir.schema.json`; the zip around it was re-packed by HL7 after publication, so its
+digest of `fhir.schema.json`; the zip around it was re-zipped by HL7 after publication, so its
 digest is only reported. The schema in the `hl7.fhir.r4.core` package (`openapi/`) is an older
 build that differs in twelve definitions, and is not used.
 
@@ -73,7 +73,7 @@ def download() -> bytes:
     archive = CACHE.read_bytes()
     zip_digest = hashlib.sha256(archive).hexdigest()
     if zip_digest != ZIP_SHA256:
-        print(f"note: {CACHE.name} has sha256 {zip_digest} (re-packed?); checking its content")
+        print(f"note: {CACHE.name} has sha256 {zip_digest} (re-zipped?); checking its content")
     with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
         data = zipped.read("fhir.schema.json")
     digest = hashlib.sha256(data).hexdigest()

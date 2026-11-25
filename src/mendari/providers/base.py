@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The provider contract: answer a pack's questions with a probability distribution per question."""
+"""The provider contract: answer an agent's questions with a probability distribution per
+question."""
 
 from __future__ import annotations
 
@@ -15,10 +16,10 @@ from typing import Any, ClassVar, TypeVar
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from mendari.core.actions import Proposed
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.core.spec import Question
 from mendari.core.text import plain
-from mendari.errors import PackValidationError, ProviderError
+from mendari.errors import AgentValidationError, ProviderError
 from mendari.providers.signals import Signals
 
 T = TypeVar("T")
@@ -182,12 +183,12 @@ class Provider(ABC):
 
     def __init__(
         self,
-        pack: Pack,
+        agent: Agent,
         info: ProviderInfo,
         questions: Mapping[str, Question],
         config: Mapping[str, Any],
     ):
-        self.pack = pack
+        self.agent = agent
         self.info = info
         self.questions = dict(questions)
         self.config = dict(config)
@@ -196,7 +197,7 @@ class Provider(ABC):
     @classmethod
     def config_problems(
         cls,
-        pack: Pack,
+        agent: Agent,
         where: str,
         config: Mapping[str, Any],
         questions: Mapping[str, Question],
@@ -204,14 +205,14 @@ class Provider(ABC):
         bounded: bool,
     ) -> list[str]:
         """Why `config` (a variant's or a composite member's, with its `type`) cannot answer
-        `questions` in `pack`, or nothing: every check that reads neither the environment nor
-        the network, each problem naming `where` (the variant, or the member) or the pack file
+        `questions` in `agent`, or nothing: every check that reads neither the environment nor
+        the network, each problem naming `where` (the variant, or the member) or the agent file
         it is about. Its closed config model refuses any key it does not read. `bounded`: the
-        pack is one the deployment does not own (`Pack.bounded`), held to more.
-        `load_pack` runs it on every variant (`providers.config_problems`:
-        a pack the deployment does not own is refused, an owned one warned) and so does
+        agent is one the deployment does not own (`Agent.bounded`), held to more.
+        `load_agent` runs it on every variant (`providers.config_problems`:
+        an agent the deployment does not own is refused, an owned one warned) and so does
         `mendari validate`; each constructor raises on the checks a variant was refused for
-        before (an owned pack's unread key only warns, so it still serves)."""
+        before (an owned agent's unread key only warns, so it still serves)."""
         return []
 
     def use_budget(self, acquire: Callable[[str], None]) -> None:
@@ -295,16 +296,16 @@ def closed_problems(model: type[BaseModel], where: str, config: Mapping[str, Any
 
 
 def read_problems(read: Callable[[], Any]) -> tuple[Any, list[str]]:
-    """(what `read` returns, []), or (None, the problems) when the pack file it reads is missing,
-    unreadable, changed since load or malformed (`Pack.read_*` raise `PackValidationError`)."""
+    """(what `read` returns, []), or (None, the problems) when the agent file it reads is missing,
+    unreadable, changed since load or malformed (`Agent.read_*` raise `AgentValidationError`)."""
     try:
         return read(), []
-    except PackValidationError as error:
+    except AgentValidationError as error:
         return None, list(error.problems)
 
 
 def state_fields_problem(kind: str) -> str:
-    """Why a model variant of a pack the deployment does not own is refused without
+    """Why a model variant of an agent the deployment does not own is refused without
     `state_fields`: it would send the whole input."""
     return (
         f"a registry or store agent's {kind} variant must name its state_fields: the input "
@@ -313,17 +314,17 @@ def state_fields_problem(kind: str) -> str:
 
 
 def prefixed(where: str, problems: list[str]) -> list[str]:
-    """`problems`, each naming `where` (the variant or member they are about) first: one about a
-    pack file names the file only."""
+    """`problems`, each naming `where` (the variant or member they are about) first: one about an
+    agent file names the file only."""
     return [
         problem if problem.startswith((f"{where}: ", f"{where}.")) else f"{where}: {problem}"
         for problem in problems
     ]
 
 
-def fingerprint(pack: Pack, relative: str) -> str:
-    """Short content hash of a pack file, recorded as the provider's model version."""
-    return hashlib.sha256(pack.read_bytes(relative)).hexdigest()[:12]
+def fingerprint(agent: Agent, relative: str) -> str:
+    """Short content hash of an agent file, recorded as the provider's model version."""
+    return hashlib.sha256(agent.read_bytes(relative)).hexdigest()[:12]
 
 
 def softmax(scores: Mapping[str, float], temperature: float = 1.0) -> dict[str, float]:

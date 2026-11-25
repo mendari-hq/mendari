@@ -20,8 +20,8 @@ import pytest
 import yaml
 from playwright.sync_api import Browser, Page, expect
 
-from mendari.core.pack import load_pack
-from mendari.core.registry import resolve_pack
+from mendari.core.agent import load_agent
+from mendari.core.registry import resolve_agent
 from mendari.hub import archive
 from tests.browser.access_site import Site, memberships, person, running
 from tests.browser.conftest import TRIAGE
@@ -65,10 +65,10 @@ def digest_of(page: Page) -> str:
     return page.url.rsplit("/", 1)[-1].replace("%3A", ":")
 
 
-def run_job(page: Page, *, version: str | None = None, pack: str | None = None) -> None:
+def run_job(page: Page, *, version: str | None = None, agent: str | None = None) -> None:
     store_tab(page, "results")
-    if pack:
-        page.get_by_label("Or an agent served here (the current one)").fill(pack)
+    if agent:
+        page.get_by_label("Or an agent served here (the current one)").fill(agent)
     else:
         page.get_by_label("Version").select_option(version)
     page.get_by_label("Dataset").select_option("name:test")
@@ -91,11 +91,11 @@ def compare(page: Page) -> None:
     page.get_by_role("button", name="Compare").click()
 
 
-def decide(site: Site, headers: dict[str, str], pack_id: str) -> dict[str, object]:
+def decide(site: Site, headers: dict[str, str], agent_id: str) -> dict[str, object]:
     with httpx.Client(base_url=site.base, headers={**headers, **OWN}) as client:
         client.post("/api/notice/acknowledge", json={})
         answer = client.post(
-            f"/api/agents/{pack_id}/decide", json={"message": {"body": "Refill please"}}
+            f"/api/agents/{agent_id}/decide", json={"message": {"body": "Refill please"}}
         )
     assert answer.status_code == 200, answer.text
     return dict(answer.json())
@@ -106,7 +106,7 @@ def test_copy_edit_test_compare_and_promote_in_a_second_organization(site: Site)
     reads the comparison; a second person promotes; a decide request from clinic-b is answered by
     the promoted digest, and one from clinic-a by the served agent."""
     author = site.window(
-        person(site, sub="aria", email="aria@example.org", org=CLINIC_B, roles=["pack_author"])
+        person(site, sub="aria", email="aria@example.org", org=CLINIC_B, roles=["agent_author"])
     )
     first = copy(author)
     author.get_by_label("File").select_option("logic/router_rules.yaml")
@@ -120,7 +120,7 @@ def test_copy_edit_test_compare_and_promote_in_a_second_organization(site: Site)
     author.get_by_role("button", name="Run the tests").click()
     expect(author.locator("#tests-result")).to_contain_text("passed", timeout=20_000)
     run_job(author, version=draft)
-    run_job(author, pack=TRIAGE)
+    run_job(author, agent=TRIAGE)
     compare(author)
     expect(author.locator("#compare-result")).to_contain_text("cases paired")
 
@@ -137,9 +137,9 @@ def test_copy_edit_test_compare_and_promote_in_a_second_organization(site: Site)
     expect(approver.locator('[data-table="promotions"]')).to_contain_text(f"{CLINIC_B}/triage-copy")
 
     b = person(site, sub="rae", email="rae@example.org", org=CLINIC_B, roles=["reviewer"])
-    assert decide(site, b, f"{CLINIC_B}/triage-copy")["pack"]["digest"] == draft  # type: ignore[index]
+    assert decide(site, b, f"{CLINIC_B}/triage-copy")["agent"]["digest"] == draft  # type: ignore[index]
     a = person(site, sub="ana", email="ana@example.org", org=CLINIC_A, roles=["reviewer"])
-    assert decide(site, a, TRIAGE)["pack"]["digest"] == resolve_pack(TRIAGE).digest  # type: ignore[index]
+    assert decide(site, a, TRIAGE)["agent"]["digest"] == resolve_agent(TRIAGE).digest  # type: ignore[index]
     with httpx.Client(base_url=site.base, headers={**a, **OWN}) as client:
         assert client.post(f"/api/agents/{CLINIC_B}/triage-copy/decide", json={}).status_code == 404
 
@@ -150,7 +150,7 @@ def test_the_author_sees_no_promote_control_and_why(site: Site) -> None:
         sub="dual",
         email="dual@example.org",
         org=CLINIC_B,
-        roles=["governance", "pack_author"],
+        roles=["governance", "agent_author"],
     )
     page = site.window(both)
     digest = copy(page)
@@ -167,7 +167,7 @@ def test_the_store_passes_axe(site: Site, scheme: str) -> None:
         sub="dual",
         email="dual@example.org",
         org=CLINIC_B,
-        roles=["governance", "pack_author"],
+        roles=["governance", "agent_author"],
     )
     page = site.window(both, bypass_csp=True, color_scheme=scheme)  # axe is injected
     found = {}
@@ -177,7 +177,7 @@ def test_the_store_passes_axe(site: Site, scheme: str) -> None:
     expect(page.locator("#tests-result")).to_contain_text("passed", timeout=20_000)
     found["its tests"] = violations(page)
     run_job(page, version=digest)
-    run_job(page, pack=TRIAGE)
+    run_job(page, agent=TRIAGE)
     found["results"] = violations(page)
     compare(page)
     expect(page.locator("#compare-result")).to_contain_text("cases paired")
@@ -198,7 +198,7 @@ def _signed(site: Site, tmp_path: Path, extra_case: dict[str, object]) -> bytes:
         assert (
             client.post("/api/store/keys", json={"public_pem": public.decode()}).status_code == 201
         )
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"] = f"{CLINIC_B}/uploaded"
@@ -206,7 +206,7 @@ def _signed(site: Site, tmp_path: Path, extra_case: dict[str, object]) -> bytes:
     cases = root / "tests" / "cases.yaml"
     case = {"name": "planted", "input": extra_case, "expect": {"not_outcome": "BLOCK"}}
     cases.write_text(cases.read_text() + "\n" + yaml.safe_dump([case], sort_keys=False))
-    return archive.build(load_pack(root), archive.load_private_key(private))
+    return archive.build(load_agent(root), archive.load_private_key(private))
 
 
 def _upload(page: Page, tmp_path: Path, data: bytes) -> None:
@@ -221,7 +221,7 @@ def _upload(page: Page, tmp_path: Path, data: bytes) -> None:
 def test_a_refused_upload_shows_kinds_and_places_and_no_value(site: Site, tmp_path: Path) -> None:
     data = _signed(site, tmp_path, {"message": {"body": f"call me at {SECRET_PHONE}"}})
     page = site.window(
-        person(site, sub="aria", email="aria@example.org", org=CLINIC_B, roles=["pack_author"])
+        person(site, sub="aria", email="aria@example.org", org=CLINIC_B, roles=["agent_author"])
     )
     _upload(page, tmp_path, data)
     result = page.locator("#upload-result")
@@ -235,7 +235,7 @@ def test_the_agents_tab_names_how_an_archive_is_built(site: Site) -> None:
     """The Agents tab (`#store/agents`) names the command that builds an archive, and offers an
     archive by the extension it is written with."""
     page = site.window(
-        person(site, sub="aria", email="aria@example.org", org=CLINIC_B, roles=["pack_author"])
+        person(site, sub="aria", email="aria@example.org", org=CLINIC_B, roles=["agent_author"])
     )
     page.goto("about:blank")
     page.goto("/#store/agents")
@@ -251,11 +251,11 @@ def test_the_agents_tab_names_how_an_archive_is_built(site: Site) -> None:
 
 def test_a_comparison_on_too_few_cases_says_insufficient_evidence(site: Site) -> None:
     page = site.window(
-        person(site, sub="aria", email="aria@example.org", org=CLINIC_B, roles=["pack_author"])
+        person(site, sub="aria", email="aria@example.org", org=CLINIC_B, roles=["agent_author"])
     )
     digest = copy(page)
     run_job(page, version=digest)
-    run_job(page, pack=TRIAGE)
+    run_job(page, agent=TRIAGE)
     compare(page)
     expect(page.locator("#compare-result")).to_contain_text("Insufficient evidence")
 
@@ -273,7 +273,7 @@ def test_without_the_store_the_view_is_not_there(
         expect(page.locator('.nav a[data-view="store"]')).to_be_hidden()
         expect(page.locator("main h1")).not_to_have_text("Agent store")
         author = here.window(
-            person(here, sub="pia", email="pia@example.org", org=CLINIC_A, roles=["pack_author"])
+            person(here, sub="pia", email="pia@example.org", org=CLINIC_A, roles=["agent_author"])
         )
         author.goto("/#store")
         expect(author.locator("main h1")).to_have_text("Nothing to do here yet")

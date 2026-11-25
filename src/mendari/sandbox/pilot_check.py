@@ -30,9 +30,9 @@ from typing import Any
 
 import httpx
 
-from mendari.core.registry import resolve_pack
+from mendari.core.registry import resolve_agent
 from mendari.errors import MendariError
-from mendari.evals.pack_tests import load_cases
+from mendari.evals.behaviour_tests import load_cases
 from mendari.sandbox import DEMO_AGENT
 from mendari.sandbox.fhir_workflow import labelled_cases
 from mendari.server.origin import OWN_REQUEST
@@ -112,9 +112,9 @@ def run(
     deciding `messages` of its benchmark cases. With `approve` (a risk level 2 or 3 agent the
     engine serves), the committee approves its automation and its next decision carries the
     approval; without, that step is left out and the result says so."""
-    pack = resolve_pack(agent)
-    governed = None if approve is None else resolve_pack(approve)
-    primary = pack.manifest.questions[pack.manifest.policy.primary]
+    loaded = resolve_agent(agent)
+    governed = None if approve is None else resolve_agent(approve)
+    primary = loaded.manifest.questions[loaded.manifest.policy.primary]
     with httpx.Client(follow_redirects=False, timeout=60, transport=transport) as http:
         pilot = Pilot(engine, http)
         health = pilot.expect(pilot.call("GET", "/api/health", {}), 200, "health")
@@ -136,11 +136,11 @@ def run(
         )
         worker = {"authorization": f"Bearer {key['key']}"}
 
-        cases = labelled_cases(pack).records[: max(0, messages - 1)]
+        cases = labelled_cases(loaded).records[: max(0, messages - 1)]
         inputs = [EMERGENCY] + [record["input"] for record in cases]
         decided = [
             pilot.expect(
-                pilot.call("POST", f"/api/agents/{pack.id}/decide", worker, json=item),
+                pilot.call("POST", f"/api/agents/{loaded.id}/decide", worker, json=item),
                 200,
                 "the worker decides a message",
                 log=False,
@@ -153,7 +153,7 @@ def run(
         reviewer = pilot.sign_in("reviewer")
         acknowledge(pilot, reviewer, "the reviewer")
         queue = pilot.expect(
-            pilot.call("GET", f"/api/review?pack_id={pack.id}", reviewer),
+            pilot.call("GET", f"/api/review?agent_id={loaded.id}", reviewer),
             200,
             "the reviewer opens the queue",
         )
@@ -200,7 +200,11 @@ def run(
         else:
             chair = pilot.sign_in("governance")
             level = int(governed.manifest.risk.level)
-            asked = {"pack_id": governed.id, "reference": "AI committee minutes, pilot", "days": 90}
+            asked = {
+                "agent_id": governed.id,
+                "reference": "AI committee minutes, pilot",
+                "days": 90,
+            }
             approval = pilot.expect(
                 pilot.call("POST", "/api/governance", chair, json=asked),
                 201,
@@ -216,7 +220,7 @@ def run(
                 raise MendariError("the decision does not carry the committee's approval")
 
         monitoring = pilot.expect(
-            pilot.call("GET", f"/api/monitoring?pack_id={pack.id}", admin),
+            pilot.call("GET", f"/api/monitoring?agent_id={loaded.id}", admin),
             200,
             "monitoring shows the week",
         )
@@ -237,7 +241,8 @@ def run(
         "steps": pilot.steps,
         "decided": len(decided),
         "reviewed": {"id": resolved["id"], "final_label": label},
-        "approval": approval and {"pack_id": approval["pack_id"], "approver": approval["approver"]},
+        "approval": approval
+        and {"agent_id": approval["agent_id"], "approver": approval["approver"]},
         "monitoring_last_7_days": week,
         "input_reads_logged": len(reads),
     }

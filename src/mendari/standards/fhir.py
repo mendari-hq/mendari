@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""FHIR R4 adapter: map resources onto a pack's input, and a decision onto a FHIR Task.
+"""FHIR R4 adapter: map resources onto an agent's input, and a decision onto a FHIR Task.
 
-Mappings are declarative (``fhir/mapping.yaml`` in the pack) so that clinical informaticists
+Mappings are declarative (``fhir/mapping.yaml`` in the agent) so that clinical informaticists
 can review them without reading code. Paths use a small FHIRPath subset: dotted element names,
 where a list-valued element yields all of its items and ``[n]`` selects the n-th item.
 
@@ -42,8 +42,8 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from mendari.core import clock
-from mendari.core.pack import Pack
-from mendari.core.spec import Outcome, PackManifest, Priority
+from mendari.core.agent import Agent
+from mendari.core.spec import AgentManifest, Outcome, Priority
 from mendari.core.templates import (
     UNKNOWN,
     expansion_count,
@@ -52,7 +52,7 @@ from mendari.core.templates import (
     template_problems,
     unknown_placeholders,
 )
-from mendari.errors import FhirError, FhirStructureError, PackValidationError, ReadReason
+from mendari.errors import AgentValidationError, FhirError, FhirStructureError, ReadReason
 
 if TYPE_CHECKING:
     from mendari.core.decision import DecisionResult
@@ -61,8 +61,8 @@ OUTCOME_SYSTEM = "https://mendari.co/fhir/CodeSystem/decision-outcome"
 DECISION_ID_SYSTEM = "https://mendari.co/fhir/NamingSystem/decision-id"
 # A pack version (`namespace/name@version`) is a code in `meta.tag` (the CodeSystem), and an
 # identifier when it acts as the engine, an agent (the NamingSystem).
-PACK_TAG_SYSTEM = "https://mendari.co/fhir/CodeSystem/decision-pack"
-PACK_ID_SYSTEM = "https://mendari.co/fhir/NamingSystem/decision-pack"
+AGENT_TAG_SYSTEM = "https://mendari.co/fhir/CodeSystem/agent-version"
+AGENT_ID_SYSTEM = "https://mendari.co/fhir/NamingSystem/agent-version"
 MANUAL_TRIAGE = "manual-triage"  # the performer when there is no recommendation
 DISPLAY_LIMIT = 250
 # A path segment: an element name, then at most one of `[n]`, `[*]` and (spec 0.3)
@@ -86,13 +86,14 @@ _LINK = re.compile(
 )
 _ABSOLUTE = re.compile(r"^https?://", re.IGNORECASE)
 
-# The mapping's bounds for a pack the deployment does not own (`Pack.bounded`), and for every pack
+# The mapping's bounds for an agent the deployment does not own (`Agent.bounded`), and for every
+# agent
 # in `mendari validate`: paths a field tries, and codes in a code set. A `follow` is one hop for
-# every pack: what it reaches is never followed further.
+# every agent: what it reaches is never followed further.
 MAX_PATHS = 4
 MAX_CODE_SET_CODES = 200
 # The codes a `task.performer` template may expand to (`FhirAdapter.performer_codes`), for every
-# pack: each is a concept of the performer CodeSystem built in memory (`terminology.py`), so a
+# agent: each is a concept of the performer CodeSystem built in memory (`terminology.py`), so a
 # template such as "{a}{b}{c}{d}" over questions of 255 labels (4 billion codes) is refused at
 # load rather than exhausting the server when the terminology is built.
 MAX_PERFORMER_CODES = 10_000
@@ -133,7 +134,7 @@ _FULL_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:T|$)")  # a date or dateTim
 UNSUPPORTED_TYPE = "unsupported_type"
 UNDECODABLE = "undecodable"  # data that is not base64, or not UTF-8 once decoded
 NOT_FETCHED = "not_fetched"  # only a `url`, to a Binary that is not in the record
-# Notes whose joined text is longer than the pack's input schema lets the field be (`overlong`).
+# Notes whose joined text is longer than the agent's input schema lets the field be (`overlong`).
 TOO_LARGE = "too_large"
 TEXT_TYPES = ("text/plain", "text/html")
 # The elements whose repetitions R4 defines as one document in other formats (`renditions`): a
@@ -158,7 +159,7 @@ class FieldMapping(_Model):
     value winning. With `follow` (0.3), a path to a Reference is followed first, inside the
     record, and the paths are read in the resource it reaches, but a path of the field's own
     type (`own_type`), read where the field is. `code_set` (0.3) picks a coding of one of the
-    mapping's code sets; `map` turns what was found into the pack's value."""
+    mapping's code sets; `map` turns what was found into the agent's value."""
 
     path: str | None = None
     paths: list[str] | None = Field(default=None, min_length=1)
@@ -233,7 +234,7 @@ class ListMapping(_Model):
 
 
 class CodeSet(_Model):
-    """A set of the pack's own codes in one code system (spec 0.3 `code_sets`)."""
+    """A set of the agent's own codes in one code system (spec 0.3 `code_sets`)."""
 
     system: str = Field(min_length=1, max_length=500, pattern=r"^(?:https?://|urn:)\S+$")
     codes: list[str] = Field(min_length=1)
@@ -421,15 +422,15 @@ class Reading:
 
 @dataclass(frozen=True)
 class MappedInput:
-    """A record read with a mapping (`FhirAdapter.read`): the pack's input, and the code sets a
+    """A record read with a mapping (`FhirAdapter.read`): the agent's input, and the code sets a
     site's translation gave a field its value through (LP-23i), sorted; empty without
-    translations, or when every value came from the pack's own codes."""
+    translations, or when every value came from the agent's own codes."""
 
     value: dict[str, Any]
     translated: tuple[str, ...]
 
 
-def _performer_choices(manifest: PackManifest) -> dict[str, list[str]]:
+def _performer_choices(manifest: AgentManifest) -> dict[str, list[str]]:
     """What each placeholder of a `task.performer` template can read (`performer_codes`)."""
     return {
         "recommendation": [*manifest.labels(manifest.policy.primary), MANUAL_TRIAGE],
@@ -439,23 +440,23 @@ def _performer_choices(manifest: PackManifest) -> dict[str, list[str]]:
 
 
 class FhirAdapter:
-    def __init__(self, pack: Pack, mapping: FhirMapping):
-        self.pack = pack
+    def __init__(self, agent: Agent, mapping: FhirMapping):
+        self.agent = agent
         self.mapping = mapping
 
     @classmethod
-    def for_pack(cls, pack: Pack, *, bare: bool | None = None) -> FhirAdapter:
-        """The pack's adapter: its mapping, checked, and its Task text's placeholders, which
-        must name built-ins or questions. With `bare` (by default for a pack the deployment
-        does not own, `Pack.bounded`, which `load_pack` checks so; `mendari validate` asks it
-        of every pack) they must also be bare names (`template_problems`). Otherwise an owned
-        pack's Task text renders as it always did. The mapping's rules are checked for every pack
+    def for_agent(cls, agent: Agent, *, bare: bool | None = None) -> FhirAdapter:
+        """The agent's adapter: its mapping, checked, and its Task text's placeholders, which
+        must name built-ins or questions. With `bare` (by default for an agent the deployment
+        does not own, `Agent.bounded`, which `load_agent` checks so; `mendari validate` asks it
+        of every agent) they must also be bare names (`template_problems`). Otherwise an owned
+        agent's Task text renders as it always did. The mapping's rules are checked for every agent
         (`mapping_problems`), and its bounds under `bare` too."""
-        mapping = read_mapping(pack)
-        relative = pack.manifest.inputs.fhir
+        mapping = read_mapping(agent)
+        relative = agent.manifest.inputs.fhir
         templates = {"description": mapping.task.description, "performer": mapping.task.performer}
-        questions = pack.manifest.questions
-        held = pack.bounded if bare is None else bare
+        questions = agent.manifest.questions
+        held = agent.bounded if bare is None else bare
         problems = []
         for name, text in templates.items():
             if not text:
@@ -467,11 +468,11 @@ class FhirAdapter:
                 problems.append(f"{relative}: task.{name} uses unknown placeholders {unknown}")
         problems += [
             f"{relative}: {problem}"
-            for problem in mapping_problems(mapping, pack.manifest, held=held)
+            for problem in mapping_problems(mapping, agent.manifest, held=held)
         ]
         performer = mapping.task.performer or "{recommendation}"
         if not unknown_placeholders(performer, questions):
-            count = expansion_count(performer, _performer_choices(pack.manifest))
+            count = expansion_count(performer, _performer_choices(agent.manifest))
             if count > MAX_PERFORMER_CODES:
                 problems.append(
                     f"{relative}: task.performer can give {count:,} codes (every combination of "
@@ -479,8 +480,8 @@ class FhirAdapter:
                     f"{MAX_PERFORMER_CODES:,}: use fewer placeholders"
                 )
         if problems:
-            raise PackValidationError(pack.id, problems)
-        return cls(pack, mapping)
+            raise AgentValidationError(agent.id, problems)
+        return cls(agent, mapping)
 
     def index(
         self,
@@ -528,7 +529,7 @@ class FhirAdapter:
         return indexed
 
     def is_focus(self, resource: Mapping[str, Any], *, site_codes: SiteCodes | None = None) -> bool:
-        """Whether a resource is one the pack decides about: of the focus type and, with
+        """Whether a resource is one the agent decides about: of the focus type and, with
         `focus_where`, one of its values at its path; or (spec 0.3) a code of its code set among
         the codings at its path, read as a `code_set` field reads them, a site's translations
         into the set (`site_codes`, LP-23i) included. A decision about a focus that counts only
@@ -574,13 +575,13 @@ class FhirAdapter:
     def to_input(
         self, indexed: Mapping[str, Any], *, site_codes: SiteCodes | None = None
     ) -> dict[str, Any]:
-        """The pack's input from an indexed record: `read`'s value."""
+        """The agent's input from an indexed record: `read`'s value."""
         return self.read(indexed, site_codes=site_codes).value
 
     def read(
         self, indexed: Mapping[str, Any], *, site_codes: SiteCodes | None = None
     ) -> MappedInput:
-        """The pack's input from an indexed record, and the code sets a translation gave it a
+        """The agent's input from an indexed record, and the code sets a translation gave it a
         value through. `site_codes` (LP-23i) are a site's translations into the mapping's code
         sets, read by `code_set` selectors only (a field's, and `focus_where`'s, LP-23k); without
         them a code set matches its own codes only. Nothing else reads them. A focus that counts
@@ -619,8 +620,8 @@ class FhirAdapter:
 
     def performer_codes(self) -> dict[str, dict[str, str]]:
         """Every code `to_task` can put in `performerType`, each with the placeholder values that
-        give it (the first found), for the pack's performer CodeSystem (`terminology.py`)."""
-        choices = _performer_choices(self.pack.manifest)
+        give it (the first found), for the agent's performer CodeSystem (`terminology.py`)."""
+        choices = _performer_choices(self.agent.manifest)
         codes: dict[str, dict[str, str]] = {}
         for code, values in expansions(self.performer_template, choices):
             codes.setdefault(code, values)
@@ -637,18 +638,18 @@ class FhirAdapter:
         )
         handled_by = result.recommendation or MANUAL_TRIAGE
         template = self.mapping.task
-        pack = f"{result.pack_id}@{result.pack_version}"
+        agent = f"{result.agent_id}@{result.agent_version}"
         performer = fill(self.performer_template, result, recommendation=handled_by)
         # Codes, ids and times only: reasons and descriptions can quote the case.
         summary = (
-            f"Decision {result.id} by {pack}: {result.outcome.value}, priority "
+            f"Decision {result.id} by {agent}: {result.outcome.value}, priority "
             f"{result.priority.value}, performer {performer}. Made {result.created_at}."
         )
         task: dict[str, Any] = {
             "resourceType": "Task",
             "meta": {
                 "lastUpdated": result.created_at,
-                "tag": [{"system": PACK_TAG_SYSTEM, "code": pack}],
+                "tag": [{"system": AGENT_TAG_SYSTEM, "code": agent}],
             },
             "text": narrative(summary),
             "identifier": [{"system": DECISION_ID_SYSTEM, "value": result.id}],
@@ -680,7 +681,7 @@ class FhirAdapter:
 
 
 def display(text: str) -> str:
-    """A coding's display from pack text (e.g. a label's criteria): whitespace collapsed and, past
+    """A coding's display from agent text (e.g. a label's criteria): whitespace collapsed and, past
     250 characters, cut on a word boundary. Mendari's CodeSystems and the codings it emits share
     this, so a display always matches its CodeSystem."""
     text = " ".join(text.split())
@@ -693,7 +694,7 @@ def display(text: str) -> str:
 
 def narrative(summary: str, rows: Sequence[tuple[str, str]] = ()) -> dict[str, str]:
     """A generated narrative (`text`, dom-6): a sentence and an optional code/display table.
-    Callers pass codes, ids, times and pack-authored text, never case text."""
+    Callers pass codes, ids, times and agent-authored text, never case text."""
     body = f"<p>{html.escape(summary)}</p>"
     if rows:
         cells = "".join(
@@ -954,11 +955,11 @@ def read_attachment(
 
 def overlong(mapping: FhirMapping, value: dict[str, Any], schema: Any) -> tuple[str, ...]:
     """Each `attachment_text` field of the mapping's `fields` whose text in `value` (the input
-    `FhirAdapter.read` gave) is longer than the `maxLength` the pack's input `schema` gives that
+    `FhirAdapter.read` gave) is longer than the `maxLength` the agent's input `schema` gives that
     field (found by `properties`, one part of its dotted target at a time), sorted, each taken
     out of `value` (spec 0.3 §2.4). The texts of all of a patient's notes, joined, can be longer
     than the schema allows one field, which would refuse the whole input (a BLOCK, which shows no
-    card unless the pack's card template names `refused`); without the field, the decision
+    card unless the agent's card template names `refused`); without the field, the decision
     abstains instead (`could not read <field>: too_large`), for a person, as for a note it could
     not read. The text is never cut: a cut could lose the very sentence a criterion reads."""
     found = []
@@ -975,7 +976,7 @@ def overlong(mapping: FhirMapping, value: dict[str, Any], schema: Any) -> tuple[
 
 
 def text_limits(mapping: FhirMapping, schema: Any) -> dict[str, int]:
-    """The `maxLength` the pack's input `schema` gives each `attachment_text` field of the
+    """The `maxLength` the agent's input `schema` gives each `attachment_text` field of the
     mapping's `fields` (found by `properties`, one part of its dotted target at a time), for the
     fields it gives one: what `overlong` measures the joined text against, and past which a
     linked read stops reading the field's notes (`standards/linked.py`)."""
@@ -1361,24 +1362,24 @@ def located_fields(mapping: FhirMapping) -> Iterator[tuple[str, str | None, Fiel
                 yield f"lists.{target}.resources.{kind}.fields.{key}", kind, mapped
 
 
-def read_mapping(pack: Pack) -> FhirMapping:
-    """A pack's FHIR mapping, of the mapping's shape: a `PackValidationError` naming the file
-    otherwise, and a `FhirError` for a pack that declares none."""
-    relative = pack.manifest.inputs.fhir
+def read_mapping(agent: Agent) -> FhirMapping:
+    """An agent's FHIR mapping, of the mapping's shape: an `AgentValidationError` naming the file
+    otherwise, and a `FhirError` for an agent that declares none."""
+    relative = agent.manifest.inputs.fhir
     if relative is None:
-        raise FhirError(f"agent {pack.id} does not declare a FHIR mapping")
+        raise FhirError(f"agent {agent.id} does not declare a FHIR mapping")
     try:
-        return FhirMapping.model_validate(pack.read_yaml(relative))
+        return FhirMapping.model_validate(agent.read_yaml(relative))
     except ValidationError as error:
-        raise PackValidationError(pack.id, [f"{relative}: {error}"]) from None
+        raise AgentValidationError(agent.id, [f"{relative}: {error}"]) from None
 
 
-def mapping_problems(mapping: FhirMapping, manifest: PackManifest, *, held: bool) -> list[str]:
-    """What the spec holds a mapping to beyond its shape (`FhirAdapter.for_pack`): its paths
+def mapping_problems(mapping: FhirMapping, manifest: AgentManifest, *, held: bool) -> list[str]:
+    """What the spec holds a mapping to beyond its shape (`FhirAdapter.for_agent`): its paths
     are paths of the subset (a top-level field's start from a resource type, a list field's from
     its resource, a followed field's from the type it reaches); each `[system=…]` and each code
     set names a system its `code_systems` declares; `medication_period` derives a
-    MedicationRequest's only. With `held` (a pack the deployment does not own, or any in
+    MedicationRequest's only. With `held` (an agent the deployment does not own, or any in
     `mendari validate`), a field tries at most `MAX_PATHS` paths and a code set has at most
     `MAX_CODE_SET_CODES` codes."""
     declared = {use.url for use in manifest.code_systems}
@@ -1441,7 +1442,7 @@ def looked_for(mapping: FhirMapping) -> dict[str, Any]:
 
     Each `LookedFor` holds the full paths in the order they are tried (a list's fields with
     their resource type in front), the Reference followed first if any, the code systems the
-    field selects on (its `[system=…]` predicates' and its code set's) and the pack's own
+    field selects on (its `[system=…]` predicates' and its code set's) and the agent's own
     codes it looks for (its code set's, and its `map`'s keys), both sorted. A
     `medication_period` appears as its two keys, with the paths of its derivation. Targets,
     types and keys are in the mapping's order; nothing comes from a record, so it holds no

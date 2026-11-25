@@ -283,7 +283,7 @@ def test_a_refused_request_calls_no_provider_and_writes_nothing(
     real = Decision.decide
 
     def counted(self: Decision, *args: Any, **kwargs: Any) -> Any:
-        decided.append(self.pack.id)
+        decided.append(self.agent.id)
         return real(self, *args, **kwargs)
 
     monkeypatch.setattr(Decision, "decide", counted)
@@ -292,7 +292,7 @@ def test_a_refused_request_calls_no_provider_and_writes_nothing(
         before = (len(store.query(limit=500)), store.verify()["events"])
     for route in (DECIDE, f"/api/agents/{INBOX}/fhir/decide", "/fhir/$decide"):
         assert_retry_after(client.post(route, json=message(ROUTINE), headers=key))
-    assert decided == [INBOX]  # the pack ran once, for the request admitted
+    assert decided == [INBOX]  # the agent ran once, for the request admitted
     with AuditStore(db) as store:
         assert (len(store.query(limit=500)), store.verify()["events"]) == before
         assert store.verify()["ok"]
@@ -333,7 +333,7 @@ def test_an_order_hook_counts_one_decision_per_draft_order(
     limit, all counted before the first is made, and a refused request decides none."""
     sign_in_on(monkeypatch, "on,decide=5/h")
     db = str(tmp_path / "orders.db")
-    client = TestClient(create_app(db_path=db, packs_paths=with_orders(tmp_path)))
+    client = TestClient(create_app(db_path=db, agents_paths=with_orders(tmp_path)))
     key = service_key(db)
     three = client.post(ORDER_HOOK, json=order_sign(3), headers=key)
     assert three.status_code == 200, three.text
@@ -353,7 +353,7 @@ def test_an_order_hook_decides_at_most_fifty_orders_a_request(
     sign_in_on(monkeypatch, "on")
     db = str(tmp_path / "cap.db")
     served = with_orders(tmp_path)
-    client = TestClient(create_app(db_path=db, packs_paths=served))
+    client = TestClient(create_app(db_path=db, agents_paths=served))
     key = service_key(db)
     over = client.post(ORDER_HOOK, json=order_sign(51), headers=key)
     assert over.status_code == 400, over.text
@@ -367,7 +367,7 @@ def test_an_order_hook_decides_at_most_fifty_orders_a_request(
     # Under a decide limit whose burst is smaller, the burst is the most one request may decide.
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "on,decide=600/min:4")
     db = str(tmp_path / "burst.db")
-    client = TestClient(create_app(db_path=db, packs_paths=served))
+    client = TestClient(create_app(db_path=db, agents_paths=served))
     key = service_key(db)
     over = client.post(ORDER_HOOK, json=order_sign(5), headers=key)
     assert over.status_code == 400 and "at most 4 in one request" in over.json()["detail"]
@@ -1042,7 +1042,7 @@ def test_a_capped_request_does_no_work_and_is_logged_once(
     real = Decision.decide
 
     def counted(self: Decision, *args: Any, **kwargs: Any) -> Any:
-        decided.append(self.pack.id)
+        decided.append(self.agent.id)
         return real(self, *args, **kwargs)
 
     monkeypatch.setattr(Decision, "decide", counted)
@@ -1052,7 +1052,7 @@ def test_a_capped_request_does_no_work_and_is_logged_once(
     capsys.readouterr()
     for route in (DECIDE, f"/api/agents/{INBOX}/fhir/decide", "/fhir/$decide", DECIDE):
         assert_retry_after(client.post(route, json=message(ROUTINE), headers=key))
-    assert decided == [INBOX]  # the pack ran once, for the request admitted
+    assert decided == [INBOX]  # the agent ran once, for the request admitted
     with AuditStore(db) as store:
         assert (len(store.query(limit=500)), store.verify()["events"]) == before
     reached = [
@@ -1068,7 +1068,7 @@ def test_the_cap_answers_in_each_routes_own_shape(
 ) -> None:
     capped(monkeypatch, 0)
     db = str(tmp_path / "shape.db")
-    client = TestClient(create_app(db_path=db, packs_paths=with_orders(tmp_path)))
+    client = TestClient(create_app(db_path=db, agents_paths=with_orders(tmp_path)))
     key = service_key(db)
     fhir = client.post("/fhir/$decide", json=message(ROUTINE), headers=key)
     assert_retry_after(fhir)
@@ -1095,7 +1095,7 @@ def test_a_request_the_rate_limit_refuses_never_uses_the_day(
     # An order hook whose other draft orders the rate limit refuses in its route: none either.
     hooked = str(tmp_path / "order-hook.db")
     capped(monkeypatch, 5, limits="on,decide=5/h")
-    client = TestClient(create_app(db_path=hooked, packs_paths=with_orders(tmp_path)))
+    client = TestClient(create_app(db_path=hooked, agents_paths=with_orders(tmp_path)))
     key = service_key(hooked)
     assert client.post(ORDER_HOOK, json=order_sign(3), headers=key).status_code == 200
     assert_retry_after(client.post(ORDER_HOOK, json=order_sign(3), headers=key))
@@ -1110,7 +1110,7 @@ def test_each_draft_order_counts_against_the_cap_all_or_none(
     organization's day through order hooks either."""
     capped(monkeypatch, 5)
     db = str(tmp_path / "hook.db")
-    client = TestClient(create_app(db_path=db, packs_paths=with_orders(tmp_path)))
+    client = TestClient(create_app(db_path=db, agents_paths=with_orders(tmp_path)))
     key = service_key(db)
     assert client.post(ORDER_HOOK, json=order_sign(3), headers=key).status_code == 200
     before = decisions_in(db)

@@ -65,8 +65,8 @@ from functools import cache
 from pathlib import Path
 from typing import Any, Literal
 
+from mendari.core.agent import load_agent
 from mendari.core.card import card_of
-from mendari.core.pack import load_pack
 from mendari.sandbox.code_systems import SANDBOX_TAG
 from mendari.sandbox.fhir_records import meta, patient
 
@@ -1026,7 +1026,7 @@ def decision_card() -> str:
     """The agent's `DECISION_CARD.md` as `mendari card --write` writes it where the agent is
     served (as a maintained agent, the tests' bundled folder), from the agent's files as they
     are on disk: so after its datasets, which its digest covers."""
-    return card_of(load_pack(AGENT, origin="maintained"))
+    return card_of(load_agent(AGENT, origin="maintained"))
 
 
 def differing() -> list[Path]:

@@ -77,18 +77,18 @@ def test_every_link_on_the_landing_goes_somewhere(client: TestClient) -> None:
         assert status < 400, (link, status)
 
 
-def test_open_mode_links_every_packs_decision_card(client: TestClient) -> None:
+def test_open_mode_links_every_agents_decision_card(client: TestClient) -> None:
     text = client.get("/docs").text
-    packs = client.get("/api/agents").json()
-    assert packs
-    for pack in packs:
-        assert f'href="/?agent={pack["id"]}#card"' in text, pack["id"]
+    agents = client.get("/api/agents").json()
+    assert agents
+    for agent in agents:
+        assert f'href="/?agent={agent["id"]}#card"' in text, agent["id"]
 
 
 def test_with_sign_in_on_the_landing_is_public_and_tells_nothing_of_the_deployment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Signed out, the page is the same whatever packs run here: no pack list, no provider, no
+    """Signed out, the page is the same whatever agents run here: no agent list, no provider, no
     count, nothing from the store. Only the mode shows, which /api/auth/me says anyway."""
     _sign_in_on(monkeypatch)
     every = TestClient(create_app(db_path=tmp_path / "a.db")).get("/docs", follow_redirects=False)
@@ -220,14 +220,14 @@ def test_the_quickstart_prints_what_the_server_decides(
     that step: the bundled demo agent's, on its offline fixture."""
     monkeypatch.delenv("MENDARI_AGENT_URL", raising=False)
     # The tests' search path is their fixtures (conftest); a release's is the bundled agent.
-    app = create_app(db_path=tmp_path / "a.db", packs_paths=[ROOT / "agents"])
+    app = create_app(db_path=tmp_path / "a.db", agents_paths=[ROOT / "agents"])
     client = TestClient(app)
     printed = landing.PRINTED
     (step,) = [s for s in snippets.load("quickstart") if s.name == "decide"]
     body = re.search(r"-d '(.*?)'", step.text, re.S)
     assert body
     ((method, path),) = step.calls()
-    assert (method, path) == ("POST", f"/api/agents/{landing.QUICKSTART_PACK}/decide")
+    assert (method, path) == ("POST", f"/api/agents/{landing.QUICKSTART_AGENT}/decide")
     decided = client.post(path, json=json.loads(body[1])).json()
     shown = {key: value for key, value in printed.items() if key != "id"}
     assert {key: decided[key] for key in shown} == shown
@@ -265,7 +265,7 @@ def test_a_marker_and_its_part_go_together() -> None:
 
 
 def test_the_api_reference_sends_newcomers_to_the_landing() -> None:
-    text = api_docs.description(sign_in=False, default_pack=None)
+    text = api_docs.description(sign_in=False, default_agent=None)
     assert text.startswith("**New here?** [Start at `/docs`](/docs)")
     assert all(f"**`{code}`**" in text for code, _, _ in api_docs.OUTCOMES)
     # Like the landing, it says another site's form is refused with or without the cookie.

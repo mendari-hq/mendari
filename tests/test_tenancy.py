@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.core import tenancy
 from mendari.errors import AuthError, MendariError, NoOrganization
@@ -76,7 +76,7 @@ def test_nobody_reads_any_organization_data(store: AuditStore) -> None:
                 read()
 
 
-def test_nobody_writes_any_organization_data(store: AuditStore, triage_agent: Pack) -> None:
+def test_nobody_writes_any_organization_data(store: AuditStore, triage_agent: Agent) -> None:
     inputs = message(REFILL)
     result = Decision(triage_agent)(inputs)
     before = store.verify()
@@ -87,8 +87,8 @@ def test_nobody_writes_any_organization_data(store: AuditStore, triage_agent: Pa
             store.acknowledge_notice("person:bo", version="1", actor="Bo")
         with pytest.raises(NoOrganization):
             store.approve_automation(
-                pack_id=triage_agent.id,
-                pack_digest=triage_agent.digest,
+                agent_id=triage_agent.id,
+                agent_digest=triage_agent.digest,
                 risk_level=2,
                 approver="Bo",
                 reference="ref",

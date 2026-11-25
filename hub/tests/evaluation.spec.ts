@@ -36,7 +36,7 @@ test("an evaluation page says what was evaluated and on what data, in words", as
   await page.goto(EVALUATION);
   await expect(page).toHaveTitle("Evaluation of mendari/portal-message-agent · Mendari Agent Hub");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Evaluation of Portal Message Agent");
-  await expect(page.locator(".pack-id-pill")).toHaveText(`mendari/portal-message-agent@${shippedVersion()}`);
+  await expect(page.locator(".agent-id-pill")).toHaveText(`mendari/portal-message-agent@${shippedVersion()}`);
   await expect(page.locator(".lead")).toHaveText(
     `Its publisher, Mendari, ran 2 configurations of version ${shippedVersion()} on 600 synthetic cases and ` +
       "published the results as signed counts. This page shows those counts, and what they do and do not tell you.",

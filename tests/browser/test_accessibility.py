@@ -20,7 +20,7 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from tests.browser.conftest import TRIAGE
-from tests.browser.test_dashboard import PACKS, VIEWS, open_pack, show
+from tests.browser.test_dashboard import AGENTS, VIEWS, open_agent, show
 from tests.browser.test_registry_approvals import APPROVAL, from_registry, registry_approvals
 
 pytestmark = pytest.mark.browser
@@ -63,9 +63,9 @@ def violations(page: Page, exclude: tuple[str, ...] = ()) -> list[dict[str, Any]
 
 
 @pytest.mark.parametrize("axe_page", SCHEMES, indirect=True)
-@pytest.mark.parametrize("pack_id", PACKS)
-def test_every_view_passes_axe(axe_page: Page, pack_id: str) -> None:
-    open_pack(axe_page, pack_id)
+@pytest.mark.parametrize("agent_id", AGENTS)
+def test_every_view_passes_axe(axe_page: Page, agent_id: str) -> None:
+    open_agent(axe_page, agent_id)
     found = {}
     for view in [*VIEWS, "monitoring"]:  # every view the nav shows
         show(axe_page, view)
@@ -75,19 +75,19 @@ def test_every_view_passes_axe(axe_page: Page, pack_id: str) -> None:
 
 @pytest.mark.parametrize("axe_page", SCHEMES, indirect=True)
 def test_an_open_drawer_passes_axe(axe_page: Page) -> None:
-    open_pack(axe_page, TRIAGE, "audit")
+    open_agent(axe_page, TRIAGE, "audit")
     axe_page.locator("button.open-record").first.click()
     expect(axe_page.locator(".drawer")).to_be_visible()
     assert violations(axe_page) == []
 
 
 @pytest.mark.parametrize("axe_page", SCHEMES, indirect=True)
-def test_a_pack_from_a_registry_passes_axe(axe_page: Page) -> None:
+def test_an_agent_from_a_registry_passes_axe(axe_page: Page) -> None:
     """The card's registry approval: not approved (facts, recall, form, history), its dialog
     open, and approved."""
     from_registry(axe_page)
     registry_approvals(axe_page, [], recalled=True)
-    open_pack(axe_page, TRIAGE, "card")
+    open_agent(axe_page, TRIAGE, "card")
     assert violations(axe_page) == []
     section = axe_page.locator("#registry-approval")
     section.get_by_label("Reference").fill("minutes 5")
@@ -97,7 +97,7 @@ def test_a_pack_from_a_registry_passes_axe(axe_page: Page) -> None:
     assert violations(axe_page) == []
     axe_page.get_by_role("dialog").get_by_role("button", name="Cancel").click()
     registry_approvals(axe_page, [], active=APPROVAL)
-    open_pack(axe_page, TRIAGE, "card")
+    open_agent(axe_page, TRIAGE, "card")
     expect(axe_page.locator("#registry-active")).to_be_visible()
     assert violations(axe_page) == []
 
@@ -115,7 +115,7 @@ def test_the_developer_pages_pass_axe(axe_page: Page, path: str) -> None:
 def test_the_command_palette_names_its_active_option(axe_page: Page) -> None:
     """Focus stays in the search box while the arrows move: the box points at the active option
     (a combobox over a listbox), or a screen reader hears nothing as they move."""
-    open_pack(axe_page, TRIAGE)
+    open_agent(axe_page, TRIAGE)
     axe_page.keyboard.press("Control+k")
     box = axe_page.get_by_role("combobox", name="Jump to a view, agent or action")
     expect(box).to_be_focused()

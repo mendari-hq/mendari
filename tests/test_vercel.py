@@ -54,7 +54,7 @@ def test_the_tests_never_reach_a_database_the_shell_exports() -> None:
     env = {**os.environ, "DATABASE_URL": UNREACHABLE, "DATABASE_URL_UNPOOLED": UNREACHABLE}
     tests = [
         "tests/test_vercel.py",
-        "tests/test_bounded_re2.py::test_a_deployment_without_bounded_packs_never_imports_re2",
+        "tests/test_bounded_re2.py::test_a_deployment_without_bounded_agents_never_imports_re2",
     ]
     command = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", *tests]
     ran = subprocess.run(
@@ -68,7 +68,7 @@ def test_the_tests_never_reach_a_database_the_shell_exports() -> None:
 VERCEL_JSON = json.loads((ROOT / "vercel.json").read_text())
 HUB_JSON_TEXT = (ROOT / "hub" / "vercel.json").read_text()
 # What a publish does besides the check, in the same request: read and verify the archive,
-# extract and load the pack, render its card, write the version. Generous on purpose.
+# extract and load the agent, render its card, write the version. Generous on purpose.
 PUBLISH_MARGIN_S = 60
 
 

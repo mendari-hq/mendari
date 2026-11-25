@@ -58,9 +58,9 @@ from urllib.parse import urlencode
 from mendari.errors import FhirRequestError
 from mendari.standards.audit_fhir import EVENT_SYSTEM
 from mendari.standards.fhir import (
+    AGENT_TAG_SYSTEM,
     DECISION_ID_SYSTEM,
     OUTCOME_SYSTEM,
-    PACK_TAG_SYSTEM,
     narrative,
 )
 
@@ -187,7 +187,7 @@ SPECS: dict[str, ResourceSearch] = {
                     "_tag",
                     "token",
                     "Resource-tag",
-                    f"{PACK_TAG_SYSTEM}|{{namespace}}/{{name}}@{{version}}.",
+                    f"{AGENT_TAG_SYSTEM}|{{namespace}}/{{name}}@{{version}}.",
                 ),
             ),
             (("t", "instant"), ("id", "id")),

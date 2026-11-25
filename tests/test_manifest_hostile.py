@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Hostile or malformed manifests are refused as the agent's problem, named so its author can act,
-never with a raw error or a stall (`core/pack.py`, `core/spec.py`, `core/patterns.py`)."""
+never with a raw error or a stall (`core/agent.py`, `core/spec.py`, `core/patterns.py`)."""
 
 from __future__ import annotations
 
@@ -12,16 +12,16 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari import load_pack
+from mendari import load_agent
 from mendari.core import patterns, re2_syntax
-from mendari.errors import PackValidationError
+from mendari.errors import AgentValidationError
 from tests.conftest import TRIAGE_DIR
 
 SCHEMA_LINE = "schema: schemas/input.schema.json"
 
 
 def _copy(tmp_path: Path) -> Path:
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     return root
 
@@ -41,8 +41,8 @@ def _edit_manifest(root: Path, edit: Callable[[dict[str, Any]], None]) -> None:
 
 
 def _refused(root: Path) -> list[str]:
-    with pytest.raises(PackValidationError) as caught:
-        load_pack(root)
+    with pytest.raises(AgentValidationError) as caught:
+        load_agent(root)
     return caught.value.problems
 
 

@@ -25,7 +25,7 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 from starlette.routing import Route
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.core import accounts, tenancy
 from mendari.errors import AuthError, MendariError, NoOrganization
 from mendari.server import auth as auth_module
@@ -218,7 +218,7 @@ def test_use_another_account_asks_the_identity_provider_which(
 
 
 def test_the_owners_bootstrap_binds_at_sign_in_and_reads_earlier_decisions(
-    members: TestClient, store: AuditStore, idp: FakeIdp, triage_agent: Pack, db_target: str
+    members: TestClient, store: AuditStore, idp: FakeIdp, triage_agent: Agent, db_target: str
 ) -> None:
     inputs = message("Can I get a refill?")
     encrypted_store(db_target).record(Decision(triage_agent)(inputs), inputs)
@@ -265,7 +265,7 @@ def test_a_non_ascii_address_signs_in_with_no_organization(
 
 
 def test_a_sign_in_without_a_membership_acts_for_no_organization_never_default(
-    members: TestClient, store: AuditStore, idp: FakeIdp, triage_agent: Pack, db_target: str
+    members: TestClient, store: AuditStore, idp: FakeIdp, triage_agent: Agent, db_target: str
 ) -> None:
     inputs = message("Can I get a refill?")
     encrypted_store(db_target).record(Decision(triage_agent)(inputs), inputs)
@@ -445,14 +445,14 @@ def test_a_removed_membership_ends_access_at_the_next_request(
     assert members.get("/api/audit", headers=headers).status_code == 200
 
 
-def test_pack_author_grants_author_only(members: TestClient, store: AuditStore) -> None:
-    """LP-20f: `pack_author` grants `author` (the organization's pack store, mounted only with
-    MENDARI_AGENT_STORE=on) and nothing else: no read, no packs."""
-    headers = member(store, org="clinic-a", roles=["pack_author"], sub="ada")
+def test_agent_author_grants_author_only(members: TestClient, store: AuditStore) -> None:
+    """LP-20f: `agent_author` grants `author` (the organization's agent store, mounted only with
+    MENDARI_AGENT_STORE=on) and nothing else: no read, no agents."""
+    headers = member(store, org="clinic-a", roles=["agent_author"], sub="ada")
     principal = me(members, headers)["principal"]
     assert (principal["org"], principal["roles"], principal["permissions"]) == (
         "clinic-a",
-        ["pack_author"],
+        ["agent_author"],
         ["author"],
     )
     assert members.get("/api/audit", headers=headers).status_code == 403
@@ -460,7 +460,7 @@ def test_pack_author_grants_author_only(members: TestClient, store: AuditStore) 
 
 def test_labeller_grants_label_only(members: TestClient, store: AuditStore) -> None:
     """`labeller` grants `label` (grading written output, ADR-0025) and nothing else: no read,
-    no packs, no review queue; with another role, both roles' permissions."""
+    no agents, no review queue; with another role, both roles' permissions."""
     headers = member(store, org="clinic-a", roles=["labeller"], sub="ada")
     principal = me(members, headers)["principal"]
     assert (principal["roles"], principal["permissions"]) == (["labeller"], ["label"])
@@ -473,7 +473,7 @@ def test_labeller_grants_label_only(members: TestClient, store: AuditStore) -> N
 
 def test_the_runbook_says_where_each_reserved_role_reaches() -> None:
     """docs/operations/accounts.md on each reserved role a membership may hold: one whose
-    permissions no route rule needs grants nothing yet (`pack_author`); one a rule needs names
+    permissions no route rule needs grants nothing yet (`agent_author`); one a rule needs names
     the paths that rule covers and never says no route needs it yet (`labeller`'s `label`,
     `/api/written/labelling`)."""
     runbook = " ".join((ROOT / "docs" / "operations" / "accounts.md").read_text().split())
@@ -1271,14 +1271,14 @@ def test_a_key_never_manages_people(members: TestClient, store: AuditStore, db_t
 
 
 def test_reserved_roles_may_be_given(members: TestClient, store: AuditStore, idp: FakeIdp) -> None:
-    """Both reserved roles a membership may hold are given as any role is: `pack_author` grants
+    """Both reserved roles a membership may hold are given as any role is: `agent_author` grants
     `author` only (LP-20f), `labeller` grants `label` only (ADR-0025)."""
     lead = admin_of(store)
-    made = invite(members, lead, roles=("pack_author", "labeller"))
-    assert made["roles"] == ["labeller", "pack_author"]
+    made = invite(members, lead, roles=("agent_author", "labeller"))
+    assert made["roles"] == ["agent_author", "labeller"]
     sign_in(members, idp, sub="ada", email="ada@example.org", email_verified=True)
     accepted = accept(members, token_of(made))
-    assert accepted.status_code == 200 and accepted.json()["roles"] == ["labeller", "pack_author"]
+    assert accepted.status_code == 200 and accepted.json()["roles"] == ["agent_author", "labeller"]
     assert members.get("/api/auth/me").json()["principal"]["permissions"] == ["author", "label"]
     refused = members.get("/api/audit")
     assert refused.status_code == 403 and "may not read" in refused.json()["detail"]

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.errors import ReviewError
 from mendari.evals import load_dataset
@@ -23,14 +23,14 @@ SCREENED = {"screen": "agent"}
 FRONT_DESK = {"question": "destination", "label": "front_desk"}
 
 
-def test_thumbs_are_recorded_and_chained(triage_agent: Pack, store: AuditStore) -> None:
+def test_thumbs_are_recorded_and_chained(triage_agent: Agent, store: AuditStore) -> None:
     decision = Decision(triage_agent, providers=SCREENED, store=store)
     good = decision(message(AUTO_REFILL))
     bad = decision(message("Can someone call me back?"))
     store.record_feedback(good.id, rating="up", reporter="rn-1")
     store.record_feedback(bad.id, rating="down", reporter="rn-1", note="should go to nurse")
 
-    down = store.feedback(pack_id=triage_agent.id, rating="down")
+    down = store.feedback(agent_id=triage_agent.id, rating="down")
     assert [(f["decision_id"], f["note"]) for f in down] == [(bad.id, "should go to nurse")]
     assert down[0]["record"]["input"]["message"]["body"] == "Can someone call me back?"
     assert store.get(bad.id)["events"][-1]["event"] == "feedback.recorded"  # type: ignore[index]
@@ -44,7 +44,7 @@ def test_thumbs_are_recorded_and_chained(triage_agent: Pack, store: AuditStore) 
 
 
 def test_thumbs_down_on_an_automated_decision_is_confidently_wrong(
-    triage_agent: Pack, store: AuditStore
+    triage_agent: Agent, store: AuditStore
 ) -> None:
     result = Decision(triage_agent, providers=SCREENED, store=store)(message(AUTO_REFILL))
     assert result.outcome.value == "AUTO"
@@ -52,7 +52,7 @@ def test_thumbs_down_on_an_automated_decision_is_confidently_wrong(
     assert store.stats()["feedback"]["down_on_auto"] == 1
 
 
-def test_feedback_validation(triage_agent: Pack, store: AuditStore) -> None:
+def test_feedback_validation(triage_agent: Agent, store: AuditStore) -> None:
     result = Decision(triage_agent, store=store)(message(AUTO_REFILL))
     with pytest.raises(ReviewError, match="unknown decision"):
         store.record_feedback("nope", rating="down")
@@ -61,7 +61,7 @@ def test_feedback_validation(triage_agent: Pack, store: AuditStore) -> None:
 
 
 def test_export_is_a_dataset_to_label(
-    triage_agent: Pack, store: AuditStore, tmp_path: Path
+    triage_agent: Agent, store: AuditStore, tmp_path: Path
 ) -> None:
     decision = Decision(triage_agent, store=store)
     result = decision(message("I just started to vomit a lot of blood"))
@@ -71,22 +71,22 @@ def test_export_is_a_dataset_to_label(
     store.record(hashed, message("text we must not export"), store_input="hash")
     store.record_feedback(hashed.id, rating="down")
 
-    records, skipped = feedback_dataset(store, pack_id=triage_agent.id)
+    records, skipped = feedback_dataset(store, agent_id=triage_agent.id)
     assert skipped == 1 and len(records) == 1  # one line per decision, notes collected
     record = records[0]
     assert record["labels"] == {} and record["input"]["message"]["body"].startswith("I just")
     assert [f["note"] for f in record["feedback"]] == ["second reviewer agrees", "missed emergency"]
     path = tmp_path / "down.jsonl"
     path.write_text(json.dumps(record) + "\n")
-    assert load_dataset(path).records[0]["id"] == record["id"]  # loads as a pack dataset
+    assert load_dataset(path).records[0]["id"] == record["id"]  # loads as an agent dataset
 
 
-def test_a_rated_decision_says_it_was_exported(triage_agent: Pack, store: AuditStore) -> None:
-    """A site's case wherever the file goes: the mark that keeps a pack that holds it out of
+def test_a_rated_decision_says_it_was_exported(triage_agent: Agent, store: AuditStore) -> None:
+    """A site's case wherever the file goes: the mark that keeps an agent that holds it out of
     an archive (`core/site_cases.py`)."""
     result = Decision(triage_agent, store=store)(message(AUTO_REFILL))
     store.record_feedback(result.id, rating="down", expected=FRONT_DESK)
-    (record,), _ = feedback_dataset(store, pack_id=triage_agent.id)
+    (record,), _ = feedback_dataset(store, agent_id=triage_agent.id)
     assert record["attributes"] == {
         "source": "feedback",
         "decision_id": result.id,
@@ -97,8 +97,8 @@ def test_a_rated_decision_says_it_was_exported(triage_agent: Pack, store: AuditS
 def test_feedback_api_and_export(db_target: str) -> None:
     app = create_app(db_path=db_target, providers=SCREENED)
     client = TestClient(app)
-    pack = "/api/agents/mendari-test/triage"
-    decision = client.post(f"{pack}/decide", json=message(AUTO_REFILL)).json()
+    agent = "/api/agents/mendari-test/triage"
+    decision = client.post(f"{agent}/decide", json=message(AUTO_REFILL)).json()
 
     missing = client.post(f"/api/audit/{decision['id']}/feedback", json={"rating": "sideways"})
     assert missing.status_code == 422
@@ -123,7 +123,7 @@ def test_feedback_api_and_export(db_target: str) -> None:
     feedback = client.get("/api/stats").json()["feedback"]
     assert feedback["down_on_auto"] == 2 and feedback["down_with_expected"] == 1
 
-    export = client.get(f"{pack}/feedback/export")
+    export = client.get(f"{agent}/feedback/export")
     assert export.headers["content-type"].startswith("application/x-ndjson")
     assert export.headers["x-mendari-skipped"] == "0"
     lines = [json.loads(line) for line in export.text.splitlines()]
@@ -147,12 +147,12 @@ def test_cli_export(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
 # -- the right answer on a thumbs-down --------------------------------------------------------
 
 
-def test_a_thumbs_down_can_carry_the_right_answer(triage_agent: Pack, store: AuditStore) -> None:
+def test_a_thumbs_down_can_carry_the_right_answer(triage_agent: Agent, store: AuditStore) -> None:
     result = Decision(triage_agent, store=store)(message(AUTO_REFILL))
     assert result.recommendation == "pharmacy"
     recorded = store.record_feedback(result.id, rating="down", reporter="rn-1", expected=FRONT_DESK)
     assert recorded["expected"] == FRONT_DESK
-    assert store.feedback(pack_id=triage_agent.id)[0]["expected"] == FRONT_DESK
+    assert store.feedback(agent_id=triage_agent.id)[0]["expected"] == FRONT_DESK
     event = store.get(result.id)["events"][-1]  # type: ignore[index]
     assert event["event"] == "feedback.recorded" and event["payload"]["expected"] == FRONT_DESK
     assert store.stats()["feedback"]["down_with_expected"] == 1
@@ -169,7 +169,7 @@ def test_a_thumbs_down_can_carry_the_right_answer(triage_agent: Pack, store: Aud
     ],
 )
 def test_the_right_answer_is_checked_against_the_decision(
-    triage_agent: Pack, store: AuditStore, rating: str, expected: dict[str, str], error: str
+    triage_agent: Agent, store: AuditStore, rating: str, expected: dict[str, str], error: str
 ) -> None:
     result = Decision(triage_agent, store=store)(message(AUTO_REFILL))
     with pytest.raises(ReviewError, match=error):
@@ -177,7 +177,7 @@ def test_the_right_answer_is_checked_against_the_decision(
     assert store.feedback() == []  # nothing half-written
 
 
-def test_a_changed_rating_counts_once(triage_agent: Pack, store: AuditStore) -> None:
+def test_a_changed_rating_counts_once(triage_agent: Agent, store: AuditStore) -> None:
     """Each person's latest rating counts; the hash chain keeps every rating."""
     result = Decision(triage_agent, providers=SCREENED, store=store)(message(AUTO_REFILL))
     first = store.record_feedback(result.id, rating="down", reporter="rn-1", expected=FRONT_DESK)
@@ -205,7 +205,7 @@ def test_a_changed_rating_counts_once(triage_agent: Pack, store: AuditStore) -> 
 
 
 def test_the_export_labels_what_reporters_agree_on(
-    triage_agent: Pack, store: AuditStore, tmp_path: Path
+    triage_agent: Agent, store: AuditStore, tmp_path: Path
 ) -> None:
     decision = Decision(triage_agent, store=store)
     agreed, disputed, unanswered = (decision(message(AUTO_REFILL)) for _ in range(3))
@@ -216,7 +216,7 @@ def test_the_export_labels_what_reporters_agree_on(
     store.record_feedback(disputed.id, rating="down", reporter="rn-2", expected=billing)
     store.record_feedback(unanswered.id, rating="down", reporter="rn-1")
 
-    records, _ = feedback_dataset(store, pack_id=triage_agent.id)
+    records, _ = feedback_dataset(store, agent_id=triage_agent.id)
     labels = {r["attributes"]["decision_id"]: r["labels"] for r in records}
     assert labels == {agreed.id: {"destination": "front_desk"}, disputed.id: {}, unanswered.id: {}}
     dispute = next(r for r in records if r["attributes"]["decision_id"] == disputed.id)
@@ -228,7 +228,7 @@ def test_the_export_labels_what_reporters_agree_on(
     path.write_text(json.dumps(ready) + "\n")
     report = evaluate(Decision(triage_agent), load_dataset(path))
     assert report["questions"]["destination"]["n"] == 1
-    assert report["questions"]["destination"]["accuracy"] == 0.0  # the pack still gets it wrong
+    assert report["questions"]["destination"]["accuracy"] == 0.0  # the agent still gets it wrong
 
 
 def test_a_check_of_a_derived_decision_can_be_the_right_answer(
@@ -244,7 +244,7 @@ def test_a_check_of_a_derived_decision_can_be_the_right_answer(
     expected = {"question": "urgency", "label": other}
     store.record_feedback(result.id, rating="down", reporter="rn-1", expected=expected)
 
-    records, _ = feedback_dataset(store, pack_id=triage.pack.id)
+    records, _ = feedback_dataset(store, agent_id=triage.agent.id)
     assert records[0]["labels"] == {"urgency": other}
     path = tmp_path / "screen.jsonl"
     path.write_text(json.dumps(records[0]) + "\n")
@@ -256,7 +256,7 @@ def test_a_check_of_a_derived_decision_can_be_the_right_answer(
 
 
 def test_audit_rows_carry_each_decisions_current_ratings(
-    triage_agent: Pack, store: AuditStore
+    triage_agent: Agent, store: AuditStore
 ) -> None:
     decision = Decision(triage_agent, store=store)
     rated, unrated = decision(message(AUTO_REFILL)), decision(message(AUTO_REFILL))

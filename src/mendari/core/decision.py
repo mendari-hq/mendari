@@ -19,6 +19,7 @@ from jsonschema import ValidationError
 
 from mendari.core import actions, input_schema, tenancy
 from mendari.core.actions import ActionResult, Asked, Checked, Proposed
+from mendari.core.agent import Agent, load_agent
 from mendari.core.origin import (
     MAX_BOUNDED_TEXT_CHARS,
     UNAPPROVED,
@@ -26,7 +27,6 @@ from mendari.core.origin import (
     long_text,
     shape_problem,
 )
-from mendari.core.pack import Pack, load_pack
 from mendari.core.patterns import OutOfTime, budget_active, check_time, search, time_budget
 from mendari.core.policy import (
     GovernanceOverride,
@@ -39,15 +39,15 @@ from mendari.core.policy import (
     limitation,
     risk_permits_auto,
 )
-from mendari.core.registry import origin_of, resolve_pack
+from mendari.core.registry import origin_of, resolve_agent
 from mendari.core.site_codes import SiteCodeMap, SiteCodeMaps
-from mendari.core.spec import Outcome, PackManifest, Priority
+from mendari.core.spec import AgentManifest, Outcome, Priority
 from mendari.errors import (
+    AgentNotFoundError,
+    AgentValidationError,
     FhirStructureError,
     HubError,
     MendariError,
-    PackNotFoundError,
-    PackValidationError,
     ProviderError,
 )
 from mendari.providers import Answer, Provider, ProviderInfo, build_provider
@@ -72,9 +72,9 @@ REJECTED = "input rejected: "  # how each reason that refused an input begins (`
 class DecisionResult:
     id: str
     created_at: str
-    pack_id: str
-    pack_version: str
-    pack_digest: str
+    agent_id: str
+    agent_version: str
+    agent_digest: str
     primary: str
     outcome: Outcome
     recommendation: str | None
@@ -104,13 +104,13 @@ class DecisionResult:
     # a source so declared (`standards/ehr_declarations.py`): its version, SHA-256, who attested
     # it and where. None otherwise, and on JSON input.
     ehr_declaration: dict[str, str] | None = None
-    # The promotion that let a pack store's version serve here (LP-20h): its id, so the trail
-    # leads from a decision to who signed its version off. Absent for every other pack.
+    # The promotion that let an agent store's version serve here (LP-20h): its id, so the trail
+    # leads from a decision to who signed its version off. Absent for every other agent.
     promotion: str | None = None
     # Why the input was refused before any provider ran (`$decide` reports these as failure).
     # In memory only: not in `to_dict`, so the audit record keeps its shape.
     rejected: bool = field(default=False, compare=False)
-    # The pack-schema part of those reasons (standards rejections are in `input_issues`).
+    # The agent-schema part of those reasons (standards rejections are in `input_issues`).
     schema_problems: tuple[str, ...] = field(default=(), compare=False)
     # How the stored record names each resource an input issue names (`us_core.record_labels`):
     # "Patient (entry 2)" for "Patient/MRN4821937". In memory only, like `rejected`.
@@ -165,7 +165,11 @@ class DecisionResult:
         return {
             "id": self.id,
             "created_at": self.created_at,
-            "pack": {"id": self.pack_id, "version": self.pack_version, "digest": self.pack_digest},
+            "agent": {
+                "id": self.agent_id,
+                "version": self.agent_version,
+                "digest": self.agent_digest,
+            },
             "outcome": self.outcome.value,
             "recommendation": self.recommendation,
             "priority": self.priority.value,
@@ -288,18 +292,18 @@ class CallBudget:
 
 
 class Decision:
-    """A loaded agent bound to concrete providers. Call it with a pack input."""
+    """A loaded agent bound to concrete providers. Call it with an agent input."""
 
     def __init__(
         self,
-        pack: Pack,
+        agent: Agent,
         *,
         providers: Mapping[str, str] | None = None,
         governance: GovernanceOverride | None = None,
-        governance_source: Callable[[Pack], GovernanceOverride | None] | None = None,
-        hold_source: Callable[[Pack], str | None] | None = None,
-        origin_approval: Callable[[Pack], bool] | None = None,
-        recall_source: Callable[[Pack], str | None] | None = None,
+        governance_source: Callable[[Agent], GovernanceOverride | None] | None = None,
+        hold_source: Callable[[Agent], str | None] | None = None,
+        origin_approval: Callable[[Agent], bool] | None = None,
+        recall_source: Callable[[Agent], str | None] | None = None,
         origin_cap: bool = True,
         store: AuditStore | None = None,
         budget: CallBudget | None = None,
@@ -319,10 +323,10 @@ class Decision:
         deployment's `MENDARI_DECISION_DEADLINE_S`, `providers/deadline.py`); each decision
         starts its own clock, which is never kept here (one Decision serves every thread).
 
-        A pack from a registry never automates until its organization approves its digest
+        An agent from a registry never automates until its organization approves its digest
         (`origin_approval`, the deployment's `registry_approvals`; without one, never), nor while
         the registry recalled it (LP-18d, ADR-0012): AUTO becomes HUMAN_REVIEW, as under a hold.
-        Nothing in the pack lifts it. `origin_cap=False` is only for checking the pack's own
+        Nothing in the agent lifts it. `origin_cap=False` is only for checking the agent's own
         policy (`mendari test`, `mendari eval`), never for serving.
 
         `canned_cap` (a server with sign-in) never automates on canned answers (an agent's
@@ -336,16 +340,16 @@ class Decision:
         (`AgentProvider.live`). Without one, as for every decision the command line makes, no
         organization's connection is read."""
         overrides = dict(providers or {})
-        unknown = set(overrides) - set(pack.manifest.providers)
+        unknown = set(overrides) - set(agent.manifest.providers)
         if unknown:
-            raise PackValidationError(pack.id, [f"unknown provider slots {sorted(unknown)}"])
-        self.pack = pack
+            raise AgentValidationError(agent.id, [f"unknown provider slots {sorted(unknown)}"])
+        self.agent = agent
         self.governance = governance
         self.governance_source = governance_source
-        # Why automation is held for this pack now (an operator's automation hold), or None.
+        # Why automation is held for this agent now (an operator's automation hold), or None.
         self.hold_source = hold_source
         self.origin_approval = origin_approval
-        # Why its registry recalls this pack now (a server's `RecallWatch`, LP-18e), or None.
+        # Why its registry recalls this agent now (a server's `RecallWatch`, LP-18e), or None.
         self.recall_source = recall_source
         self.origin_cap = origin_cap
         self.store = store
@@ -353,12 +357,12 @@ class Decision:
         self.fhir_validation = fhir_validation
         self.deadline_s = deadline_s if deadline_s is not None else decision_deadline_s()
         self.site_codes = site_codes
-        # A pack store's version is served under its promotion (LP-20h), named on each record.
+        # An agent store's version is served under its promotion (LP-20h), named on each record.
         self.promotion = promotion
         self.canned_cap = canned_cap
         self.providers: dict[str, Provider] = {
-            slot: build_provider(pack, slot, overrides.get(slot))
-            for slot in pack.manifest.providers
+            slot: build_provider(agent, slot, overrides.get(slot))
+            for slot in agent.manifest.providers
         }
         if budget is not None:
             for provider in self.providers.values():
@@ -367,33 +371,33 @@ class Decision:
             for leaf in self.agent_providers():
                 leaf.use_connection(connection_source)
         # What checks the arguments of each declared action that has a schema (spec 0.4).
-        self._action_checkers = actions.validators(pack.manifest)
-        # An agent the deployment does not own runs on the bounded engine (`Pack.bounded`).
-        self._validator = input_schema.validator(pack.input_schema, bounded=pack.bounded)
+        self._action_checkers = actions.validators(agent.manifest)
+        # An agent the deployment does not own runs on the bounded engine (`Agent.bounded`).
+        self._validator = input_schema.validator(agent.input_schema, bounded=agent.bounded)
         # Its input keys count toward its text only where its schema runs patterns on them;
         # otherwise each is held to the length alone (`origin.long_text`).
         self._count_keys = False
-        if pack.bounded:  # its caps, imported only for one
+        if agent.bounded:  # its caps, imported only for one
             from mendari.core.caps import patterns_on_keys
 
-            self._count_keys = patterns_on_keys(pack.input_schema)
+            self._count_keys = patterns_on_keys(agent.input_schema)
 
     def _origin_holds(self) -> list[str]:
-        """Why a pack from a registry may not automate now: not approved by this organization
+        """Why an agent from a registry may not automate now: not approved by this organization
         for its digest, or recalled when it was pulled (its verified marker records the recall
         the registry served then)."""
-        if not self.origin_cap or self.pack.origin != "hub":
+        if not self.origin_cap or self.agent.origin != "hub":
             return []
         held = []
-        if self.origin_approval is None or not self.origin_approval(self.pack):
+        if self.origin_approval is None or not self.origin_approval(self.agent):
             held.append(UNAPPROVED)
-        recall = self.pack.pulled.get("yank")
+        recall = self.agent.pulled.get("yank")
         if isinstance(recall, Mapping):
             severity = recall.get("severity")
             known = severity if severity in ("low", "medium", "high", "critical") else "unknown"
             held.append(f"recalled by its registry ({known})")
         if self.recall_source is not None:
-            now = self.recall_source(self.pack)
+            now = self.recall_source(self.agent)
             if now:
                 held.append(now)
         return held
@@ -413,13 +417,13 @@ class Decision:
         held = self._origin_holds()
         if held:
             return "; ".join(held)
-        hold = self.hold_source(self.pack) if self.hold_source is not None else None
+        hold = self.hold_source(self.agent) if self.hold_source is not None else None
         if hold:
             return f"automation is on hold: {hold}"
         governance = self.governance
         if governance is None and self.governance_source is not None:
-            governance = self.governance_source(self.pack)
-        level = self.pack.manifest.risk.level
+            governance = self.governance_source(self.agent)
+        level = self.agent.manifest.risk.level
         if not risk_permits_auto(level, governance):
             return f"risk level {int(level)} requires human review"
         return None
@@ -486,24 +490,24 @@ class Decision:
         is run here: the caller runs an action, and only one that is `released`.
 
         A decision that is unknown, another organization's or another agent's raises
-        `PackNotFoundError`, one answer for all three. There is no authorization without a
+        `AgentNotFoundError`, one answer for all three. There is no authorization without a
         recorded decision."""
         if self.store is None:
             raise MendariError("an action is authorized for a decision an audit store recorded")
         problem = actions.shape_problem(name, arguments)
         if problem is not None:
             raise MendariError(problem)
-        manifest = self.pack.manifest
+        manifest = self.agent.manifest
         checked = actions.check(manifest, self._action_checkers, Proposed(name, dict(arguments)))
         spec = checked.spec
         # Read before the store's own session opens: a hold or an approval is a read of it.
         vouched = self.vouched()
         automating = self.automation_stopped() is None
-        digest = self.pack.digest
+        digest = self.agent.digest
 
         def ask(row: Mapping[str, Any], events: Sequence[Mapping[str, Any]]) -> Asked:
             record = row["record"]
-            made_by = record.get("pack") if isinstance(record, Mapping) else None
+            made_by = record.get("agent") if isinstance(record, Mapping) else None
             if not isinstance(made_by, Mapping) or made_by.get("digest") != digest:
                 # Another version decided: what it declared is not what this one does.
                 return Asked(None, None, "blocked", "agent_changed")
@@ -529,7 +533,7 @@ class Decision:
         keep = manifest.audit.store_input == "full"
         return self.store.propose_action(
             decision_id,
-            pack_id=self.pack.id,
+            agent_id=self.agent.id,
             arguments_hash=self.store.phi.arguments_hash(arguments),
             kept=actions.canonical({"name": name, "arguments": arguments}) if keep else None,
             ask=ask,
@@ -551,14 +555,14 @@ class Decision:
         pull it from the registry (MENDARI_REGISTRY_URL, or the one logged into), verified
         and cached, when it isn't there."""
         try:
-            return cls(resolve_pack(ref), **kwargs)
-        except PackNotFoundError:
+            return cls(resolve_agent(ref), **kwargs)
+        except AgentNotFoundError:
             from mendari.hub.client import RegistryClient, default_registry, pull
 
             try:
                 url, token = default_registry()
             except HubError:
-                raise PackNotFoundError(
+                raise AgentNotFoundError(
                     f"no agent {ref!r} here, and no registry to pull it from"
                 ) from None
             with RegistryClient(url, token) as registry:
@@ -566,9 +570,9 @@ class Decision:
 
     @classmethod
     def from_path(cls, path: str | Path, **kwargs: Any) -> Decision:
-        """The pack at `path`, with the origin of where it is (`core/registry.py` `origin_of`): a
-        pulled pack in the registry cache is one, and runs on its engine."""
-        return cls(load_pack(path, origin=origin_of(path)), **kwargs)
+        """The agent at `path`, with the origin of where it is (`core/registry.py` `origin_of`): a
+        pulled agent in the registry cache is one, and runs on its engine."""
+        return cls(load_agent(path, origin=origin_of(path)), **kwargs)
 
     def agent_providers(self) -> list[AgentProvider]:
         """The `agent` variants this Decision runs, a composite's members included: the ones a
@@ -592,7 +596,7 @@ class Decision:
         return self.decide(inputs)
 
     def validate(self, inputs: Any) -> list[str]:
-        """Why the input fails the pack's input schema, at most ten reasons. Each names where
+        """Why the input fails the agent's input schema, at most ten reasons. Each names where
         and which rule of the schema, never the value: jsonschema's own messages quote the
         input, and reasons are stored in the audit trail and copied into the FHIR Task.
 
@@ -602,8 +606,8 @@ class Decision:
         the budget after each error and stops at `MAX_SCHEMA_ERRORS`. Inside a decision, a
         budget spent before any error is found raises `OutOfTime` (the decision abstains);
         alone, it is a reason."""
-        bounded = self.pack.bounded
-        reader = bounded_reader(self.pack.origin)
+        bounded = self.agent.bounded
+        reader = bounded_reader(self.agent.origin)
         if bounded and (shape := shape_problem(inputs, reader)) is not None:
             return [f"(root): {shape}"]
         if bounded and (too_long := long_text(inputs, count_keys=self._count_keys)):
@@ -625,7 +629,7 @@ class Decision:
                 if not found:
                     if alone:
                         return [f"(root): checking it against the schema stopped: {stopped}"]
-                    raise  # the pack's schema, not the input: `decide` abstains
+                    raise  # the agent's schema, not the input: `decide` abstains
             except (RecursionError, OverflowError):
                 if not found:
                     return [
@@ -686,7 +690,7 @@ class Decision:
         unread = tuple(sorted(set(unreadable)))
         unread_reasons = tuple(f"could not read {key}: {reason}" for key, reason in unread)
         started = time.perf_counter()
-        manifest = self.pack.manifest
+        manifest = self.agent.manifest
         if self.store is not None and manifest.audit.store_input == "full":
             self.store.ready_to_keep()  # before a provider (or a quota) sees the case
         answers: dict[str, Answer] = {}
@@ -704,20 +708,20 @@ class Decision:
 
         governance = self.governance
         if governance is None and self.governance_source is not None:
-            governance = self.governance_source(self.pack)
+            governance = self.governance_source(self.agent)
         over_quota: ProviderError | None = None
-        stopped: ProviderError | None = None  # a bounded pack's schema check used the budget
+        stopped: ProviderError | None = None  # a bounded agent's schema check used the budget
         if self.budget is not None:
             try:
                 self.budget.admit_decision()
             except ProviderError as error:
                 over_quota = error  # every provider fails with it, so nothing automates
-        # The patterns of an agent on the bounded engine (`Pack.bounded`: one from a registry or
+        # The patterns of an agent on the bounded engine (`Agent.bounded`: one from a registry or
         # a store) share one time budget in this decision (`core/patterns.py`): past
         # it its schema check or its rules stop, and the decision abstains, for a person.
-        bounded = self.pack.bounded
+        bounded = self.agent.bounded
         with time_budget() if bounded else nullcontext():
-            reader = bounded_reader(self.pack.origin)
+            reader = bounded_reader(self.agent.origin)
             shape = shape_problem(inputs, reader) if bounded else None
             too_long = (
                 long_text(inputs, count_keys=self._count_keys)
@@ -737,7 +741,7 @@ class Decision:
                 try:
                     schema_problems = self.validate(inputs)
                 except OutOfTime as error:
-                    # The pack's schema used the budget: not the input's fault, so no refusal.
+                    # The agent's schema used the budget: not the input's fault, so no refusal.
                     # Every slot fails as a provider that cannot answer does, for a person.
                     schema_problems = []
                     stopped = ProviderError("time_budget", f"its schema check stopped: {error}")
@@ -809,7 +813,7 @@ class Decision:
                     cost = None
                 expected_scores(manifest, answers)
                 variants = {slot: info.variant for slot, info in self.provider_info.items()}
-                hold = self.hold_source(self.pack) if self.hold_source is not None else None
+                hold = self.hold_source(self.agent) if self.hold_source is not None else None
                 origin_holds = self._origin_holds()
                 shadow_note = "shadow mode: held for clinician comparison" if shadow else None
                 hold = "; ".join(filter(None, [*origin_holds, hold, shadow_note])) or None
@@ -849,9 +853,9 @@ class Decision:
         result = DecisionResult(
             id=str(uuid.uuid4()),
             created_at=datetime.now(UTC).isoformat(timespec="milliseconds"),
-            pack_id=self.pack.id,
-            pack_version=self.pack.version,
-            pack_digest=self.pack.digest,
+            agent_id=self.agent.id,
+            agent_version=self.agent.version,
+            agent_digest=self.agent.digest,
             primary=manifest.policy.primary,
             outcome=policy.outcome,
             recommendation=policy.recommendation,
@@ -911,12 +915,12 @@ class Decision:
 
         `unreadable` names the prefetch keys that could not be read, each with its reason
         (`errors.ReadReason`), and `sources` the prefetch templates they were read with (the
-        pack's own by default), so a required resource whose read failed is not refused as
+        agent's own by default), so a required resource whose read failed is not refused as
         missing. A key that still holds what the client sent (a value that is not a resource)
         excuses nothing: a required resource it does not hold is refused, as before. Those keys,
         and a note whose data does not decode or that is only a link (for a spec 0.3
         `attachment_text` note, also one of a type it cannot read: `unreadable_notes`, and notes
-        whose joined text is longer than the pack's input schema lets the field be, left out of
+        whose joined text is longer than the agent's input schema lets the field be, left out of
         the input: `fhir.overlong`, `too_large`), make the decision ABSTAIN unless its input is
         refused (`decide`). The result carries its data-coverage record
         (`standards/data_coverage.py`) in every case.
@@ -941,7 +945,7 @@ class Decision:
         `not_offered` names the prefetch keys left out because the site declared that its EHR
         does not offer their type (`declaration`, `standards/ehr_declarations.py`; a SMART
         launch's or a hook's, by its FHIR base and organization), each with that type. Each must
-        be a key of `sources` holding nothing, of a type the declaration names and the pack may
+        be a key of `sources` holding nothing, of a type the declaration names and the agent may
         read its list without (`ehr_declarations.excusable`): anything else is the caller's
         error (`ValueError`), never the request's. A required resource of that type is not
         refused as missing, nothing abstains on it, the data-coverage record marks the source and
@@ -952,9 +956,9 @@ class Decision:
         from mendari.standards import data_coverage, fhir_structure, us_core
         from mendari.standards.fhir import TOO_LARGE, FhirAdapter, overlong, text_limits
 
-        adapter = FhirAdapter.for_pack(self.pack)
+        adapter = FhirAdapter.for_agent(self.agent)
         failed = dict(unreadable or {})
-        hooks = self.pack.manifest.cds_hooks
+        hooks = self.agent.manifest.cds_hooks
         templates = dict(sources if sources is not None else (hooks.prefetch if hooks else {}))
         excused = {
             data_coverage.source_type(templates[key])
@@ -986,7 +990,7 @@ class Decision:
             # The decision's deadline starts before its linked reads, which its providers share
             # (`providers/deadline.py`); the audit write is outside it.
             due_at = due(self.deadline_s)
-            limits = text_limits(adapter.mapping, self.pack.input_schema)
+            limits = text_limits(adapter.mapping, self.agent.input_schema)
             with deadline_until(due_at):
                 read = links.read(adapter.mapping, indexed, limits=limits)
             if read and self.fhir_validation != "off":
@@ -1002,7 +1006,7 @@ class Decision:
         unlinked = data_coverage.unreadable_links(adapter.mapping, indexed)
         mapped = adapter.read(indexed, site_codes=translations)
         # Notes longer in all than the input allows are left out and abstain, never refused.
-        too_long = overlong(adapter.mapping, mapped.value, self.pack.input_schema)
+        too_long = overlong(adapter.mapping, mapped.value, self.agent.input_schema)
         unread = [
             *failed.items(),
             *(
@@ -1017,7 +1021,7 @@ class Decision:
             adapter.mapping,
             indexed,
             unreadable=failed,
-            systems=[use.url for use in self.pack.manifest.code_systems],
+            systems=[use.url for use in self.agent.manifest.code_systems],
             sources=templates,
             site_codes=translations,
             too_long=too_long,
@@ -1058,7 +1062,7 @@ def _check_not_offered(
 ) -> None:
     """`decide_fhir`'s `not_offered`, as its callers must give it (a `ValueError` otherwise: the
     caller's error, never a request's): with its declaration, each a key of the templates that
-    holds nothing, of the type its template reads, which the declaration names and the pack may
+    holds nothing, of the type its template reads, which the declaration names and the agent may
     read its list without."""
     from mendari.standards.data_coverage import source_type
     from mendari.standards.ehr_declarations import excusable
@@ -1075,7 +1079,7 @@ def _check_not_offered(
             raise ValueError(f"not_offered {key!r}: {kind} may not be left out for this agent")
 
 
-def expected_scores(manifest: PackManifest, answers: MutableMapping[str, Answer]) -> None:
+def expected_scores(manifest: AgentManifest, answers: MutableMapping[str, Answer]) -> None:
     """Each score question's answer with its expected score (`Question.expected_score`), when
     its provider gave none."""
     for key, question in manifest.questions.items():

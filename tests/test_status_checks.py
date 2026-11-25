@@ -97,7 +97,7 @@ def test_every_check_passes_on_a_working_site_and_readiness_sign_in_and_decide_f
 def test_a_check_is_skipped_without_its_base_its_key_or_sign_in(tmp_path: Path) -> None:
     checks = script()
     site = TestClient(
-        create_app(db_path=tmp_path / "a.db", packs_paths=SERVED)
+        create_app(db_path=tmp_path / "a.db", agents_paths=SERVED)
     )  # open mode: no sign-in
     results = checks.run(checks.load(), {"api": str(site.base_url)}, lambda base: site, {})
     assert outcomes(results) == {
@@ -134,7 +134,7 @@ def test_sign_in_is_skipped_when_health_does_not_say(tmp_path: Path) -> None:
     """Open mode in an outage: /api/health reads the database there and fails, so whether
     sign-in is on is not known; the check says so rather than failing."""
     checks = script()
-    app = create_app(db_path=tmp_path / "a.db", packs_paths=SERVED)
+    app = create_app(db_path=tmp_path / "a.db", agents_paths=SERVED)
     break_sqlite(tmp_path / "a.db", "garbage")
     site = TestClient(app, raise_server_exceptions=False)
     results = checks.run(checks.load(), {"api": str(site.base_url)}, lambda base: site, {})
@@ -341,7 +341,7 @@ def test_the_body_keyword_is_in_a_real_decision_and_not_in_an_answer_without_one
     checks = script()
     (entry,) = [e for e in checks.export(checks.load(), {"api": API})[0] if e["name"] == "decide"]
     site = TestClient(
-        create_app(db_path=tmp_path / "a.db", packs_paths=SERVED)
+        create_app(db_path=tmp_path / "a.db", agents_paths=SERVED)
     )  # open mode: no key needed
     answer = site.post(entry["url"].removeprefix(API), json=entry["json_body"])
     assert answer.status_code == 200 and entry["body_keyword"] in answer.text
@@ -428,7 +428,7 @@ def test_the_registry_check_reads_the_mounted_registry(
     else:
         monkeypatch.delenv("MENDARI_REGISTRY", raising=False)
     app = create_app(
-        db_path=tmp_path / "a.db", packs_paths=SERVED
+        db_path=tmp_path / "a.db", agents_paths=SERVED
     )  # open mode: the registry needs no sign-in
     try:
         with TestClient(app) as site:

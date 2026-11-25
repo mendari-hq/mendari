@@ -9,7 +9,7 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from tests.browser.conftest import TRIAGE
-from tests.browser.test_dashboard import open_pack
+from tests.browser.test_dashboard import open_agent
 
 pytestmark = pytest.mark.browser
 
@@ -17,7 +17,7 @@ STEPS = ["source", "try", "shadow", "validate", "approve", "monitor"]
 
 
 def test_the_path_shows_six_steps_and_marks_the_next(page: Page) -> None:
-    open_pack(page, TRIAGE, "overview")
+    open_agent(page, TRIAGE, "overview")
     path = page.get_by_role("region", name="Adoption path")
     expect(path).to_be_visible()
     steps = path.locator("li.adoption-step")
@@ -45,7 +45,7 @@ def test_the_path_shows_six_steps_and_marks_the_next(page: Page) -> None:
 def test_the_path_fits_a_phone(page: Page) -> None:
     """axe runs on every view, this one included, in test_accessibility.py."""
     page.set_viewport_size({"width": 390, "height": 844})
-    open_pack(page, TRIAGE, "overview")
+    open_agent(page, TRIAGE, "overview")
     path = page.get_by_role("region", name="Adoption path")
     expect(path).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth") <= 390
@@ -55,7 +55,7 @@ def test_the_shadow_pilot_action_lands_on_the_command_center(page: Page) -> None
     """The step links to "#cc-title", which is no view: followed as a route, it rendered the
     Overview again from the top, so "Start a shadow pilot" went nowhere. It scrolls to the
     section and focuses its heading."""
-    open_pack(page, TRIAGE, "overview")
+    open_agent(page, TRIAGE, "overview")
     page.get_by_role("link", name="Start a shadow pilot").click()
     expect(page.locator("#cc-title")).to_be_focused()
     expect(page.locator("#cc-title")).to_be_in_viewport()

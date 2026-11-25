@@ -88,10 +88,10 @@ def test_figures_never_format_a_stored_bound() -> None:
 def test_report_figures_are_the_ones_the_card_shows(name: str, tmp_path: Path) -> None:
     """Each served figure is the one on the card's own row for it: the same k of n over the
     same denominator, never merely text that appears somewhere on the card."""
-    pack = published(FIXTURES[name], tmp_path)
-    report = benchmark(pack)
+    agent = published(FIXTURES[name], tmp_path)
+    report = benchmark(agent)
     assert report is not None
-    lines = render_card(pack).splitlines()
+    lines = render_card(agent).splitlines()
     worked = figures.report(report)
     assert all(figure is not None for figure in card_figures(worked))  # all counts are stored
 
@@ -126,7 +126,7 @@ def test_report_figures_are_the_ones_the_card_shows(name: str, tmp_path: Path) -
 
 def test_a_rate_beyond_any_share_is_never_multiplied() -> None:
     """A report can be someone else's file: 1e308 x 600 is infinite, and rounding it raised,
-    which made every registry read of a pack, and search, a server error."""
+    which made every registry read of an agent, and search, a server error."""
     from mendari.evals.result import counted as result_counted
 
     for rate in (1e308, -1e308, 1.0000001):
@@ -179,8 +179,8 @@ def test_comparison_figures_say_what_they_are_of() -> None:
 
 def rows_on(digest: str, sha: str = "d" * 64) -> list[dict[str, Any]]:
     base = {
-        "dataset": "test", "dataset_sha256": sha, "n": 600, "pack_digest": digest,
-        "pack_version": "1.0.0", "auto_rate": 0.0, "cost_per_decision_usd": 0.0, "errors": 0,
+        "dataset": "test", "dataset_sha256": sha, "n": 600, "agent_digest": digest,
+        "agent_version": "1.0.0", "auto_rate": 0.0, "cost_per_decision_usd": 0.0, "errors": 0,
         "macro_f1": 0.9, "ece": 0.02, "latency_p50_ms": 1.0,
         "false_automation": stats.proportion(0, 600).to_dict(),
     }  # fmt: skip
@@ -192,8 +192,8 @@ def rows_on(digest: str, sha: str = "d" * 64) -> list[dict[str, Any]]:
     ]  # fmt: skip
 
 
-def test_a_critical_figure_is_named_when_the_pack_has_several_labels() -> None:
-    """As the card names it (leaderboard.critical_text): by the labels the pack has, not by
+def test_a_critical_figure_is_named_when_the_agent_has_several_labels() -> None:
+    """As the card names it (leaderboard.critical_text): by the labels the agent has, not by
     those with positives on these records."""
     digest = "sha256:" + "a" * 64
     row = rows_on(digest)[0]

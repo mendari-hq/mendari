@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from mendari.cli import main
 from mendari.core import clock
-from mendari.core.pack import load_pack
+from mendari.core.agent import load_agent
 from mendari.errors import HubError
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
@@ -26,7 +26,7 @@ from tests.conftest import FIXTURE_NAMESPACE, TRIAGE_DIR, Registry
 OWNER = "user:3f9a"  # a person as a chain names one: an id, never an address
 # The agent `Registry.publish()` publishes, in the test fixtures' namespace (`FIXTURE_NAMESPACE`):
 # a token minted for that namespace publishes it.
-TRIAGE = load_pack(TRIAGE_DIR)
+TRIAGE = load_agent(TRIAGE_DIR)
 
 
 def _mint(db_target: str, namespace: str = "mendari", **more: Any) -> dict[str, Any]:

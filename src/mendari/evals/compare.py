@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Local validation: compare an evaluation on local data with the pack's published benchmark,
-and say *where* performance degrades, not just by how much. A pack pulled from a registry is
+"""Local validation: compare an evaluation on local data with the agent's published benchmark,
+and say *where* performance degrades, not just by how much. An agent pulled from a registry is
 never compared with the benchmark it carries: that is its publisher's upload (ADR-0012)."""
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from mendari.evals.result import subgroup_labelled
 
 MIN_GROUP = 15  # smallest subgroup worth flagging; smaller ones are too noisy to act on
 MIN_LABEL_SUPPORT = 10
-# Why an evaluation of a pack from a registry is not compared with the benchmark it carries.
+# Why an evaluation of an agent from a registry is not compared with the benchmark it carries.
 FROM_REGISTRY = (
     "the agent is from a registry, and the benchmark it carries is its publisher's upload, "
     "never a reference"
@@ -32,7 +32,7 @@ def _number(value: Any, *, optional: bool = False) -> bool:
 
 
 def _baseline_problem(baseline: Any, primary: str) -> str | None:
-    """Why a baseline cannot be compared, or None. The baseline is the pack's published
+    """Why a baseline cannot be compared, or None. The baseline is the agent's published
     benchmark, written by its author: every figure `compare` reads is checked here first, so a
     malformed one says so instead of failing the evaluation."""
     question = baseline.get("questions", {}).get(primary) if isinstance(baseline, dict) else None
@@ -66,7 +66,7 @@ def _baseline_problem(baseline: Any, primary: str) -> str | None:
         return "the published benchmark's automation figures are malformed"
     if not (
         isinstance(baseline.get("dataset"), dict)
-        and isinstance(baseline.get("pack"), dict)
+        and isinstance(baseline.get("agent"), dict)
         and isinstance(baseline.get("primary"), str)
     ):
         return "the published benchmark does not say which agent, dataset and question it measured"
@@ -205,7 +205,7 @@ def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -
             "dataset": baseline["dataset"],
             "accuracy": base_q["accuracy"],
             "n": base_q.get("n"),
-            "pack_version": baseline["pack"]["version"],
+            "agent_version": baseline["agent"]["version"],
         },
         "local": {"dataset": local["dataset"], "accuracy": local_q["accuracy"], "n": local_q["n"]},
         "delta": delta,

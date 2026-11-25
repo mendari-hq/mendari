@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import load_pack
+from mendari import load_agent
 from mendari import settings as mendari_settings
 from mendari.cli import main
 from mendari.errors import MendariError
@@ -36,7 +36,7 @@ def test_unscoped_settings_apply_only_where_the_slot_and_variant_exist() -> None
     assert skipped == ["screen=keyword"]  # this agent's slot, but no such variant
 
 
-def test_pack_scoped_settings_win_and_stay_in_their_pack() -> None:
+def test_agent_scoped_settings_win_and_stay_in_their_agent() -> None:
     settings = {
         "router": "llm",
         f"{TRIAGE}:router": "rules",
@@ -51,7 +51,7 @@ def test_pack_scoped_settings_win_and_stay_in_their_pack() -> None:
 def test_the_server_reports_settings_it_skipped(tmp_path: Path) -> None:
     app = create_app(
         db_path=tmp_path / "audit.db",
-        packs_paths=[TRIAGE_DIR, CLINICAL_DIR],
+        agents_paths=[TRIAGE_DIR, CLINICAL_DIR],
         providers={
             "screen": "checked",
             f"{TRIAGE}:router": "rules",
@@ -70,13 +70,13 @@ def test_the_cli_refuses_settings_that_cannot_apply(
     triage = str(TRIAGE_DIR)
     assert main(["test", triage, "--provider", "screen=keyword"]) != 0
     assert f"do not apply to {TRIAGE}: ['screen=keyword']" in capsys.readouterr().err
-    # Typed, a setting that applies to nothing in the pack is a mistake (LP-15)...
+    # Typed, a setting that applies to nothing in the agent is a mistake (LP-15)...
     assert main(["test", triage, "--provider", "reader=llm"]) == 1
     err = capsys.readouterr().err
     assert "provider setting reader=llm: the agent has no slot 'reader'" in err
-    assert main(["test", triage, "--provider", "other/pack:screen=llm"]) == 1
-    assert "names other/pack, not this agent" in capsys.readouterr().err
-    # ...but MENDARI_PROVIDERS, a deployment's list for every pack, only warns.
+    assert main(["test", triage, "--provider", "other/agent:screen=llm"]) == 1
+    assert "names other/agent, not this agent" in capsys.readouterr().err
+    # ...but MENDARI_PROVIDERS, a deployment's list for every agent, only warns.
     monkeypatch.setenv("MENDARI_PROVIDERS", "reader=llm")
     assert main(["test", triage]) == 0
     assert "warning: MENDARI_PROVIDERS: provider setting reader=llm" in capsys.readouterr().err
@@ -88,7 +88,7 @@ def served(tmp_path: Path, providers: dict[str, str] | None = None) -> dict[str,
     app = create_app(
         db_path=tmp_path / "a.db",
         providers=providers,
-        packs_paths=[TRIAGE_DIR, CLINICAL_DIR, CHART_DIR],
+        agents_paths=[TRIAGE_DIR, CLINICAL_DIR, CHART_DIR],
     )
     return dict(TestClient(app).get("/api/health").json())
 
@@ -96,8 +96,9 @@ def served(tmp_path: Path, providers: dict[str, str] | None = None) -> dict[str,
 def test_settings_decide_every_slot_they_apply_to(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A setting wins in every pack it applies to; one another pack's variant names (a typo) is
-    skipped and leaves the pack's default in place; a pack-scoped one wins over an unscoped one."""
+    """A setting wins in every agent it applies to; one another agent's variant names (a typo) is
+    skipped and leaves the agent's default in place; an agent-scoped one wins over an unscoped
+    one."""
     monkeypatch.setenv(
         "MENDARI_PROVIDERS",
         f"screen=checked,reader=agent,router=keyword,{CLINICAL}:reader=rules",
@@ -111,10 +112,10 @@ def test_settings_decide_every_slot_they_apply_to(
     assert health["provider_settings_skipped"] == {TRIAGE: ["router=keyword"]}
 
 
-def test_a_slot_runs_without_a_model_only_where_its_pack_offers_one(
+def test_a_slot_runs_without_a_model_only_where_its_agent_offers_one(
     agent_copy: Callable[..., Path],
 ) -> None:
-    triage = load_pack(TRIAGE_DIR)
+    triage = load_agent(TRIAGE_DIR)
     assert slots_without_model(triage, {}) == ["router", "screen"]
     # A composite with a model member reads with a model: the screen's agent, checked by rules.
     assert slots_without_model(triage, {"screen": "checked"}) == ["router"]
@@ -125,12 +126,12 @@ def test_a_slot_runs_without_a_model_only_where_its_pack_offers_one(
         for name in ("agent", "llm"):
             del variants[name]
 
-    offline = load_pack(agent_copy(manifest=rules_only))
+    offline = load_agent(agent_copy(manifest=rules_only))
     assert slots_without_model(offline, {}) == ["screen"]  # no model to add to its router
 
 
 @pytest.mark.parametrize("item", [":reader=rules", "mendari/portal-message-agent:=rules"])
-def test_a_scoped_override_with_no_pack_or_no_slot_is_refused(item: str) -> None:
+def test_a_scoped_override_with_no_agent_or_no_slot_is_refused(item: str) -> None:
     """It applied nowhere and was never reported as skipped: a typo left the default running."""
     with pytest.raises(MendariError, match="namespace/name:slot=variant"):
         parse_providers([item])

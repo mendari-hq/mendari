@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import Link from "next/link";
-import { RegistryUnavailable, RISK_WORDS, search, type PackSummary } from "@/lib/registry";
+import { RegistryUnavailable, RISK_WORDS, search, type AgentSummary } from "@/lib/registry";
 
 import { SearchBar } from "./search-bar";
 
@@ -12,10 +12,10 @@ const PUBLISHER_BADGE = new Set(["verified", "institutional", "community"]);
 
 export default async function Home({ searchParams }: { searchParams: Promise<Params> }) {
   const filters = await searchParams;
-  let packs: PackSummary[] = [];
+  let agents: AgentSummary[] = [];
   let unavailable = false;
   try {
-    packs = await search(filters);
+    agents = await search(filters);
   } catch (error) {
     if (error instanceof RegistryUnavailable) unavailable = true;
     else throw error;
@@ -23,11 +23,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
   const filtered = Boolean(filters.q || filters.risk || filters.standard || filters.publisher_type);
   const filterKey = `${filters.q ?? ""}|${filters.risk ?? ""}|${filters.standard ?? ""}|${filters.publisher_type ?? ""}`;
   const verifiedPublishers = new Set(
-    packs
+    agents
       .filter((item) => item.checked.publisher_type === "verified" || item.checked.publisher_type === "institutional")
       .map((item) => item.namespace),
   ).size;
-  const standardsCount = new Set(packs.flatMap((item) => item.standards)).size;
+  const standardsCount = new Set(agents.flatMap((item) => item.standards)).size;
 
   return (
     <>
@@ -46,7 +46,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
               <dl className="hero-metrics" aria-label="Registry summary">
                 <div className="hero-metric">
                   <dt>{filtered ? "Matching agents" : "Published agents"}</dt>
-                  <dd>{unavailable ? "—" : packs.length}</dd>
+                  <dd>{unavailable ? "—" : agents.length}</dd>
                 </div>
                 <div className="hero-metric">
                   <dt>Verified publishers</dt>
@@ -98,19 +98,19 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
               <Link href="/">reload the catalog</Link>.
             </p>
           </div>
-        ) : packs.length ? (
+        ) : agents.length ? (
           <>
             <div className="catalog-bar">
               <h2 className="sr-only">Published agents</h2>
               <p className="catalog-count">
-                <strong>{packs.length}</strong> {packs.length === 1 ? "agent" : "agents"}{filtered ? " matching filters" : " available"}
+                <strong>{agents.length}</strong> {agents.length === 1 ? "agent" : "agents"}{filtered ? " matching filters" : " available"}
               </p>
               <p className="muted catalog-hint">
                 Built-in <code>mendari/*</code> entries are tagged as starter demos; risk levels are declared by publishers until reviewed.
               </p>
             </div>
             <ul className="results" aria-label="Agents">
-              {packs.map((item) => <PackCard key={item.id} item={item} />)}
+              {agents.map((item) => <AgentCard key={item.id} item={item} />)}
             </ul>
           </>
         ) : (
@@ -154,7 +154,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
   );
 }
 
-function PackCard({ item }: { item: PackSummary }) {
+function AgentCard({ item }: { item: AgentSummary }) {
   const starterLabel =
     item.namespace === "mendari"
       ? item.name === "portal-message-agent"
@@ -173,7 +173,7 @@ function PackCard({ item }: { item: PackSummary }) {
         <div className="card-heading">
           <h3>
             <Link href={`/agents/${encodeURIComponent(item.namespace)}/${encodeURIComponent(item.name)}`}>
-              {item.pack_name}
+              {item.agent_name}
             </Link>
           </h3>
           <p className="card-id mono muted">{item.id}@{item.version}</p>

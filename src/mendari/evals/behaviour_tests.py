@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Run the behaviour tests a pack ships in `tests/cases.yaml`, and the regression tests
+"""Run the behaviour tests an agent ships in `tests/cases.yaml`, and the regression tests
 `mendari probe` wrote beside them (`PROBE_TESTS`)."""
 
 from __future__ import annotations
@@ -7,12 +7,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from mendari.core.agent import Agent, not_json
 from mendari.core.decision import Decision
 from mendari.core.origin import bounded_reader
-from mendari.core.pack import Pack, not_json
 from mendari.core.patterns import BOUNDED_TIME_BUDGET_S
-from mendari.core.spec import Outcome, PackManifest, Priority
-from mendari.errors import PackValidationError
+from mendari.core.spec import AgentManifest, Outcome, Priority
+from mendari.errors import AgentValidationError
 
 # What a behaviour test may say (spec §10): a case is these keys, and its `expect` at least one of
 # EXPECT_KEYS and nothing else, so a typo or an empty expectation cannot pass by accident (LP-15).
@@ -37,44 +37,44 @@ class CaseOutcome:
     failures: tuple[str, ...]
 
 
-def load_cases(pack: Pack) -> list[dict[str, Any]]:
-    """The pack's own behaviour tests: the file its manifest names. Each is a mapping with an
-    `input` mapping, an optional `name` (text) and an `expect` mapping saying what the pack must
-    decide: at least one of `EXPECT_KEYS` and nothing else, each value one the pack can decide
+def load_cases(agent: Agent) -> list[dict[str, Any]]:
+    """The agent's own behaviour tests: the file its manifest names. Each is a mapping with an
+    `input` mapping, an optional `name` (text) and an `expect` mapping saying what the agent must
+    decide: at least one of `EXPECT_KEYS` and nothing else, each value one the agent can decide
     (an outcome, a priority, the primary question's label, a question's label), all JSON. Any
-    other case is a `PackValidationError` naming the case by number and name and what is wrong
+    other case is an `AgentValidationError` naming the case by number and name and what is wrong
     (never its input)."""
-    if pack.manifest.tests is None:
+    if agent.manifest.tests is None:
         return []
-    return _load(pack, pack.manifest.tests, CASE_KEYS)
+    return _load(agent, agent.manifest.tests, CASE_KEYS)
 
 
-def probe_cases(pack: Pack) -> list[dict[str, Any]]:
+def probe_cases(agent: Agent) -> list[dict[str, Any]]:
     """The regression tests the probe found and a person or the probe kept (`PROBE_TESTS`), or
     none: each a behaviour test as `load_cases` reads one, with a `probe` mapping that holds its
     `id` (text, one case's only). A test still waiting for a person to confirm what it expects
     is in another file, and is never read here."""
-    if not pack.path(PROBE_TESTS).is_file():
+    if not agent.path(PROBE_TESTS).is_file():
         return []
-    own = pack.manifest.tests
-    if own is not None and pack.path(own) == pack.path(PROBE_TESTS):
+    own = agent.manifest.tests
+    if own is not None and agent.path(own) == agent.path(PROBE_TESTS):
         return []  # the manifest names this file as the agent's own tests: read once, as those
-    cases = _load(pack, PROBE_TESTS, (*CASE_KEYS, PROBE_KEY))
+    cases = _load(agent, PROBE_TESTS, (*CASE_KEYS, PROBE_KEY))
     first: dict[str, int] = {}
     for number, case in enumerate(cases, start=1):
         found = first.setdefault(case[PROBE_KEY]["id"], number)
         if found != number:
             where = f"{PROBE_TESTS} case {number}{_named(case)}"
             problem = f"{where}: its id {case[PROBE_KEY]['id']} is case {found}'s too"
-            raise PackValidationError(pack.id, [problem])
+            raise AgentValidationError(agent.id, [problem])
     return cases
 
 
-def every_case(pack: Pack) -> list[tuple[str, int, dict[str, Any]]]:
+def every_case(agent: Agent) -> list[tuple[str, int, dict[str, Any]]]:
     """Every behaviour test `mendari test` runs, as (the file it is in, its number there, the
-    case): the pack's own (`load_cases`), then the ones the probe found (`probe_cases`)."""
-    own = [(str(pack.manifest.tests), case) for case in load_cases(pack)]
-    found = [(PROBE_TESTS, case) for case in probe_cases(pack)]
+    case): the agent's own (`load_cases`), then the ones the probe found (`probe_cases`)."""
+    own = [(str(agent.manifest.tests), case) for case in load_cases(agent)]
+    found = [(PROBE_TESTS, case) for case in probe_cases(agent)]
     return [
         (file, number, case)
         for cases in (own, found)
@@ -82,7 +82,7 @@ def every_case(pack: Pack) -> list[tuple[str, int, dict[str, Any]]]:
     ]
 
 
-def probe_case_problem(manifest: PackManifest, case: Any) -> str | None:
+def probe_case_problem(manifest: AgentManifest, case: Any) -> str | None:
     """Why `case` is not a test `probe_cases` reads (its shape, its `probe` mapping, a value
     the agent can never decide), or None: what a test must be before it is moved among those
     that run."""
@@ -90,20 +90,20 @@ def probe_case_problem(manifest: PackManifest, case: Any) -> str | None:
     return problem if problem is not None else _value_problem(manifest, case["expect"])
 
 
-def _load(pack: Pack, relative: str, keys: tuple[str, ...]) -> list[dict[str, Any]]:
+def _load(agent: Agent, relative: str, keys: tuple[str, ...]) -> list[dict[str, Any]]:
     """The cases of one file of behaviour tests, each holding `keys` and no other."""
-    cases = pack.read_yaml(relative) or []
+    cases = agent.read_yaml(relative) or []
     if not isinstance(cases, list):
-        raise PackValidationError(pack.id, [f"{relative}: expected a list of cases"])
+        raise AgentValidationError(agent.id, [f"{relative}: expected a list of cases"])
     problems = []
     for number, case in enumerate(cases, start=1):
         problem = _case_problem(case, keys)
         if problem is None:
-            problem = _value_problem(pack.manifest, case["expect"])
+            problem = _value_problem(agent.manifest, case["expect"])
         if problem is not None:
             problems.append(f"{relative} case {number}{_named(case)}: {problem}")
     if problems:
-        raise PackValidationError(pack.id, problems)
+        raise AgentValidationError(agent.id, problems)
     return cases
 
 
@@ -155,8 +155,8 @@ def _case_problem(case: Any, keys: tuple[str, ...] = CASE_KEYS) -> str | None:
     return None if what is None else f"not JSON, it holds {what}"
 
 
-def _value_problem(manifest: PackManifest, expect: dict[str, Any]) -> str | None:
-    """A value the pack can never decide: a test that expects it can never pass, and one that
+def _value_problem(manifest: AgentManifest, expect: dict[str, Any]) -> str | None:
+    """A value the agent can never decide: a test that expects it can never pass, and one that
     expects not to see it (`not_outcome`) always passes."""
     outcomes = [o.value for o in Outcome]
     named = [expect[key] for key in ("outcome", "not_outcome") if key in expect]
@@ -182,29 +182,29 @@ def _value_problem(manifest: PackManifest, expect: dict[str, Any]) -> str | None
     return None
 
 
-def validate_pack(pack: Pack) -> None:
+def validate_agent(agent: Agent) -> None:
     """`mendari validate` (`evals/validation.py`, the one validation function, LP-20b)."""
     from mendari.evals.validation import validate
 
-    validate(pack)
+    validate(agent)
 
 
-def dataset_problems(pack: Pack) -> list[str]:
+def dataset_problems(agent: Agent) -> list[str]:
     """`validation.dataset_problems`, as lines."""
     from mendari.evals.validation import dataset_problems
 
-    return [str(problem) for problem in dataset_problems(pack)]
+    return [str(problem) for problem in dataset_problems(agent)]
 
 
-def input_problems(pack: Pack) -> list[str]:
+def input_problems(agent: Agent) -> list[str]:
     """`validation.input_problems`, as lines."""
     from mendari.evals.validation import input_problems
 
-    return [str(problem) for problem in input_problems(pack)]
+    return [str(problem) for problem in input_problems(agent)]
 
 
-def run_pack_tests(decision: Decision) -> list[CaseOutcome]:
-    return [_run(decision, case) for _, _, case in every_case(decision.pack)]
+def run_behaviour_tests(decision: Decision) -> list[CaseOutcome]:
+    return [_run(decision, case) for _, _, case in every_case(decision.agent)]
 
 
 def _run(decision: Decision, case: dict[str, Any]) -> CaseOutcome:
@@ -236,7 +236,7 @@ def _run(decision: Decision, case: dict[str, Any]) -> CaseOutcome:
     if failures and result.errors:  # why a provider gave no answer, e.g. `time_budget`
         failures.append(f"provider errors: {dict(sorted(result.errors.items()))}")
         if "time_budget" in result.errors.values():
-            reader = bounded_reader(decision.pack.origin)
+            reader = bounded_reader(decision.agent.origin)
             failures.append(
                 f"its patterns or schema checks ran out of the {BOUNDED_TIME_BUDGET_S:g} s time "
                 f"budget {reader} has in each decision: shorten long counts and classes repeated "

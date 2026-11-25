@@ -67,7 +67,7 @@ MUST_PASS_RECALL_FLOOR = 0.80
 MAX_JUDGE_ERRORS = 0.05
 
 
-_PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
+_AGENT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 _KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 # An SPDX license expression (`license`, at most `MAX_LICENSE_CHARS`): identifiers (or
@@ -88,7 +88,7 @@ def _oid(oid: str, *, children: bool = False) -> str:
     return r"(?<![\d.])" + re.escape(oid) + child + r"(?!\d|\.\d)"
 
 
-# Code systems whose codes are licensed, not free to redistribute everywhere: a pack that names
+# Code systems whose codes are licensed, not free to redistribute everywhere: an agent that names
 # one (in `code_systems`, or by its url or OID anywhere in its files) declares it with a
 # `licence_note` saying the terms it is used under (LP-14). A bare code value names no system:
 # declaring the system it comes from is the author's to do. Canonical url -> (name, spellings),
@@ -194,9 +194,9 @@ def readable(key: str) -> str:
     return words[:1].upper() + words[1:]
 
 
-def is_pack_id(text: object) -> TypeGuard[str]:
+def is_agent_id(text: object) -> TypeGuard[str]:
     """`namespace/name`, lowercase letters, digits and dashes (the manifest's `id`)."""
-    return isinstance(text, str) and bool(_PACK_ID.match(text))
+    return isinstance(text, str) and bool(_AGENT_ID.match(text))
 
 
 def is_version(text: object) -> TypeGuard[str]:
@@ -206,13 +206,13 @@ def is_version(text: object) -> TypeGuard[str]:
 
 def version_key(version: str) -> tuple[tuple[int, str], ...]:
     """Orders versions by their numbers, as integers would, without converting them: `int()`
-    refuses more than 4,300 digits, and a version string comes from a pack or a registry."""
+    refuses more than 4,300 digits, and a version string comes from an agent or a registry."""
     parts = (part.lstrip("0") for part in re.findall(r"\d+", version.split("-")[0]))
     return tuple((len(part), part) for part in parts)
 
 
 # Variant keys that once named the environment variables a remote provider reads its endpoint,
-# model or key from. Those variables are the deployment's (spec section 5), so a pack that sets
+# model or key from. Those variables are the deployment's (spec section 5), so an agent that sets
 # one is invalid: it could send any process secret anywhere.
 DEPLOYMENT_ENV_KEYS: dict[str, frozenset[str]] = {
     "llm": frozenset({"api_key_env", "base_url_env", "local_key_env", "model_env"}),
@@ -298,20 +298,20 @@ class Evidence(_Strict):
 
 
 class CodeSystemUse(_Strict):
-    """A code system the pack's inputs, rules or data use (`code_systems`): its canonical url, its
-    name and, for a licensed one (`LICENSED_CODE_SYSTEMS`), the terms the pack uses it under."""
+    """A code system the agent's inputs, rules or data use (`code_systems`): its canonical url, its
+    name and, for a licensed one (`LICENSED_CODE_SYSTEMS`), the terms the agent uses it under."""
 
     url: str = Field(min_length=1, max_length=500, pattern=r"^(?:https?://|urn:)\S+$")
     name: str = Field(min_length=1, max_length=200)
     licence_note: str | None = Field(default=None, min_length=1, max_length=1000)
 
 
-# What a pack's criteria, examples and datasets were built from (`card.provenance`).
+# What an agent's criteria, examples and datasets were built from (`card.provenance`).
 Provenance = Literal["synthetic", "de_identified", "site_records"]
 
 
 class Card(_Strict):
-    """Human-facing Decision Card content that cannot be derived from the rest of the pack."""
+    """Human-facing Decision Card content that cannot be derived from the rest of the agent."""
 
     intended_use: str
     intended_users: list[str] = Field(min_length=1)
@@ -319,7 +319,7 @@ class Card(_Strict):
     out_of_scope: list[str] = []
     known_failure_modes: list[str] = []
     evidence: list[Evidence] = []
-    # Every surface derives the pack's status line from this (`core/status.py`); a pack never
+    # Every surface derives the agent's status line from this (`core/status.py`); an agent never
     # writes that line itself. None: not stated.
     provenance: Provenance | None = None
 
@@ -523,7 +523,7 @@ class Policy(_Strict):
 
 
 class CriticalLabel(_Strict):
-    """A (question, label) whose true cases a person must see: never automated in the pack's
+    """A (question, label) whose true cases a person must see: never automated in the agent's
     default deployment, and under a governance approval only with the correct primary
     recommendation (spec section 8). Tracked in every eval."""
 
@@ -849,7 +849,7 @@ class Rubric(_Strict):
 
 
 # The most characters a CDS Hooks card's summary has: CDS Hooks 2.0 says under 140, checked at
-# load for every text a pack's summary can give (`card_summary_problems`).
+# load for every text an agent's summary can give (`card_summary_problems`).
 SUMMARY_CHARS = 139
 
 
@@ -867,7 +867,7 @@ class RuleCard(_Strict):
 
 
 class CdsCard(_Strict):
-    """Card wording for one pack. Keys are the primary question's labels, `none` when the
+    """Card wording for one agent. Keys are the primary question's labels, `none` when the
     decision has no recommendation, or `refused` when it refused its input; `{recommendation}`
     and `{priority}` are filled in."""
 
@@ -914,8 +914,8 @@ _PREFETCH_SHOWN = 60  # how much of a refused template a problem shows
 def prefetch_problems(hooks: CdsHooksConfig | None) -> list[str]:
     """Each prefetch template that is not a relative read or search on the EHR's FHIR server
     (`PREFETCH`): an absolute URL, `//` or a leading `/`, `.` or `..`, an operation
-    (`$everything`), a fragment (`#`), whitespace. `core/pack.py` refuses a pack the deployment
-    does not own for one at load, and warns of one in an owned pack; the shipped packs' all
+    (`$everything`), a fragment (`#`), whitespace. `core/agent.py` refuses an agent the deployment
+    does not own for one at load, and warns of one in an owned agent; the shipped agents' all
     pass."""
     if hooks is None:
         return []
@@ -933,7 +933,7 @@ def prefetch_problems(hooks: CdsHooksConfig | None) -> list[str]:
     return problems
 
 
-class PackManifest(_Strict):
+class AgentManifest(_Strict):
     spec_version: Literal["0.4"]  # `SPEC_VERSION`, the only one this engine reads
     id: str
     version: str
@@ -971,7 +971,7 @@ class PackManifest(_Strict):
     @field_validator("id")
     @classmethod
     def _id(cls, value: str) -> str:
-        if not is_pack_id(value):
+        if not is_agent_id(value):
             raise ValueError("id must look like 'namespace/name' (lowercase, digits, dashes)")
         return value
 
@@ -1011,7 +1011,7 @@ class PackManifest(_Strict):
         return value
 
     @model_validator(mode="after")
-    def _cross_references(self) -> PackManifest:
+    def _cross_references(self) -> AgentManifest:
         problems = cross_reference_problems(self)
         if problems:
             raise ValueError("; ".join(problems))
@@ -1021,7 +1021,7 @@ class PackManifest(_Strict):
         return self.questions[question].labels
 
 
-def cross_reference_problems(m: PackManifest) -> list[str]:
+def cross_reference_problems(m: AgentManifest) -> list[str]:
     """Consistency rules that a JSON-shape check cannot express."""
     problems: list[str] = []
     for key in m.questions:
@@ -1135,7 +1135,7 @@ def _named(kind: str, name: str) -> str | None:
     )
 
 
-def written_problems(m: PackManifest) -> list[str]:
+def written_problems(m: AgentManifest) -> list[str]:
     """What spec 0.4 holds `outputs`, `rubrics` and `evaluation.grades` to beyond their own
     shapes: the names, how many, what each refers to and the floors. An empty mapping is the
     default a dumped manifest carries: it counts as left out."""
@@ -1193,7 +1193,7 @@ def written_problems(m: PackManifest) -> list[str]:
     return problems
 
 
-def action_problems(m: PackManifest) -> list[str]:
+def action_problems(m: AgentManifest) -> list[str]:
     """What spec 0.4 holds the `actions` section to beyond each action's own shape: the names,
     how many, and how long they are together as one request sends them. An empty `actions` is
     the default a dumped manifest carries: it counts as left out."""
@@ -1218,7 +1218,7 @@ def action_problems(m: PackManifest) -> list[str]:
     return problems
 
 
-def variant_configs(m: PackManifest) -> Iterator[tuple[str, str, str | None, dict[str, Any]]]:
+def variant_configs(m: AgentManifest) -> Iterator[tuple[str, str, str | None, dict[str, Any]]]:
     """Each provider variant of a manifest, and each member of a composite after it, as
     (slot, variant, member, config): the config as written, with its `type`. A member that is
     not a mapping is left out (its load says so)."""
@@ -1233,7 +1233,7 @@ def variant_configs(m: PackManifest) -> Iterator[tuple[str, str, str | None, dic
                         yield slot_name, name, str(key), dict(member)
 
 
-def card_summary_problems(m: PackManifest) -> list[str]:
+def card_summary_problems(m: AgentManifest) -> list[str]:
     """Each card summary (`cds_hooks.card.summaries`) that can read longer than `SUMMARY_CHARS`
     once its placeholders are filled as a card fills them, with display names
     (`templates.fill_display`): every expansion is measured, through its longest

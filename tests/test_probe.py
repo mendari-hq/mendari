@@ -17,19 +17,19 @@ import httpx
 import pytest
 import yaml
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari.core import patterns
-from mendari.core.pack import pack_digest
-from mendari.errors import MendariError, PackValidationError
+from mendari.core.agent import agent_digest
+from mendari.errors import AgentValidationError, MendariError
 from mendari.evals import probe, probe_report, probe_tests, probe_variants
 from mendari.evals import probe_transforms as transforms
-from mendari.evals.pack_tests import (
+from mendari.evals.behaviour_tests import (
     PROBE_TESTS,
     PROBE_UNCONFIRMED,
     every_case,
     load_cases,
     probe_cases,
-    run_pack_tests,
+    run_behaviour_tests,
 )
 from mendari.evals.probe import Options, Probed
 from mendari.evals.validation import problems, validate
@@ -42,9 +42,9 @@ from tests.probe_agents import CASES, MANIFEST, TESTS, build_agent, message_fiel
 def _the_bundled_agent_is_as_it_was() -> Iterator[None]:
     """A probe writes into an agent (`--write`): no test may leave the repository's own agent
     changed (tasks/lessons.md, 2026-11-10)."""
-    before = pack_digest(DEMO_AGENT_DIR)
+    before = agent_digest(DEMO_AGENT_DIR)
     yield
-    assert pack_digest(DEMO_AGENT_DIR) == before, "a test changed agents/portal-message-agent"
+    assert agent_digest(DEMO_AGENT_DIR) == before, "a test changed agents/portal-message-agent"
 
 
 def found_test(number: int = 1, **changes: Any) -> dict[str, Any]:
@@ -75,20 +75,20 @@ def write_yaml(root: Path, relative: str, value: Any) -> None:
 def test_the_probes_tests_run_after_the_agents_own(tmp_path: Path) -> None:
     root = build_agent(tmp_path / "agent")
     write_yaml(root, PROBE_TESTS, [found_test(1), found_test(2, name="another (probe-2)")])
-    pack = load_pack(root)
+    agent = load_agent(root)
     # The agent's own tests are still what its manifest names, and nothing else.
-    assert [case["name"] for case in load_cases(pack)] == [case["name"] for case in TESTS]
-    assert [case["probe"]["id"] for case in probe_cases(pack)] == [
+    assert [case["name"] for case in load_cases(agent)] == [case["name"] for case in TESTS]
+    assert [case["probe"]["id"] for case in probe_cases(agent)] == [
         "probe-000000000001",
         "probe-000000000002",
     ]
-    assert [(file, number) for file, number, _ in every_case(pack)] == [
+    assert [(file, number) for file, number, _ in every_case(agent)] == [
         ("tests/cases.yaml", 1),
         ("tests/cases.yaml", 2),
         (PROBE_TESTS, 1),
         (PROBE_TESTS, 2),
     ]
-    outcomes = run_pack_tests(Decision(pack, origin_cap=False))
+    outcomes = run_behaviour_tests(Decision(agent, origin_cap=False))
     assert [outcome.passed for outcome in outcomes] == [True, True, False, False]
     # The weak agent misses the mistyped symptom: the test says what it expected and got.
     assert outcomes[2].failures == ("answers.urgent: expected 'yes', got 'no'",)
@@ -97,7 +97,7 @@ def test_the_probes_tests_run_after_the_agents_own(tmp_path: Path) -> None:
 def test_a_fixed_agent_passes_the_probes_tests(tmp_path: Path) -> None:
     root = build_agent(tmp_path / "agent", robust=True)
     write_yaml(root, PROBE_TESTS, [found_test()])
-    outcomes = run_pack_tests(Decision(load_pack(root), origin_cap=False))
+    outcomes = run_behaviour_tests(Decision(load_agent(root), origin_cap=False))
     assert [outcome.passed for outcome in outcomes] == [True, True, True]
 
 
@@ -106,26 +106,29 @@ def test_an_agent_with_no_tests_of_its_own_runs_the_probes(tmp_path: Path) -> No
     root = build_agent(tmp_path / "agent")
     write_yaml(root, "agent.yaml", manifest)
     write_yaml(root, PROBE_TESTS, [found_test()])
-    pack = load_pack(root)
-    assert load_cases(pack) == []
-    assert [outcome.passed for outcome in run_pack_tests(Decision(pack, origin_cap=False))] == [
-        False
-    ]
+    agent = load_agent(root)
+    assert load_cases(agent) == []
+    assert [
+        outcome.passed for outcome in run_behaviour_tests(Decision(agent, origin_cap=False))
+    ] == [False]
 
 
 def test_without_a_probe_file_the_tests_are_the_agents_own(tmp_path: Path) -> None:
-    pack = load_pack(build_agent(tmp_path / "agent"))
-    assert probe_cases(pack) == []
-    assert [case for _, _, case in every_case(pack)] == load_cases(pack)
+    agent = load_agent(build_agent(tmp_path / "agent"))
+    assert probe_cases(agent) == []
+    assert [case for _, _, case in every_case(agent)] == load_cases(agent)
 
 
 def test_a_test_waiting_to_be_confirmed_is_not_run(tmp_path: Path) -> None:
     root = build_agent(tmp_path / "agent")
     write_yaml(root, PROBE_UNCONFIRMED, [found_test()])  # it would fail, if it ran
-    pack = load_pack(root)
-    assert probe_cases(pack) == []
-    assert [o.passed for o in run_pack_tests(Decision(pack, origin_cap=False))] == [True, True]
-    validate(pack)  # and it is not held to anything until a person confirms it
+    agent = load_agent(root)
+    assert probe_cases(agent) == []
+    assert [o.passed for o in run_behaviour_tests(Decision(agent, origin_cap=False))] == [
+        True,
+        True,
+    ]
+    validate(agent)  # and it is not held to anything until a person confirms it
 
 
 @pytest.mark.parametrize(
@@ -151,8 +154,8 @@ def test_a_probe_file_that_is_not_one_is_refused_by_name(
 ) -> None:
     root = build_agent(tmp_path / "agent")
     write_yaml(root, PROBE_TESTS, written)
-    with pytest.raises(PackValidationError) as refused:
-        run_pack_tests(Decision(load_pack(root), origin_cap=False))
+    with pytest.raises(AgentValidationError) as refused:
+        run_behaviour_tests(Decision(load_agent(root), origin_cap=False))
     assert problem in str(refused.value)
     assert "chset" not in str(refused.value)  # never a case's text
 
@@ -160,16 +163,16 @@ def test_a_probe_file_that_is_not_one_is_refused_by_name(
 def test_two_tests_with_one_id_are_refused(tmp_path: Path) -> None:
     root = build_agent(tmp_path / "agent")
     write_yaml(root, PROBE_TESTS, [found_test(), found_test()])
-    with pytest.raises(PackValidationError, match="its id probe-000000000001 is case 1's too"):
-        probe_cases(load_pack(root))
+    with pytest.raises(AgentValidationError, match="its id probe-000000000001 is case 1's too"):
+        probe_cases(load_agent(root))
 
 
 def test_the_agents_own_tests_take_no_probe_key(tmp_path: Path) -> None:
     """The manifest's test file is as the spec says (§10): `name`, `input`, `expect`."""
     root = build_agent(tmp_path / "agent")
     write_yaml(root, "tests/cases.yaml", [found_test()])
-    with pytest.raises(PackValidationError) as refused:
-        load_cases(load_pack(root))
+    with pytest.raises(AgentValidationError) as refused:
+        load_cases(load_agent(root))
     (problem,) = refused.value.problems
     assert problem.startswith("tests/cases.yaml case 1 (typos variant of cases case symptom")
     assert problem.endswith("unknown key 'probe' (a case has `name`, `input` and `expect`)")
@@ -179,7 +182,7 @@ def test_validate_names_a_probe_test_by_its_file_and_number(tmp_path: Path) -> N
     root = build_agent(tmp_path / "agent")
     refused = found_test(2, input={"message": {"body": "Bad chset pain now", "note": 1}})
     write_yaml(root, PROBE_TESTS, [found_test(1), refused])
-    found = problems(load_pack(root))
+    found = problems(load_agent(root))
     assert [(problem.kind, problem.file, problem.place) for problem in found] == [
         ("tests", PROBE_TESTS, "case 2")
     ]
@@ -217,10 +220,10 @@ CANNED_BY_KEYWORD = {
 def probed(root: Path, *names: str, **options: Any) -> Probed:
     """A probe of the agent at `root` on its dataset, with the named transformations (typing
     errors when none is named)."""
-    pack = load_pack(root)
-    decision = Decision(pack, origin_cap=False)
+    agent = load_agent(root)
+    decision = Decision(agent, origin_cap=False)
     chosen = Options(transformations=names or ("typos",), **options)
-    return probe.run(probe.plan(decision, probe.source(pack), chosen))
+    return probe.run(probe.plan(decision, probe.source(agent), chosen))
 
 
 def test_the_text_is_the_fields_the_agent_reads_and_nothing_else_changes(tmp_path: Path) -> None:
@@ -351,12 +354,12 @@ def test_the_patterns_of_an_agent_from_a_registry_are_asked_on_the_engine_it_run
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Whether a string is text is asked of its schema's pattern. An agent the deployment does
-    not own has its patterns run on the engine that never backtracks (`Pack.bounded`): the probe
+    not own has its patterns run on the engine that never backtracks (`Agent.bounded`): the probe
     asks them there too, and never on `re`, which a pattern can stall."""
     root = build_agent(tmp_path / "agent")
     message_fields(root, body={"pattern": r"\S"})
-    pack = load_pack(root, origin="hub")
-    assert pack.bounded
+    agent = load_agent(root, origin="hub")
+    assert agent.bounded
     asked: list[bool] = []
     search = patterns.search
 
@@ -365,7 +368,7 @@ def test_the_patterns_of_an_agent_from_a_registry_are_asked_on_the_engine_it_run
         return search(pattern, text, bounded=bounded)
 
     monkeypatch.setattr(patterns, "search", seen)
-    planned = probe.plan(Decision(pack), probe.source(pack), Options(transformations=("typos",)))
+    planned = probe.plan(Decision(agent), probe.source(agent), Options(transformations=("typos",)))
     assert planned.summary()["fields"] == ["message.body"]
     assert asked and all(asked)
 
@@ -378,10 +381,10 @@ def test_a_variant_the_input_schema_refuses_is_never_decided(
     root = agent_variant(build_agent(tmp_path / "agent"), CANNED_BY_KEYWORD)
     message_fields(root, body={"maxLength": 30})
     sent = live_agent(monkeypatch, by_keyword)
-    pack = load_pack(root)
+    agent = load_agent(root)
     planned = probe.plan(
-        Decision(pack, origin_cap=False),
-        probe.source(pack),
+        Decision(agent, origin_cap=False),
+        probe.source(agent),
         Options(transformations=("injection", "case")),
     )
     # The plan already leaves them out: a dry run counts only what would be sent.
@@ -406,7 +409,7 @@ def test_an_injected_instruction_asks_for_the_answers_that_would_do_most_harm(
 ) -> None:
     """For a critical answer, its other label; for the primary question, a label the policy
     may automate that is not the case's own (`other` is never automated here)."""
-    manifest = load_pack(build_agent(tmp_path / "agent")).manifest
+    manifest = load_agent(build_agent(tmp_path / "agent")).manifest
     assert probe_variants.asks(manifest, {"request": "booking", "urgent": "yes"}) == {
         "urgent": "no",
         "request": "medication",
@@ -424,9 +427,9 @@ def test_a_dataset_the_agent_cannot_evaluate_is_refused_as_an_evaluation_refuses
     tmp_path: Path,
 ) -> None:
     mislabelled = [{**CASES[0], "labels": {"urgent": "perhaps"}}]
-    pack = load_pack(build_agent(tmp_path / "agent", cases=mislabelled))
+    agent = load_agent(build_agent(tmp_path / "agent", cases=mislabelled))
     with pytest.raises(MendariError) as refused:
-        probe.source(pack)
+        probe.source(agent)
     assert str(refused.value) == (
         "cases case symptom: labels.urgent is not one of its labels (yes, no)"
     )
@@ -434,7 +437,7 @@ def test_a_dataset_the_agent_cannot_evaluate_is_refused_as_an_evaluation_refuses
     bare = build_agent(tmp_path / "bare")
     write_yaml(bare, "agent.yaml", manifest)
     with pytest.raises(MendariError) as nothing:
-        probe.source(load_pack(bare))
+        probe.source(load_agent(bare))
     assert str(nothing.value) == (
         "clinic/probe-triage@0.1.0 has no case to probe: name a labelled dataset with --dataset, "
         "or give the agent behaviour tests"
@@ -570,12 +573,12 @@ def test_among_automated_variants_one_that_lost_a_critical_answer_comes_first(
     root = build_agent(tmp_path / "agent")
     variants = tmp_path / "variants.jsonl"
     variants.write_text(json.dumps(steered) + "\n", encoding="utf-8")
-    pack = load_pack(root)
+    agent = load_agent(root)
     planned = probe.plan(
-        Decision(pack, origin_cap=False),
-        probe.source(pack),
+        Decision(agent, origin_cap=False),
+        probe.source(agent),
         Options(transformations=("typos",)),
-        given=probe.load_variants(variants, pack.manifest),
+        given=probe.load_variants(variants, agent.manifest),
     )
     found = probe.run(planned)
     assert [(f.variant.case.id, f.harm, sorted(f.answers)) for f in found.findings] == [
@@ -684,7 +687,7 @@ def test_the_report_counts_by_transformation_worst_first(tmp_path: Path) -> None
         "id": "clinic/probe-triage",
         "name": "Probe triage",
         "version": "0.1.0",
-        "digest": load_pack(tmp_path / "agent").digest,
+        "digest": load_agent(tmp_path / "agent").digest,
     }
     assert report["providers"] == {"reader": "rules"} and report["canned"] is None
     assert report["source"] == {"kind": "dataset", "name": "cases"}
@@ -821,7 +824,7 @@ def test_each_failure_is_written_as_a_test_that_fails_until_the_agent_is_fixed(
 ) -> None:
     root = build_agent(tmp_path / "agent")
     found = probed(root, "typos")
-    kept = probe.keep(load_pack(root), found.findings)
+    kept = probe.keep(load_agent(root), found.findings)
     worst = found.findings[0].variant
     assert kept.added == tuple(finding.variant.id for finding in found.findings)
     assert (kept.waiting, kept.already, kept.left_out) == ((), 0, {})
@@ -849,9 +852,11 @@ def test_each_failure_is_written_as_a_test_that_fails_until_the_agent_is_fixed(
     ]
 
     def passed() -> list[bool]:
-        pack = load_pack(root)
-        validate(pack)
-        return [outcome.passed for outcome in run_pack_tests(Decision(pack, origin_cap=False))]
+        agent = load_agent(root)
+        validate(agent)
+        return [
+            outcome.passed for outcome in run_behaviour_tests(Decision(agent, origin_cap=False))
+        ]
 
     assert passed() == [True, True, False, False, False]  # `mendari test` fails on the three
     write_rules(root, robust=True)  # the agent is fixed
@@ -860,14 +865,14 @@ def test_each_failure_is_written_as_a_test_that_fails_until_the_agent_is_fixed(
 
 def test_probing_again_writes_nothing_twice(tmp_path: Path) -> None:
     root = build_agent(tmp_path / "agent")
-    first = probe.keep(load_pack(root), probed(root, "typos").findings)
+    first = probe.keep(load_agent(root), probed(root, "typos").findings)
     written = (root / PROBE_TESTS).read_bytes()
-    again = probe.keep(load_pack(root), probed(root, "typos").findings)
+    again = probe.keep(load_agent(root), probed(root, "typos").findings)
     assert len(first.added) == 3 and (again.added, again.already) == ((), 3)
     assert (root / PROBE_TESTS).read_bytes() == written
     # Another seed makes other variants: what fails is added after what is there, and a
     # variant that says the same as one already kept is not kept again.
-    other = probe.keep(load_pack(root), probed(root, "typos", seed=1).findings)
+    other = probe.keep(load_agent(root), probed(root, "typos", seed=1).findings)
     assert len(other.added) + other.already == 3
     tests = kept_tests(root)
     assert [case["probe"]["id"] for case in tests] == [*first.added, *other.added]
@@ -905,7 +910,7 @@ def test_a_variants_white_space_is_written_where_a_person_can_see_it(tmp_path: P
         found_test(number, input={"message": {"body": body}})
         for number, body in enumerate(bodies, start=1)
     ]
-    kept = probe_tests.write(load_pack(root), cases)
+    kept = probe_tests.write(load_agent(root), cases)
     assert len(kept.added) == 5
     written = (root / PROBE_TESTS).read_text(encoding="utf-8")
     assert '      body: "Bad chest\\npain  since last\\nnight\\n"\n' in written
@@ -915,13 +920,13 @@ def test_a_variants_white_space_is_written_where_a_person_can_see_it(tmp_path: P
     assert "      body: 'yes'\n" in written  # the text, not a YAML true
     assert [case["input"]["message"]["body"] for case in kept_tests(root)] == bodies
     assert written.startswith("# Regression tests that `mendari probe` found")
-    assert len(probe_cases(load_pack(root))) == 5
+    assert len(probe_cases(load_agent(root))) == 5
 
 
 def test_an_agent_that_is_not_the_authors_own_is_not_written_into(tmp_path: Path) -> None:
     root = build_agent(tmp_path / "agent")
     found = probed(root, "typos")
-    bundled = load_pack(root, origin="maintained")
+    bundled = load_agent(root, origin="maintained")
     with pytest.raises(MendariError) as refused:
         probe.keep(bundled, found.findings)
     assert str(refused.value) == (
@@ -947,7 +952,7 @@ def test_a_sites_own_case_is_reported_and_never_written(tmp_path: Path) -> None:
         "symptom",
         "visit",
     ]
-    kept = probe.keep(load_pack(root), found.findings)
+    kept = probe.keep(load_agent(root), found.findings)
     assert len(kept.added) == 2 and kept.left_out == {"site": 1}
     assert [case["probe"]["original"]["case"] for case in kept_tests(root)] == [
         "symptom-and-medicine",
@@ -987,11 +992,11 @@ def given(tmp_path: Path, *records: dict[str, Any]) -> Path:
 
 def probed_with(root: Path, variants: Path, *names: str, **options: Any) -> Probed:
     """A probe with the variants of a file, and the named transformations (none by default)."""
-    pack = load_pack(root)
-    decision = Decision(pack, origin_cap=False)
-    extra = probe.load_variants(variants, pack.manifest)
+    agent = load_agent(root)
+    decision = Decision(agent, origin_cap=False)
+    extra = probe.load_variants(variants, agent.manifest)
     planned = probe.plan(
-        decision, probe.source(pack), Options(transformations=names, **options), given=extra
+        decision, probe.source(agent), Options(transformations=names, **options), given=extra
     )
     return probe.run(planned)
 
@@ -1053,7 +1058,7 @@ def test_a_variant_that_answers_better_than_the_original_changes_but_is_not_a_te
     }
     assert found.report["totals"] == {"tried": 1, "changed": 1, "critical_lost": 0, "automated": 0}
     assert probe_report.exit_code(found.report, "any") == 2
-    kept = probe.keep(load_pack(root), found.findings)
+    kept = probe.keep(load_agent(root), found.findings)
     assert (kept.added, kept.left_out) == ((), {"no_expectation": 1})
     assert not (root / PROBE_TESTS).exists()
 
@@ -1099,7 +1104,7 @@ def test_a_variants_file_that_is_not_one_is_refused_by_line(
 ) -> None:
     path = tmp_path / "variants.jsonl"
     path.write_text(line + "\n", encoding="utf-8")
-    manifest = load_pack(build_agent(tmp_path / "agent")).manifest
+    manifest = load_agent(build_agent(tmp_path / "agent")).manifest
     with pytest.raises(MendariError) as refused:
         probe.load_variants(path, manifest)
     assert str(refused.value).startswith(problem)
@@ -1141,7 +1146,7 @@ def test_the_variants_tried_can_be_written_out_and_tried_again_from_the_file(
 def test_a_denial_a_model_wrote_waits_to_be_confirmed_and_is_not_run(tmp_path: Path) -> None:
     root = build_agent(tmp_path / "agent")
     found = probed_with(root, given(tmp_path, *GIVEN))
-    kept = probe.keep(load_pack(root), found.findings)
+    kept = probe.keep(load_agent(root), found.findings)
     paraphrase, denial, translation = (finding.variant.id for finding in found.findings)
     assert kept.added == (paraphrase, translation) and kept.waiting == (denial,)
     (waiting,) = kept_tests(root, PROBE_UNCONFIRMED)
@@ -1151,21 +1156,21 @@ def test_a_denial_a_model_wrote_waits_to_be_confirmed_and_is_not_run(tmp_path: P
     assert kept_tests(root)[1]["probe"]["model"] == "a-lab/a-model"  # the translation's writer
 
     def ran() -> list[str]:
-        pack = load_pack(root)
-        return [outcome.name for outcome in run_pack_tests(Decision(pack, origin_cap=False))]
+        agent = load_agent(root)
+        return [outcome.name for outcome in run_behaviour_tests(Decision(agent, origin_cap=False))]
 
     assert len(ran()) == 4 and not [name for name in ran() if denial in name]
     # Writing again keeps it waiting once.
-    again = probe.keep(load_pack(root), found.findings)
+    again = probe.keep(load_agent(root), found.findings)
     assert (again.added, again.waiting, again.already) == ((), (), 3)
 
-    assert probe_tests.confirm(load_pack(root), [denial]) == (denial,)
+    assert probe_tests.confirm(load_agent(root), [denial]) == (denial,)
     assert not (root / PROBE_UNCONFIRMED).exists()  # none is left waiting
     confirmed = kept_tests(root)[-1]
     assert confirmed["probe"]["id"] == denial and confirmed["probe"]["confirmed"] is True
     assert len(ran()) == 5 and denial in ran()[-1]
-    pack = load_pack(root)
-    last = run_pack_tests(Decision(pack, origin_cap=False))[-1]
+    agent = load_agent(root)
+    last = run_behaviour_tests(Decision(agent, origin_cap=False))[-1]
     assert last.failures == ("answers.urgent: expected 'no', got 'yes'",)
 
 
@@ -1174,31 +1179,31 @@ def test_a_test_is_confirmed_as_a_person_left_it(tmp_path: Path) -> None:
     wrote is what runs. A test that expects what the agent can never answer is not confirmed."""
     root = build_agent(tmp_path / "agent")
     found = probed_with(root, given(tmp_path, GIVEN[2]))
-    (denial,) = probe.keep(load_pack(root), found.findings).waiting
+    (denial,) = probe.keep(load_agent(root), found.findings).waiting
     held = kept_tests(root, PROBE_UNCONFIRMED)
     held[0]["expect"] = {"answers": {"urgent": "perhaps"}}
     write_yaml(root, PROBE_UNCONFIRMED, held)
     with pytest.raises(MendariError) as refused:
-        probe_tests.confirm(load_pack(root), [denial])
+        probe_tests.confirm(load_agent(root), [denial])
     assert str(refused.value) == (
         f"{denial} cannot be confirmed as it is in {PROBE_UNCONFIRMED}: `expect.answers.urgent` "
         "is 'perhaps', not one of its labels (yes, no)"
     )
     held[0]["expect"] = {"outcome_in": ["HUMAN_REVIEW", "ABSTAIN"]}
     write_yaml(root, PROBE_UNCONFIRMED, held)
-    probe_tests.confirm(load_pack(root), [denial])
+    probe_tests.confirm(load_agent(root), [denial])
     assert kept_tests(root)[-1]["expect"] == {"outcome_in": ["HUMAN_REVIEW", "ABSTAIN"]}
 
 
 def test_only_a_test_that_waits_can_be_confirmed(tmp_path: Path) -> None:
     root = build_agent(tmp_path / "agent")
     with pytest.raises(MendariError) as nothing:
-        probe_tests.confirm(load_pack(root), ["probe-000000000000"])
+        probe_tests.confirm(load_agent(root), ["probe-000000000000"])
     assert str(nothing.value) == f"no test waits in {PROBE_UNCONFIRMED}: there is none to confirm"
     found = probed_with(root, given(tmp_path, GIVEN[2]))
-    (denial,) = probe.keep(load_pack(root), found.findings).waiting
+    (denial,) = probe.keep(load_agent(root), found.findings).waiting
     with pytest.raises(MendariError) as unknown:
-        probe_tests.confirm(load_pack(root), [denial, "probe-000000000000"])
+        probe_tests.confirm(load_agent(root), [denial, "probe-000000000000"])
     assert str(unknown.value) == (
         f"probe-000000000000 is not a test waiting in {PROBE_UNCONFIRMED} (it holds: {denial})"
     )
@@ -1292,8 +1297,8 @@ def test_canned_answers_that_cannot_vary_are_not_probed_at_all(tmp_path: Path) -
     change its answer, so nothing is decided."""
     always = {"default": CANNED_BY_KEYWORD["default"]}
     root = agent_variant(build_agent(tmp_path / "agent"), always)
-    pack = load_pack(root)
-    planned = probe.plan(Decision(pack, origin_cap=False), probe.source(pack), Options())
+    agent = load_agent(root)
+    planned = probe.plan(Decision(agent, origin_cap=False), probe.source(agent), Options())
     assert planned.decisions == 0 and planned.variants == ()
     assert planned.nothing == (
         "the agent's answers are canned and the same whatever a case says "
@@ -1386,9 +1391,9 @@ def test_a_dry_run_says_how_many_calls_and_makes_none(
 ) -> None:
     root = agent_variant(build_agent(tmp_path / "agent"), CANNED_BY_KEYWORD)
     sent = live_agent(monkeypatch, by_keyword)
-    pack = load_pack(root)
+    agent = load_agent(root)
     options = Options(transformations=("typos", "case", "punctuation"), limit=3, variants=2)
-    planned = probe.plan(Decision(pack, origin_cap=False), probe.source(pack), options)
+    planned = probe.plan(Decision(agent, origin_cap=False), probe.source(agent), options)
     assert sent == []
     summary = planned.summary()
     typos, case, punctuation = summary["transformations"]
@@ -1420,9 +1425,11 @@ def test_a_dry_run_says_how_many_calls_and_makes_none(
 
 def test_a_dry_run_of_canned_or_local_answers_says_there_is_no_call(tmp_path: Path) -> None:
     def last_line(root: Path) -> str:
-        pack = load_pack(root)
+        agent = load_agent(root)
         planned = probe.plan(
-            Decision(pack, origin_cap=False), probe.source(pack), Options(transformations=("case",))
+            Decision(agent, origin_cap=False),
+            probe.source(agent),
+            Options(transformations=("case",)),
         )
         return probe_report.planned(planned.summary()).splitlines()[-1]
 

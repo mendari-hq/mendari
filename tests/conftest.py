@@ -26,12 +26,12 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack, load_pack
+from mendari import Agent, AuditStore, Decision, load_agent
 from mendari.core import reference as _reference
 from mendari.core import registry as _registry
-from mendari.core.pack import pack_digest
+from mendari.core.agent import agent_digest
 from mendari.core.phi import PhiPolicy
-from mendari.core.registry import resolve_pack
+from mendari.core.registry import resolve_agent
 from mendari.errors import ProviderError
 from mendari.hub import archive
 from mendari.hub.registry import RegistryStore, create_registry_app
@@ -110,8 +110,8 @@ PHI_KEY_B64 = base64.b64encode(PHI_KEY).decode()
 # never a slow test in one: `-m core` replaces the default marker filter, so a browser or slow
 # test marked core would run.
 CORE = {
-    "test_spec.py", "test_spec_02.py", "test_pack_status.py", "test_input_schema.py",
-    "test_patterns.py", "test_templates.py", "test_bounded_caps.py", "test_new_pack.py",
+    "test_spec.py", "test_spec_02.py", "test_agent_status.py", "test_input_schema.py",
+    "test_patterns.py", "test_templates.py", "test_bounded_caps.py", "test_new_agent.py",
     "test_decision.py", "test_providers.py", "test_policy.py", "test_safety_invariant.py",
     "test_governance.py", "test_hold.py", "test_gate.py", "test_audit.py", "test_evals.py",
     "test_registry_engine.py", "test_rater_agreement.py", "test_stats.py", "test_spec_04.py",
@@ -138,9 +138,9 @@ def _the_repositorys_own_agents_are_as_they_were() -> Iterator[None]:
         for path in folder.iterdir()
         if (path / "agent.yaml").is_file()
     )
-    before = {path: pack_digest(path) for path in agents}
+    before = {path: agent_digest(path) for path in agents}
     yield
-    changed = [path.name for path, digest in before.items() if pack_digest(path) != digest]
+    changed = [path.name for path, digest in before.items() if agent_digest(path) != digest]
     assert not changed, f"a test changed the repository's own agents: {', '.join(changed)}"
 
 
@@ -164,17 +164,17 @@ def release_agents(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     otherwise stand their fixtures: for what runs the bundled agent itself (`mendari demo`)."""
     monkeypatch.setattr(_reference, "BUNDLED_DIRS", (ROOT / "agents",))
     monkeypatch.setattr(_registry, "_BUNDLED_DIRS", (ROOT / "agents",))
-    _reference.reference_packs.cache_clear()
+    _reference.reference_agents.cache_clear()
     _reference.reference_digests.cache_clear()
     yield
-    _reference.reference_packs.cache_clear()  # read again from the fixtures by the next test
+    _reference.reference_agents.cache_clear()  # read again from the fixtures by the next test
     _reference.reference_digests.cache_clear()
 
 
 @pytest.fixture(autouse=True)
 def _own_hub_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Each test has its own Hub config and pack cache, never the developer's (the cache is on
-    the pack search path)."""
+    """Each test has its own Hub config and agent cache, never the developer's (the cache is on
+    the agent search path)."""
     monkeypatch.setenv("MENDARI_CONFIG_DIR", str(tmp_path / "hub-config"))
     monkeypatch.setenv("MENDARI_CACHE_DIR", str(tmp_path / "hub-cache"))
     monkeypatch.delenv("MENDARI_REGISTRY_URL", raising=False)
@@ -242,17 +242,17 @@ def _no_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-def shared_benchmark(pack_id: str = "mendari-test/triage") -> dict[str, Any]:
-    """The `mendari.site-report/2` a site would share of a shipped pack's benchmark run:
+def shared_benchmark(agent_id: str = "mendari-test/triage") -> dict[str, Any]:
+    """The `mendari.site-report/1` a site would share of a shipped agent's benchmark run:
     counted from the benchmark's own ledger (synthetic data), as `mendari eval --share` does."""
-    from mendari.core.registry import resolve_pack
+    from mendari.core.registry import resolve_agent
     from mendari.evals.ledger import Ledger
     from mendari.evals.share import shareable
 
-    root = resolve_pack(pack_id).root / "evals"
+    root = resolve_agent(agent_id).root / "evals"
     if not (root / "benchmark.json").is_file():
         # A test fixture's agent commits no benchmark: its benchmark set, evaluated once.
-        return copy.deepcopy(_evaluated_benchmark(pack_id))
+        return copy.deepcopy(_evaluated_benchmark(agent_id))
     ledger_id = json.loads((root / "benchmark.json").read_text())["ledger"]["id"]
     path = root / "ledgers" / (ledger_id.removeprefix("sha256:") + ".jsonl")
     return shareable(Ledger.loads(path.read_bytes()))
@@ -263,11 +263,11 @@ def _evaluated_benchmark(agent_id: str) -> dict[str, Any]:
     """What a site would share of a run of an agent's benchmark set (`benchmark_dataset`) on its
     default providers, as `mendari eval --share` counts it: run once a session, for an agent that
     commits no benchmark (the test fixtures' agents)."""
-    from mendari.core.registry import resolve_pack
+    from mendari.core.registry import resolve_agent
     from mendari.evals.harness import evaluation, resolve_dataset
     from mendari.evals.share import shareable
 
-    agent = resolve_pack(agent_id)
+    agent = resolve_agent(agent_id)
     dataset = resolve_dataset(agent, agent.manifest.evaluation.benchmark_dataset or "test")
     return shareable(evaluation(Decision(agent), dataset).ledger)
 
@@ -287,12 +287,12 @@ def verified_site(registry: Registry, directory: Path, *, org: str = "north-heal
 def site_ticket(
     registry: Registry, site: Any, report: dict[str, Any], **changes: Any
 ) -> dict[str, Any]:
-    """A ticket for sharing `report` (a mendari.site-report/2): bound to its pack, its
+    """A ticket for sharing `report` (a mendari.site-report/1): bound to its agent, its
     configuration, its n and consent, and a commitment the site makes (here to any bytes)."""
     from mendari.hub import site_signing
 
     fields: dict[str, Any] = {
-        "pack": report["pack"],
+        "agent": report["agent"],
         "configuration": {slot: p["variant"] for slot, p in report["providers"].items()},
         "remote_consent": report["remote_consent"],
         "commitment": site.commitment(json.dumps(report["dataset"]).encode()),
@@ -317,9 +317,9 @@ def share_signed(
     record = site.sign(
         site_signing.SUBMISSION, {"ticket": issued["ticket"]["id"], "report": report}
     )
-    pack = report["pack"]
+    agent = report["agent"]
     return registry.client.post(
-        f"/v1/agents/{pack['id']}/{pack['version']}/reports",
+        f"/v1/agents/{agent['id']}/{agent['version']}/reports",
         json=record,
         headers={"authorization": f"Bearer {issued['submit_secret']}"},
     )
@@ -352,7 +352,7 @@ def calm_agent(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         if not set(asked) <= set(CALM_ANSWERS):
             return httpx.Response(400)  # only the triage fixture's questions are answered
         answers = {key: CALM_ANSWERS[key] for key in asked}
-        body = {"model": "calm-agent", "agent_version": CALM_VERSION, "answers": answers}
+        body = {"model": "calm-agent", "service_version": CALM_VERSION, "answers": answers}
         return httpx.Response(200, json=body)
 
     original = AgentProvider.__init__
@@ -429,20 +429,20 @@ class Registry:
 
     def publish(
         self,
-        pack: Pack | None = None,  # the triage fixture
+        agent: Agent | None = None,  # the triage fixture
         *,
         key: Any = None,
         token: str | None = None,
         version: str | None = None,
     ) -> Any:
-        pack = pack or resolve_pack("mendari-test/triage")
-        namespace, name = pack.id.split("/")
+        agent = agent or resolve_agent("mendari-test/triage")
+        namespace, name = agent.id.split("/")
         if namespace == FIXTURE_NAMESPACE:  # a test fixture's agent: its own namespace's
             fixture_token, fixture_key = self.fixture_publisher()
             token, key = token or fixture_token, key or fixture_key
-        data = archive.build(pack, key or self.key)
+        data = archive.build(agent, key or self.key)
         return self.client.put(
-            f"/v1/agents/{namespace}/{name}/{version or pack.version}",
+            f"/v1/agents/{namespace}/{name}/{version or agent.version}",
             content=data,
             headers={"authorization": f"Bearer {token or self.token}"},
         )
@@ -503,13 +503,13 @@ def registry(db_target: str) -> Iterator[Registry]:
 
 
 @pytest.fixture(scope="session")
-def triage_agent() -> Pack:
+def triage_agent() -> Agent:
     """The triage fixture (`mendari-test/triage`): a synthetic message's team and urgency."""
-    return load_pack(TRIAGE_DIR)
+    return load_agent(TRIAGE_DIR)
 
 
 @pytest.fixture(scope="session")
-def triage(triage_agent: Pack) -> Decision:
+def triage(triage_agent: Agent) -> Decision:
     """The triage fixture on its default providers: the keyword rules in both slots, so nothing
     is automated (its policy's `automation_requires`)."""
     return Decision(triage_agent)
@@ -564,7 +564,7 @@ def run_async(coroutine: Coroutine[Any, Any, T]) -> T:
 @contextmanager
 def cpu_time() -> Iterator[Callable[[], float]]:
     """The processor time this thread spends in the block, as `spent()`, for a budget on
-    single-threaded work (loading a pack, as core/patterns.py budgets a pattern: by
+    single-threaded work (loading an agent, as core/patterns.py budgets a pattern: by
     `time.thread_time`). Not the process's: other threads' time (a server or pool an earlier
     test left running) is not this work's, nor is collecting the garbage of earlier tests, so
     the collector runs before and is off during it."""
@@ -708,7 +708,7 @@ def launched(
         "encounter": None,
         "fhir_user": "Practitioner/pr-1",
         "expires_at": now + 3600,
-        "pack": "mendari-test/chart-summary",
+        "agent": "mendari-test/chart-summary",
         "identity": {"iss": iss, "sub": sub},
         "actor": f"{iss}|{sub}",
         "identified": True,  # made with sign-in on: the callback's checks ran

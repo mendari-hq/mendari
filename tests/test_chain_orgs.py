@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.core import audit as audit_module
 from mendari.core import tenancy
 from mendari.core.audit import (
@@ -95,7 +95,7 @@ def card_feedback(decision_id: str) -> dict[str, Any]:
     }
 
 
-def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, Any]:
+def every_writer(store: AuditStore, agent: Agent, org: str | None) -> dict[str, Any]:
     """Each kind of event the store writes for an organization's rows, with the organization
     acting (`org`), or with none, as the command line and the scheduled purge write; the ids
     of what was made."""
@@ -105,18 +105,18 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
         held = proposing(message(HELD)).id  # `action.proposed`, with the answer
         proposing.authorize_action(held, "file_note", {"note": "asked"})  # and when asked
         store.resolve_review(held, final_label="refill", reviewer="rn-1")  # `action.resolved`
-        first = Decision(pack, store=store)(message(URGENT)).id
+        first = Decision(agent, store=store)(message(URGENT)).id
         store.resolve_review(first, final_label="nurse", reviewer="rn-1", note="a note")
         rating = store.record_feedback(first, rating="down", reporter="rn-2", note="a note")
         store.record_outcome(first, final_label="nurse", source="ehr", recorded_by="ehr-feed")
-        store.record_card_feedback(pack.id, "s", [card_feedback(first)])  # `card.feedback`
+        store.record_card_feedback(agent.id, "s", [card_feedback(first)])  # `card.feedback`
         store.get(first, reader="rn-7")  # `input.read`
-        second = Decision(pack, store=store)(message(URGENT)).id
-        third = Decision(pack, store=store)(message(URGENT)).id
+        second = Decision(agent, store=store)(message(URGENT)).id
+        third = Decision(agent, store=store)(message(URGENT)).id
         store.resolve_review(third, final_label="nurse", reviewer="rn-1", note="a note")
         approval = store.approve_automation(
-            pack_id=TRIAGE,
-            pack_digest="d" * 64,
+            agent_id=TRIAGE,
+            agent_digest="d" * 64,
             risk_level=2,
             approver="cmo",
             reference="ticket-1",
@@ -124,7 +124,7 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
         )
         store.revoke_approval(approval["id"], revoked_by="cmo")
         report = {"id": f"r-{org}", "created_at": "2026-10-01T00:00:00+00:00"}
-        store.save_report({**report, "pack": {"id": TRIAGE}, "dataset": {"name": "local"}})
+        store.save_report({**report, "agent": {"id": TRIAGE}, "dataset": {"name": "local"}})
         store.acknowledge_notice(f"notice:v1:person-{org}", version="v1", actor="rn-1")
     home = org or tenancy.DEFAULT_ORG
     # The command line's and the operator's writes: each names the row's organization.
@@ -132,11 +132,11 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
     store.erase_input(first, erased_by="dpo", reason="request")
     store.purge(0, source="command")  # `input.purged` (second, third), `note.erased` (third)
     hold = store.hold_automation(
-        org=home, pack_id=None, pack_digest=None, reason="drill", set_by="ops"
+        org=home, agent_id=None, agent_digest=None, reason="drill", set_by="ops"
     )
     store.lift_hold(hold["id"], lifted_by="ops", org=None)
     everyone = store.hold_automation(
-        org=None, pack_id=None, pack_digest=None, reason="drill", set_by="ops"
+        org=None, agent_id=None, agent_digest=None, reason="drill", set_by="ops"
     )
     store.lift_hold(everyone["id"], lifted_by="ops", org=None)  # the deployment's: None
     key = store.create_api_key(name="k", role="service", org=home, created_by="ops")
@@ -165,7 +165,7 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
 
 @pytest.mark.parametrize("org", [CLINIC, None], ids=["as-a-server", "as-the-command-line"])
 def test_every_event_names_its_row_s_organization(
-    db_target: str, triage_agent: Pack, org: str | None
+    db_target: str, triage_agent: Agent, org: str | None
 ) -> None:
     with keeping(db_target) as store:
         made = every_writer(store, triage_agent, org)
@@ -193,7 +193,7 @@ def test_every_event_names_its_row_s_organization(
 
 
 def test_an_answer_is_the_same_whether_its_event_is_bound(
-    db_target: str, triage_agent: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     """The review and rating answers repeat what was chained; binding adds `org` to the chained
     copy only."""
@@ -208,28 +208,28 @@ def test_an_answer_is_the_same_whether_its_event_is_bound(
 
 # -- verify -----------------------------------------------------------------------------------
 
-Make = Callable[[AuditStore, Pack], str]  # makes a row and returns its chain id
+Make = Callable[[AuditStore, Agent], str]  # makes a row and returns its chain id
 
 
-def _decision(store: AuditStore, pack: Pack) -> str:
-    return Decision(pack, store=store)(message(URGENT)).id
+def _decision(store: AuditStore, agent: Agent) -> str:
+    return Decision(agent, store=store)(message(URGENT)).id
 
 
-def _key(store: AuditStore, _: Pack) -> str:
+def _key(store: AuditStore, _: Agent) -> str:
     return "key:" + store.create_api_key(name="k", role="service", org=CLINIC, created_by="t")["id"]
 
 
-def _client(store: AuditStore, _: Pack) -> str:
+def _client(store: AuditStore, _: Agent) -> str:
     made = store.register_client(
         name="c", role="viewer", org=CLINIC, created_by="t", scopes="system/Task.rs", jwks=jwks()
     )
     return f"client:{made['client_id']}"
 
 
-def _approval(store: AuditStore, _: Pack) -> str:
+def _approval(store: AuditStore, _: Agent) -> str:
     made = store.approve_automation(
-        pack_id=TRIAGE,
-        pack_digest="d" * 64,
+        agent_id=TRIAGE,
+        agent_digest="d" * 64,
         risk_level=2,
         approver="cmo",
         reference="ticket-1",
@@ -238,46 +238,50 @@ def _approval(store: AuditStore, _: Pack) -> str:
     return f"governance:{made['id']}"
 
 
-def _registry_approval(store: AuditStore, _: Pack) -> str:
-    made = store.approve_registry_pack(
-        pack_id="someone/pulled", pack_digest="d" * 64, registry="x", approver="cmo", reference="r"
+def _registry_approval(store: AuditStore, _: Agent) -> str:
+    made = store.approve_registry_agent(
+        agent_id="someone/pulled",
+        agent_digest="d" * 64,
+        registry="x",
+        approver="cmo",
+        reference="r",
     )
     return f"registry_approval:{made['id']}"
 
 
-def _hold(store: AuditStore, _: Pack) -> str:
+def _hold(store: AuditStore, _: Agent) -> str:
     made = store.hold_automation(
-        org=CLINIC, pack_id=None, pack_digest=None, reason="drill", set_by="ops"
+        org=CLINIC, agent_id=None, agent_digest=None, reason="drill", set_by="ops"
     )
     return f"hold:{made['id']}"
 
 
-def _report(store: AuditStore, _: Pack) -> str:
+def _report(store: AuditStore, _: Agent) -> str:
     report = {"id": "r1", "created_at": "2026-10-01T00:00:00+00:00"}
-    store.save_report({**report, "pack": {"id": TRIAGE}, "dataset": {"name": "local"}})
+    store.save_report({**report, "agent": {"id": TRIAGE}, "dataset": {"name": "local"}})
     return "eval:r1"
 
 
-def _organization(store: AuditStore, _: Pack) -> str:
+def _organization(store: AuditStore, _: Agent) -> str:
     store.create_organization(org="clinic-b", name="Clinic B", created_by="t")
     return "org:clinic-b"
 
 
-def _membership(store: AuditStore, _: Pack) -> str:
+def _membership(store: AuditStore, _: Agent) -> str:
     made = store.add_membership(
         org=CLINIC, roles=["viewer"], created_by="t", email="kim@example.org"
     )
     return f"membership:{made['id']}"
 
 
-def _invitation(store: AuditStore, _: Pack) -> str:
+def _invitation(store: AuditStore, _: Agent) -> str:
     made = store.create_invitation(
         org=CLINIC, email="lee@example.org", roles=["viewer"], created_by="t"
     )
     return f"invitation:{made['id']}"
 
 
-def _request(store: AuditStore, _: Pack) -> str:
+def _request(store: AuditStore, _: Agent) -> str:
     person = store.record_user(
         issuer="https://idp.example.org", subject="s-1", email=None, name=None
     )
@@ -285,50 +289,50 @@ def _request(store: AuditStore, _: Pack) -> str:
 
 
 def _store_files() -> dict[str, bytes]:
-    """The triage fixture's files under clinic-a's namespace, as a pack store keeps a version."""
-    from mendari.hub.archive import pack_files
+    """The triage fixture's files under clinic-a's namespace, as an agent store keeps a version."""
+    from mendari.hub.archive import agent_files
 
     root = TRIAGE_DIR
-    files = {p.relative_to(root).as_posix(): p.read_bytes() for p in pack_files(root)}
+    files = {p.relative_to(root).as_posix(): p.read_bytes() for p in agent_files(root)}
     manifest = files["agent.yaml"].decode().replace(f"id: {TRIAGE}", f"id: {CLINIC}/triage", 1)
     files["agent.yaml"] = manifest.encode()
     return files
 
 
-def _store_version(store: AuditStore, _: Pack) -> str:
-    from mendari.core.pack_store import PackStore
+def _store_version(store: AuditStore, _: Agent) -> str:
+    from mendari.core.agent_store import AgentStore
 
-    made = PackStore(store).put(CLINIC, _store_files(), by="t", source="upload")
-    return f"pack_version:{made.id}"
+    made = AgentStore(store).put(CLINIC, _store_files(), by="t", source="upload")
+    return f"store_version:{made.id}"
 
 
-def _store_key(store: AuditStore, _: Pack) -> str:
-    from mendari.core.pack_store import PackStore
+def _store_key(store: AuditStore, _: Agent) -> str:
+    from mendari.core.agent_store import AgentStore
     from mendari.hub import archive
 
-    PackStore(store).add_key(CLINIC, archive.generate_key()[1].decode(), by="t")
+    AgentStore(store).add_key(CLINIC, archive.generate_key()[1].decode(), by="t")
     with store._db.session(exclusive=False) as db:
         return f"store_key:{db.one('SELECT id FROM store_keys')['id']}"
 
 
-def _store_dataset(store: AuditStore, _: Pack) -> str:
-    from mendari.core.pack_store import PackStore
+def _store_dataset(store: AuditStore, _: Agent) -> str:
+    from mendari.core.agent_store import AgentStore
 
-    packs = PackStore(store)
-    made = packs.put(CLINIC, _store_files(), by="t", source="upload")
+    agents = AgentStore(store)
+    made = agents.put(CLINIC, _store_files(), by="t", source="upload")
     raw = (TRIAGE_DIR / "data" / "test.jsonl").read_bytes().split(b"\n")[0] + b"\n"
-    added = packs.add_dataset(CLINIC, raw, by="t", name="s", digest=made.digest)
+    added = agents.add_dataset(CLINIC, raw, by="t", name="s", digest=made.digest)
     return f"store_dataset:{added['id']}"
 
 
-def _store_job(store: AuditStore, _: Pack) -> str:
-    from mendari.core.pack_store import PackStore
+def _store_job(store: AuditStore, _: Agent) -> str:
+    from mendari.core.agent_store import AgentStore
     from mendari.evals.store_jobs import JobStore
 
-    packs = PackStore(store)
-    made = packs.put(CLINIC, _store_files(), by="t", source="upload")
+    agents = AgentStore(store)
+    made = agents.put(CLINIC, _store_files(), by="t", source="upload")
     jobs = JobStore(
-        packs,
+        agents,
         served=dict,
         decision_for=lambda p, v: Decision(p, providers=dict(v), origin_cap=False),
     )
@@ -336,7 +340,7 @@ def _store_job(store: AuditStore, _: Pack) -> str:
     return f"store_job:{job['id']}"
 
 
-def _connection(store: AuditStore, _: Pack) -> str:
+def _connection(store: AuditStore, _: Agent) -> str:
     from mendari.core.connections import ConnectionStore
 
     # An address by its number: nothing is looked up, and nothing is called.
@@ -345,14 +349,14 @@ def _connection(store: AuditStore, _: Pack) -> str:
         return f"agent_connection:{db.one('SELECT id FROM agent_connections')['id']}"
 
 
-def _written_round(store: AuditStore, _: Pack) -> str:
+def _written_round(store: AuditStore, _: Agent) -> str:
     """A grading round of written output (wave 5), from a run of the fixture that writes."""
-    from mendari import load_pack
+    from mendari import load_agent
     from mendari.core.written import WrittenStore
     from mendari.evals import resolve_dataset, written
     from mendari.providers.judge import Judge
 
-    writer = load_pack(ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini")
+    writer = load_agent(ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini")
     judge = Judge(writer, "reply_quality", mode="canned")
     run = written.run(
         Decision(writer, origin_cap=False),
@@ -395,7 +399,7 @@ def test_every_subject_table_is_checked() -> None:
 @pytest.mark.parametrize("change", ["moved", "removed"])
 @pytest.mark.parametrize("subject", sorted(SUBJECTS))
 def test_verify_finds_a_row_moved_to_another_organization_or_removed(
-    db_target: str, triage_agent: Pack, subject: str, change: str
+    db_target: str, triage_agent: Agent, subject: str, change: str
 ) -> None:
     table, column, make = SUBJECTS[subject]
     with keeping(db_target) as store:
@@ -427,7 +431,7 @@ def test_verify_finds_a_row_moved_to_another_organization_or_removed(
 
 
 def test_a_decision_from_before_tenancy_is_bound_as_default(
-    db_target: str, triage_agent: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     """decisions.org is NULL on rows from before v0.6: every writer binds it as `verify` reads
     it, `default` (`_org_of`), never None."""
@@ -467,7 +471,7 @@ def test_the_empty_organization_is_bound_as_itself(db_target: str) -> None:
 
 
 def test_a_batch_over_several_organizations_names_each_row_s_own(
-    db_target: str, triage_agent: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     """The scheduled purge acts for no organization, so one batch spans them all: each
     `input.purged` and `note.erased` names its own decision's organization, as does each
@@ -515,7 +519,7 @@ def previous_verify(store: AuditStore) -> bool:
     return True
 
 
-def test_the_previous_verify_passes_a_bound_chain(db_target: str, triage_agent: Pack) -> None:
+def test_the_previous_verify_passes_a_bound_chain(db_target: str, triage_agent: Agent) -> None:
     """The chain's hashing is fixed: a verify written apart from the store's passes a chain of
     every kind of event, each naming its organization in its hashed payload."""
     with keeping(db_target) as store:
@@ -563,10 +567,10 @@ def test_a_subject_s_history_is_its_row_s_organization_s_and_a_deployment_hold_n
     organization (NULL) is the deployment's, never `default`'s."""
     with AuditStore(db_target) as store:
         mine = store.hold_automation(
-            org=CLINIC, pack_id=None, pack_digest=None, reason="r", set_by="o"
+            org=CLINIC, agent_id=None, agent_digest=None, reason="r", set_by="o"
         )
         every = store.hold_automation(
-            org=None, pack_id=None, pack_digest=None, reason="r", set_by="o"
+            org=None, agent_id=None, agent_digest=None, reason="r", set_by="o"
         )
         assert store.subject_history("hold", mine["id"], CLINIC)["org"] == CLINIC  # type: ignore[index]
         assert store.subject_history("hold", mine["id"], "clinic-z") is None

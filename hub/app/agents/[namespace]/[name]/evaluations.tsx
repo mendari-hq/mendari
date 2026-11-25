@@ -97,12 +97,12 @@ export function PublishedEvaluationsSection({
   evaluations,
   unavailable,
   version,
-  packId,
+  agentId,
 }: {
   evaluations: PublisherEvaluations | null;
   unavailable: boolean;
   version: string;
-  packId: string;
+  agentId: string;
 }) {
   const listed = evaluations?.evaluations ?? [];
   const compared = listed.filter((evaluation) => !evaluation.excluded);
@@ -113,7 +113,7 @@ export function PublishedEvaluationsSection({
   const named = critical.length !== 1;
   const only = critical.length === 1 ? critical[0] : undefined;
   const criticalHead = only ? ` (${criticalLabel(only)})` : "";
-  const [namespace = "", ...rest] = packId.split("/");
+  const [namespace = "", ...rest] = agentId.split("/");
   const evaluationHref = `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(rest.join("/"))}/evaluation`;
   return (
     <section className="group published-evals" aria-labelledby="published-evaluations-heading">
@@ -154,7 +154,7 @@ export function PublishedEvaluationsSection({
       ) : (
         <p className="evidence-empty">
           The publisher has published no evaluation of version {version}. A publisher signs one per configuration
-          with <code>mendari push {packId} --key publisher.key --evaluate DATASET</code>.
+          with <code>mendari push {agentId} --key publisher.key --evaluate DATASET</code>.
         </p>
       )}
       {excluded.length ? (

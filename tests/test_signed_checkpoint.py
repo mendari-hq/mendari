@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from mendari import AuditStore, Pack
+from mendari import Agent, AuditStore
 from mendari.cli import main
 from mendari.core import checkpoint
 from mendari.core.checkpoint import FORMAT, KEY_ENV, checkpoint_key, public_text
@@ -68,7 +68,7 @@ def test_the_key_is_32_bytes_in_base64_or_nothing(monkeypatch: pytest.MonkeyPatc
 
 
 def test_the_day_s_statement_is_signed_once_and_a_rewritten_chain_fails_against_it(
-    db_target: str, triage_agent: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     with AuditStore(db_target) as store:
         assert store.record_checkpoint(signer=key())["signed"] is None  # an empty chain
@@ -96,7 +96,7 @@ def test_the_day_s_statement_is_signed_once_and_a_rewritten_chain_fails_against_
 
 def test_the_commands_sign_and_verify_against_a_statement(
     tmp_path: Path,
-    triage_agent: Pack,
+    triage_agent: Agent,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -181,7 +181,7 @@ def serving(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, signing: bool = 
 
 
 def test_the_scheduled_checkpoint_signs_the_day_and_publishes_it_to_anyone(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from tests.conftest import encrypted_store
 
@@ -202,7 +202,7 @@ def test_the_scheduled_checkpoint_signs_the_day_and_publishes_it_to_anyone(
 
 
 def test_a_broken_chain_signs_nothing_and_alerts_the_operator(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import httpx
 
@@ -230,7 +230,7 @@ def test_a_broken_chain_signs_nothing_and_alerts_the_operator(
 
 
 def test_without_a_key_nothing_is_signed_or_published(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from tests.conftest import encrypted_store
 
@@ -243,7 +243,7 @@ def test_without_a_key_nothing_is_signed_or_published(
 
 
 def test_the_published_checkpoint_is_read_once_a_minute_whoever_asks(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import time as real_time
 
@@ -282,7 +282,7 @@ def test_the_published_checkpoint_is_read_once_a_minute_whoever_asks(
 
 
 def test_the_published_answer_is_the_statement_and_the_key_and_nothing_else(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from tests.conftest import encrypted_store
 
@@ -295,7 +295,7 @@ def test_the_published_answer_is_the_statement_and_the_key_and_nothing_else(
 
 
 def test_a_statement_planted_in_the_database_is_never_signed_over_or_published(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Someone who can write the database but has no key copies a valid statement under later
     days' keys, to freeze signing: the next run signs nothing, alerts, and the route keeps
@@ -335,7 +335,7 @@ def test_a_statement_planted_in_the_database_is_never_signed_over_or_published(
 
 
 def test_after_a_key_rotation_only_the_new_key_s_statements_are_published(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from fastapi.testclient import TestClient
 

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""An organization's pack store, its authors' routes (LP-20f, ADR-0016 Proposed).
+"""An organization's agent store, its authors' routes (LP-20f, ADR-0016 Proposed).
 
 Mounted only with `MENDARI_AGENT_STORE=on` in memberships mode, once the store's prerequisites
 are met (`create_app`). The guard lets through only a person who signed in and holds `author`
-(the reserved role `pack_author`, which an administrator gives, themself included): never a
+(the reserved role `agent_author`, which an administrator gives, themself included): never a
 key, a client, an EHR launch or open mode. The authors' keys are managed by the organization's
 administrators (`keys`, people only). Every route acts for the organization the guard let the
 person through for (`org_of`), never one a body, a query or a path names: another
@@ -29,9 +29,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from mendari.core.agent import MANIFEST, Agent
+from mendari.core.agent_store import DRAFT, AgentStore, PhiRejected, StoreError
 from mendari.core.decision import Decision
-from mendari.core.pack import MANIFEST, Pack
-from mendari.core.pack_store import DRAFT, PackStore, PhiRejected, StoreError
 from mendari.errors import HubError, MendariError
 from mendari.server import security_log
 from mendari.server.auth import Auth, org_of
@@ -49,7 +49,7 @@ class UploadRequest(BaseModel):
 
 
 class CopyRequest(BaseModel):
-    pack: str = Field(
+    agent: str = Field(
         title="Agent", description="the id of an agent this deployment serves from disk"
     )
     name: str = Field(description="the copy's name: its id is <your organization>/<name>")
@@ -73,7 +73,7 @@ class DatasetRequest(BaseModel):
 
 class JobRequest(BaseModel):
     version: str | None = Field(default=None, description="a store version's digest")
-    pack: str | None = Field(
+    agent: str | None = Field(
         default=None, title="Agent", description="or an agent served here: the current one"
     )
     dataset: dict[str, str] = Field(
@@ -111,7 +111,7 @@ def _listed(row: Mapping[str, Any]) -> dict[str, Any]:
     """A version as a list shows it."""
     return {
         "digest": row["digest"],
-        "pack_id": row["pack_id"],
+        "agent_id": row["agent_id"],
         "version": row["version"],
         "state": row["state"],
         "valid": not row["validation"],
@@ -134,27 +134,27 @@ def _detail(row: Mapping[str, Any]) -> dict[str, Any]:
             "checks": row["checks"]}  # fmt: skip
 
 
-def _renamed(manifest: bytes, pack_id: str) -> bytes:
+def _renamed(manifest: bytes, agent_id: str) -> bytes:
     """A manifest with its top-level `id` replaced; nothing else of it changes."""
     text = manifest.decode("utf-8")
     if not _TOP_LEVEL_ID.search(text):
         raise HTTPException(422, "the agent's manifest has no top-level id to rename")
-    return _TOP_LEVEL_ID.sub(f"id: {pack_id}", text, count=1).encode("utf-8")
+    return _TOP_LEVEL_ID.sub(f"id: {agent_id}", text, count=1).encode("utf-8")
 
 
 def add_store_routes(
     app: FastAPI,
     auth: Auth,
-    store: PackStore,
+    store: AgentStore,
     *,
-    served: Callable[[], Mapping[str, Pack]],
+    served: Callable[[], Mapping[str, Agent]],
     claimed: Callable[[str, str], bool] | None = None,
     deadline_s: float | None = None,
     jobs: Any = None,
     limits: Callable[[], Mapping[str, int]] = dict,
     on_promotion: Callable[[], None] = lambda: None,
 ) -> None:
-    """Mount the store's routes. `served`: the packs this deployment serves from disk (what a
+    """Mount the store's routes. `served`: the agents this deployment serves from disk (what a
     copy is made from); `claimed(org, namespace)`: whether an approved registry claim lets
     `org` use another namespace than its id (with the registry mounted)."""
 
@@ -221,14 +221,14 @@ def add_store_routes(
         summary="Your organization's agents in the store",
         name="store_agents",
     )
-    def store_packs(request: Request) -> list[dict[str, Any]]:
+    def store_agents(request: Request) -> list[dict[str, Any]]:
         """The agents in the store of the organization you act for, each with its versions,
         newest first: state, whether it validated, where it came from, who made it and when."""
         _, org = person(request)
         lineages: dict[str, list[dict[str, Any]]] = {}
         for row in store.versions(org):
-            lineages.setdefault(row["pack_id"], []).append(_listed(row))
-        return [{"pack_id": pack_id, "versions": found} for pack_id, found in lineages.items()]
+            lineages.setdefault(row["agent_id"], []).append(_listed(row))
+        return [{"agent_id": agent_id, "versions": found} for agent_id, found in lineages.items()]
 
     @app.get(
         "/api/store/agents/{namespace}/{name}",
@@ -236,7 +236,7 @@ def add_store_routes(
         summary="One agent's versions in the store",
         name="store_agent",
     )
-    def store_pack(request: Request, namespace: str, name: str) -> dict[str, Any]:
+    def store_agent(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """One agent of your organization's store, its versions newest first, each with its
         files, validation and dataset checks. An unknown agent and another organization's are
         one `404`."""
@@ -244,7 +244,7 @@ def add_store_routes(
         found = store.versions(org, f"{namespace}/{name}")
         if not found:
             raise HTTPException(404, "no such agent in this organization's store")
-        return {"pack_id": f"{namespace}/{name}", "versions": [_detail(row) for row in found]}
+        return {"agent_id": f"{namespace}/{name}", "versions": [_detail(row) for row in found]}
 
     @app.get("/api/store/versions/{digest}", tags=[TAG], summary="One version, with its card")
     def store_version(request: Request, digest: str) -> dict[str, Any]:
@@ -363,22 +363,22 @@ def add_store_routes(
         summary="Copy an agent into a draft",
         name="copy_agent",
     )
-    def copy_pack(request: Request, body: CopyRequest) -> JSONResponse:
+    def copy_agent(request: Request, body: CopyRequest) -> JSONResponse:
         """A draft of an agent this deployment serves from disk, renamed `<your organization>/
         <name>` (a store agent never takes a bundled agent's id) and recording what it was
         copied from (id, version, digest). It runs on the engine for agents the deployment does
         not own, so an agent whose patterns that engine cannot run is refused, saying why."""
-        from mendari.hub.archive import pack_files
+        from mendari.hub.archive import agent_files
 
         by, org = person(request)
         if not NAME.fullmatch(body.name):
             raise HTTPException(422, "a name is lower-case letters, digits and hyphens")
-        source = served().get(body.pack)
+        source = served().get(body.agent)
         if source is None:
             raise HTTPException(404, "no such agent served here to copy")
         files = {
             path.relative_to(source.root).as_posix(): path.read_bytes()
-            for path in pack_files(source.root)
+            for path in agent_files(source.root)
         }
         files[MANIFEST] = _renamed(files[MANIFEST], f"{org}/{body.name}")
         copied = {"id": source.id, "version": source.version, "digest": source.digest}
@@ -399,10 +399,10 @@ def add_store_routes(
         owned(org, digest, states=(DRAFT, "promoted", "retired"))
         try:
             files = store.files(org, digest)
-            pack = store.load(org, digest)
+            agent = store.load(org, digest)
         except StoreError as error:
             raise _refused(error) from None
-        trained = _trained_files(pack)
+        trained = _trained_files(agent)
         for edited in body.files:
             if edited.path not in files:
                 raise HTTPException(422, f"{edited.path}: not a file of this version")
@@ -422,16 +422,16 @@ def add_store_routes(
         """Run the version's behaviour tests on the engine it runs on, as `mendari test` does
         (its own, and those `mendari probe` found): each case's name, whether it passed and why
         not. Nothing is recorded."""
-        from mendari.evals.pack_tests import every_case, run_pack_tests
+        from mendari.evals.behaviour_tests import every_case, run_behaviour_tests
 
         _, org = person(request)
         owned(org, digest, states=(DRAFT, "promoted", "retired"))
         try:
-            pack = store.load(org, digest)
-            cases = every_case(pack)
+            agent = store.load(org, digest)
+            cases = every_case(agent)
             if len(cases) > MAX_TEST_CASES:
                 raise HTTPException(422, f"a version has at most {MAX_TEST_CASES} tests here")
-            outcomes = run_pack_tests(Decision(pack, origin_cap=False, deadline_s=deadline_s))
+            outcomes = run_behaviour_tests(Decision(agent, origin_cap=False, deadline_s=deadline_s))
         except (StoreError, HubError) as error:
             raise _refused(error) from None
         except MendariError as error:
@@ -531,7 +531,7 @@ def add_store_routes(
 
     @app.post("/api/store/jobs", status_code=201, tags=[TAG], summary="Make an evaluation job")
     def make_job(request: Request, body: JobRequest) -> dict[str, Any]:
-        """A job evaluating a version of your store (`version`) or an agent served here (`pack`,
+        """A job evaluating a version of your store (`version`) or an agent served here (`agent`,
         the current one a draft is compared with) on a dataset. Local variants unless named; a
         remote one needs your organization's evaluation quota set and runs on 200 cases at
         most. It runs when `…/advance` is called, a slice at a time. Chained."""
@@ -541,7 +541,7 @@ def add_store_routes(
                 org,
                 by=by,
                 digest=body.version,
-                pack=body.pack,
+                agent=body.agent,
                 dataset=body.dataset,
                 variants=body.variants,
                 limits=limits(),
@@ -599,10 +599,10 @@ def add_store_routes(
         """Each case of an improvement dataset as a behaviour test of the version: its case id,
         what it expects (the reviewer's label of the primary question), whether the version
         decides it, and what the authors decided of it. Never its input."""
-        pack = store.load(org, digest)
-        decision = Decision(pack, origin_cap=False, deadline_s=deadline_s)
+        agent = store.load(org, digest)
+        decision = Decision(agent, origin_cap=False, deadline_s=deadline_s)
         decided = store.proposals(org, digest)
-        primary = pack.manifest.policy.primary
+        primary = agent.manifest.policy.primary
         results = []
         for record in store.dataset_records(org, dataset_id):
             case = str(record.get("id"))
@@ -647,13 +647,13 @@ def add_store_routes(
             raise HTTPException(
                 403, "building it reads patients' inputs: it needs the permission to read them"
             )
-        pack_id = f"{namespace}/{name}"
+        agent_id = f"{namespace}/{name}"
         row = owned(org, body.version)
-        if row["pack_id"] != pack_id:
+        if row["agent_id"] != agent_id:
             raise HTTPException(422, "that version is not one of this agent's")
-        sources = [pack_id]
+        sources = [agent_id]
         current: Mapping[str, Any] | None = row
-        while current is not None:  # the pack its lineage was copied from
+        while current is not None:  # the agent its lineage was copied from
             if current["copied_from"]:
                 sources.append(str(current["copied_from"]["id"]))
                 break
@@ -664,7 +664,7 @@ def add_store_routes(
         except StoreError as error:
             raise _refused(error) from None
         records, skipped = corrections_dataset(
-            store.store, org=org, pack_ids=sources, limit=body.limit, reader=principal.actor
+            store.store, org=org, agent_ids=sources, limit=body.limit, reader=principal.actor
         )
         if not records:
             raise HTTPException(422, f"no reviewer's correction to build from ({skipped} skipped)")
@@ -735,7 +735,7 @@ def add_store_routes(
         principal_id, org = person(request)
         finished: dict[str, list[str]] = {}
         for job in jobs.jobs(org) if jobs is not None else []:
-            if job["state"] == "done" and "pack" not in job:
+            if job["state"] == "done" and "agent" not in job:
                 finished.setdefault(str(job["digest"]), []).append(str(job["report_id"]))
         candidates = [
             {
@@ -755,7 +755,7 @@ def add_store_routes(
         evaluation reports named (each one of this version's), with a reference and a note.
         Refused when you made it or any version it was made from. The promoted version of the
         same agent before it is retired. At risk levels 2 and 3 it still automates only with the
-        automation approval of its digest. Chained `pack_version.promoted`."""
+        automation approval of its digest. Chained `store_version.promoted`."""
         by, org = person(request)
         try:
             made = store.promote(
@@ -781,7 +781,7 @@ def add_store_routes(
     )
     def retire_promotion(request: Request, promotion_id: str) -> dict[str, Any]:
         """Stop serving a promoted version: the organization is served no version of that agent
-        until another is promoted. A store agent's recall. Chained `pack_version.retired`."""
+        until another is promoted. A store agent's recall. Chained `store_version.retired`."""
         by, org = person(request)
         try:
             retired = store.retire(org, promotion_id, by=by)
@@ -823,11 +823,11 @@ def add_store_routes(
         return revoked
 
 
-def _trained_files(pack: Pack) -> set[str]:
+def _trained_files(agent: Agent) -> set[str]:
     """The files an agent's variants and composite members name as trained (a calibration):
     fitted again and uploaded, never edited on the server."""
     found: set[str] = set()
-    for slot in pack.manifest.providers.values():
+    for slot in agent.manifest.providers.values():
         for variant in slot.variants.values():
             configs = [variant.model_extra or {}]
             members = configs[0].get("members")

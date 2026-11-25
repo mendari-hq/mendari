@@ -18,9 +18,9 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core.actions import Proposed
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.core.spec import Question
-from mendari.errors import PackValidationError
+from mendari.errors import AgentValidationError
 from mendari.providers.base import Answer, Provider, ProviderInfo, ProviderOutput, prefixed
 from mendari.providers.signals import Signals, merged
 
@@ -43,7 +43,7 @@ class CompositeProvider(Provider):
         # Its own settings here; each member's are checked as it is built, below.
         settings, problems = self._settings(self.info.slot, self.config, self.questions)
         if settings is None or problems:
-            raise PackValidationError(self.pack.id, problems)
+            raise AgentValidationError(self.agent.id, problems)
         self.settings = settings
 
         self.members: dict[str, Provider] = {}
@@ -56,7 +56,7 @@ class CompositeProvider(Provider):
                 model=model,
             )
             self.members[name] = PROVIDER_TYPES[member["type"]](
-                self.pack, info, self.questions, member
+                self.agent, info, self.questions, member
             )
         self.remote = any(member.remote for member in self.members.values())
         self.info = replace(
@@ -69,7 +69,7 @@ class CompositeProvider(Provider):
     @classmethod
     def config_problems(
         cls,
-        pack: Pack,
+        agent: Agent,
         where: str,
         config: Mapping[str, Any],
         questions: Mapping[str, Question],
@@ -86,7 +86,7 @@ class CompositeProvider(Provider):
         for name, member in settings.members.items():
             at = f"{where}.members.{name}"
             found = PROVIDER_TYPES[str(member["type"])].config_problems(
-                pack, at, member, questions, bounded=bounded
+                agent, at, member, questions, bounded=bounded
             )
             problems += prefixed(at, found)
         return problems

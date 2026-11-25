@@ -19,8 +19,8 @@ import pytest
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 
 from mendari.cli import main
+from mendari.core.agent import Agent, load_agent
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack, load_pack
 from mendari.evals import figures
 from mendari.evals.harness import Evaluation, evaluation, resolve_dataset
 from mendari.hub import archive, evaluations, site_signing, yank
@@ -33,17 +33,17 @@ SECRET = "do-not-echo-this-value"
 
 
 @cache
-def demo() -> Pack:
-    return load_pack(DEMO_DIR)
+def demo() -> Agent:
+    return load_agent(DEMO_DIR)
 
 
 @cache
 def run(variant: str) -> Evaluation:
     """The demo agent's run on its synthetic test set with `reader=variant` (cached: the
     runs are the same in every test, each test signs them with its own key)."""
-    pack = demo()
-    decision = Decision(pack, providers={"reader": variant}, origin_cap=False)
-    return evaluation(decision, resolve_dataset(pack, "test"))
+    agent = demo()
+    decision = Decision(agent, providers={"reader": variant}, origin_cap=False)
+    return evaluation(decision, resolve_dataset(agent, "test"))
 
 
 def signed(registry_key: Any, variant: str = "rules", **changes: Any) -> dict[str, Any]:
@@ -140,7 +140,7 @@ def test_the_figures_are_the_registrys_from_the_counts(published: Registry) -> N
     assert shown["excluded"] is None and shown["key_id"] == record["key_id"]
     # Checked again as it was read: the stored record still verifies with the namespace's key.
     assert shown["signature"] == {"key_id": record["key_id"], "verified": True, "problem": None}
-    assert shown["record_format"] == "mendari.publisher-evaluation/2"
+    assert shown["record_format"] == "mendari.publisher-evaluation/1"
 
 
 def test_a_local_evaluation_with_one_count_changed_is_refused(published: Registry) -> None:
@@ -287,16 +287,16 @@ def test_superseding_keeps_both_in_the_chain(published: Registry) -> None:
 
 def test_a_digest_that_is_not_the_versions_is_refused(published: Registry) -> None:
     record = signed(published.key)
-    pack = {**record["pack"], "digest": "sha256:" + "1" * 64}
-    report = {**record["report"], "pack": pack}
-    refused(send(published, signed(published.key, pack=pack, report=report)), 409, "pack.digest")
+    agent = {**record["agent"], "digest": "sha256:" + "1" * 64}
+    report = {**record["report"], "agent": agent}
+    refused(send(published, signed(published.key, agent=agent, report=report)), 409, "agent.digest")
 
 
 @pytest.mark.parametrize(
     ("dataset", "words"),
     [
         ({"name": SECRET}, "dataset.name: it is not a dataset the agent's manifest declares"),
-        ({"name": "data/test.jsonl"}, "not a mendari.publisher-evaluation/2 record: dataset.name"),
+        ({"name": "data/test.jsonl"}, "not a mendari.publisher-evaluation/1 record: dataset.name"),
         ({"sha256": "0" * 64}, "dataset.sha256: it is not the archived dataset's"),
     ],
 )
@@ -326,7 +326,7 @@ def test_a_recalled_or_deleted_version_is_refused(published: Registry) -> None:
     record = signed(published.key)
     found = published.operator.version("mendari", "portal-message-agent", demo().version)
     recall = yank.sign(
-        pack="mendari/portal-message-agent",
+        agent="mendari/portal-message-agent",
         version=demo().version,
         digest=found["digest"],
         archive_sha256=found["archive_sha256"],
@@ -367,7 +367,7 @@ def test_a_record_of_another_kind_or_time_is_refused(published: Registry) -> Non
     as_site = base64.b64encode(published.key.sign(site_signing.signed_bytes(fields))).decode()
     refused(send(published, {**record, "signature": as_site}), 403, "signature")
     extra = {**record, "note": SECRET}
-    refused(send(published, extra), 422, "not a mendari.publisher-evaluation/2 record")
+    refused(send(published, extra), 422, "not a mendari.publisher-evaluation/1 record")
     with_null = copy.deepcopy(record["report"])
     with_null["decisions"]["outcomes"]["BLOCK"] = None
     refused(send(published, signed(published.key, report=with_null)), 422, "no null cell")

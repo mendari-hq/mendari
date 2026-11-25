@@ -29,8 +29,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore
-from mendari.core.pack import Pack
 from mendari.errors import MendariError
 from mendari.server.app import create_app, mounted_routes
 from mendari.server.auth import CDS_PATH, OPEN_MODE_REMOTE
@@ -275,7 +275,7 @@ def test_a_verified_token_does_not_lift_the_rule_in_open_mode(
 
 
 def test_the_rest_of_open_mode_is_unchanged(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], triage_agent: Pack
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], triage_agent: Agent
 ) -> None:
     """From another machine, over every route the app mounts: only `/cds-services` and its
     children get the refusal; every other route answers as open mode did (deciding, the FHIR

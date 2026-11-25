@@ -48,18 +48,18 @@ class MendariError(Exception):
     """Base class for Mendari errors."""
 
 
-class PackValidationError(MendariError):
+class AgentValidationError(MendariError):
     """An agent is malformed, inconsistent, or violates its risk-level rules."""
 
-    def __init__(self, pack: str, problems: list[str]):
-        self.pack = pack
+    def __init__(self, agent: str, problems: list[str]):
+        self.agent = agent
         self.problems = problems
         detail = "\n".join(f"  - {problem}" for problem in problems)
-        super().__init__(f"Agent {pack!r} is invalid:\n{detail}")
+        super().__init__(f"Agent {agent!r} is invalid:\n{detail}")
 
 
-class PackNotFoundError(MendariError):
-    """A pack reference could not be resolved from any search path."""
+class AgentNotFoundError(MendariError):
+    """An agent reference could not be resolved from any search path."""
 
 
 class ProviderError(MendariError):
@@ -94,7 +94,7 @@ class LabelError(MendariError):
 
 
 class FhirError(MendariError):
-    """FHIR input is missing required resources or cannot be mapped to the pack input, or a
+    """FHIR input is missing required resources or cannot be mapped to the agent input, or a
     FHIR server could not be read. `status` is the HTTP status the server answered with, when
     it answered with one (a `401`: the token it was sent no longer works); `reason` why a read
     failed, when it is one (`standards/fhir_client.py` sets it at each raise)."""
@@ -136,7 +136,7 @@ class CdsHooksError(MendariError):
 
 
 class UnknownCard(MendariError):
-    """CDS Hooks card feedback naming a card that is not a decision of the service's pack in the
+    """CDS Hooks card feedback naming a card that is not a decision of the service's agent in the
     caller's organization, or, when the caller is named (sign-in on, or a CDS client's token),
     one another caller asked for: one refusal for them all (a `404`), whichever it is, and
     nothing is recorded (`AuditStore.record_card_feedback`, LP-23f)."""
@@ -154,7 +154,7 @@ class SmartError(MendariError):
 
 
 class HubError(MendariError):
-    """A pack archive, signature, registry request or pull failed a check. `status` is the HTTP
+    """An agent archive, signature, registry request or pull failed a check. `status` is the HTTP
     status the registry answers with (404 unknown, 409 conflict, 410 deleted, 422 invalid)."""
 
     def __init__(self, message: str, status: int = 422):

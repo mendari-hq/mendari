@@ -7,14 +7,14 @@ but returns a different shape; and an agent's logic (models, rules, LLM provider
 cannot be expressed as PlanDefinition actions, so serving packs as PlanDefinitions would promise
 what no other engine could run. R4 has a resource for a decision-support result, though:
 
-- `GuidanceResponse` (first in the Bundle): the decision. `status` is `success` when the pack
+- `GuidanceResponse` (first in the Bundle): the decision. `status` is `success` when the agent
   evaluated the input, whatever the outcome, and `failure` when the input was refused before any
   provider ran. **Whether to act is `outputParameters.outcome`, never `status`.**
 - `RequestGroup` → `Task`: the proposed work item (R4 allows only a CarePlan or RequestGroup as
-  `GuidanceResponse.result`). Under BLOCK and ABSTAIN it is the pack's fallback, never the
+  `GuidanceResponse.result`). Under BLOCK and ABSTAIN it is the agent's fallback, never the
   blocked action.
 - `Parameters`: outcome, recommendation, priority, confidence and every question's answer, with
-  labels coded in the pack's question CodeSystems (`terminology.py`).
+  labels coded in the agent's question CodeSystems (`terminology.py`).
 - `OperationOutcome`, when there is anything to say: R4/US Core findings, provider failures and
   why an input was refused, by path and rule, never by value.
 - `Provenance`: the audit trail's own for this decision, with the GuidanceResponse and Task as
@@ -38,15 +38,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from mendari import __version__
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.errors import FhirError, FhirRequestError, FhirStructureError
 from mendari.standards import fhir_structure
 from mendari.standards.capability import DECIDE_URL
 from mendari.standards.fhir import (
+    AGENT_ID_SYSTEM,
+    AGENT_TAG_SYSTEM,
     DECISION_ID_SYSTEM,
     OUTCOME_SYSTEM,
-    PACK_ID_SYSTEM,
-    PACK_TAG_SYSTEM,
     display,
     iter_entries,
     iter_resources,
@@ -63,13 +63,13 @@ _PROVIDER_ISSUE = {
     "quota_exhausted": "throttled",
     "timeout": "timeout",
 }
-_PARAMETERS = {"pack": "valueString", "version": "valueString", "focus": "valueString"}
+_PARAMETERS = {"agent": "valueString", "version": "valueString", "focus": "valueString"}
 _ABSOLUTE = ("http://", "https://")
 
 
 @dataclass(frozen=True)
 class DecideRequest:
-    pack: str
+    agent: str
     version: str | None
     data: dict[str, Any]
     focus: str | None
@@ -82,7 +82,7 @@ def parse(body: Any) -> DecideRequest:
         _refuse(
             "invalid",
             "resourceType",
-            "send a Parameters resource (`pack`, `version`, `data`, `focus`); to send a bare "
+            "send a Parameters resource (`agent`, `version`, `data`, `focus`); to send a bare "
             "Bundle, use /api/agents/{namespace}/{name}/fhir/decide",
         )
     malformed = fhir_structure.blocking(fhir_structure.check(body))
@@ -111,11 +111,11 @@ def parse(body: Any) -> DecideRequest:
         if not isinstance(value, str):
             _refuse("invalid", where, f"{name} must be a {_PARAMETERS[name]}")
         found[name] = value
-    for required in ("pack", "data"):
+    for required in ("agent", "data"):
         if required not in found:
             _refuse("required", "Parameters.parameter", f"the {required} parameter is required")
     return DecideRequest(
-        pack=found["pack"],
+        agent=found["agent"],
         version=found.get("version"),
         data=dict(found["data"]),
         focus=found.get("focus"),
@@ -136,7 +136,7 @@ def focus_in(data: Mapping[str, Any], reference: str | None) -> dict[str, Any] |
 def response(
     result: DecisionResult,
     task: Mapping[str, Any],
-    pack: Pack,
+    agent: Agent,
     provenance: Mapping[str, Any],
     data: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -149,15 +149,15 @@ def response(
     subject = task.get("for")
     engine = _engine(result)
     issues = _issues(result)
-    pack_ref = f"{result.pack_id}@{result.pack_version}"
+    agent_ref = f"{result.agent_id}@{result.agent_version}"
     guidance: dict[str, Any] = {
         "resourceType": "GuidanceResponse",
         "text": narrative(
-            f"Decision {result.id} by {pack_ref}: {result.outcome.value}, priority "
+            f"Decision {result.id} by {agent_ref}: {result.outcome.value}, priority "
             f"{result.priority.value}, recommendation {result.recommendation or 'none'}.",
         ),
         "identifier": [{"system": DECISION_ID_SYSTEM, "value": result.id}],
-        "moduleCodeableConcept": {"coding": [{"system": PACK_TAG_SYSTEM, "code": pack_ref}]},
+        "moduleCodeableConcept": {"coding": [{"system": AGENT_TAG_SYSTEM, "code": agent_ref}]},
         "status": "failure" if result.rejected else "success",
         "occurrenceDateTime": result.created_at,
         "performer": engine,
@@ -193,7 +193,7 @@ def response(
         (urls["GuidanceResponse"], guidance),
         (urls["RequestGroup"], request_group),
         (urls["Task"], {**task, "basedOn": [{"reference": urls["RequestGroup"]}]}),
-        (urls["Parameters"], _output(result, pack)),
+        (urls["Parameters"], _output(result, agent)),
     ]
     if issues:
         outcome = {
@@ -218,7 +218,7 @@ def operation_definition() -> dict[str, Any]:
         "resourceType": "OperationDefinition",
         "id": "decide",
         "text": narrative(
-            "POST [base]/$decide: decide one case with a Mendari agent. In: `pack` (the agent's "
+            "POST [base]/$decide: decide one case with a Mendari agent. In: `agent` (the agent's "
             "id), `version`, `data` (a Bundle), `focus`. Out: a collection Bundle with a "
             "GuidanceResponse, a RequestGroup and Task, a Parameters, an OperationOutcome when "
             "there are findings, and a Provenance."
@@ -242,7 +242,7 @@ def operation_definition() -> dict[str, Any]:
         "type": False,
         "instance": False,
         "parameter": [
-            _parameter("pack", "in", 1, "string", _PACK_DOC),
+            _parameter("agent", "in", 1, "string", _AGENT_DOC),
             _parameter("version", "in", 0, "string", _VERSION_DOC),
             _parameter("data", "in", 1, "Bundle", _DATA_DOC),
             _parameter("focus", "in", 0, "string", _FOCUS_DOC),
@@ -299,10 +299,10 @@ def _urn(result: DecisionResult, kind: str) -> str:
 
 
 def _engine(result: DecisionResult) -> dict[str, Any]:
-    pack = f"{result.pack_id}@{result.pack_version}"
+    agent = f"{result.agent_id}@{result.agent_version}"
     return {
-        "identifier": {"system": PACK_ID_SYSTEM, "value": pack},
-        "display": f"Mendari engine · {pack}",
+        "identifier": {"system": AGENT_ID_SYSTEM, "value": agent},
+        "display": f"Mendari engine · {agent}",
     }
 
 
@@ -342,7 +342,7 @@ def _provider_issue(failure: str) -> str:
     return "exception"
 
 
-def _output(result: DecisionResult, pack: Pack) -> dict[str, Any]:
+def _output(result: DecisionResult, agent: Agent) -> dict[str, Any]:
     params: list[dict[str, Any]] = [
         {
             "name": "outcome",
@@ -351,7 +351,7 @@ def _output(result: DecisionResult, pack: Pack) -> dict[str, Any]:
         {"name": "priority", "valueCode": result.priority.value},
     ]
     if result.recommendation is not None:
-        coding = _label(pack, result.primary, result.recommendation)
+        coding = _label(agent, result.primary, result.recommendation)
         params.append({"name": "recommendation", "valueCoding": coding})
     if result.confidence is not None:
         params.append({"name": "confidence", "valueDecimal": round(result.confidence, 6)})
@@ -359,11 +359,11 @@ def _output(result: DecisionResult, pack: Pack) -> dict[str, Any]:
         params.append({"name": "rule", "valueString": result.rule})
     if result.fallback:
         params.append({"name": "fallback", "valueString": result.fallback})
-    params.append({"name": "packDigest", "valueString": result.pack_digest})
+    params.append({"name": "agentDigest", "valueString": result.agent_digest})
     for key, answer in result.answers.items():
         parts: list[dict[str, Any]] = [
             {"name": "question", "valueCode": key},
-            {"name": "label", "valueCoding": _label(pack, key, answer.label)},
+            {"name": "label", "valueCoding": _label(agent, key, answer.label)},
             {"name": "confidence", "valueDecimal": round(answer.confidence, 6)},
         ]
         if answer.value is not None:
@@ -373,7 +373,7 @@ def _output(result: DecisionResult, pack: Pack) -> dict[str, Any]:
                 {
                     "name": "probability",
                     "part": [
-                        {"name": "label", "valueCoding": _label(pack, key, label)},
+                        {"name": "label", "valueCoding": _label(agent, key, label)},
                         {"name": "value", "valueDecimal": round(probability, 6)},
                     ],
                 }
@@ -387,10 +387,10 @@ def _output(result: DecisionResult, pack: Pack) -> dict[str, Any]:
     return {"resourceType": "Parameters", "parameter": params}
 
 
-def _label(pack: Pack, question: str, label: str) -> dict[str, str]:
+def _label(agent: Agent, question: str, label: str) -> dict[str, str]:
     """A label in its question's CodeSystem, with the display that CodeSystem gives it."""
-    criteria = pack.manifest.questions[question].criteria
-    coding = {"system": question_system(pack.id, question), "code": label}
+    criteria = agent.manifest.questions[question].criteria
+    coding = {"system": question_system(agent.id, question), "code": label}
     if criteria.get(label):
         coding["display"] = display(criteria[label])
     return coding
@@ -437,7 +437,7 @@ _DESCRIPTION = (
     "fail the call: the decision is recorded, the failure is a warning in the OperationOutcome, "
     "and the policy treats the question as unanswered."
 )
-_PACK_DOC = "The agent, as `namespace/name` (e.g. `mendari/portal-message-agent`)."
+_AGENT_DOC = "The agent, as `namespace/name` (e.g. `mendari/portal-message-agent`)."
 _VERSION_DOC = (
     "The agent version the client expects. When the deployment serves another version, the call "
     "fails with 404 and decides nothing."

@@ -3,15 +3,15 @@
 file is named `<namespace>-<name>-<version>.mendari`; nothing reads an archive by its name.
 
 An archive is a deterministic gzip tar (sorted entries, zero mtimes, owner and mode fixed, gzip
-mtime 0), so the same pack always gives the same bytes and the same archive digest. It holds:
+mtime 0), so the same agent always gives the same bytes and the same archive digest. It holds:
 
-- `mendari-pack.json`: the format, the pack's id, version and content digest, and every file
+- `mendari-agent.json`: the format, the agent's id, version and content digest, and every file
   with its SHA-256 and size;
-- `mendari-pack.sig`: an Ed25519 signature over those exact manifest bytes, with the key id;
-- `pack/...`: the pack's files (everything but hidden files and caches; evaluation reports and
-  the rendered card included, so they are signed too, though the pack digest leaves them out).
+- `mendari-agent.sig`: an Ed25519 signature over those exact manifest bytes, with the key id;
+- `agent/...`: the agent's files (everything but hidden files and caches; evaluation reports and
+  the rendered card included, so they are signed too, though the agent digest leaves them out).
 
-`build` makes no archive of a pack that holds a site's cases that say what they are: cases
+`build` makes no archive of an agent that holds a site's cases that say what they are: cases
 `mendari feedback export` wrote. They may be patient text. Each is marked
 (`core/site_cases.py`), and that mark is looked for in every file the archive would hold,
 before anything is signed (`refuse_site_cases`). So
@@ -19,7 +19,7 @@ before anything is signed (`refuse_site_cases`). So
 sent (`hub/registry.py`), since a client need not have.
 
 `verify` checks the whole archive before anything is written to disk: only regular files under
-`pack/` (no link, device, FIFO or sparse file), every name a plain relative path (no empty, `.`,
+`agent/` (no link, device, FIFO or sparse file), every name a plain relative path (no empty, `.`,
 `..` or hidden segment, so no absolute path and no traversal), size and count caps, every file
 hash, and the signature by a key the caller trusts. The archive is read as a stream and the caps
 hold while it is read, before the signature is checked: the gzip may expand to at most
@@ -27,7 +27,7 @@ hold while it is read, before the signature is checked: the gzip may expand to a
 and a member is read only once its size fits, so a small archive (a gzip of zeros, sparse
 members that declare gigabytes) never makes the reader hold more than the caps in memory.
 `extract` then checks that every file lands inside the destination, writes the files and checks
-that the pack loads with the digest the manifest names, as the origin its caller names (no
+that the agent loads with the digest the manifest names, as the origin its caller names (no
 default: a registry and a puller load it as `hub`, on the engine its pullers run, ADR-0009).
 """
 
@@ -50,20 +50,20 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from mendari.core.agent import Agent, load_agent
 from mendari.core.origin import Origin
-from mendari.core.pack import Pack, load_pack
 from mendari.core.site_cases import marked_files
 from mendari.errors import HubError
 
-FORMAT = "mendari-pack/1"
-MANIFEST = "mendari-pack.json"
-SIGNATURE = "mendari-pack.sig"
+FORMAT = "mendari-agent/1"
+MANIFEST = "mendari-agent.json"
+SIGNATURE = "mendari-agent.sig"
 MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
 MAX_FILE_BYTES = 50 * 1024 * 1024
 MAX_FILES = 2000
 MAX_UNPACKED_BYTES = MAX_ARCHIVE_BYTES * 4  # the tar stream the gzip expands to, in all
 # The tar may be at most this many times the archive's size, or EXPANSION_FLOOR bytes. Shipped
-# packs expand 10 to 17 times; a gzip of zeros, about 1,000 times.
+# agents expand 10 to 17 times; a gzip of zeros, about 1,000 times.
 MAX_EXPANSION = 100
 EXPANSION_FLOOR = 64 * 1024 * 1024
 _CHUNK = 64 * 1024
@@ -73,7 +73,7 @@ MAX_FILES_NAMED = 5  # the files a refusal of a site's cases names: the rest are
 @dataclass(frozen=True)
 class Verified:
     manifest: dict[str, Any]
-    files: dict[str, bytes]  # path under the pack root -> content
+    files: dict[str, bytes]  # path under the agent root -> content
     key_id: str
     sha256: str  # of the archive
 
@@ -124,7 +124,7 @@ def key_id(key: Ed25519PublicKey) -> str:
 # -- build --------------------------------------------------------------------------------------
 
 
-def pack_files(root: Path) -> list[Path]:
+def agent_files(root: Path) -> list[Path]:
     return sorted(
         p
         for p in root.rglob("*")
@@ -140,13 +140,13 @@ def pack_files(root: Path) -> list[Path]:
 EXTENSION = ".mendari"
 
 
-def archive_name(pack: Pack) -> str:
-    namespace, name = pack.id.split("/")
-    return f"{namespace}-{name}-{pack.version}{EXTENSION}"
+def archive_name(agent: Agent) -> str:
+    namespace, name = agent.id.split("/")
+    return f"{namespace}-{name}-{agent.version}{EXTENSION}"
 
 
 def refuse_site_cases(files: Mapping[str, bytes]) -> None:
-    """A `HubError` when a pack's files (path -> content, as an archive holds them) hold a
+    """A `HubError` when an agent's files (path -> content, as an archive holds them) hold a
     site's cases: cases `mendari feedback export` wrote, found by their marks, in any file and
     however it is laid out (`core/site_cases.py`). One line that names the first
     `MAX_FILES_NAMED` files with how many times each is marked, and counts the rest; never a
@@ -173,18 +173,18 @@ def _shown(path: str) -> str:
     return path if path.isprintable() else ascii(path)
 
 
-def build(pack: Pack, key: Ed25519PrivateKey) -> bytes:
-    """The archive's bytes (deterministic: the same pack and key give the same archive). A pack
+def build(agent: Agent, key: Ed25519PrivateKey) -> bytes:
+    """The archive's bytes (deterministic: the same agent and key give the same archive). An agent
     that holds a site's cases, or a model built from them, is a `HubError`
     (`refuse_site_cases`), raised on the bytes the archive would hold, before anything is
     signed."""
-    files = {f.relative_to(pack.root).as_posix(): f.read_bytes() for f in pack_files(pack.root)}
+    files = {f.relative_to(agent.root).as_posix(): f.read_bytes() for f in agent_files(agent.root)}
     refuse_site_cases(files)
     manifest = {
         "format": FORMAT,
-        "id": pack.id,
-        "version": pack.version,
-        "digest": pack.digest,
+        "id": agent.id,
+        "version": agent.version,
+        "digest": agent.digest,
         "files": [
             {"path": path, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
             for path, data in files.items()
@@ -200,7 +200,7 @@ def build(pack: Pack, key: Ed25519PrivateKey) -> bytes:
         (MANIFEST, manifest_bytes),
         (SIGNATURE, json.dumps(signature, sort_keys=True).encode()),
     ]
-    entries += [(f"pack/{path}", data) for path, data in files.items()]
+    entries += [(f"agent/{path}", data) for path, data in files.items()]
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w", format=tarfile.USTAR_FORMAT) as tar:
         for name, data in entries:
@@ -246,7 +246,7 @@ def verify(archive: bytes, trusted: Mapping[str, Ed25519PublicKey]) -> Verified:
         )
     except (InvalidSignature, ValueError):
         raise HubError("the archive's signature does not match its manifest") from None
-    files = {name.removeprefix("pack/"): data for name, data in members.items()}
+    files = {name.removeprefix("agent/"): data for name, data in members.items()}
     entries = manifest.get("files", [])
     if not isinstance(entries, list) or not all(
         isinstance(entry, dict) and isinstance(entry.get("path"), str) for entry in entries
@@ -271,8 +271,8 @@ def verify(archive: bytes, trusted: Mapping[str, Ed25519PublicKey]) -> Verified:
     return Verified(manifest=manifest, files=files, key_id=str(signature["key_id"]), sha256=digest)
 
 
-def extract(verified: Verified, dest: Path, *, origin: Origin) -> Pack:
-    """Write a verified archive's pack to `dest` and load it as `origin` (required, so every
+def extract(verified: Verified, dest: Path, *, origin: Origin) -> Agent:
+    """Write a verified archive's agent to `dest` and load it as `origin` (required, so every
     caller chooses the engine it is checked on: `hub` for a registry's publish, a pull and
     `mendari archive verify`); its digest, id and version must be the ones the signed manifest
     names."""
@@ -289,15 +289,15 @@ def extract(verified: Verified, dest: Path, *, origin: Origin) -> Pack:
             target.write_bytes(data)
         except OSError as error:  # a file where a directory goes, a full disk, …
             raise HubError(f"{path}: cannot be written ({type(error).__name__})") from None
-    pack = load_pack(dest, origin=origin)
+    agent = load_agent(dest, origin=origin)
     expected = (
         verified.manifest.get("id"),
         verified.manifest.get("version"),
         verified.manifest.get("digest"),
     )
-    if (pack.id, pack.version, pack.digest) != expected:
+    if (agent.id, agent.version, agent.digest) != expected:
         raise HubError("the extracted agent is not the agent the manifest names")
-    return pack
+    return agent
 
 
 class _Unpacked(io.RawIOBase):
@@ -386,13 +386,13 @@ def _sparse(info: tarfile.TarInfo) -> bool:
 
 
 def _check_name(name: str) -> None:
-    """`pack/` and then plain path segments. The raw name is split: a path library would read
-    `pack//etc/x` as `pack/etc/x`, which `verify` then turns into `/etc/x`."""
+    """`agent/` and then plain path segments. The raw name is split: a path library would read
+    `agent//etc/x` as `agent/etc/x`, which `verify` then turns into `/etc/x`."""
     if name in (MANIFEST, SIGNATURE):
         return
     parts = name.split("/")
     if (
-        parts[0] != "pack"
+        parts[0] != "agent"
         or len(parts) < 2
         or "\\" in name
         or any(part == "" or part.startswith(".") for part in parts)

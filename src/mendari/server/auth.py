@@ -88,7 +88,7 @@ server is open, as before (production sits behind Vercel Authentication). When c
 
 | Role | May |
 |---|---|
-| viewer (people and machines) | read (every role also holds `discover`: the lists of packs) |
+| viewer (people and machines) | read (every role also holds `discover`: the lists of agents) |
 | reviewer | read (inputs too, under PHI mode), decide, review, record outcomes, give feedback |
 | service (machines) | read, decide, record outcomes |
 | governance | read, approve automation |
@@ -173,7 +173,7 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "viewer": frozenset({"read", "discover"}),
     "reviewer": frozenset({"read", "discover", "read_input", "decide", "review", "outcome"}),
     "service": frozenset({"read", "discover", "decide", "outcome"}),
-    # `promote` (LP-20h): signing off a pack store's version to be served to the organization,
+    # `promote` (LP-20h): signing off an agent store's version to be served to the organization,
     # people only; never its author (the store refuses one), and not the automation approval.
     "governance": frozenset({"read", "discover", "approve", "promote"}),
     "admin": frozenset(
@@ -197,22 +197,22 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     # Written output's graders (ADR-0025): `labeller` is a reserved role a membership holds
     # (memberships mode only, `GRANTING_RESERVED`).
     "labeller": frozenset({"label"}),
-    # The pack registry's reviewers (LP-19e, ADR-0015): a reserved role that counts only in the
+    # The agent registry's reviewers (LP-19e, ADR-0015): a reserved role that counts only in the
     # organization `MENDARI_REGISTRY_REVIEW_ORG` names (`Auth._member`), and nowhere else.
     accounts.REGISTRY_REVIEWER: frozenset({"registry_review"}),
-    # An organization's pack store (LP-20f, ADR-0016): a reserved role a membership holds, which
+    # An organization's agent store (LP-20f, ADR-0016): a reserved role a membership holds, which
     # an administrator gives, themself included; `admin` does not hold it (owner decision 4).
-    "pack_author": frozenset({"author"}),
+    "agent_author": frozenset({"author"}),
 }
 # Permissions only a person who signed in holds, whatever a key's (or a token's) role says:
 # managing keys, clients, members and invitations; grading written output (`label`); reviewing
-# the pack registry (`registry_review`).
+# the agent registry (`registry_review`).
 PEOPLE_ONLY = frozenset({"keys", "label", "registry_review", "author", "promote", "operate"})
 # What only the deployment's operators hold: an administrator's role grants it where
 # `Principal.operator` says so (the organization `MENDARI_OPERATOR_ORG` names), and nowhere else.
 OPERATOR_ONLY = frozenset({"operate"})
 # What open mode (no sign-in) never holds, though it holds everything else: grading written
-# output needs sign-in (a grader is a person with a membership), and so does reviewing the pack
+# output needs sign-in (a grader is a person with a membership), and so does reviewing the agent
 # registry (a reviewer is a person with a membership).
 NEVER_OPEN = frozenset({"label", "registry_review", "author", "promote"})
 # What an EHR launch may do, by its EHR's registered level; no other principal holds these (the
@@ -318,7 +318,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # configuration is mounted only when Backend Services is on (server/backend_services.py).
         ("GET", r"^/fhir/(metadata|OperationDefinition/[^/]+)$", "public"),
         ("GET", r"^/fhir/\.well-known/smart-configuration$", "public"),
-        # The terminology carries the packs' labels and criteria: read, like a pack's detail.
+        # The terminology carries the agents' labels and criteria: read, like an agent's detail.
         ("GET", r"^/fhir/(CodeSystem|NamingSystem)/[^/]+$", "read"),
         # Decisions and their audit trail: read, like /api/audit, and never public: without a
         # signed-in organization the store's scope is every organization's rows.
@@ -336,7 +336,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/api/audit/[^/]+/erase$", "admin"),  # a kept input, on request
         ("GET", r"^/api/agents/[^/]+/[^/]+/feedback/export$", "admin"),  # case inputs, in bulk
         ("*", r"^/api/auth/(keys|clients)", "keys"),
-        # The pack registry under the engine (LP-19d; `MENDARI_REGISTRY=on`, not mounted
+        # The agent registry under the engine (LP-19d; `MENDARI_REGISTRY=on`, not mounted
         # otherwise: `_REGISTRY_ONLY`). The mounted registry is public to the guard, which reads
         # no credential there: the registry checks its own publisher token (`ohr_`), and a
         # session cookie is never a publish credential.
@@ -358,9 +358,9 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # path under it, before the reads below: the next item is a text an agent wrote about a
         # case. A round's report is any reader's (below).
         ("*", r"^/api/written/labelling(/|$)", "label"),
-        # An organization's pack store (LP-20f; `MENDARI_AGENT_STORE=on` in memberships mode, not
+        # An organization's agent store (LP-20f; `MENDARI_AGENT_STORE=on` in memberships mode, not
         # mounted otherwise): its authors' keys, managed by its administrators, and every other
-        # route of the store its authors' (`pack_author`), people only. Before the reads below:
+        # route of the store its authors' (`agent_author`), people only. Before the reads below:
         # a draft is not served to anyone but its organization's authors.
         ("*", r"^/api/store/keys(/|$)", "keys"),
         # Promotion (LP-20h): `governance` and `admin`, people only; before the authors' rule.
@@ -523,7 +523,7 @@ class Principal:
         return granted if self.grant is None else granted & self.grant.permissions
 
     def to_dict(self, *, review_org: str | None = None) -> dict[str, Any]:
-        """As `/api/auth/me` shows a principal. `review_org` (the pack registry's review
+        """As `/api/auth/me` shows a principal. `review_org` (the agent registry's review
         organization, LP-19e): a person acting for it is told so (`registry_review_org`), so
         its administrators are offered the reviewer role, which is refused anywhere else."""
         shown: dict[str, Any] = {
@@ -838,15 +838,15 @@ class OrganizationRequest(BaseModel):
 
 
 def _roles_field(**default: Any) -> Any:
-    """The roles a membership may be given: the server's, `pack_author` (`author`: the
-    organization's pack store, LP-20f) and `labeller` (`label` only, memberships mode). Each
+    """The roles a membership may be given: the server's, `agent_author` (`author`: the
+    organization's agent store, LP-20f) and `labeller` (`label` only, memberships mode). Each
     model checks them
     (`accounts.check_roles`: sorted, each once, a 422 otherwise)."""
     return Field(
         **default,
         min_length=1,
         max_length=len(accounts.MEMBERSHIP_ROLES),
-        description="Roles: viewer, reviewer, service, governance, admin, pack_author (writes "
+        description="Roles: viewer, reviewer, service, governance, admin, agent_author (writes "
         "agents in the organization's agent store: author only), labeller (grades written "
         "output: label only) and "
         "registry_reviewer (reviews the agent registry; given in its review organization only, "
@@ -922,14 +922,14 @@ class Auth:
         cds_open: CdsOpenMode | None = None,
         registry: bool = False,
         review_org: str | None = None,
-        pack_store: bool = False,
+        agent_store: bool = False,
         operator_org: str | None = None,
         first_admin: str | None = None,
         first_admin_org_name: str | None = None,
     ):
         self.settings = settings
-        self.registry = registry  # the pack registry is mounted here (`MENDARI_REGISTRY=on`)
-        self.pack_store = pack_store  # organizations' pack stores are served (LP-20f)
+        self.registry = registry  # the agent registry is mounted here (`MENDARI_REGISTRY=on`)
+        self.agent_store = agent_store  # organizations' agent stores are served (LP-20f)
         # The one organization whose `registry_reviewer` members review the registry
         # (`MENDARI_REGISTRY_REVIEW_ORG`, LP-19e); None: the role grants nothing anywhere.
         self.review_org = review_org
@@ -1160,7 +1160,7 @@ class Auth:
         or removed and given again: a new one is chosen anew) they act for no organization,
         with no role: never `default`, never another of their memberships. Of the reserved
         roles, `labeller` grants `label` (ADR-0025); `registry_reviewer` grants `registry_review`
-        in the review organization only (LP-19e), nothing in any other; `pack_author` grants
+        in the review organization only (LP-19e), nothing in any other; `agent_author` grants
         `author` (LP-20f)."""
         session, sent = sessions.resume(self.store, request, COOKIE, MEMBER, self.lifetime)
         if session is None:
@@ -1713,7 +1713,7 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         the dashboard knows whether to show one; absent otherwise."""
         principal = auth.principal(request)
         shown: dict[str, Any] = {"accounts": "memberships"} if auth.memberships else {}
-        if auth.pack_store:
+        if auth.agent_store:
             shown["store"] = True
         if principal is None:
             return {"mode": "sign-in", "signed_in": False, **shown}
@@ -2035,7 +2035,7 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         """Memberships mode: an invitation to this organization with `roles`, for whoever signs
         in with `email` verified, valid for `days` (7 unless asked, 30 at most). Mendari sends no
         e-mail: pass the `link` on yourself. Its token is in this response only (in `link`, a
-        path on this site to put after its address), stored hashed. `pack_author` grants
+        path on this site to put after its address), stored hashed. `agent_author` grants
         `author` (the agent store) and `labeller` grants `label` only.
         Recorded in the audit chain (`invitation.created`, with a digest of the address)."""
         principal = auth.acting(request)

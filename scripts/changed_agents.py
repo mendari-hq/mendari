@@ -3,7 +3,7 @@
 NUL-separated on stdout, so a directory name is never word-split or put into code, whatever
 characters it holds.
 
-    uv run python scripts/changed_packs.py BASE_SHA | while IFS= read -r -d '' dir; do ...; done
+    uv run python scripts/changed_agents.py BASE_SHA | while IFS= read -r -d '' dir; do ...; done
 
 Under `agents/`, a changed file belongs to the nearest folder above it that holds a manifest
 (`agent.yaml`; an agent can sit up to four levels deep, as the registry finds it). A file under
@@ -22,18 +22,18 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from mendari.core.pack import has_manifest  # noqa: E402
+from mendari.core.agent import has_manifest  # noqa: E402
 
-PACKS = "agents"
+AGENTS = "agents"
 MAX_DEPTH = 4  # the deepest manifest the registry loads: agents/a/b/c/agent.yaml
 
 
-def pack_dirs(paths: Iterable[str], root: Path) -> list[str]:
-    """The pack directories, relative to `root`, that the changed `paths` belong to."""
+def agent_dirs(paths: Iterable[str], root: Path) -> list[str]:
+    """The agent directories, relative to `root`, that the changed `paths` belong to."""
     found: set[str] = set()
     for path in paths:
         parts = PurePosixPath(path).parts
-        if len(parts) < 3 or parts[0] != PACKS:
+        if len(parts) < 3 or parts[0] != AGENTS:
             continue  # outside agents/, or a file directly in it
         owner = PurePosixPath(*parts[:2])
         for depth in range(min(len(parts) - 1, MAX_DEPTH), 1, -1):
@@ -55,7 +55,7 @@ def _changed(base: str) -> list[str]:
             "--no-renames",
             f"{base}...HEAD",
             "--",
-            PACKS,
+            AGENTS,
         ],
         cwd=ROOT,
         capture_output=True,
@@ -68,7 +68,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("base", help="the commit the pull request is compared with")
     args = parser.parse_args()
-    for directory in pack_dirs(_changed(args.base), ROOT):
+    for directory in agent_dirs(_changed(args.base), ROOT):
         sys.stdout.buffer.write(directory.encode("utf-8", "surrogateescape") + b"\0")
     return 0
 

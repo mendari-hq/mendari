@@ -12,7 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from mendari.cli import main
-from mendari.core.pack import load_pack
+from mendari.core.agent import load_agent
 from mendari.errors import HubError
 from mendari.hub.registry import RegistryStore, ReviewRequest, token_id
 from tests.conftest import (
@@ -26,7 +26,7 @@ from tests.conftest import (
 
 # The agent `Registry.publish()` publishes, in the test fixtures' namespace (`FIXTURE_NAMESPACE`),
 # which the registry makes on the first publish, with its own token and key, after `mendari`'s.
-TRIAGE = load_pack(TRIAGE_DIR)
+TRIAGE = load_agent(TRIAGE_DIR)
 NAMESPACE, NAME = TRIAGE.id.split("/")
 VERSION_PATH = f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}"
 
@@ -70,7 +70,7 @@ def test_every_write_is_chained_and_the_chain_verifies(
         "namespace.created",  # the test fixtures' namespace, with its own
         "token.issued",
         "key.added",
-        "pack.published",
+        "agent.published",
         "site.registered",
         "site.key_added",
         "site.verified",
@@ -78,13 +78,13 @@ def test_every_write_is_chained_and_the_chain_verifies(
         "report.shared",
         "site.ticket_reported",
         "namespace.publisher_type_set",
-        "pack.reviewed",
+        "agent.reviewed",
     ]
     published = json.loads(events[6]["payload"])
     assert published.pop("row")["kind"] == "versions"  # the row it wrote, hashed
     token = registry.fixture_publisher()[0]
     assert published == {
-        "pack": TRIAGE.id,
+        "agent": TRIAGE.id,
         "version": TRIAGE.version,
         "digest": TRIAGE.digest,
         "archive_sha256": registry.client.get(VERSION_PATH).json()["archive_sha256"],

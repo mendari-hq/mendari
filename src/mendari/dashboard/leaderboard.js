@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Provider comparison: the leaderboard in the server's order (ranking.grouped: the rows that rank
 // as data first, in mendari.rank/1's order, then the rest by configuration name), cost against
-// accuracy, per-check accuracy. The pack's own sets are public, so each table is a regression
+// accuracy, per-check accuracy. The agent's own sets are public, so each table is a regression
 // check, not a ranking: the order is a listing order and no rank is shown (LP-17g). Every share
 // of cases is a figure the server worked out (mendari.figures/1); this view only formats and
 // orders what it is given.
 
 import { chartHtml } from "./charts.js";
-import { criticalText, providerName, remoteModels, variantText } from "./pack.js";
+import { criticalText, providerName, remoteModels, variantText } from "./manifest.js";
 import { wire } from "./router.js";
 import { tableHtml } from "./table.js";
 import { $, esc, evidenceMark, figureHtml, num, share, shown, slotText, state, storageGet, storageSet, time } from "./ui.js";
@@ -25,7 +25,7 @@ const missed = (row) => row.figures.critical.some((c) => c.detected.k < c.detect
 // before), a held-out set, the benchmark, or the first.
 function boardGroups(board) {
   const groups = board.groups.map((group, index) => ({ ...group, index }));
-  const saved = storageGet(`oh.board.${state.packId}`, "");
+  const saved = storageGet(`oh.board.${state.agentId}`, "");
   const benchmark = state.detail.manifest.evaluation?.benchmark_dataset;
   const current = groups.find((g) => g.label === saved) ?? groups.find((g) => g.dataset === saved)
     ?? groups.find((g) => g.dataset.endsWith("_holdout")) ?? groups.find((g) => g.dataset === benchmark) ?? groups[0];
@@ -51,7 +51,7 @@ export function leaderboardView(board) {
 export function wireLeaderboard(root, board) {
   root.querySelectorAll("[data-board-group]").forEach((button) => button.addEventListener("click", () => {
     const group = { ...board.groups[Number(button.dataset.boardGroup)], index: Number(button.dataset.boardGroup) };
-    storageSet(`oh.board.${state.packId}`, group.label);
+    storageSet(`oh.board.${state.agentId}`, group.label);
     root.querySelectorAll("[data-board-group]").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
     $("#board", root).innerHTML = boardTables(board, group);
     wire($("#board", root));

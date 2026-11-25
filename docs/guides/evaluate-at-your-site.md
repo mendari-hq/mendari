@@ -14,7 +14,7 @@ and what your AI governance committee reads about the agent is
 
 ## What leaves your site, and what stays
 
-What is shared is a `mendari.site-report/2`: whole counts only, counted from your run's ledger
+What is shared is a `mendari.site-report/1`: whole counts only, counted from your run's ledger
 ([the format](../spec/evaluation-reports.md#shared-site-reports-mendarisite-report2)). Per
 question, how many cases were labelled and right, the confusion matrix and the confidence
 deciles; how many cases each outcome had; how many were automated with a wrong

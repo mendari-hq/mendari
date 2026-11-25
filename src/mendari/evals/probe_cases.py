@@ -27,13 +27,13 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from mendari.core import patterns, site_cases
+from mendari.core.agent import Agent
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack
-from mendari.core.spec import PackManifest
+from mendari.core.spec import AgentManifest
 from mendari.errors import MendariError
+from mendari.evals.behaviour_tests import load_cases
 from mendari.evals.canonical import canonical_input
 from mendari.evals.harness import record_problems, resolve_dataset
-from mendari.evals.pack_tests import load_cases
 from mendari.evals.probe_transforms import Stream
 from mendari.providers import Provider
 from mendari.providers.agent import AgentProvider
@@ -78,19 +78,19 @@ class Case:
     site: bool = False
 
 
-def source(pack: Pack, dataset: str | None = None, *, tests: bool = False) -> Source:
+def source(agent: Agent, dataset: str | None = None, *, tests: bool = False) -> Source:
     """The cases to probe: the dataset named (one of the agent's, or a JSON Lines file), or the
     agent's own behaviour tests (`tests`). With neither: its benchmark dataset, else the first
     dataset it declares, else its tests. A dataset the agent cannot evaluate is refused as an
     evaluation refuses it. The tests the probe wrote itself are never its cases."""
     if tests and dataset is not None:
         raise MendariError("--from-tests and --dataset: choose one")
-    declared = pack.manifest.evaluation
+    declared = agent.manifest.evaluation
     if dataset is None and not tests:
         dataset = declared.benchmark_dataset or next(iter(declared.datasets), None)
     if dataset is not None and not tests:
-        found = resolve_dataset(pack, dataset)
-        problems = record_problems(pack.manifest, found)
+        found = resolve_dataset(agent, dataset)
+        problems = record_problems(agent.manifest, found)
         if problems:
             more = f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""
             raise MendariError(f"{problems[0]}{more}")
@@ -107,17 +107,17 @@ def source(pack: Pack, dataset: str | None = None, *, tests: bool = False) -> So
                 for record in found.records
             ),
         )
-    cases = load_cases(pack)
+    cases = load_cases(agent)
     if not cases:
         raise MendariError(
-            f"{pack.ref} has no case to probe: name a labelled dataset with --dataset, or give "
+            f"{agent.ref} has no case to probe: name a labelled dataset with --dataset, or give "
             "the agent behaviour tests"
         )
     return Source(
         "tests",
-        str(pack.manifest.tests),
+        str(agent.manifest.tests),
         tuple(
-            Record(str(number), case["input"], _test_labels(pack.manifest, case["expect"]))
+            Record(str(number), case["input"], _test_labels(agent.manifest, case["expect"]))
             for number, case in enumerate(cases, start=1)
         ),
     )
@@ -128,7 +128,7 @@ def shown_id(value: Any) -> str:
     return value if isinstance(value, str) else canonical_input(value)
 
 
-def _test_labels(manifest: PackManifest, expect: Mapping[str, Any]) -> dict[str, str]:
+def _test_labels(manifest: AgentManifest, expect: Mapping[str, Any]) -> dict[str, str]:
     """The answers a behaviour test says are right: its `answers`, and its `recommendation` as
     the primary question's."""
     labels = {
@@ -140,12 +140,12 @@ def _test_labels(manifest: PackManifest, expect: Mapping[str, Any]) -> dict[str,
     return labels
 
 
-def critical(manifest: PackManifest) -> list[tuple[str, str]]:
+def critical(manifest: AgentManifest) -> list[tuple[str, str]]:
     """The (question, label) pairs the manifest calls critical."""
     return [(found.question, found.label) for found in manifest.evaluation.critical]
 
 
-def is_critical(labels: Mapping[str, str], manifest: PackManifest) -> bool:
+def is_critical(labels: Mapping[str, str], manifest: AgentManifest) -> bool:
     return any(labels.get(question) == label for question, label in critical(manifest))
 
 
@@ -159,7 +159,7 @@ def distinct_cases(
     agent reads; they say which text is changed, never what a case is."""
     read = fields if fields is not None else read_fields(decision)
     known = identity_fields(decision)
-    schema = decision.pack.input_schema
+    schema = decision.agent.input_schema
     by_key: dict[str, Case] = {}
     by_id: dict[str, Case] = {}
     refused = 0
@@ -174,7 +174,7 @@ def distinct_cases(
             schema,
             read,
             named=fields is not None,
-            bounded=decision.pack.bounded,
+            bounded=decision.agent.bounded,
         )
         if key not in by_key and places:
             by_key[key] = Case(
@@ -190,7 +190,7 @@ def distinct_cases(
     return by_key, by_id, refused
 
 
-def in_turn(cases: Sequence[Case], manifest: PackManifest, seed: int) -> list[Case]:
+def in_turn(cases: Sequence[Case], manifest: AgentManifest, seed: int) -> list[Case]:
     """Cases in the order a small probe takes them: an order the seed gives (whatever the
     source's), those with a critical label and those without in turn."""
     ordered = sorted(cases, key=lambda case: Stream(seed, "cases", case.key).below(1 << 62))
@@ -300,7 +300,7 @@ def text_places(
     """Where the text of an input is: each string in it (through mappings and lists) that holds
     something, is at or under one of `fields` when there are any, and, unless the fields were
     `named` by the caller, is one the schema leaves free (`_free`). `bounded`: the schema's
-    patterns are searched as the agent's own validator searches them (`Pack.bounded`)."""
+    patterns are searched as the agent's own validator searches them (`Agent.bounded`)."""
     found: list[Place] = []
     stack: list[tuple[Any, Place, list[Any]]] = [(value, (), [schema])]
     while stack:

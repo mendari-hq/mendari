@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Site evidence (LP-22g, ADR-0017): sites' signed reports of a pack, side by side, per digest
+"""Site evidence (LP-22g, ADR-0017): sites' signed reports of an agent, side by side, per digest
 and configuration, each site's k of n before any pooled figure. The reports are real
 evaluations of the triage fixture on its synthetic test set (`tests/support/fixture_agents.py`),
 each run on a different number of cases so the sites differ, signed by synthetic sites."""
@@ -16,8 +16,8 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari import Decision, load_pack
-from mendari.core.pack import Pack
+from mendari import Decision, load_agent
+from mendari.core.agent import Agent
 from mendari.evals import pooling, resolve_dataset
 from mendari.evals.harness import evaluation
 from mendari.evals.share import shareable
@@ -33,7 +33,7 @@ from tests.conftest import (
 )
 
 # The agent `Registry.publish()` publishes, and the question its figures are of.
-TRIAGE = load_pack(TRIAGE_DIR)
+TRIAGE = load_agent(TRIAGE_DIR)
 ACCURACY = f"accuracy:{TRIAGE.manifest.policy.primary}"
 EVIDENCE = f"/v1/agents/{TRIAGE.id}/site-evidence"
 
@@ -41,13 +41,13 @@ EVIDENCE = f"/v1/agents/{TRIAGE.id}/site-evidence"
 @lru_cache(maxsize=8)
 def _counts(cases: int, root: str) -> str:
     """The shared counts of the agent at `root` run on the first `cases` of its test set."""
-    pack = load_pack(root)
-    dataset = resolve_dataset(pack, "test").head(cases)
-    return json.dumps(shareable(evaluation(Decision(pack), dataset).ledger))
+    agent = load_agent(root)
+    dataset = resolve_dataset(agent, "test").head(cases)
+    return json.dumps(shareable(evaluation(Decision(agent), dataset).ledger))
 
 
-def counts(cases: int, pack: Pack = TRIAGE) -> dict[str, Any]:
-    return dict(json.loads(_counts(cases, str(pack.root))))
+def counts(cases: int, agent: Agent = TRIAGE) -> dict[str, Any]:
+    return dict(json.loads(_counts(cases, str(agent.root))))
 
 
 @pytest.fixture
@@ -105,7 +105,7 @@ def test_the_pooled_figure_is_the_summed_counts_and_says_so(
     assert figure["random_effects"]["method"].startswith("random effects (DerSimonian-Laird")
 
 
-def _at_version(tmp_path: Path, source: Path, version: str) -> Pack:
+def _at_version(tmp_path: Path, source: Path, version: str) -> Agent:
     """The agent at `source` at another version (a copy published by the same namespace):
     another digest."""
     root = tmp_path / f"{source.name}-{version}"
@@ -113,7 +113,7 @@ def _at_version(tmp_path: Path, source: Path, version: str) -> Pack:
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["version"] = version
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    return load_pack(root)
+    return load_agent(root)
 
 
 def test_two_digests_or_two_configurations_are_never_pooled(
@@ -127,8 +127,8 @@ def test_two_digests_or_two_configurations_are_never_pooled(
     groups = _evidence(published)["groups"]
     assert len(groups) == 2 and all(g["sites"] == 1 for g in groups)
     assert {g["remote_consent"] for g in groups} == {True, False}
-    # Two versions of one pack: two digests, never pooled.
-    clinical = load_pack(CLINICAL_DIR)
+    # Two versions of one agent: two digests, never pooled.
+    clinical = load_agent(CLINICAL_DIR)
     newer = _at_version(tmp_path, CLINICAL_DIR, "9.9.9")
     assert published.publish(clinical).status_code == 201
     assert published.publish(newer).status_code == 201
@@ -284,5 +284,5 @@ def test_no_rate_in_the_answer_came_from_a_site(published: Registry, tmp_path: P
         assert "accuracy" not in json.dumps(report) and "rate" not in json.dumps(report)
 
 
-def test_site_evidence_of_a_pack_nobody_may_read_is_a_404(published: Registry) -> None:
+def test_site_evidence_of_an_agent_nobody_may_read_is_a_404(published: Registry) -> None:
     assert published.client.get("/v1/agents/mendari/no-such/site-evidence").status_code == 404

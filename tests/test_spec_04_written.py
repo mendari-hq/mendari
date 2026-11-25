@@ -21,7 +21,7 @@ from mendari.core.spec import (
     MAX_OUTPUT_CHARS,
     MAX_OUTPUTS,
     MUST_PASS_RECALL_FLOOR,
-    PackManifest,
+    AgentManifest,
     Rubric,
     RubricCriterion,
     WrittenOutput,
@@ -89,12 +89,12 @@ def criterion(**changes: Any) -> dict[str, Any]:
 
 def refused(manifest: dict[str, Any], said: str) -> None:
     with pytest.raises(ValidationError) as error:
-        PackManifest.model_validate(manifest)
+        AgentManifest.model_validate(manifest)
     assert said in str(error.value), str(error.value)
 
 
 def test_a_0_4_manifest_declares_outputs_and_rubrics() -> None:
-    manifest = PackManifest.model_validate(raw())
+    manifest = AgentManifest.model_validate(raw())
     output = manifest.outputs["reply_draft"]
     assert (output.slot, output.input, output.max_chars) == ("reader", None, 1200)
     assert output.source == "slot:reader"
@@ -126,7 +126,7 @@ def test_defaults_and_the_other_source() -> None:
         "description": "A reply the input already holds.",
         "input": "draft",
     }
-    loaded = PackManifest.model_validate(manifest)
+    loaded = AgentManifest.model_validate(manifest)
     assert loaded.outputs["given"].max_chars == spec.DEFAULT_OUTPUT_CHARS == 4000
     assert loaded.outputs["given"].source == "input:draft"
     assert Rubric.model_validate({"output": "x", "criteria": {"c": SAFE}}).context_fields == []
@@ -194,7 +194,7 @@ def test_names_and_counts() -> None:
     refused(manifest, "criteria")
     most = raw()
     most["rubrics"]["reply_quality"]["criteria"] = {f"c{n}": SAFE for n in range(MAX_CRITERIA)}
-    assert len(PackManifest.model_validate(most).rubrics["reply_quality"].criteria) == 16
+    assert len(AgentManifest.model_validate(most).rubrics["reply_quality"].criteria) == 16
     refused(rubric(criteria={}), "criteria")
     refused(rubric(output="summary"), "rubrics.reply_quality.output 'summary' is not a declared")
     refused(rubric(context_fields=["message.body", "message.body"]), "more than once")
@@ -246,7 +246,7 @@ def test_a_score_criterion(changes: dict[str, Any], said: str) -> None:
         "pass_from": "level_3",
     }
     assert (
-        len(PackManifest.model_validate(most).rubrics["reply_quality"].criteria["extra"].scale())
+        len(AgentManifest.model_validate(most).rubrics["reply_quality"].criteria["extra"].scale())
         == 7
     )
 
@@ -261,7 +261,7 @@ def test_a_manifest_may_raise_a_floor_and_never_lower_it(floor: str) -> None:
             "may raise a floor, never lower it",
         )
     for kept in (lowest, 0.9, 0.99):
-        loaded = PackManifest.model_validate(rubric(floors={floor: kept})).rubrics["reply_quality"]
+        loaded = AgentManifest.model_validate(rubric(floors={floor: kept})).rubrics["reply_quality"]
         own = loaded.agreement_floor() if floor == "agreement" else loaded.must_pass_recall_floor()
         assert own == kept
     for outside in (1.0, 1.5, -0.2):
@@ -271,7 +271,7 @@ def test_a_manifest_may_raise_a_floor_and_never_lower_it(floor: str) -> None:
 
 def test_the_judge_takes_an_llms_model_settings_and_nothing_of_the_deployments() -> None:
     judge = {"model": "anthropic/claude-sonnet-5", "reasoning_effort": "low", "max_tokens": 512}
-    loaded = PackManifest.model_validate(rubric(judge=judge)).rubrics["reply_quality"].judge
+    loaded = AgentManifest.model_validate(rubric(judge=judge)).rubrics["reply_quality"].judge
     assert (loaded.model, loaded.reasoning_effort, loaded.max_tokens) == (
         "anthropic/claude-sonnet-5",
         "low",
@@ -292,7 +292,7 @@ def test_grades_name_a_rubric_and_one_of_the_datasets() -> None:
     grades = {"reply_quality": {"dataset": "written", "file": "data/written_grades.jsonl"}}
     manifest = raw()
     manifest["evaluation"]["grades"] = grades
-    loaded = PackManifest.model_validate(manifest).evaluation.grades["reply_quality"]
+    loaded = AgentManifest.model_validate(manifest).evaluation.grades["reply_quality"]
     assert (loaded.dataset, loaded.file) == ("written", "data/written_grades.jsonl")
     manifest = raw()
     manifest["evaluation"]["grades"] = {"other": grades["reply_quality"]}
@@ -308,7 +308,7 @@ def test_empty_sections_count_as_left_out() -> None:
     """Empty mappings are what a dumped manifest carries: they count as left out."""
     empty = raw(outputs={}, rubrics={})
     empty["evaluation"]["grades"] = {}
-    manifest = PackManifest.model_validate(empty)
+    manifest = AgentManifest.model_validate(empty)
     assert manifest.outputs == {} and manifest.rubrics == {} and manifest.evaluation.grades == {}
 
 
@@ -316,9 +316,9 @@ def test_a_manifest_loads_again_from_its_own_dump() -> None:
     manifest = raw()
     manifest["rubrics"]["reply_quality"]["floors"] = {"agreement": 0.7}
     manifest["rubrics"]["reply_quality"]["judge"] = {"mock_file": "fixtures/mock_judge.json"}
-    loaded = PackManifest.model_validate(manifest)
+    loaded = AgentManifest.model_validate(manifest)
     dumped = loaded.model_dump(mode="json", by_alias=True)
-    assert PackManifest.model_validate(dumped) == loaded
+    assert AgentManifest.model_validate(dumped) == loaded
     assert dumped["outputs"]["reply_draft"]["input"] is None
     assert (
         WrittenOutput.model_validate(dumped["outputs"]["reply_draft"])
@@ -330,10 +330,10 @@ def test_a_manifest_may_lower_the_ceiling_on_judge_errors_and_never_raise_it() -
     """The share of outputs a judge may fail to grade is a ceiling: tightening it is lowering
     it, the other way round from the two floors."""
     assert spec.MAX_JUDGE_ERRORS == written.MAX_JUDGE_ERRORS == 0.05
-    default = PackManifest.model_validate(raw()).rubrics["reply_quality"]
+    default = AgentManifest.model_validate(raw()).rubrics["reply_quality"]
     assert default.max_judge_errors() == 0.05
     for kept in (0.0, 0.01, 0.05):
-        loaded = PackManifest.model_validate(rubric(floors={"max_judge_errors": kept}))
+        loaded = AgentManifest.model_validate(rubric(floors={"max_judge_errors": kept}))
         assert loaded.rubrics["reply_quality"].max_judge_errors() == kept
     for raised in (0.051, 0.2, 1.0):
         refused(

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// Forms generated from a pack's input schema (the JSON Schema subset packs use), so Try it edits a
-// record in fields and tables instead of raw JSON, and every pack gets a form without UI code of its
+// Forms generated from an agent's input schema (the JSON Schema subset agents use), so Try it edits a
+// record in fields and tables instead of raw JSON, and every agent gets a form without UI code of its
 // own. The record lives in memory (`model`); each field writes to its path in it, so the form and
 // the JSON view are two views of the same record.
 //

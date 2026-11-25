@@ -38,7 +38,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.core.decision import DecisionResult
 from mendari.core.spec import Outcome
 from mendari.core.tenancy import DEFAULT_ORG
@@ -108,7 +108,7 @@ RTF = "text/rtf"  # how an Epic note's second rendition is assumed to be typed (
 
 @pytest.fixture
 def agent(tmp_path: Path) -> Decision:
-    return Decision(load_pack(linked_agent(tmp_path / "agents")))
+    return Decision(load_agent(linked_agent(tmp_path / "agents")))
 
 
 def twin(n: int, text: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -326,7 +326,7 @@ def test_a_note_field_stops_reading_once_its_text_is_longer_than_the_input_takes
     (the chart agent's 20,000 characters), the decision abstains `too_large` whatever the other
     notes hold: they are not read, each is `too_large`, and no other reason is added. A chart
     whose notes fit reads them all."""
-    chart = Decision(load_pack(CHART_DIR))
+    chart = Decision(load_agent(CHART_DIR))
     long = "x" * 6_000
     pairs = [twin(n, f"<p>{long}</p>") for n in range(10)]
     ehr = Ehr(*(html for _, html in pairs))
@@ -383,7 +383,7 @@ def test_linked_reads_stop_at_the_deadline_and_the_request_clock(
     stopped is not kept: the request's next decision has its own deadline and reads it. The
     providers get what the reads left of the same deadline. The request's seconds in reads
     (`LINK_SECONDS`), added up read by read, stop its reads the same way."""
-    decision = Decision(load_pack(linked_agent(tmp_path / "agents")), deadline_s=10)
+    decision = Decision(load_agent(linked_agent(tmp_path / "agents")), deadline_s=10)
     clock = Clock(step=4)
     monkeypatch.setattr(linked, "_now", clock)
     monkeypatch.setattr(deadline_module, "time", SimpleNamespace(monotonic=clock))
@@ -413,7 +413,7 @@ def test_linked_reads_stop_at_the_deadline_and_the_request_clock(
     assert seen == [pytest.approx(2.0)]
 
     monkeypatch.setattr(linked, "LINK_SECONDS", 10.0)
-    roomy = Decision(decision.pack, deadline_s=120)
+    roomy = Decision(decision.agent, deadline_s=120)
     ehr = SlowEhr(*(binary(f"b{n}", f"Note {n}.") for n in range(4)))
     ehr.clock = clock
     result, _ = roomy.decide_fhir(bundle(*documents), links=Linker.of(ehr.client()))
@@ -557,7 +557,7 @@ def chart_agent(
 
 
 def chart() -> Decision:
-    return Decision(load_pack(CHART_DIR))
+    return Decision(load_agent(CHART_DIR))
 
 
 def test_an_undeclared_medication_statement_refusal_never_reads_as_off_insulin(
@@ -670,7 +670,7 @@ def test_a_declaration_never_automates(tmp_path: Path) -> None:
         "outcome": "BLOCK",
         "reason": "a fixture's blocking rule",
     }
-    blocking = Decision(load_pack(chart_agent(tmp_path / "block", rules=[rule])))
+    blocking = Decision(load_agent(chart_agent(tmp_path / "block", rules=[rule])))
     absent = epic_chart(statements="absent")
     whole, _ = decide_for(blocking, absent.client(), PATIENT_ID, FOCUS)
     assert whole.outcome is Outcome.BLOCK
@@ -684,7 +684,7 @@ def test_a_declared_key_a_launch_cannot_fill_is_not_offered(tmp_path: Path) -> N
     is left out as not offered, never a `500`: nothing of its type is asked for, and the decision
     records the declaration and goes to a person, the limitation a reason."""
     template = f"{STATEMENTS}&encounter={{{{context.encounterId}}}}"
-    agent = Decision(load_pack(chart_agent(tmp_path, prefetch={"medications": template})))
+    agent = Decision(load_agent(chart_agent(tmp_path, prefetch={"medications": template})))
     declared = declaration()
     ehr = epic_chart()
     result, _ = decide_for(agent, ehr.client(), PATIENT_ID, FOCUS, declared=declared)
@@ -700,7 +700,7 @@ def test_a_refused_input_under_a_declaration_still_names_the_limitation() -> Non
     """Under `enforce`, an input refused for its US Core errors (a patient with no name, orders
     with no `requester`) is a final BLOCK: the limitation is still one of its reasons, without
     "a person decides", beside the declaration it records."""
-    strict = Decision(load_pack(CHART_DIR), fhir_validation="enforce")
+    strict = Decision(load_agent(CHART_DIR), fhir_validation="enforce")
     declared = declaration()
     ehr = unconformant_chart()
     result, _ = decide_for(strict, ehr.client(), PATIENT_ID, FOCUS, declared=declared)
@@ -730,26 +730,28 @@ def test_a_card_keeps_the_limitation_whatever_the_list_is_called(tmp_path: Path)
         properties[name] = properties.pop("medications")
 
     changes = {"lists": {"medications": None, name: own["lists"]["medications"]}}
-    agent = Decision(load_pack(chart_agent(tmp_path, changes=changes, use="rules", schema=renamed)))
+    agent = Decision(
+        load_agent(chart_agent(tmp_path, changes=changes, use="rules", schema=renamed))
+    )
     result, task = decide_for(
         agent, epic_chart().client(), PATIENT_ID, FOCUS, declared=declaration()
     )
     limited = LIMITATION.replace("medications", name, 1)
     assert result.outcome is Outcome.HUMAN_REVIEW and limited in result.reasons
-    assert bullets(cds_hooks.card(agent.pack, result, task, LINKED)["detail"]) == [f"- {limited}"]
+    assert bullets(cds_hooks.card(agent.agent, result, task, LINKED)["detail"]) == [f"- {limited}"]
 
 
 def test_a_refused_input_s_card_says_the_limitation_apart_from_why() -> None:
     """A card keyed `refused` (the chart agent's) lists why the input was refused, whatever the
     links; under a declaration its limitation is on the card too, but apart (`ALSO_NOTED`),
     since it is not why: the refusal is the US Core errors."""
-    strict = Decision(load_pack(CHART_DIR), fhir_validation="enforce")
+    strict = Decision(load_agent(CHART_DIR), fhir_validation="enforce")
     result, task = decide_for(
         strict, unconformant_chart().client(), PATIENT_ID, FOCUS, declared=declaration()
     )
     assert result.outcome is Outcome.BLOCK and result.rejected and result.reasons[-1] == LIMITED
     for links in (cds_hooks.NO_LINKS, LINKED):
-        detail = cds_hooks.card(strict.pack, result, task, links)["detail"]
+        detail = cds_hooks.card(strict.agent, result, task, links)["detail"]
         why, also = detail.split(f"\n{cds_hooks.ALSO_NOTED}\n")
         assert cds_hooks.REFUSED_DETAIL in why
         assert bullets(why) and all(line.startswith("- not US Core") for line in bullets(why))
@@ -766,14 +768,14 @@ def test_an_unreadable_abstain_s_card_says_the_limitation_apart() -> None:
     result, task = decide_for(agent, ehr.client(), PATIENT_ID, FOCUS, declared=declaration())
     assert result.abstained_unreadable and LIMITATION in result.reasons
     for links in (cds_hooks.NO_LINKS, LINKED):
-        card = cds_hooks.card(agent.pack, result, task, links)
+        card = cds_hooks.card(agent.agent, result, task, links)
         unread, also = card["detail"].split(f"\n{cds_hooks.ALSO_NOTED}\n")
         assert bullets(unread) == [f"- {key}: {reason}" for key, reason in result.unreadable]
         assert bullets(also) == [f"- {LIMITATION}"]
         assert cds_client.unread_of(card) == set(result.unreadable)
 
 
-def test_a_declared_type_a_pack_reads_elsewhere_is_read_as_without_the_declaration(
+def test_a_declared_type_an_agent_reads_elsewhere_is_read_as_without_the_declaration(
     tmp_path: Path,
 ) -> None:
     """A declared type an agent also reads elsewhere (a single-source list, a top-level field),
@@ -794,9 +796,9 @@ def test_a_declared_type_a_pack_reads_elsewhere_is_read_as_without_the_declarati
         document["properties"]["last_status"] = {"type": "string", "maxLength": 64}
 
     for name, changes, schema in (("single", single, None), ("field", field, status)):
-        agent = Decision(load_pack(chart_agent(tmp_path / name, changes=changes, schema=schema)))
-        mapping = FhirAdapter.for_pack(agent.pack).mapping
-        hooks = agent.pack.manifest.cds_hooks
+        agent = Decision(load_agent(chart_agent(tmp_path / name, changes=changes, schema=schema)))
+        mapping = FhirAdapter.for_agent(agent.agent).mapping
+        hooks = agent.agent.manifest.cds_hooks
         assert hooks is not None
         assert excusable(mapping, hooks.prefetch, {"MedicationStatement"}) == frozenset(), name
         result, _ = decide_for(agent, epic_chart().client(), PATIENT_ID, FOCUS, declared=declared)
@@ -806,9 +808,9 @@ def test_a_declared_type_a_pack_reads_elsewhere_is_read_as_without_the_declarati
         {EHR: {**DECLARED[EHR], "not_offered": ["MedicationRequest", "MedicationStatement"]}}
     )
     agent = chart()
-    hooks = agent.pack.manifest.cds_hooks
+    hooks = agent.agent.manifest.cds_hooks
     assert hooks is not None
-    mapping = FhirAdapter.for_pack(agent.pack).mapping
+    mapping = FhirAdapter.for_agent(agent.agent).mapping
     assert excusable(mapping, hooks.prefetch, both.not_offered) == frozenset()
     assert both.skipped(mapping, hooks.prefetch, hooks.prefetch) == {}
     ehr = epic_chart()
@@ -879,7 +881,7 @@ def entry(**changes: Any) -> dict[str, Any]:
 def installed() -> list[Any]:
     """The test fixtures' agents a deployment of them finds (the chart agent reads its
     medications from MedicationStatement and MedicationRequest)."""
-    return [load_pack(folder) for folder in (CHART_DIR, TRIAGE_DIR, CLINICAL_DIR)]
+    return [load_agent(folder) for folder in (CHART_DIR, TRIAGE_DIR, CLINICAL_DIR)]
 
 
 def cds_listing(base: str, org: str) -> Any:
@@ -935,7 +937,7 @@ def test_the_declaration_setting_is_checked_at_startup(
     monkeypatch.setenv("MENDARI_SMART_EHRS", f"{EHR}={DEFAULT_ORG}:decide")
     monkeypatch.setenv(ENV, raw)
     with pytest.raises(MendariError, match=ENV):
-        create_app(db_path=tmp_path / "a.db", packs_paths=[FIXTURE_AGENTS])
+        create_app(db_path=tmp_path / "a.db", agents_paths=[FIXTURE_AGENTS])
 
 
 def test_each_declaration_is_checked_against_the_deployment() -> None:
@@ -1029,10 +1031,10 @@ def test_health_shows_the_organizations_declarations(
     nothing is declared."""
     monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", ORIGIN)
     monkeypatch.setenv("MENDARI_SMART_EHRS", f"{EHR}={DEFAULT_ORG}:decide")
-    with TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=[FIXTURE_AGENTS])) as app:
+    with TestClient(create_app(db_path=tmp_path / "a.db", agents_paths=[FIXTURE_AGENTS])) as app:
         assert app.get("/api/health").json()["ehr_declarations"] is None
     monkeypatch.setenv(ENV, json.dumps(DECLARED))
-    with TestClient(create_app(db_path=tmp_path / "b.db", packs_paths=[FIXTURE_AGENTS])) as app:
+    with TestClient(create_app(db_path=tmp_path / "b.db", agents_paths=[FIXTURE_AGENTS])) as app:
         shown = app.get("/api/health").json()["ehr_declarations"]
     assert shown == {EHR: {**declaration().stamp(), "not_offered": ["MedicationStatement"]}}
 
@@ -1139,7 +1141,7 @@ def test_a_launch_reads_the_declaration_for_its_issuer_and_organization(
     monkeypatch.setenv(ENV, json.dumps({EHR: entry(org="clinic-a")}))
     app = signed_site(tmp_path / "a.db", monkeypatch, f"{EHR}=clinic-a:decide", launcher)
     assert full_launch(app, launcher).status_code == 302
-    decided = app.post("/api/smart/decide", json={"pack_id": CHART_ID, "focus": FOCUS})
+    decided = app.post("/api/smart/decide", json={"agent_id": CHART_ID, "focus": FOCUS})
     assert decided.status_code == 200, decided.text
     decision = decided.json()["decision"]
     declared = declarations({EHR: entry(org="clinic-a")}, signed_in=True).for_base(EHR, "clinic-a")
@@ -1180,7 +1182,7 @@ def test_an_epic_shaped_chart_decides_with_the_declaration(tmp_path: Path) -> No
     declaration, the one reason left is MedicationStatement's refusal; with it, the chart is
     decided, nothing unread, and a person reviews it."""
     requests = {"medication_requests": "MedicationRequest?patient={{context.patientId}}"}
-    agent = Decision(load_pack(chart_agent(tmp_path, prefetch=requests)))
+    agent = Decision(load_agent(chart_agent(tmp_path, prefetch=requests)))
     focus = f"Patient/{CROWDED.id}"
     ehr = epic_chart(CROWDED)
     result, _ = decide_for(agent, ehr.client(), CROWDED.id, focus)

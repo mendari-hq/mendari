@@ -116,7 +116,7 @@ DEFAULT_RATES: dict[str, Rate] = {
     "evaluate": Rate(6, 3600, 6),
     "export": Rate(10, 3600, 10),
     "label": Rate(60, 60, 30),
-    # An author's acts on the pack store (LP-20f): an upload's parts, copies, edits, tests;
+    # An author's acts on the agent store (LP-20f): an upload's parts, copies, edits, tests;
     # per person. Each new version also counts against `store_uploads` a day.
     "store": Rate(240, 3600, 60),
 }
@@ -352,7 +352,7 @@ class Limiter:
             return "export"
         if permission == "label":  # a grader's routes: a person's pace, each item read chained
             return "label"
-        if permission == "author" and method != "GET":  # the pack store's writes (LP-20f)
+        if permission == "author" and method != "GET":  # the agent store's writes (LP-20f)
             return "store"
         if _OUTBOUND.match(path):
             # What a person's click makes this server ask of another service, one request there

@@ -4,7 +4,7 @@ name: agents
 # it can be a required check, and passes at once ("no agent changes") when none is changed. A
 # bundled agent (agents/) that a pull request changes is validated, tested, evaluated on its
 # benchmark dataset and given a card. Its metrics are compared with the benchmark on the base
-# branch, and a regression in a critical metric fails (the eval gate, scripts/pack_gate.py).
+# branch, and a regression in a critical metric fails (the eval gate, scripts/agent_gate.py).
 # The job summary shows the metrics and the rendered cards, which are also an artifact. No
 # secrets, a read-only token, and never `pull_request_target`.
 on:
@@ -38,7 +38,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           mkdir -p /tmp/agents
-          uv run python scripts/changed_packs.py "$BASE" > /tmp/agents/changed
+          uv run python scripts/changed_agents.py "$BASE" > /tmp/agents/changed
           if [ ! -s /tmp/agents/changed ]; then
             echo "no agent changes" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
@@ -48,7 +48,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           failed=0
-          field='import sys; from mendari.core.registry import resolve_pack; print(getattr(resolve_pack(sys.argv[1]).manifest.evaluation, sys.argv[2]) or "")'
+          field='import sys; from mendari.core.registry import resolve_agent; print(getattr(resolve_agent(sys.argv[1]).manifest.evaluation, sys.argv[2]) or "")'
           while IFS= read -r -d '' dir <&3; do
             case "$dir" in agents/*) ;; *) continue ;; esac
             name="${dir#agents/}"
@@ -66,7 +66,7 @@ jobs:
             if [ -n "$benchmark" ] && git show "$BASE:$dir/$benchmark" > "/tmp/agents/$name-main.json" 2>/dev/null; then
               main_args=(--main "/tmp/agents/$name-main.json")
             fi
-            uv run python scripts/pack_gate.py "$dir" --report "/tmp/agents/$name.json" "${main_args[@]}" >> "$GITHUB_STEP_SUMMARY" || failed=1
+            uv run python scripts/agent_gate.py "$dir" --report "/tmp/agents/$name.json" "${main_args[@]}" >> "$GITHUB_STEP_SUMMARY" || failed=1
           done 3< /tmp/agents/changed
           exit $failed
       - if: always()

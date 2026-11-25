@@ -592,7 +592,7 @@ def add_registry_review_routes(
     ) -> dict[str, Any]:
         """Record the risk level your review of one version found (which may differ from the
         one its publisher declared) and a short note about the agent: never case text. The
-        newest review of a version is the one shown. Chained `pack.reviewed` with your id."""
+        newest review of a version is the one shown. Chained `agent.reviewed` with your id."""
         principal = reviewer(request)
         _a_version(namespace, name, version)
         not_theirs(principal, namespace)
@@ -606,7 +606,7 @@ def add_registry_review_routes(
                 reviewer=principal.id,
             )
         )
-        logged("admin.registry_pack.reviewed", principal, f"{namespace}/{name}@{version}")
+        logged("admin.registry_agent.reviewed", principal, f"{namespace}/{name}@{version}")
         return shown(reviewed)
 
     @app.post(
@@ -621,7 +621,7 @@ def add_registry_review_routes(
         """Recall one version with a reason and a severity: the registry signs the record with
         its own key, and every server that pulled the version stops automating with it. Without
         a signing key (`MENDARI_REGISTRY_SIGNING_KEY`) nothing is recalled: `409`, and it says
-        so. A version is recalled once (`409`). Chained `pack.yanked` with your id."""
+        so. A version is recalled once (`409`). Chained `agent.yanked` with your id."""
         principal = reviewer(request)
         _a_version(namespace, name, version)
         not_theirs(principal, namespace)
@@ -635,7 +635,7 @@ def add_registry_review_routes(
                 by=principal.id,
             )
         )
-        logged("admin.registry_pack.recalled", principal, f"{namespace}/{name}@{version}")
+        logged("admin.registry_agent.recalled", principal, f"{namespace}/{name}@{version}")
         return shown(recalled)
 
     @app.post(
@@ -649,12 +649,12 @@ def add_registry_review_routes(
         """Delete one version (content it should never have carried): its archive is no longer
         served, and its bytes are removed when no other version needs them. The row and a
         tombstone with the reason stay, and the version is never published again. Once (`409`).
-        Chained `pack.deleted` with your id."""
+        Chained `agent.deleted` with your id."""
         principal = reviewer(request)
         _a_version(namespace, name, version)
         not_theirs(principal, namespace)
         deleted = _asked(
             lambda: registry.delete(namespace, name, version, reason=body.reason, by=principal.id)
         )
-        logged("admin.registry_pack.deleted", principal, f"{namespace}/{name}@{version}")
+        logged("admin.registry_agent.deleted", principal, f"{namespace}/{name}@{version}")
         return shown(deleted)

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """What a site's EHR does not offer, declared per FHIR server (`MENDARI_EHR_DECLARATIONS`).
 
-A pack may read one list from several resource types (spec 0.3 list `resources`: the trial
-pack's medications from MedicationStatement and MedicationRequest). Some EHRs do not offer one
+An agent may read one list from several resource types (spec 0.3 list `resources`: the trial
+agent's medications from MedicationStatement and MedicationRequest). Some EHRs do not offer one
 of them at all: Epic has no R4 MedicationStatement API, so its read is refused, and today any
 prefetch key that cannot be read makes the decision ABSTAIN. A site may declare what its EHR
 does not offer, one FHIR base at a time:
@@ -16,7 +16,7 @@ does not offer, one FHIR base at a time:
   JSON file, read and checked at startup (`ehr_declarations`): its shape (`parse`), each base
   (normalized, on `MENDARI_FHIR_ALLOWED_SERVERS`, registered in `MENDARI_SMART_EHRS` or in a CDS
   client's `fhir_servers`, and for the organization those registrations name: `default` with
-  sign-in off), and each declared type, which must be a resource type of R4 that a pack found
+  sign-in off), and each declared type, which must be a resource type of R4 that an agent found
   here reads as one of several sources of a list (`excusable`). Anything wrong stops the server,
   and the refusal names the setting, the base and the field. A JSON object that gives one key
   twice is refused.
@@ -24,18 +24,18 @@ does not offer, one FHIR base at a time:
   pack should see is in the list's other sources (for a trial-eligibility agent, every
   medication in the EHR's MedicationRequests). So each entry names who attested it
   (`attested_by`) and where that is recorded (`reference`), as a governance override does.
-- **Only one of several sources.** For a pack, a declared type is left out of what is read only
+- **Only one of several sources.** For an agent, a declared type is left out of what is read only
   when it is one source of a multi-source list, another source of that list is not declared and
-  is read by a prefetch key that ran, and the pack reads the type nowhere else: not as its focus,
+  is read by a prefetch key that ran, and the agent reads the type nowhere else: not as its focus,
   a `resources` rule, a top-level field, a single-source list or what a `follow` reaches
   (`excusable`, `EhrDeclaration.skipped`). A declaration can never leave a list or a field with
-  no source at all. For any other pack, or any other base or organization, it does nothing.
+  no source at all. For any other agent, or any other base or organization, it does nothing.
 - **Recorded, never automated.** A decision that left a declared source out records the
   declaration (`ehr_declaration: {version, sha256, attested_by, reference}`), marks the source
   and the list `not_offered` in its data-coverage record, so `resources: 0` is never read as
   "read and empty", and never automates: AUTO, and a rule's BLOCK, become HUMAN_REVIEW, with the
   limitation as a reason whatever the outcome (`core/policy.py`). Configuration never makes AUTO
-  what the pack alone could not.
+  what the agent alone could not.
 - **Versioned and hashed.** An entry's canonical form (`mendari.ehr-declarations/1`) is the
   format, the base, the organization, the version, who attested it, its reference and the sorted
   types, as sorted-key JSON with ASCII escapes and no spaces; its SHA-256 is taken over those
@@ -63,7 +63,7 @@ from mendari.errors import MendariError
 from mendari.standards.data_coverage import source_type
 
 if TYPE_CHECKING:
-    from mendari.core.pack import Pack
+    from mendari.core.agent import Agent
     from mendari.server.cds_clients import CdsRegistry
     from mendari.standards.fhir import FhirMapping
     from mendari.standards.smart import Registration
@@ -109,11 +109,11 @@ class EhrDeclaration:
     def skipped(
         self, mapping: FhirMapping, templates: Mapping[str, str], queried: Collection[str]
     ) -> dict[str, str]:
-        """The prefetch keys of `templates` (a pack's, read with `mapping`) to leave out, each
-        with the resource type it reads: a key whose type this server does not offer and the pack
+        """The prefetch keys of `templates` (an agent's, read with `mapping`) to leave out, each
+        with the resource type it reads: a key whose type this server does not offer and the agent
         may read its list without (`excusable`), when each list it is a source of has another
         source, not declared, that a key of `queried` reads (a key whose template was filled for
-        this launch, or every key of a hook, sent or fetched). Empty for any other pack."""
+        this launch, or every key of a hook, sent or fetched). Empty for any other agent."""
         kinds = excusable(mapping, templates, self.not_offered)
         if not kinds:
             return {}
@@ -202,9 +202,9 @@ def _canonical(
 def excusable(
     mapping: FhirMapping, templates: Mapping[str, str], declared: Collection[str]
 ) -> frozenset[str]:
-    """The types of `declared` a pack (its `mapping` and prefetch `templates`) may read its
+    """The types of `declared` an agent (its `mapping` and prefetch `templates`) may read its
     lists without: each one that is a source of one or more multi-source lists, each of which
-    has another source that is not declared and that a prefetch key reads, and that the pack
+    has another source that is not declared and that a prefetch key reads, and that the agent
     reads nowhere else (its focus, a `resources` rule, a top-level field's paths or `follow`, a
     single-source list, or a type a `follow` reaches). Defined against the whole declared set,
     so declaring every source of a list excuses none of them."""
@@ -237,23 +237,23 @@ def excusable(
     return frozenset(found)
 
 
-def pack_excusable(pack: Pack, declared: Collection[str]) -> frozenset[str]:
-    """`excusable` for a pack, from its mapping and its CDS prefetch templates; none for a pack
+def agent_excusable(agent: Agent, declared: Collection[str]) -> frozenset[str]:
+    """`excusable` for an agent, from its mapping and its CDS prefetch templates; none for an agent
     without a FHIR mapping, or whose mapping cannot be read (it is refused where it is read)."""
     from mendari.standards.fhir import read_mapping
 
-    if pack.manifest.inputs.fhir is None:
+    if agent.manifest.inputs.fhir is None:
         return frozenset()
     try:
-        mapping = read_mapping(pack)
+        mapping = read_mapping(agent)
     except MendariError:
         return frozenset()
-    hooks = pack.manifest.cds_hooks
+    hooks = agent.manifest.cds_hooks
     return excusable(mapping, hooks.prefetch if hooks else {}, declared)
 
 
 def ehr_declarations(
-    packs: Iterable[Pack],
+    agents: Iterable[Agent],
     *,
     signed_in: bool,
     ehrs: Mapping[str, Registration],
@@ -262,14 +262,14 @@ def ehr_declarations(
 ) -> EhrDeclarations | None:
     """`MENDARI_EHR_DECLARATIONS`, read and checked: None when it is unset, and then every
     source is read. Inline JSON, or the path of a JSON file. Anything wrong in it (`parse`), a
-    base not on the allow-list or not registered for its organization, or a type no pack found
+    base not on the allow-list or not registered for its organization, or a type no agent found
     here may read its list without (`check`), stops the server here, at startup. `allowed` is
     the FHIR allow-list, read from the environment when not given."""
     raw = os.environ.get(ENV, "").strip()
     if not raw:
         return None
     declarations = parse(raw if raw.startswith("{") else _read_file(raw), signed_in=signed_in)
-    check(declarations, packs, signed_in=signed_in, ehrs=ehrs, cds=cds, allowed=allowed)
+    check(declarations, agents, signed_in=signed_in, ehrs=ehrs, cds=cds, allowed=allowed)
     return declarations
 
 
@@ -343,7 +343,7 @@ def parse(raw: str, *, signed_in: bool) -> EhrDeclarations:
 
 def check(
     declarations: EhrDeclarations,
-    packs: Iterable[Pack],
+    agents: Iterable[Agent],
     *,
     signed_in: bool,
     ehrs: Mapping[str, Registration],
@@ -353,12 +353,12 @@ def check(
     """Each declaration against the deployment: its base's origin is on the FHIR allow-list;
     the base is registered, for launches (`MENDARI_SMART_EHRS`) or in a CDS client's
     `fhir_servers`, and with sign-in on for the declaration's organization in each registration
-    that names it; and each type it declares is one a pack of `packs` may read its list without
+    that names it; and each type it declares is one an agent of `agents` may read its list without
     (`excusable`)."""
     from mendari.standards.fhir_client import allowed_servers, origin_of
 
     servers = allowed_servers() if allowed is None else frozenset(allowed)
-    found = list(packs)
+    found = list(agents)
     for base, entry in declarations.entries.items():
         where = f"{ENV} base {base}"
         if origin_of(base) not in servers:
@@ -380,7 +380,7 @@ def check(
                     f"{where}: org is not the organization of every CDS client that lists it"
                 )
         for kind in sorted(entry.not_offered):
-            if not any(kind in pack_excusable(pack, entry.not_offered) for pack in found):
+            if not any(kind in agent_excusable(agent, entry.not_offered) for agent in found):
                 raise MendariError(
                     f"{where}: not_offered {kind}: no agent found here reads it as one of "
                     "several sources of a list, beside a source not declared"

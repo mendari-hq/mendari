@@ -41,9 +41,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from mendari.core.agent import Agent
 from mendari.core.decision import Decision, DecisionResult
-from mendari.core.pack import Pack
-from mendari.core.spec import Outcome, PackManifest
+from mendari.core.spec import AgentManifest, Outcome
 from mendari.errors import MendariError
 from mendari.evals import probe_tests
 from mendari.evals.canonical import canonical_input
@@ -274,7 +274,7 @@ def plan(
 
     The cases a file's variants name come first, in the file's order; then, when a
     transformation is named, the others (`probe_cases.in_turn`); `Options.limit` in all."""
-    manifest = decision.pack.manifest
+    manifest = decision.agent.manifest
     _check(options, given, writer)
     by_model = [name for name in options.transformations if name not in OFFLINE]
     counts = {name: _Counts(name, name != NEGATION) for name in options.transformations}
@@ -427,7 +427,7 @@ def run(planned: Plan) -> Probed:
     if planned.nothing is not None:
         return Probed(_report(planned, [], 0, [], {}, 0), [], [])
     decision, writer = planned.decision, planned.writer
-    manifest = decision.pack.manifest
+    manifest = decision.agent.manifest
     workers = planned.options.workers or (REMOTE_WORKERS if planned.calls_per_decision else 1)
     before = parallel_map(decision.decide, [case.input for case in planned.cases], workers)
     answered = {
@@ -481,7 +481,7 @@ def run(planned: Plan) -> Probed:
     return Probed(report, findings, decided)
 
 
-def _answered(manifest: PackManifest, result: DecisionResult) -> bool:
+def _answered(manifest: AgentManifest, result: DecisionResult) -> bool:
     """Whether a decision answered every question: the input was taken, and no provider failed."""
     whole = all(question in result.answers for question in manifest.questions)
     return whole and not result.errors and not result.rejected
@@ -519,7 +519,7 @@ def _written(
     return taken
 
 
-def _lost(manifest: PackManifest, finding: Finding) -> list[str]:
+def _lost(manifest: AgentManifest, finding: Finding) -> list[str]:
     """The critical answers a finding lost: given on the original, expected of the variant,
     and not given on it."""
     return [
@@ -533,7 +533,7 @@ def _lost(manifest: PackManifest, finding: Finding) -> list[str]:
 
 
 def _judged(
-    manifest: PackManifest, variant: Variant, before: DecisionResult, after: DecisionResult
+    manifest: AgentManifest, variant: Variant, before: DecisionResult, after: DecisionResult
 ) -> Finding | None:
     """What the variant made worse than the original, or None (the module's docstring)."""
     case = variant.case
@@ -628,13 +628,13 @@ def _header(planned: Plan) -> dict[str, Any]:
     """What a report and a plan's summary both say first: the agent, its configuration, whether
     its answers are canned, the model that writes variants, the source, the seed and the text
     fields."""
-    pack = planned.decision.pack
+    agent = planned.decision.agent
     return {
         "agent": {
-            "id": pack.id,
-            "name": pack.manifest.name,
-            "version": pack.version,
-            "digest": pack.digest,
+            "id": agent.id,
+            "name": agent.manifest.name,
+            "version": agent.version,
+            "digest": agent.digest,
         },
         "providers": {slot: info.variant for slot, info in planned.decision.provider_info.items()},
         "canned": planned.canned,
@@ -649,7 +649,7 @@ def _header(planned: Plan) -> dict[str, Any]:
 def _case_counts(planned: Plan) -> dict[str, int]:
     """How many cases the source has, how many texts, and of those probed how many have a label
     at all (none: every variant is held to the agent's own answers) and a critical one."""
-    manifest = planned.decision.pack.manifest
+    manifest = planned.decision.agent.manifest
     return {
         "in_source": planned.in_source,
         "distinct": planned.distinct,
@@ -762,7 +762,7 @@ def as_test(finding: Finding) -> dict[str, Any]:
     }
 
 
-def keep(pack: Pack, findings: Sequence[Finding]) -> Kept:
+def keep(agent: Agent, findings: Sequence[Finding]) -> Kept:
     """Write each failure into the agent as a behaviour test `mendari test` runs, once
     (`probe_tests.write`). A finding whose expected answer a model changed is written among
     those that wait for a person. Left out: a finding with nothing worse to hold the agent to
@@ -779,5 +779,5 @@ def keep(pack: Pack, findings: Sequence[Finding]) -> Kept:
             unconfirmed.append(as_test(finding))
         else:
             found.append(as_test(finding))
-    kept = probe_tests.write(pack, found, unconfirmed)
+    kept = probe_tests.write(agent, found, unconfirmed)
     return Kept(kept.added, kept.waiting, kept.already, left_out)

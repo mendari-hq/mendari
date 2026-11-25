@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The eval gate for pack changes (evals/gate.py): a seeded regression fails, an improvement or
-an unchanged pack passes, and a new pack is shown without a comparison."""
+"""The eval gate for agent changes (evals/gate.py): a seeded regression fails, an improvement or
+an unchanged agent passes, and a new agent is shown without a comparison."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from tests.support.engine import benchmark
 # same-day symptoms), on its default providers.
 
 
-def test_an_unchanged_pack_passes() -> None:
+def test_an_unchanged_agent_passes() -> None:
     rows, failures = gate(benchmark(), benchmark(), 0.03)
     assert failures == [] and {r["metric"] for r in rows} >= {"destination accuracy"}
 
@@ -47,7 +47,7 @@ def test_accuracy_and_false_automation_within_tolerance() -> None:
     assert len(failures) == 2
 
 
-def test_a_new_pack_is_shown_and_passes() -> None:
+def test_a_new_agent_is_shown_and_passes() -> None:
     rows, failures = gate(benchmark(), None, 0.03)
     assert failures == [] and all(r["main"] is None for r in rows)
     text = markdown("mendari-test/new", rows, failures, new=True)

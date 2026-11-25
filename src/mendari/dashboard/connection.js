@@ -12,9 +12,9 @@
 
 import { $, actionDialog, api, esc, icon, may, time, toast, toastError, whileBusy } from "./ui.js";
 
-const agentPath = (packId) => `/api/connections/${packId.split("/").map(encodeURIComponent).join("/")}`;
+const agentPath = (agentId) => `/api/connections/${agentId.split("/").map(encodeURIComponent).join("/")}`;
 
-export const readConnection = (packId) => api(agentPath(packId));
+export const readConnection = (agentId) => api(agentPath(agentId));
 
 // Where an agent's answers come from now, in a few words, for a list and a badge.
 export function connectionWords(c) {
@@ -113,7 +113,7 @@ export function connectionHtml(c, { heading = "h3" } = {}) {
 function resultHtml(found) {
   const rows = found.checked.map((item) => {
     const facts = [item.latency_ms != null && item.ok ? `${item.latency_ms} ms` : null, item.model ? `model ${item.model}` : null,
-      item.agent_version ? `version ${item.agent_version}` : null].filter(Boolean).join(" · ");
+      item.service_version ? `version ${item.service_version}` : null].filter(Boolean).join(" · ");
     return `<li><b>${item.ok ? "Answered." : "Did not answer."}</b> ${esc(item.said)}${facts ? ` <span class="muted">${esc(facts)}</span>` : ""}
       <span class="mono muted">${esc(item.slot)}</span></li>`;
   }).join("");
@@ -122,9 +122,9 @@ function resultHtml(found) {
       Checked with the example “${esc(found.example)}”.</p><ul>${rows}</ul></div>`;
 }
 
-// Wire a panel `connectionHtml` made for `packId`, inside `root`; `changed()` runs after the
+// Wire a panel `connectionHtml` made for `agentId`, inside `root`; `changed()` runs after the
 // connection was saved or cleared, to show it again.
-export function wireConnection(root, packId, changed) {
+export function wireConnection(root, agentId, changed) {
   const panel = root.querySelector("[data-connection]");
   if (!panel) return;
   const form = panel.querySelector("[data-connection-form]");
@@ -175,7 +175,7 @@ export function wireConnection(root, packId, changed) {
     }
     whileBusy(form.querySelector('button[type="submit"]'), "Saving…", async () => {
       try {
-        await api(agentPath(packId), { method: "PUT", body: JSON.stringify(body) });
+        await api(agentPath(agentId), { method: "PUT", body: JSON.stringify(body) });
         form.token.value = "";
         toast("Connection saved");
         await changed();
@@ -192,7 +192,7 @@ export function wireConnection(root, packId, changed) {
         deployment's own service if it has one, else from its canned examples, where a person decides every case.</p>`,
       action: "Clear",
       danger: true,
-      run: () => api(agentPath(packId), { method: "DELETE" }),
+      run: () => api(agentPath(agentId), { method: "DELETE" }),
     });
     if (!cleared) return;
     toast("Connection cleared");
@@ -202,7 +202,7 @@ export function wireConnection(root, packId, changed) {
     const box = panel.querySelector("[data-connection-result]");
     whileBusy(event.currentTarget, "Checking…", async () => {
       try {
-        box.innerHTML = resultHtml(await api(`${agentPath(packId)}/check`, { method: "POST" }));
+        box.innerHTML = resultHtml(await api(`${agentPath(agentId)}/check`, { method: "POST" }));
       } catch (failure) {
         box.innerHTML = `<p class="callout danger" role="alert">${esc(failure.message)}</p>`;
       }
@@ -212,10 +212,10 @@ export function wireConnection(root, packId, changed) {
 
 // The panel in a dialog, for an agent that is not the one the page shows (the Agents view).
 // Resolves once it is closed; `changed()` runs after each save or clear.
-export async function connectionDialog(packId, name, changed = () => {}) {
+export async function connectionDialog(agentId, name, changed = () => {}) {
   let state;
   try {
-    state = await readConnection(packId);
+    state = await readConnection(agentId);
   } catch (failure) {
     toastError(failure.message);
     return;
@@ -229,8 +229,8 @@ export async function connectionDialog(packId, name, changed = () => {}) {
       ${connectionHtml(state)}
       <div class="row mt-4"><span class="grow"></span><button type="button" data-close autofocus>Close</button></div>`;
     dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
-    wireConnection(dialog, packId, async () => {
-      state = await readConnection(packId);
+    wireConnection(dialog, agentId, async () => {
+      state = await readConnection(agentId);
       paint();
       await changed();
     });
@@ -247,15 +247,15 @@ export async function connectionDialog(packId, name, changed = () => {}) {
 }
 
 // The Decision Card's section: read for the agent shown, painted into `#card-connection-body`.
-export async function cardConnection(packId) {
+export async function cardConnection(agentId) {
   const body = $("#card-connection-body");
   if (!body) return;
   const paint = async () => {
     try {
-      const state = await readConnection(packId);
+      const state = await readConnection(agentId);
       if (!body.isConnected) return;
       body.innerHTML = connectionHtml(state);
-      wireConnection(body, packId, paint);
+      wireConnection(body, agentId, paint);
     } catch (failure) {
       if (body.isConnected) body.innerHTML = `<p class="muted">Its connection could not be read: ${esc(failure.message)}</p>`;
     }

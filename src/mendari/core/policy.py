@@ -11,12 +11,12 @@ Order of evaluation:
 4. The `site_code` cap (LP-23i): an input that took a value through a site's translation of its
    own code (`core/site_codes.py`) never automates, and a rule's BLOCK on it goes to a person
    (a block is final at once). Nothing lifts it, governance included: a site's configuration
-   never makes AUTO, or a final BLOCK, that the pack alone could not. A decision already going
+   never makes AUTO, or a final BLOCK, that the agent alone could not. A decision already going
    to a person (HUMAN_REVIEW, ABSTAIN) keeps its outcome and gets the same reason.
 5. The `not_offered` cap, alike: a list read without a source the site declared its EHR does
    not offer (`standards/ehr_declarations.py`) may be incomplete, so the decision never
    automates and its rule's BLOCK goes to a person, the limitation a reason whatever the
-   outcome. Without the declaration the pack alone abstains, so nothing lifts this one either.
+   outcome. Without the declaration the agent alone abstains, so nothing lifts this one either.
 6. The `canned` cap: on a server with sign-in, answers an agent read from its `mock_file`
    (`MENDARI_AGENT_URL` unset, `providers/agent.py`) never automate: AUTO and a rule's BLOCK
    (final at once) become HUMAN_REVIEW, and the reason says so whatever the outcome. Nothing
@@ -67,7 +67,7 @@ from enum import StrEnum
 from typing import Literal
 
 from mendari.core.actions import Checked, Disposition, Reason
-from mendari.core.spec import Condition, Effect, Outcome, PackManifest, Priority, RiskLevel
+from mendari.core.spec import AgentManifest, Condition, Effect, Outcome, Priority, RiskLevel
 from mendari.providers.base import Answer
 
 # Highest risk level at which AUTO is permitted without a governance override.
@@ -86,7 +86,7 @@ def threshold_reason(reason: str) -> bool:
 
 @dataclass(frozen=True)
 class GovernanceOverride:
-    """A deploying organisation's recorded decision to allow AUTO for a level 2-3 pack."""
+    """A deploying organisation's recorded decision to allow AUTO for a level 2-3 agent."""
 
     approved_by: str
     reference: str
@@ -110,7 +110,7 @@ class PolicyResult:
 
 
 def apply_policy(
-    manifest: PackManifest,
+    manifest: AgentManifest,
     answers: Mapping[str, Answer],
     failures: Mapping[str, str],
     governance: GovernanceOverride | None = None,
@@ -125,9 +125,9 @@ def apply_policy(
     actions: Sequence[str] = (),
 ) -> PolicyResult:
     """`variants` is the running variant of each provider slot, for `automation_requires`;
-    without it, a pack that sets `automation_requires` never automates. A
+    without it, an agent that sets `automation_requires` never automates. A
     `hold` (why automation is stopped: an operator's hold, a used-up quota) turns AUTO into
-    HUMAN_REVIEW and changes nothing else. `blocks_to_person` (why a pack from a registry may
+    HUMAN_REVIEW and changes nothing else. `blocks_to_person` (why an agent from a registry may
     not act alone) turns its own rule's BLOCK into HUMAN_REVIEW as well. `site_code` names the
     code sets a site's translation gave the input a value through (LP-23i): with any, AUTO and
     a rule's BLOCK become HUMAN_REVIEW, the reasons name the code sets whatever the outcome, and
@@ -188,7 +188,7 @@ def apply_policy(
 
     was_block = rule_name is not None and outcome is Outcome.BLOCK
     if blocks_to_person and was_block:
-        # A pack from a registry not approved here, or recalled (`core/decision.py`): its own
+        # An agent from a registry not approved here, or recalled (`core/decision.py`): its own
         # rule's BLOCK, final at once and seen by nobody, goes to a person too.
         reasons.append(f"{blocks_to_person}: a person decides instead of its rule's BLOCK")
         outcome = Outcome.HUMAN_REVIEW
@@ -265,7 +265,7 @@ class PolicyInputs:
     # Why each proposed action could not be released with an AUTO decision (`action_stops`).
     actions: Sequence[str] = ()
 
-    def apply(self, manifest: PackManifest) -> PolicyResult:
+    def apply(self, manifest: AgentManifest) -> PolicyResult:
         return apply_policy(
             manifest,
             self.answers,
@@ -487,7 +487,7 @@ def matches(condition: Condition, answer: Answer | None) -> bool:
 
 
 def _cap(
-    manifest: PackManifest,
+    manifest: AgentManifest,
     recommendation: str | None,
     failures: Mapping[str, str],
     governance: GovernanceOverride | None,
@@ -517,7 +517,7 @@ def _cap(
 
 
 def _caps(
-    manifest: PackManifest,
+    manifest: AgentManifest,
     recommendation: str | None,
     failures: Mapping[str, str],
     governance: GovernanceOverride | None,

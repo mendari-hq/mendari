@@ -1035,7 +1035,7 @@ def _registry(d: Deployment) -> SystemCheck:
 def _agents(d: Deployment) -> SystemCheck:
     label = "Agents"
     invalid = sorted(d.health.get("invalid") or {})
-    served = int(d.health.get("packs") or 0) if d.served is None else d.served
+    served = int(d.health.get("agents") or 0) if d.served is None else d.served
     if invalid:
         return _check(
             "agents",
@@ -1068,7 +1068,7 @@ def _agents(d: Deployment) -> SystemCheck:
             "how Mendari works and decides nothing real.",
             "Adopt an agent from the Agents view.",
         )
-    origins = d.health.get("packs_by_origin") or {}
+    origins = d.health.get("agents_by_origin") or {}
     pulled = (
         int(origins.get("hub") or 0) if d.served_from_registry is None else d.served_from_registry
     )

@@ -27,7 +27,7 @@ AGENT = "mendari/portal-message-agent"
 @pytest.fixture(scope="module")
 def demo_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     db = Path(tmp_path_factory.mktemp("packet")) / "mendari.db"
-    with serving(create_app(db_path=db, packs_paths=[ROOT / "agents"])) as port:
+    with serving(create_app(db_path=db, agents_paths=[ROOT / "agents"])) as port:
         base = f"http://127.0.0.1:{port}"
         with httpx.Client(base_url=base, timeout=30) as client:
             body = {"message": {"body": "Please send a refill of my metformin."}}

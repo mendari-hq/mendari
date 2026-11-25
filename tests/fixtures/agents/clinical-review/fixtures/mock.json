@@ -1,6 +1,6 @@
 {
   "model": "mock-clinical-review",
-  "agent_version": "1.0.0",
+  "service_version": "1.0.0",
   "cases": [
     {
       "match": ["severe", "unbearable", "cannot stand", "double over", "worst they have ever"],

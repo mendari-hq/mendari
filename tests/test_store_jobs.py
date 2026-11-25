@@ -15,7 +15,7 @@ import pytest
 from scipy.stats import beta, binomtest
 
 from mendari.core.decision import Decision
-from mendari.core.registry import resolve_pack
+from mendari.core.registry import resolve_agent
 from mendari.evals import store_jobs
 from mendari.evals.harness import evaluation, load_dataset
 from mendari.evals.ledger import Ledger
@@ -36,12 +36,12 @@ CASES = (TRIAGE_DIR / "data" / "test.jsonl").read_text().splitlines()
 
 
 def _author(world: Store, org: str = ORG_A) -> dict[str, str]:
-    return world.as_(org, "pack_author")
+    return world.as_(org, "agent_author")
 
 
 def _copy(world: Store, org: str = ORG_A, name: str = "inbox-router") -> str:
     made = world.client.post(
-        "/api/store/copies", json={"pack": SERVED, "name": name}, headers=_author(world, org)
+        "/api/store/copies", json={"agent": SERVED, "name": name}, headers=_author(world, org)
     )
     assert made.status_code == 201, made.text
     return str(made.json()["digest"])
@@ -94,7 +94,7 @@ def test_a_job_is_stored_runs_in_slices_and_ends_in_one_report_with_its_ledger(
     done = world.client.get(f"/api/store/jobs/{job['id']}", headers=_author(world)).json()
     assert done["state"] == "done" and done["report_id"]
     ledger = Ledger.loads(_ledger(world, done["report_id"]))
-    assert ledger.header["pack"]["digest"] == digest and len(ledger.cases) == 8
+    assert ledger.header["agent"]["digest"] == digest and len(ledger.cases) == 8
     with world.db._db.session(exclusive=False) as db:
         events = [r["event"] for r in db.all("SELECT event FROM audit_events")]
     assert "store_job.created" in events and "eval.recorded" in events
@@ -109,9 +109,9 @@ def test_two_runs_give_the_same_ledger_bytes(world: Store, monkeypatch: pytest.M
     monkeypatch.setattr(store_jobs, "SLICE_SECONDS", 0.0)
     second = _run(world, _job(world, version=digest, dataset={"id": dataset["id"]})["id"])
     assert _ledger(world, first["report_id"]) == _ledger(world, second["report_id"])
-    pack = world.client.app.state.pack_store.load(ORG_A, digest)  # type: ignore[attr-defined]
+    agent = world.client.app.state.agent_store.load(ORG_A, digest)  # type: ignore[attr-defined]
     raw = ("\n".join(CASES[:8]) + "\n").encode()
-    one = evaluation(Decision(pack, origin_cap=False), load_dataset("sample.jsonl", name="sample",
+    one = evaluation(Decision(agent, origin_cap=False), load_dataset("sample.jsonl", name="sample",
                      raw=raw, label="sample.jsonl"))  # fmt: skip
     assert one.ledger.dumps() == _ledger(world, first["report_id"])
 
@@ -151,10 +151,10 @@ def test_a_job_stopped_half_way_continues_from_its_ledger(
     # A fresh process: another JobStore over the same database continues it.
     app_jobs = world.client.app.state  # type: ignore[attr-defined]
     fresh = JobStore(
-        app_jobs.pack_store,
-        served=lambda: {SERVED: resolve_pack(SERVED)},
-        decision_for=lambda pack, variants: Decision(
-            pack, providers=dict(variants), origin_cap=False
+        app_jobs.agent_store,
+        served=lambda: {SERVED: resolve_agent(SERVED)},
+        decision_for=lambda agent, variants: Decision(
+            agent, providers=dict(variants), origin_cap=False
         ),
     )
     state = fresh.job(ORG_A, job["id"])
@@ -168,7 +168,7 @@ def _compared(world: Store) -> tuple[dict[str, Any], dict[str, Any], str]:
     """A draft whose same-day screen never flags (its rules' default score raised), and the
     triage fixture it was copied from, each run on the organization's dataset; the comparison."""
     digest = _copy(world)
-    rules = resolve_pack(SERVED).read_bytes(SCREEN_RULES).decode()
+    rules = resolve_agent(SERVED).read_bytes(SCREEN_RULES).decode()
     assert rules.count("default_score: 2.0") == 1  # the urgency question's
     edited = world.client.post(
         f"/api/store/versions/{digest}/edits",
@@ -186,7 +186,7 @@ def _compared(world: Store) -> tuple[dict[str, Any], dict[str, Any], str]:
     dataset = _dataset(world, edited.json()["digest"], n=120).json()
     version = edited.json()["digest"]
     draft = _run(world, _job(world, version=version, dataset={"id": dataset["id"]})["id"])
-    current = _run(world, _job(world, pack=SERVED, dataset={"id": dataset["id"]})["id"])
+    current = _run(world, _job(world, agent=SERVED, dataset={"id": dataset["id"]})["id"])
     compared = world.client.get(
         "/api/store/comparisons",
         params={"draft": draft["id"], "current": current["id"]},
@@ -200,7 +200,7 @@ def test_draft_against_current_is_paired_on_the_same_cases(world: Store) -> None
     compared, draft, _ = _compared(world)
     assert compared["dataset"]["paired"] == 120
     assert compared["dataset"]["only_in_a"] == compared["dataset"]["only_in_b"] == 0
-    other = _run(world, _job(world, pack=SERVED, dataset={"name": "critical"})["id"])
+    other = _run(world, _job(world, agent=SERVED, dataset={"name": "critical"})["id"])
     refused = world.client.get(
         "/api/store/comparisons",
         params={"draft": draft["id"], "current": other["id"]},
@@ -284,10 +284,10 @@ def test_a_remote_arm_needs_the_organizations_quota_and_stops_at_it(world: Store
     )
     assert refused.status_code == 422 and "eval_llm" in refused.text
     jobs = JobStore(
-        world.client.app.state.pack_store,  # type: ignore[attr-defined]
+        world.client.app.state.agent_store,  # type: ignore[attr-defined]
         served=lambda: {},
-        decision_for=lambda pack, variants: Decision(
-            pack, providers=dict(variants), origin_cap=False
+        decision_for=lambda agent, variants: Decision(
+            agent, providers=dict(variants), origin_cap=False
         ),
     )
     made = jobs.create(
@@ -353,18 +353,18 @@ def test_a_dataset_is_sealed_and_a_phi_key_rotation_reseals_it(
     to the new key with the inputs and notes, and `--check` counts it."""
     import secrets
 
+    from mendari.core.agent_store import AgentStore
     from mendari.core.audit import AuditStore
-    from mendari.core.pack_store import PackStore
     from mendari.core.phi import PhiPolicy, key_id
-    from tests.test_pack_store import files_of, renamed
+    from tests.test_agent_store import files_of, renamed
 
     old, new, hashed = (secrets.token_bytes(32) for _ in range(3))
     raw = ("\n".join(CASES[:3]) + "\n").encode()
     body = json.loads(CASES[0])["input"]["message"]["body"]
     with AuditStore(db_target, phi=PhiPolicy("encrypt", old, hashed)) as store:
-        packs = PackStore(store, scratch=tmp_path / "scratch")
-        stored = packs.put(ORG_A, files_of(renamed(tmp_path)), by="u", source="upload")
-        made = packs.add_dataset(ORG_A, raw, by="u", name="sample", digest=stored.digest)
+        agents = AgentStore(store, scratch=tmp_path / "scratch")
+        stored = agents.put(ORG_A, files_of(renamed(tmp_path)), by="u", source="upload")
+        made = agents.add_dataset(ORG_A, raw, by="u", name="sample", digest=stored.digest)
         with store._db.session(exclusive=False) as db:
             kept = str(db.one("SELECT data FROM store_datasets")["data"])
         # Sealed (untagged, as every token is before a database's first rotation).
@@ -375,7 +375,7 @@ def test_a_dataset_is_sealed_and_a_phi_key_rotation_reseals_it(
             assert str(db.one("SELECT data FROM store_datasets")["data"]).startswith(
                 f"v2:{key_id(new)}:"
             )
-        assert PackStore(store).dataset_bytes(ORG_A, made["id"])[0] == raw
+        assert AgentStore(store).dataset_bytes(ORG_A, made["id"])[0] == raw
         assert store.phi_check()["by_key"]["datasets"] == {key_id(new): 1}
         assert store.verify()["ok"]
 

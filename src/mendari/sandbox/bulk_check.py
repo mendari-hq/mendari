@@ -17,8 +17,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from mendari.core.agent import Agent
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack
 from mendari.errors import MendariError
 from mendari.evals.harness import evaluate, load_dataset
 from mendari.evals.ledger import case_hash
@@ -39,7 +39,7 @@ def export_types(adapter: FhirAdapter) -> list[str]:
     return list(dict.fromkeys(["Patient", mapping.focus, *mapping.resources, *listed]))
 
 
-def run(fhir: str, agent: Pack, dataset: str | None = None) -> dict[str, Any]:
+def run(fhir: str, agent: Agent, dataset: str | None = None) -> dict[str, Any]:
     """Export the sandbox, build the agent's dataset from it with the labels of `dataset` (one
     of the agent's datasets or a JSONL file; default: its benchmark dataset, which `mendari
     sandbox seed` loads), and compare its evaluation with the same cases read from the file."""
@@ -50,7 +50,7 @@ def run(fhir: str, agent: Pack, dataset: str | None = None) -> dict[str, Any]:
         )
     labels_path = labelled_cases(agent, dataset).path
     decision = Decision(agent)
-    adapter = FhirAdapter.for_pack(agent)
+    adapter = FhirAdapter.for_agent(agent)
     with tempfile.TemporaryDirectory() as scratch:
         folder = Path(scratch)
         with GuardedHttp() as http:

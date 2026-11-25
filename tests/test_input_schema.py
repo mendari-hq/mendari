@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""A pack's input schema is self-contained, and checking an input never leaves the pack
+"""An agent's input schema is self-contained, and checking an input never leaves the agent
 (core/input_schema.py)."""
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ from typing import Any
 import pytest
 from referencing.exceptions import Unresolvable
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari.core import input_schema
 from mendari.core.schema_graph import _graph
-from mendari.errors import PackValidationError
+from mendari.errors import AgentValidationError
 from tests.conftest import FIXTURE_AGENTS, ROOT, TRIAGE_DIR, message
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
@@ -29,7 +29,7 @@ BODY = ("properties", "message", "properties", "body")
 @pytest.fixture
 def triage_copy(tmp_path: Path) -> Path:
     """A copy of the triage fixture to edit."""
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     return root
 
@@ -81,15 +81,15 @@ def test_a_reference_outside_the_schema_fails_to_load_and_fetches_nothing(
     triage_copy: Path, tmp_path: Path, listener: tuple[str, list[str]], kind: str
 ) -> None:
     # jsonschema fetched any `$ref` URL (or read a local file) on every input check, with no
-    # timeout: a request from the server to a host the pack chose, and validation rules outside
-    # the signed pack.
+    # timeout: a request from the server to a host the agent chose, and validation rules outside
+    # the signed agent.
     url, hits = listener
     secret = tmp_path / "secret.json"
     secret.write_text('{"type": "integer"}')
     reference = url if kind == "http" else secret.as_uri()
     root = edit_schema(triage_copy, lambda schema: _body(schema).update({"$ref": reference}))
-    with pytest.raises(PackValidationError) as raised:
-        load_pack(root)
+    with pytest.raises(AgentValidationError) as raised:
+        load_agent(root)
     assert raised.value.problems == [
         f"input schema: properties/message/properties/body/$ref: {reference!r} is outside the "
         "schema (an agent's input schema may only refer to its own parts, '#...')"
@@ -159,8 +159,8 @@ def test_a_reference_outside_the_schema_fails_to_load_and_fetches_nothing(
 def test_a_schema_that_is_not_self_contained_fails_to_load(
     triage_copy: Path, edit: Callable[[dict[str, Any]], None], problem: str
 ) -> None:
-    with pytest.raises(PackValidationError) as raised:
-        load_pack(edit_schema(triage_copy, edit))
+    with pytest.raises(AgentValidationError) as raised:
+        load_agent(edit_schema(triage_copy, edit))
     assert raised.value.problems == [f"input schema: {problem}"]
 
 
@@ -182,7 +182,7 @@ def test_local_references_and_the_root_dialect_still_work(triage_copy: Path) -> 
         schema["properties"]["note"] = {"$ref": "#/$defs/text"}
         schema["properties"]["reply"] = {"$ref": "#"}
 
-    decision = Decision(load_pack(edit_schema(triage_copy, edit)))
+    decision = Decision(load_agent(edit_schema(triage_copy, edit)))
     assert decision.validate({**message("hi"), "note": "short"}) == []
     assert decision.validate({**message("hi"), "note": "far too long"}) != []
     assert decision.validate({**message("hi"), "reply": message("inner")}) == []
@@ -191,7 +191,7 @@ def test_local_references_and_the_root_dialect_still_work(triage_copy: Path) -> 
 def test_every_shipped_input_schema_is_self_contained() -> None:
     for root in sorted(FIXTURE_AGENTS.iterdir()):
         if (root / "agent.yaml").is_file():
-            assert input_schema.problems(load_pack(root).input_schema) == [], root.name
+            assert input_schema.problems(load_agent(root).input_schema) == [], root.name
 
 
 # -- the expansion bounds on a schema the deployment owns (LP-16f) --------------------------------
@@ -232,16 +232,16 @@ def triage_at(base: Path, name: str) -> Path:
 
 
 def refused(root: Path) -> list[str]:
-    with pytest.raises(PackValidationError) as raised:
-        load_pack(root)
+    with pytest.raises(AgentValidationError) as raised:
+        load_agent(root)
     return raised.value.problems
 
 
 def test_a_nested_ref_schema_is_refused_at_load(triage_copy: Path) -> None:
-    """LP-16's nested-`$ref` test, for a pack the deployment owns (one it does not own keeps the
+    """LP-16's nested-`$ref` test, for an agent the deployment owns (one it does not own keeps the
     caps and the time budget, `tests/test_bounded_budget.py`): 28 levels of allOf over two
     `$ref`s apply the last schema 2**28 times to one value, and jsonschema would walk every one.
-    The pack is refused at load, saying why."""
+    The agent is refused at load, saying why."""
     assert refused(edit_schema(triage_copy, fanning(28, 2))) == [
         "input schema: #/properties/note: a chain of 29 $refs (at most 16)",
         f"input schema: one value can be checked against more than 1,000,000,000 {APPLICATIONS}",
@@ -346,7 +346,7 @@ def test_one_unevaluated_keyword_on_a_path_still_loads(tmp_path: Path) -> None:
             "unevaluatedItems": False,
         }
 
-    decision = Decision(load_pack(edit_schema(triage_at(tmp_path, "once"), once)))
+    decision = Decision(load_agent(edit_schema(triage_at(tmp_path, "once"), once)))
     assert decision.validate({**message("hi"), "note": {"x": "a", "y": 1}, "codes": ["c"]}) == []
     assert decision.validate({**message("hi"), "note": {"x": "a", "z": 1}}) != []
     assert decision.validate({**message("hi"), "codes": ["c", "d"]}) != []
@@ -392,7 +392,7 @@ def test_a_schema_nested_past_32_levels_is_refused_at_load(tmp_path: Path) -> No
     assert refused(edit_schema(tmp_path / "33", nested(33))) == [
         "input schema: nested 33 levels deep (at most 32)"
     ]
-    assert load_pack(edit_schema(tmp_path / "32", nested(32))).input_schema
+    assert load_agent(edit_schema(tmp_path / "32", nested(32))).input_schema
 
 
 def test_a_long_ref_chain_is_refused_at_load(tmp_path: Path) -> None:
@@ -409,7 +409,7 @@ def test_a_long_ref_chain_is_refused_at_load(tmp_path: Path) -> None:
     assert refused(edit_schema(tmp_path / "17", chain(17))) == [
         "input schema: #/properties/note: a chain of 17 $refs (at most 16)"
     ]
-    decision = Decision(load_pack(edit_schema(tmp_path / "16", chain(16))))
+    decision = Decision(load_agent(edit_schema(tmp_path / "16", chain(16))))
     assert decision.validate({**message("hi"), "note": "x"}) == []
     assert decision.validate({**message("hi"), "note": 1}) != []
 
@@ -429,12 +429,12 @@ def test_a_recursive_list_schema_still_loads_and_decides(triage_copy: Path) -> N
         schema["$defs"] = {"node": node}
         schema["properties"]["tree"] = {"$ref": "#/$defs/node"}
 
-    edited = Decision(load_pack(edit_schema(triage_copy, tree)))
+    edited = Decision(load_agent(edit_schema(triage_copy, tree)))
     deep: dict[str, Any] = {"name": "leaf"}
     for level in range(50):
         deep = {"name": f"level {level}", "children": [deep, {"name": "sibling"}]}
     given = message("Can I get a refill of my blood pressure medicine?")
-    shipped = Decision(load_pack(TRIAGE_DIR)).decide(given)
+    shipped = Decision(load_agent(TRIAGE_DIR)).decide(given)
     result = edited.decide({**given, "tree": deep})
     for field in ("outcome", "recommendation", "priority", "reasons", "labels"):
         assert getattr(result, field) == getattr(shipped, field), field
@@ -469,4 +469,4 @@ def test_every_shipped_schema_is_within_the_expansion_bounds() -> None:
         assert not any(node.unevaluated for node in _graph(schema)), path  # none uses either
     for root in sorted(FIXTURE_AGENTS.iterdir()):
         if (root / "agent.yaml").is_file():
-            assert input_schema.expansion_problems(load_pack(root).input_schema) == [], root.name
+            assert input_schema.expansion_problems(load_agent(root).input_schema) == [], root.name

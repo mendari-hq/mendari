@@ -26,7 +26,7 @@ function configuration(changes: Partial<EvaluatedConfiguration>): EvaluatedConfi
     providers: { reader: { variant: "agent", type: "agent", model: "a-model" } },
     models: ["a-model"],
     engine: "0.1.0",
-    record_format: "mendari.publisher-evaluation/2",
+    record_format: "mendari.publisher-evaluation/1",
     signed: { key_id: "ed25519:0000000000000000", at: "2026-11-23T12:00:00Z", verified: true },
     rerun: "calls_a_model",
     figures: { format: "mendari.figures/1", n: 600, primary: "request", critical: [], accuracy: null, false_automation: null, outcomes: {} },

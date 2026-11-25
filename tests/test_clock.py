@@ -8,7 +8,7 @@ from datetime import date
 
 import pytest
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.core import clock
 from mendari.errors import MendariError
 from mendari.standards.fhir import age_years
@@ -48,7 +48,7 @@ def test_stored_utc_timestamps_fall_on_eastern_days(
 
 
 def test_a_9_pm_decision_counts_on_that_eastern_day(
-    triage_agent: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Agent, store: AuditStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("MENDARI_TIMEZONE", raising=False)
     result = Decision(triage_agent)(message("Can you send a refill for metformin?"))

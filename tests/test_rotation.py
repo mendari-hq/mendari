@@ -26,7 +26,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.core import audit as audit_module
 from mendari.core.phi import PhiPolicy, key_id, phi_policy, token_key
@@ -78,9 +78,9 @@ def keep_inputs(store: AuditStore, n: int, *, start: int = 0) -> list[str]:
     return ids
 
 
-def reviewed(store: AuditStore, pack: Pack, n: int) -> list[str]:
+def reviewed(store: AuditStore, agent: Agent, n: int) -> list[str]:
     """`n` real decisions, each reviewed with a note (chained, with its commitment)."""
-    decide = Decision(pack, store=store)
+    decide = Decision(agent, store=store)
     ids = []
     for i in range(n):
         decided = decide(message(f"{URGENT} ({i})"))
@@ -174,7 +174,7 @@ def test_health_names_the_keys_by_id_under_encrypt_only(
 
 
 def test_a_thousand_values_rotate_in_batches_and_everything_still_opens(
-    db_target: str, triage_agent: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     before = AuditStore(db_target, phi=ring(OLD))
     ids = keep_inputs(before, 1000)
@@ -251,7 +251,7 @@ def test_a_value_changed_while_it_was_re_sealed_is_left_alone(
 
 def test_a_value_no_key_opens_is_listed_and_the_rest_rotates(
     tmp_path: Path,
-    triage_agent: Pack,
+    triage_agent: Agent,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -303,7 +303,7 @@ def test_a_rotation_refuses_the_wrong_key_and_a_retired_one(tmp_path: Path) -> N
 
 
 def test_rotations_follow_one_another_by_the_documented_steps(
-    tmp_path: Path, triage_agent: Pack
+    tmp_path: Path, triage_agent: Agent
 ) -> None:
     """Old to new, then new to next: each step as docs/deploying-with-phi.md has it, decisions
     kept between the swap and the re-seal (under the key just swapped in) included."""
@@ -323,7 +323,7 @@ def test_rotations_follow_one_another_by_the_documented_steps(
     assert checked["by_key"]["inputs"] == {key_id(third): 3}
 
 
-def test_the_check_writes_nothing(tmp_path: Path, triage_agent: Pack) -> None:
+def test_the_check_writes_nothing(tmp_path: Path, triage_agent: Agent) -> None:
     db = tmp_path / "a.db"
     Decision(triage_agent, store=AuditStore(db, phi=ring(OLD)))(message("refill please"))
 
@@ -337,7 +337,7 @@ def test_the_check_writes_nothing(tmp_path: Path, triage_agent: Pack) -> None:
     assert written() == before
 
 
-def test_a_retired_key_seals_nothing_more(tmp_path: Path, triage_agent: Pack) -> None:
+def test_a_retired_key_seals_nothing_more(tmp_path: Path, triage_agent: Agent) -> None:
     db = tmp_path / "a.db"
     stale = AuditStore(db, phi=ring(OLD))  # a deployment still on the previous key
     Decision(triage_agent, store=stale)(message("refill please"))
@@ -351,7 +351,7 @@ def test_a_retired_key_seals_nothing_more(tmp_path: Path, triage_agent: Pack) ->
 
 
 def test_the_check_catches_a_value_that_does_not_match_its_hash(
-    tmp_path: Path, triage_agent: Pack
+    tmp_path: Path, triage_agent: Agent
 ) -> None:
     db = tmp_path / "a.db"
     store = AuditStore(db, phi=ring(NEW))
@@ -367,7 +367,7 @@ def test_the_check_catches_a_value_that_does_not_match_its_hash(
     assert checked["failed"] == [{"kind": "input", "id": decided.id, "key": "input_hash"}]
 
 
-def test_an_altered_note_still_breaks_verification(tmp_path: Path, triage_agent: Pack) -> None:
+def test_an_altered_note_still_breaks_verification(tmp_path: Path, triage_agent: Agent) -> None:
     """Never rotated (one key): an altered note breaks verification. A forged key id, one no
     deployment of this database held, is an alteration too."""
     db = tmp_path / "a.db"
@@ -387,7 +387,7 @@ def test_an_altered_note_still_breaks_verification(tmp_path: Path, triage_agent:
     assert "broken_at" in store.verify(notes=True)
 
 
-def test_verify_says_which_notes_no_key_here_opens(tmp_path: Path, triage_agent: Pack) -> None:
+def test_verify_says_which_notes_no_key_here_opens(tmp_path: Path, triage_agent: Agent) -> None:
     db = tmp_path / "a.db"
     rotating = AuditStore(db, phi=ring(OTHER, OLD))
     reviewed(rotating, triage_agent, 2)  # sealed under OTHER, named (`v2:`)
@@ -404,7 +404,7 @@ def test_verify_says_which_notes_no_key_here_opens(tmp_path: Path, triage_agent:
 # -- the input hash key ---------------------------------------------------------------------------
 
 
-def test_a_new_input_hash_key_starts_an_epoch(tmp_path: Path, triage_agent: Pack) -> None:
+def test_a_new_input_hash_key_starts_an_epoch(tmp_path: Path, triage_agent: Agent) -> None:
     db = tmp_path / "a.db"
     first, second = secrets.token_bytes(32), secrets.token_bytes(32)
     one = AuditStore(db, phi=PhiPolicy("hash", hash_key=first))
@@ -611,7 +611,7 @@ def test_every_post_that_mints_a_credential_waits_for_the_notice(
 
 
 def test_verifying_notes_marks_no_key(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`mendari audit verify --notes` run with a stray key records nothing: it would otherwise be
     'known', and weaken how later verifications tell an altered note from a missing key."""
@@ -632,7 +632,7 @@ def test_verifying_notes_marks_no_key(
 
 
 def test_an_epoch_is_chained_even_when_the_first_record_under_its_key_fails(
-    tmp_path: Path, triage_agent: Pack
+    tmp_path: Path, triage_agent: Agent
 ) -> None:
     db = tmp_path / "a.db"
     first, second = secrets.token_bytes(32), secrets.token_bytes(32)
@@ -651,7 +651,7 @@ def test_an_epoch_is_chained_even_when_the_first_record_under_its_key_fails(
 
 def test_the_database_check_reads_the_file_it_names(
     tmp_path: Path,
-    triage_agent: Pack,
+    triage_agent: Agent,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

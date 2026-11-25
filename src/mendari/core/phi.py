@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """PHI mode: how a deployment keeps decision inputs ($MENDARI_PHI_MODE).
 
-- `off` (default): as before. A pack's `audit.store_input` decides whether the input is kept
+- `off` (default): as before. An agent's `audit.store_input` decides whether the input is kept
   inside the decision record.
-- `hash`: inputs are never stored, whatever the pack says. Only their hash is kept (every record
+- `hash`: inputs are never stored, whatever the agent says. Only their hash is kept (every record
   has it).
 - `encrypt`: inputs are kept apart from the chained record, encrypted with AES-256-GCM under
   `$MENDARI_PHI_KEY` (32 bytes, base64) and bound to their decision id. Only roles that may
@@ -179,7 +179,7 @@ def open_with(ring: Sequence[bytes], aad: bytes, token: str, what: str) -> tuple
 NOTE_AAD = b"mendari-note-v1\x00"
 # A record's sealed details (`seal_details`): the kind, then the decision id.
 DETAILS_AAD = b"mendari-details-v1\x00"
-# A pack store's dataset (LP-20g): its id after this.
+# An agent store's dataset (LP-20g): its id after this.
 DATASET_AAD = b"mendari-store-dataset-v1\x00"
 # An agent's connection token (ADR-0021): its row's id, its organization and its agent after
 # this, NUL-separated, so a token never opens for another row, organization or agent.
@@ -237,9 +237,9 @@ def _aad(kind: Sealed, ids: tuple[str, ...]) -> bytes:
         (item_row_id,) = ids
         return WRITTEN_AAD + item_row_id.encode()
     if kind == "connection":
-        connection_id, org, pack_id = ids
+        connection_id, org, agent_id = ids
         return CONNECTION_AAD + b"\x00".join(
-            part.encode() for part in (connection_id, org, pack_id)
+            part.encode() for part in (connection_id, org, agent_id)
         )
     note_id, decision_id = ids
     return _note_aad(note_id, decision_id)

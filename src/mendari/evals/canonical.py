@@ -4,7 +4,7 @@ cases are compared, so the coverage report, the dataset checks (LP-20) and the p
 it.
 
 - `canonical_input`: the strict form, the ledger's canonical JSON (`ledger.canonical`: sorted
-  keys, no spaces, ASCII escapes) of a value that holds only JSON (`core.pack.not_json`). Two
+  keys, no spaces, ASCII escapes) of a value that holds only JSON (`core.agent.not_json`). Two
   inputs are the same case exactly when their strict forms are equal.
 - `normalised_input` (`NORM_VERSION`): the strict form after every string value is folded
   (`fold`: Unicode NFKC, case folded, NFKC again; invisible format characters such as zero-width
@@ -25,7 +25,7 @@ from __future__ import annotations
 import unicodedata
 from typing import Any
 
-from mendari.core.pack import not_json
+from mendari.core.agent import not_json
 from mendari.errors import MendariError
 from mendari.evals.ledger import canonical
 

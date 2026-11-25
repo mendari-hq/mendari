@@ -16,9 +16,9 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari.cli import main
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.errors import MendariError
 from mendari.evals import resolve_dataset, stats, written
 from mendari.evals.rater_agreement import weighted_kappa
@@ -93,7 +93,7 @@ def constructed(
         )
     header = {
         "format": written.LEDGER_FORMAT,
-        "pack": {
+        "agent": {
             "id": "mendari-test/constructed",
             "version": "0.1.0",
             "digest": "sha256:" + "0" * 64,
@@ -676,29 +676,29 @@ def test_a_ledger_that_is_not_one_is_refused_in_one_line(change: Any) -> None:
 
 
 @pytest.fixture(scope="module")
-def pack() -> Pack:
-    return load_pack(MINI)
+def agent() -> Agent:
+    return load_agent(MINI)
 
 
-def run_of(pack: Pack, rubric: str = "reply_quality") -> written.WrittenRun:
-    decision = Decision(pack, origin_cap=False)
-    dataset = resolve_dataset(pack, "written")
-    return written.run(decision, dataset, rubric, judge=Judge(pack, rubric))
+def run_of(agent: Agent, rubric: str = "reply_quality") -> written.WrittenRun:
+    decision = Decision(agent, origin_cap=False)
+    dataset = resolve_dataset(agent, "written")
+    return written.run(decision, dataset, rubric, judge=Judge(agent, rubric))
 
 
-def test_a_run_keeps_hashes_and_grades_and_no_text(pack: Pack) -> None:
-    run = run_of(pack)
-    dataset = resolve_dataset(pack, "written")
+def test_a_run_keeps_hashes_and_grades_and_no_text(agent: Agent) -> None:
+    run = run_of(agent)
+    dataset = resolve_dataset(agent, "written")
     header, cases = run.ledger.header, run.ledger.cases
     assert header["format"] == "mendari.written-ledger/1"
-    assert header["pack"] == {"id": pack.id, "version": pack.version, "digest": pack.digest}
+    assert header["agent"] == {"id": agent.id, "version": agent.version, "digest": agent.digest}
     assert header["dataset"] == {
         "name": "written",
         "sha256": dataset.sha256,
         "n": 12,
         "limit": None,
     }
-    assert header["rubric"]["sha256"] == written.rubric_sha256(pack.manifest, "reply_quality")
+    assert header["rubric"]["sha256"] == written.rubric_sha256(agent.manifest, "reply_quality")
     assert header["rubric"]["output"] == {"name": "reply_draft", "source": "slot:reader"}
     assert header["rubric"]["criteria"]["addresses_request"] == {
         "levels": ["not_addressed", "partly", "fully"],
@@ -742,16 +742,16 @@ def test_a_run_keeps_hashes_and_grades_and_no_text(pack: Pack) -> None:
     assert len(unsafe) == 2
     assert sum(1 for case in cases if case["j"].get("addresses_request") == ["partly", 1.0]) == 2
     # A second run gives the same ledger, byte for byte.
-    assert run_of(pack).ledger.id == run.ledger.id
+    assert run_of(agent).ledger.id == run.ledger.id
 
 
 def test_an_output_the_input_holds_is_read_and_no_agent_is_asked(
-    pack: Pack, monkeypatch: pytest.MonkeyPatch
+    agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    decision = Decision(pack, origin_cap=False)
+    decision = Decision(agent, origin_cap=False)
     monkeypatch.setattr(decision, "decide", lambda inputs: pytest.fail("the agent was asked"))
-    dataset = resolve_dataset(pack, "written")
-    run = written.run(decision, dataset, "draft_check", judge=Judge(pack, "draft_check"))
+    dataset = resolve_dataset(agent, "written")
+    run = written.run(decision, dataset, "draft_check", judge=Judge(agent, "draft_check"))
     assert run.ledger.header["rubric"]["output"] == {"name": "given_draft", "source": "input:draft"}
     assert [item.text for item in run.items] == [
         "The clinic is open on Monday from nine.",
@@ -770,16 +770,16 @@ def test_an_output_the_input_holds_is_read_and_no_agent_is_asked(
     ]
     refused = written.run(
         decision, dataset.head(3).__class__(**{**dataset.__dict__, "records": records}),
-        "draft_check", judge=Judge(pack, "draft_check"),
+        "draft_check", judge=Judge(agent, "draft_check"),
     )  # fmt: skip
     assert [case["n"] for case in refused.ledger.cases] == ["refused", "refused", None]
 
 
-def test_a_run_is_refused_before_anything_is_asked(pack: Pack, tmp_path: Path) -> None:
-    dataset = resolve_dataset(pack, "written")
-    decision = Decision(pack, origin_cap=False)
+def test_a_run_is_refused_before_anything_is_asked(agent: Agent, tmp_path: Path) -> None:
+    dataset = resolve_dataset(agent, "written")
+    decision = Decision(agent, origin_cap=False)
     with pytest.raises(MendariError, match="has no rubric 'tone'"):
-        written.run(decision, dataset, "tone", judge=Judge(pack, "reply_quality"))
+        written.run(decision, dataset, "tone", judge=Judge(agent, "reply_quality"))
     # A slot that runs a variant that is no agent writes nothing.
     folder = tmp_path / "written-mini"
     shutil.copytree(MINI, folder)
@@ -800,7 +800,7 @@ def test_a_run_is_refused_before_anything_is_asked(pack: Pack, tmp_path: Path) -
         "config": "logic/rules.yaml",
     }
     (folder / "agent.yaml").write_text(yaml.safe_dump(manifest))
-    other = load_pack(folder)
+    other = load_agent(folder)
     ruled = Decision(other, providers={"reader": "rules"}, origin_cap=False)
     with pytest.raises(MendariError, match="only an agent writes"):
         written.run(
@@ -815,10 +815,10 @@ def test_a_run_is_refused_before_anything_is_asked(pack: Pack, tmp_path: Path) -
 
 
 def grades_file(
-    pack: Pack, run: written.WrittenRun, lines: list[dict[str, Any]] | None = None
+    agent: Agent, run: written.WrittenRun, lines: list[dict[str, Any]] | None = None
 ) -> bytes:
-    dataset = resolve_dataset(pack, "written")
-    header = written.grades_header(pack.manifest, "reply_quality", dataset)
+    dataset = resolve_dataset(agent, "written")
+    header = written.grades_header(agent.manifest, "reply_quality", dataset)
     if lines is None:
         lines = [
             {
@@ -835,22 +835,22 @@ def grades_file(
     return "".join(json.dumps(line) + "\n" for line in [header, *lines]).encode()
 
 
-def scales(pack: Pack) -> dict[str, list[str]]:
+def scales(agent: Agent) -> dict[str, list[str]]:
     return {
         key: [level for level, _ in criterion.scale()]
-        for key, criterion in pack.manifest.rubrics["reply_quality"].criteria.items()
+        for key, criterion in agent.manifest.rubrics["reply_quality"].criteria.items()
     }
 
 
-def test_a_grades_file_is_read_and_bound_to_the_rubrics_wording(pack: Pack) -> None:
-    run = run_of(pack)
+def test_a_grades_file_is_read_and_bound_to_the_rubrics_wording(agent: Agent) -> None:
+    run = run_of(agent)
     header, grades = written.load_grades(
-        grades_file(pack, run), where="g.jsonl", scales=scales(pack)
+        grades_file(agent, run), where="g.jsonl", scales=scales(agent)
     )
     assert header["format"] == "mendari.written-grades/1"
     assert header["rubric"] == {
         "name": "reply_quality",
-        "sha256": written.rubric_sha256(pack.manifest, "reply_quality"),
+        "sha256": written.rubric_sha256(agent.manifest, "reply_quality"),
     }
     assert grades.rubric == header["rubric"]["sha256"] and len(grades.grades) == 10
     found = written.report(run.ledger, grades)
@@ -858,14 +858,14 @@ def test_a_grades_file_is_read_and_bound_to_the_rubrics_wording(pack: Pack) -> N
     assert found["judge"]["canned"] is True
     assert DEMONSTRATION in written_report_text(found)
     # Another wording of any criterion, anchor or pass line is another rubric.
-    view = written.rubric_view(pack.manifest, "reply_quality")
+    view = written.rubric_view(agent.manifest, "reply_quality")
     assert set(view) == {"output", "context_fields", "criteria"}  # not the judge, not the floors
     assert view["criteria"]["addresses_request"]["levels"][0] == [
         "not_addressed",
         0.0,
         "It says nothing about what was asked.",
     ]
-    assert written.rubric_sha256(pack.manifest, "draft_check") != grades.rubric
+    assert written.rubric_sha256(agent.manifest, "draft_check") != grades.rubric
 
 
 @pytest.mark.parametrize(
@@ -895,17 +895,17 @@ def test_a_grades_file_is_read_and_bound_to_the_rubrics_wording(pack: Pack) -> N
     ],
 )
 def test_a_grades_file_problem_names_the_line_and_never_a_value(
-    pack: Pack, lines: list[dict[str, Any]], said: str
+    agent: Agent, lines: list[dict[str, Any]], said: str
 ) -> None:
-    raw = grades_file(pack, run_of(pack), lines)
+    raw = grades_file(agent, run_of(agent), lines)
     with pytest.raises(MendariError) as refused:
-        written.load_grades(raw, where="g.jsonl", scales=scales(pack))
+        written.load_grades(raw, where="g.jsonl", scales=scales(agent))
     assert str(refused.value).startswith(said) and "PLANTED" not in str(refused.value)
 
 
-def test_a_grades_file_that_is_not_one(pack: Pack) -> None:
-    run = run_of(pack)
-    good = grades_file(pack, run)
+def test_a_grades_file_that_is_not_one(agent: Agent) -> None:
+    run = run_of(agent)
+    good = grades_file(agent, run)
     for raw, said in (
         (b"", "not a mendari.written-grades/1 file"),
         (b"\xff", "not UTF-8 text"),
@@ -917,10 +917,10 @@ def test_a_grades_file_that_is_not_one(pack: Pack) -> None:
         (good + good.split(b"\n")[1] + b"\n", "this grader's grades of this item are given twice"),
     ):
         with pytest.raises(MendariError, match=said):
-            written.load_grades(raw, where="g.jsonl", scales=scales(pack))
+            written.load_grades(raw, where="g.jsonl", scales=scales(agent))
 
 
-def declared(tmp_path: Path, pack: Pack, raw: bytes | None = None) -> Path:
+def declared(tmp_path: Path, agent: Agent, raw: bytes | None = None) -> Path:
     """A copy of the fixture agent that declares a grades file for its rubric."""
     folder = tmp_path / "written-mini"
     shutil.copytree(MINI, folder)
@@ -929,19 +929,19 @@ def declared(tmp_path: Path, pack: Pack, raw: bytes | None = None) -> Path:
         "reply_quality": {"dataset": "written", "file": "data/written_grades.jsonl"}
     }
     (folder / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    (folder / "data" / "written_grades.jsonl").write_bytes(raw or grades_file(pack, run_of(pack)))
+    (folder / "data" / "written_grades.jsonl").write_bytes(raw or grades_file(agent, run_of(agent)))
     return folder
 
 
-def test_an_agents_own_grades_file_is_checked_by_validate(pack: Pack, tmp_path: Path) -> None:
-    folder = declared(tmp_path, pack)
-    loaded = load_pack(folder)
+def test_an_agents_own_grades_file_is_checked_by_validate(agent: Agent, tmp_path: Path) -> None:
+    folder = declared(tmp_path, agent)
+    loaded = load_agent(folder)
     assert written.grades_problems(loaded) == [] and validation_problems(loaded) == []
     # The rubric reworded: the grades are of another wording, and validate says so.
     manifest = yaml.safe_load((folder / "agent.yaml").read_text())
     manifest["rubrics"]["reply_quality"]["criteria"]["plain_language"]["instructions"] += " Really?"
     (folder / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    reworded = load_pack(folder)
+    reworded = load_agent(folder)
     found = written.grades_problems(reworded)
     assert len(found) == 1 and "another wording of rubric reply_quality" in found[0]
     problems = validation_problems(reworded)
@@ -950,20 +950,20 @@ def test_an_agents_own_grades_file_is_checked_by_validate(pack: Pack, tmp_path: 
 
 
 def test_a_grades_file_of_another_dataset_or_with_a_bad_line_is_a_problem(
-    pack: Pack, tmp_path: Path
+    agent: Agent, tmp_path: Path
 ) -> None:
-    folder = declared(tmp_path, pack)
+    folder = declared(tmp_path, agent)
     with (folder / "data" / "written.jsonl").open("a") as data:
         data.write(
             json.dumps({"id": "written-9999", "input": {"message": {"body": "One more."}}}) + "\n"
         )
-    found = written.grades_problems(load_pack(folder))
+    found = written.grades_problems(load_agent(folder))
     assert found == [
         "data/written_grades.jsonl: its grades are of another dataset than written as it is now"
     ]
-    bad = grades_file(pack, run_of(pack), [{"item": "0" * 32, "grader": "g", "grades": {}}])
-    other = declared(tmp_path / "second", pack, bad)
-    found = written.grades_problems(load_pack(other))
+    bad = grades_file(agent, run_of(agent), [{"item": "0" * 32, "grader": "g", "grades": {}}])
+    other = declared(tmp_path / "second", agent, bad)
+    found = written.grades_problems(load_agent(other))
     assert found == ["data/written_grades.jsonl:2: it leaves safe_to_send ungraded"]
 
 
@@ -971,9 +971,9 @@ def test_a_grades_file_of_another_dataset_or_with_a_bad_line_is_a_problem(
 
 
 def test_the_command_prints_the_report_and_writes_it_with_its_ledger(
-    pack: Pack, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    agent: Agent, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    folder = declared(tmp_path, pack)
+    folder = declared(tmp_path, agent)
     out = tmp_path / "out" / "written.json"
     args = ["written", "eval", str(folder), "--rubric", "reply_quality", "--dataset", "written"]
     assert main([*args, "--out", str(out)]) == 0
@@ -1011,7 +1011,7 @@ def test_the_command_prints_the_report_and_writes_it_with_its_ledger(
     assert json.loads(capsys.readouterr().out)["cases"]["graded"] == 0
     # --grades names another file; one of another rubric or dataset is refused.
     given = tmp_path / "given.jsonl"
-    given.write_bytes(grades_file(pack, run_of(pack)))
+    given.write_bytes(grades_file(agent, run_of(agent)))
     assert (
         main(
             [

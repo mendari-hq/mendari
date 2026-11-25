@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from mendari import Decision, Pack
+from mendari import Agent, Decision
 from mendari.errors import FhirError
 from mendari.standards import cds_hooks
 from mendari.standards.fhir import FhirAdapter, age_band, select
@@ -65,10 +65,10 @@ def test_age_band(born: str, band: str | None) -> None:
     assert age_band(born, today=date(2026, 9, 25)) == band
 
 
-def test_bundle_maps_onto_pack_input(triage_agent: Pack) -> None:
+def test_bundle_maps_onto_agent_input(triage_agent: Agent) -> None:
     """The message's topic, its text joined a part a line, and how it came, as the fixture's
     channel code; its sender is not read."""
-    adapter = FhirAdapter.for_pack(triage_agent)
+    adapter = FhirAdapter.for_agent(triage_agent)
     inputs = adapter.to_input(adapter.index(BUNDLE))
     assert inputs == {
         "message": {
@@ -97,7 +97,7 @@ def test_the_task_says_when_but_leaves_its_version_to_the_server(triage: Decisio
     result, task = triage.decide_fhir(BUNDLE)
     assert task["meta"]["lastUpdated"] == result.created_at
     assert "versionId" not in task["meta"] and "profile" not in task["meta"]
-    assert task["meta"]["tag"][0]["code"] == f"{result.pack_id}@{result.pack_version}"
+    assert task["meta"]["tag"][0]["code"] == f"{result.agent_id}@{result.agent_version}"
     div = task["text"]["div"]
     assert task["text"]["status"] == "generated"
     for shown in (result.id, "HUMAN_REVIEW", "stat", "nurse", result.created_at):
@@ -108,21 +108,21 @@ def test_the_task_says_when_but_leaves_its_version_to_the_server(triage: Decisio
 
 
 def test_performer_codes_are_what_the_template_can_fill(triage: Decision) -> None:
-    adapter = FhirAdapter.for_pack(triage.pack)
-    labels = triage.pack.manifest.labels("destination")
+    adapter = FhirAdapter.for_agent(triage.agent)
+    labels = triage.agent.manifest.labels("destination")
     assert adapter.performer_template == "{recommendation}"
     assert list(adapter.performer_codes()) == [*labels, "manual-triage"]
     assert adapter.performer_codes()["nurse"] == {"recommendation": "nurse"}
 
 
-def test_missing_required_resource(triage_agent: Pack) -> None:
-    adapter = FhirAdapter.for_pack(triage_agent)
+def test_missing_required_resource(triage_agent: Agent) -> None:
+    adapter = FhirAdapter.for_agent(triage_agent)
     with pytest.raises(FhirError, match="Communication"):
         adapter.index({"resourceType": "Bundle", "entry": [{"resource": PATIENT}]})
 
 
 def test_cds_discovery_and_card(triage: Decision) -> None:
-    services = cds_hooks.discovery([triage.pack])["services"]
+    services = cds_hooks.discovery([triage.agent])["services"]
     assert services[0]["id"] == "mendari-test.triage"
     assert services[0]["hook"] == "mendari-message-received"
 

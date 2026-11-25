@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari.cli import EXIT_DEGRADED, main
 from mendari.evals import resolve_dataset
 from mendari.evals.gate import (
@@ -67,7 +67,7 @@ def result(
     if accuracy is not None:
         questions["request"] = {"accuracy": accuracy, "n": labelled}
     return {
-        "pack": {"id": AGENT, "version": "0.1.0"},
+        "agent": {"id": AGENT, "version": "0.1.0"},
         "dataset": {"name": "examples", "sha256": "a" * 64, "n": labelled, "limit": None},
         "primary": "request",
         "questions": questions,
@@ -228,7 +228,7 @@ def test_a_baseline_of_other_cases_is_not_compared_and_that_fails() -> None:
 @pytest.mark.parametrize(
     ("change", "problem"),
     [
-        (lambda b: b["pack"].update(id="other/agent"), "a result of another agent"),
+        (lambda b: b["agent"].update(id="other/agent"), "a result of another agent"),
         (lambda b: b.pop("decisions"), "not an evaluation result"),
         (lambda b: b.update(questions=[]), "not an evaluation result"),
         (lambda b: b["questions"]["request"].update(accuracy="high"), "its figures"),
@@ -275,8 +275,8 @@ def test_a_name_from_outside_is_shown_as_code_never_rendered() -> None:
 def demo() -> Evaluation:
     """The bundled demo agent on its 600-case set: its canned agent misses urgent messages on
     purpose, and nine of those are automated."""
-    pack = load_pack(DEMO_AGENT_DIR)
-    return evaluation(Decision(pack, origin_cap=False), resolve_dataset(pack, "test"))
+    agent = load_agent(DEMO_AGENT_DIR)
+    return evaluation(Decision(agent, origin_cap=False), resolve_dataset(agent, "test"))
 
 
 def test_the_critical_cases_named_are_the_ones_the_result_counts(demo: Evaluation) -> None:
@@ -312,8 +312,8 @@ def test_the_markdown_is_the_reports_figures(demo: Evaluation) -> None:
 
 
 def test_the_markdown_names_cases_by_id_and_at_most_twenty_of_a_kind(demo: Evaluation) -> None:
-    pack = load_pack(DEMO_AGENT_DIR)
-    dataset = resolve_dataset(pack, "test")
+    agent = load_agent(DEMO_AGENT_DIR)
+    dataset = resolve_dataset(agent, "test")
     ids = {case_hash(dataset.case_key, record["id"]): record["id"] for record in dataset.records}
     named = critical_cases(demo.ledger)
     markdown = report_markdown(demo.report, named, ids)
@@ -333,8 +333,8 @@ def test_the_markdown_names_cases_by_id_and_at_most_twenty_of_a_kind(demo: Evalu
 def test_the_markdown_renders_nothing_a_dataset_or_a_model_says() -> None:
     """A dataset's name and ids, and the model an agent says answered, are someone else's
     text: each is shown as code, on its line, and no cell of a table ends early."""
-    pack = load_pack(DEMO_AGENT_DIR)
-    run = evaluation(Decision(pack, origin_cap=False), resolve_dataset(pack, "examples"))
+    agent = load_agent(DEMO_AGENT_DIR)
+    run = evaluation(Decision(agent, origin_cap=False), resolve_dataset(agent, "examples"))
     report = copy.deepcopy(run.report)
     hostile = "![x](https://evil.example/x.png) | <script>`\nnext"
     report["dataset"]["name"] = hostile
@@ -395,7 +395,7 @@ def test_eval_on_the_demo_agent_fails_the_limits_and_names_the_cases_by_id(
     assert "### Gate failed: 2 limits not met" in markdown
     assert "automated, so no person read them (9): `demo-0002`, " in markdown
     assert "Report written" not in markdown and printed.err == ""
-    dataset = resolve_dataset(load_pack(DEMO_AGENT_DIR), "test")
+    dataset = resolve_dataset(load_agent(DEMO_AGENT_DIR), "test")
     for record in dataset.records:
         assert record["input"]["message"]["body"] not in markdown, record["id"]
     # The result file is what it is without a gate: the verdict is in the summary and the exit.
@@ -421,7 +421,7 @@ def test_eval_with_json_keeps_the_verdict_out_of_the_json(
     command = ["eval", str(agent), "--dataset", "examples", "--baseline", "none", "--json"]
     assert main([*command, "--max-false-automation", "0%", "--min-accuracy", "0.5"]) == 0
     printed = capsys.readouterr()
-    assert json.loads(printed.out)["format"] == "mendari.eval/2"
+    assert json.loads(printed.out)["format"] == "mendari.eval/1"
     assert printed.err.rstrip().endswith("Gate passed")
 
 
@@ -431,7 +431,7 @@ def test_eval_refuses_what_cannot_be_a_limit_or_a_baseline(
     agent = scaffold(tmp_path)
     command = ["eval", str(agent), "--dataset", "examples"]
     other = tmp_path / "other.json"
-    other.write_text(json.dumps({**result(), "pack": {"id": "other/agent"}}))
+    other.write_text(json.dumps({**result(), "agent": {"id": "other/agent"}}))
     not_json = tmp_path / "notes.txt"
     not_json.write_text("not a result")
     capsys.readouterr()
@@ -463,7 +463,7 @@ def test_a_baseline_is_refused_before_a_shared_run_asks_for_its_ticket(
     takes none."""
     agent = scaffold(tmp_path)
     other = tmp_path / "other.json"
-    other.write_text(json.dumps({**result(), "pack": {"id": "other/agent"}}))
+    other.write_text(json.dumps({**result(), "agent": {"id": "other/agent"}}))
     asked = []
     monkeypatch.setattr("mendari.cli._ticket_for", lambda *args: asked.append(args))
     monkeypatch.setattr("mendari.cli._site_configuration", lambda *args, **kw: asked.append(args))

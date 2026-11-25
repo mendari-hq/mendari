@@ -28,8 +28,8 @@ from fastapi.testclient import TestClient
 
 from mendari import cli
 from mendari.core import clock
+from mendari.core.agent import Agent, load_agent
 from mendari.core.audit import AuditStore
-from mendari.core.pack import Pack, load_pack
 from mendari.errors import MendariError
 from mendari.sandbox import DEMO_AGENT, cds_client, fhir_workflow
 from mendari.sandbox.cds_client import ALGORITHM, LIFETIME, HookCall, SandboxClient
@@ -151,7 +151,7 @@ def _coded(value: Any, wanted: str) -> bool:
 def demo_messages() -> list[dict[str, Any]]:
     """Six of the demo agent's messages as `mendari sandbox seed` loads them, as the FHIR server
     holds them."""
-    return stored(fhir_workflow.seed_bundle(load_pack(DEMO_AGENT_DIR), 6)["entry"])
+    return stored(fhir_workflow.seed_bundle(load_agent(DEMO_AGENT_DIR), 6)["entry"])
 
 
 def charts(count: int = 3) -> list[dict[str, Any]]:
@@ -160,11 +160,11 @@ def charts(count: int = 3) -> list[dict[str, Any]]:
     return [r for case in cases("examples")[:count] for r in case.resources(TODAY)]
 
 
-def orders_agent(base: Path, monkeypatch: pytest.MonkeyPatch) -> Pack:
+def orders_agent(base: Path, monkeypatch: pytest.MonkeyPatch) -> Agent:
     """The chart-summary fixture's order-sign twin, on the engine's search path."""
     root = order_sign(base / "agents")
     monkeypatch.setenv("MENDARI_AGENTS_PATH", str(root.parent))
-    return load_pack(root)
+    return load_agent(root)
 
 
 @pytest.mark.parametrize("signed_in", [False, True], ids=["open-mode", "sign-in-on"])
@@ -184,7 +184,7 @@ def test_the_sandbox_client_signs_what_the_engine_verifies(
     monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
     server = sandbox_server(demo_messages())
     with httpx.Client(transport=httpx.MockTransport(server)) as fhir:
-        calls = cds_client.sandbox_calls(load_pack(DEMO_AGENT_DIR), BASE, limit=4, http=fhir)
+        calls = cds_client.sandbox_calls(load_agent(DEMO_AGENT_DIR), BASE, limit=4, http=fhir)
     tokens: list[str] = []
     made = client.token
 
@@ -367,9 +367,9 @@ def test_the_sandbox_client_calls_the_demo_agents_hook_on_the_seeded_messages(
     naming the patient and the message as the service's prefetch reads them by id, with no
     prefetch sent. The engine reads each from the FHIR server and answers a card: no problem.
     An agent with nothing seeded for it (the order-sign twin: no tagged order) is told to seed."""
-    twin = load_pack(order_sign(tmp_path))
+    twin = load_agent(order_sign(tmp_path))
     monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
-    demo = load_pack(DEMO_AGENT_DIR)
+    demo = load_agent(DEMO_AGENT_DIR)
     server = sandbox_server(demo_messages())
     with httpx.Client(transport=httpx.MockTransport(server)) as fhir:
         calls = cds_client.sandbox_calls(demo, BASE, limit=4, http=fhir)
@@ -424,7 +424,7 @@ def test_the_sandbox_client_calls_an_order_hook_with_the_case_as_the_draft_order
         f"discovery lists no patient-view hook for {ORDERS_SERVICE}",
     ]
     with pytest.raises(MendariError, match="mendari-test/clinical-review declares no CDS Hooks"):
-        cds_client.sandbox_calls(load_pack(CLINICAL_DIR), BASE)
+        cds_client.sandbox_calls(load_agent(CLINICAL_DIR), BASE)
 
 
 # -- the compose sandbox and CI --------------------------------------------------------------------
@@ -533,7 +533,7 @@ def test_ci_runs_the_signed_client_against_both_engines() -> None:
     assert command.endswith(f"{runs[1]} --org pilot")
     for part in command.removeprefix("sh -c ").split(" && "):
         argv = part.replace(public, _default(public)).removeprefix(f"{program} ").split()
-        assert cli.build_parser().parse_args(["sandbox", *argv]).pack == DEMO_AGENT
+        assert cli.build_parser().parse_args(["sandbox", *argv]).agent == DEMO_AGENT
     workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
     steps = workflow["jobs"]["sandbox-e2e"]["steps"]
     runs_of = [" ".join(str(step.get("run", "")).split()) for step in steps]

@@ -8,7 +8,7 @@ share. The records live in the audit store (`core/audit.py`); memberships mode r
   without regard to the case of its letters (`normalise_email`).
 - An organization is a record with an id of lower-case letters, digits and hyphens. `default`
   is reserved for the owner's existing data: only the bootstrap creates its record.
-- A membership holds a set of roles: the server's roles, plus `pack_author` (which grants
+- A membership holds a set of roles: the server's roles, plus `agent_author` (which grants
   nothing until LP-20 gives it permissions) and `labeller` (which grants `label`, grading
   written output blind, ADR-0025, in memberships mode only).
 - What the chain records of an e-mail address is a digest, keyed with the input-hash key
@@ -31,12 +31,12 @@ USER_ID = re.compile(r"user:[0-9a-f]{16}")  # `person_id`'s form
 RESERVED_ORG = DEFAULT_ORG
 # The server's roles for people and machines (server/auth.py `ROLES`, which a test keeps equal).
 PERSON_ROLES = ("viewer", "reviewer", "service", "governance", "admin")
-RESERVED_ROLES = ("pack_author", "labeller", "registry_reviewer")
+RESERVED_ROLES = ("agent_author", "labeller", "registry_reviewer")
 # The reserved roles that grant something on a membership (server/auth.py `PERMISSIONS`):
-# `labeller` (ADR-0025: a grader of written output) and, since LP-20f, `pack_author` (an
-# organization's pack store).
-GRANTING_RESERVED = ("labeller", "pack_author")
-# The pack registry's reviewers (LP-19e, ADR-0015): a role that grants `registry_review` in one
+# `labeller` (ADR-0025: a grader of written output) and, since LP-20f, `agent_author` (an
+# organization's agent store).
+GRANTING_RESERVED = ("labeller", "agent_author")
+# The agent registry's reviewers (LP-19e, ADR-0015): a role that grants `registry_review` in one
 # organization only, the one `MENDARI_REGISTRY_REVIEW_ORG` names, and is refused when given in
 # any other (server/auth.py). Any administrator grants any membership role, so a role that
 # counted everywhere would let every organization approve its own namespace.

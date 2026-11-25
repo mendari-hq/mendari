@@ -26,7 +26,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core import tenancy
 from mendari.core.policy import GovernanceOverride
@@ -156,7 +156,7 @@ def maps_of(given: dict[str, Any], *, signed_in: bool = False) -> SiteCodeMaps:
 
 
 def decision_of(root: Path, maps: SiteCodeMaps | None = None, **kwargs: Any) -> Decision:
-    agent = load_pack(root)
+    agent = load_agent(root)
     if maps is not None:
         check(maps, [agent])
     return Decision(agent, site_codes=maps, **kwargs)
@@ -169,7 +169,7 @@ def searched(tmp_path: Path) -> list[Path]:
 
 
 def serve(tmp_path: Path, name: str = "a.db") -> TestClient:
-    return TestClient(create_app(db_path=tmp_path / name, packs_paths=searched(tmp_path)))
+    return TestClient(create_app(db_path=tmp_path / name, agents_paths=searched(tmp_path)))
 
 
 # -- unset ------------------------------------------------------------------------------------
@@ -181,7 +181,7 @@ def test_unset_means_every_decision_as_before(tmp_path: Path) -> None:
     map: the same outcome, reasons and data coverage, `site_codes` null. A site's own code is
     not read as the agent's. (The FHIR golden, `tests/test_fhir_decisions.py`, pins the test
     fixtures' FHIR decisions, unchanged.)"""
-    agent = load_pack(CHART_DIR)
+    agent = load_agent(CHART_DIR)
     assert site_codes([agent], signed_in=False) is None
     with serve(tmp_path) as app:
         assert app.get("/api/health").json()["site_codes"] is None
@@ -271,18 +271,18 @@ def test_the_map_is_checked_at_startup(
     given, problem = BAD[case]
     monkeypatch.setenv(ENV, given if isinstance(given, str) else json.dumps(given))
     with pytest.raises(MendariError) as refused:
-        site_codes([load_pack(root)], signed_in=False)
+        site_codes([load_agent(root)], signed_in=False)
     message = str(refused.value)
     assert problem in message and message.startswith(ENV)
     assert SITE_CODE not in message and SITE not in message and "E11" not in message
     with pytest.raises(MendariError, match=ENV):
-        create_app(db_path=tmp_path / "a.db", packs_paths=searched(tmp_path))
+        create_app(db_path=tmp_path / "a.db", agents_paths=searched(tmp_path))
 
 
 def test_the_setting_is_inline_json_or_a_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    agent = load_pack(CHART_DIR)
+    agent = load_agent(CHART_DIR)
     text = json.dumps(mapped({SET: [T2D]}))
     monkeypatch.setenv(ENV, text)
     inline = site_codes([agent], signed_in=False)
@@ -310,7 +310,7 @@ def test_a_site_code_is_translated_only_into_a_code_its_set_declares(tmp_path: P
     one (spec 0.3 §2.5), so a record whose own codes give a field its value reads the same with
     the map as without it. A translated code counts only when no path gives an own one, the
     first path's then."""
-    adapter = FhirAdapter.for_pack(load_pack(site_agent(tmp_path)))
+    adapter = FhirAdapter.for_agent(load_agent(site_agent(tmp_path)))
 
     def read(record: dict[str, Any], sets: dict[str, Any]) -> tuple[list[Any], tuple[str, ...]]:
         mapped_in = adapter.read(adapter.index(record), site_codes=sets)
@@ -349,8 +349,8 @@ def test_the_data_coverage_reads_with_the_same_translations_as_the_input(tmp_pat
     root = site_agent(tmp_path)
     maps = maps_of(mapped({SET: [T2D]}))
     decision = decision_of(root, maps)
-    adapter = FhirAdapter.for_pack(decision.pack)
-    systems = [use.url for use in decision.pack.manifest.code_systems]  # as the decision's
+    adapter = FhirAdapter.for_agent(decision.agent)
+    systems = [use.url for use in decision.agent.manifest.code_systems]  # as the decision's
     assert ICD in systems and SITE not in systems  # the site's system is not the agent's
     for record, values, same in (
         (coded(SITE, SITE_CODE, evidence=(ICD, "I10")), 2, True),  # both paths, the own code
@@ -440,7 +440,7 @@ def test_each_decision_records_the_maps_version_and_digest_for_its_organization(
         [card] = app.post(SERVICE, json=hook(SHOWCASE)).json()["cards"]
         found = app.get(f"/api/audit/{card['extension']['mendari.decision_id']}").json()
         assert found["record"]["site_codes"] == stamp
-        triage = load_pack(TRIAGE_DIR).id
+        triage = load_agent(TRIAGE_DIR).id
         answer = app.post(
             f"/api/agents/{triage}/fhir/decide", json=message("Please call me about my bill.")
         ).json()
@@ -488,7 +488,7 @@ def test_another_organizations_map_is_never_applied(
     monkeypatch.setenv(ENV, json.dumps(given))
     db = tmp_path / "signed.db"
     with TestClient(
-        create_app(db_path=db, packs_paths=searched(tmp_path)), base_url="https://mendari.test"
+        create_app(db_path=db, agents_paths=searched(tmp_path)), base_url="https://mendari.test"
     ) as app:
         store = AuditStore(db)
         for org in ("clinic-a", "clinic-b", "clinic-c"):
@@ -595,7 +595,7 @@ def test_a_decision_made_through_a_site_code_is_never_automated(
     # The record's own code on a later path wins over the site's on the first: nothing was read
     # through the map, so the decision is the agent's alone, and it automates.
     fallback, _ = decision.decide_fhir(coded(SITE, SITE_CODE, evidence=(ICD, "E11.9")))
-    alone, _ = Decision(decision.pack).decide_fhir(coded(SITE, SITE_CODE, evidence=(ICD, "E11.9")))
+    alone, _ = Decision(decision.agent).decide_fhir(coded(SITE, SITE_CODE, evidence=(ICD, "E11.9")))
     assert fallback.outcome is alone.outcome is Outcome.AUTO
     assert fallback.reasons == alone.reasons and fallback.site_codes == own.site_codes
 
@@ -630,7 +630,7 @@ def test_a_decision_made_through_a_site_code_is_never_automated(
     lifted, _ = governed.decide_fhir(coded(SITE, SITE_CODE))
     assert lifted.outcome is Outcome.HUMAN_REVIEW and "governance override" in lifted.reasons[-2]
 
-    held = decision_of(root, maps, hold_source=lambda pack: "hold h-1")
+    held = decision_of(root, maps, hold_source=lambda agent: "hold h-1")
     both, _ = held.decide_fhir(coded(SITE, SITE_CODE))
     assert both.outcome is Outcome.HUMAN_REVIEW
     assert both.reasons[-2:] == (
@@ -642,7 +642,7 @@ def test_a_decision_made_through_a_site_code_is_never_automated(
     # beside a site-coded one is a routine follow-up with the map or without. Without the map
     # nothing was translated, and it automates; read through the map, a person decides.
     beside = coded(ICD, "I10", also=((SITE, SITE_CODE),))
-    unmapped, _ = Decision(decision.pack).decide_fhir(beside)
+    unmapped, _ = Decision(decision.agent).decide_fhir(beside)
     through, _ = decision.decide_fhir(beside)
     assert (unmapped.outcome, unmapped.recommendation) == (Outcome.AUTO, "routine")
     assert (through.outcome, through.recommendation) == (Outcome.HUMAN_REVIEW, "routine")

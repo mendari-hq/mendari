@@ -27,7 +27,7 @@ from mendari.providers.agent import ENDPOINT_ENV
 from mendari.providers.agent_calibration import FORMAT
 
 AGENT_URL = "https://agent.test/v1/decide"
-AGENT_ID = "starter-portal-agent"  # what the scaffold names its agent
+SERVICE_ID = "starter-portal-agent"  # what the scaffold names its agent
 VERSION = "2.1.0"
 LABELS = ("refill", "appointment", "other")
 REFILL = {"message": {"body": "Please refill my metformin."}}
@@ -93,7 +93,7 @@ def answer(
     if cost is not None:
         body["usage"]["cost_usd"] = cost
     if version is not None:
-        body["agent_version"] = version
+        body["service_version"] = version
     return body
 
 
@@ -124,7 +124,7 @@ def calibration_file(
     temperatures: dict[str, float],
     *,
     version: str = VERSION,
-    agent_id: str | None = AGENT_ID,
+    service_id: str | None = SERVICE_ID,
     relative: str = "models/reader-agent-calibration.json",
     sha256: str | None = None,
     cases: int = 400,
@@ -134,7 +134,7 @@ def calibration_file(
     path.parent.mkdir(parents=True, exist_ok=True)
     content = {
         "format": FORMAT,
-        "agent": {"id": agent_id, "version": version, "model": None},
+        "service": {"id": service_id, "version": version, "model": None},
         "method": "temperature",
         "temperatures": temperatures,
         "questions": {key: {"cases": cases} for key in temperatures},

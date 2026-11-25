@@ -39,7 +39,7 @@ each declared dataset (kept with the version).
   keys the version by the digest that load hashed, never one it is told. Two versions with the
   same digest are the same agent.
 - **Never changed.** Its files, id, version, parent and source are written once, and the hash of
-  that row is in its `pack_version.created` event. Only its state moves (draft, withdrawn;
+  that row is in its `store_version.created` event. Only its state moves (draft, withdrawn;
   promotion comes later), each move one chained event that names the organization, the digest
   and who acted. `mendari audit verify` fails on a row changed past the store, a state no event
   moved it to, or a version with no event. An edit is a new version whose parent is the old one.
@@ -152,7 +152,7 @@ reads open the database read-only.
 
 ## Prerequisites
 
-`mendari.core.pack_store.prerequisites` runs what the store rests on and names what is missing:
+`mendari.core.agent_store.prerequisites` runs what the store rests on and names what is missing:
 memberships mode (LP-12), a store agent on the bounded engine whose rules stop at the budget
 (LP-16), the exact statistics and the ledger's canonical JSON answering pinned values (LP-10),
 and the canonical forms of a case answering their pinned vectors (LP-11). With the switch on,

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Render a pack's Decision Card (Markdown) from its manifest, policy and published benchmark."""
+"""Render an agent's Decision Card (Markdown) from its manifest, policy and published benchmark."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ from typing import Any, Literal
 
 from mendari import notices
 from mendari.core import clock
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.core.policy import GATE_TEXT, gate_of
-from mendari.core.spec import Condition, PackManifest, Question
+from mendari.core.spec import AgentManifest, Condition, Question
 from mendari.evals import leaderboard, operating_point, ranking, stats
 from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
 from mendari.evals.result import (
@@ -43,20 +43,20 @@ RISK_AUTOMATION = {
 _SHAPE_ERRORS = (AttributeError, IndexError, KeyError, TypeError, ValueError, ArithmeticError)
 
 
-def benchmark(pack: Pack) -> dict[str, Any] | None:
-    """The pack's published benchmark (`evaluation.benchmark`), or None: none named, none
+def benchmark(agent: Agent) -> dict[str, Any] | None:
+    """The agent's published benchmark (`evaluation.benchmark`), or None: none named, none
     there, or not a report this card can show (`read_benchmark` says why)."""
-    return read_benchmark(pack)[0]
+    return read_benchmark(agent)[0]
 
 
-def read_benchmark(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
+def read_benchmark(agent: Agent) -> tuple[dict[str, Any] | None, str | None]:
     """The benchmark, or None and why it is not shown. As the registry does, one that is not
     JSON, holds what a JSON response cannot (NaN, a lone surrogate) or is not the evaluation
     report the card shows is treated as absent, never an error."""
-    relative = pack.manifest.evaluation.benchmark
+    relative = agent.manifest.evaluation.benchmark
     if relative is None:
         return None, None
-    report, problem = pack.attestation_json(relative)
+    report, problem = agent.attestation_json(relative)
     if report is None:
         return None, problem
     if isinstance(report, dict):
@@ -78,66 +78,66 @@ def _shown(report: Any) -> tuple[dict[str, Any] | None, str | None]:
 
 
 def _measured_on(report: Mapping[str, Any]) -> tuple[Any, Any]:
-    """The version and digest of the pack a benchmark was measured on."""
-    measured = report["pack"]
+    """The version and digest of the agent a benchmark was measured on."""
+    measured = report["agent"]
     return measured.get("version"), measured.get("digest")
 
 
-# What `render_card` reads an attestation from: the pack's own file, or what the caller gives
+# What `render_card` reads an attestation from: the agent's own file, or what the caller gives
 # (None: none shown). The registry gives none (ADR-0012).
-FROM_PACK: Literal["pack"] = "pack"
-Attested = Mapping[str, Any] | None | Literal["pack"]
+FROM_AGENT: Literal["agent"] = "agent"
+Attested = Mapping[str, Any] | None | Literal["agent"]
 RenderedBy = Literal["mendari card", "registry", "store"]
 
 
-def card_of(pack: Pack) -> str:
-    """The card Mendari shows for a pack it serves or names: a pack from a registry as the
+def card_of(agent: Agent) -> str:
+    """The card Mendari shows for an agent it serves or names: an agent from a registry as the
     registry renders it (its uploaded benchmark and leaderboard are its publisher's, and its
-    text is plain), a version from a pack store as the store renders it (LP-20e: nothing uploaded
-    about it is kept, and its text is plain), any other pack with its own attestations."""
-    if pack.origin == "hub":
-        return render_card(pack, report=None, board=None, rendered_by="registry")
-    if pack.origin == "store":
-        return render_card(pack, report=None, board=None, rendered_by="store")
-    return render_card(pack)
+    text is plain), a version from an agent store as the store renders it (LP-20e: nothing uploaded
+    about it is kept, and its text is plain), any other agent with its own attestations."""
+    if agent.origin == "hub":
+        return render_card(agent, report=None, board=None, rendered_by="registry")
+    if agent.origin == "store":
+        return render_card(agent, report=None, board=None, rendered_by="store")
+    return render_card(agent)
 
 
 def render_card(
-    pack: Pack,
+    agent: Agent,
     *,
-    report: Attested = FROM_PACK,
-    board: Attested = FROM_PACK,
+    report: Attested = FROM_AGENT,
+    board: Attested = FROM_AGENT,
     rendered_by: RenderedBy = "mendari card",
 ) -> str:
     """The Decision Card. Its attestations (the files the digest leaves out: the benchmark
-    `report` and the leaderboard `board`) are explicit inputs: by default the pack's own
-    (`mendari card`, the engine's own packs); None shows none. Everything else comes from the
+    `report` and the leaderboard `board`) are explicit inputs: by default the agent's own
+    (`mendari card`, the engine's own agents); None shows none. Everything else comes from the
     files the digest covers: the manifest, policy, input schema and changelog.
     `rendered_by="registry"` is the registry's card (ADR-0012): the risk level declared by the
-    publisher, and a validation section that says no uploaded figure is shown; `"store"` a pack
+    publisher, and a validation section that says no uploaded figure is shown; `"store"` an agent
     store's card (LP-20e), its text plain too."""
     token = _PLAIN.set(rendered_by in ("registry", "store"))
     try:
-        return _render(pack, report, board, rendered_by)
+        return _render(agent, report, board, rendered_by)
     finally:
         _PLAIN.reset(token)
 
 
-def _render(pack: Pack, report: Attested, board: Attested, rendered_by: RenderedBy) -> str:
-    m = pack.manifest
+def _render(agent: Agent, report: Attested, board: Attested, rendered_by: RenderedBy) -> str:
+    m = agent.manifest
     level = int(m.risk.level)
-    report, report_problem = _attested_benchmark(pack, report)
-    board, board_problem = _attested_leaderboard(pack, board)
+    report, report_problem = _attested_benchmark(agent, report)
+    board, board_problem = _attested_leaderboard(agent, board)
     registry = rendered_by == "registry"
     category = f" ({_t(m.risk.category)})" if m.risk.category != RISK_NAMES[level] else ""
-    # Where the pack comes from, by origin and never by its manifest: a card written for a pack
+    # Where the agent comes from, by origin and never by its manifest: a card written for an agent
     # of one's own (local) or pulled from a registry claims nothing.
-    source = [f"| Source | {pack.origin_label} |"] if pack.origin == "maintained" else []
+    source = [f"| Source | {agent.origin_label} |"] if agent.origin == "maintained" else []
     automation = RISK_AUTOMATION[level] + _required(m.policy.automation_requires)
     out: list[str] = [
         f"# Decision Card: {_t(m.name)}",
         "",
-        f"**{pack.status_label}**",
+        f"**{agent.status_label}**",
         "",
         f"*{notices.NOTICE}*",
         "",
@@ -153,7 +153,7 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
         + (" (declared by the publisher)" if registry else "")
         + " |",
         f"| Automation | {automation} |",
-        f"| Agent digest | `{pack.digest}` |",
+        f"| Agent digest | `{agent.digest}` |",
     ]
     if report:
         out.append(_last_validation(report))
@@ -181,7 +181,7 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
         "",
         "| Field | Type | Required |",
         "|---|---|---|",
-        *_schema_rows(pack.input_schema),
+        *_schema_rows(agent.input_schema),
         "",
         f"FHIR R4 mapping: {_c(m.inputs.fhir)}." if m.inputs.fhir else "No FHIR mapping.",
         *_code_systems(m),
@@ -196,7 +196,7 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
         "Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a priority "
         "(`routine`, `urgent`, `asap`, `stat`) and an audit record.",
         "",
-        *_written(pack),
+        *_written(agent),
         "## Decision policy",
         "",
     ]
@@ -220,7 +220,7 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
             f"`{rule.outcome.value}`{target}{priority}. {_t(rule.reason)}"
         )
     out += [f"- Fallback (ABSTAIN / BLOCK): {_t(p.fallback)}", ""]
-    out += _actions(pack)
+    out += _actions(agent)
     out += ["## Providers", ""]
     out += ["| Slot | Answers | Default | Alternatives |", "|---|---|---|---|"]
     for slot, spec in m.providers.items():
@@ -232,7 +232,7 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
             f"| {_c(slot)} | {_t(', '.join(spec.answers))} | {_c(spec.use)} ({_t(default.type)}) | "
             f"{alternatives or 'none'} |"
         )
-    out += _confidence(pack)
+    out += _confidence(agent)
     out += ["", "## Validation", ""]
     if report:
         out += _validation(report)
@@ -249,8 +249,8 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
         )
     else:
         out.append("No published benchmark.")
-    if report and (on := _measured_on(report))[1] != pack.digest:
-        measured = ranking.measured_on(*on, pack.version)
+    if report and (on := _measured_on(report))[1] != agent.digest:
+        measured = ranking.measured_on(*on, agent.version)
         out += [
             "",
             f"This benchmark was measured on {measured}; evaluate it again before relying on it.",
@@ -273,7 +273,7 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
             "on an earlier version of the agent says so beside its configuration: its AUTO and "
             "false automation followed that version's policy.",
             "",
-            *leaderboard.markdown(board, pack.digest, pack.version),
+            *leaderboard.markdown(board, agent.digest, agent.version),
         ]
     out += ["", "## Known failure modes", ""]
     out += [f"- {_t(item)}" for item in m.card.known_failure_modes]
@@ -283,8 +283,8 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
             f"- **{_cited(cited.title, cited.url)}**"
             + (f": {_t(cited.note)}" if cited.note else "")
         )
-    if pack.path("CHANGELOG.md").is_file():
-        history = pack.read_text("CHANGELOG.md").split("\n", 1)[-1].strip()
+    if agent.path("CHANGELOG.md").is_file():
+        history = agent.read_text("CHANGELOG.md").split("\n", 1)[-1].strip()
         out += [
             "",
             "## Version history",
@@ -312,13 +312,13 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
 # While the registry renders a card, every string the publisher wrote is plain text: on one line,
 # with Markdown's punctuation escaped, so it can neither start a heading, table, list or quote nor
 # make a link, image or emphasis that reads as the registry's own words (ADR-0012). `mendari card`
-# renders a pack of one's own as its author wrote it.
+# renders an agent of one's own as its author wrote it.
 _PLAIN: ContextVar[bool] = ContextVar("card_plain_text", default=False)
 _PUNCTUATION = re.compile(r"([!-/:-@\[-`{-~])")  # every ASCII punctuation character
 _LINK = re.compile(r"^https?://[^\s()<>\[\]`\\|*_]+$")
 
 
-def _written(pack: Pack) -> list[str]:
+def _written(agent: Agent) -> list[str]:
     """The card's Written outputs section (spec 0.4 sections 16 to 19): each text the agent
     writes, each rubric it is graded against (every criterion's instructions and every level's
     anchor, as a clinician and the judge read them) and the floors a judge is held to. Text
@@ -326,7 +326,7 @@ def _written(pack: Pack) -> list[str]:
     card is what it always was."""
     from mendari.evals import written
 
-    manifest = pack.manifest
+    manifest = agent.manifest
     if not manifest.outputs:
         return []
     out = [
@@ -388,11 +388,11 @@ def _written(pack: Pack) -> list[str]:
     return out
 
 
-def _actions(pack: Pack) -> list[str]:
+def _actions(agent: Agent) -> list[str]:
     """The card's Actions section (spec 0.4): each action the agent may propose, what it does,
     its effect and how the runtime gates it (`policy.gate_of`, in `policy.GATE_TEXT`'s words).
     Nothing for an agent that declares none, so its card is what it always was."""
-    declared = pack.manifest.actions
+    declared = agent.manifest.actions
     if not declared:
         return []
     out = [
@@ -425,7 +425,7 @@ def _actions(pack: Pack) -> list[str]:
     return [*out, ""]
 
 
-def _confidence(pack: Pack) -> list[str]:
+def _confidence(agent: Agent) -> list[str]:
     """The card's Confidence section (ADR-0024), from the manifest and the calibration files
     the digest covers: for each `agent` variant (a composite's member too), whether its
     confidence is calibrated, on how many cases and when, or that it is not; and each second
@@ -433,7 +433,7 @@ def _confidence(pack: Pack) -> list[str]:
     from mendari.providers import agent_calibration
 
     lines = []
-    for slot, spec in pack.manifest.providers.items():
+    for slot, spec in agent.manifest.providers.items():
         for name, variant in spec.variants.items():
             config = {"type": variant.type, **(variant.model_extra or {})}
             members = config.get("members")
@@ -443,19 +443,19 @@ def _confidence(pack: Pack) -> list[str]:
             for label, item in configs:
                 where = f"{_c(slot)} / {_c(label)}"
                 if item.get("type") == "agent":
-                    found = agent_calibration.status(pack, item)
+                    found = agent_calibration.status(agent, item)
                     if isinstance(found, str):
                         lines.append(
                             f"- {where}: **{_t(found)}**. Its confidence is the agent's own "
                             "report, and the automation threshold cuts on it as reported."
                         )
                     else:
-                        agent = f"{_c(found.agent_id)} " if found.agent_id else ""
+                        service = f"{_c(found.service_id)} " if found.service_id else ""
                         fitted = ", ".join(_c(key) for key in sorted(found.temperatures))
                         lines.append(
                             f"- {where}: confidence **calibrated** on {found.cases:,} cases of "
-                            f"{_c(found.dataset)} on {_t(found.date)}, for {agent}version "
-                            f"{_c(found.agent_version)} (questions: {fitted or 'none'}). When "
+                            f"{_c(found.dataset)} on {_t(found.date)}, for {service}version "
+                            f"{_c(found.service_version)} (questions: {fitted or 'none'}). When "
                             "the agent's service reports another version, no decision is "
                             "automated until it is calibrated again."
                         )
@@ -529,19 +529,21 @@ def _history(history: str) -> str:
     return "\n".join(lines)
 
 
-def _attested_benchmark(pack: Pack, given: Attested) -> tuple[dict[str, Any] | None, str | None]:
-    """The benchmark to show and why one is not: the pack's own (`read_benchmark`), none, or
-    the caller's, checked as the pack's is."""
-    if given == FROM_PACK:
-        return read_benchmark(pack)
+def _attested_benchmark(agent: Agent, given: Attested) -> tuple[dict[str, Any] | None, str | None]:
+    """The benchmark to show and why one is not: the agent's own (`read_benchmark`), none, or
+    the caller's, checked as the agent's is."""
+    if given == FROM_AGENT:
+        return read_benchmark(agent)
     if given is None:
         return None, None
     return _shown(normalize(dict(given)))
 
 
-def _attested_leaderboard(pack: Pack, given: Attested) -> tuple[dict[str, Any] | None, str | None]:
-    if given == FROM_PACK:
-        return leaderboard.read(pack)
+def _attested_leaderboard(
+    agent: Agent, given: Attested
+) -> tuple[dict[str, Any] | None, str | None]:
+    if given == FROM_AGENT:
+        return leaderboard.read(agent)
     return (None, None) if given is None else (dict(given), None)
 
 
@@ -745,8 +747,8 @@ def _brier_interval(question: Mapping[str, Any]) -> str:
     return f" [{num(interval['low'])}-{num(interval['high'])}, bootstrap]"
 
 
-def _code_systems(m: PackManifest) -> list[str]:
-    """The code systems the pack declares (`code_systems`), each licensed one with its terms."""
+def _code_systems(m: AgentManifest) -> list[str]:
+    """The code systems the agent declares (`code_systems`), each licensed one with its terms."""
     if not m.code_systems:
         return []
     rows = ["", "Code systems:", ""]

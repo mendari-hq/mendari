@@ -3,7 +3,7 @@
 
 - **AuditEvent** for every event in the hash chain (`decision.created`, `review.resolved`,
   `outcome.recorded`, `feedback.recorded`, `card.feedback` and the others in `_EVENTS`):
-  - who acted: the engine running the pack, or the reviewer, reporter, reader, requester, or
+  - who acted: the engine running the agent, or the reviewer, reporter, reader, requester, or
     whoever recorded a downstream outcome (the signed-in person or API key); a decision made
     with sign-in on also names who asked for it (`requested_by`), as the requestor;
   - what it acted on: the decision, by the identifier its FHIR `Task` carries;
@@ -47,7 +47,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
 from mendari.core.audit import RESULT_EVENTS, SYSTEM_ID
-from mendari.standards.fhir import DECISION_ID_SYSTEM, PACK_ID_SYSTEM, narrative
+from mendari.standards.fhir import AGENT_ID_SYSTEM, DECISION_ID_SYSTEM, narrative
 
 EVENT_SYSTEM = "https://mendari.co/fhir/CodeSystem/audit-event"
 # The events on no decision (an organization's keys, clients, people, approvals, holds and
@@ -125,7 +125,7 @@ def resources(
     versions: Mapping[int, int] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """AuditEvents and Provenances for chained events (each joined with its decision's
-    `pack_id`, `pack_version` and `record`, as `AuditStore.events` returns them). Served under
+    `agent_id`, `agent_version` and `record`, as `AuditStore.events` returns them). Served under
     the FHIR `base`, they refer to the Task by URL, a Provenance to the version its event made:
     `versions` maps each version-making event's `seq` to that number (`task_versions`)."""
     for event in events:
@@ -154,7 +154,7 @@ def decision_bundle(item: Mapping[str, Any]) -> dict[str, Any]:
 def joined(item: Mapping[str, Any]) -> list[dict[str, Any]]:
     """A decision's events (`AuditStore.get` or `item`), each joined with its decision as
     `AuditStore.events` returns them, ready for `resources`."""
-    decision = {key: item[key] for key in ("pack_id", "pack_version", "record")}
+    decision = {key: item[key] for key in ("agent_id", "agent_version", "record")}
     return [{**event, **decision, "decision_id": item["id"]} for event in item["events"]]
 
 
@@ -258,10 +258,10 @@ def _task(event: Mapping[str, Any], base: str | None, version: int | None = None
 
 
 def engine(event: Mapping[str, Any]) -> dict[str, Any]:
-    """The engine as an agent: the pack version (`pack_id`, `pack_version`) that decided."""
-    pack = f"{event['pack_id']}@{event['pack_version']}"
-    identifier = {"system": PACK_ID_SYSTEM, "value": pack}
-    return {"identifier": identifier, "display": f"Mendari engine · {pack}"}
+    """The engine as an agent: the pack version (`agent_id`, `agent_version`) that decided."""
+    agent = f"{event['agent_id']}@{event['agent_version']}"
+    identifier = {"system": AGENT_ID_SYSTEM, "value": agent}
+    return {"identifier": identifier, "display": f"Mendari engine · {agent}"}
 
 
 def _requested(event: Mapping[str, Any], **shown: Any) -> list[dict[str, Any]]:
@@ -355,8 +355,8 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "client.keys_replaced": ("U", "Backend Services client's key set replaced", _CREDENTIALS),
     "governance.approved": ("C", "Automation approved", None),
     "governance.revoked": ("U", "Automation approval revoked", None),
-    "registry_pack.approved": ("C", "Agent from a registry approved", None),
-    "registry_pack.revoked": ("U", "Agent from a registry approval revoked", None),
+    "registry_agent.approved": ("C", "Agent from a registry approved", None),
+    "registry_agent.revoked": ("U", "Agent from a registry approval revoked", None),
     "automation.held": ("C", "Automation held", None),
     "automation.lifted": ("U", "Automation hold lifted", None),
     "eval.recorded": ("C", "Evaluation report recorded", None),
@@ -378,9 +378,9 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "sessions.ended": ("D", "Sessions ended", {}),
     "phi.rotated": ("U", "PHI key rotation batch", _CONFIGURATION),
     "input_hash.epoch": ("C", "Input hash key epoch", _CONFIGURATION),
-    # A pack store's versions (LP-20e): the digest and who acted, never a file.
-    "pack_version.created": ("C", "Agent store version added", None),
-    "pack_version.withdrawn": ("U", "Agent store version withdrawn", None),
+    # An agent store's versions (LP-20e): the digest and who acted, never a file.
+    "store_version.created": ("C", "Agent store version added", None),
+    "store_version.withdrawn": ("U", "Agent store version withdrawn", None),
     # Its authors' keys (LP-20f): the key's id and who acted.
     "store_key.added": ("C", "Agent store author key registered", None),
     "store_key.revoked": ("U", "Agent store author key revoked", None),
@@ -388,8 +388,8 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "store_dataset.created": ("C", "Agent store dataset added", None),
     "store_job.created": ("C", "Agent store evaluation job made", None),
     # Promotion (LP-20h): the digest, its authors, the approver and the reports relied on.
-    "pack_version.promoted": ("U", "Agent store version promoted to be served", None),
-    "pack_version.retired": ("U", "Agent store version's promotion retired", None),
+    "store_version.promoted": ("U", "Agent store version promoted to be served", None),
+    "store_version.retired": ("U", "Agent store version's promotion retired", None),
     # Proposed tests from reviewers' corrections (LP-20i): the dataset, the case and the digest.
     "store_dataset.proposal_accepted": (
         "U",
@@ -462,9 +462,9 @@ _ADMINISTRATIVE_DETAILS = (
     "replaces",
     "replaced_by",
     "outcome",
-    "pack_id",
-    "pack_version",
-    "pack_digest",
+    "agent_id",
+    "agent_version",
+    "agent_digest",
     "risk_level",
     "report",
     "result_sha256",

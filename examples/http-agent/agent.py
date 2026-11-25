@@ -19,7 +19,7 @@ from typing import Any
 
 from mendari_agent_kit import Case, respond
 
-AGENT_VERSION = "0.1.0"
+SERVICE_VERSION = "0.1.0"
 
 # Symptoms that may need a nurse today, including some everyday wordings. A sentence that
 # denies them ("no chest pain") does not count.
@@ -58,6 +58,6 @@ def handler(case: Case) -> dict[str, Any]:
             else "No same-day symptom found.",
         },
         model="keyword-rules",
-        agent_version=AGENT_VERSION,
+        service_version=SERVICE_VERSION,
         usage={"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
     )

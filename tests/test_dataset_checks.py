@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Dataset checks (LP-20c, `evals/dataset_checks.py`, `mendari data check`): schema and label
 problems by case id, each label's count with its exact interval, duplicates under both of
-LP-11's forms, overlap with the pack's training data; ids and counts, never an input."""
+LP-11's forms, overlap with the agent's training data; ids and counts, never an input."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ import pytest
 from scipy.stats import beta
 
 from mendari.cli import main
+from mendari.core.agent import Agent, load_agent
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack, load_pack
 from mendari.evals import canonical, dataset_checks
 from mendari.evals.dataset_checks import (
     MIN_CASES,
@@ -31,7 +31,7 @@ from tests.conftest import DEMO_AGENT_DIR, FIXTURE_AGENTS, TRIAGE_DIR
 from tests.test_canonical import COMBINING_ACUTE, E_ACUTE, ELLIPSIS, EM_DASH, wide
 
 SECRET = "PLANTED-CASE-TEXT-5519"
-TRIAGE = load_pack(TRIAGE_DIR)
+TRIAGE = load_agent(TRIAGE_DIR)
 
 
 def _case(id: str, body: str, **labels: str) -> dict[str, Any]:
@@ -140,7 +140,7 @@ def test_the_checks_use_lp11s_canonical_functions() -> None:
     assert "unicodedata" not in Path(dataset_checks.__file__).read_text()
 
 
-def test_overlap_with_the_packs_training_data_is_found() -> None:
+def test_overlap_with_the_agents_training_data_is_found() -> None:
     train = resolve_dataset(TRIAGE, "calibration").records
     copied = {**train[0], "id": "copy"}
     reworded = {
@@ -177,22 +177,22 @@ def _agents() -> list[Path]:
     return [DEMO_AGENT_DIR, *fixtures]
 
 
-def _shipped() -> list[tuple[Pack, Dataset]]:
+def _shipped() -> list[tuple[Agent, Dataset]]:
     """Each dataset those agents declare."""
     found = []
     for folder in _agents():
-        pack = load_pack(folder)
-        for name in pack.manifest.evaluation.datasets:
-            found.append((pack, resolve_dataset(pack, name)))
+        agent = load_agent(folder)
+        for name in agent.manifest.evaluation.datasets:
+            found.append((agent, resolve_dataset(agent, name)))
     return found
 
 
 def test_every_shipped_dataset_is_checked_and_the_report_holds_no_input() -> None:
     shipped = _shipped()
-    assert {pack.id for pack, _ in shipped} == {load_pack(folder).id for folder in _agents()}
-    for pack, dataset in shipped:
-        report = check(pack, dataset)
-        assert report.passed, (pack.id, dataset.name, report.data["schema_problems"])
+    assert {agent.id for agent, _ in shipped} == {load_agent(folder).id for folder in _agents()}
+    for agent, dataset in shipped:
+        report = check(agent, dataset)
+        assert report.passed, (agent.id, dataset.name, report.data["schema_problems"])
         assert report.data["cases"] == len(dataset.records)
         served = json.dumps(report.data) + dataset_checks.text(report)
         texts = {
@@ -201,7 +201,7 @@ def test_every_shipped_dataset_is_checked_and_the_report_holds_no_input() -> Non
             for value in _strings(record["input"])
             if len(value) > 12
         }
-        assert not [value for value in texts if value in served], (pack.id, dataset.name)
+        assert not [value for value in texts if value in served], (agent.id, dataset.name)
 
 
 def _strings(value: Any) -> list[str]:

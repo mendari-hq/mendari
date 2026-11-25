@@ -13,7 +13,7 @@ from playwright.sync_api import Page, Route, ViewportSize, expect
 from mendari import notices
 from tests.browser.conftest import TRIAGE
 from tests.browser.test_accessibility import violations
-from tests.browser.test_dashboard import PHONE, VIEWS, open_pack, signed_in_as
+from tests.browser.test_dashboard import PHONE, VIEWS, open_agent, signed_in_as
 
 pytestmark = pytest.mark.browser
 
@@ -24,7 +24,7 @@ DESKTOP: ViewportSize = {"width": 1280, "height": 900}
 def test_every_view_shows_the_notice(page: Page, size: ViewportSize) -> None:
     page.set_viewport_size(size)
     for view in [*VIEWS, "monitoring"]:
-        open_pack(page, TRIAGE, view)
+        open_agent(page, TRIAGE, view)
         notice = page.locator(".preview-notice")
         expect(notice).to_have_text(notices.NOTICE)
         expect(notice).to_be_visible()
@@ -49,7 +49,7 @@ def test_a_signed_in_person_acknowledges_when_the_dashboard_opens(page: Page) ->
         route.fulfill(body=json.dumps(body), content_type="application/json")
 
     page.route("**/api/notice**", notice)
-    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(TRIAGE)})")
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
     page.goto("/#try")  # the dashboard waits for the answer before it shows a view
     asked = page.get_by_role("dialog", name="Before you start")
     expect(asked).to_contain_text(notices.ACKNOWLEDGEMENT)
@@ -75,14 +75,14 @@ def test_the_acknowledgement_passes_axe(axe_page: Page) -> None:
         "**/api/notice**",
         lambda route: route.fulfill(body=json.dumps(body), content_type="application/json"),
     )
-    axe_page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(TRIAGE)})")
+    axe_page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
     axe_page.goto("/#try")
     expect(axe_page.get_by_role("dialog", name="Before you start")).to_be_visible()
     assert violations(axe_page) == []
 
 
 def test_an_open_drawer_says_it_too(page: Page) -> None:
-    open_pack(page, TRIAGE, "audit")
+    open_agent(page, TRIAGE, "audit")
     page.locator("table tbody tr").first.click()
     drawer = page.get_by_role("dialog")
     expect(drawer.locator(".drawer-notice")).to_have_text(notices.NOTICE)
@@ -101,7 +101,7 @@ def test_the_dialog_says_its_own_errors_and_lets_one_sign_out(page: Page) -> Non
         )
 
     page.route("**/api/notice**", notice)
-    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(TRIAGE)})")
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
     page.goto("/#overview")
     asked = page.get_by_role("dialog", name="Before you start")
     asked.get_by_role("button", name="I understand: synthetic data only").click()

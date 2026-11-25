@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""A pack's own patterns are compiled with `re` when it loads (core/patterns.py)."""
+"""An agent's own patterns are compiled with `re` when it loads (core/patterns.py)."""
 
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari.cli import main
 from mendari.core import patterns
-from mendari.errors import PackValidationError
+from mendari.errors import AgentValidationError
 from mendari.server.app import create_app
 from tests.conftest import FIXTURE_AGENTS, TRIAGE_DIR, cpu_time, message
 
@@ -27,7 +27,7 @@ RED_FLAGS = "logic/screen_rules.yaml"
 @pytest.fixture
 def triage_copy(tmp_path: Path) -> Path:
     """A copy of the triage fixture to edit."""
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     return root
 
@@ -67,14 +67,14 @@ def with_schema_pattern(root: Path, pattern: str) -> Path:
     ],
     ids=["re-error", "overflow", "too-long"],
 )
-def test_a_rules_pattern_that_is_not_a_pack_pattern_names_the_pack_file_and_rule(
+def test_a_rules_pattern_that_is_not_an_agent_pattern_names_the_agent_file_and_rule(
     triage_copy: Path, pattern: str, detail: str
 ) -> None:
     root = with_pattern(triage_copy, pattern)
     index = urgent_count(root) - 1
-    with pytest.raises(PackValidationError) as raised:
-        load_pack(root)
-    assert raised.value.pack == "mendari-test/triage"
+    with pytest.raises(AgentValidationError) as raised:
+        load_agent(root)
+    assert raised.value.agent == "mendari-test/triage"
     assert raised.value.problems == [
         f"{RED_FLAGS}: questions.urgency.labels.yes[{index}] (author): {detail}"
     ]
@@ -89,19 +89,19 @@ def test_a_rules_pattern_that_is_not_a_pack_pattern_names_the_pack_file_and_rule
     ],
     ids=["re-error", "overflow", "too-deep"],
 )
-def test_a_schema_pattern_that_is_not_a_pack_pattern_fails_at_load(
+def test_a_schema_pattern_that_is_not_an_agent_pattern_fails_at_load(
     triage_copy: Path, pattern: str, detail: str
 ) -> None:
     # `a{99999999999}` raised OverflowError from jsonschema's own schema check: a traceback in
     # `mendari validate`, and once a server that did not start.
     root = with_schema_pattern(triage_copy, pattern)
-    with pytest.raises(PackValidationError) as raised:
-        load_pack(root)
+    with pytest.raises(AgentValidationError) as raised:
+        load_agent(root)
     (problem,) = raised.value.problems
     assert problem.startswith(f"input schema: properties/message/properties/body/pattern: {detail}")
 
 
-def test_a_pack_holds_at_most_500_patterns_counted_before_any_is_compiled(
+def test_an_agent_holds_at_most_500_patterns_counted_before_any_is_compiled(
     triage_copy: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = triage_copy / RED_FLAGS
@@ -111,8 +111,8 @@ def test_a_pack_holds_at_most_500_patterns_counted_before_any_is_compiled(
     path.write_text(yaml.safe_dump(rules, sort_keys=False))
     compiled: list[str] = []
     monkeypatch.setattr(patterns, "problem", lambda text, flags=0: compiled.append(text))
-    with pytest.raises(PackValidationError, match="at most 500 patterns"):
-        load_pack(triage_copy)
+    with pytest.raises(AgentValidationError, match="at most 500 patterns"):
+        load_agent(triage_copy)
     assert compiled == []
 
 
@@ -120,7 +120,7 @@ def test_rules_patterns_compile_as_the_provider_runs_them(triage_copy: Path) -> 
     # Case ignored, as the rules provider compiles them: `(?-i:...)` and inline flags behave the
     # same at load and in a decision.
     root = with_pattern(triage_copy, r"(?-i:ZQSTAT)\b")
-    decision = Decision(load_pack(root), providers={"screen": "rules"})
+    decision = Decision(load_agent(root), providers={"screen": "rules"})
     assert "yes:author" in decision.decide(message("please ZQSTAT")).answers["urgency"].evidence
     assert "yes:author" not in decision.decide(message("zqstat")).answers["urgency"].evidence
 
@@ -144,8 +144,8 @@ def test_a_pattern_used_by_a_non_default_variant_or_a_member_is_checked_too(
         },
     }
     (triage_copy / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    with pytest.raises(PackValidationError) as raised:
-        load_pack(triage_copy)
+    with pytest.raises(AgentValidationError) as raised:
+        load_agent(triage_copy)
     (problem,) = raised.value.problems
     assert problem.startswith("logic/extra.yaml: questions.urgency.labels.yes[0]")
 
@@ -159,7 +159,7 @@ def test_validate_reports_an_invalid_pattern_without_a_traceback(
     assert "the repetition number is too large" in err and "Traceback" not in err
 
 
-def test_an_invalid_pattern_lists_the_pack_and_never_fails_health(
+def test_an_invalid_pattern_lists_the_agent_and_never_fails_health(
     triage_copy: Path, tmp_path: Path
 ) -> None:
     root = with_pattern(triage_copy, "(unclosed")
@@ -168,14 +168,14 @@ def test_an_invalid_pattern_lists_the_pack_and_never_fails_health(
         manifest.replace("id: mendari-test/triage", "id: outsider/triage", 1)
     )
     client = TestClient(
-        create_app(db_path=tmp_path / "p.db", packs_paths=[root.parent, FIXTURE_AGENTS])
+        create_app(db_path=tmp_path / "p.db", agents_paths=[root.parent, FIXTURE_AGENTS])
     )
     health = client.get("/api/health")
     assert health.status_code == 200
     (problem,) = health.json()["invalid"].values()
     assert "missing ), unterminated subpattern" in problem
     served = [d for d in FIXTURE_AGENTS.iterdir() if (d / "agent.yaml").is_file()]
-    assert health.json()["packs"] == len(served)  # every fixture's agent, not the outsider
+    assert health.json()["agents"] == len(served)  # every fixture's agent, not the outsider
 
 
 def test_the_shipped_patterns_load_and_compile_cheaply() -> None:
@@ -183,7 +183,7 @@ def test_the_shipped_patterns_load_and_compile_cheaply() -> None:
         for root in sorted(FIXTURE_AGENTS.iterdir()):
             if (root / "agent.yaml").is_file():
                 re.purge()
-                load_pack(root)
+                load_agent(root)
     assert spent() < 1
 
 
@@ -207,28 +207,28 @@ def with_pattern_properties(root: Path, keys: list[str]) -> Path:
     return root
 
 
-def test_pattern_properties_keys_are_pack_patterns_counted_and_checked(triage_copy: Path) -> None:
+def test_pattern_properties_keys_are_agent_patterns_counted_and_checked(triage_copy: Path) -> None:
     """jsonschema runs every `patternProperties` key with `re.search` on each validation, but
     only `pattern` values were counted and length-checked: 1,000 keys of 3,000 characters
     loaded, and thrashing `re`'s cache cost every decision over a second."""
-    shipped = load_pack(triage_copy)
+    shipped = load_agent(triage_copy)
     existing = len(list(patterns.schema_patterns(shipped.input_schema))) + sum(
         len(list(patterns.rules_patterns(data))) for data in shipped.parsed.values()
     )
-    with pytest.raises(PackValidationError, match="501 patterns; an agent holds at most 500"):
-        load_pack(with_pattern_properties(triage_copy, [f"^k{i}$" for i in range(501 - existing)]))
+    with pytest.raises(AgentValidationError, match="501 patterns; an agent holds at most 500"):
+        load_agent(with_pattern_properties(triage_copy, [f"^k{i}$" for i in range(501 - existing)]))
     long = "^z" + "a" * 2000
-    with pytest.raises(PackValidationError) as raised:
-        load_pack(with_pattern_properties(triage_copy, ["^ok$", long]))
+    with pytest.raises(AgentValidationError) as raised:
+        load_agent(with_pattern_properties(triage_copy, ["^ok$", long]))
     assert raised.value.problems == [
         f"input schema: properties/probe/patternProperties/{long[:40]}...: "
         "longer than 2000 characters"
     ]
-    with pytest.raises(PackValidationError) as raised:
-        load_pack(with_pattern_properties(triage_copy, ["(bad"]))
+    with pytest.raises(AgentValidationError) as raised:
+        load_agent(with_pattern_properties(triage_copy, ["(bad"]))
     (problem,) = raised.value.problems
     assert problem.startswith("input schema: properties/probe/patternProperties/(bad: invalid")
-    assert load_pack(with_pattern_properties(triage_copy, ["^x-[a-z]+$"])).id
+    assert load_agent(with_pattern_properties(triage_copy, ["^x-[a-z]+$"])).id
 
 
 def test_schema_patterns_lists_pattern_properties_keys_where_they_are() -> None:

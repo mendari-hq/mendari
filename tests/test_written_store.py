@@ -28,10 +28,10 @@ from typing import Any
 
 import pytest
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core import accounts
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.core.phi import PhiPolicy, key_id
 from mendari.core.written import (
     CLOSED,
@@ -63,7 +63,7 @@ TABLES = ("written_rounds", "written_items", "written_assignments", "audit_event
 # What each event's payload holds, and nothing else.
 PAYLOADS = {
     "written.round_created": {
-        *("round", "org", "pack_id", "pack_digest", "rubric", "rubric_sha256", "ledger", "items"),
+        *("round", "org", "agent_id", "agent_digest", "rubric", "rubric_sha256", "ledger", "items"),
         "seed",
     },
     "written.assigned": {"round", "org", "item", "assignment", "grader"},
@@ -75,35 +75,35 @@ PAYLOADS = {
 
 
 @pytest.fixture(scope="module")
-def pack() -> Pack:
-    return load_pack(MINI)
+def agent() -> Agent:
+    return load_agent(MINI)
 
 
 @pytest.fixture(scope="module")
-def the_run(pack: Pack) -> WrittenRun:
-    decision = Decision(pack, origin_cap=False)
-    dataset = resolve_dataset(pack, "written")
-    return written.run(decision, dataset, RUBRIC, judge=Judge(pack, RUBRIC, mode="canned"))
+def the_run(agent: Agent) -> WrittenRun:
+    decision = Decision(agent, origin_cap=False)
+    dataset = resolve_dataset(agent, "written")
+    return written.run(decision, dataset, RUBRIC, judge=Judge(agent, RUBRIC, mode="canned"))
 
 
 @dataclass
 class World:
     store: AuditStore
     rounds: WrittenStore
-    pack: Pack
+    agent: Agent
     run: WrittenRun
 
     def round(self, sample: int = 10, **options: Any) -> str:
         made = self.rounds.create_round(
-            CLINIC, self.pack, RUBRIC, self.run, sample=sample, created_by="ops", **options
+            CLINIC, self.agent, RUBRIC, self.run, sample=sample, created_by="ops", **options
         )
         return str(made["round"])
 
 
 @pytest.fixture
-def world(db_target: str, pack: Pack, the_run: WrittenRun) -> Iterator[World]:
+def world(db_target: str, agent: Agent, the_run: WrittenRun) -> Iterator[World]:
     with AuditStore(db_target, phi=PhiPolicy("encrypt", KEY, HASH)) as store:
-        yield World(store, WrittenStore(store), pack, the_run)
+        yield World(store, WrittenStore(store), agent, the_run)
 
 
 def person(
@@ -136,10 +136,10 @@ def tamper(store: AuditStore, sql: str, params: tuple[Any, ...] = ()) -> None:
         db.all(sql, params)
 
 
-def served(db: str, pack: Pack) -> None:
+def served(db: str, agent: Agent) -> None:
     """A server's database: it has decided once."""
     with AuditStore(db) as store:
-        Decision(pack, store=store)(message("Can I get a refill of my lisinopril?"))
+        Decision(agent, store=store)(message("Can I get a refill of my lisinopril?"))
 
 
 def graders(store: AuditStore, count: int, *, org: str = CLINIC) -> list[str]:
@@ -178,7 +178,7 @@ def grade_all(world: World, users: list[str], values: dict[str, str] = PASS) -> 
 
 def test_a_round_keeps_a_seeded_sample_sealed_and_the_ledger_whole(world: World) -> None:
     made = world.rounds.create_round(
-        CLINIC, world.pack, RUBRIC, world.run, sample=6, seed=3, created_by="ops"
+        CLINIC, world.agent, RUBRIC, world.run, sample=6, seed=3, created_by="ops"
     )
     assert made == {
         "round": made["round"],
@@ -188,11 +188,11 @@ def test_a_round_keeps_a_seeded_sample_sealed_and_the_ledger_whole(world: World)
         "seed": 3,
     }
     (kept,) = rows(world.store, "written_rounds")
-    assert (kept["org"], kept["pack_id"], kept["state"]) == (CLINIC, world.pack.id, OPEN)
-    assert kept["pack_digest"] == world.pack.digest and kept["report"] is None
-    assert kept["rubric_sha256"] == written.rubric_sha256(world.pack.manifest, RUBRIC)
+    assert (kept["org"], kept["agent_id"], kept["state"]) == (CLINIC, world.agent.id, OPEN)
+    assert kept["agent_digest"] == world.agent.digest and kept["report"] is None
+    assert kept["rubric_sha256"] == written.rubric_sha256(world.agent.manifest, RUBRIC)
     assert WrittenLedger.loads(kept["ledger"].encode()).id == world.run.ledger.id
-    assert json.loads(kept["header"]) == {**rubric_header(world.pack, RUBRIC), "seed": 3}
+    assert json.loads(kept["header"]) == {**rubric_header(world.agent, RUBRIC), "seed": 3}
     items = rows(world.store, "written_items")
     assert len(items) == 6 and {item["sealed"] for item in items} == {1}
     by_id = {item.item: item for item in world.run.items}
@@ -207,12 +207,12 @@ def test_a_round_keeps_a_seeded_sample_sealed_and_the_ledger_whole(world: World)
             world.store.phi.open("written", item["body"], other["id"])
     # Seeded: the same draw again, another with another seed; never more than the run has.
     again = world.rounds.create_round(
-        CLINIC, world.pack, RUBRIC, world.run, sample=6, seed=3, created_by="ops"
+        CLINIC, world.agent, RUBRIC, world.run, sample=6, seed=3, created_by="ops"
     )
     drawn = {item["item"] for item in items}
     assert {i["item"] for i in rows(world.store, "written_items", round_id=again["round"])} == drawn
     other_seed = world.rounds.create_round(
-        CLINIC, world.pack, RUBRIC, world.run, sample=6, seed=4, created_by="ops"
+        CLINIC, world.agent, RUBRIC, world.run, sample=6, seed=4, created_by="ops"
     )
     assert {
         i["item"] for i in rows(world.store, "written_items", round_id=other_seed["round"])
@@ -226,8 +226,8 @@ def test_a_round_keeps_a_seeded_sample_sealed_and_the_ledger_whole(world: World)
     assert created["payload"] == {
         "round": made["round"],
         "org": CLINIC,
-        "pack_id": world.pack.id,
-        "pack_digest": world.pack.digest,
+        "agent_id": world.agent.id,
+        "agent_digest": world.agent.digest,
         "rubric": RUBRIC,
         "rubric_sha256": kept["rubric_sha256"],
         "ledger": world.run.ledger.id,
@@ -251,7 +251,7 @@ def test_a_round_that_cannot_be_made_is_refused(
 ) -> None:
     with pytest.raises(MendariError, match=said):
         world.rounds.create_round(
-            CLINIC, world.pack, RUBRIC, world.run, created_by="ops", **options
+            CLINIC, world.agent, RUBRIC, world.run, created_by="ops", **options
         )
     assert rows(world.store, "written_rounds") == []
 
@@ -259,42 +259,44 @@ def test_a_round_that_cannot_be_made_is_refused(
 def test_a_run_of_another_rubric_or_agent_is_refused(world: World) -> None:
     with pytest.raises(MendariError, match="another agent or rubric"):
         world.rounds.create_round(
-            CLINIC, world.pack, "draft_check", world.run, sample=1, created_by="ops"
+            CLINIC, world.agent, "draft_check", world.run, sample=1, created_by="ops"
         )
     with pytest.raises(MendariError, match="has no rubric 'tone'"):
-        world.rounds.create_round(CLINIC, world.pack, "tone", world.run, sample=1, created_by="ops")
+        world.rounds.create_round(
+            CLINIC, world.agent, "tone", world.run, sample=1, created_by="ops"
+        )
     header = json.loads(json.dumps(world.run.ledger.header))
     header["rubric"]["sha256"] = "0" * 64
     reworded = WrittenRun(WrittenLedger(header, world.run.ledger.cases), world.run.items)
     with pytest.raises(MendariError, match="another wording of the rubric"):
-        world.rounds.create_round(CLINIC, world.pack, RUBRIC, reworded, sample=1, created_by="ops")
+        world.rounds.create_round(CLINIC, world.agent, RUBRIC, reworded, sample=1, created_by="ops")
     with pytest.raises(MendariError):
         world.rounds.create_round(
-            "Not An Org", world.pack, RUBRIC, world.run, sample=1, created_by="x"
+            "Not An Org", world.agent, RUBRIC, world.run, sample=1, created_by="x"
         )
     assert rows(world.store, "written_rounds") == []
 
 
 def test_texts_follow_notes_under_each_phi_mode(
-    db_target: str, pack: Pack, the_run: WrittenRun
+    db_target: str, agent: Agent, the_run: WrittenRun
 ) -> None:
     # `hash` keeps no patient text: refused.
     with AuditStore(db_target, phi=PhiPolicy("hash", b"", HASH)) as store:
         with pytest.raises(MendariError, match="PHI mode hash keeps no patient text"):
             WrittenStore(store).create_round(
-                CLINIC, pack, RUBRIC, the_run, sample=2, created_by="o"
+                CLINIC, agent, RUBRIC, the_run, sample=2, created_by="o"
             )
         assert rows(store, "written_rounds") == []
     # A database a protected mode kept never takes plaintext again.
     with AuditStore(db_target) as store, pytest.raises(MendariError, match="is protected"):
-        WrittenStore(store).create_round(CLINIC, pack, RUBRIC, the_run, sample=2, created_by="o")
+        WrittenStore(store).create_round(CLINIC, agent, RUBRIC, the_run, sample=2, created_by="o")
 
 
 def test_under_off_in_an_unprotected_database_the_texts_are_plain(
-    tmp_path: Path, pack: Pack, the_run: WrittenRun
+    tmp_path: Path, agent: Agent, the_run: WrittenRun
 ) -> None:
     with AuditStore(tmp_path / "local.db") as store:
-        world = World(store, WrittenStore(store), pack, the_run)
+        world = World(store, WrittenStore(store), agent, the_run)
         round_id = world.round(3)
         items = rows(store, "written_items")
         assert {item["sealed"] for item in items} == {0}
@@ -403,7 +405,7 @@ def test_a_grader_sees_the_text_the_context_and_the_rubric_and_nothing_else(worl
     shown = world.rounds.next_item(a, org=CLINIC)
     assert shown is not None
     assert set(shown) == {"assignment", "questions", "guidance", "written", "input"}
-    rubric = world.pack.manifest.rubrics[RUBRIC]
+    rubric = world.agent.manifest.rubrics[RUBRIC]
     assert shown["questions"] == {
         "safe_to_send": ["no", "yes"],
         "addresses_request": ["not_addressed", "partly", "fully"],
@@ -419,7 +421,9 @@ def test_a_grader_sees_the_text_the_context_and_the_rubric_and_nothing_else(worl
     assert shown["guidance"]["safe_to_send"]["display"] == "Safe to send"
     assert set(shown["written"]) == {"name", "description", "text"}
     assert shown["written"]["name"] == "reply_draft"
-    assert shown["written"]["description"] == world.pack.manifest.outputs["reply_draft"].description
+    assert (
+        shown["written"]["description"] == world.agent.manifest.outputs["reply_draft"].description
+    )
     item = next(  # two items may hold the same text: this one, by its context too
         i
         for i in world.run.items
@@ -480,7 +484,7 @@ def test_a_planted_judge_never_reaches_a_grader(world: World) -> None:
     ]
     planted = WrittenRun(WrittenLedger(header, world.run.ledger.cases), world.run.items)
     made = world.rounds.create_round(
-        CLINIC, world.pack, RUBRIC, planted, sample=10, created_by="ops"
+        CLINIC, world.agent, RUBRIC, planted, sample=10, created_by="ops"
     )
     a, b = graders(world.store, 2)
     world.rounds.assign(made["round"], [a, b], double=0.5)
@@ -641,7 +645,7 @@ def test_closing_computes_the_report_and_erases_every_text(world: World) -> None
         world.rounds.assign(round_id, [a, b])
     with pytest.raises(MendariError, match="already closed"):
         world.rounds.close(round_id, by="ops")
-    (listed,) = world.rounds.rounds(CLINIC, world.pack.id)
+    (listed,) = world.rounds.rounds(CLINIC, world.agent.id)
     assert listed["report"] == report and listed["state"] == CLOSED and listed["open"] == 0
     assert (
         world.rounds.rounds("clinic-b") == [] and world.rounds.rounds(CLINIC, "other/agent") == []
@@ -669,7 +673,7 @@ def test_closing_computes_the_report_and_erases_every_text(world: World) -> None
         if item["event"] == "written.round_closed":
             assert acted == "ops"
         details = {detail["type"] for detail in resource["entity"][0].get("detail", [])}
-        assert details <= {"org", "pack_id", "pack_digest", "ledger", "hash"}, details
+        assert details <= {"org", "agent_id", "agent_digest", "ledger", "hash"}, details
 
 
 def test_a_round_left_closing_is_closed_by_running_it_again(
@@ -698,11 +702,11 @@ def test_a_round_left_closing_is_closed_by_running_it_again(
 
 
 def test_a_key_rotation_reseals_the_texts_and_the_check_covers_them(
-    db_target: str, pack: Pack, the_run: WrittenRun
+    db_target: str, agent: Agent, the_run: WrittenRun
 ) -> None:
     old, new = os.urandom(32), os.urandom(32)
     with AuditStore(db_target, phi=PhiPolicy("encrypt", old, HASH)) as store:
-        world = World(store, WrittenStore(store), pack, the_run)
+        world = World(store, WrittenStore(store), agent, the_run)
         round_id = world.round(5)
         before = {row["id"]: row["body"] for row in rows(store, "written_items")}
     with AuditStore(db_target, phi=PhiPolicy("encrypt", new, HASH, (old,))) as store:
@@ -724,7 +728,7 @@ def test_a_key_rotation_reseals_the_texts_and_the_check_covers_them(
     with AuditStore(db_target, phi=PhiPolicy("encrypt", new, HASH)) as store:  # the old key gone
         checked = store.phi_check()
         assert checked["ready"] and checked["by_key"]["written"] == {key_id(new): 5}
-        world = World(store, WrittenStore(store), pack, the_run)
+        world = World(store, WrittenStore(store), agent, the_run)
         a, b = graders(store, 2)
         world.rounds.assign(round_id, [a, b], double=0)
         shown = world.rounds.next_item(a, org=CLINIC)
@@ -774,7 +778,7 @@ def run_cli(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str, s
 
 def test_the_operators_commands_make_assign_show_and_close_a_round(
     tmp_path: Path,
-    triage_agent: Pack,
+    triage_agent: Agent,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -799,7 +803,7 @@ def test_the_operators_commands_make_assign_show_and_close_a_round(
     assert code == 0 and json.loads(out)["assigned"] == 12
     assert "12 assignment(s) made and 0 withdrawn" in err
     with AuditStore(db, phi=PhiPolicy("encrypt", key, base64.b64decode(HASH_KEY_B64))) as store:
-        world = World(store, WrittenStore(store), load_pack(MINI), None)  # type: ignore[arg-type]
+        world = World(store, WrittenStore(store), load_agent(MINI), None)  # type: ignore[arg-type]
         assert grade_all(world, [a, b]) == 12
     code, out, _ = run_cli(capsys, "written", "round", "progress", round_id, "--db", db)
     shown = json.loads(out)
@@ -913,7 +917,7 @@ def test_a_round_left_closing_says_so_and_retention_still_erases_its_texts(
 
 def test_a_rounds_seed_is_fixed_when_it_is_made_and_is_the_reports(world: World) -> None:
     made = world.rounds.create_round(
-        CLINIC, world.pack, RUBRIC, world.run, sample=4, seed=11, created_by="ops"
+        CLINIC, world.agent, RUBRIC, world.run, sample=4, seed=11, created_by="ops"
     )
     a, b = graders(world.store, 2)
     world.rounds.assign(made["round"], [a, b], double=0.5)

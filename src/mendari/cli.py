@@ -19,11 +19,11 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from mendari import __version__
 from mendari.core import clock, tenancy
+from mendari.core.agent import Agent
 from mendari.core.audit import SYSTEM_ID, AuditStore, break_glass_reason
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack
-from mendari.core.registry import discover, resolve_pack, version_key
-from mendari.errors import HubError, MendariError, PackValidationError
+from mendari.core.registry import discover, resolve_agent, version_key
+from mendari.errors import AgentValidationError, HubError, MendariError
 from mendari.sandbox import DEMO_AGENT, example_datasets_dir
 from mendari.settings import (
     applies_to,
@@ -42,36 +42,36 @@ PROBE_CASES = 50
 
 
 def _decision(args: argparse.Namespace, **kwargs: Any) -> Decision:
-    pack = resolve_pack(args.pack)
-    providers = _providers(pack, parse_providers(args.provider), typed=bool(args.provider))
-    return Decision(pack, providers=providers, fhir_validation=fhir_validation(), **kwargs)
+    agent = resolve_agent(args.agent)
+    providers = _providers(agent, parse_providers(args.provider), typed=bool(args.provider))
+    return Decision(agent, providers=providers, fhir_validation=fhir_validation(), **kwargs)
 
 
-def _providers(pack: Pack, settings: dict[str, str], *, typed: bool = True) -> dict[str, str]:
+def _providers(agent: Agent, settings: dict[str, str], *, typed: bool = True) -> dict[str, str]:
     """The settings that apply to this agent. A setting that names it but cannot apply (a slot's
     unknown variant) is an error here, where the server only reports it. So is a typed setting
     (`--provider`, `--run`) that applies to nothing in the agent: an unknown slot, or another
     agent's setting. From $MENDARI_PROVIDERS, a
     deployment-wide list naming other agents' slots too, such a setting is only a warning."""
-    slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-    chosen, skipped = providers_for(pack.id, slots, settings, named_only=pack.named_settings_only)
+    slots = {slot: set(spec.variants) for slot, spec in agent.manifest.providers.items()}
+    chosen, skipped = providers_for(agent.id, slots, settings, named_only=agent.named_settings_only)
     if skipped:
-        raise MendariError(f"provider settings that do not apply to {pack.id}: {skipped}")
+        raise MendariError(f"provider settings that do not apply to {agent.id}: {skipped}")
     unused = [
-        _unused(pack, key, variant, slots)
+        _unused(agent, key, variant, slots)
         for key, variant in settings.items()
-        if not applies_to(key, pack.id, slots, named_only=pack.named_settings_only)
+        if not applies_to(key, agent.id, slots, named_only=agent.named_settings_only)
     ]
     if unused and typed:
-        raise PackValidationError(pack.id, unused)
+        raise AgentValidationError(agent.id, unused)
     for problem in unused:
         print(f"warning: MENDARI_PROVIDERS: {problem}", file=sys.stderr)
     return chosen
 
 
-def _unused(pack: Pack, key: str, variant: str, slots: dict[str, set[str]]) -> str:
+def _unused(agent: Agent, key: str, variant: str, slots: dict[str, set[str]]) -> str:
     target, sep, slot = key.rpartition(":")
-    if sep and target != pack.id:
+    if sep and target != agent.id:
         return f"provider setting {key}={variant} names {target}, not this agent"
     return (
         f"provider setting {key}={variant}: the agent has no slot {slot!r} "
@@ -110,17 +110,17 @@ def _print_json(value: Any) -> None:
 
 def cmd_list(args: argparse.Namespace) -> int:
     found = discover()
-    for pack in sorted(found.packs, key=lambda p: p.id):
-        m = pack.manifest
+    for agent in sorted(found.agents, key=lambda p: p.id):
+        m = agent.manifest
         print(f"{m.id:<40} {m.version:<8} risk {int(m.risk.level)}  {m.name}")
     for root, problem in found.problems.items():
         print(f"invalid agent at {root}:\n{problem}", file=sys.stderr)
     # An owned agent whose provider configs `mendari validate` refuses still loads: said here.
-    for pack in sorted(found.packs, key=lambda p: (p.id, p.root)):
-        if pack.warnings:
-            listed = "\n".join(f"  - {warning}" for warning in pack.warnings)
-            print(f"warnings for {pack.ref} at {pack.root}:\n{listed}", file=sys.stderr)
-    if not found.packs:
+    for agent in sorted(found.agents, key=lambda p: (p.id, p.root)):
+        if agent.warnings:
+            listed = "\n".join(f"  - {warning}" for warning in agent.warnings)
+            print(f"warnings for {agent.ref} at {agent.root}:\n{listed}", file=sys.stderr)
+    if not found.agents:
         print("No agents found. Set MENDARI_AGENTS_PATH or run from a checkout.", file=sys.stderr)
     return 0
 
@@ -128,21 +128,21 @@ def cmd_list(args: argparse.Namespace) -> int:
 def cmd_validate(args: argparse.Namespace) -> int:
     from mendari.evals.validation import validate
 
-    pack = resolve_pack(args.pack)
-    validate(pack)
-    print(f"ok  {pack.ref}  {pack.digest}")
+    agent = resolve_agent(args.agent)
+    validate(agent)
+    print(f"ok  {agent.ref}  {agent.digest}")
     return 0
 
 
 def cmd_test(args: argparse.Namespace) -> int:
-    from mendari.evals import run_pack_tests
+    from mendari.evals import run_behaviour_tests
 
     decision = _decision(args, origin_cap=False)  # the agent's own policy, as its tests say
-    outcomes = run_pack_tests(decision)
+    outcomes = run_behaviour_tests(decision)
     if not outcomes:  # nothing ran: a pass would say nothing (LP-15)
-        where = decision.pack.manifest.tests or "tests/cases.yaml (and `tests:` in agent.yaml)"
+        where = decision.agent.manifest.tests or "tests/cases.yaml (and `tests:` in agent.yaml)"
         raise MendariError(
-            f"{decision.pack.ref}: no behaviour tests to run: add cases to {where} (spec §10)"
+            f"{decision.agent.ref}: no behaviour tests to run: add cases to {where} (spec §10)"
         )
     for outcome in outcomes:
         print(f"{'PASS' if outcome.passed else 'FAIL'}  {outcome.name}")
@@ -165,7 +165,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
     from mendari.evals.probe_variants import by_a_model, translation
 
     decision = _decision(args, origin_cap=False)  # the agent's own policy, as its tests say
-    agent = decision.pack
+    agent = decision.agent
     said = sys.stderr if args.json else sys.stdout  # with --json the report alone is on stdout
     if args.confirm:
         for name in probe_tests.confirm(agent, args.confirm):
@@ -218,7 +218,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
     if args.write:
         kept = probe.keep(agent, found.findings)
         for line in probe_report.kept_lines(
-            kept.added, kept.waiting, kept.already, kept.left_out, args.pack
+            kept.added, kept.waiting, kept.already, kept.left_out, args.agent
         ):
             print(line, file=said)
     return probe_report.exit_code(found.report, args.fail_on)
@@ -233,16 +233,16 @@ def cmd_decide(args: argparse.Namespace) -> int:
     held = None
     if store is not None:  # recorded in a deployment's trail: its holds apply here too
 
-        def held(pack: Pack) -> str | None:
-            hold = store.hold_for(pack.id, pack.digest, tenancy.DEFAULT_ORG)
+        def held(agent: Agent) -> str | None:
+            hold = store.hold_for(agent.id, agent.digest, tenancy.DEFAULT_ORG)
             return None if hold is None else f"hold {hold['id']}"
 
     approved = None
     if store is not None:  # an agent from a registry, approved in that deployment's trail
 
-        def approved(pack: Pack) -> bool:
+        def approved(agent: Agent) -> bool:
             return (
-                store.registry_approval(pack.id, pack.digest, in_org=tenancy.DEFAULT_ORG)
+                store.registry_approval(agent.id, agent.digest, in_org=tenancy.DEFAULT_ORG)
                 is not None
             )
 
@@ -290,17 +290,17 @@ def cmd_eval(args: argparse.Namespace) -> int:
                 "a shared run covers the whole dataset file (its ticket's commitment is over "
                 "the file): drop --limit"
             )
-        pack = resolve_pack(args.pack)
-        configuration = _site_configuration(pack, args.provider, consent=args.consent_remote)
+        agent = resolve_agent(args.agent)
+        configuration = _site_configuration(agent, args.provider, consent=args.consent_remote)
         decision = Decision(
-            pack, providers=configuration, fhir_validation=fhir_validation(), origin_cap=False
+            agent, providers=configuration, fhir_validation=fhir_validation(), origin_cap=False
         )
-        dataset = resolve_dataset(pack, args.dataset)
-        issued = _ticket_for(args, pack, configuration, dataset)
+        dataset = resolve_dataset(agent, args.dataset)
+        issued = _ticket_for(args, agent, configuration, dataset)
     else:
         decision = _decision(args, origin_cap=False)  # measures the agent's own policy
-        pack = decision.pack
-        dataset = resolve_dataset(pack, args.dataset)
+        agent = decision.agent
+        dataset = resolve_dataset(agent, args.dataset)
         if args.limit:
             dataset = dataset.head(args.limit)
     workers = args.workers or (8 if decision.is_remote else 1)
@@ -308,19 +308,19 @@ def cmd_eval(args: argparse.Namespace) -> int:
     report = run.report
     checked = None
     if stated.stated or held is not None:
-        tolerance = pack.manifest.evaluation.degradation_tolerance
+        tolerance = agent.manifest.evaluation.degradation_tolerance
         checked = gate.check(report, stated, held, tolerance)
 
     comparison = None
     if args.baseline != "none":
         if args.baseline == "auto":
-            is_benchmark_run = dataset.name == pack.manifest.evaluation.benchmark_dataset
-            baseline = None if is_benchmark_run else benchmark(pack)
+            is_benchmark_run = dataset.name == agent.manifest.evaluation.benchmark_dataset
+            baseline = None if is_benchmark_run else benchmark(agent)
         else:
             baseline = _read_json(args.baseline, "--baseline", shape=dict)
         if baseline is not None:
-            tolerance = pack.manifest.evaluation.degradation_tolerance
-            if args.baseline == "auto" and pack.origin == "hub":
+            tolerance = agent.manifest.evaluation.degradation_tolerance
+            if args.baseline == "auto" and agent.origin == "hub":
                 # An agent from a registry carries its publisher's benchmark, never a reference
                 # (ADR-0012); a report given with --baseline is the caller's own.
                 comparison = not_compared(FROM_REGISTRY)
@@ -339,24 +339,24 @@ def cmd_eval(args: argparse.Namespace) -> int:
     if args.db:
         AuditStore(args.db).save_report(report, ledger=run.ledger.dumps(), usage=run.usage)
     if publisher_key is not None:
-        # Counts only (mendari.publisher-evaluation/2), signed with a namespace key, sent with
+        # Counts only (mendari.publisher-evaluation/1), signed with a namespace key, sent with
         # its publisher token: the registry re-runs a local configuration and refuses counts
         # that are not its own (ADR-0020).
         with _registry_client(args) as registry:
-            published = _publish_run(registry, pack, run, publisher_key, args.labelled_by)
+            published = _publish_run(registry, agent, run, publisher_key, args.labelled_by)
             print(
-                f"published evaluation {published['id']} of {published['pack']}@"
+                f"published evaluation {published['id']} of {published['agent']}@"
                 f"{published['version']} ({_configuration_words(published['configuration'])}, "
                 f"dataset {published['dataset']}): {published['rerun_words']}",
                 file=sys.stderr,
             )
-            for line in _where_it_shows(registry, pack.id):
+            for line in _where_it_shows(registry, agent.id):
                 print(line, file=sys.stderr)
     if issued is not None:
         from mendari.evals.share import shareable
         from mendari.hub import site_signing
 
-        # Counts only (mendari.site-report/2), from the run's ledger, small cells suppressed,
+        # Counts only (mendari.site-report/1), from the run's ledger, small cells suppressed,
         # signed with the site's key as the ticket's answer.
         counts = shareable(run.ledger, remote_consent=bool(args.consent_remote))
         submission = site_signing.Site().sign(
@@ -431,8 +431,8 @@ def _held_to(args: argparse.Namespace) -> dict[str, Any] | None:
     from mendari.evals.gate import baseline_problem
 
     held: dict[str, Any] = _read_json(args.no_worse_than, "--no-worse-than", shape=dict)
-    pack = resolve_pack(args.pack)
-    problem = baseline_problem(held, pack.id, pack.manifest.policy.primary)
+    agent = resolve_agent(args.agent)
+    problem = baseline_problem(held, agent.id, agent.manifest.policy.primary)
     if problem is not None:
         raise MendariError(f"--no-worse-than {_path_shown(args.no_worse_than)}: {problem}")
     return held
@@ -489,26 +489,26 @@ def _publishing(args: argparse.Namespace, sharing: bool) -> Any:
         raise MendariError("a published evaluation covers the whole dataset: drop --limit")
     if not args.key:
         raise MendariError("--publish signs with a namespace's publisher key: --key FILE")
-    _published_dataset(resolve_pack(args.pack), args.dataset, "--publish")
+    _published_dataset(resolve_agent(args.agent), args.dataset, "--publish")
     _labelled_by(args.labelled_by)
     return archive.load_private_key(Path(args.key).read_bytes())
 
 
-def _published_dataset(pack: Pack, dataset: str, flag: str) -> None:
+def _published_dataset(agent: Agent, dataset: str, flag: str) -> None:
     """A published evaluation's dataset is one the agent's manifest declares: a public set in
     its signed archive, which the registry holds too, never a file; and one large enough to
     publish. Refused here, before anything is run or sent."""
     from mendari.evals import resolve_dataset
     from mendari.evals.share import MIN_DATASET
 
-    declared = pack.manifest.evaluation.datasets
+    declared = agent.manifest.evaluation.datasets
     if dataset not in declared:
         named = ", ".join(declared) or "none"
         raise MendariError(
             f"{flag}: the dataset is one the agent's manifest declares, in its signed archive "
             f"({named}), never a file"
         )
-    cases = len(resolve_dataset(pack, dataset).records)
+    cases = len(resolve_dataset(agent, dataset).records)
     if cases < MIN_DATASET:
         raise MendariError(
             f"{flag}: a published evaluation is of at least {MIN_DATASET} cases, and {dataset} "
@@ -535,7 +535,7 @@ def _configuration_words(configuration: Mapping[str, str]) -> str:
 
 
 def _publish_run(
-    registry: Any, pack: Pack, run: Any, key: Any, labelled_by: str | None
+    registry: Any, agent: Agent, run: Any, key: Any, labelled_by: str | None
 ) -> dict[str, Any]:
     """Sign one run as the publisher's evaluation and send it; the registry's answer. A run in
     which a provider failed is published with how many cases that was (where an answer is
@@ -543,7 +543,7 @@ def _publish_run(
     configuration), and this says so here too."""
     from mendari.hub import evaluations
 
-    record = evaluations.build(pack, run, key=key, labelled_by=labelled_by)
+    record = evaluations.build(agent, run, key=key, labelled_by=labelled_by)
     failed = record["claimed"]["failed_cases"]
     if failed:
         print(
@@ -567,12 +567,12 @@ def _linkable(url: Any, ends: str) -> str | None:
     return url
 
 
-def _where_it_shows(registry: Any, pack_id: str) -> list[str]:
+def _where_it_shows(registry: Any, agent_id: str) -> list[str]:
     """After a publish: where the Agent Hub shows the agent's evaluation, and the Markdown
     line that puts its badge in a README, linked to that page. The badge is the registry's own
     answer, so its address is the registry's; the page's is whatever Hub the registry names
     (`MENDARI_REGISTRY_HUB_URL`). A registry from before evaluation pages says so."""
-    namespace, name = pack_id.split("/")
+    namespace, name = agent_id.split("/")
     try:
         found = registry.evaluation(namespace, name)
     except HubError:
@@ -598,11 +598,11 @@ def _where_it_shows(registry: Any, pack_id: str) -> list[str]:
     return lines
 
 
-def _calibration_set_note(pack: Pack, name: str) -> None:
+def _calibration_set_note(agent: Agent, name: str) -> None:
     """Say, for an `llm` variant and an `agent` variant alike, that a calibration is being
     fitted on one of the agent's own evaluation sets: `mendari eval` on it then reports on the
     cases the fit saw. The agent's fitting sets (`train`, `calibration`) are what a fit is for."""
-    if name in pack.manifest.evaluation.datasets and name not in ("train", "calibration"):
+    if name in agent.manifest.evaluation.datasets and name not in ("train", "calibration"):
         print(
             f"note: {name} is one of this agent's evaluation sets. A calibration fitted on the "
             "cases an evaluation reports on makes that evaluation look better calibrated than "
@@ -611,7 +611,7 @@ def _calibration_set_note(pack: Pack, name: str) -> None:
         )
 
 
-def _calibrate_agent(args: argparse.Namespace, pack: Pack, provider: Any) -> int:
+def _calibrate_agent(args: argparse.Namespace, agent: Agent, provider: Any) -> int:
     """`mendari calibrate` for an `agent` variant (ADR-0024): the live agent is asked about each
     labelled case once, and one temperature per question is fitted on its own confidence, for
     the version its service reported (`providers/agent_calibration.py`)."""
@@ -621,14 +621,14 @@ def _calibrate_agent(args: argparse.Namespace, pack: Pack, provider: Any) -> int
 
     where = f"{args.slot}/{args.variant}"
     provider.preflight()
-    dataset = resolve_dataset(pack, args.dataset)
+    dataset = resolve_dataset(agent, args.dataset)
     if args.limit:
         dataset = dataset.head(args.limit)
-    problems = record_problems(pack.manifest, dataset)
+    problems = record_problems(agent.manifest, dataset)
     if problems:
         more = f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""
         raise MendariError(f"{problems[0]}{more}")
-    _calibration_set_note(pack, dataset.name)
+    _calibration_set_note(agent, dataset.name)
     records = dataset.records
     print(f"asking {provider.info.model or where} about {len(records)} {dataset.name} cases...")
     fitted = agent_calibration.fit(
@@ -649,7 +649,7 @@ def _calibrate_agent(args: argparse.Namespace, pack: Pack, provider: Any) -> int
     relative = (
         provider.settings.calibration or f"models/{args.slot}-{args.variant}-calibration.json"
     )
-    target = pack.path(relative)
+    target = agent.path(relative)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(fitted, indent=2) + "\n", encoding="utf-8")
     for question, found in fitted["questions"].items():
@@ -661,9 +661,9 @@ def _calibrate_agent(args: argparse.Namespace, pack: Pack, provider: Any) -> int
     if fitted["failures"]:
         print(f"  failed calls: {fitted['failures']}")
     print(f"cost: ${fitted['cost_usd']}" if fitted["cost_usd"] is not None else "cost: unknown")
-    agent = fitted["agent"]
+    service = fitted["service"]
     print(
-        f"fitted for {agent['id'] or 'the agent'} version {agent['version']}: when its service "
+        f"fitted for {service['id'] or 'the agent'} version {service['version']}: when its service "
         "reports another version, nothing is rescaled and no decision is automated until it is "
         "calibrated again"
     )
@@ -679,15 +679,15 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     from mendari.providers.agent import AgentProvider
     from mendari.providers.llm import LlmProvider, fit_calibration
 
-    pack = resolve_pack(args.pack)
-    provider = build_provider(pack, args.slot, args.variant)
+    agent = resolve_agent(args.agent)
+    provider = build_provider(agent, args.slot, args.variant)
     if isinstance(provider, AgentProvider):
-        return _calibrate_agent(args, pack, provider)
+        return _calibrate_agent(args, agent, provider)
     if not isinstance(provider, LlmProvider):
         raise MendariError(f"{args.slot}/{args.variant} is not an llm or an agent variant")
     provider.preflight()  # e.g. no model (there is no default): one line, before anything else
-    dataset = resolve_dataset(pack, args.dataset)
-    _calibration_set_note(pack, dataset.name)
+    dataset = resolve_dataset(agent, args.dataset)
+    _calibration_set_note(agent, dataset.name)
     records = dataset.records[: args.limit] if args.limit else dataset.records
     print(f"asking {provider.model} about {len(records)} {dataset.name} records...")
     fitted = fit_calibration(provider, records, workers=args.workers)
@@ -699,7 +699,7 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     relative = (
         provider.settings.calibration or f"models/{args.slot}-{args.variant}-calibration.json"
     )
-    target = pack.path(relative)
+    target = agent.path(relative)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(fitted, indent=2) + "\n", encoding="utf-8")
     for question, stats in fitted["questions"].items():
@@ -741,18 +741,18 @@ def cmd_written_eval(args: argparse.Namespace) -> int:
 
     _written_resamples(args.resamples)  # before the agent or a judge is asked anything
     decision = _decision(args, origin_cap=False)  # the agent's own answers, as `mendari eval`
-    pack = decision.pack
-    if args.rubric not in pack.manifest.rubrics:
-        known = ", ".join(pack.manifest.rubrics) or "none"
-        raise MendariError(f"{pack.id} has no rubric {args.rubric!r} (its rubrics: {known})")
-    dataset = resolve_dataset(pack, args.dataset)
+    agent = decision.agent
+    if args.rubric not in agent.manifest.rubrics:
+        known = ", ".join(agent.manifest.rubrics) or "none"
+        raise MendariError(f"{agent.id} has no rubric {args.rubric!r} (its rubrics: {known})")
+    dataset = resolve_dataset(agent, args.dataset)
     whole = dataset
     if args.limit:
         dataset = dataset.head(args.limit)
-    judge = Judge(pack, args.rubric, mode=args.judge)
+    judge = Judge(agent, args.rubric, mode=args.judge)
     workers = args.workers or (8 if decision.is_remote or not judge.canned else 1)
     run = written.run(decision, dataset, args.rubric, judge=judge, workers=workers)
-    grades = _written_grades(args, pack, whole)
+    grades = _written_grades(args, agent, whole)
     # The bootstrap's seed is the report's constant default: no option chooses its draws.
     found = written.report(run.ledger, grades, resamples=args.resamples)
     report = written.run_report(found, run.ledger)
@@ -818,19 +818,19 @@ def cmd_written_round_create(args: argparse.Namespace) -> int:
         if store.store.organizations() and store.store.organization(args.org) is None:
             raise MendariError(f"no organization {args.org} in {shown}: create it first")
         decision = _decision(args, origin_cap=False)
-        pack = decision.pack
-        if args.rubric not in pack.manifest.rubrics:
-            known = ", ".join(pack.manifest.rubrics) or "none"
-            raise MendariError(f"{pack.id} has no rubric {args.rubric!r} (its rubrics: {known})")
-        dataset = resolve_dataset(pack, args.dataset)
+        agent = decision.agent
+        if args.rubric not in agent.manifest.rubrics:
+            known = ", ".join(agent.manifest.rubrics) or "none"
+            raise MendariError(f"{agent.id} has no rubric {args.rubric!r} (its rubrics: {known})")
+        dataset = resolve_dataset(agent, args.dataset)
         if args.limit:
             dataset = dataset.head(args.limit)
-        judge = Judge(pack, args.rubric, mode=args.judge)
+        judge = Judge(agent, args.rubric, mode=args.judge)
         workers = args.workers or (8 if decision.is_remote or not judge.canned else 1)
         run = written.run(decision, dataset, args.rubric, judge=judge, workers=workers)
         made = store.create_round(
             args.org,
-            pack,
+            agent,
             args.rubric,
             run,
             sample=args.sample,
@@ -910,13 +910,13 @@ def cmd_written_round_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def _written_grades(args: argparse.Namespace, pack: Pack, dataset: Any) -> Any:
+def _written_grades(args: argparse.Namespace, agent: Agent, dataset: Any) -> Any:
     """The clinicians' grades a written-output run is compared with: `--grades`, else the file
     the agent declares for the rubric when its dataset is the one run, else none. A file of
     another dataset than the one run is refused, as one of another rubric wording is."""
     from mendari.evals import written
 
-    manifest = pack.manifest
+    manifest = agent.manifest
     scales = {
         key: [level for level, _ in criterion.scale()]
         for key, criterion in manifest.rubrics[args.rubric].criteria.items()
@@ -929,7 +929,7 @@ def _written_grades(args: argparse.Namespace, pack: Pack, dataset: Any) -> Any:
         except OSError as error:
             raise MendariError(f"--grades: cannot read the file ({type(error).__name__})") from None
     elif declared is not None and declared.dataset == args.dataset:
-        where, raw = declared.file, pack.read_bytes(declared.file)
+        where, raw = declared.file, agent.read_bytes(declared.file)
     else:
         return None
     header, grades = written.load_grades(raw, where=where, scales=scales)
@@ -945,7 +945,7 @@ MAX_RESAMPLES = 100_000
 
 
 def cmd_compare(args: argparse.Namespace) -> int:
-    from mendari.core.registry import resolve_pack
+    from mendari.core.registry import resolve_agent
     from mendari.evals import paired
     from mendari.evals.harness import load_dataset, resolve_dataset
     from mendari.evals.ledger import case_hash
@@ -959,7 +959,7 @@ def cmd_compare(args: argparse.Namespace) -> int:
     if Path(args.dataset).is_file():
         dataset = load_dataset(args.dataset)
     else:
-        dataset = resolve_dataset(resolve_pack(a.header["pack"]["id"]), args.dataset)
+        dataset = resolve_dataset(resolve_agent(a.header["agent"]["id"]), args.dataset)
     result = paired.compare(
         a, b, dataset_sha256=dataset.sha256, seed=args.seed, resamples=args.resamples,
         alpha=args.alpha,
@@ -978,15 +978,15 @@ def cmd_compare(args: argparse.Namespace) -> int:
 def cmd_leaderboard(args: argparse.Namespace) -> int:
     from mendari.evals import evaluate, leaderboard, resolve_dataset
 
-    pack = resolve_pack(args.pack)
+    agent = resolve_agent(args.agent)
     reports = [_read_json(path, "--report", shape=dict) for path in args.report]
     datasets = []
     for name in args.dataset:
-        dataset = resolve_dataset(pack, name)
+        dataset = resolve_dataset(agent, name)
         datasets.append(dataset.head(args.limit) if args.limit else dataset)
     for run in args.run:
-        providers = _providers(pack, parse_providers(run.split(",")))
-        decision = Decision(pack, providers=providers, origin_cap=False)  # the agent's policy
+        providers = _providers(agent, parse_providers(run.split(",")))
+        decision = Decision(agent, providers=providers, origin_cap=False)  # the agent's policy
         workers = args.workers or (8 if decision.is_remote else 1)
         for dataset in datasets:
             report = evaluate(decision, dataset, workers=workers)
@@ -996,16 +996,16 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
             print(f"{leaderboard.config_label(report['providers'])} on {dataset.name}: {status}")
     if not reports:
         raise MendariError("nothing to add: pass --run and --dataset, or --report")
-    target = Path(args.out) if args.out else pack.attestation(leaderboard.PATH)
+    target = Path(args.out) if args.out else agent.attestation(leaderboard.PATH)
     existing = None
     if target.is_file() and not args.fresh:
         existing = _read_json(str(target), "--out", shape=dict)
-    board = leaderboard.build(pack, reports, existing)
+    board = leaderboard.build(agent, reports, existing)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(board, indent=2) + "\n", encoding="utf-8")
     # The card's opening, then its tables: a regression check, not a ranking (LP-17g).
     print(leaderboard.preface(), end="\n\n")
-    print("\n".join(leaderboard.markdown(board, pack.digest, pack.version)))
+    print("\n".join(leaderboard.markdown(board, agent.digest, agent.version)))
     print(f"-> {target}")
     return 0
 
@@ -1016,9 +1016,9 @@ def cmd_data_coverage(args: argparse.Namespace) -> int:
     from mendari.evals import resolve_dataset
     from mendari.evals.coverage import coverage, coverage_text
 
-    pack = resolve_pack(args.pack)
-    dataset = resolve_dataset(pack, args.dataset)
-    report = coverage(pack.manifest, dataset, pack=pack.ref, ids=args.ids)
+    agent = resolve_agent(args.agent)
+    dataset = resolve_dataset(agent, args.dataset)
+    report = coverage(agent.manifest, dataset, agent=agent.ref, ids=args.ids)
     if args.json:
         _print_json(report)
     else:
@@ -1036,23 +1036,23 @@ def cmd_data_check(args: argparse.Namespace) -> int:
     from mendari.evals import dataset_checks
     from mendari.evals.harness import load_dataset, resolve_dataset
 
-    pack = resolve_pack(args.pack)
+    agent = resolve_agent(args.agent)
     if args.file:
         path = Path(args.file)
         datasets = [(load_dataset(path), path.name, path.read_bytes())]
     else:
-        declared = pack.manifest.evaluation.datasets
+        declared = agent.manifest.evaluation.datasets
         datasets = [
-            (resolve_dataset(pack, name), str(file), pack.read_bytes(file))
+            (resolve_dataset(agent, name), str(file), agent.read_bytes(file))
             for name, file in declared.items()
         ]
         if not datasets:
-            print(f"{pack.ref} declares no dataset: nothing to check", file=sys.stderr)
+            print(f"{agent.ref} declares no dataset: nothing to check", file=sys.stderr)
             return 0
     reports = []
     failed = False
     for dataset, label, raw in datasets:
-        report = dataset_checks.check(pack, dataset)
+        report = dataset_checks.check(agent, dataset)
         failed |= not report.passed
         data = dict(report.data)
         text = dataset_checks.text(report)
@@ -1085,10 +1085,10 @@ def _phi_text(report: Any) -> str:
 def cmd_card(args: argparse.Namespace) -> int:
     from mendari.core.card import card_of
 
-    pack = resolve_pack(args.pack)
-    card = card_of(pack)
+    agent = resolve_agent(args.agent)
+    card = card_of(agent)
     if args.write:
-        target = pack.root / "DECISION_CARD.md"
+        target = agent.root / "DECISION_CARD.md"
         if target.is_symlink():  # the write would land wherever the link points
             raise MendariError(f"{target} is a symbolic link; not writing through it")
         target.write_text(card, encoding="utf-8")
@@ -1099,8 +1099,8 @@ def cmd_card(args: argparse.Namespace) -> int:
 
 
 def cmd_schema(args: argparse.Namespace) -> int:
-    pack = resolve_pack(args.pack)
-    _print_json(pack.output_schema if args.output else pack.input_schema)
+    agent = resolve_agent(args.agent)
+    _print_json(agent.output_schema if args.output else agent.input_schema)
     return 0
 
 
@@ -1361,17 +1361,17 @@ def cmd_automation_hold(args: argparse.Namespace) -> int:
     if args.digest is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", args.digest):
         raise MendariError("--digest is an agent's digest (sha256:<64 hex>)")
     store, shown = _hold_store(args.db, serving=True)
-    if args.pack is not None:
-        served = {d["pack_digest"] for d in store.deployments(args.pack, limit=1000)}
+    if args.agent is not None:
+        served = {d["agent_digest"] for d in store.deployments(args.agent, limit=1000)}
         if not served:
-            raise MendariError(f"{shown} has never served {args.pack}")
+            raise MendariError(f"{shown} has never served {args.agent}")
         if args.digest is not None and args.digest not in served:
-            raise MendariError(f"{shown} has never served {args.pack} at {args.digest}")
+            raise MendariError(f"{shown} has never served {args.agent} at {args.digest}")
     org = None if args.all_orgs else args.org
     hold = store.hold_automation(
         org=org,
-        pack_id=args.pack,
-        pack_digest=args.digest,
+        agent_id=args.agent,
+        agent_digest=args.digest,
         reason=args.reason,
         set_by=_command_line_actor(),
     )
@@ -1591,7 +1591,7 @@ def cmd_access_end_sessions(args: argparse.Namespace) -> int:
 def cmd_audit_export(args: argparse.Namespace) -> int:
     from mendari.standards import audit_fhir
 
-    if args.administrative and args.pack:
+    if args.administrative and args.agent:
         print("--agent is for decisions' events, not --administrative ones", file=sys.stderr)
         return 2
     bounds = {"since": args.since, "until": args.until}
@@ -1604,7 +1604,7 @@ def cmd_audit_export(args: argparse.Namespace) -> int:
         else:
             if args.org is not None:
                 acting.enter_context(tenancy.acting_for(args.org))
-            resources = audit_fhir.resources(store.iter_events(pack_id=args.pack, **bounds))
+            resources = audit_fhir.resources(store.iter_events(agent_id=args.agent, **bounds))
         lines = (json.dumps(r, separators=(",", ":")) + "\n" for r in resources)
         if not args.out:
             sys.stdout.writelines(lines)
@@ -1676,16 +1676,16 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
         raise MendariError("--rating filters ratings: leave it out with --source reviews")
     if not 1 <= args.limit <= MAX_EXPORTED:
         raise MendariError(f"--limit is 1 to {MAX_EXPORTED:,}")
-    pack = resolve_pack(args.pack)
+    agent = resolve_agent(args.agent)
     # With --org, one organization's decisions: what an agent learns from is one site's.
     with _read_store(args.db) as store, contextlib.ExitStack() as acting:
         if args.org is not None:
             acting.enter_context(tenancy.acting_for(args.org))
         if reviews:
-            records, skipped = reviewed_dataset(store, pack_id=pack.id, limit=args.limit)
+            records, skipped = reviewed_dataset(store, agent_id=agent.id, limit=args.limit)
         else:
             records, skipped = feedback_dataset(
-                store, pack_id=pack.id, rating=args.rating or "down", limit=args.limit
+                store, agent_id=agent.id, rating=args.rating or "down", limit=args.limit
             )
     _write_jsonl(Path(args.out), records)
     counted = (
@@ -1720,9 +1720,9 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
 def _served_id(agent: str) -> str:
     """The id an engine serves an agent under, from what a sandbox command was given: a
     directory's own id, or the id as typed (the agent need not be on this machine)."""
-    from mendari.core.pack import has_manifest
+    from mendari.core.agent import has_manifest
 
-    return resolve_pack(agent).id if has_manifest(Path(agent)) else agent.partition("@")[0]
+    return resolve_agent(agent).id if has_manifest(Path(agent)) else agent.partition("@")[0]
 
 
 def cmd_sandbox_seed(args: argparse.Namespace) -> int:
@@ -1732,10 +1732,10 @@ def cmd_sandbox_seed(args: argparse.Namespace) -> int:
         args.fhir,
         count=args.count,
         wait_seconds=args.wait,
-        agent=args.pack,
+        agent=args.agent,
         dataset=args.dataset,
     )
-    print(f"seeded {created} synthetic messages of {_served_id(args.pack)} into {args.fhir}")
+    print(f"seeded {created} synthetic messages of {_served_id(args.agent)} into {args.fhir}")
     return 0
 
 
@@ -1745,7 +1745,7 @@ def cmd_sandbox_worker(args: argparse.Namespace) -> int:
     fhir_workflow.run_worker(
         args.fhir,
         args.engine,
-        pack_id=_served_id(args.pack),
+        agent_id=_served_id(args.agent),
         interval=args.interval,
         once=args.once,
     )
@@ -1760,7 +1760,7 @@ def cmd_sandbox_cds_client(args: argparse.Namespace) -> int:
 
     if args.limit < 1:
         raise MendariError("--limit is at least 1: the client calls the hook for each case")
-    agent = resolve_pack(args.pack)
+    agent = resolve_agent(args.agent)
     with cds_client.SandboxClient(listen=args.listen, iss=args.iss) as client:
         entry = client.entry(client_id=args.id, org=args.org, fhir_server=args.fhir)
         print(f"MENDARI_CDS_CLIENTS entry: {json.dumps(entry)}", flush=True)
@@ -1795,7 +1795,7 @@ def cmd_sandbox_smart_launch(args: argparse.Namespace) -> int:
         engine=args.engine,
         launcher=args.launcher,
         fhir=args.fhir,
-        agent=resolve_pack(args.pack),
+        agent=resolve_agent(args.agent),
         patient=args.patient,
         limit=args.limit,
         expect_org=args.expect_org,
@@ -1835,7 +1835,7 @@ def cmd_sandbox_pilot_check(args: argparse.Namespace) -> int:
 
     try:
         result = pilot_check.run(
-            engine=args.engine, messages=args.messages, agent=args.pack, approve=args.approve
+            engine=args.engine, messages=args.messages, agent=args.agent, approve=args.approve
         )
     except MendariError as failure:
         print(f"pilot-check: {failure}", file=sys.stderr)
@@ -1888,12 +1888,12 @@ def cmd_bulk_dataset(args: argparse.Namespace) -> int:
     from mendari.standards import bulk
     from mendari.standards.fhir import FhirAdapter
 
-    adapter = FhirAdapter.for_pack(resolve_pack(args.pack))
+    adapter = FhirAdapter.for_agent(resolve_agent(args.agent))
     resources = list(bulk.read_ndjson(Path(args.ndjson)))
     labels = bulk.load_labels(Path(args.labels))
     records, skipped = bulk.dataset(adapter, resources, labels, key_system=args.key_system)
     if not records:
-        raise MendariError(f"no labelled cases for {args.pack} in {args.ndjson} ({skipped})")
+        raise MendariError(f"no labelled cases for {args.agent} in {args.ndjson} ({skipped})")
     _write_jsonl(Path(args.out), records)
     left = ", ".join(f"{n} {why.replace('_', ' ')}" for why, n in skipped.items() if n)
     print(f"{len(records)} cases written to {args.out}" + (f" (left out: {left})" if left else ""))
@@ -1903,7 +1903,7 @@ def cmd_bulk_dataset(args: argparse.Namespace) -> int:
 def cmd_sandbox_bulk_check(args: argparse.Namespace) -> int:
     from mendari.sandbox import bulk_check
 
-    result = bulk_check.run(args.fhir, resolve_pack(args.pack), args.dataset)
+    result = bulk_check.run(args.fhir, resolve_agent(args.agent), args.dataset)
     _print_json(result)
     if not result["identical"]:
         differences = ", ".join(result["differences"])
@@ -1931,22 +1931,22 @@ def cmd_keys_generate(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_pack_build(args: argparse.Namespace) -> int:
+def cmd_agent_build(args: argparse.Namespace) -> int:
     import hashlib
 
     from mendari.hub import archive
 
-    pack = resolve_pack(args.pack)
+    agent = resolve_agent(args.agent)
     key = archive.load_private_key(Path(args.key).read_bytes())
-    data = archive.build(pack, key)
-    out = Path(args.out) / archive.archive_name(pack)
+    data = archive.build(agent, key)
+    out = Path(args.out) / archive.archive_name(agent)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(data)
     print(f"{out}  sha256:{hashlib.sha256(data).hexdigest()}  ({len(data)} bytes)")
     return 0
 
 
-def cmd_pack_verify(args: argparse.Namespace) -> int:
+def cmd_agent_verify(args: argparse.Namespace) -> int:
     import tempfile
 
     from mendari.hub import archive
@@ -1954,8 +1954,8 @@ def cmd_pack_verify(args: argparse.Namespace) -> int:
     public = archive.load_public_key(Path(args.public_key).read_bytes())
     verified = archive.verify(Path(args.archive).read_bytes(), {archive.key_id(public): public})
     with tempfile.TemporaryDirectory() as scratch:
-        pack = archive.extract(verified, Path(scratch), origin="hub")  # as a puller loads it
-        print(f"OK {pack.id}@{pack.version} {pack.digest} signed by {verified.key_id}")
+        agent = archive.extract(verified, Path(scratch), origin="hub")  # as a puller loads it
+        print(f"OK {agent.id}@{agent.version} {agent.digest} signed by {verified.key_id}")
     return 0
 
 
@@ -2236,7 +2236,9 @@ def cmd_registry_sites(args: argparse.Namespace) -> int:
     return 0
 
 
-def _site_configuration(pack: Any, providers: list[str] | None, *, consent: bool) -> dict[str, str]:
+def _site_configuration(
+    agent: Any, providers: list[str] | None, *, consent: bool
+) -> dict[str, str]:
     """The configuration a site evaluates and shares (LP-22e): the variants `--provider` names
     (with the agent's defaults for the other slots), or with none named the agent's defaults
     when they are local, else its first wholly local configuration (each slot's first local
@@ -2244,10 +2246,10 @@ def _site_configuration(pack: Any, providers: list[str] | None, *, consent: bool
     `--consent-remote`."""
     # Only what --provider names: never $MENDARI_PROVIDERS, a deployment's setting.
     settings = parse_providers(providers) if providers else {}
-    chosen = _providers(pack, settings, typed=bool(providers))
-    decision = Decision(pack, providers=chosen)
+    chosen = _providers(agent, settings, typed=bool(providers))
+    decision = Decision(agent, providers=chosen)
     configuration = {slot: info.variant for slot, info in decision.provider_info.items()}
-    slots = pack.manifest.providers
+    slots = agent.manifest.providers
     local = all(_decides_here(slots[slot].variants[name]) for slot, name in configuration.items())
     if not providers and not local:
         local_variants = {
@@ -2256,7 +2258,7 @@ def _site_configuration(pack: Any, providers: list[str] | None, *, consent: bool
         }
         if not all(local_variants.values()):
             raise MendariError(
-                f"{pack.id} has no configuration that runs wholly on this machine: name one "
+                f"{agent.id} has no configuration that runs wholly on this machine: name one "
                 "with --provider, and --consent-remote"
             )
         return {slot: names[0] for slot, names in local_variants.items()}
@@ -2316,9 +2318,9 @@ def cmd_site_key(args: argparse.Namespace) -> int:
 
 
 def _ticket_request(
-    pack: Any, configuration: dict[str, str], dataset: Any, *, consent: bool, supersedes: Any
+    agent: Any, configuration: dict[str, str], dataset: Any, *, consent: bool, supersedes: Any
 ) -> dict[str, Any]:
-    """A signed ticket request for a run of `pack` in `configuration` on `dataset`'s whole
+    """A signed ticket request for a run of `agent` in `configuration` on `dataset`'s whole
     file (LP-22e): the commitment is over the file's bytes, `n` its cases."""
     from mendari.hub import site_signing
 
@@ -2327,7 +2329,7 @@ def _ticket_request(
     if not raw:
         raise MendariError(f"{dataset.name}: a site's dataset is a file it holds")
     fields: dict[str, Any] = {
-        "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
+        "agent": {"id": agent.id, "version": agent.version, "digest": agent.digest},
         "configuration": configuration,
         "remote_consent": bool(consent),
         "commitment": site.commitment(raw),
@@ -2351,7 +2353,7 @@ def _keep_ticket(issued: Mapping[str, Any]) -> Path:
 
 
 def _ticket_for(
-    args: argparse.Namespace, pack: Any, configuration: dict[str, str], dataset: Any
+    args: argparse.Namespace, agent: Any, configuration: dict[str, str], dataset: Any
 ) -> dict[str, Any]:
     """The ticket a shared run answers: `--ticket FILE` (fetched on another machine), or one
     asked for now; either way checked against this run before it starts."""
@@ -2361,7 +2363,7 @@ def _ticket_for(
         issued = _read_json(args.ticket, "--ticket", shape=dict)
     else:
         request = _ticket_request(
-            pack, configuration, dataset, consent=args.consent_remote, supersedes=args.supersedes
+            agent, configuration, dataset, consent=args.consent_remote, supersedes=args.supersedes
         )
         with _registry_client(args) as registry:
             issued = registry.request_ticket(request)
@@ -2370,7 +2372,7 @@ def _ticket_for(
     site = site_signing.Site()
     expected = {
         "site": site.id,
-        "digest": pack.digest,
+        "digest": agent.digest,
         "configuration": configuration,
         "n": len(dataset.records),
         "commitment": site.commitment(dataset.path.read_bytes()),
@@ -2391,7 +2393,7 @@ def _submission_summary(submission: Mapping[str, Any]) -> str:
     report = submission["report"]
     primary = report["questions"].get(report["primary"]) or {}
     lines = [
-        f"{report['pack']['id']}@{report['pack']['version']} on {report['dataset']['n']} cases "
+        f"{report['agent']['id']}@{report['agent']['version']} on {report['dataset']['n']} cases "
         f"(ticket {submission['ticket']}, site {submission['site']})",
         f"  {report['primary']}: {primary.get('right')} of {primary.get('n')} right",
         f"  automated with a wrong recommendation: {report['decisions']['false_automation']}",
@@ -2420,13 +2422,13 @@ def cmd_site_ticket(args: argparse.Namespace) -> int:
             raise MendariError("--request sends a carried request: --out FILE keeps its ticket")
         request = _read_json(args.request, "--request", shape=dict)
     else:
-        if not (args.pack and args.dataset):
+        if not (args.agent and args.dataset):
             raise MendariError("name the agent and --dataset, or send a carried --request")
-        pack = resolve_pack(args.pack)
-        configuration = _site_configuration(pack, args.provider, consent=args.consent_remote)
-        dataset = resolve_dataset(pack, args.dataset)
+        agent = resolve_agent(args.agent)
+        configuration = _site_configuration(agent, args.provider, consent=args.consent_remote)
+        dataset = resolve_dataset(agent, args.dataset)
         request = _ticket_request(
-            pack, configuration, dataset, consent=args.consent_remote, supersedes=args.supersedes
+            agent, configuration, dataset, consent=args.consent_remote, supersedes=args.supersedes
         )
         if args.out:
             Path(args.out).write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
@@ -2480,14 +2482,14 @@ def cmd_registry_accept_report(args: argparse.Namespace) -> int:
 
     submission = _read_json(args.submission, "the submission", shape=dict)
     report = submission.get("report")
-    found = report.get("pack") if isinstance(report, dict) else None
-    pack: dict[str, Any] = found if isinstance(found, dict) else {}
-    namespace, _, name = str(pack.get("id", "")).partition("/")
+    found = report.get("agent") if isinstance(report, dict) else None
+    agent: dict[str, Any] = found if isinstance(found, dict) else {}
+    namespace, _, name = str(agent.get("id", "")).partition("/")
     with RegistryStore(_existing_registry(args.db)) as store:
         accepted = store.accept_submission(
             namespace,
             name,
-            str(pack.get("version", "")),
+            str(agent.get("version", "")),
             submission,
             ticket_id=None,
             by=_command_line_actor(),
@@ -2538,7 +2540,7 @@ def cmd_registry_publisher_type(args: argparse.Namespace) -> int:
 
 def cmd_registry_review(args: argparse.Namespace) -> int:
     """Record a version's review as the operator (LP-19e): the risk level the review found and
-    why, a short line about the agent, never case text. Chained (`pack.reviewed`) with who ran
+    why, a short line about the agent, never case text. Chained (`agent.reviewed`) with who ran
     this."""
     from mendari.hub.registry import RegistryStore, ReviewRequest
 
@@ -2562,7 +2564,7 @@ def cmd_registry_review(args: argparse.Namespace) -> int:
 def cmd_registry_recall(args: argparse.Namespace) -> int:
     """Recall a version as the operator (LP-19e): the registry signs the record with its own
     key ($MENDARI_REGISTRY_SIGNING_KEY, which this command needs), and every server that pulled
-    the version stops automating with it. Once. Chained (`pack.yanked`) with who ran this."""
+    the version stops automating with it. Once. Chained (`agent.yanked`) with who ran this."""
     from mendari.hub.registry import RegistryStore
 
     namespace, name, version = _registry_version(args.version)
@@ -2582,7 +2584,7 @@ def cmd_registry_recall(args: argparse.Namespace) -> int:
 def cmd_registry_delete(args: argparse.Namespace) -> int:
     """Delete a version as the operator (LP-19e): its archive is no longer served, and its
     bytes go when no other version needs them; the row and a tombstone with the reason stay.
-    Once, and for good. Chained (`pack.deleted`) with who ran this."""
+    Once, and for good. Chained (`agent.deleted`) with who ran this."""
     from mendari.hub.registry import RegistryStore
 
     namespace, name, version = _registry_version(args.version)
@@ -2630,7 +2632,7 @@ def cmd_registry_countersign(args: argparse.Namespace) -> int:
     ($MENDARI_REGISTRY_SIGNING_KEY), on the registry's database (LP-19i): the versions from
     before the registry counter-signed, or published while it had no key. Never a deleted
     version, nor one of a pending or refused namespace. Run again it signs nothing. Each record
-    is chained (`pack.accepted`) with who ran this. It refuses to run when the chain does not
+    is chained (`agent.accepted`) with who ran this. It refuses to run when the chain does not
     verify, and skips, with why, a version whose stored archive is not one a key of its
     namespace signed (exit 1 when any is skipped). With --checkpoint (a statement `mendari
     registry checkpoint` signed earlier, kept outside the database) the chain must also still
@@ -2689,7 +2691,7 @@ def cmd_login(args: argparse.Namespace) -> int:
 
     health = client.login(args.registry, args.token)
     access = "" if args.token else ", read-only"
-    print(f"logged in to {args.registry} ({health['packs']} agents{access})")
+    print(f"logged in to {args.registry} ({health['agents']} agents{access})")
     return 0
 
 
@@ -2705,7 +2707,7 @@ def cmd_push(args: argparse.Namespace) -> int:
     already holds, the same build, is not pushed again, so the command can be run again."""
     from mendari.hub import archive
 
-    pack = resolve_pack(args.pack)
+    agent = resolve_agent(args.agent)
     key = archive.load_private_key(Path(args.key).read_bytes())
     if args.evaluate is None:
         for flag, given in (
@@ -2717,32 +2719,32 @@ def cmd_push(args: argparse.Namespace) -> int:
                 raise MendariError(f"{flag} is for --evaluate DATASET: add it")
         configurations: list[dict[str, str]] = []
     else:  # refused before anything is sent
-        _published_dataset(pack, args.evaluate, "--evaluate")
+        _published_dataset(agent, args.evaluate, "--evaluate")
         _labelled_by(args.labelled_by)
-        configurations = _evaluated_configurations(pack, args.configuration)
+        configurations = _evaluated_configurations(agent, args.configuration)
     with _registry_client(args) as registry:
         try:
-            published = registry.push(pack, key)
+            published = registry.push(agent, key)
         except HubError as error:
             if error.status != 409 or args.evaluate is None:
                 raise
-            namespace, name = pack.id.split("/")
-            held = registry.version(namespace, name, pack.version)
-            if held.get("digest") != pack.digest:
+            namespace, name = agent.id.split("/")
+            held = registry.version(namespace, name, agent.version)
+            if held.get("digest") != agent.digest:
                 raise MendariError(
-                    f"{pack.id}@{pack.version} is published as another build "
+                    f"{agent.id}@{agent.version} is published as another build "
                     f"({held.get('digest')}): versions are immutable, so give this one a new "
                     "version and push again"
                 ) from None
-            print(f"already published: {pack.id}@{pack.version} {pack.digest}")
+            print(f"already published: {agent.id}@{agent.version} {agent.digest}")
         else:
             print(f"published {published['id']}@{published['version']} {published['digest']}")
         if args.evaluate is None:
             return 0
-        return _publish_evaluations(args, registry, pack, key, configurations)
+        return _publish_evaluations(args, registry, agent, key, configurations)
 
 
-def _evaluated_configurations(pack: Pack, named: Sequence[str]) -> list[dict[str, str]]:
+def _evaluated_configurations(agent: Agent, named: Sequence[str]) -> list[dict[str, str]]:
     """The configurations `mendari push --evaluate` runs: those named (`--configuration`, each
     a slot's variant or several, as `mendari leaderboard --run` takes them; a slot left out
     keeps its default), or every configuration the agent declares (the product of its slots'
@@ -2751,13 +2753,13 @@ def _evaluated_configurations(pack: Pack, named: Sequence[str]) -> list[dict[str
     import math
 
     if named:
-        chosen = [_providers(pack, parse_providers(given.split(","))) for given in named]
+        chosen = [_providers(agent, parse_providers(given.split(","))) for given in named]
     else:
-        slots = pack.manifest.providers
+        slots = agent.manifest.providers
         count = math.prod(len(slot.variants) for slot in slots.values())
         if count > MAX_EVALUATED:
             raise MendariError(
-                f"{pack.id} has {count} configurations: name the ones to evaluate, each with "
+                f"{agent.id} has {count} configurations: name the ones to evaluate, each with "
                 "--configuration SLOT=VARIANT[,SLOT=VARIANT...]"
             )
         chosen = [
@@ -2774,7 +2776,7 @@ def _evaluated_configurations(pack: Pack, named: Sequence[str]) -> list[dict[str
 def _publish_evaluations(
     args: argparse.Namespace,
     registry: Any,
-    pack: Pack,
+    agent: Agent,
     key: Any,
     configurations: Sequence[Mapping[str, str]],
 ) -> int:
@@ -2784,18 +2786,21 @@ def _publish_evaluations(
     from mendari.evals import resolve_dataset
     from mendari.evals.harness import evaluation
 
-    dataset = resolve_dataset(pack, args.evaluate)
+    dataset = resolve_dataset(agent, args.evaluate)
     refused = 0
     for configuration in configurations:
         decision = Decision(
-            pack, providers=dict(configuration), fhir_validation=fhir_validation(), origin_cap=False
+            agent,
+            providers=dict(configuration),
+            fhir_validation=fhir_validation(),
+            origin_cap=False,
         )
         run = evaluation(
             decision, dataset, workers=args.workers or (8 if decision.is_remote else 1)
         )
         ran = {slot: str(p["variant"]) for slot, p in run.ledger.header["providers"].items()}
         try:
-            published = _publish_run(registry, pack, run, key, args.labelled_by)
+            published = _publish_run(registry, agent, run, key, args.labelled_by)
         except HubError as error:
             refused += 1
             print(f"  {_configuration_words(ran)}: not published: {error}", file=sys.stderr)
@@ -2803,7 +2808,7 @@ def _publish_evaluations(
         print(f"  {_configuration_words(ran)}: {published['rerun_words']}")
     sent = len(configurations) - refused
     print(
-        f"published {sent} of {len(configurations)} evaluations of {pack.id}@{pack.version} "
+        f"published {sent} of {len(configurations)} evaluations of {agent.id}@{agent.version} "
         f"on {dataset.name} ({len(dataset.records)} cases), counts only, signed"
     )
     if refused:
@@ -2813,7 +2818,7 @@ def _publish_evaluations(
             file=sys.stderr,
         )
     if sent:
-        for line in _where_it_shows(registry, pack.id):
+        for line in _where_it_shows(registry, agent.id):
             print(line)
     return 1 if refused else 0
 
@@ -2823,11 +2828,11 @@ def cmd_pull(args: argparse.Namespace) -> int:
     from mendari.hub.client import pull, recall_of
 
     with _registry_client(args) as registry:
-        pack = pull(args.ref, registry, accept_new_key=args.accept_new_key)
-        namespace, name = pack.id.split("/")
-        recall = recall_of(registry.version(namespace, name, pack.version), registry, pack)
-    print(f"{pack.id}@{pack.version} {pack.digest}\n  verified and cached in {pack.root}")
-    if pulled_record(pack.root).get("accepted") is True:
+        agent = pull(args.ref, registry, accept_new_key=args.accept_new_key)
+        namespace, name = agent.id.split("/")
+        recall = recall_of(registry.version(namespace, name, agent.version), registry, agent)
+    print(f"{agent.id}@{agent.version} {agent.digest}\n  verified and cached in {agent.root}")
+    if pulled_record(agent.root).get("accepted") is True:
         print("  counter-signed by the registry: its record names this version and verifies")
     else:
         print("  not counter-signed: this registry publishes no signing key")
@@ -2843,7 +2848,7 @@ def cmd_pull(args: argparse.Namespace) -> int:
             f"  {signed}; do not automate with this version",
             file=sys.stderr,
         )
-    if pack.bounded:
+    if agent.bounded:
         print(
             "  runs on the engine for agents from a registry (RE2, a 1 s CPU budget per decision)"
         )
@@ -2858,14 +2863,14 @@ def cmd_pull(args: argparse.Namespace) -> int:
 
 def cmd_yank(args: argparse.Namespace) -> int:
     """Recall a version your namespace published, signed with its key (`hub/yank.py`)."""
-    from mendari.core.spec import is_pack_id, is_version
+    from mendari.core.spec import is_agent_id, is_version
     from mendari.hub import archive
 
-    pack_id, _, version = args.ref.partition("@")
-    if not is_pack_id(pack_id) or not is_version(version):
+    agent_id, _, version = args.ref.partition("@")
+    if not is_agent_id(agent_id) or not is_version(version):
         raise MendariError(f"{args.ref!r} is not namespace/name@version: name the exact version")
     key = archive.load_private_key(Path(args.key).read_bytes())
-    namespace, name = pack_id.split("/")
+    namespace, name = agent_id.split("/")
     with _registry_client(args) as registry:
         recalled = registry.yank(
             namespace, name, version, reason=args.reason, severity=args.severity, key=key
@@ -2927,16 +2932,16 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     if alerts is not None:
         check_webhook(alerts.webhook)
     skip = status_org() if args.each_org else None  # likewise
-    if args.pack:
-        packs = [resolve_pack(args.pack)]
+    if args.agent:
+        agents = [resolve_agent(args.agent)]
     else:  # the version a server serves of each agent: the newest
-        newest: dict[str, Pack] = {}
-        for pack in discover().packs:
-            if pack.id not in newest or version_key(pack.version) > version_key(
-                newest[pack.id].version
+        newest: dict[str, Agent] = {}
+        for agent in discover().agents:
+            if agent.id not in newest or version_key(agent.version) > version_key(
+                newest[agent.id].version
             ):
-                newest[pack.id] = pack
-        packs = [newest[pack_id] for pack_id in sorted(newest)]
+                newest[agent.id] = agent
+        agents = [newest[agent_id] for agent_id in sorted(newest)]
     found_alerts = undelivered = failed = False
     with _read_store(args.db) as store:
         orgs = organizations(store, days=args.days, skip=skip) if args.each_org else [args.org]
@@ -2945,9 +2950,9 @@ def cmd_monitor(args: argparse.Namespace) -> int:
                 with tenancy.acting_for(org):
                     reports = [
                         monitor(
-                            store, pack, days=args.days, providers=recorded_providers(store, pack)
+                            store, agent, days=args.days, providers=recorded_providers(store, agent)
                         )
-                        for pack in packs
+                        for agent in agents
                     ]
             except Exception as error:
                 debug = os.environ.get("MENDARI_DEBUG", "").strip().lower() in _DEBUG_ON
@@ -2963,7 +2968,7 @@ def cmd_monitor(args: argparse.Namespace) -> int:
                 status = f"{len(report['alerts'])} alert(s)" if report["alerts"] else "ok"
                 reason = report["benchmark"]["reason"]
                 compared = "" if reason is None else f" (no comparable benchmark: {reason})"
-                print(f"{where}{report['pack']['id']}: {status}{compared}")
+                print(f"{where}{report['agent']['id']}: {status}{compared}")
                 for alert in report["alerts"]:
                     print(f"  [{alert['severity']}] {alert['kind']}: {alert['message']}")
             if not any(report["alerts"] for report in reports):
@@ -2996,7 +3001,7 @@ def cmd_packet(args: argparse.Namespace) -> int:
     read, and why. --org and --days count a deployment's decisions, so they are refused."""
     from mendari.core import packet
 
-    pack = resolve_pack(args.pack)
+    agent = resolve_agent(args.agent)
     if args.db is None:
         if args.org is not None or args.days is not None:
             raise MendariError(
@@ -3004,9 +3009,9 @@ def cmd_packet(args: argparse.Namespace) -> int:
                 "database, with them. Without --db the packet is made from the agent's files "
                 "alone"
             )
-        built = packet.build_alone(pack)
+        built = packet.build_alone(agent)
     else:
-        built = _deployment_packet(args, pack)
+        built = _deployment_packet(args, agent)
     text = json.dumps(built, indent=2) + "\n" if args.json else packet.render_html(built)
     # Said beside the document, never in it twice: the packet says the same on its cover.
     alone = (
@@ -3025,7 +3030,7 @@ def cmd_packet(args: argparse.Namespace) -> int:
         raise MendariError(f"{target} is a symbolic link; not writing through it")
     target.write_text(text, encoding="utf-8")
     print(
-        f"wrote {target}: {pack.id} {pack.version}, {len(built['sections'])} sections, "
+        f"wrote {target}: {agent.id} {agent.version}, {len(built['sections'])} sections, "
         f"{len(built['not_stated'])} items not stated",
         file=sys.stderr,
     )
@@ -3034,8 +3039,8 @@ def cmd_packet(args: argparse.Namespace) -> int:
     return 0
 
 
-def _deployment_packet(args: argparse.Namespace, pack: Pack) -> dict[str, Any]:
-    """`mendari packet --db`: the packet of `pack` as the deployment whose database this is
+def _deployment_packet(args: argparse.Namespace, agent: Agent) -> dict[str, Any]:
+    """`mendari packet --db`: the packet of `agent` as the deployment whose database this is
     holds it (`packet.build`), read with this environment's settings."""
     from mendari.alerts import alert_settings
     from mendari.core import packet, tenancy
@@ -3060,17 +3065,17 @@ def _deployment_packet(args: argparse.Namespace, pack: Pack) -> dict[str, Any]:
             alerts_signed=alerts is not None and bool(alerts.secret),
             provider_allowed_origins=provider_allow_list(),
             agent_endpoint=bool(os.environ.get(ENDPOINT_ENV, "").strip()),
-            providers=recorded_providers(store, pack),
+            providers=recorded_providers(store, agent),
             seen_from="command line",
         )
         return packet.build(
             store,
-            pack,
+            agent,
             deployment=deployment,
             days=packet.DEFAULT_DAYS if args.days is None else args.days,
             organization=args.org,
             holds=store.holds(args.org),
-            records=store.deployments(pack.id, limit=20),
+            records=store.deployments(agent.id, limit=20),
         )
 
 
@@ -3196,35 +3201,35 @@ def cmd_notes_erase(args: argparse.Namespace) -> int:
     return 0
 
 
-def _pack_store(target: str | None, *, writes: bool) -> tuple[Any, str]:
+def _agent_store(target: str | None, *, writes: bool) -> tuple[Any, str]:
     """The deployment's database for `mendari store` (LP-20e): given, or $DATABASE_URL. To
     write, it must be a server's (`_servers_database`); otherwise opened read-only. Returns the
-    agent store (`core/pack_store.py`) and the database's name as shown (no password)."""
-    from mendari.core.pack_store import PackStore
+    agent store (`core/agent_store.py`) and the database's name as shown (no password)."""
+    from mendari.core.agent_store import AgentStore
 
     if target is None:
         target = os.environ.get("DATABASE_URL", "").strip() or None
     if target is None:
         raise MendariError("give --db (the server's database) or set DATABASE_URL")
     if not writes:
-        return PackStore(_read_store(target)), _shown(target)
+        return AgentStore(_read_store(target)), _shown(target)
     shown = _servers_database(target, used=True, also=("store_versions",))
-    return PackStore(AuditStore(target, marks=False)), shown
+    return AgentStore(AuditStore(target, marks=False)), shown
 
 
 def cmd_store_versions(args: argparse.Namespace) -> int:
     """An organization's agent store versions, newest first (LP-20e): ids, digests, states and
     files' hashes, never a file's content. Read-only."""
-    store, _ = _pack_store(args.db, writes=False)
+    store, _ = _agent_store(args.db, writes=False)
     with store.store:
-        _print_json(store.versions(args.org, args.pack))
+        _print_json(store.versions(args.org, args.agent))
     return 0
 
 
 def cmd_store_verify(args: argparse.Namespace) -> int:
     """Every kept file of every agent store hashes to its key, and every version whose files are
     kept to its digest (LP-20e). Read-only; exit 1 on a problem."""
-    store, _ = _pack_store(args.db, writes=False)
+    store, _ = _agent_store(args.db, writes=False)
     with store.store:
         found = store.verify()
     _print_json(found)
@@ -3234,7 +3239,7 @@ def cmd_store_verify(args: argparse.Namespace) -> int:
 def cmd_store_withdraw(args: argparse.Namespace) -> int:
     """The operator withdraws a draft of an organization's store, with a reason on the chain
     (LP-20e)."""
-    store, shown = _pack_store(args.db, writes=True)
+    store, shown = _agent_store(args.db, writes=True)
     with store.store:
         moved = store.withdraw(args.org, args.digest, by="operator", reason=args.reason)
     _print_json(moved)
@@ -3245,7 +3250,7 @@ def cmd_store_withdraw(args: argparse.Namespace) -> int:
 def cmd_store_purge(args: argparse.Namespace) -> int:
     """Free the files that only versions withdrawn more than 30 days ago hold (LP-20e); the rows
     and their events stay."""
-    store, shown = _pack_store(args.db, writes=True)
+    store, shown = _agent_store(args.db, writes=True)
     with store.store:
         removed = store.purge()
     print(f"{removed} file(s) freed in {shown}", file=sys.stderr)
@@ -3273,20 +3278,20 @@ def cmd_new(args: argparse.Namespace) -> int:
     on an offline mock fixture that switches to a live agent endpoint when `MENDARI_AGENT_URL`
     is set, with the workflow that checks the agent on every change in its own repository
     (`CI_WORKFLOW`), which is no part of the agent: a hidden folder is in no digest or archive."""
-    from mendari.core.spec import _PACK_ID
+    from mendari.core.spec import _AGENT_ID
 
     target = Path(args.dir)
     if target.exists() and any(target.iterdir()):
         raise MendariError(f"{target} exists and is not empty")
-    pack_id = args.id
-    if pack_id is None:
+    agent_id = args.id
+    if agent_id is None:
         raise MendariError("--id is required: namespace/name, e.g. my-clinic/refill-router")
-    if not _PACK_ID.match(pack_id):
+    if not _AGENT_ID.match(agent_id):
         raise MendariError("--id must look like 'namespace/name' (lowercase, digits, dashes)")
-    name = args.name or pack_id.split("/", 1)[1].replace("-", " ").capitalize()
-    raw_values = {"{{id}}": pack_id, "{{name}}": name, "{{publisher}}": args.publisher}
+    name = args.name or agent_id.split("/", 1)[1].replace("-", " ").capitalize()
+    raw_values = {"{{id}}": agent_id, "{{name}}": name, "{{publisher}}": args.publisher}
     yaml_values = {
-        "{{id}}": pack_id,
+        "{{id}}": agent_id,
         "{{name}}": json.dumps(name, ensure_ascii=False),
         "{{publisher}}": json.dumps(args.publisher, ensure_ascii=False),
     }
@@ -3308,7 +3313,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     workflow.parent.mkdir(parents=True, exist_ok=True)
     text = CI_TEMPLATE.read_text(encoding="utf-8").replace("{{version}}", __version__)
     workflow.write_text(fill(text, yaml_values), encoding="utf-8")
-    print(f"{pack_id} created in {target}. Next:")
+    print(f"{agent_id} created in {target}. Next:")
     steps = [
         f"mendari validate {target}",
         f"mendari test {target}",
@@ -3482,15 +3487,15 @@ def _agent_argument(
     about: str = "agent id (namespace/name[@version]) or directory",
     **kwargs: Any,
 ) -> None:
-    """The agent a command takes, shown as `agent`; the commands read it as `args.pack`."""
-    command.add_argument("pack", metavar="agent", help=about, **kwargs)
+    """The agent a command takes, shown as `agent`; the commands read it as `args.agent`."""
+    command.add_argument("agent", metavar="agent", help=about, **kwargs)
 
 
 def _agent_option(command: argparse.ArgumentParser, **kwargs: Any) -> None:
-    """`--agent`, the agent a command is about; the commands read it as `args.pack`."""
+    """`--agent`, the agent a command is about; the commands read it as `args.agent`."""
     if "choices" not in kwargs:  # with choices, the usage lists them
         kwargs.setdefault("metavar", "AGENT")
-    command.add_argument("--agent", dest="pack", **kwargs)
+    command.add_argument("--agent", dest="agent", **kwargs)
 
 
 class Group(NamedTuple):
@@ -3623,7 +3628,7 @@ def build_parser() -> argparse.ArgumentParser:
     # `prog`: argparse would name each command after this parser's usage line.
     sub = parser.add_subparsers(dest="command", required=True, prog=parser.prog)
 
-    def pack_command(name: str, handler: Any, help_text: str, providers: bool = False) -> Any:
+    def agent_command(name: str, handler: Any, help_text: str, providers: bool = False) -> Any:
         command = sub.add_parser(name, help=help_text)
         _agent_argument(command)
         if providers:
@@ -3639,10 +3644,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="list the agents this machine serves").set_defaults(
         handler=cmd_list
     )
-    pack_command("validate", cmd_validate, "validate an agent and build every provider variant")
-    pack_command("test", cmd_test, "run the agent's behaviour tests", providers=True)
+    agent_command("validate", cmd_validate, "validate an agent and build every provider variant")
+    agent_command("test", cmd_test, "run the agent's behaviour tests", providers=True)
 
-    probing = pack_command(
+    probing = agent_command(
         "probe",
         cmd_probe,
         "find failures by rewriting its cases; keep them as tests",
@@ -3749,13 +3754,13 @@ def build_parser() -> argparse.ArgumentParser:
     probing.add_argument("--json", action="store_true", help="print the JSON report")
     probing.add_argument("--out", help="also write the JSON report here")
 
-    decide = pack_command("decide", cmd_decide, "run one decision", providers=True)
+    decide = agent_command("decide", cmd_decide, "run one decision", providers=True)
     decide.add_argument("--input", help="JSON input file ('-' for stdin)")
     decide.add_argument("--text", help="shortcut: message body text")
     decide.add_argument("--fhir", action="store_true", help="input is a FHIR Bundle or resource")
     decide.add_argument("--db", help="record the decision in this audit database")
 
-    evaluate = pack_command("eval", cmd_eval, "evaluate on a labelled dataset", providers=True)
+    evaluate = agent_command("eval", cmd_eval, "evaluate on a labelled dataset", providers=True)
     evaluate.description = (
         "Decides every case of a labelled dataset as a live decision is decided, and reports "
         "the agent's accuracy and calibration, the mix of outcomes (AUTO, HUMAN_REVIEW, ABSTAIN, "
@@ -3940,7 +3945,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     data_check.set_defaults(handler=cmd_data_check)
 
-    calibrate = pack_command(
+    calibrate = agent_command(
         "calibrate",
         cmd_calibrate,
         "fit per-question temperatures for an llm or an agent variant (live calls)",
@@ -3966,7 +3971,7 @@ def build_parser() -> argparse.ArgumentParser:
     paired_runs.add_argument("--out", help="also write the comparison as JSON")
     paired_runs.set_defaults(handler=cmd_compare)
 
-    board = pack_command(
+    board = agent_command(
         "leaderboard", cmd_leaderboard, "compare provider configurations on the same datasets"
     )
     board.add_argument(
@@ -3989,12 +3994,12 @@ def build_parser() -> argparse.ArgumentParser:
     board.add_argument("--out", help="leaderboard file (default: <agent>/evals/leaderboard.json)")
     board.add_argument("--fresh", action="store_true", help="replace instead of merging")
 
-    card = pack_command("card", cmd_card, "render the Decision Card")
+    card = agent_command("card", cmd_card, "render the Decision Card")
     card.add_argument(
         "--write", action="store_true", help="write DECISION_CARD.md into the agent's folder"
     )
 
-    schema = pack_command("schema", cmd_schema, "print the input (or output) JSON Schema")
+    schema = agent_command("schema", cmd_schema, "print the input (or output) JSON Schema")
     schema.add_argument("--output", action="store_true", help="print the output schema")
 
     serve = sub.add_parser("serve", help="run the API, CDS Hooks services and dashboard")
@@ -4451,18 +4456,18 @@ def build_parser() -> argparse.ArgumentParser:
     search_cmd.add_argument("--registry", help="registry URL (default: the one logged into)")
     search_cmd.add_argument("--json", action="store_true")
     search_cmd.set_defaults(handler=cmd_search)
-    pack_cmd = sub.add_parser("archive", help="signed agent archives").add_subparsers(
+    agent_cmd = sub.add_parser("archive", help="signed agent archives").add_subparsers(
         dest="archive_command", required=True
     )
-    build_pack = pack_cmd.add_parser("build", help="build a signed .mendari archive")
-    _agent_argument(build_pack, "namespace/name[@version] or a directory")
-    build_pack.add_argument("--key", required=True, help="publisher private key (PEM)")
-    build_pack.add_argument("--out", default="dist", help="directory for the archive")
-    build_pack.set_defaults(handler=cmd_pack_build)
-    verify_pack = pack_cmd.add_parser("verify", help="verify an archive's files and signature")
-    verify_pack.add_argument("archive")
-    verify_pack.add_argument("--public-key", required=True, help="publisher public key (PEM)")
-    verify_pack.set_defaults(handler=cmd_pack_verify)
+    build_agent = agent_cmd.add_parser("build", help="build a signed .mendari archive")
+    _agent_argument(build_agent, "namespace/name[@version] or a directory")
+    build_agent.add_argument("--key", required=True, help="publisher private key (PEM)")
+    build_agent.add_argument("--out", default="dist", help="directory for the archive")
+    build_agent.set_defaults(handler=cmd_agent_build)
+    verify_agent = agent_cmd.add_parser("verify", help="verify an archive's files and signature")
+    verify_agent.add_argument("archive")
+    verify_agent.add_argument("--public-key", required=True, help="publisher public key (PEM)")
+    verify_agent.set_defaults(handler=cmd_agent_verify)
 
     site_cmd = sub.add_parser(
         "site", help="this machine as an evaluating site (LP-22): its key, tickets"
@@ -4768,7 +4773,7 @@ def build_parser() -> argparse.ArgumentParser:
     monitor_cmd.add_argument("--webhook", help="post alerts here (default: $MENDARI_ALERT_WEBHOOK)")
     monitor_cmd.set_defaults(handler=cmd_monitor)
 
-    packet_cmd = pack_command(
+    packet_cmd = agent_command(
         "packet",
         cmd_packet,
         "the committee packet: what a governance committee reads about one agent, as one page "
@@ -5158,8 +5163,8 @@ def _quiet_libraries(debug: bool) -> Callable[[], None]:
 
 def _problem_lines(error: Exception) -> list[str]:
     """What an error says, one line per problem, with the fix where one is known."""
-    if isinstance(error, PackValidationError):
-        return [_one_line(f"{error.pack}: {problem}") for problem in error.problems]
+    if isinstance(error, AgentValidationError):
+        return [_one_line(f"{error.agent}: {problem}") for problem in error.problems]
     if isinstance(error, MendariError):
         return [_one_line(str(error))]
     if isinstance(error, OSError) and error.filename is not None:

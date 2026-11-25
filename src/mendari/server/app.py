@@ -49,6 +49,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from mendari import __version__, notices, settings
 from mendari.alerts import AlertSettings, alert_settings, check_webhook, deliver, retry_due
 from mendari.core import accounts, actions, checkpoint, clock, packet, tenancy, validation_brief
+from mendari.core.agent import Agent
+from mendari.core.agent_store import AgentStore
 from mendari.core.audit import (
     ADMINISTRATIVE_KINDS,
     OFF_DECISION_KINDS,
@@ -62,14 +64,14 @@ from mendari.core.connections import ConnectionStore
 from mendari.core.connections import enabled as connections_enabled
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.https_only import is_local_host
-from mendari.core.pack import Pack
-from mendari.core.pack_store import PackStore
 from mendari.core.phi import phi_policy, require_protection
 from mendari.core.policy import GATE_TEXT, GovernanceOverride, gate_of
 from mendari.core.registry import SearchPath, discover, version_key
 from mendari.core.site_codes import site_codes
 from mendari.core.written import WrittenStore
 from mendari.errors import (
+    AgentNotFoundError,
+    AgentValidationError,
     AuthError,
     CdsHooksError,
     ClientError,
@@ -82,8 +84,6 @@ from mendari.errors import (
     NoOrganization,
     NoteError,
     NoticeNotAcknowledged,
-    PackNotFoundError,
-    PackValidationError,
     PrefetchRequired,
     ProviderError,
     ReviewError,
@@ -92,6 +92,7 @@ from mendari.errors import (
     UnknownCard,
 )
 from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_dataset
+from mendari.evals.behaviour_tests import load_cases
 from mendari.evals.compare import FROM_REGISTRY, not_compared
 from mendari.evals.feedback import feedback_dataset, reviewed_dataset
 from mendari.evals.harness import Dataset, evaluation
@@ -99,7 +100,6 @@ from mendari.evals.monitoring import MAX_DAYS as MONITOR_MAX_DAYS
 from mendari.evals.monitoring import MIN_DAYS as MONITOR_MIN_DAYS
 from mendari.evals.monitoring import monitor, post_alerts
 from mendari.evals.monitoring import organizations as monitored_organizations
-from mendari.evals.pack_tests import load_cases
 from mendari.providers import llm, provider_allow_list, slots_without_model
 from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
 from mendari.providers.agent import AgentProvider, Connection
@@ -131,7 +131,7 @@ from mendari.server.cors import Cors
 from mendari.server.hub_routes import add_hub_routes
 from mendari.server.limits import DailyCap, Limiter, RateLimited, client_ip, limit_settings
 from mendari.server.origin import OriginCheck, trusted_origins
-from mendari.server.readiness import Readiness, packs_state
+from mendari.server.readiness import Readiness, agents_state
 from mendari.server.recalls import RecallWatch
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.server.system_routes import add_system_routes, scheduled_run
@@ -161,13 +161,13 @@ AgentId = Annotated[str, Query(title="Agent id")]
 AgentFilter = Annotated[str | None, Query(title="Agent id")]
 _DATASET_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _STATUS = {
-    PackNotFoundError: 404,
+    AgentNotFoundError: 404,
     ReviewError: 409,
     NoteError: 422,
     FhirStructureError: 400,  # before FhirError: the first match wins
     PrefetchRequired: 412,  # CDS Hooks 2.0: neither the prefetch nor a fhirServer to read it from
     FhirError: 422,
-    PackValidationError: 422,
+    AgentValidationError: 422,
     ScopeError: 422,
     ClientError: 422,
     NoAssignment: 404,  # unknown, another's or closed: one answer (a grader's route)
@@ -213,9 +213,9 @@ _ISSUE_TYPE = {
 
 
 class RegistryApprovalRequest(BaseModel):
-    pack_id: str = Field(min_length=3, max_length=200, title="Agent id")
+    agent_id: str = Field(min_length=3, max_length=200, title="Agent id")
     # The digest the approver reviewed: the approval names exactly it.
-    pack_digest: str = Field(min_length=8, max_length=100, title="Agent digest")
+    agent_digest: str = Field(min_length=8, max_length=100, title="Agent digest")
     reference: str = Field(min_length=3, max_length=300, description="e.g. committee minutes")
     approver: str | None = Field(
         default=None,
@@ -226,7 +226,7 @@ class RegistryApprovalRequest(BaseModel):
 
 
 class ApprovalRequest(BaseModel):
-    pack_id: str = Field(min_length=3, max_length=200, title="Agent id")
+    agent_id: str = Field(min_length=3, max_length=200, title="Agent id")
     reference: str = Field(min_length=3, max_length=300, description="e.g. committee minutes")
     days: int = Field(default=180, ge=1, le=365, description="how long the approval lasts")
     approver: str | None = Field(
@@ -391,8 +391,8 @@ class EraseRequest(BaseModel):
 
 
 class HoldRequest(BaseModel):
-    pack_id: str | None = Field(default=None, max_length=200, title="Agent id")
-    pack_digest: str | None = Field(
+    agent_id: str | None = Field(default=None, max_length=200, title="Agent id")
+    agent_digest: str | None = Field(
         default=None, pattern=r"^sha256:[0-9a-f]{64}$", title="Agent digest"
     )
     reason: str = Field(min_length=1, max_length=200)
@@ -462,8 +462,8 @@ class WrittenRound(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    pack_id: str = Field(title="Agent id")
-    pack_digest: str = Field(title="Agent digest")
+    agent_id: str = Field(title="Agent id")
+    agent_digest: str = Field(title="Agent digest")
     rubric: str
     rubric_sha256: str = Field(description="the rubric's wording its grades are bound to")
     state: Literal["open", "closing", "closed"]
@@ -525,7 +525,7 @@ def create_app(
     providers: Mapping[str, str] | None = None,
     default_providers: Mapping[str, Mapping[str, str]] | None = None,
     datasets_dir: Path | None = None,
-    packs_paths: Sequence[Path | SearchPath] | None = None,
+    agents_paths: Sequence[Path | SearchPath] | None = None,
     budget_limits: Mapping[str, int | None] | None = None,
     fhir_validation: FhirValidation | None = None,
 ) -> FastAPI:
@@ -557,10 +557,10 @@ def create_app(
     require_protection(phi, sign_in=sign_in is not None, launch=launch)
     retention_days = settings.retention_days()  # likewise
     status_org = settings.status_org()  # likewise
-    # The pack registry under this engine (LP-19d): off unless MENDARI_REGISTRY=on.
+    # The agent registry under this engine (LP-19d): off unless MENDARI_REGISTRY=on.
     registry_on = settings.registry_mounted()  # likewise
-    # Organizations' pack stores (LP-20f, ADR-0016): off unless MENDARI_AGENT_STORE=on.
-    store_on = settings.pack_store_on()  # likewise
+    # Organizations' agent stores (LP-20f, ADR-0016): off unless MENDARI_AGENT_STORE=on.
+    store_on = settings.agent_store_on()  # likewise
     # Its reviewers' organization (LP-19e): unset, nobody reviews through the web. Checked once
     # the store is open, below.
     review_org = settings.registry_review_org()  # likewise
@@ -617,7 +617,7 @@ def create_app(
     if store_on:
         # The store needs memberships mode, and what it rests on, checked by running it: a
         # missing one stops the server here, before any route is mounted (LP-20f).
-        from mendari.core.pack_store import prerequisites
+        from mendari.core.agent_store import prerequisites
 
         mode = "open" if sign_in is None else sign_in.accounts
         unmet = prerequisites(mode)
@@ -670,7 +670,7 @@ def create_app(
         connection_generation[0] += 1
         connection_cache.clear()
 
-    def connection_for(pack_id: str) -> Connection | None:
+    def connection_for(agent_id: str) -> Connection | None:
         """The connection the organization this call acts for set for an agent, or None: none
         set, or connections are switched off here (then the deployment's own endpoint is all
         there is). One whose token does not open raises, each time it is asked: the agent's
@@ -678,13 +678,13 @@ def create_app(
         if not connections_on:
             return None
         org = tenancy.current() or tenancy.DEFAULT_ORG
-        key = (org, pack_id)
+        key = (org, agent_id)
         now = time.monotonic()
         cached = connection_cache.get(key)
         if cached is not None and now - cached[0] < HOLD_SECONDS:
             return cached[1]
         generation = connection_generation[0]
-        found = connection_store.resolve(org, pack_id)
+        found = connection_store.resolve(org, agent_id)
         if generation == connection_generation[0]:  # none set or cleared here meanwhile
             if len(connection_cache) >= CONNECTION_CACHE_MAX:
                 connection_cache.clear()
@@ -701,7 +701,7 @@ def create_app(
         cds_open=cds_open,
         registry=registry_on,
         review_org=review_org,
-        pack_store=store_on,
+        agent_store=store_on,
         operator_org=operator_org,
         first_admin=first_admin,
         # Its record's name when the setting makes it: as given, else the public address's host.
@@ -753,33 +753,35 @@ def create_app(
         if budget_limits or org_limits
         else None
     )
-    found = discover(packs_paths)
-    only = settings.enabled_packs()  # a per-pack image serves just its pack
-    missing = only - {pack.id for pack in found.packs}
+    found = discover(agents_paths)
+    only = settings.enabled_agents()  # a per-agent image serves just its agent
+    missing = only - {agent.id for agent in found.agents}
     if missing:
         raise MendariError(f"MENDARI_AGENTS: agents not installed here: {sorted(missing)}")
-    # The newest version of every pack found, served or not.
-    installed: dict[str, Pack] = {}
-    for pack in found.packs:
-        current = installed.get(pack.id)
-        if current is None or version_key(pack.version) > version_key(current.version):
-            installed[pack.id] = pack
-    packs = {pack_id: pack for pack_id, pack in installed.items() if not only or pack_id in only}
+    # The newest version of every agent found, served or not.
+    installed: dict[str, Agent] = {}
+    for agent in found.agents:
+        current = installed.get(agent.id)
+        if current is None or version_key(agent.version) > version_key(current.version):
+            installed[agent.id] = agent
+    agents = {
+        agent_id: agent for agent_id, agent in installed.items() if not only or agent_id in only
+    }
     # The site code maps, per organization (LP-23i): unset, no code is translated. Anything wrong
-    # in them, or a translation into a code no pack found here declares (served or not, so one
-    # setting serves every per-pack image), fails here, at startup, naming the organization.
+    # in them, or a translation into a code no agent found here declares (served or not, so one
+    # setting serves every per-agent image), fails here, at startup, naming the organization.
     site_maps = site_codes(installed.values(), signed_in=sign_in is not None)
     # What each registered EHR does not offer, declared per FHIR base (MENDARI_EHR_DECLARATIONS):
     # unset, every source is read and a refused one abstains. A base off the allow-list, not
-    # registered for its organization, or a type no pack found here may read its list without,
+    # registered for its organization, or a type no agent found here may read its list without,
     # fails here, at startup, naming the base.
     declarations = ehr_declarations(
         installed.values(), signed_in=sign_in is not None, ehrs=ehrs, cds=cds
     )
-    # Every CodeSystem and NamingSystem the served packs need. A pack whose terminology cannot
+    # Every CodeSystem and NamingSystem the served agents need. An agent whose terminology cannot
     # be built is reported in /api/health (`invalid`) and served without it.
-    terms, terminology_problems = Terminology.serving(packs.values())
-    # Every served pack is built once, at start-up (below), never in a request (LP-16d): `built`
+    terms, terminology_problems = Terminology.serving(agents.values())
+    # Every served agent is built once, at start-up (below), never in a request (LP-16d): `built`
     # holds its Decision, or `unbuildable` why it could not be built, which each use raises again
     # and nothing builds again. Its deployment is recorded on its first use (`recorded`).
     built: dict[str, Decision] = {}
@@ -787,19 +789,19 @@ def create_app(
     recorded: set[str] = set()
     overrides = dict(providers or {})
 
-    # An organization's promoted pack store versions (LP-20h): read through `promoted_source`,
+    # An organization's promoted agent store versions (LP-20h): read through `promoted_source`,
     # which the store sets when it is on, per organization and kept `HOLD_SECONDS` (a promotion
     # or retirement here clears it at once). Never another organization's.
-    promoted_source: list[Callable[[str], dict[str, tuple[Pack, str, bool]]]] = []
-    promoted_cache: dict[str, tuple[float, int, dict[str, tuple[Pack, str, bool]]]] = {}
+    promoted_source: list[Callable[[str], dict[str, tuple[Agent, str, bool]]]] = []
+    promoted_cache: dict[str, tuple[float, int, dict[str, tuple[Agent, str, bool]]]] = {}
     promoted_generation = [0]
 
     def forget_promoted() -> None:
         promoted_generation[0] += 1
         promoted_cache.clear()
 
-    def promoted_here() -> dict[str, tuple[Pack, str, bool]]:
-        """The caller's organization's promoted versions, pack id -> (pack, promotion id,
+    def promoted_here() -> dict[str, tuple[Agent, str, bool]]:
+        """The caller's organization's promoted versions, agent id -> (agent, promotion id,
         whether it may automate); none
         without the store, without an organization, or for an id this deployment serves from
         disk (which a store version never replaces)."""
@@ -817,101 +819,103 @@ def create_app(
             return cached[2]
         generation = promoted_generation[0]
         found = {
-            pack_id: served
-            for pack_id, served in promoted_source[0](org).items()
-            if pack_id not in packs
+            agent_id: served
+            for agent_id, served in promoted_source[0](org).items()
+            if agent_id not in agents
         }
         if generation == promoted_generation[0]:
             promoted_cache[org] = (now, generation, found)
         return found
 
-    def served_here() -> dict[str, Pack]:
-        """The packs this request may use: those read from disk at start-up, for everyone, and
+    def served_here() -> dict[str, Agent]:
+        """The agents this request may use: those read from disk at start-up, for everyone, and
         its organization's promoted store versions (LP-20h)."""
         promoted = promoted_here()
         if not promoted:
-            return packs
-        return {**{pack_id: served[0] for pack_id, served in promoted.items()}, **packs}
+            return agents
+        return {**{agent_id: served[0] for agent_id, served in promoted.items()}, **agents}
 
-    def pack_or_404(pack_id: str) -> Pack:
-        pack = packs.get(pack_id)
-        if pack is None:
-            served = promoted_here().get(pack_id)
-            pack = None if served is None else served[0]
-        if pack is None:
-            raise PackNotFoundError(f"no agent {pack_id!r}")
-        return pack
+    def agent_or_404(agent_id: str) -> Agent:
+        agent = agents.get(agent_id)
+        if agent is None:
+            served = promoted_here().get(agent_id)
+            agent = None if served is None else served[0]
+        if agent is None:
+            raise AgentNotFoundError(f"no agent {agent_id!r}")
+        return agent
 
     skipped_settings: dict[str, list[str]] = {}
-    fallbacks = {pack_id: dict(slots) for pack_id, slots in (default_providers or {}).items()}
-    # Settings that apply to no served pack (an unknown slot, a pack not served): reported in
+    fallbacks = {agent_id: dict(slots) for agent_id, slots in (default_providers or {}).items()}
+    # Settings that apply to no served agent (an unknown slot, an agent not served): reported in
     # /api/health and the startup log, never a failed start (instances share one setting).
     unused_settings = sorted(
         f"{key}={variant}"
         for key, variant in overrides.items()
         if not any(
-            applies_to(key, pack.id, pack.manifest.providers, named_only=pack.named_settings_only)
-            for pack in packs.values()
+            applies_to(
+                key, agent.id, agent.manifest.providers, named_only=agent.named_settings_only
+            )
+            for agent in agents.values()
         )
     )
     if unused_settings:
         providers_logger.warning(
             "provider settings that apply to no served agent: %s", ", ".join(unused_settings)
         )
-    # ...and those no served pack takes at all (above, or a variant no pack with the slot has):
+    # ...and those no served agent takes at all (above, or a variant no agent with the slot has):
     # what `mendari serve --provider` refuses when typed.
     taken: set[str] = set()
-    for pack in packs.values():
-        pack_slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-        chosen = providers_for(pack.id, pack_slots, overrides, named_only=pack.named_settings_only)[
-            0
-        ]
+    for agent in agents.values():
+        agent_slots = {slot: set(spec.variants) for slot, spec in agent.manifest.providers.items()}
+        chosen = providers_for(
+            agent.id, agent_slots, overrides, named_only=agent.named_settings_only
+        )[0]
         for key, variant in overrides.items():
             slot = key.rpartition(":")[2]
             if chosen.get(slot) == variant and applies_to(
-                key, pack.id, pack_slots, named_only=pack.named_settings_only
+                key, agent.id, agent_slots, named_only=agent.named_settings_only
             ):
                 taken.add(key)
     not_taken = sorted(f"{key}={variant}" for key, variant in overrides.items() if key not in taken)
 
-    def variants_for(pack: Pack) -> tuple[dict[str, str], list[str]]:
-        """The variants the deployment chose for this pack's slots (the rest run the pack's
-        default), and the settings that name the pack but cannot apply. An agent from a store
+    def variants_for(agent: Agent) -> tuple[dict[str, str], list[str]]:
+        """The variants the deployment chose for this agent's slots (the rest run the agent's
+        default), and the settings that name the agent but cannot apply. An agent from a store
         takes only settings that name it, never the defaults (it spends only where the owner
-        said: `Pack.named_settings_only`)."""
-        slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-        only_named = pack.named_settings_only
-        chosen, skipped = providers_for(pack.id, slots, overrides, named_only=only_named)
+        said: `Agent.named_settings_only`)."""
+        slots = {slot: set(spec.variants) for slot, spec in agent.manifest.providers.items()}
+        only_named = agent.named_settings_only
+        chosen, skipped = providers_for(agent.id, slots, overrides, named_only=only_named)
         if only_named:
             return chosen, skipped
-        for slot, variant in fallbacks.get(pack.id, {}).items():
+        for slot, variant in fallbacks.get(agent.id, {}).items():
             if slot not in chosen and variant in slots.get(slot, ()):
                 chosen[slot] = variant
         return chosen, skipped
 
     # Say once, at startup, which slots the defaults turn on: ids and variant names only.
     filled = []
-    for pack in packs.values():
-        chosen = variants_for(pack)[0]
+    for agent in agents.values():
+        chosen = variants_for(agent)[0]
         named = providers_for(
-            pack.id,
-            {s: set(v.variants) for s, v in pack.manifest.providers.items()},
+            agent.id,
+            {s: set(v.variants) for s, v in agent.manifest.providers.items()},
             overrides,
-            named_only=pack.named_settings_only,
+            named_only=agent.named_settings_only,
         )[0]
-        filled += [f"{pack.id} {slot}={chosen[slot]}" for slot in sorted(set(chosen) - set(named))]
+        filled += [f"{agent.id} {slot}={chosen[slot]}" for slot in sorted(set(chosen) - set(named))]
     if filled:
         level = logging.INFO if phi.mode == "off" else logging.WARNING
         providers_logger.log(level, "the provider defaults run %s", ", ".join(sorted(filled)))
 
-    def build(pack: Pack) -> Decision:
-        """The pack bound to the providers the deployment chose for it (at start-up only)."""
-        chosen, skipped = variants_for(pack)
+    def build(agent: Agent) -> Decision:
+        """The agent bound to the providers the deployment chose for it (at start-up only)."""
+        chosen, skipped = variants_for(agent)
         if skipped:
-            skipped_settings[pack.id] = skipped
+            skipped_settings[agent.id] = skipped
         try:
             return Decision(
-                pack,
+                agent,
                 providers=chosen,
                 store=store,
                 budget=budget,
@@ -927,9 +931,9 @@ def create_app(
             )
         except MendariError:
             raise
-        except Exception as error:  # the pack's content: named by type, never a 500
+        except Exception as error:  # the agent's content: named by type, never a 500
             problem = f"its providers could not be built ({type(error).__name__})"
-            raise PackValidationError(pack.id, [problem]) from None
+            raise AgentValidationError(agent.id, [problem]) from None
 
     # A promoted store version's Decision (LP-20h): built on its first use in this process,
     # under a lock of its own (a request that arrives while it is built waits for that build and
@@ -938,15 +942,15 @@ def create_app(
     store_building: dict[tuple[str, str], threading.Lock] = {}
     store_lock = threading.Lock()
 
-    def store_decision(pack: Pack, promotion: str, automate: bool) -> Decision:
+    def store_decision(agent: Agent, promotion: str, automate: bool) -> Decision:
         """A promoted version's Decision. One promoted to recommend only (`automate` false)
         never automates, as under a hold (policy only lowers automation). A version that was
         pulled from a registry (origin `hub`) is held to what every agent from a registry is:
         it never automates until its organization approves its digest, nor while its registry
         recalls it (`Decision._origin_holds`)."""
-        key = (pack.digest, promotion)
+        key = (agent.digest, promotion)
 
-        def held_or_recommending(served: Pack) -> str | None:
+        def held_or_recommending(served: Agent) -> str | None:
             recommending = None if automate else f"promoted to recommend only ({promotion})"
             return "; ".join(filter(None, [held(served), recommending])) or None
 
@@ -959,10 +963,10 @@ def create_app(
             with building:
                 found = store_built.get(key)
                 if found is None:
-                    chosen, _ = variants_for(pack)
+                    chosen, _ = variants_for(agent)
                     try:
                         found = Decision(
-                            pack,
+                            agent,
                             providers=chosen,
                             store=store,
                             budget=budget,
@@ -979,9 +983,9 @@ def create_app(
                         )
                     except MendariError:
                         raise
-                    except Exception as error:  # the pack's content: named by type, never a 500
+                    except Exception as error:  # the agent's content: named by type, never a 500
                         problem = f"its providers could not be built ({type(error).__name__})"
-                        raise PackValidationError(pack.id, [problem]) from None
+                        raise AgentValidationError(agent.id, [problem]) from None
                     with store_lock:
                         if len(store_built) >= STORE_BUILT_MAX:
                             store_built.pop(next(iter(store_built)))
@@ -991,137 +995,137 @@ def create_app(
                 store_building.pop(key, None)
         return found
 
-    def decision_for(pack_id: str) -> Decision:
-        """A served pack's Decision, built at start-up. Its first use records the deployment, once
+    def decision_for(agent_id: str) -> Decision:
+        """A served agent's Decision, built at start-up. Its first use records the deployment, once
         per process (concurrent first uses: `record_deployment` keeps one row), with no lock
-        /api/health could wait on. A pack that could not be built raises why on every use. An
+        /api/health could wait on. An agent that could not be built raises why on every use. An
         organization's promoted store version is built on its first use (LP-20h)."""
-        if pack_id not in packs:
-            served = promoted_here().get(pack_id)
+        if agent_id not in agents:
+            served = promoted_here().get(agent_id)
             if served is not None:
                 return store_decision(*served)
-        pack = pack_or_404(pack_id)
-        if pack.id in unbuildable:
-            raise _again(unbuildable[pack.id])
-        decision = built[pack.id]
-        if pack.id not in recorded:
+        agent = agent_or_404(agent_id)
+        if agent.id in unbuildable:
+            raise _again(unbuildable[agent.id])
+        decision = built[agent.id]
+        if agent.id not in recorded:
             environment, release = settings.deployment_place()
             store.record_deployment(
                 environment=environment,
                 release=release,
-                pack_id=pack.id,
-                pack_version=pack.version,
-                pack_digest=pack.digest,
+                agent_id=agent.id,
+                agent_version=agent.version,
+                agent_digest=agent.digest,
                 providers={slot: info.variant for slot, info in decision.provider_info.items()},
             )
-            recorded.add(pack.id)
+            recorded.add(agent.id)
         return decision
 
-    def question_labels(pack_id: str, question: str) -> list[str] | None:
-        """An installed pack's labels for one of its questions (None: not installed, or no such
+    def question_labels(agent_id: str, question: str) -> list[str] | None:
+        """An installed agent's labels for one of its questions (None: not installed, or no such
         question), for decisions whose record has no answer to check a label against. Installed,
-        not only served: a per-pack instance can share a database with other packs' decisions."""
-        pack = installed.get(pack_id)
-        if pack is None or question not in pack.manifest.questions:
+        not only served: a per-agent instance can share a database with other agents' decisions."""
+        agent = installed.get(agent_id)
+        if agent is None or question not in agent.manifest.questions:
             return None
-        return pack.manifest.labels(question)
+        return agent.manifest.labels(question)
 
     # Automation holds (`AuditStore.hold_automation`), read per decision and kept a few seconds:
     # a hold set on another instance takes effect within HOLD_SECONDS, one set here at once.
     hold_cache: dict[tuple[str, str, str], tuple[float, str | None]] = {}
-    # The recalls of the registries the served packs came from, read in the background (LP-18e).
-    recall_watch = RecallWatch(packs.values())
+    # The recalls of the registries the served agents came from, read in the background (LP-18e).
+    recall_watch = RecallWatch(agents.values())
     hold_generation = [0]  # bumped by every hold set or lifted here: older look-ups are not kept
 
     def forget_holds() -> None:
         hold_generation[0] += 1
         hold_cache.clear()
 
-    def held(pack: Pack) -> str | None:
-        """Why automation is held for this pack in the caller's organization now, or None."""
+    def held(agent: Agent) -> str | None:
+        """Why automation is held for this agent in the caller's organization now, or None."""
         org = tenancy.current() or tenancy.DEFAULT_ORG
-        key = (org, pack.id, pack.digest)
+        key = (org, agent.id, agent.digest)
         now = time.monotonic()
         cached = hold_cache.get(key)
         if cached is not None and now - cached[0] < HOLD_SECONDS:
             return cached[1]
         generation = hold_generation[0]
-        hold = store.hold_for(pack.id, pack.digest, org)
+        hold = store.hold_for(agent.id, agent.digest, org)
         reason = None if hold is None else f"hold {hold['id']}"
         if generation == hold_generation[0]:  # no hold set or lifted here while it was read
             hold_cache[key] = (now, reason)
         return reason
 
-    def registry_approved(pack: Pack) -> bool:
-        """Whether the caller's organization approved exactly this pulled pack (LP-18d)."""
-        return store.registry_approval(pack.id, pack.digest) is not None
+    def registry_approved(agent: Agent) -> bool:
+        """Whether the caller's organization approved exactly this pulled agent (LP-18d)."""
+        return store.registry_approval(agent.id, agent.digest) is not None
 
-    def approved_override(pack: Pack) -> GovernanceOverride | None:
-        """The organization's approval in force for exactly this pack, as the runtime override."""
-        approval = store.active_approval(pack.id, pack.digest)
+    def approved_override(agent: Agent) -> GovernanceOverride | None:
+        """The organization's approval in force for exactly this agent, as the runtime override."""
+        approval = store.active_approval(agent.id, agent.digest)
         if approval is None:
             return None
         return GovernanceOverride(approved_by=approval["approver"], reference=approval["reference"])
 
-    # Start-up builds every served pack, so /api/health reads what it found and builds nothing.
-    # A pack whose providers cannot be built is listed there with the packs that did not load;
-    # it never stops the start, nor turns health into an error for every other pack.
-    for pack_id in sorted(packs):
+    # Start-up builds every served agent, so /api/health reads what it found and builds nothing.
+    # An agent whose providers cannot be built is listed there with the agents that did not load;
+    # it never stops the start, nor turns health into an error for every other agent.
+    for agent_id in sorted(agents):
         try:
-            built[pack_id] = build(packs[pack_id])
+            built[agent_id] = build(agents[agent_id])
         except MendariError as error:
-            unbuildable[pack_id] = error
+            unbuildable[agent_id] = error
     health_providers = {
-        pack_id: {slot: info.variant for slot, info in decision.provider_info.items()}
-        for pack_id, decision in built.items()
+        agent_id: {slot: info.variant for slot, info in decision.provider_info.items()}
+        for agent_id, decision in built.items()
     }
     # The model each slot runs (an LLM's from its setting): monitoring compares a
     # benchmark only with the models it measured.
     running_models = {
-        pack_id: {slot: info.model for slot, info in decision.provider_info.items()}
-        for pack_id, decision in built.items()
+        agent_id: {slot: info.model for slot, info in decision.provider_info.items()}
+        for agent_id, decision in built.items()
     }
     health_without_model = {
-        pack_id: slots
-        for pack_id, running in health_providers.items()
-        if (slots := slots_without_model(packs[pack_id], running))
+        agent_id: slots
+        for agent_id, running in health_providers.items()
+        if (slots := slots_without_model(agents[agent_id], running))
     }
-    health_unbuilt = {pack_id: str(error) for pack_id, error in unbuildable.items()}
-    # Every pack that did not load, get its terminology or build: signed-in health lists them,
-    # and readiness says `degraded` while there is one (`none` when no pack is built).
+    health_unbuilt = {agent_id: str(error) for agent_id, error in unbuildable.items()}
+    # Every agent that did not load, get its terminology or build: signed-in health lists them,
+    # and readiness says `degraded` while there is one (`none` when no agent is built).
     health_invalid = {**found.problems, **terminology_problems, **health_unbuilt}
-    readiness = Readiness(store.ping, packs_state(built=len(built), problems=len(health_invalid)))
-    # An owned served pack whose provider configs, prefetch or wording templates `mendari validate`
-    # refuses (`Pack.warnings`): it loads and serves what builds, and says so once here and in
+    readiness = Readiness(store.ping, agents_state(built=len(built), problems=len(health_invalid)))
+    # An owned served agent whose provider configs, prefetch or wording templates `mendari validate`
+    # refuses (`Agent.warnings`): it loads and serves what builds, and says so once here and in
     # /api/health.
-    health_pack_warnings = {
-        pack_id: list(packs[pack_id].warnings)
-        for pack_id in sorted(packs)
-        if packs[pack_id].warnings
+    health_agent_warnings = {
+        agent_id: list(agents[agent_id].warnings)
+        for agent_id in sorted(agents)
+        if agents[agent_id].warnings
     }
-    for pack_id, warnings in health_pack_warnings.items():
+    for agent_id, warnings in health_agent_warnings.items():
         providers_logger.warning(
             "%s loads with problems (provider configs, prefetch or wording templates) that "
             "mendari validate refuses: %s",
-            packs[pack_id].ref,
+            agents[agent_id].ref,
             "; ".join(warnings),
         )
 
-    def local_datasets(pack: Pack) -> dict[str, Path]:
+    def local_datasets(agent: Agent) -> dict[str, Path]:
         if datasets_dir is None or not datasets_dir.is_dir():
             return {}
         return {
             path.stem: path
             for path in sorted(datasets_dir.glob("*.jsonl"))
-            if _labels_questions_of(path, pack)
+            if _labels_questions_of(path, agent)
         }
 
-    def dataset_for(pack: Pack, name: str) -> Dataset:
-        if name in pack.manifest.evaluation.datasets:
-            return resolve_dataset(pack, name)
-        path = local_datasets(pack).get(name)
+    def dataset_for(agent: Agent, name: str) -> Dataset:
+        if name in agent.manifest.evaluation.datasets:
+            return resolve_dataset(agent, name)
+        path = local_datasets(agent).get(name)
         if not _DATASET_NAME.match(name) or path is None:
-            raise PackNotFoundError(f"unknown dataset {name!r}")
+            raise AgentNotFoundError(f"unknown dataset {name!r}")
         return load_dataset(path)
 
     def logged_reads(request: Request, items: list[dict[str, Any]], id_key: str = "id") -> None:
@@ -1136,14 +1140,14 @@ def create_app(
         if shown:
             log_event(request, "phi.inputs.read", ids=shown, count=len(shown))
 
-    default_pack = DEMO_AGENT if DEMO_AGENT in packs else next(iter(sorted(packs)), None)
+    default_agent = DEMO_AGENT if DEMO_AGENT in agents else next(iter(sorted(agents)), None)
     app = FastAPI(
         title="Mendari",
         version=__version__,
         summary="Run, review, audit and evaluate healthcare decisions.",
         description=api_docs.description(
             sign_in=auth.enabled,
-            default_pack=default_pack,
+            default_agent=default_agent,
             token_url=None if backend is None else backend.token_url,
             rate_limits=(
                 {name: str(rate) for name, rate in rate_limits.rates.items()}
@@ -1176,8 +1180,8 @@ def create_app(
             )
             app.openapi_schema = api_docs.document(
                 generated,
-                packs=packs,
-                default_pack=default_pack,
+                agents=agents,
+                default_agent=default_agent,
                 permission_for=auth.permission if auth.enabled else None,
                 token_url=None if backend is None else backend.token_url,
                 limit_for=limit_class if limiter.mode == "on" else None,
@@ -1260,7 +1264,7 @@ def create_app(
         body = {"error": "InternalError", "detail": "internal error"}
         return JSONResponse({**body, **({"request_id": rid} if rid else {})}, 500, headers=headers)
 
-    # -- packs -------------------------------------------------------------------------------
+    # -- agents -------------------------------------------------------------------------------
 
     def deployment_total(name: str, total: Callable[[], Any]) -> dict[str, Any]:
         """A total over every organization, in health: the operator's in memberships mode."""
@@ -1295,16 +1299,16 @@ def create_app(
         the two never disagree. `org` is the organization the caller acts for, which its
         callers checked it has."""
         return {
-            # The pack registry is served here (MENDARI_REGISTRY=on, LP-19d): only then.
+            # The agent registry is served here (MENDARI_REGISTRY=on, LP-19d): only then.
             **({"registry": True} if registry_on else {}),
-            "packs": len(packs),
+            "agents": len(agents),
             # How many of them come from where: maintained, hub, local, store.
-            "packs_by_origin": dict(Counter(pack.origin for pack in packs.values())),
+            "agents_by_origin": dict(Counter(agent.origin for agent in agents.values())),
             "invalid": health_invalid,
-            # Served packs that load with problems in their provider configs, prefetch or wording
-            # templates (`mendari validate` refuses them; a pack the deployment does not own is
+            # Served agents that load with problems in their provider configs, prefetch or wording
+            # templates (`mendari validate` refuses them; an agent the deployment does not own is
             # refused, under `invalid`).
-            "pack_warnings": health_pack_warnings,
+            "agent_warnings": health_agent_warnings,
             "storage": store.backend,
             # Calendar days and displayed times use this zone; stored timestamps are UTC.
             "timezone": timezone,
@@ -1314,7 +1318,7 @@ def create_app(
             # The origins remote providers (LLMs, agents' services) may be called at
             # (MENDARI_PROVIDER_ALLOWED_ORIGINS), read at start-up; null: no list is set.
             "provider_allowed_origins": provider_origins,
-            # Each registry a served pack came from: its last recall check's age, and how many
+            # Each registry a served agent came from: its last recall check's age, and how many
             # versions it recalls (LP-18e).
             "registry_recalls": recall_watch.status(),
             "smart_launch": smart_options is not None,
@@ -1366,11 +1370,11 @@ def create_app(
             # MENDARI_INPUT_HASH_KEY (required in PHI modes hash and encrypt), else `sha256`.
             "input_hash": phi.hash_kind,
             "providers": health_providers,
-            # Slots running without a model although their pack offers one (the offline floor).
+            # Slots running without a model although their agent offers one (the offline floor).
             "without_model": health_without_model,
-            # Deployment provider settings that name a slot or variant a pack does not have.
+            # Deployment provider settings that name a slot or variant an agent does not have.
             "provider_settings_skipped": skipped_settings,
-            # ...and those that apply to no served pack at all (a typo, a pack not served).
+            # ...and those that apply to no served agent at all (a typo, an agent not served).
             "provider_settings_unused": unused_settings,
             "llm": {
                 **llm.deployment_info(),
@@ -1430,7 +1434,7 @@ def create_app(
         that signs the daily checkpoint (`checkpoint_key`, or null).
 
         The agents' state (which provider each runs, the settings skipped, an agent that could not
-        be built, the problems an owned agent loads with, `pack_warnings`) is
+        be built, the problems an owned agent loads with, `agent_warnings`) is
         computed at start-up: health builds no agent and records no deployment (a signed-in
         caller's session may still be refreshed, as on any route).
         """
@@ -1451,7 +1455,7 @@ def create_app(
     def ready() -> Response:
         """Public, for status pages, uptime checks and readiness probes (`server/readiness.py`),
         with `GET` or `HEAD`: `status` (`ready`, `degraded` or `unready`), `version` and
-        `checks`: `database` (`ok` or `unreachable`) and `packs` (`ok`; `degraded` while an agent
+        `checks`: `database` (`ok` or `unreachable`) and `agents` (`ok`; `degraded` while an agent
         did not load or build, which signed-in `/api/health` lists under `invalid`; `none` when
         no agent is served). `503` when unready. Fixed codes only: no error text, no agent ids,
         no counts.
@@ -1474,11 +1478,11 @@ def create_app(
         summary="List agents",
         name="list_agents",
     )
-    def list_packs() -> list[dict[str, Any]]:
+    def list_agents() -> list[dict[str, Any]]:
         """Every agent this deployment serves: id, version, risk level, the labels of its
         main question, and where it comes from (`origin`: `maintained`, `hub`, `local` or
         `store`, with `origin_label` to show)."""
-        return [_summary(pack) for pack in sorted(served_here().values(), key=lambda p: p.id)]
+        return [_summary(agent) for agent in sorted(served_here().values(), key=lambda p: p.id)]
 
     @app.get(
         "/api/agents/{namespace}/{name}",
@@ -1486,36 +1490,36 @@ def create_app(
         summary="Get an agent",
         name="agent_detail",
     )
-    def pack_detail(namespace: str, name: str) -> dict[str, Any]:
+    def agent_detail(namespace: str, name: str) -> dict[str, Any]:
         """An agent's manifest, input and output JSON Schemas, active providers, benchmark,
         leaderboard and Decision Card (Markdown)."""
-        pack_id = f"{namespace}/{name}"
-        pack = pack_or_404(pack_id)
-        decision = decision_for(pack_id)
-        summary = _summary(pack)
+        agent_id = f"{namespace}/{name}"
+        agent = agent_or_404(agent_id)
+        decision = decision_for(agent_id)
+        summary = _summary(agent)
         return {
             **summary,
-            "manifest": pack.manifest.model_dump(mode="json", by_alias=True),
+            "manifest": agent.manifest.model_dump(mode="json", by_alias=True),
             "active_providers": {
                 slot: {"variant": i.variant, "type": i.type, "model": i.model}
                 for slot, i in decision.provider_info.items()
             },
             "without_model": slots_without_model(
-                pack, {slot: i.variant for slot, i in decision.provider_info.items()}
+                agent, {slot: i.variant for slot, i in decision.provider_info.items()}
             ),
-            "input_schema": pack.input_schema,
-            "output_schema": pack.output_schema,
-            # A pack from a registry: what it carries about itself (its benchmark and
+            "input_schema": agent.input_schema,
+            "output_schema": agent.output_schema,
+            # An agent from a registry: what it carries about itself (its benchmark and
             # leaderboard) is its publisher's, never shown, as the registry shows none (ADR-0012).
             "benchmark": None
-            if pack.origin == "hub" or (published := benchmark(pack)) is None
+            if agent.origin == "hub" or (published := benchmark(agent)) is None
             else _with_figures(published),
-            "leaderboard": None if pack.origin == "hub" else leaderboard.load(pack),
-            "card_markdown": card_of(pack),
-            "datasets": [*pack.manifest.evaluation.datasets, *local_datasets(pack)],
+            "leaderboard": None if agent.origin == "hub" else leaderboard.load(agent),
+            "card_markdown": card_of(agent),
+            "datasets": [*agent.manifest.evaluation.datasets, *local_datasets(agent)],
             # What the agent may ask to have done (spec 0.4), each with how it is gated for
             # this organization now. Absent for an agent that declares none.
-            **declared_actions(pack, vouched=decision.vouched()),
+            **declared_actions(agent, vouched=decision.vouched()),
         }
 
     @app.get(
@@ -1524,12 +1528,12 @@ def create_app(
         summary="List an agent's datasets",
         name="agent_datasets",
     )
-    def pack_datasets(namespace: str, name: str) -> list[dict[str, Any]]:
+    def agent_datasets(namespace: str, name: str) -> list[dict[str, Any]]:
         """The datasets an evaluation can run on, with their size (e.g. to say what a run will
         cost in remote calls before it starts)."""
-        pack = pack_or_404(f"{namespace}/{name}")
-        names = [*pack.manifest.evaluation.datasets, *local_datasets(pack)]
-        return [{"name": n, "n": len(dataset_for(pack, n).records)} for n in names]
+        agent = agent_or_404(f"{namespace}/{name}")
+        names = [*agent.manifest.evaluation.datasets, *local_datasets(agent)]
+        return [{"name": n, "n": len(dataset_for(agent, n).records)} for n in names]
 
     @app.get(
         "/api/agents/{namespace}/{name}/examples",
@@ -1537,17 +1541,17 @@ def create_app(
         summary="Example inputs",
         name="agent_examples",
     )
-    def pack_examples(namespace: str, name: str) -> list[dict[str, Any]]:
+    def agent_examples(namespace: str, name: str) -> list[dict[str, Any]]:
         """Synthetic example inputs: the agent's own behaviour tests. Tests that do not load, or
         hold a value JSON cannot (a date, binary, a lone surrogate), answer `422` naming why."""
-        pack = pack_or_404(f"{namespace}/{name}")
+        agent = agent_or_404(f"{namespace}/{name}")
         return [
             {
                 "name": case.get("name", "unnamed case"),
                 "input": case["input"],
                 "expect": case.get("expect", {}),
             }
-            for case in load_cases(pack)
+            for case in load_cases(agent)
             if isinstance(case, dict) and isinstance(case.get("input"), dict)
         ]
 
@@ -1692,12 +1696,12 @@ def create_app(
         arguments, which are kept as the decision's input is.
 
         A decision that is unknown, another organization's or another agent's is a `404`."""
-        pack_id = f"{namespace}/{name}"
-        pack_or_404(pack_id)
+        agent_id = f"{namespace}/{name}"
+        agent_or_404(agent_id)
         problem = actions.shape_problem(body.name, body.arguments)
         if problem is not None:
             raise HTTPException(422, problem)
-        found = decision_for(pack_id).authorize_action(body.decision_id, body.name, body.arguments)
+        found = decision_for(agent_id).authorize_action(body.decision_id, body.name, body.arguments)
         return {**found, **NOTICE}
 
     @app.get(
@@ -1706,7 +1710,7 @@ def create_app(
         summary="Executive validation & readiness brief",
         name="agent_validation_brief",
     )
-    def pack_validation_brief(
+    def agent_validation_brief(
         request: Request,
         namespace: str,
         name: str,
@@ -1722,32 +1726,32 @@ def create_app(
         `false`, and `about` says what it is). A gate's `status` is `pass`, `warn`, `fail` or
         `no_data`: a gate with nothing to measure (no decision automated, as in every shadow
         pilot; too few decisions for the monitor to compare) says so and never passes."""
-        pack = pack_or_404(f"{namespace}/{name}")
+        agent = agent_or_404(f"{namespace}/{name}")
         days = max(1, min(days, MONITOR_MAX_DAYS))
         minutes_per_case = max(0.5, min(minutes_per_case, 60.0))
         org = org_of(auth.acting(request))
         held = store.holds(org)
         if auth.memberships:
             held = [h if h["org"] is not None else operators_hold(h) for h in held]
-        gov = store.active_approval(pack.id, pack.digest)
+        gov = store.active_approval(agent.id, agent.digest)
         reg = (
             {
-                "active": store.registry_approval(pack.id, pack.digest),
+                "active": store.registry_approval(agent.id, agent.digest),
             }
-            if pack.origin == "hub"
+            if agent.origin == "hub"
             else None
         )
         mon_days = max(MONITOR_MIN_DAYS, min(days, MONITOR_MAX_DAYS))
         mon = monitor(
             store,
-            pack,
+            agent,
             days=mon_days,
-            providers=health_providers.get(pack.id),
-            models=running_models.get(pack.id),
+            providers=health_providers.get(agent.id),
+            models=running_models.get(agent.id),
         )
         brief = validation_brief.build(
             store,
-            pack,
+            agent,
             days=days,
             minutes_per_case=minutes_per_case,
             holds=held,
@@ -1795,7 +1799,7 @@ def create_app(
         the software: not signed, and not a certification, an attestation of compliance or
         legal advice. `days` is held to 14 to 180. `format=html` answers one self-contained
         page to print, as a download; `sha256` is the hash of the JSON packet without it."""
-        pack = pack_or_404(f"{namespace}/{name}")
+        agent = agent_or_404(f"{namespace}/{name}")
         days = max(packet.MIN_DAYS, min(days, packet.MAX_DAYS))
         org = org_of(auth.acting(request))
         held = store.holds(org)
@@ -1817,19 +1821,19 @@ def create_app(
             alerts_signed=alerts is not None and bool(alerts.secret),
             provider_allowed_origins=provider_origins,
             agent_endpoint=bool(os.environ.get(AGENT_ENDPOINT_ENV, "").strip()),
-            providers=health_providers.get(pack.id),
-            models=running_models.get(pack.id),
+            providers=health_providers.get(agent.id),
+            models=running_models.get(agent.id),
         )
         built = packet.build(
             store,
-            pack,
+            agent,
             deployment=deployment,
             days=days,
             organization=org if auth.enabled else None,
             holds=held,
             # Which version ran where is the deployment operator's in memberships mode.
-            records=None if auth.memberships else store.deployments(pack.id, limit=20),
-            recall=recall_watch.held(pack),
+            records=None if auth.memberships else store.deployments(agent.id, limit=20),
+            recall=recall_watch.held(agent),
         )
         if format == "html":
             return Response(
@@ -1848,19 +1852,19 @@ def create_app(
         tags=["Evaluation and monitoring"],
         summary="Monitor an agent over time",
     )
-    def monitoring(pack_id: AgentId, days: int = 30) -> dict[str, Any]:
+    def monitoring(agent_id: AgentId, days: int = 30) -> dict[str, Any]:
         """The served version of the agent over time for this organisation: weekly series, drift
         and alerts, against its benchmark only when that measured this build with the providers
         and models that run here, under the same governance (`benchmark.comparable`;
         `benchmark.reason` otherwise). `days` is held to 14 to 180, in whole weeks."""
-        pack = pack_or_404(pack_id)
+        agent = agent_or_404(agent_id)
         days = max(MONITOR_MIN_DAYS, min(days, MONITOR_MAX_DAYS))
         report = monitor(
             store,
-            pack,
+            agent,
             days=days,
-            providers=health_providers.get(pack.id),
-            models=running_models.get(pack.id),
+            providers=health_providers.get(agent.id),
+            models=running_models.get(agent.id),
         )
         if auth.memberships:  # when the deployment changed is the operator's (ADR-0008)
             report["configuration_since"] = None
@@ -1874,7 +1878,7 @@ def create_app(
         summary="List deployments",
     )
     def deployments(
-        request: Request, pack_id: AgentFilter = None, limit: int = 50
+        request: Request, agent_id: AgentFilter = None, limit: int = 50
     ) -> list[dict[str, Any]]:
         """Which agent version runs where, with which providers, since when (newest first). In
         memberships mode the deployment's records are the operator's (ADR-0008): they answer to
@@ -1882,18 +1886,18 @@ def create_app(
         (`MENDARI_OPERATOR_ORG`), and are a `404` for everyone else."""
         if not runs_deployment(request):
             raise HTTPException(404, "the deployment's records are its operator's")
-        if pack_id is not None:
-            decision_for(pack_or_404(pack_id).id)  # this server's own row is recorded first
-        return store.deployments(pack_id, limit=min(max(limit, 0), 200))
+        if agent_id is not None:
+            decision_for(agent_or_404(agent_id).id)  # this server's own row is recorded first
+        return store.deployments(agent_id, limit=min(max(limit, 0), 200))
 
-    def refuse_own_version(request: Request, pack: Pack) -> None:
+    def refuse_own_version(request: Request, agent: Agent) -> None:
         """Separation of duties reaches the automation approvals too (LP-20h review): whoever
         wrote a version of an organization's store, or added it from a registry, or made a
         version it was made from, does not approve it for automation; someone else does."""
         principal = principal_of(request)
-        if principal.kind == "open" or pack.id in packs or pack.id not in promoted_here():
+        if principal.kind == "open" or agent.id in agents or agent.id not in promoted_here():
             return  # not a version of this organization's store
-        if principal.id in app.state.pack_store.authors(org_of(principal), pack.digest):
+        if principal.id in app.state.agent_store.authors(org_of(principal), agent.digest):
             raise HTTPException(
                 403,
                 "the author of a store version, or whoever added it from a registry, does not "
@@ -1905,18 +1909,18 @@ def create_app(
         tags=["Governance"],
         summary="List automation approvals",
     )
-    def governance(pack_id: AgentFilter = None) -> dict[str, Any]:
+    def governance(agent_id: AgentFilter = None) -> dict[str, Any]:
         """Approvals for this organization, and what an agent's risk level allows."""
-        found = store.approvals(pack_id)
-        if pack_id is None:
+        found = store.approvals(agent_id)
+        if agent_id is None:
             return {"approvals": found}
-        pack = pack_or_404(pack_id)
-        level = int(pack.manifest.risk.level)
-        active = store.active_approval(pack.id, pack.digest)
+        agent = agent_or_404(agent_id)
+        level = int(agent.manifest.risk.level)
+        active = store.active_approval(agent.id, agent.digest)
         return {
-            "pack_id": pack.id,
+            "agent_id": agent.id,
             "risk_level": level,
-            "digest": pack.digest,
+            "digest": agent.digest,
             "approvable": level in (2, 3),
             "active": active,
             "approvals": found,
@@ -1932,14 +1936,14 @@ def create_app(
         """Record an organization's approval for a risk level 2 or 3 agent to automate (ADR-0002): a
         reference (e.g. committee minutes) and how long it lasts. It applies to exactly this
         agent version (its digest)."""
-        pack = pack_or_404(body.pack_id)
+        agent = agent_or_404(body.agent_id)
         approver = acting_as(request, body.approver, "approver")
-        refuse_own_version(request, pack)
+        refuse_own_version(request, agent)
         expires = datetime.now(UTC) + timedelta(days=body.days)
         approval = store.approve_automation(
-            pack_id=pack.id,
-            pack_digest=pack.digest,
-            risk_level=int(pack.manifest.risk.level),
+            agent_id=agent.id,
+            agent_digest=agent.digest,
+            risk_level=int(agent.manifest.risk.level),
             approver=approver or "",
             reference=body.reference,
             expires_at=expires.isoformat(timespec="seconds"),
@@ -1965,21 +1969,21 @@ def create_app(
         tags=["Governance"],
         summary="List approvals of agents from a registry",
     )
-    def registry_approvals(pack_id: AgentFilter = None) -> dict[str, Any]:
+    def registry_approvals(agent_id: AgentFilter = None) -> dict[str, Any]:
         """An agent pulled from a registry never automates until your organization approves its
         exact digest, at every risk level (a risk level 2 or 3 agent needs its governance
-        approval too). Your organization's approvals, and for `pack_id` where it came from."""
-        found = store.registry_approvals(pack_id)
-        if pack_id is None:
+        approval too). Your organization's approvals, and for `agent_id` where it came from."""
+        found = store.registry_approvals(agent_id)
+        if agent_id is None:
             return {"approvals": found}
-        pack = pack_or_404(pack_id)
+        agent = agent_or_404(agent_id)
         return {
-            "pack_id": pack.id,
-            "digest": pack.digest,
-            "origin": pack.origin,
-            "pulled": {k: v for k, v in pack.pulled.items() if k != "yank"},
-            "recalled": pack.pulled.get("yank") is not None,
-            "active": store.registry_approval(pack.id, pack.digest),
+            "agent_id": agent.id,
+            "digest": agent.digest,
+            "origin": agent.origin,
+            "pulled": {k: v for k, v in agent.pulled.items() if k != "yank"},
+            "recalled": agent.pulled.get("yank") is not None,
+            "active": store.registry_approval(agent.id, agent.digest),
             "approvals": found,
         }
 
@@ -1990,26 +1994,26 @@ def create_app(
         summary="Approve an agent from a registry",
         name="approve_registry_agent",
     )
-    def approve_registry_pack(request: Request, body: RegistryApprovalRequest) -> dict[str, Any]:
+    def approve_registry_agent(request: Request, body: RegistryApprovalRequest) -> dict[str, Any]:
         """Record that your organization approves exactly this pulled agent (its digest) to
-        automate under its policy: chained `registry_pack.approved`. It applies to the digest
+        automate under its policy: chained `registry_agent.approved`. It applies to the digest
         served now, a reference (e.g. the review's minutes) names why, and it lasts until
         revoked. It never lifts a recall, a hold or a risk level's cap."""
-        pack = pack_or_404(body.pack_id)
-        if pack.origin != "hub":
+        agent = agent_or_404(body.agent_id)
+        if agent.origin != "hub":
             raise HTTPException(422, "only an agent pulled from a registry needs this approval")
-        if body.pack_digest != pack.digest:
-            raise HTTPException(422, "pack_digest is not the digest this deployment serves")
+        if body.agent_digest != agent.digest:
+            raise HTTPException(422, "agent_digest is not the digest this deployment serves")
         approver = acting_as(request, body.approver, "approver")
-        refuse_own_version(request, pack)
-        approval = store.approve_registry_pack(
-            pack_id=pack.id,
-            pack_digest=pack.digest,
-            registry=str(pack.pulled.get("registry") or "unknown"),
+        refuse_own_version(request, agent)
+        approval = store.approve_registry_agent(
+            agent_id=agent.id,
+            agent_digest=agent.digest,
+            registry=str(agent.pulled.get("registry") or "unknown"),
             approver=approver or "",
             reference=body.reference,
         )
-        log_event(request, "registry_pack.approved", ids=[str(approval["id"])])
+        log_event(request, "registry_agent.approved", ids=[str(approval["id"])])
         return approval
 
     @app.delete(
@@ -2019,11 +2023,11 @@ def create_app(
         summary="Revoke an approval of an agent from a registry",
         name="revoke_registry_agent",
     )
-    def revoke_registry_pack(request: Request, approval_id: str) -> Response:
+    def revoke_registry_agent(request: Request, approval_id: str) -> Response:
         """Revoke it: the pulled agent stops automating at once."""
         if not store.revoke_registry_approval(approval_id, revoked_by=principal_of(request).actor):
             raise HTTPException(404, "no such approval")
-        log_event(request, "registry_pack.revoked", ids=[approval_id])
+        log_event(request, "registry_agent.revoked", ids=[approval_id])
         return Response(status_code=204)
 
     @app.get("/api/holds", tags=["Governance"], summary="Automation holds in force")
@@ -2044,22 +2048,22 @@ def create_app(
         summary="Hold automation",
     )
     def hold_automation(request: Request, body: HoldRequest) -> dict[str, Any]:
-        """Stop automation for your organization: every agent, one agent (`pack_id`), or one
-        version of it (`pack_digest`). Decisions still run and are recorded; any that would be
+        """Stop automation for your organization: every agent, one agent (`agent_id`), or one
+        version of it (`agent_digest`). Decisions still run and are recorded; any that would be
         `AUTO` goes to a person instead, with the same recommendation and priority. Chained as
         `automation.held`; it lasts until lifted (`DELETE /api/holds/{id}`)."""
-        if body.pack_id is not None:
-            served = pack_or_404(body.pack_id)
-            if body.pack_digest is not None and body.pack_digest != served.digest:
-                raise HTTPException(422, "pack_digest is not the digest this deployment serves")
-        elif body.pack_digest is not None:
+        if body.agent_id is not None:
+            served = agent_or_404(body.agent_id)
+            if body.agent_digest is not None and body.agent_digest != served.digest:
+                raise HTTPException(422, "agent_digest is not the digest this deployment serves")
+        elif body.agent_digest is not None:
             raise HTTPException(422, "a hold on a digest names its agent")
         principal = auth.acting(request)
         try:
             hold = store.hold_automation(
                 org=org_of(principal),
-                pack_id=body.pack_id,
-                pack_digest=body.pack_digest,
+                agent_id=body.agent_id,
+                agent_digest=body.agent_digest,
                 reason=body.reason,
                 set_by=principal.actor,
             )
@@ -2097,41 +2101,41 @@ def create_app(
         compare with the published benchmark (an agent from a registry: `comparison` says it is
         not compared with the benchmark it carries). Calls to remote providers are capped at 200
         cases."""
-        pack_id = f"{namespace}/{name}"
-        pack = pack_or_404(pack_id)
+        agent_id = f"{namespace}/{name}"
+        agent = agent_or_404(agent_id)
         # A store-less Decision: evaluation traffic must not pollute the operational audit log.
-        active = decision_for(pack_id)
+        active = decision_for(agent_id)
         chosen = {slot: info.variant for slot, info in active.provider_info.items()}
         asked = request.providers or {}
         # Provider calls count against the daily budgets and the organization's evaluation
         # quota (`eval_llm`), never its decisions' quotas.
         decision = Decision(
-            pack,
+            agent,
             providers={**chosen, **asked},
             budget=None if budget is None else budget.for_evaluation(),
             deadline_s=deadline_s,  # each of its decisions has the deployment's deadline
-            # An evaluation measures the pack's own policy, as `mendari eval` does: a pack from
+            # An evaluation measures the agent's own policy, as `mendari eval` does: an agent from
             # a registry is capped only where it is served (LP-18d).
             origin_cap=False,
             connection_source=connection_for,  # the service that answers here (ADR-0021)
         )
-        dataset = dataset_for(pack, request.dataset)
+        dataset = dataset_for(agent, request.dataset)
         if decision.is_remote:
             dataset = dataset.head(min(request.limit or REMOTE_EVAL_LIMIT, REMOTE_EVAL_LIMIT))
         elif request.limit:
             dataset = dataset.head(request.limit)
         workers = REMOTE_EVAL_WORKERS if decision.is_remote else 1
-        log_event(http, "eval.run", ids=[pack.id], count=len(dataset.records))
+        log_event(http, "eval.run", ids=[agent.id], count=len(dataset.records))
         run = evaluation(decision, dataset, workers=workers)
         report = run.report
-        baseline = benchmark(pack)
-        if baseline is not None and request.dataset != pack.manifest.evaluation.benchmark_dataset:
-            # A pack from a registry carries its publisher's benchmark, never a reference here
+        baseline = benchmark(agent)
+        if baseline is not None and request.dataset != agent.manifest.evaluation.benchmark_dataset:
+            # An agent from a registry carries its publisher's benchmark, never a reference here
             # (ADR-0012): the answer says so instead of comparing with it.
             report["comparison"] = (
                 not_compared(FROM_REGISTRY)
-                if pack.origin == "hub"
-                else compare(report, baseline, pack.manifest.evaluation.degradation_tolerance)
+                if agent.origin == "hub"
+                else compare(report, baseline, agent.manifest.evaluation.degradation_tolerance)
             )
         store.save_report(report, ledger=run.ledger.dumps(), usage=run.usage)
         return _with_figures(report)
@@ -2141,9 +2145,9 @@ def create_app(
         tags=["Evaluation and monitoring"],
         summary="List evaluation reports",
     )
-    def list_evals(pack_id: AgentFilter = None) -> list[dict[str, Any]]:
+    def list_evals(agent_id: AgentFilter = None) -> list[dict[str, Any]]:
         """Saved evaluation reports, newest first, each with its figures (`figures`)."""
-        return [_with_figures(report) for report in store.reports(pack_id)]
+        return [_with_figures(report) for report in store.reports(agent_id)]
 
     # -- review & audit ----------------------------------------------------------------------
 
@@ -2155,7 +2159,7 @@ def create_app(
     def review_summary() -> list[dict[str, Any]]:
         """Pending and urgent review counts across every agent in this organization (aggregate
         counts only, no inputs or PHI)."""
-        return store.pending_by_pack()
+        return store.pending_by_agent()
 
     @app.get(
         "/api/review",
@@ -2163,11 +2167,11 @@ def create_app(
         summary="The review queue",
     )
     def review_queue(
-        request: Request, pack_id: AgentFilter = None, limit: int = 100
+        request: Request, agent_id: AgentFilter = None, limit: int = 100
     ) -> list[dict[str, Any]]:
         """Decisions waiting for a human (`HUMAN_REVIEW`, `ABSTAIN`), most urgent first."""
         limit = min(max(limit, 0), 500)  # never negative: SQLite reads LIMIT -1 as no limit
-        queue = store.pending_reviews(pack_id, limit=limit, reader=input_reader(request))
+        queue = store.pending_reviews(agent_id, limit=limit, reader=input_reader(request))
         logged_reads(request, queue)
         return queue
 
@@ -2199,7 +2203,7 @@ def create_app(
         summary="List decisions",
     )
     def audit_log(
-        pack_id: AgentFilter = None,
+        agent_id: AgentFilter = None,
         outcome: str | None = None,
         review_status: str | None = None,
         limit: int = 50,
@@ -2208,7 +2212,7 @@ def create_app(
         """The audit trail, newest first, with filters and `limit`/`offset` paging. Outside PHI
         mode `off`, no input: a reader opens one decision (`/api/audit/{id}`), chained."""
         listed = store.query(
-            pack_id=pack_id,
+            agent_id=agent_id,
             outcome=outcome,
             review_status=review_status,
             limit=min(max(limit, 0), 500),
@@ -2284,7 +2288,7 @@ def create_app(
     )
     def export_audit_fhir(
         request: Request,
-        pack_id: AgentFilter = None,
+        agent_id: AgentFilter = None,
         since: str | None = None,
         until: str | None = None,
     ) -> StreamingResponse:
@@ -2301,7 +2305,9 @@ def create_app(
                 # Re-enter tenancy per page rather than across `yield`: Starlette iterates a
                 # sync generator in a threadpool where each step runs in its own Context copy.
                 with tenancy.acting_for(org):
-                    page = store.events(pack_id=pack_id, since=since, until=until, after_seq=after)
+                    page = store.events(
+                        agent_id=agent_id, since=since, until=until, after_seq=after
+                    )
                 if not page:
                     break
                 for resource in audit_fhir.resources(page):
@@ -2616,11 +2622,11 @@ def create_app(
                 reports = [
                     monitor(
                         store,
-                        pack,
-                        providers=health_providers.get(pack.id),
-                        models=running_models.get(pack.id),
+                        agent,
+                        providers=health_providers.get(agent.id),
+                        models=running_models.get(agent.id),
                     )
-                    for pack in packs.values()
+                    for agent in agents.values()
                 ]
             if not any(report["alerts"] for report in reports):
                 continue
@@ -2695,13 +2701,13 @@ def create_app(
     )
     def list_feedback(
         request: Request,
-        pack_id: AgentFilter = None,
+        agent_id: AgentFilter = None,
         rating: Literal["up", "down"] | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """Ratings, newest first; each note as `GET /api/audit/{decision_id}` shows notes."""
         ratings = store.feedback(
-            pack_id=pack_id,
+            agent_id=agent_id,
             rating=rating,
             limit=min(max(limit, 0), 500),
             reader=input_reader(request),
@@ -2727,13 +2733,13 @@ def create_app(
         a clinician overrode the agent (`source=overrides`). `x-mendari-skipped` counts the ones
         stored without their input. Each record says it was exported (`attributes.exported_by`):
         a site's cases, which no agent archive holds."""
-        pack = pack_or_404(f"{namespace}/{name}")
+        agent = agent_or_404(f"{namespace}/{name}")
         if source in ("reviews", "overrides"):
             if rating is not None:
                 raise HTTPException(422, f"rating filters ratings: leave it out with {source}")
             records, skipped = reviewed_dataset(
                 store,
-                pack_id=pack.id,
+                agent_id=agent.id,
                 reader=input_reader(request),
                 only_overrides=(source == "overrides"),
             )
@@ -2742,10 +2748,10 @@ def create_app(
         else:
             rating = rating or "down"
             records, skipped = feedback_dataset(
-                store, pack_id=pack.id, rating=rating, reader=input_reader(request)
+                store, agent_id=agent.id, rating=rating, reader=input_reader(request)
             )
             filename = f"{name}-feedback-{rating}.jsonl"
-        log_event(request, "export.feedback", ids=[pack.id], count=len(records))
+        log_event(request, "export.feedback", ids=[agent.id], count=len(records))
         if phi.mode != "off" and input_reader(request) is not None and records:
             shown = [str(record["attributes"]["decision_id"]) for record in records]
             log_event(request, "phi.inputs.read", ids=shown, count=len(shown))
@@ -2765,11 +2771,11 @@ def create_app(
         tags=["Audit"],
         summary="Decision statistics",
     )
-    def stats(pack_id: AgentFilter = None) -> dict[str, Any]:
+    def stats(agent_id: AgentFilter = None) -> dict[str, Any]:
         """Counts by outcome, the review backlog, override rate, latency and cost; and the
         overview's periods (`periods`: the last 7 and 30 days and all time, each with the one
         before), their shares of cases as figures."""
-        counts = store.stats(pack_id)
+        counts = store.stats(agent_id)
         return {**counts, "periods": figures.periods(counts["daily"], clock.today())}
 
     # -- CDS Hooks ---------------------------------------------------------------------------
@@ -2817,7 +2823,7 @@ def create_app(
         prefetch key of a type the site declared that `fhirServer` does not offer
         (`MENDARI_EHR_DECLARATIONS`) is not read for an agent that may read its list without it:
         the decision records the declaration, and never automates."""
-        pack = next(
+        agent = next(
             (
                 p
                 for p in served_here().values()
@@ -2825,8 +2831,8 @@ def create_app(
             ),
             None,
         )
-        if pack is None:
-            raise PackNotFoundError(f"no CDS service {service_id!r}")
+        if agent is None:
+            raise AgentNotFoundError(f"no CDS service {service_id!r}")
         caller = principal_of(http)
         if caller.kind == "cds":
             # A CDS client's token (LP-23b): its `fhirServer` must be one it registered, before
@@ -2864,7 +2870,7 @@ def create_app(
             None if declarations is None else declarations.for_base(request.get("fhirServer"), org)
         )
         return cds_hooks.invoke(
-            decision_for(pack.id),
+            decision_for(agent.id),
             request,
             most=most_orders,
             charge=charge,
@@ -2874,7 +2880,7 @@ def create_app(
 
     def card_links(caller: Principal, fhir_server: object) -> cds_hooks.CardLinks:
         """Where this request's cards may link (LP-23f): the audit view under
-        `MENDARI_PUBLIC_URL`, read on each request as the FHIR base is, and the pack's SMART
+        `MENDARI_PUBLIC_URL`, read on each request as the FHIR base is, and the agent's SMART
         launch only when SMART is on and the request's `fhirServer` is registered for launches
         (`MENDARI_SMART_EHRS`) to the caller's own organization."""
         public = os.environ.get("MENDARI_PUBLIC_URL", "").strip().rstrip("/") or None
@@ -2902,7 +2908,7 @@ def create_app(
         organization, or, with sign-in on (and for a CDS client's token), not one you asked
         for, is one `404` for them all, and nothing is recorded. Not counted against the daily
         cap: it decides nothing."""
-        pack = next(
+        agent = next(
             (
                 p
                 for p in served_here().values()
@@ -2910,10 +2916,10 @@ def create_app(
             ),
             None,
         )
-        if pack is None:  # a pack with no hook makes no card
-            raise PackNotFoundError(f"no CDS service {service_id!r}")
+        if agent is None:  # an agent with no hook makes no card
+            raise AgentNotFoundError(f"no CDS service {service_id!r}")
         items = [item.chained() for item in body.feedback]
-        recorded = store.record_card_feedback(pack.id, service_id, items)
+        recorded = store.record_card_feedback(agent.id, service_id, items)
         return {"recorded": len(recorded)}
 
     # -- FHIR: the $decide operation and conformance resources --------------------------------
@@ -2924,7 +2930,7 @@ def create_app(
         summary="$decide: a decision as FHIR",
     )
     def fhir_decide(payload: JsonBody) -> JSONResponse:
-        """Mendari's FHIR operation (system level, POST only): `Parameters` in (`pack`, `version`,
+        """Mendari's FHIR operation (system level, POST only): `Parameters` in (`agent`, `version`,
         `data` as a Bundle, `focus`), a `collection` Bundle out. Its first entry, a
         `GuidanceResponse`, is the decision; act on `outputParameters.outcome`, never on
         `status`. Then a RequestGroup and the Task (under BLOCK and ABSTAIN, the agent's fallback),
@@ -2932,21 +2938,21 @@ def create_app(
         trail's Provenance. The definition: `/fhir/OperationDefinition/decide`. Errors are
         OperationOutcomes."""
         request = decide_op.parse(payload)
-        pack = pack_or_404(request.pack)
-        if request.version is not None and request.version != pack.version:
-            raise PackNotFoundError(
-                f"{pack.id} is served here at version {pack.version}, not {request.version}"
+        agent = agent_or_404(request.agent)
+        if request.version is not None and request.version != agent.version:
+            raise AgentNotFoundError(
+                f"{agent.id} is served here at version {agent.version}, not {request.version}"
             )
-        decision = decision_for(pack.id)
+        decision = decision_for(agent.id)
         focus = decide_op.focus_in(request.data, request.focus)
         result, task = decision.decide_fhir(request.data, focus=focus)
         record = store.get(result.id)
         if record is None:  # every decision this server makes is recorded
             raise RuntimeError(f"decision {result.id} is not in the audit trail")
         created = next(e for e in record["events"] if e["event"] == "decision.created")
-        event = {**created, **{k: record[k] for k in ("pack_id", "pack_version", "record")}}
+        event = {**created, **{k: record[k] for k in ("agent_id", "agent_version", "record")}}
         provenance = audit_fhir.provenance({**event, "decision_id": result.id})
-        bundle = decide_op.response(result, task, pack, provenance, request.data)
+        bundle = decide_op.response(result, task, agent, provenance, request.data)
         return JSONResponse(bundle, media_type="application/fhir+json")
 
     @app.get(
@@ -2962,7 +2968,7 @@ def create_app(
         place = settings.deployment_place()
         statement = capability.capability_statement(
             mounted_routes(app),
-            packs,
+            agents,
             sign_in=auth.enabled,
             backend_services=backend is not None,
             since=lambda version: store.capability_since(place[0], version),
@@ -3311,7 +3317,7 @@ def create_app(
                 add_registry_review_routes(app, auth, registry_store, review_org)
 
     if store_on:
-        # An organization's pack store (LP-20f): its authors' routes. A namespace an
+        # An organization's agent store (LP-20f): its authors' routes. A namespace an
         # organization holds by an approved registry claim is its too.
         from mendari.server.store_routes import add_store_routes
 
@@ -3323,30 +3329,30 @@ def create_app(
 
         from mendari.evals.store_jobs import JobStore
 
-        pack_store = PackStore(store)
-        app.state.pack_store = pack_store
+        agent_store = AgentStore(store)
+        app.state.agent_store = agent_store
 
-        def job_decision(pack: Pack, variants: Mapping[str, str]) -> Decision:
-            """A store job's Decision: the deployment's choice for the pack, then the job's,
+        def job_decision(agent: Agent, variants: Mapping[str, str]) -> Decision:
+            """A store job's Decision: the deployment's choice for the agent, then the job's,
             each decision under the deadline and the evaluation quotas (LP-20g)."""
             return Decision(
-                pack,
-                providers={**variants_for(pack)[0], **variants},
+                agent,
+                providers={**variants_for(agent)[0], **variants},
                 budget=None if budget is None else budget.for_evaluation(),
                 deadline_s=deadline_s,
-                origin_cap=False,  # an evaluation measures the pack's own policy
+                origin_cap=False,  # an evaluation measures the agent's own policy
                 connection_source=connection_for,  # the service that answers here (ADR-0021)
             )
 
-        store_jobs = JobStore(pack_store, served=lambda: packs, decision_for=job_decision)
+        store_jobs = JobStore(agent_store, served=lambda: agents, decision_for=job_decision)
 
-        def promoted_versions(org: str) -> dict[str, tuple[Pack, str, bool]]:
+        def promoted_versions(org: str) -> dict[str, tuple[Agent, str, bool]]:
             """`org`'s promoted versions, each loaded on its own: one that no longer loads (an
             engine upgrade, a file gone) is left out and logged, never the request's failure."""
-            found: dict[str, tuple[Pack, str, bool]] = {}
-            for pack_id, (digest, promotion, automate) in pack_store.promoted(org).items():
+            found: dict[str, tuple[Agent, str, bool]] = {}
+            for agent_id, (digest, promotion, automate) in agent_store.promoted(org).items():
                 try:
-                    found[pack_id] = (pack_store.load(org, digest), promotion, automate)
+                    found[agent_id] = (agent_store.load(org, digest), promotion, automate)
                 except MendariError as error:
                     providers_logger.warning(
                         "promoted store version %s of %s is not served: %s",
@@ -3360,8 +3366,8 @@ def create_app(
         add_store_routes(
             app,
             auth,
-            pack_store,
-            served=lambda: packs,
+            agent_store,
+            served=lambda: agents,
             claimed=claimed_namespace,
             deadline_s=deadline_s,
             jobs=store_jobs,
@@ -3370,44 +3376,44 @@ def create_app(
         )
     # Finding an agent in the deployment's registry and adding it to an organization's store
     # (`server/hub_routes.py`): `GET /api/hub` always; the rest where a registry is named.
-    kept_store: PackStore | None = getattr(app.state, "pack_store", None)
+    kept_store: AgentStore | None = getattr(app.state, "agent_store", None)
     add_hub_routes(
         app,
         auth,
         registry=hub_registry,
-        served=lambda: packs,
+        served=lambda: agents,
         served_here=served_here,
         store=kept_store,
     )
 
-    def draft_decision(pack: Pack) -> Decision:
+    def draft_decision(agent: Agent) -> Decision:
         """A Decision for a store version that is not served, to read where its `agent`
         variants' answers would come from and to check its connection: no store, no budget,
         its own policy."""
         return Decision(
-            pack,
-            providers=variants_for(pack)[0],
+            agent,
+            providers=variants_for(agent)[0],
             deadline_s=deadline_s,
             origin_cap=False,
             connection_source=connection_for,
         )
 
-    def agent_providers(org: str, pack_id: str) -> tuple[Pack, list[AgentProvider]] | None:
+    def agent_providers(org: str, agent_id: str) -> tuple[Agent, list[AgentProvider]] | None:
         """An agent `org` is served (from the deployment's files, or a version of its store it
         promoted) or holds in its store as a draft, with the `agent` variants it runs; None for
         any other, another organization's included. An agent that could not be built has none."""
-        if pack_id in packs:
-            decided = built.get(pack_id)
-            return packs[pack_id], [] if decided is None else decided.agent_providers()
-        served = promoted_here().get(pack_id)
+        if agent_id in agents:
+            decided = built.get(agent_id)
+            return agents[agent_id], [] if decided is None else decided.agent_providers()
+        served = promoted_here().get(agent_id)
         try:
             if served is not None:
                 return served[0], store_decision(*served).agent_providers()
             if kept_store is not None:
-                for row in kept_store.versions(org, pack_id):
+                for row in kept_store.versions(org, agent_id):
                     if row["state"] in ("draft", "retired"):
-                        pack = kept_store.load(org, row["digest"])
-                        return pack, draft_decision(pack).agent_providers()
+                        agent = kept_store.load(org, row["digest"])
+                        return agent, draft_decision(agent).agent_providers()
         except MendariError:
             return None  # a version that no longer loads or builds: not one to connect
         return None
@@ -3427,10 +3433,10 @@ def create_app(
         app,
         settings=smart_options,
         store=store,
-        packs=packs,
-        pack_or_404=pack_or_404,
+        agents=agents,
+        agent_or_404=agent_or_404,
         decision_for=decision_for,
-        default_pack=default_pack,
+        default_agent=default_agent,
         auth=auth,
         lifetime=session_lifetime,
         site_codes=site_maps,
@@ -3499,13 +3505,13 @@ def create_app(
             registry=registry_probe.state(),
             agent_store=kept_store is not None,
             served=len(served),
-            served_from_registry=sum(pack.origin == "hub" for pack in served.values()),
+            served_from_registry=sum(agent.origin == "hub" for agent in served.values()),
             any_decision=store.any_decision(),
             demo_only=set(served) == {DEMO_AGENT},
             recalls=[
-                {"agent": pack.id, "version": pack.version, "reason": why}
-                for pack in served.values()
-                if (why := recall_watch.recalled(pack)) is not None
+                {"agent": agent.id, "version": agent.version, "reason": why}
+                for agent in served.values()
+                if (why := recall_watch.recalled(agent)) is not None
             ],
             ehr_checked=runs.get("ehr.check"),
         )
@@ -3590,7 +3596,7 @@ def create_app(
         permission_for=auth.permission,
         cards=None
         if auth.enabled
-        else {pack_id: landing.CardLink(p.manifest.name) for pack_id, p in packs.items()},
+        else {agent_id: landing.CardLink(p.manifest.name) for agent_id, p in agents.items()},
     )
     # No style attribute anywhere, so no inline style; its inline scripts (the theme script and
     # the import map) by hash.
@@ -3683,7 +3689,7 @@ def add_written_routes(app: FastAPI, auth: Auth, rounds: WrittenStore) -> None:
     )
     def written_rounds(
         request: Request,
-        pack_id: Annotated[
+        agent_id: Annotated[
             str | None, Query(max_length=200, title="Agent id", description="only this agent's")
         ] = None,
     ) -> list[WrittenRound]:
@@ -3702,7 +3708,7 @@ def add_written_routes(app: FastAPI, auth: Auth, rounds: WrittenStore) -> None:
             WrittenRound.model_validate(
                 {key: value for key, value in found.items() if key not in ("org", "created_by")}
             )
-            for found in rounds.rounds(org, pack_id)
+            for found in rounds.rounds(org, agent_id)
         ]
 
 
@@ -3737,7 +3743,7 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     if isinstance(error, FhirStructureError):
         return operation_outcome(status, [{"code": "structure", **i} for i in error.issues])
     code = _ISSUE_TYPE.get(status, "processing")
-    if isinstance(error, PackNotFoundError):
+    if isinstance(error, AgentNotFoundError):
         code = "not-found"
     return operation_outcome(status, [{"code": code, "diagnostics": str(error)}], headers)
 
@@ -3875,7 +3881,7 @@ def operators_hold(hold: Mapping[str, Any]) -> dict[str, Any]:
     """A hold of the deployment's (set from the command line, for every organization) as an
     organization sees it in memberships mode: what it covers and since when; the operator's
     reason and name are the operator's (ADR-0008)."""
-    return {key: hold[key] for key in ("id", "org", "pack_id", "pack_digest", "set_at")}
+    return {key: hold[key] for key in ("id", "org", "agent_id", "agent_digest", "set_at")}
 
 
 def quota_alert(alerts: AlertSettings | None, store: AuditStore) -> QuotaReached:
@@ -3947,7 +3953,7 @@ def _offered(format_parameter: str) -> bool:
 
 
 MAX_SEARCH_FORM_BYTES = 256 * 1024
-REGISTRY_PREFIX = "/registry/"  # where the pack registry is mounted (LP-19d; auth.py's rule)
+REGISTRY_PREFIX = "/registry/"  # where the agent registry is mounted (LP-19d; auth.py's rule)
 
 
 class BodyCap:
@@ -4295,12 +4301,12 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
-def declared_actions(pack: Pack, *, vouched: bool) -> dict[str, Any]:
+def declared_actions(agent: Agent, *, vouched: bool) -> dict[str, Any]:
     """An agent's declared actions as its detail shows them (`actions`): each with its effect,
     its gate (`policy.gate_of`, for an agent the organization does or does not vouch for) and
     the gate in words, and the names of its arguments (None: not checked). Nothing for an agent
     that declares none, so its detail is what it was."""
-    declared = pack.manifest.actions
+    declared = agent.manifest.actions
     if not declared:
         return {}
     listed = []
@@ -4321,35 +4327,37 @@ def declared_actions(pack: Pack, *, vouched: bool) -> dict[str, Any]:
     return {"actions": listed}
 
 
-def _summary(pack: Pack) -> dict[str, Any]:
-    m = pack.manifest
+def _summary(agent: Agent) -> dict[str, Any]:
+    m = agent.manifest
     return {
         "id": m.id,
         "version": m.version,
         "name": m.name,
         "summary": m.summary,
-        "digest": pack.digest,
+        "digest": agent.digest,
         # `publisher.type` is what the manifest says of itself; `origin` is where this
-        # deployment found the pack (`core/origin.py`), and `origin_label` what to show for it.
+        # deployment found the agent (`core/origin.py`), and `origin_label` what to show for it.
         "publisher": m.publisher.model_dump(mode="json"),
-        "origin": pack.origin,
-        "origin_label": pack.origin_label,
-        # Derived from `card.provenance` (`core/status.py`), never written by the pack.
-        "status_label": pack.status_label,
+        "origin": agent.origin,
+        "origin_label": agent.origin_label,
+        # Derived from `card.provenance` (`core/status.py`), never written by the agent.
+        "status_label": agent.status_label,
         "license": m.license,
         "risk": {"level": int(m.risk.level), "category": m.risk.category},
         "primary": m.policy.primary,
         "labels": m.labels(m.policy.primary),
-        "cds_service": cds_hooks.service_id(pack) if m.cds_hooks else None,
+        "cds_service": cds_hooks.service_id(agent) if m.cds_hooks else None,
     }
 
 
-def _labels_questions_of(path: Path, pack: Pack) -> bool:
-    """A local dataset is offered to the pack whose questions its first record labels."""
+def _labels_questions_of(path: Path, agent: Agent) -> bool:
+    """A local dataset is offered to the agent whose questions its first record labels."""
     try:
         with path.open(encoding="utf-8") as handle:
             first = json.loads(handle.readline() or "null")
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return False
     labels = first.get("labels") if isinstance(first, dict) else None
-    return isinstance(labels, dict) and bool(labels) and set(labels) <= set(pack.manifest.questions)
+    return (
+        isinstance(labels, dict) and bool(labels) and set(labels) <= set(agent.manifest.questions)
+    )

@@ -21,8 +21,8 @@ from fastapi.testclient import TestClient
 
 from mendari import AuditStore
 from mendari.core import actions
+from mendari.core.agent import load_agent
 from mendari.core.card import render_card
-from mendari.core.pack import load_pack
 from mendari.server.app import create_app
 from mendari.server.auth import permission_for
 from mendari.server.limits import DailyCap, Limiter, limit_settings
@@ -60,7 +60,7 @@ def agents(tmp_path: Path) -> list[Path]:
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:
     """Open mode (no sign-in), so canned answers automate as live ones do."""
-    app = create_app(db_path=tmp_path / "open.db", packs_paths=agents(tmp_path))
+    app = create_app(db_path=tmp_path / "open.db", agents_paths=agents(tmp_path))
     with TestClient(app) as opened:
         yield opened
 
@@ -358,11 +358,11 @@ def test_an_agent_older_than_0_4_authorizes_nothing_over_http(client: TestClient
 def test_a_decision_of_an_earlier_digest_is_agent_changed(tmp_path: Path) -> None:
     paths = agents(tmp_path)
     db = tmp_path / "versions.db"
-    with TestClient(create_app(db_path=db, packs_paths=paths)) as first:
+    with TestClient(create_app(db_path=db, agents_paths=paths)) as first:
         decided = decide(first, REFILL)
     manifest = paths[0] / "actions-mini" / "agent.yaml"
     manifest.write_text(manifest.read_text().replace("version: 0.1.0", "version: 0.1.1"))
-    with TestClient(create_app(db_path=db, packs_paths=paths)) as second:
+    with TestClient(create_app(db_path=db, agents_paths=paths)) as second:
         asked = ask(second, decided["id"], "look_up_medications", {})
         assert (asked["disposition"], asked["reason"]) == ("blocked", "agent_changed")
         assert asked["name"] is None and asked["effect"] is None
@@ -371,7 +371,7 @@ def test_a_decision_of_an_earlier_digest_is_agent_changed(tmp_path: Path) -> Non
 def test_a_hold_set_after_an_automated_decision_is_not_automated(client: TestClient) -> None:
     decided = decide(client, REFILL)
     assert ask(client, decided["id"], "file_note", {"note": "before"})["reason"] == "automated"
-    held = client.post("/api/holds", json={"pack_id": AGENT, "reason": "a drill"})
+    held = client.post("/api/holds", json={"agent_id": AGENT, "reason": "a drill"})
     assert held.status_code in (200, 201), held.text
     after = ask(client, decided["id"], "file_note", {"note": "after"})
     assert (after["disposition"], after["reason"]) == ("blocked", "not_automated")
@@ -408,7 +408,7 @@ def test_keys_and_people_reach_it_by_role_and_scope(
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     db = tmp_path / "signed.db"
-    app = create_app(db_path=db, packs_paths=agents(tmp_path))
+    app = create_app(db_path=db, agents_paths=agents(tmp_path))
     with TestClient(app, base_url="https://mendari.test") as client, encrypted_store(db) as store:
 
         def key(role: str, scopes: str | None = None) -> dict[str, str]:
@@ -497,12 +497,12 @@ def test_the_api_description_describes_the_route_and_the_reviews_new_field(
 
 
 def test_the_decision_card_lists_the_declared_actions_and_how_each_is_gated() -> None:
-    card = render_card(load_pack(MINI))
+    card = render_card(load_agent(MINI))
     section = card.split("## Actions")[1].split("## Providers")[0]
     assert "Mendari authorizes each action and runs none" in section
     rows = [line for line in section.splitlines() if line.startswith("| `")]
     assert [row.split("|")[1].strip() for row in rows] == [
-        f"`{name}`" for name in load_pack(MINI).manifest.actions
+        f"`{name}`" for name in load_agent(MINI).manifest.actions
     ]
     by_name = {row.split("|")[1].strip().strip("`"): row for row in rows}
     assert (
@@ -515,7 +515,7 @@ def test_the_decision_card_lists_the_declared_actions_and_how_each_is_gated() ->
     assert "checked: `medication`, `days_supply`" in by_name["queue_refill"]
     assert "`order` | Never without a person" in by_name["renew_prescription"]
     # The bundled agent's card lists its two; an agent that declares none has no such section.
-    demo = render_card(load_pack(DEMO_AGENT_DIR))
+    demo = render_card(load_agent(DEMO_AGENT_DIR))
     assert "| `assign_queue` |" in demo and "| `send_acknowledgement` |" in demo
     assert "`contact` | Never without a person" in demo
-    assert "## Actions" not in render_card(load_pack(TRIAGE_DIR))
+    assert "## Actions" not in render_card(load_agent(TRIAGE_DIR))

@@ -172,7 +172,7 @@ def test_the_documented_calls_answer_with_the_presets_keys(served: tuple[TestCli
     parameters = {
         "resourceType": "Parameters",
         "parameter": [
-            {"name": "pack", "valueString": INBOX},
+            {"name": "agent", "valueString": INBOX},
             {"name": "data", "resource": FHIR_EXAMPLE},
         ],
     }
@@ -285,7 +285,7 @@ def test_the_presets_list_is_an_administrators_with_each_keys_reach(
 
 def _decided() -> tuple[Any, Any]:
     from mendari import Decision
-    from mendari.core.registry import resolve_pack
+    from mendari.core.registry import resolve_agent
 
     inputs = message(ROUTINE)
-    return Decision(resolve_pack(INBOX))(inputs), inputs
+    return Decision(resolve_agent(INBOX))(inputs), inputs

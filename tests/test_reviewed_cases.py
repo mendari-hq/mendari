@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack, load_pack
+from mendari import Agent, AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core import audit, tenancy
 from mendari.evals import load_dataset
@@ -39,7 +39,7 @@ SWELLING = "My appointment notes say to call if the swelling gets worse, and it 
 
 
 def test_a_reviewed_decision_is_a_labelled_case(
-    triage_agent: Pack, store: AuditStore, tmp_path: Path
+    triage_agent: Agent, store: AuditStore, tmp_path: Path
 ) -> None:
     decision = Decision(triage_agent, store=store)
     kept = decision(message(REFILL))  # the agent suggests the pharmacy
@@ -48,7 +48,7 @@ def test_a_reviewed_decision_is_a_labelled_case(
     store.resolve_review(kept.id, final_label="pharmacy", reviewer="rn-1")
     store.resolve_review(corrected.id, final_label="nurse", reviewer="rn-1")
 
-    records, skipped = reviewed_dataset(store, pack_id=triage_agent.id)
+    records, skipped = reviewed_dataset(store, agent_id=triage_agent.id)
     assert skipped == 0
     by_decision = {record["attributes"]["decision_id"]: record for record in records}
     assert set(by_decision) == {kept.id, corrected.id}
@@ -61,7 +61,7 @@ def test_a_reviewed_decision_is_a_labelled_case(
     assert case["review"]["overridden"] is True
     assert by_decision[kept.id]["review"]["overridden"] is False
     assert case["system"]["recommendation"] == corrected.recommendation
-    assert case["system"]["pack_version"] == triage_agent.version
+    assert case["system"]["agent_version"] == triage_agent.version
 
     # The payoff: the file is an agent's dataset, ready to evaluate.
     path = tmp_path / "reviewed.jsonl"
@@ -72,20 +72,20 @@ def test_a_reviewed_decision_is_a_labelled_case(
 
 
 def test_a_decision_still_awaiting_review_is_not_a_case(
-    triage_agent: Pack, store: AuditStore
+    triage_agent: Agent, store: AuditStore
 ) -> None:
     Decision(triage_agent, store=store)(message(CALL_BACK))
-    assert reviewed_dataset(store, pack_id=triage_agent.id) == ([], 0)
+    assert reviewed_dataset(store, agent_id=triage_agent.id) == ([], 0)
 
 
 def test_what_happened_downstream_is_the_label_when_it_is_known(
-    triage_agent: Pack, store: AuditStore
+    triage_agent: Agent, store: AuditStore
 ) -> None:
     result = Decision(triage_agent, store=store)(message(CALL_BACK))
     store.resolve_review(result.id, final_label="front_desk", reviewer="fd-1")
     store.record_outcome(result.id, final_label="nurse", source="staff-reroute", recorded_by="rn-9")
 
-    (record,), _ = reviewed_dataset(store, pack_id=triage_agent.id)
+    (record,), _ = reviewed_dataset(store, agent_id=triage_agent.id)
     assert record["labels"] == {"destination": "nurse"}
     assert record["attributes"]["source"] == "outcome"
     assert record["review"]["label"] == "front_desk"  # what the reviewer chose stays visible
@@ -93,37 +93,37 @@ def test_what_happened_downstream_is_the_label_when_it_is_known(
 
 
 def test_an_automated_decision_with_an_outcome_is_a_case(
-    triage_agent: Pack, store: AuditStore
+    triage_agent: Agent, store: AuditStore
 ) -> None:
     result = Decision(triage_agent, providers=SCREENED, store=store)(message(REFILL))
     assert result.outcome.value == "AUTO"
-    assert reviewed_dataset(store, pack_id=triage_agent.id) == ([], 0)  # nobody has said anything
+    assert reviewed_dataset(store, agent_id=triage_agent.id) == ([], 0)  # nobody has said anything
     store.record_outcome(result.id, final_label="front_desk", source="ehr", recorded_by="fd-1")
 
-    (record,), _ = reviewed_dataset(store, pack_id=triage_agent.id)
+    (record,), _ = reviewed_dataset(store, agent_id=triage_agent.id)
     assert record["labels"] == {"destination": "front_desk"}
     assert record["attributes"]["source"] == "outcome" and "review" not in record
 
 
 def test_a_decision_kept_as_a_hash_is_counted_and_not_exported(
-    triage_agent: Pack, store: AuditStore
+    triage_agent: Agent, store: AuditStore
 ) -> None:
     hashed = Decision(triage_agent)(message("text we must not export"))
     store.record(hashed, message("text we must not export"), store_input="hash")
     store.resolve_review(hashed.id, final_label="nurse", reviewer="rn-1")
-    assert reviewed_dataset(store, pack_id=triage_agent.id) == ([], 1)
+    assert reviewed_dataset(store, agent_id=triage_agent.id) == ([], 1)
 
 
-def test_a_case_names_no_person(triage_agent: Pack, store: AuditStore) -> None:
+def test_a_case_names_no_person(triage_agent: Agent, store: AuditStore) -> None:
     result = Decision(triage_agent, store=store)(message(CALL_BACK))
     store.resolve_review(result.id, final_label="nurse", reviewer="rn-1", note="called the patient")
     store.record_outcome(result.id, final_label="nurse", source="ehr", recorded_by="fd-7")
-    (record,), _ = reviewed_dataset(store, pack_id=triage_agent.id)
+    (record,), _ = reviewed_dataset(store, agent_id=triage_agent.id)
     written = json.dumps(record)
     assert "rn-1" not in written and "fd-7" not in written and "called the patient" not in written
 
 
-def test_a_case_says_it_was_exported(triage_agent: Pack, store: AuditStore) -> None:
+def test_a_case_says_it_was_exported(triage_agent: Agent, store: AuditStore) -> None:
     """It is a site's case wherever the file goes, so it says what it is: the mark that keeps
     an agent that holds it out of an archive (`core/site_cases.py`), whoever gave its label."""
     decision = Decision(triage_agent, store=store)
@@ -131,7 +131,7 @@ def test_a_case_says_it_was_exported(triage_agent: Pack, store: AuditStore) -> N
     for result in (reviewed, happened):
         store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
     store.record_outcome(happened.id, final_label="nurse", source="ehr", recorded_by="fd-7")
-    records, _ = reviewed_dataset(store, pack_id=triage_agent.id)
+    records, _ = reviewed_dataset(store, agent_id=triage_agent.id)
     assert {record["attributes"]["decision_id"]: record["attributes"] for record in records} == {
         reviewed.id: {
             "source": "review",
@@ -146,18 +146,18 @@ def test_a_case_says_it_was_exported(triage_agent: Pack, store: AuditStore) -> N
     }
 
 
-def test_only_the_packs_own_cases_and_the_newest_first(store: AuditStore) -> None:
+def test_only_the_agents_own_cases_and_the_newest_first(store: AuditStore) -> None:
     triage = Decision.from_path(TRIAGE_DIR, store=store)
     first = triage(message(CALL_BACK))
     second = triage(message(REFILL))
     for result in (first, second):
         store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
-    records, _ = reviewed_dataset(store, pack_id=triage.pack.id, limit=1)
+    records, _ = reviewed_dataset(store, agent_id=triage.agent.id, limit=1)
     assert [record["attributes"]["decision_id"] for record in records] == [second.id]
-    assert reviewed_dataset(store, pack_id=load_pack(CLINICAL_DIR).id) == ([], 0)
+    assert reviewed_dataset(store, agent_id=load_agent(CLINICAL_DIR).id) == ([], 0)
 
 
-def test_an_organization_exports_only_its_own_cases(triage_agent: Pack, store: AuditStore) -> None:
+def test_an_organization_exports_only_its_own_cases(triage_agent: Agent, store: AuditStore) -> None:
     decision = Decision(triage_agent, store=store)
     made = {}
     for org in ("north", "south"):
@@ -165,22 +165,22 @@ def test_an_organization_exports_only_its_own_cases(triage_agent: Pack, store: A
             made[org] = decision(message(CALL_BACK))
             store.resolve_review(made[org].id, final_label="nurse", reviewer="rn-1")
     with tenancy.acting_for("north"):
-        records, _ = reviewed_dataset(store, pack_id=triage_agent.id)
+        records, _ = reviewed_dataset(store, agent_id=triage_agent.id)
     assert [record["attributes"]["decision_id"] for record in records] == [made["north"].id]
 
 
 def test_a_sealed_input_is_exported_only_to_a_reader_and_the_read_is_chained(
-    triage_agent: Pack, db_target: str
+    triage_agent: Agent, db_target: str
 ) -> None:
     with encrypted_store(db_target) as store:  # PHI mode `encrypt`
         result = Decision(triage_agent, store=store)(message(CALL_BACK))
         store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
 
-        assert reviewed_dataset(store, pack_id=triage_agent.id) == ([], 1)  # no reader: sealed
+        assert reviewed_dataset(store, agent_id=triage_agent.id) == ([], 1)  # no reader: sealed
         events = [event["event"] for event in store.get(result.id)["events"]]  # type: ignore[index]
         assert "input.read" not in events
 
-        (record,), skipped = reviewed_dataset(store, pack_id=triage_agent.id, reader="rn-1")
+        (record,), skipped = reviewed_dataset(store, agent_id=triage_agent.id, reader="rn-1")
         assert skipped == 0 and record["input"] == message(CALL_BACK)
         read = [e for e in store.get(result.id)["events"] if e["event"] == "input.read"]  # type: ignore[index]
         assert len(read) == 1 and read[0]["payload"]["reader"] == "rn-1"
@@ -188,7 +188,7 @@ def test_a_sealed_input_is_exported_only_to_a_reader_and_the_read_is_chained(
 
 
 def test_many_decisions_are_opened_a_part_at_a_time(
-    triage_agent: Pack, db_target: str, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Agent, db_target: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A database binds only so many values in one statement, so inputs are opened in parts:
     every one is exported, and each read is chained once."""
@@ -198,7 +198,7 @@ def test_many_decisions_are_opened_a_part_at_a_time(
         made = [decision(message(f"{CALL_BACK} It is my request number {n}.")) for n in range(5)]
         for result in made:
             store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
-        records, skipped = reviewed_dataset(store, pack_id=triage_agent.id, reader="rn-1")
+        records, skipped = reviewed_dataset(store, agent_id=triage_agent.id, reader="rn-1")
         assert skipped == 0
         assert {r["attributes"]["decision_id"] for r in records} == {r.id for r in made}
         for result in made:
@@ -307,7 +307,7 @@ def test_a_rating_filter_with_reviews_is_refused(
 
 
 def test_only_an_administrator_exports_and_only_their_organizations_cases(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With sign-in on (so PHI mode `encrypt`): the route is an administrator's, as the ratings
     export is, and answers with its own organization's cases, each read logged and chained."""
@@ -346,15 +346,15 @@ def test_only_an_administrator_exports_and_only_their_organizations_cases(
 def test_the_route_exports_reviewed_decisions(db_target: str) -> None:
     app = create_app(db_path=db_target)
     client = TestClient(app)
-    pack = "/api/agents/mendari-test/triage"
-    decision = client.post(f"{pack}/decide", json=message(CALL_BACK)).json()
-    assert client.get(f"{pack}/feedback/export", params={"source": "reviews"}).text == ""
+    agent = "/api/agents/mendari-test/triage"
+    decision = client.post(f"{agent}/decide", json=message(CALL_BACK)).json()
+    assert client.get(f"{agent}/feedback/export", params={"source": "reviews"}).text == ""
     reviewed = client.post(
         f"/api/review/{decision['id']}", json={"final_label": "nurse", "reviewer": "rn-1"}
     )
     assert reviewed.status_code == 200
 
-    export = client.get(f"{pack}/feedback/export", params={"source": "reviews"})
+    export = client.get(f"{agent}/feedback/export", params={"source": "reviews"})
     assert export.status_code == 200
     assert export.headers["content-type"].startswith("application/x-ndjson")
     assert export.headers["x-mendari-skipped"] == "0"
@@ -362,6 +362,6 @@ def test_the_route_exports_reviewed_decisions(db_target: str) -> None:
     (line,) = export.text.splitlines()
     assert json.loads(line)["labels"] == {"destination": "nurse"}
 
-    assert client.get(f"{pack}/feedback/export", params={"source": "thumbs"}).status_code == 422
-    both = client.get(f"{pack}/feedback/export", params={"source": "reviews", "rating": "up"})
+    assert client.get(f"{agent}/feedback/export", params={"source": "thumbs"}).status_code == 422
+    both = client.get(f"{agent}/feedback/export", params={"source": "reviews", "rating": "up"})
     assert both.status_code == 422

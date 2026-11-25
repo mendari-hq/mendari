@@ -86,7 +86,7 @@ def decision_deadline_s() -> float:
     """How long one decision's remote calls may take together ($MENDARI_DECISION_DEADLINE_S,
     whole seconds, 10 to 270; default 120): a call that would start after it is not made, and
     one under way waits at most what remains, either one the provider error `timeout`
-    (`providers/deadline.py`). Local providers always answer. A pack cannot set it."""
+    (`providers/deadline.py`). Local providers always answer. An agent cannot set it."""
     raw = os.environ.get("MENDARI_DECISION_DEADLINE_S", "").strip()
     if not raw:
         return float(DEFAULT_DECISION_DEADLINE_S)
@@ -132,7 +132,7 @@ def status_org() -> str | None:
 
 
 def registry_mounted() -> bool:
-    """Whether the pack registry is served under this engine ($MENDARI_REGISTRY: `on`; unset or
+    """Whether the agent registry is served under this engine ($MENDARI_REGISTRY: `on`; unset or
     `off`: nothing is mounted and no registry table is made, LP-19d). Anything else fails at
     startup."""
     raw = os.environ.get("MENDARI_REGISTRY", "").strip().lower()
@@ -144,7 +144,7 @@ def registry_mounted() -> bool:
 
 
 def registry_review_org() -> str | None:
-    """The one organization whose `registry_reviewer` members review the pack registry
+    """The one organization whose `registry_reviewer` members review the agent registry
     ($MENDARI_REGISTRY_REVIEW_ORG; unset: nobody reviews through the web, LP-19e). An id no
     organization could have fails at startup; one that is well formed and unused only leaves
     reviewing off (`server/app.py` says so)."""
@@ -248,7 +248,7 @@ def database_target() -> str:
     return "var/mendari.db"
 
 
-def enabled_packs() -> frozenset[str]:
+def enabled_agents() -> frozenset[str]:
     """$MENDARI_AGENTS: the agents this server serves (comma-separated ids); empty: every agent
     found. An image built for one agent sets it to that agent."""
     raw = os.environ.get("MENDARI_AGENTS", "")
@@ -258,7 +258,7 @@ def enabled_packs() -> frozenset[str]:
 def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
     """`slot=variant` pairs from flags, falling back to $MENDARI_PROVIDERS (comma-separated).
 
-    A setting can be scoped to one pack: `mendari/portal-message-agent:reader=rules`.
+    A setting can be scoped to one agent: `mendari/portal-message-agent:reader=rules`.
     """
     items = list(values or [])
     if not items and os.environ.get("MENDARI_PROVIDERS"):
@@ -268,15 +268,15 @@ def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
         slot, sep, variant = item.partition("=")
         if not sep or not slot.strip() or not variant.strip():
             raise MendariError(f"provider override {item!r} must look like slot=variant")
-        pack, scoped, name = slot.strip().rpartition(":")
-        if scoped and (not pack.strip() or not name.strip()):
-            # `:reader=rules` or `ns/name:=rules` names no pack or no slot: it would apply nowhere
+        agent, scoped, name = slot.strip().rpartition(":")
+        if scoped and (not agent.strip() or not name.strip()):
+            # `:reader=rules` or `ns/name:=rules` names no agent or no slot: it would apply nowhere
             # and say nothing, so a typo would leave the default variant running unnoticed.
             raise MendariError(
                 f"provider override {item!r} must look like slot=variant or "
                 "namespace/name:slot=variant"
             )
-        key = f"{pack.strip()}:{name.strip()}" if scoped else name.strip()
+        key = f"{agent.strip()}:{name.strip()}" if scoped else name.strip()
         overrides[key] = variant.strip()
     return overrides
 
@@ -300,7 +300,7 @@ def daily_limits() -> dict[str, int | None]:
 
 # Decisions, the remote calls they make by provider type, and the remote calls the
 # organization's evaluations make (`eval_llm`, LP-21h).
-# `store_uploads`: the versions an organization adds to its pack store a day (LP-20e).
+# `store_uploads`: the versions an organization adds to its agent store a day (LP-20e).
 # `store_jobs`: the evaluation jobs it makes there a day (LP-20g).
 # `store_datasets`: the datasets it adds there a day, uploaded or built from its reviews.
 ORG_METRICS = (
@@ -311,7 +311,7 @@ ORG_METRICS = (
     "store_jobs",
     "store_datasets",
 )
-# What one organization's pack store may keep, in bytes of files (LP-20e, owner decision 14).
+# What one organization's agent store may keep, in bytes of files (LP-20e, owner decision 14).
 DEFAULT_STORE_ORG_BYTES = 256 * 1024 * 1024
 
 
@@ -339,7 +339,7 @@ def org_daily_limits() -> dict[str, int]:
 
 
 def store_org_bytes() -> int:
-    """$MENDARI_STORE_ORG_BYTES: the bytes of files and datasets one organization's pack store
+    """$MENDARI_STORE_ORG_BYTES: the bytes of files and datasets one organization's agent store
     may keep (LP-20e); 256 MiB unset. Each file is counted once however many of its versions hold
     it; each dataset as it is kept (sealed, under encrypt)."""
     raw = os.environ.get("MENDARI_STORE_ORG_BYTES", "").strip()
@@ -354,7 +354,7 @@ DEFAULT_STORE_MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
 
 
 def store_max_archive_bytes() -> int:
-    """$MENDARI_STORE_MAX_ARCHIVE_BYTES: the largest archive an author uploads to a pack store,
+    """$MENDARI_STORE_MAX_ARCHIVE_BYTES: the largest archive an author uploads to an agent store,
     sent in parts each under the body limit (LP-20f, owner decision 6); 32 MiB unset, and never
     more than an archive's own 100 MB."""
     raw = os.environ.get("MENDARI_STORE_MAX_ARCHIVE_BYTES", "").strip()
@@ -365,7 +365,7 @@ def store_max_archive_bytes() -> int:
     return int(raw)
 
 
-def pack_store_on() -> bool:
+def agent_store_on() -> bool:
     """Whether organizations' agent stores are served ($MENDARI_AGENT_STORE: `on`; unset or
     `off`: no store route is mounted, LP-20f). Anything else fails at startup."""
     raw = os.environ.get("MENDARI_AGENT_STORE", "").strip().lower()
@@ -393,28 +393,28 @@ def principal_daily_limit() -> int | None:
     return int(raw)
 
 
-def applies_to(key: str, pack_id: str, slots: Collection[str], *, named_only: bool) -> bool:
+def applies_to(key: str, agent_id: str, slots: Collection[str], *, named_only: bool) -> bool:
     """Whether a provider setting (`slot` or `namespace/name:slot`) names a slot of this pack: an
     unscoped one any agent with that slot that takes unscoped settings (not `named_only`), a
     scoped one only its own agent."""
     target, sep, slot = key.rpartition(":")
     if sep:
-        return target == pack_id and slot in slots
+        return target == agent_id and slot in slots
     return not named_only and slot in slots
 
 
 def providers_for(
-    pack_id: str,
+    agent_id: str,
     slots: Mapping[str, Collection[str]],
     settings: Mapping[str, str],
     *,
     named_only: bool = False,
 ) -> tuple[dict[str, str], list[str]]:
-    """(the variants to use for this pack, settings that name this pack but cannot apply).
+    """(the variants to use for this agent, settings that name this agent but cannot apply).
 
-    `slots` maps the pack's slot names to their variants. An unscoped `slot=variant` applies
-    only where the pack has that slot *and* variant, so one deployment-wide setting never
-    breaks another pack; a pack-scoped setting wins over an unscoped one for the same slot.
+    `slots` maps the agent's slot names to their variants. An unscoped `slot=variant` applies
+    only where the agent has that slot *and* variant, so one deployment-wide setting never
+    breaks another agent; an agent-scoped setting wins over an unscoped one for the same slot.
     A `named_only` agent takes only the settings scoped to it: an unscoped one does not name it,
     so a deployment pays for such an agent's remote calls only where it chose them by name.
     """
@@ -423,7 +423,7 @@ def providers_for(
     for scoped in (False, True) if not named_only else (True,):
         for key, variant in settings.items():
             target, sep, slot = key.rpartition(":")
-            if bool(sep) != scoped or (scoped and target != pack_id):
+            if bool(sep) != scoped or (scoped and target != agent_id):
                 continue
             if slot in slots and variant in slots[slot]:
                 chosen[slot] = variant

@@ -2,7 +2,7 @@
 """What `/docs/reference` and `/openapi.json` say about this deployment.
 
 The OpenAPI document is generated from the routes; this adds what generation cannot know: a
-description of the product, the tags, synthetic examples from the packs this deployment serves
+description of the product, the tags, synthetic examples from the agents this deployment serves
 (so "Try it out" starts from a request that works), and, only when sign-in is on, how to
 authenticate. Nothing is claimed that the deployment does not do. What Mendari is and its four
 outcomes are said once, here, for this page and the developer landing (`server/landing.py`).
@@ -15,8 +15,8 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from mendari import notices
-from mendari.core.pack import Pack
-from mendari.evals.pack_tests import load_cases
+from mendari.core.agent import Agent
+from mendari.evals.behaviour_tests import load_cases
 from mendari.server import scopes
 
 TAGS = [
@@ -95,8 +95,8 @@ FHIR_EXAMPLE: dict[str, Any] = {
         },
     ],
 }
-FHIR_EXAMPLE_PACK = "mendari/portal-message-agent"  # the bundled demo agent
-# A pack's example is in the reference only if its JSON is at most this (the shipped packs' are
+FHIR_EXAMPLE_AGENT = "mendari/portal-message-agent"  # the bundled demo agent
+# An agent's example is in the reference only if its JSON is at most this (the shipped agents' are
 # under 1 KB); a larger one is left out, as is one from tests that do not load.
 MAX_EXAMPLE_BYTES = 64 * 1024
 
@@ -118,14 +118,14 @@ OUTCOMES = (
 def description(
     *,
     sign_in: bool,
-    default_pack: str | None,
+    default_agent: str | None,
     token_url: str | None = None,
     rate_limits: Mapping[str, str] | None = None,
 ) -> str:
     """The page's introduction: what this is, a first request, how to authenticate (and, when
     SMART Backend Services is on, `token_url`: how machines get tokens), and, when they are on,
     the `rate_limits` (class: rate)."""
-    pack = default_pack or "{namespace}/{name}"
+    agent = default_agent or "{namespace}/{name}"
     auth = (
         "**Sign-in is on.** People sign in at `/auth/login`; the dashboard and these pages use "
         "that session, which ends after 30 minutes without a request or 8 hours (unless the "
@@ -169,8 +169,8 @@ in a hash-chained audit trail.
 ### A first request
 
 1. `GET /api/agents` lists the agents.
-2. `GET /api/agents/{pack}/examples` gives synthetic inputs.
-3. `POST /api/agents/{pack}/decide` with an example's `input` returns the decision; its `id`
+2. `GET /api/agents/{agent}/examples` gives synthetic inputs.
+3. `POST /api/agents/{agent}/decide` with an example's `input` returns the decision; its `id`
    opens the audit record at `GET /api/audit/{{id}}`.
 
 A request body is 4 MiB at most unless the deployment sets `MENDARI_MAX_BODY_BYTES`; a larger
@@ -181,7 +181,7 @@ one is a `413`. Every answer carries an `X-Request-Id`, and JSON errors on `/api
 ### FHIR
 
 The FHIR base is `/fhir`; [`GET /fhir/metadata`](/fhir/metadata) says what it does.
-`POST /fhir/$decide` takes `Parameters` (`pack`, `data` as a Bundle) and returns the decision as
+`POST /fhir/$decide` takes `Parameters` (`agent`, `data` as a Bundle) and returns the decision as
 a FHIR Bundle (a `GuidanceResponse` first; act on its `outcome`, not its `status`). To send a
 bare Bundle, one resource or CDS Hooks prefetch and get Mendari's JSON back, use
 `POST /api/agents/{{namespace}}/{{name}}/fhir/decide`. FHIR input first passes a structural R4
@@ -253,8 +253,8 @@ def _backend_services(token_url: str) -> str:
 def document(
     schema: dict[str, Any],
     *,
-    packs: Mapping[str, Pack],
-    default_pack: str | None,
+    agents: Mapping[str, Agent],
+    default_agent: str | None,
     permission_for: Callable[[str, str], str] | None,
     token_url: str | None = None,
     limit_for: Callable[[str, str], str | None] | None = None,
@@ -267,18 +267,18 @@ def document(
     class of an operation or None), the `429` a limited operation can answer. `session_cookie`
     is the session cookie's name at the public URL (server/sessions.py), `launch_cookie` an EHR
     launch's."""
-    ordered = sorted(packs, key=lambda pack_id: (pack_id != default_pack, pack_id))
-    inputs = {pack_id: _example_input(packs[pack_id]) for pack_id in ordered}
+    ordered = sorted(agents, key=lambda agent_id: (agent_id != default_agent, agent_id))
+    inputs = {agent_id: _example_input(agents[agent_id]) for agent_id in ordered}
     for path, operations in schema.get("paths", {}).items():
-        fitting = [pack_id for pack_id in ordered if _fits(packs[pack_id], path)]
+        fitting = [agent_id for agent_id in ordered if _fits(agents[agent_id], path)]
         for method, operation in operations.items():
             for parameter in operation.get("parameters", []):
                 if parameter.get("in") == "path" and parameter["name"] in ("namespace", "name"):
                     part = 0 if parameter["name"] == "namespace" else 1
-                    values = dict.fromkeys(pack_id.split("/")[part] for pack_id in fitting)
+                    values = dict.fromkeys(agent_id.split("/")[part] for agent_id in fitting)
                     parameter["examples"] = {value: {"value": value} for value in values}
             body = operation.get("requestBody", {}).get("content", {}).get("application/json")
-            examples = _body_examples(path, inputs, packs)
+            examples = _body_examples(path, inputs, agents)
             if body is not None and examples:
                 body["examples"] = examples
             if permission_for is not None:
@@ -404,28 +404,28 @@ _SCOPE_TEXT = {
 }
 
 
-def _fits(pack: Pack, path: str) -> bool:
-    """Whether "Try it out" should offer this pack on this path: the FHIR route needs a pack
+def _fits(agent: Agent, path: str) -> bool:
+    """Whether "Try it out" should offer this agent on this path: the FHIR route needs an agent
     with a FHIR mapping."""
     if path.endswith("/fhir/decide"):
-        return pack.manifest.inputs.fhir is not None
+        return agent.manifest.inputs.fhir is not None
     return True
 
 
-def _example_input(pack: Pack) -> tuple[str, dict[str, Any]] | None:
-    """The pack's first behaviour test that automates (the friendliest first try), or its
+def _example_input(agent: Agent) -> tuple[str, dict[str, Any]] | None:
+    """The agent's first behaviour test that automates (the friendliest first try), or its
     first one; None if it has none, its tests do not load, or the example is not JSON or is
-    over `MAX_EXAMPLE_BYTES` as JSON. Whatever one pack's tests hold is that pack's problem,
+    over `MAX_EXAMPLE_BYTES` as JSON. Whatever one agent's tests hold is that agent's problem,
     never the API reference's (which holds each example more than once, and in which a control
-    character is six bytes): anything raised choosing its example leaves the pack out."""
+    character is six bytes): anything raised choosing its example leaves the agent out."""
     try:
-        return _first_example(pack)
+        return _first_example(agent)
     except Exception:  # its tests do not load (named by `mendari validate` and …/examples)
         return None
 
 
-def _first_example(pack: Pack) -> tuple[str, dict[str, Any]] | None:
-    cases = load_cases(pack)  # each a mapping with an `input` mapping (or this raises)
+def _first_example(agent: Agent) -> tuple[str, dict[str, Any]] | None:
+    cases = load_cases(agent)  # each a mapping with an `input` mapping (or this raises)
     automated = [c for c in cases if c.get("expect", {}).get("outcome") == "AUTO"]
     if not (automated or cases):
         return None
@@ -439,31 +439,31 @@ def _first_example(pack: Pack) -> tuple[str, dict[str, Any]] | None:
 
 
 def _body_examples(
-    path: str, inputs: Mapping[str, tuple[str, dict[str, Any]] | None], packs: Mapping[str, Pack]
+    path: str, inputs: Mapping[str, tuple[str, dict[str, Any]] | None], agents: Mapping[str, Agent]
 ) -> dict[str, Any]:
     if path in ("/api/agents/{namespace}/{name}/fhir/decide", "/fhir/$decide"):
-        if FHIR_EXAMPLE_PACK not in packs:
+        if FHIR_EXAMPLE_AGENT not in agents:
             return {}
         value: dict[str, Any] = FHIR_EXAMPLE
         if path == "/fhir/$decide":
             value = {
                 "resourceType": "Parameters",
                 "parameter": [
-                    {"name": "pack", "valueString": FHIR_EXAMPLE_PACK},
+                    {"name": "agent", "valueString": FHIR_EXAMPLE_AGENT},
                     {"name": "data", "resource": FHIR_EXAMPLE},
                 ],
             }
         return {
             "message": {
-                "summary": f"{FHIR_EXAMPLE_PACK}: a patient's message (synthetic)",
+                "summary": f"{FHIR_EXAMPLE_AGENT}: a patient's message (synthetic)",
                 "value": value,
             }
         }
     if path != "/api/agents/{namespace}/{name}/decide":
         return {}
     return {
-        pack_id.split("/")[1]: {"summary": f"{pack_id}: {name}", "value": value}
-        for pack_id, example in inputs.items()
+        agent_id.split("/")[1]: {"summary": f"{agent_id}: {name}", "value": value}
+        for agent_id, example in inputs.items()
         if example is not None
         for name, value in [example]
     }

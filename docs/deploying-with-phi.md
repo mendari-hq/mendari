@@ -812,7 +812,7 @@ By default, nothing. Each of these is off until you configure it:
 | Remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The agent's declared `state_fields` only (an agent you own that declares none sends the whole input; a community or registry agent must declare them) |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Agent ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
-| Shared evaluation reports | `mendari eval --share` (manual) | Whole counts only (`mendari.site-report/2`, checked by the registry): no cases, ids, dataset name, approver, subgroups or rates; cells of 1 to 9 suppressed with their complements, critical counts exact, nothing under 100 cases; `--share-out FILE` writes it to read first |
+| Shared evaluation reports | `mendari eval --share` (manual) | Whole counts only (`mendari.site-report/1`, checked by the registry): no cases, ids, dataset name, approver, subgroups or rates; cells of 1 to 9 suppressed with their complements, critical counts exact, nothing under 100 cases; `--share-out FILE` writes it to read first |
 
 To hold remote models to the places your agreements cover, set
 `MENDARI_PROVIDER_ALLOWED_ORIGINS` to the origins they may be called at, comma-separated as for
@@ -960,7 +960,7 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   `admin.membership.roles_changed|removed` and `admin.access.granted|refused` (an
   organization's administrators managing its people), `smart.launch.ok|refused` (an EHR
   launch that started a session, or did not: `state_unknown`, `browser`, `token`, `id_token`,
-  `issuer`, `pack`, `ehr_error` and the like), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
+  `issuer`, `agent`, `ehr_error` and the like), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
   again), `quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
   `governance.approved|revoked`, `admin.key.rotated`, `auth.key.replaced_used` (a rotated key
   still in use during its overlap, once per instance), `eval.run`, `export.audit|feedback`,
@@ -1003,9 +1003,9 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   a POST form (`/fhir/{type}/_search`).
 - **What must last** is in the audit chain as well: every input or note read, and key, client
   and governance changes. The log is for finding what happened around them. The chain's
-  events for what the console's Agents view does are `pack_version.created` (a version added
+  events for what the console's Agents view does are `store_version.created` (a version added
   from the registry, with the registry, the namespace, the signing key and the archive's
-  SHA-256), `pack_version.promoted|retired`, `registry_pack.approved`, and for an agent's
+  SHA-256), `store_version.promoted|retired`, `registry_agent.approved`, and for an agent's
   connection `agent_connection.set` (the agent, the address's origin, whether it carries a
   token, who), `agent_connection.cleared` and `agent_connection.origin_allowed` (an operator
   allowed that origin for that agent: the agent, the origin, who). Never a token, nor an

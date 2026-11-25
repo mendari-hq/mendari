@@ -29,9 +29,9 @@ from typing import Any, Literal
 from jsonschema.protocols import Validator
 
 from mendari.core import input_schema
-from mendari.core.pack import not_json
+from mendari.core.agent import not_json
 from mendari.core.patterns import OutOfTime
-from mendari.core.spec import ActionSpec, Effect, PackManifest
+from mendari.core.spec import ActionSpec, AgentManifest, Effect
 
 MAX_PROPOSED = 16  # the actions one response proposes
 MAX_ARGUMENT_CHARS = 16_000  # one action's arguments, as canonical JSON
@@ -266,7 +266,7 @@ def distinct(proposals: Iterable[Proposed]) -> list[Proposed]:
     return list(kept.values())
 
 
-def validators(manifest: PackManifest) -> dict[str, Validator]:
+def validators(manifest: AgentManifest) -> dict[str, Validator]:
     """A validator for each declared action that has an arguments schema. The schema is of the
     closed subset the manifest's load checked (`spec.action_schema_problems`): no pattern runs."""
     return {
@@ -276,7 +276,9 @@ def validators(manifest: PackManifest) -> dict[str, Validator]:
     }
 
 
-def check(manifest: PackManifest, checkers: Mapping[str, Validator], proposed: Proposed) -> Checked:
+def check(
+    manifest: AgentManifest, checkers: Mapping[str, Validator], proposed: Proposed
+) -> Checked:
     """Hold one proposal against the manifest. Its carrier's refusal wins; then a name the
     manifest does not declare is `undeclared`, and arguments that fail the action's schema are
     `invalid_arguments`, with at most `MAX_PROBLEMS` problems. What cannot be checked is

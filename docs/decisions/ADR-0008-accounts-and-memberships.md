@@ -12,8 +12,8 @@ bootstrap gave it one), so what becomes of such an organization was moot. Gate G
 prerequisite `a6-accounts` (`launch/gates.yaml`) names the tests that hold it. Amended by
 [ADR-0011](ADR-0011-hidden-evaluation-sets.md) (LP-11d, 2026-10-09): the reserved role
 `labeller` grants `label` on a membership (memberships mode only; claims mode knows no such
-role); `pack_author` still grants nothing. Amended by
-[ADR-0016](ADR-0016-an-agent-store-per-organization.md) (LP-20f, 2026-11-15): `pack_author` grants
+role); `agent_author` still grants nothing. Amended by
+[ADR-0016](ADR-0016-an-agent-store-per-organization.md) (LP-20f, 2026-11-15): `agent_author` grants
 `author`, a people-only permission over the organization's agent store, mounted only with
 `MENDARI_AGENT_STORE=on` in memberships mode.
 
@@ -59,7 +59,7 @@ provider's claims needs nothing to change.
   command line's, a claims-mode server's after a rollback) names the organization too. The
   kinds that already carry it keep it in both modes. Each organization gets a reader and an
   export of its own administrative events.
-- **Reserved roles.** `pack_author` and `labeller` could be held on a membership and granted
+- **Reserved roles.** `agent_author` and `labeller` could be held on a membership and granted
   nothing until LP-20 and LP-11 gave them permissions (`author` from LP-20f, `label` from
   LP-11d: the amendments above); `grading` is held by no person (LP-11: a machine
   role only). None of them joins the claims-mode roles, whose sign-in and role map stay as

@@ -9,18 +9,18 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import Decision, Pack, load_pack
+from mendari import Agent, Decision, load_agent
 from mendari.cli import main
 from mendari.core.card import render_card
 from mendari.evals import evaluate, leaderboard, resolve_dataset
 from mendari.server.app import create_app
 from tests.conftest import TRIAGE_DIR
 
-PACK = "/api/agents/mendari-test/triage"
+AGENT = "/api/agents/mendari-test/triage"
 
 
-def report(pack: Pack, dataset: str, **providers: str) -> dict[str, Any]:
-    return evaluate(Decision(pack, providers=providers), resolve_dataset(pack, dataset))
+def report(agent: Agent, dataset: str, **providers: str) -> dict[str, Any]:
+    return evaluate(Decision(agent, providers=providers), resolve_dataset(agent, dataset))
 
 
 def test_labels_name_remote_models_only() -> None:
@@ -45,7 +45,7 @@ def test_labels_name_remote_models_only() -> None:
     )
 
 
-def test_rows_merge_by_configuration_and_dataset(triage_agent: Pack) -> None:
+def test_rows_merge_by_configuration_and_dataset(triage_agent: Agent) -> None:
     rules = report(triage_agent, "critical", router="rules")
     canned = report(triage_agent, "critical", router="agent")
     board = leaderboard.build(triage_agent, [rules, canned])
@@ -64,12 +64,12 @@ def test_rows_merge_by_configuration_and_dataset(triage_agent: Pack) -> None:
     assert len(again["rows"]) == 2  # replaced, not duplicated
     assert again["rows"][1]["report_id"] != board["rows"][1]["report_id"]
 
-    other = dict(rules, pack={**rules["pack"], "id": "someone/else"})
+    other = dict(rules, agent={**rules["agent"], "id": "someone/else"})
     with pytest.raises(ValueError, match="someone/else"):
         leaderboard.build(triage_agent, [other])
 
 
-def test_markdown_and_card(triage_agent: Pack, tmp_path: Path) -> None:
+def test_markdown_and_card(triage_agent: Agent, tmp_path: Path) -> None:
     board = leaderboard.build(triage_agent, [report(triage_agent, "critical")])
     table = "\n".join(leaderboard.markdown(board))
     assert "**`critical`** (n=40; k of n [exact 95% interval" in table
@@ -78,17 +78,17 @@ def test_markdown_and_card(triage_agent: Pack, tmp_path: Path) -> None:
     assert "\n| router=rules · screen=rules | 16 of 40 [" in table
     assert "(0 automated; insufficient evidence)" in table
 
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     (root / "evals").mkdir()
     (root / leaderboard.PATH).write_text(json.dumps(board))
-    card = render_card(load_pack(root))
+    card = render_card(load_agent(root))
     assert "## Provider comparison" in card and "critical" in card
     assert "Public set: regression check, not a ranking." in card
-    assert load_pack(root).digest == load_pack(TRIAGE_DIR).digest  # evals/ is not the pack
+    assert load_agent(root).digest == load_agent(TRIAGE_DIR).digest  # evals/ is not the agent
 
 
-def test_other_questions_are_shown_where_configurations_differ(triage_agent: Pack) -> None:
+def test_other_questions_are_shown_where_configurations_differ(triage_agent: Agent) -> None:
     rules = report(triage_agent, "critical", router="rules")
     canned = report(triage_agent, "critical", router="agent")
     board = leaderboard.build(triage_agent, [rules, canned])
@@ -135,7 +135,7 @@ def test_cli_runs_configurations_and_merges(
     board = json.loads(out.read_text())
     assert {(r["dataset"], r["n"]) for r in board["rows"]} == {("critical", 40), ("test", 20)}
     saved = tmp_path / "report.json"
-    saved.write_text(json.dumps(report(load_pack(TRIAGE_DIR), "examples")))
+    saved.write_text(json.dumps(report(load_agent(TRIAGE_DIR), "examples")))
     assert main([*base, "--report", str(saved)]) == 0
     assert len(json.loads(out.read_text())["rows"]) == 4
     assert "examples" in capsys.readouterr().out
@@ -164,10 +164,10 @@ def test_the_cli_says_what_its_tables_are_as_the_card_does(
 def test_deployments_evaluate_other_configurations(db_target: str) -> None:
     client = TestClient(create_app(db_path=db_target))
     response = client.post(
-        f"{PACK}/evals", json={"dataset": "critical", "providers": {"router": "agent"}}
+        f"{AGENT}/evals", json={"dataset": "critical", "providers": {"router": "agent"}}
     )
     assert response.status_code == 200
     assert response.json()["providers"]["router"]["variant"] == "agent"
-    bad = client.post(f"{PACK}/evals", json={"dataset": "critical", "providers": {"x": "y"}})
+    bad = client.post(f"{AGENT}/evals", json={"dataset": "critical", "providers": {"x": "y"}})
     assert bad.status_code == 422
-    assert "leaderboard" in client.get(PACK).json()
+    assert "leaderboard" in client.get(AGENT).json()

@@ -40,8 +40,8 @@ import yaml
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
 
+from mendari.core.agent import Agent, load_agent
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack, load_pack
 from mendari.evals.harness import evaluation, resolve_dataset
 from mendari.hub import archive, evaluations, regression, yank
 from mendari.hub import registry as registry_module
@@ -75,10 +75,10 @@ def pinned() -> Iterator[None]:
     the check at publish, which for the demo agent only says its default calls a model."""
     settings = {"MENDARI_REGISTRY_RATE_LIMITS": "off", "MENDARI_REGISTRY_REGRESSION": "on"}
 
-    def rerun(pack_dir: Path, configuration: Any, dataset: str) -> dict[str, Any]:
-        return regression._rerun_main(str(pack_dir), dataset, json.dumps(dict(configuration)))
+    def rerun(agent_dir: Path, configuration: Any, dataset: str) -> dict[str, Any]:
+        return regression._rerun_main(str(agent_dir), dataset, json.dumps(dict(configuration)))
 
-    def check(pack_dir: Path, previous: Any) -> dict[str, Any]:
+    def check(agent_dir: Path, previous: Any) -> dict[str, Any]:
         return {"format": regression.FORMAT, "label": regression.LABEL, "status": "needs_remote"}
 
     def never_skewed(created_at: str, *, now_: Any = None) -> bool:
@@ -120,7 +120,7 @@ class World:
         self.client.__exit__(None, None, None)
         self.store.close()
 
-    def agent(self, name: str, edit: Edit | None = None, *, version: str | None = None) -> Pack:
+    def agent(self, name: str, edit: Edit | None = None, *, version: str | None = None) -> Agent:
         """The demo agent under `states/<name>`, changed by `edit` (its manifest, and its
         folder), published."""
         root = self.scratch / f"{name}-{version or 'first'}"
@@ -135,18 +135,18 @@ class World:
         (root / "agent.yaml").write_text(
             yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
         )
-        pack = load_pack(root)
+        agent = load_agent(root)
         sent = self.client.put(
-            f"/v1/agents/{pack.id}/{pack.version}",
-            content=archive.build(pack, KEY),
+            f"/v1/agents/{agent.id}/{agent.version}",
+            content=archive.build(agent, KEY),
             headers=self.auth,
         )
         assert sent.status_code == 201, sent.text
-        return pack
+        return agent
 
     def record(
         self,
-        pack: Pack,
+        agent: Agent,
         variant: str,
         *,
         dataset: str = "test",
@@ -154,21 +154,21 @@ class World:
         labelled_by: str | None = LABELLED_BY,
         failed: int = 0,
     ) -> dict[str, Any]:
-        """A signed evaluation of `pack` with `reader=variant`, with what a run varies pinned."""
-        decision = Decision(pack, providers={"reader": variant}, origin_cap=False)
-        run = evaluation(decision, resolve_dataset(pack, dataset))
-        built = evaluations.build(pack, run, key=key, at=SIGNED_AT, labelled_by=labelled_by)
+        """A signed evaluation of `agent` with `reader=variant`, with what a run varies pinned."""
+        decision = Decision(agent, providers={"reader": variant}, origin_cap=False)
+        run = evaluation(decision, resolve_dataset(agent, dataset))
+        built = evaluations.build(agent, run, key=key, at=SIGNED_AT, labelled_by=labelled_by)
         fields = {k: v for k, v in built.items() if k not in ("key_id", "signature")}
         measured = REMOTE if built["report"]["remote_consent"] else LOCAL
         fields["engine"] = "0.1.0"
         fields["claimed"] = {**measured, "failed_cases": failed}
         return evaluations.sign(fields, key)
 
-    def publish(self, pack: Pack, *variants: str, **how: Any) -> list[dict[str, Any]]:
-        records = [self.record(pack, variant, **how) for variant in variants]
+    def publish(self, agent: Agent, *variants: str, **how: Any) -> list[dict[str, Any]]:
+        records = [self.record(agent, variant, **how) for variant in variants]
         for record in records:
             sent = self.client.post(
-                f"/v1/agents/{pack.id}/{pack.version}/evaluations", json=record, headers=self.auth
+                f"/v1/agents/{agent.id}/{agent.version}/evaluations", json=record, headers=self.auth
             )
             assert sent.status_code == 201, sent.text
         return records
@@ -317,7 +317,7 @@ def _cases(world: World) -> dict[str, Any]:
     world.publish(recalled, "agent")
     found = world.store.version(NAMESPACE, "recalled", recalled.version)
     signed = yank.sign(
-        pack=recalled.id,
+        agent=recalled.id,
         version=recalled.version,
         digest=found["digest"],
         archive_sha256=found["archive_sha256"],

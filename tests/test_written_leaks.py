@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core.written import WrittenStore
 from mendari.evals import resolve_dataset, written
@@ -113,7 +113,7 @@ def test_no_report_log_table_or_answer_holds_a_text_but_the_graders_own(
 
     # A round, made and assigned by the operator's commands on the server's database.
     with encrypted_store(db) as store:
-        Decision(load_pack(folder), store=store)({"message": {"body": "Can I get a refill?"}})
+        Decision(load_agent(folder), store=store)({"message": {"body": "Can I get a refill?"}})
         a = member(store, org=CLINIC, roles=["labeller"], sub="grader-a")
         b = member(store, org=CLINIC, roles=["labeller"], sub="grader-b")
         viewer = member(store, org=CLINIC, roles=["viewer"], sub="reader")
@@ -133,7 +133,7 @@ def test_no_report_log_table_or_answer_holds_a_text_but_the_graders_own(
 
     # Over HTTP: every answer, to everyone. Only the assigned grader's next item holds a text.
     shown_texts = []
-    with TestClient(create_app(db_path=db, packs_paths=[folder.parent]), base_url=HTTPS) as client:
+    with TestClient(create_app(db_path=db, agents_paths=[folder.parent]), base_url=HTTPS) as client:
         for who, headers in (("another organization's grader", outsider), ("a reader", viewer)):
             for url in ("/api/written/labelling", "/api/written/labelling/next"):
                 clean(f"{url} for {who}", client.get(url, headers=headers).text)
@@ -198,21 +198,21 @@ def test_under_off_the_items_hold_the_texts_and_nothing_else_does(tmp_path: Path
     bodies are plain, which the search finds (so it can find a text), and no other column of
     any table, the chain included, holds one."""
     folder = marked_agent(tmp_path)
-    pack = load_pack(folder)
+    agent = load_agent(folder)
     db = tmp_path / "local.db"
     with AuditStore(db) as store:
         run = written.run(
-            Decision(pack, origin_cap=False),
-            resolve_dataset(pack, "written"),
+            Decision(agent, origin_cap=False),
+            resolve_dataset(agent, "written"),
             RUBRIC,
-            judge=Judge(pack, RUBRIC, mode="canned"),
+            judge=Judge(agent, RUBRIC, mode="canned"),
         )
         clean("the ledger", run.ledger.dumps().decode())
         clean("the run's repr", repr(run))
         found = written.report(run.ledger)
         clean("the report", json.dumps(found))
         rounds = WrittenStore(store)
-        made = rounds.create_round(CLINIC, pack, RUBRIC, run, sample=3, created_by="ops")
+        made = rounds.create_round(CLINIC, agent, RUBRIC, run, sample=3, created_by="ops")
         clean("a round's answer", json.dumps(made))
         clean("its progress", json.dumps(rounds.progress(made["round"])))
         clean("the rounds", json.dumps(rounds.rounds(CLINIC)))

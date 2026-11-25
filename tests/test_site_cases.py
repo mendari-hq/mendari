@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""A pack that holds a site's cases is never made into an archive (`hub/archive.py` `build`):
+"""An agent that holds a site's cases is never made into an archive (`hub/archive.py` `build`):
 `mendari archive build` and `mendari push` both stop there, before anything is signed or sent, and
 a registry refuses one a client sent without looking. A site's cases say what they are: a case
 `mendari feedback export` (or its route) writes says it was exported
@@ -7,7 +7,7 @@ a registry refuses one a client sent without looking. A site's cases say what th
 every file an archive would hold.
 
 The cases here are synthetic: two messages the triage fixture decided, reviewed and rated in a
-scratch database, as a site's reviewers would. Every pack written to is a copy under a
+scratch database, as a site's reviewers would. Every agent written to is a copy under a
 temporary directory."""
 
 from __future__ import annotations
@@ -22,10 +22,10 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core import site_cases
-from mendari.core.pack import pack_digest
+from mendari.core.agent import agent_digest
 from mendari.errors import HubError
 from mendari.hub import archive
 from mendari.hub.client import RegistryClient
@@ -34,12 +34,12 @@ from tests.conftest import FIXTURE_AGENTS, ROOT, TRIAGE_DIR, Registry, message
 
 CALIBRATION = "data/calibration.jsonl"
 TEST = "data/test.jsonl"
-SHIPPED = pack_digest(TRIAGE_DIR)
-TRIAGE = load_pack(TRIAGE_DIR)
-# Not the reference pack's version: at its own, a registry reads a changed copy as a shadow.
+SHIPPED = agent_digest(TRIAGE_DIR)
+TRIAGE = load_agent(TRIAGE_DIR)
+# Not the reference agent's version: at its own, a registry reads a changed copy as a shadow.
 VERSION = "9.9.9"
 # How a refusal starts; what follows names each file that holds the cases and how many times it
-# is marked, as for the pack the exported cases were put in (`holding`).
+# is marked, as for the agent the exported cases were put in (`holding`).
 REFUSED = "the agent holds cases"
 HELD = f"(2 in {CALIBRATION}, 2 in {TEST})"
 EXPORTED = {"exported_by": "mendari feedback export"}
@@ -48,14 +48,14 @@ REFILL = "Hi, I need a refill on my metoprolol. I have about a week's worth of p
 
 
 @pytest.fixture(autouse=True)
-def _the_repositorys_own_pack_is_never_written_to() -> Iterator[None]:
+def _the_repositorys_own_agent_is_never_written_to() -> Iterator[None]:
     """Every test here works on a copy (`tasks/lessons.md`, 2026-11-10)."""
     yield
-    assert pack_digest(TRIAGE_DIR) == SHIPPED, "a test changed the triage fixture"
+    assert agent_digest(TRIAGE_DIR) == SHIPPED, "a test changed the triage fixture"
 
 
 def copy_of_the_triage(root: Path) -> Path:
-    """The triage fixture at `VERSION`, as a site's own pack."""
+    """The triage fixture at `VERSION`, as a site's own agent."""
     shutil.copytree(TRIAGE_DIR, root)
     manifest = root / "agent.yaml"
     shipped = f"version: {TRIAGE.version}"
@@ -69,8 +69,8 @@ def lines(path: Path) -> list[dict[str, Any]]:
 
 
 def as_archived(root: Path) -> dict[str, bytes]:
-    """The pack's files as an archive would hold them."""
-    return {f.relative_to(root).as_posix(): f.read_bytes() for f in archive.pack_files(root)}
+    """The agent's files as an archive would hold them."""
+    return {f.relative_to(root).as_posix(): f.read_bytes() for f in archive.agent_files(root)}
 
 
 def trusted(key: archive.Ed25519PrivateKey) -> dict[str, archive.Ed25519PublicKey]:
@@ -137,14 +137,14 @@ def test_a_record_is_read_for_the_marks_it_carries() -> None:
     assert site_cases.times_marked(spaced) == 2
 
 
-def test_no_pack_of_the_repository_holds_one() -> None:
-    packs = sorted(
+def test_no_agent_of_the_repository_holds_one() -> None:
+    agents = sorted(
         path.parent
         for pattern in ("agents/*/agent.yaml", f"{FIXTURE_AGENTS.relative_to(ROOT)}/*/agent.yaml")
         for path in ROOT.glob(pattern)
     )
-    assert TRIAGE_DIR in packs and ROOT / "agents" / "portal-message-agent" in packs
-    for root in packs:
+    assert TRIAGE_DIR in agents and ROOT / "agents" / "portal-message-agent" in agents
+    for root in agents:
         assert site_cases.marked_files(as_archived(root)) == {}, root.name
 
 
@@ -216,15 +216,15 @@ def test_every_record_an_export_writes_says_it_was_exported(
         assert site_cases.times_marked(written) == 2
 
 
-# -- no archive is made of a pack that holds them ------------------------------------------------
+# -- no archive is made of an agent that holds them ------------------------------------------------
 
 
-def test_a_pack_that_holds_learned_cases_is_not_built(
+def test_an_agent_that_holds_learned_cases_is_not_built(
     holding: Path, exported: bytes, key: archive.Ed25519PrivateKey
 ) -> None:
-    """Exported cases put in the datasets a pack evaluates and calibrates with."""
+    """Exported cases put in the datasets an agent evaluates and calibrates with."""
     with pytest.raises(HubError) as refused:
-        archive.build(load_pack(holding), key)
+        archive.build(load_agent(holding), key)
     said = str(refused.value)
     # The files and how many each holds, in one line, and never a case.
     assert said.startswith(REFUSED) and HELD in said
@@ -236,7 +236,7 @@ def test_a_pack_that_holds_learned_cases_is_not_built(
 def test_a_refusal_names_a_few_files_and_counts_the_rest() -> None:
     case = b'{"id": "c", "input": {}, "attributes": {"exported_by": "mendari feedback export"}}\n'
     files = {f"data/part-{number}.jsonl": case * (number + 1) for number in range(7)}
-    files["agent.yaml"] = b"id: site/pack\n"
+    files["agent.yaml"] = b"id: site/agent\n"
     with pytest.raises(HubError) as refused:
         archive.refuse_site_cases(files)
     assert (
@@ -269,10 +269,10 @@ class NeverUsed:
 
 def test_it_is_refused_before_anything_is_signed(holding: Path) -> None:
     with pytest.raises(HubError, match=REFUSED):
-        archive.build(load_pack(holding), cast(archive.Ed25519PrivateKey, NeverUsed()))
+        archive.build(load_agent(holding), cast(archive.Ed25519PrivateKey, NeverUsed()))
 
 
-def test_pack_build_refuses_it_and_writes_no_archive(
+def test_agent_build_refuses_it_and_writes_no_archive(
     holding: Path,
     exported: bytes,
     key_file: Path,
@@ -304,7 +304,7 @@ def test_push_refuses_it_before_anything_is_sent(
         "https://registry.example", "a-token", transport=httpx.MockTransport(answer)
     )
     with registry, pytest.raises(HubError, match=REFUSED):
-        registry.push(load_pack(holding), key)
+        registry.push(load_agent(holding), key)
     assert requests == []
 
 
@@ -324,7 +324,7 @@ def test_the_push_command_refuses_it_and_sends_nothing(
     assert names_no_case(line, cases_of(exported)) and printed.out == ""
     assert sent == []
 
-    # The same pack without the cases is signed and sent (to a registry that is not there,
+    # The same agent without the cases is signed and sent (to a registry that is not there,
     # here): the refusal above is the cases', not the command's.
     ordinary = copy_of_the_triage(tmp_path / "ordinary" / "triage")
     assert main([*argv, str(ordinary)]) == 1
@@ -332,22 +332,22 @@ def test_the_push_command_refuses_it_and_sends_nothing(
     assert sent == [f"PUT /v1/agents/{TRIAGE.id}/{VERSION}"]
 
 
-# -- wherever in the pack they are, and nothing else ---------------------------------------------
+# -- wherever in the agent they are, and nothing else ---------------------------------------------
 
 
-def test_a_learned_case_is_found_in_whatever_file_of_the_pack_holds_it(
+def test_a_learned_case_is_found_in_whatever_file_of_the_agent_holds_it(
     exported: bytes, tmp_path: Path, key: archive.Ed25519PrivateKey
 ) -> None:
     """An archive holds every file of a pack, so every file is read, whatever it is called and
     however it is laid out: a copy kept beside the datasets that the manifest does not name,
     one cut short, the same cases as one indented JSON document or written without spaces, in
-    a folder of their own. A hidden file is no part of a pack."""
+    a folder of their own. A hidden file is no part of an agent."""
     root = copy_of_the_triage(tmp_path / "triage")
-    archive.build(load_pack(root), key)  # with none in it: built
+    archive.build(load_agent(root), key)  # with none in it: built
 
     def refused_for(where: str, count: int) -> None:
         with pytest.raises(HubError) as refused:
-            archive.build(load_pack(root), key)
+            archive.build(load_agent(root), key)
         said = str(refused.value)
         assert said.startswith(REFUSED) and f"({count} in {where})" in said
 
@@ -368,22 +368,22 @@ def test_a_learned_case_is_found_in_whatever_file_of_the_pack_holds_it(
     compact.write_text(json.dumps(cases_of(exported), separators=(",", ":")))
     refused_for("notes/cases.txt", 2)
 
-    # A hidden file is no part of a pack: no archive holds it, so it stops nothing.
+    # A hidden file is no part of an agent: no archive holds it, so it stops nothing.
     compact.rename(notes / ".cases.txt")
-    built = archive.build(load_pack(root), key)
+    built = archive.build(load_agent(root), key)
     assert "notes/.cases.txt" not in archive.verify(built, trusted(key)).files
 
 
-def test_a_pack_that_holds_none_is_built_whatever_its_cases_look_like(
+def test_an_agent_that_holds_none_is_built_whatever_its_cases_look_like(
     tmp_path: Path, key: archive.Ed25519PrivateKey
 ) -> None:
-    """An ordinary pack is built as it always was. So is one whose own cases only look like a
+    """An ordinary agent is built as it always was. So is one whose own cases only look like a
     site's: by their id, by where they came from, by an attribute of the same name that says
     something else, or by text that quotes the mark."""
     root = copy_of_the_triage(tmp_path / "triage")
-    pack = load_pack(root)
-    verified = archive.verify(archive.build(pack, key), trusted(key))
-    assert verified.manifest["digest"] == pack.digest
+    agent = load_agent(root)
+    verified = archive.verify(archive.build(agent, key), trusted(key))
+    assert verified.manifest["digest"] == agent.digest
     assert verified.files == as_archived(root)
 
     test = root / TEST
@@ -403,16 +403,16 @@ def test_a_pack_that_holds_none_is_built_whatever_its_cases_look_like(
     with test.open("a") as handle:
         handle.writelines(json.dumps(record) + "\n" for record in alike)
     assert site_cases.marked_files(as_archived(root)) == {}
-    pack = load_pack(root)
-    verified = archive.verify(archive.build(pack, key), trusted(key))
-    assert verified.manifest["digest"] == pack.digest
+    agent = load_agent(root)
+    verified = archive.verify(archive.build(agent, key), trusted(key))
+    assert verified.manifest["digest"] == agent.digest
     assert verified.files[TEST] == test.read_bytes()
 
 
-def test_a_pack_with_an_export_saved_in_its_folder_is_not_built_or_pushed(
+def test_an_agent_with_an_export_saved_in_its_folder_is_not_built_or_pushed(
     tmp_path: Path, key_file: Path, sent: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`--out` in the pack's own folder: an archive holds every file there, and this one is a
+    """`--out` in the agent's own folder: an archive holds every file there, and this one is a
     site's cases. The command says so when it writes the file, and neither `mendari archive build`
     nor `mendari push` makes an archive until the file is out of the folder."""
     root = copy_of_the_triage(tmp_path / "triage")
@@ -436,21 +436,21 @@ def test_a_pack_with_an_export_saved_in_its_folder_is_not_built_or_pushed(
         assert names_no_case(line, cases) and printed.out == ""
     assert sent == [] and not dist.exists()
 
-    saved.rename(tmp_path / "reviewed.jsonl")  # kept beside the pack, not in it
+    saved.rename(tmp_path / "reviewed.jsonl")  # kept beside the agent, not in it
     assert main(build) == 0
     assert [path.suffix for path in dist.iterdir()] == [".mendari"]
 
 
-def test_exported_cases_are_found_in_whatever_file_of_the_pack_holds_them(
+def test_exported_cases_are_found_in_whatever_file_of_the_agent_holds_them(
     exported: bytes, tmp_path: Path, key: archive.Ed25519PrivateKey
 ) -> None:
-    """Copied into a dataset the pack tests with, or kept as one JSON document, indented or
+    """Copied into a dataset the agent tests with, or kept as one JSON document, indented or
     written without spaces: the records still say what they are."""
     root = copy_of_the_triage(tmp_path / "triage")
 
     def refused_for(where: str) -> None:
         with pytest.raises(HubError) as refused:
-            archive.build(load_pack(root), key)
+            archive.build(load_agent(root), key)
         said = str(refused.value)
         assert said.startswith(REFUSED) and f"(2 in {where})" in said
 
@@ -467,8 +467,10 @@ def test_exported_cases_are_found_in_whatever_file_of_the_pack_holds_them(
     kept.write_text(json.dumps(records, separators=(",", ":")))
     refused_for("tests/from-review.json")
     kept.unlink()
-    pack = load_pack(root)  # with none left, it is built as it always was
-    assert archive.verify(archive.build(pack, key), trusted(key)).manifest["digest"] == pack.digest
+    agent = load_agent(root)  # with none left, it is built as it always was
+    assert (
+        archive.verify(archive.build(agent, key), trusted(key)).manifest["digest"] == agent.digest
+    )
 
 
 # -- and a registry does not take one ------------------------------------------------------------
@@ -484,13 +486,13 @@ def test_a_registry_refuses_one_a_client_sent_without_looking(
     """The check before an archive is built is the publisher's own. A client from before it, or
     anything else that can sign, builds the archive all the same: the registry reads what it is
     sent, once it knows who signed it, and stores nothing of it."""
-    pack = load_pack(holding)
+    agent = load_agent(holding)
     token, key = registry.fixture_publisher()  # the triage fixture's namespace's
     stranger = archive.load_private_key(archive.generate_key()[0])
     with monkeypatch.context() as without_the_check:
         without_the_check.setattr(archive, "refuse_site_cases", lambda files: None)
-        data = archive.build(pack, key)
-        by_a_stranger = archive.build(pack, stranger)
+        data = archive.build(agent, key)
+        by_a_stranger = archive.build(agent, stranger)
     path = f"/v1/agents/{TRIAGE.id}/{VERSION}"
     publisher = {"authorization": f"Bearer {token}"}
 
@@ -500,24 +502,24 @@ def test_a_registry_refuses_one_a_client_sent_without_looking(
     assert detail.startswith(REFUSED) and HELD in detail
     assert names_no_case(answer.text, cases_of(exported))
     assert registry.client.get(path).status_code == 404
-    assert registry.client.get("/v1/health").json()["packs"] == 0
+    assert registry.client.get("/v1/health").json()["agents"] == 0
 
     # The signature comes first: an archive nobody the namespace trusts signed is not read.
     answer = registry.client.put(path, content=by_a_stranger, headers=publisher)
     assert answer.status_code == 422 and "not trusted" in answer.text
     assert REFUSED not in answer.text
 
-    # The same pack without the cases, with an export saved in its folder, is refused too;
+    # The same agent without the cases, with an export saved in its folder, is refused too;
     # with the file out of the folder, it is published.
     root = copy_of_the_triage(tmp_path / "ordinary" / "triage")
     (root / "reviewed.jsonl").write_bytes(exported)
     with monkeypatch.context() as without_the_check:
         without_the_check.setattr(archive, "refuse_site_cases", lambda files: None)
-        data = archive.build(load_pack(root), key)
+        data = archive.build(load_agent(root), key)
     answer = registry.client.put(path, content=data, headers=publisher)
     assert answer.status_code == 422, answer.text
     detail = answer.json()["detail"]
     assert detail.startswith(REFUSED) and "(2 in reviewed.jsonl)" in detail
-    assert registry.client.get("/v1/health").json()["packs"] == 0
+    assert registry.client.get("/v1/health").json()["agents"] == 0
     (root / "reviewed.jsonl").unlink()
-    assert registry.publish(load_pack(root)).status_code == 201
+    assert registry.publish(load_agent(root)).status_code == 201

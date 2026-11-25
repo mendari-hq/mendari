@@ -90,7 +90,7 @@ providers:
     variants:
       agent:
         type: agent
-        agent_id: chart-summary
+        service_id: chart-summary
         state_fields: [patient.age, conditions, medications]
         # Used offline while MENDARI_AGENT_URL is unset.
         mock_file: fixtures/mock.yaml

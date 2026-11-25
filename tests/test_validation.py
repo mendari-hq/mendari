@@ -16,10 +16,10 @@ import pytest
 import yaml
 
 from mendari.cli import main
-from mendari.core.pack import Pack, load_pack
-from mendari.errors import PackValidationError
+from mendari.core.agent import Agent, load_agent
+from mendari.errors import AgentValidationError
 from mendari.evals import validation
-from mendari.evals.pack_tests import validate_pack
+from mendari.evals.behaviour_tests import validate_agent
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore
@@ -30,24 +30,24 @@ from tests.test_bounded_budget import BOUND_S, fan_out
 SECRET = "PLANTED-CASE-TEXT-7731"  # in a planted case's input: never in any problem
 
 
-def _planted_triage(base: Path) -> Pack:
+def _planted_triage(base: Path) -> Agent:
     """The triage fixture at a new version (so a registry checks it as an agent it did not
     ship), with one behaviour test whose `message` is text where the schema wants an object."""
     root = base / "triage"
     shutil.copytree(TRIAGE_DIR, root)
     manifest = (root / "agent.yaml").read_text()
-    version = load_pack(TRIAGE_DIR).version
+    version = load_agent(TRIAGE_DIR).version
     (root / "agent.yaml").write_text(manifest.replace(f"version: {version}", "version: 9.9.9", 1))
     cases = root / "tests" / "cases.yaml"
     cases.write_text(
         cases.read_text()
         + f"\n- name: planted\n  input: {{message: {SECRET!r}}}\n  expect: {{not_outcome: AUTO}}\n"
     )
-    return load_pack(root)
+    return load_agent(root)
 
 
-def _case_number(pack: Pack, name: str) -> int:
-    cases = yaml.safe_load((pack.root / str(pack.manifest.tests)).read_text())
+def _case_number(agent: Agent, name: str) -> int:
+    cases = yaml.safe_load((agent.root / str(agent.manifest.tests)).read_text())
     return next(number for number, case in enumerate(cases, start=1) if case["name"] == name)
 
 
@@ -56,22 +56,22 @@ def test_the_command_and_the_registry_call_one_function(
 ) -> None:
     """Each caller is given an agent with one planted problem (a behaviour test's input the
     schema refuses) and reports the same kind, file and place."""
-    pack = _planted_triage(tmp_path)
-    place = f"case {_case_number(pack, 'planted')}"
-    found = validation.problems(pack)
+    agent = _planted_triage(tmp_path)
+    place = f"case {_case_number(agent, 'planted')}"
+    found = validation.problems(agent)
     assert [(p.kind, p.file, p.place) for p in found] == [("tests", "tests/cases.yaml", place)]
     line = found[0].text
     assert line.startswith(f"tests/cases.yaml {place} (planted): input message: ")
 
     # The command line: the same line, as `mendari validate` has always printed problems.
-    assert main(["validate", str(pack.root)]) == 1
+    assert main(["validate", str(agent.root)]) == 1
     assert line in capsys.readouterr().err
-    with pytest.raises(PackValidationError) as error:
-        validate_pack(pack)  # the old name calls the one function
+    with pytest.raises(AgentValidationError) as error:
+        validate_agent(agent)  # the old name calls the one function
     assert error.value.problems == [line]
 
     # The registry: refused, naming it, and nothing stored.
-    refused = registry.publish(pack)
+    refused = registry.publish(agent)
     assert refused.status_code == 422, refused.text
     assert line in refused.json()["detail"]
     assert registry.client.get("/v1/search").json() == []
@@ -90,21 +90,21 @@ def test_the_command_and_the_registry_call_one_function(
     assert SECRET not in problem.text
 
 
-def test_every_reference_pack_is_valid() -> None:
+def test_every_reference_agent_is_valid() -> None:
     """The bundled demo agent, and every agent of the test fixtures' folder (bundled in the
     tests' place)."""
     folders = [d for d in sorted(FIXTURE_AGENTS.iterdir()) if (d / "agent.yaml").is_file()]
     assert folders
-    for pack in [load_pack(DEMO_AGENT_DIR), *(load_pack(folder) for folder in folders)]:
-        assert validation.problems(pack) == [], pack.id
-        validation.validate(pack)
+    for agent in [load_agent(DEMO_AGENT_DIR), *(load_agent(folder) for folder in folders)]:
+        assert validation.problems(agent) == [], agent.id
+        validation.validate(agent)
 
 
 def test_a_publish_the_validator_refuses_stores_nothing_and_names_the_problem(
     tmp_path: Path, registry: Registry, db_target: str
 ) -> None:
-    pack = _planted_triage(tmp_path)
-    refused = registry.publish(pack)
+    agent = _planted_triage(tmp_path)
+    refused = registry.publish(agent)
     assert refused.status_code == 422
     detail = refused.json()["detail"]
     assert detail.startswith("the agent is not valid (`mendari validate`): tests/cases.yaml case ")
@@ -123,13 +123,13 @@ def test_a_valid_publish_is_stored_as_before(
     root = tmp_path / "triage"
     shutil.copytree(TRIAGE_DIR, root)
     manifest = (root / "agent.yaml").read_text()
-    version = load_pack(TRIAGE_DIR).version
+    version = load_agent(TRIAGE_DIR).version
     (root / "agent.yaml").write_text(manifest.replace(f"version: {version}", "version: 9.9.9", 1))
-    pack = load_pack(root)
+    agent = load_agent(root)
     token, key = registry.fixture_publisher()  # the test fixtures' namespace's
-    data = archive.build(pack, key)
+    data = archive.build(agent, key)
     published = registry.client.put(
-        f"/v1/agents/{pack.id}/9.9.9",
+        f"/v1/agents/{agent.id}/9.9.9",
         content=data,
         headers={"authorization": f"Bearer {token}"},
     )
@@ -137,15 +137,15 @@ def test_a_valid_publish_is_stored_as_before(
     public = key.public_key()
     verified = archive.verify(data, {archive.key_id(public): public})
     with tempfile.TemporaryDirectory() as scratch:
-        extracted = archive.extract(verified, Path(scratch) / "pack", origin="hub")
+        extracted = archive.extract(verified, Path(scratch) / "agent", origin="hub")
         expected = json.loads(json.dumps(registry_module.describe(extracted, verified)))
     with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
         row = db.one("SELECT metadata FROM hub_versions")
     assert row is not None and json.loads(row["metadata"]) == expected
 
 
-def test_a_not_owned_pack_is_validated_inside_the_budget(tmp_path: Path) -> None:
-    """A pack from a registry whose schema fans one pattern out a million times: each dataset
+def test_a_not_owned_agent_is_validated_inside_the_budget(tmp_path: Path) -> None:
+    """An agent from a registry whose schema fans one pattern out a million times: each dataset
     record and each behaviour test is checked within the CPU budget a decision gives it, and the
     stop is a problem, not a hang."""
 
@@ -176,7 +176,7 @@ def test_a_not_owned_pack_is_validated_inside_the_budget(tmp_path: Path) -> None
 
 def test_a_problem_names_a_file_and_a_place_and_never_case_text(tmp_path: Path) -> None:
     """A dataset record and a behaviour test whose inputs hold planted text in a place the
-    schema refuses, and a record whose label is not the pack's: each problem names the file and
+    schema refuses, and a record whose label is not the agent's: each problem names the file and
     the case, and no problem holds the text."""
 
     def declared(manifest: dict[str, Any]) -> None:
@@ -198,7 +198,7 @@ def test_a_problem_names_a_file_and_a_place_and_never_case_text(tmp_path: Path) 
     )
     found = validation.problems(pulled(root))
     assert {(p.kind, p.file, p.place) for p in found} == {
-        ("tests", "tests/cases.yaml", f"case {_case_number(load_pack(root), 'planted')}"),
+        ("tests", "tests/cases.yaml", f"case {_case_number(load_agent(root), 'planted')}"),
         ("dataset", "data/examples.jsonl", "case c1"),
         ("dataset", "data/examples.jsonl", "case c2"),
     }

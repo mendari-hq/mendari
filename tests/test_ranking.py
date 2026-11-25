@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """The one ranking (mendari.evals.ranking, LP-10): critical cases first, never accuracy alone;
-only the pack as it is ranks; too few critical positives rank nothing; and every proportion a
+only the agent as it is ranks; too few critical positives rank nothing; and every proportion a
 person reads is k of n with its interval."""
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from mendari import Decision, Pack
+from mendari import Agent, Decision
 from mendari.evals import ranking, stats
 from mendari.evals.harness import evaluate, resolve_dataset
 from mendari.evals.render import report_text, shown
@@ -32,8 +32,8 @@ def row(config: str, **changes: Any) -> dict[str, Any]:
         "dataset": "test",
         "dataset_sha256": "d" * 64,
         "n": 600,
-        "pack_digest": DIGEST,
-        "pack_version": "1.0.0",
+        "agent_digest": DIGEST,
+        "agent_version": "1.0.0",
         "critical": [
             {"question": "q", "label": "yes", "n": 120, "detected": 118, "auto_missed": 0}
         ],
@@ -88,9 +88,11 @@ def test_then_false_automation_accuracy_cost_and_name() -> None:
     ]
 
 
-def test_only_the_pack_as_it_is_ranks() -> None:
-    old = row("old", pack_digest="sha256:" + "b" * 64, pack_version="0.9.0", critical=critical(120))
-    unknown = row("v1-row", pack_digest=None)
+def test_only_the_agent_as_it_is_ranks() -> None:
+    old = row(
+        "old", agent_digest="sha256:" + "b" * 64, agent_version="0.9.0", critical=critical(120)
+    )
+    unknown = row("v1-row", agent_digest=None)
     current = row("current", critical=critical(100))
     assert order([old, unknown, current]) == [
         ("current", 1, "ranked"),
@@ -112,7 +114,7 @@ def test_rows_on_other_records_rank_apart() -> None:
     assert {(c, r) for c, r, _ in order([row("here"), other])} == {("here", 1), ("other", 1)}
 
 
-def test_twenty_emergency_positives_say_insufficient_evidence(triage_agent: Pack) -> None:
+def test_twenty_emergency_positives_say_insufficient_evidence(triage_agent: Agent) -> None:
     critical = resolve_dataset(triage_agent, "critical").head(20)  # same-day symptoms, each
     report = evaluate(Decision(triage_agent), critical)
     text = report_text(report)
@@ -169,7 +171,7 @@ def test_no_card_or_board_prints_a_rank_for_a_public_set(tmp_path: Path) -> None
         assert "| Configuration | Critical detected |" in section, agent.name
         assert printed_ranks(section) == [], agent.name
 
-    # Rows that rank as data (on the pack's digest, with enough critical positives).
+    # Rows that rank as data (on the agent's digest, with enough critical positives).
     rows = [
         row("b-second", cost_per_decision_usd=0.01),
         row("a-first"),
@@ -196,23 +198,23 @@ def test_the_card_says_the_order_its_rows_are_in(tmp_path: Path) -> None:
     from mendari.core.card import render_card
     from mendari.evals import leaderboard
 
-    for agent, run in FIXTURES.items():
-        pack = published(agent, tmp_path, runs=[run])
-        board, problem = leaderboard.read(pack)
+    for folder, run in FIXTURES.items():
+        agent = published(folder, tmp_path, runs=[run])
+        board, problem = leaderboard.read(agent)
         assert board is not None, problem
-        for _, rows in ranking.grouped(board["rows"], pack.digest):
-            assert {r["standing"] for r in rows} == {ranking.INSUFFICIENT}, agent.name
-            assert all(r["rank"] is None for r in rows), agent.name
+        for _, rows in ranking.grouped(board["rows"], agent.digest):
+            assert {r["standing"] for r in rows} == {ranking.INSUFFICIENT}, folder.name
+            assert all(r["rank"] is None for r in rows), folder.name
             configs = [r["config"] for r in rows]
-            assert configs == sorted(configs), agent.name
-        card = render_card(pack)
-        assert leaderboard.preface() in card, agent.name
-        assert "every other row follows, by configuration name" in card, agent.name
-        assert "rows are listed with the critical cases caught first" not in card, agent.name
+            assert configs == sorted(configs), folder.name
+        card = render_card(agent)
+        assert leaderboard.preface() in card, folder.name
+        assert "every other row follows, by configuration name" in card, folder.name
+        assert "rows are listed with the critical cases caught first" not in card, folder.name
 
     # Ranked rows first in their order, then the rest by name, whatever the names.
     rows = [
-        row("a-earlier", pack_digest="sha256:" + "b" * 64),
+        row("a-earlier", agent_digest="sha256:" + "b" * 64),
         row("z-second", cost_per_decision_usd=0.01),
         row("m-first"),
     ]
@@ -237,7 +239,7 @@ def test_each_table_is_one_set_of_records() -> None:
 
     full = [row("a-full"), row("b-full", cost_per_decision_usd=0.01)]
     first = [row(c, n=100, limit=100) for c in ("a-first", "b-first")]
-    old = row("old", pack_digest=None, dataset_sha256=None)
+    old = row("old", agent_digest=None, dataset_sha256=None)
     board = {"rows": [old, *first, *full]}
     groups = ranking.grouped(board["rows"], DIGEST)
     assert [(name, n, bool(sha)) for (name, sha, n), _ in groups] == [
@@ -255,14 +257,14 @@ def test_each_table_is_one_set_of_records() -> None:
 
 def test_unranked_rows_come_after_the_ranked_whatever_their_names() -> None:
     late = row("zz-current")
-    earlier = row("aa-earlier", pack_digest="sha256:" + "0" * 64, pack_version="0.9.0")
+    earlier = row("aa-earlier", agent_digest="sha256:" + "0" * 64, agent_version="0.9.0")
     assert order([earlier, late]) == [
         ("zz-current", 1, "ranked"),
         ("aa-earlier", None, "earlier version"),
     ]
 
 
-def test_why_a_row_is_not_of_the_pack_as_it_is() -> None:
+def test_why_a_row_is_not_of_the_agent_as_it_is() -> None:
     assert ranking.measured_on("0.9.0", DIGEST, "1.0.0") == "earlier version 0.9.0"
     assert ranking.measured_on("1.0.0", DIGEST, "1.0.0") == "version 1.0.0 before its last change"
     assert ranking.measured_on("1.0.0", None, "1.0.0") == (

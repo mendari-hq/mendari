@@ -24,8 +24,8 @@ import pytest
 from fastapi.testclient import TestClient
 from jsonschema import Draft6Validator, ValidationError, validators
 
+from mendari.core.agent import load_agent
 from mendari.core.decision import Decision
-from mendari.core.pack import load_pack
 from mendari.core.spec import Outcome
 from mendari.errors import FhirStructureError
 from mendari.sandbox import fhir_workflow
@@ -229,8 +229,8 @@ def samples() -> dict[str, Any]:
     (tests/support/chart_ehr.py, LP-23e): each note's Binaries plain, HTML, RTF, or HTML with an
     RTF twin, every drug a Medication beside its request."""
     documents = {name: load(name) for name in US_CORE_FIXTURES}
-    documents["sandbox-messages"] = fhir_workflow.seed_bundle(load_pack(DEMO_AGENT_DIR), 20)
-    documents["sandbox-triage"] = fhir_workflow.seed_bundle(load_pack(TRIAGE_DIR), 20)
+    documents["sandbox-messages"] = fhir_workflow.seed_bundle(load_agent(DEMO_AGENT_DIR), 20)
+    documents["sandbox-triage"] = fhir_workflow.seed_bundle(load_agent(TRIAGE_DIR), 20)
     charts = records.cases("test")[:8]
     renditions = itertools.cycle(get_args(Rendition))
     rendition: dict[str, Rendition] = {case.id: next(renditions) for case in charts}

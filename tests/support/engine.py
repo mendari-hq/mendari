@@ -4,10 +4,10 @@ agent the deployment does not own.
 
 The bounded engine (ADR-0009: RE2, the caps, the input limits and a CPU budget per decision) runs
 every agent the deployment does not own: one pulled from a registry (origin `hub`) whose digest,
-the one `load_pack` hashes, is no bundled agent's. `sorter` writes such an agent, a synthetic
+the one `load_agent` hashes, is no bundled agent's. `sorter` writes such an agent, a synthetic
 visit sorter with one keyword question, which its tests edit; `pulled` loads a folder as
 `mendari pull` leaves an agent, so it runs on the bounded engine. Loaded as any other folder
-(`load_pack`, origin `local`), the same agent is the operator's own and runs on `re`, unbounded.
+(`load_agent`, origin `local`), the same agent is the operator's own and runs on `re`, unbounded.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from typing import Any
 
 import yaml
 
-from mendari import Decision, Pack, load_pack
+from mendari import Agent, Decision, load_agent
 from mendari.evals import leaderboard
 from mendari.evals.harness import evaluate, resolve_dataset
 from tests.conftest import TRIAGE_DIR
@@ -135,18 +135,18 @@ def sorter(
     rules: Edit | None = None,
     schema: Edit | None = None,
     manifest: Edit | None = None,
-    pack_id: str = SORTER_ID,
+    agent_id: str = SORTER_ID,
 ) -> Path:
     """The visit sorter written under `base` (in a folder named after its id's name), its
-    rules, input schema and manifest changed by the callables, with id `pack_id`."""
-    root = base / pack_id.partition("/")[2]
+    rules, input schema and manifest changed by the callables, with id `agent_id`."""
+    root = base / agent_id.partition("/")[2]
     (root / "logic").mkdir(parents=True)
     (root / "schemas").mkdir()
     (root / "tests").mkdir()
     files: list[tuple[str, dict[str, Any], Edit | None, Callable[[Any], str]]] = [
         (RULES, SORTER_RULES, rules, _yaml),
         (SCHEMA, SORTER_SCHEMA, schema, json.dumps),
-        ("agent.yaml", {**SORTER_MANIFEST, "id": pack_id}, manifest, _yaml),
+        ("agent.yaml", {**SORTER_MANIFEST, "id": agent_id}, manifest, _yaml),
     ]
     for relative, content, edit, dump in files:
         data = copy.deepcopy(content)
@@ -157,10 +157,10 @@ def sorter(
     return root
 
 
-def pulled(root: Path) -> Pack:
+def pulled(root: Path) -> Agent:
     """The agent at `root` loaded as one pulled from a registry (origin `hub`), as `mendari pull`
     leaves it: with a digest no bundled agent has, it runs on the bounded engine."""
-    return load_pack(root, origin="hub")
+    return load_agent(root, origin="hub")
 
 
 def benchmark(agent: Path = TRIAGE_DIR, dataset: str = "test") -> dict[str, Any]:
@@ -172,42 +172,42 @@ def benchmark(agent: Path = TRIAGE_DIR, dataset: str = "test") -> dict[str, Any]
 
 
 @functools.cache
-def _evaluated(agent: str, dataset: str) -> dict[str, Any]:
-    pack = load_pack(agent)
-    return evaluate(Decision(pack), resolve_dataset(pack, dataset))
+def _evaluated(folder: str, dataset: str) -> dict[str, Any]:
+    agent = load_agent(folder)
+    return evaluate(Decision(agent), resolve_dataset(agent, dataset))
 
 
 def published(
-    agent: Path,
+    folder: Path,
     base: Path,
     *,
     runs: Sequence[Mapping[str, str]] = (),
     manifest: Edit | None = None,
-) -> Pack:
+) -> Agent:
     """A copy under `base` of the agent in folder `agent` (a fixture's, which commits none)
     carrying in `evals/` what a published agent carries: its own evaluation on its benchmark
     set, named by `evaluation.benchmark`, and with `runs` (provider choices) a leaderboard of
     that set evaluated on its default providers and on each of them. Every figure is the copy's
     own: `evals/` is outside its digest, which is the one recorded. `manifest` changes the
     copy's manifest first (another version, say)."""
-    root = base / agent.name
-    shutil.copytree(agent, root)
+    root = base / folder.name
+    shutil.copytree(folder, root)
     path = root / "agent.yaml"
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     data["evaluation"]["benchmark"] = "evals/benchmark.json"
     if manifest is not None:
         manifest(data)
     path.write_text(_yaml(data), encoding="utf-8")
-    pack = load_pack(root)
-    dataset = resolve_dataset(pack, pack.manifest.evaluation.benchmark_dataset or "test")
-    report = evaluate(Decision(pack), dataset)
+    agent = load_agent(root)
+    dataset = resolve_dataset(agent, agent.manifest.evaluation.benchmark_dataset or "test")
+    report = evaluate(Decision(agent), dataset)
     (root / "evals").mkdir()
     (root / "evals" / "benchmark.json").write_text(json.dumps(report), encoding="utf-8")
     if runs:
-        reports = [report, *(evaluate(Decision(pack, providers=dict(r)), dataset) for r in runs)]
-        board = leaderboard.build(pack, reports)
+        reports = [report, *(evaluate(Decision(agent, providers=dict(r)), dataset) for r in runs)]
+        board = leaderboard.build(agent, reports)
         (root / leaderboard.PATH).write_text(json.dumps(board), encoding="utf-8")
-    return load_pack(root)
+    return load_agent(root)
 
 
 def _yaml(data: Any) -> str:

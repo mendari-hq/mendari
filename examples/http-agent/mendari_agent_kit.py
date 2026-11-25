@@ -15,7 +15,7 @@ sides of that contract for the agent's author, so a handler only has to answer:
             "urgent_symptoms": {"yes": 0.9, "no": 0.1} if urgent else ("no", 0.95),
         })
 
-    app = create_app(handler, title="My agent", agent_version="1.0.0")
+    app = create_app(handler, title="My agent", service_version="1.0.0")
 
 `create_app` serves `POST /decide` (bearer token from `AGENT_TOKEN`) and `GET /health`; run it
 with any ASGI server (`uvicorn module:app`). The handler gets a parsed, checked `Case` and
@@ -136,9 +136,9 @@ class Output:
 class Case:
     """One decision's request, parsed and checked (`Case.parse`)."""
 
-    agent: str | None  # the agent's id in Mendari (`pack_id`)
+    agent_id: str | None  # the agent's id in Mendari (`agent_id`)
     slot: str | None
-    agent_id: str | None  # the name the manifest gives this agent
+    service_id: str | None  # the name the manifest gives this agent
     questions: tuple[Question, ...]
     input: dict[str, Any]  # only the fields the manifest's `state_fields` send
     instructions: str | None  # the manifest's `system_prompt` and `instructions`, joined
@@ -179,9 +179,9 @@ class Case:
             if isinstance(body.get(name), str) and body[name].strip()
         ]
         return cls(
-            agent=_text(body.get("pack_id")),
-            slot=_text(body.get("slot")),
             agent_id=_text(body.get("agent_id")),
+            slot=_text(body.get("slot")),
+            service_id=_text(body.get("service_id")),
             questions=tuple(questions),
             input=body["input"],
             instructions="\n\n".join(said) or None,
@@ -218,7 +218,7 @@ def respond(
     *,
     rationales: Mapping[str, str] | None = None,
     model: str | None = None,
-    agent_version: str | None = None,
+    service_version: str | None = None,
     usage: Mapping[str, Any] | None = None,
     tool_calls: Sequence[str | Mapping[str, Any]] | None = None,
     actions: Sequence[tuple[str, Mapping[str, Any]] | Mapping[str, Any]] | None = None,
@@ -259,7 +259,7 @@ def respond(
         if isinstance(rationale, str) and rationale.strip():
             item["rationale"] = " ".join(rationale.split())[:MAX_RATIONALE_CHARS]
         body["answers"][question.key] = item
-    for name, value in (("model", model), ("agent_version", agent_version)):
+    for name, value in (("model", model), ("service_version", service_version)):
         if value is not None:
             if not isinstance(value, str) or "://" in value or not ID_PATTERN.match(value):
                 raise AgentError(502, f"the agent's {name} is not a valid id")
@@ -377,7 +377,7 @@ def create_app(
     handler: Handler,
     *,
     title: str = "Mendari agent",
-    agent_version: str | None = None,
+    service_version: str | None = None,
 ) -> FastAPI:
     """An HTTP service for `handler`: `POST /decide` and `GET /health`.
 
@@ -397,7 +397,7 @@ def create_app(
 
     @app.get("/health")
     def health() -> dict[str, Any]:
-        return {"status": "ok", "agent_version": agent_version}
+        return {"status": "ok", "service_version": service_version}
 
     @app.post("/decide")
     async def decide(request: Request) -> JSONResponse:

@@ -36,7 +36,7 @@ providers:
     variants:
       agent:
         type: agent
-        agent_id: actions-mini-agent
+        service_id: actions-mini-agent
         state_fields: [message.body]
         mock_file: fixtures/mock_agent.json
 policy:

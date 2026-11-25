@@ -268,7 +268,7 @@ def test_open_mode_names_are_identifiers(tmp_path: Path, monkeypatch: pytest.Mon
         assert refused.status_code == 422 and "reviewer must be an identifier" in refused.text
         refused = client.post(rate, json={"rating": "up", "reporter": name})
         assert refused.status_code == 422 and "reporter must be an identifier" in refused.text
-        approval = {"pack_id": "mendari-test/clinical-review", "reference": "minutes 1"}
+        approval = {"agent_id": "mendari-test/clinical-review", "reference": "minutes 1"}
         refused = client.post("/api/governance", json={**approval, "approver": name})
         assert refused.status_code == 422 and "approver must be an identifier" in refused.text
     assert client.post(rate, json={"rating": "up", "reporter": "nurse.kim@clinic"}).is_success
@@ -438,7 +438,7 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     # CDS Hooks card feedback (LP-23f): its own rule before the catch-all, which needs `admin`.
     assert permission_for("POST", "/cds-services/s1/feedback") == "decide"
     assert permission_for("POST", "/cds-services/s1/other") == "admin"
-    assert permission_for("GET", "/fhir/CodeSystem/x") == "read"  # pack labels and criteria
+    assert permission_for("GET", "/fhir/CodeSystem/x") == "read"  # agent labels and criteria
     assert permission_for("GET", "/fhir/Patient/p1") == "admin"  # not a conformance resource
     assert permission_for("GET", "/fhir/Task/t1/_history/2") == "read"
     assert permission_for("GET", "/fhir/Task/t1/_history") == "admin"  # no history Bundles
@@ -504,7 +504,7 @@ WRITTEN_GRADING = {
 # -- the matrix: route x principal kind x role x scope (ADR-0004) -------------------------------
 
 # What each role may do (server/auth.py PERMISSIONS), written out as the oracle.
-ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as amended)
+ROLE_PERMISSIONS = {  # every role also lists the agents (`discover`, ADR-0004 as amended)
     "viewer": {"read", "discover"},
     "reviewer": {"read", "discover", "read_input", "decide", "review", "outcome"},
     "service": {"read", "discover", "decide", "outcome"},
@@ -527,10 +527,10 @@ ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as
     },
     # A labeller grades written output (ADR-0025): a person, memberships mode only.
     "labeller": {"label"},
-    # The pack registry's reviewers (LP-19e): in its one review organization only.
+    # The agent registry's reviewers (LP-19e): in its one review organization only.
     "registry_reviewer": {"registry_review"},
-    # An organization's pack store (LP-20f): its authors, people only.
-    "pack_author": {"author"},
+    # An organization's agent store (LP-20f): its authors, people only.
+    "agent_author": {"author"},
 }
 PEOPLE_ONLY = {"keys", "label", "registry_review", "author", "promote", "operate"}
 # Every route a scoped key (or token) may reach, and the one scope that reaches it. Everything
@@ -847,7 +847,7 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
 
 def test_no_fhir_data_route_is_public(tmp_path: Path) -> None:
     """Every `/fhir` route but the two that say how to talk to the server reads something an
-    organization owns or a pack defines. Without a signed-in organization the store's scope is
+    organization owns or an agent defines. Without a signed-in organization the store's scope is
     every organization's rows, so none of them may ever be public."""
     app = create_app(db_path=tmp_path / "a.db")
     fhir = {
@@ -926,7 +926,7 @@ def test_organizations_never_see_each_others_work(
     assert client.get("/api/feedback", headers=keys["clinic-b"]).json() == []
 
     report: dict[str, Any] = {"id": "r1", "created_at": "2026-09-30T00:00:00+00:00"}
-    report |= {"pack": {"id": INBOX}, "dataset": {"name": "local"}}
+    report |= {"agent": {"id": INBOX}, "dataset": {"name": "local"}}
     with tenancy.acting_for("clinic-a"):
         AuditStore(tmp_path / "two-orgs.db").save_report(report)
     assert [r["id"] for r in client.get("/api/evals", headers=keys["clinic-a"]).json()] == ["r1"]
@@ -1096,13 +1096,13 @@ def test_a_bearer_header_never_falls_back_to_the_launch_cookie(
     cookie = launched(store, iss=ehr)
     assert app.get("/api/smart/session", headers=cookie).json()["active"] is True
     key = store.create_api_key(name="worker", role="service", org="default", created_by="t")
-    body = {"pack_id": CHART, "focus": f"Patient/{SHOWCASE.id}"}
+    body = {"agent_id": CHART, "focus": f"Patient/{SHOWCASE.id}"}
     for header, status in (("Bearer ohk_not-a-key", 401), (f"Bearer {key['key']}", 403)):
         sent = {**cookie, "authorization": header}
         for method, path in (
             ("POST", "/api/smart/decide"),
             ("GET", "/api/smart/patient"),
-            ("GET", f"/api/smart/focus?pack_id={CHART}"),
+            ("GET", f"/api/smart/focus?agent_id={CHART}"),
         ):
             refused = app.request(method, path, json=body, headers=sent)
             assert refused.status_code == status, (header, path, refused.text)
@@ -1508,7 +1508,7 @@ def test_a_scoped_key_reaches_only_what_its_scopes_name(app: TestClient, idp: Fa
         ("GET", "/api/audit", None),  # no scope reaches Mendari's own reads
         ("GET", f"/api/audit/{decided.json()['id']}", None),
         ("GET", "/openapi.json", None),
-        ("GET", f"/api/agents/{INBOX}", None),  # a pack's detail: not a list to decide from
+        ("GET", f"/api/agents/{INBOX}", None),  # an agent's detail: not a list to decide from
         ("GET", f"/api/agents/{INBOX}/examples", None),
     ):
         refused = app.request(
@@ -1520,9 +1520,9 @@ def test_a_scoped_key_reaches_only_what_its_scopes_name(app: TestClient, idp: Fa
         assert "scopes do not cover" in refused.text
     page = app.get("/", headers=machine, follow_redirects=False)
     assert page.status_code == 403  # not even the dashboard page
-    # Deciding finds what to decide with: the lists of packs and of CDS services (only).
-    packs = app.get("/api/agents", headers=machine)
-    assert packs.status_code == 200 and INBOX in {p["id"] for p in packs.json()}
+    # Deciding finds what to decide with: the lists of agents and of CDS services (only).
+    agents = app.get("/api/agents", headers=machine)
+    assert agents.status_code == 200 and INBOX in {p["id"] for p in agents.json()}
     assert app.get("/cds-services", headers=machine).status_code == 200
     me = app.get("/api/auth/me", headers=machine).json()["principal"]
     assert me["kind"] == "key" and me["roles"] == ["service"]
@@ -1596,13 +1596,13 @@ def test_a_scoped_credential_gets_the_public_health_only(app: TestClient, idp: F
     sign_in(app, idp, roles=["admin"])
     made = app.post("/api/auth/keys", json={"name": "ehr", "role": "service", "scope": DECIDE})
     full = app.get("/api/health").json()
-    assert "packs" in full and "retention_days" in full
+    assert "agents" in full and "retention_days" in full
     app.cookies.clear()
     scoped = app.get("/api/health", headers={"authorization": f"Bearer {made.json()['key']}"})
     assert scoped.status_code == 200
     assert set(scoped.json()) == {"status", "version", "sign_in"}
     unscoped = app.get("/api/health", headers={"authorization": f"Bearer {key_for(app, idp)}"})
-    assert "packs" in unscoped.json()  # a key with its role's reach still reads it
+    assert "agents" in unscoped.json()  # a key with its role's reach still reads it
 
 
 def test_head_needs_what_get_needs(app: TestClient, idp: FakeIdp) -> None:

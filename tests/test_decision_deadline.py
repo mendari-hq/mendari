@@ -4,7 +4,7 @@
 Past it a remote call is not made, before any credential is fetched or any budget charged; a
 call under way waits at most what remains of it; either is the provider error `timeout`, so the
 decision is held for a person. Local providers always answer: a possible emergency is still
-flagged, and what a pack decides offline never changes. A live agent service, the LLM and Vercel
+flagged, and what an agent decides offline never changes. A live agent service, the LLM and Vercel
 Connect answer here through `httpx.MockTransport`s: nothing leaves the machine.
 """
 
@@ -19,13 +19,13 @@ from typing import Any
 import httpx
 import pytest
 
-from mendari import Decision, Pack, load_pack
+from mendari import Agent, Decision, load_agent
 from mendari.core import decision as decision_module
 from mendari.core import patterns
 from mendari.core.decision import CallBudget, DecisionResult
 from mendari.core.spec import Outcome, Priority
 from mendari.errors import MendariError, ProviderError
-from mendari.evals.pack_tests import load_cases
+from mendari.evals.behaviour_tests import load_cases
 from mendari.parallel import parallel_map
 from mendari.providers import deadline, http
 from mendari.providers.agent import AgentProvider
@@ -77,7 +77,7 @@ class Remote:
             }
             return httpx.Response(
                 200,
-                json={"model": "agent-test-model", "agent_version": "2.0.0", "answers": answers},
+                json={"model": "agent-test-model", "service_version": "2.0.0", "answers": answers},
             )
         schema = body["response_format"]["json_schema"]["schema"]["properties"]
         content = {
@@ -133,7 +133,7 @@ def mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> httpx.Cli
 
 
 def test_a_remote_call_after_the_deadline_is_not_made_and_uses_no_budget(
-    remote: Remote, triage_agent: Pack
+    remote: Remote, triage_agent: Agent
 ) -> None:
     """The agent service, asked for the router (the triage fixture's first slot), answers after
     the whole deadline, so its answer is cut too; the screen's LLM call would start after it, so
@@ -153,7 +153,7 @@ def test_a_remote_call_after_the_deadline_is_not_made_and_uses_no_budget(
     assert result.outcome is Outcome.ABSTAIN  # no answer for the primary: a person decides
 
 
-def test_local_providers_answer_after_the_deadline(remote: Remote, triage_agent: Pack) -> None:
+def test_local_providers_answer_after_the_deadline(remote: Remote, triage_agent: Agent) -> None:
     """The deadline only ever fails remote calls: the screen's keyword rules still read the
     message while the router's agent service is never called, so the possible-emergency rule
     still sends it to a nurse now."""
@@ -171,7 +171,7 @@ def test_local_providers_answer_after_the_deadline(remote: Remote, triage_agent:
     )
 
 
-def test_a_deadline_never_automates(remote: Remote, triage_agent: Pack) -> None:
+def test_a_deadline_never_automates(remote: Remote, triage_agent: Agent) -> None:
     """A case that automates with the agent service's answers in time is held for a person once
     the deadline has passed, with `timeout` recorded."""
     remote.labels["destination"] = "pharmacy"
@@ -186,7 +186,7 @@ def test_a_deadline_never_automates(remote: Remote, triage_agent: Pack) -> None:
     assert late.errors == TIMED_OUT
 
 
-def test_the_deadline_belongs_to_one_decision(remote: Remote, triage_agent: Pack) -> None:
+def test_the_deadline_belongs_to_one_decision(remote: Remote, triage_agent: Agent) -> None:
     """One Decision serves every thread, as on the server. The slow decision's deadline passes
     during its agent call, so that answer is cut and its LLM call is not made; the quick one
     starts after that deadline, during that call, and keeps its own."""
@@ -212,24 +212,24 @@ def test_reference_decisions_never_see_the_deadline(monkeypatch: pytest.MonkeyPa
     answers while no agent service is set), decides each of its behaviour tests exactly as
     before, with a deadline that passed before it started."""
     monkeypatch.delenv(SETTING, raising=False)
-    packs = [
-        load_pack(root)
+    agents = [
+        load_agent(root)
         for root in sorted(FIXTURE_AGENTS.iterdir())
         if (root / "agent.yaml").exists()
     ]
-    assert packs
+    assert agents
 
     def comparable(result: DecisionResult) -> dict[str, Any]:
         shown = result.to_dict()
         return {k: v for k, v in shown.items() if k not in ("id", "created_at", "latency_ms")}
 
-    for pack in packs:
-        default, expired = Decision(pack), Decision(pack, deadline_s=EXPIRED)
+    for agent in agents:
+        default, expired = Decision(agent), Decision(agent, deadline_s=EXPIRED)
         assert default.deadline_s == 120
-        for case in load_cases(pack):
+        for case in load_cases(agent):
             assert comparable(expired.decide(case["input"])) == comparable(
                 default.decide(case["input"])
-            ), (pack.id, case.get("name"))
+            ), (agent.id, case.get("name"))
 
 
 def test_the_cpu_budget_is_not_the_deadline(
@@ -252,18 +252,18 @@ def test_the_cpu_budget_is_not_the_deadline(
         }
         manifest["providers"] = {"screen": screen, **manifest["providers"]}  # asked first
 
-    pack = pulled(sorter(tmp_path, manifest=llm_first))
-    assert pack.bounded
+    agent = pulled(sorter(tmp_path, manifest=llm_first))
+    assert agent.bounded
     monkeypatch.setattr(decision_module, "time_budget", lambda: patterns.time_budget(0.2))
     remote.delay = lambda kind, text: 0.5  # waited for, longer than the budget
     case = {"message": "A question about my bill"}
 
-    waited = Decision(pack, deadline_s=30).decide(case)
+    waited = Decision(agent, deadline_s=30).decide(case)
     assert remote.calls == ["llm"]
     assert waited.errors == {}  # no `time_budget`: the rules ran after the wait
     assert waited.answers["topic"].label == "billing"
 
-    late = Decision(pack, deadline_s=EXPIRED).decide(case)
+    late = Decision(agent, deadline_s=EXPIRED).decide(case)
     assert remote.calls == ["llm"]
     assert late.errors == {"upset": "timeout"}
     assert late.answers["topic"].label == "billing"
@@ -370,7 +370,7 @@ def test_a_bad_deadline_setting_stops_the_server_at_startup(
 
 
 def test_the_deadline_setting_is_120_seconds_unless_set(
-    triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv(SETTING, raising=False)
     assert decision_deadline_s() == 120 and Decision(triage_agent).deadline_s == 120

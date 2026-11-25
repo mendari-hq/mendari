@@ -8,10 +8,10 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from mendari.core.agent import Agent
 from mendari.core.origin import deployment_config
-from mendari.core.pack import Pack
 from mendari.core.spec import ProviderVariant
-from mendari.errors import PackValidationError
+from mendari.errors import AgentValidationError
 from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
 from mendari.providers.agent import AgentConfig, AgentProvider
 from mendari.providers.base import (
@@ -88,19 +88,19 @@ def provider_allow_list() -> list[str] | None:
     return sorted(allowed)
 
 
-def config_problems(pack: Pack) -> list[str]:
-    """Why any variant of any slot of `pack` cannot run, as far as its provider can tell without
-    the environment or the network (`Provider.config_problems`): its closed config, its pack
-    files, the slot's questions and, for a pack the deployment does not own (`Pack.bounded`),
+def config_problems(agent: Agent) -> list[str]:
+    """Why any variant of any slot of `agent` cannot run, as far as its provider can tell without
+    the environment or the network (`Provider.config_problems`): its closed config, its agent
+    files, the slot's questions and, for an agent the deployment does not own (`Agent.bounded`),
     `state_fields` on every model variant and member. Each problem names
     `providers.<slot>.variants.<variant>` first.
 
-    `load_pack` runs it: a pack the deployment does not own is refused for any problem, an owned
-    one loads with them as `Pack.warnings`. `mendari validate` refuses both."""
-    bounded = pack.bounded
+    `load_agent` runs it: an agent the deployment does not own is refused for any problem, an owned
+    one loads with them as `Agent.warnings`. `mendari validate` refuses both."""
+    bounded = agent.bounded
     problems: list[str] = []
-    for slot_name, slot in pack.manifest.providers.items():
-        questions = {key: pack.manifest.questions[key] for key in slot.answers}
+    for slot_name, slot in agent.manifest.providers.items():
+        questions = {key: agent.manifest.questions[key] for key in slot.answers}
         for name, variant in slot.variants.items():
             where = f"providers.{slot_name}.variants.{name}"
             provider_type = PROVIDER_TYPES.get(variant.type)
@@ -108,7 +108,7 @@ def config_problems(pack: Pack) -> list[str]:
                 problems.append(f"{where}: unknown provider type {variant.type!r}")
                 continue
             config = {"type": variant.type, **(variant.model_extra or {})}
-            found = provider_type.config_problems(pack, where, config, questions, bounded=bounded)
+            found = provider_type.config_problems(agent, where, config, questions, bounded=bounded)
             problems += prefixed(where, found)
     return problems
 
@@ -151,29 +151,29 @@ def config_json_schema() -> dict[str, Any]:
     }
 
 
-def build_provider(pack: Pack, slot_name: str, variant_name: str | None = None) -> Provider:
-    slot = pack.manifest.providers.get(slot_name)
+def build_provider(agent: Agent, slot_name: str, variant_name: str | None = None) -> Provider:
+    slot = agent.manifest.providers.get(slot_name)
     if slot is None:
-        raise PackValidationError(pack.id, [f"unknown provider slot {slot_name!r}"])
+        raise AgentValidationError(agent.id, [f"unknown provider slot {slot_name!r}"])
     variant_name = variant_name or slot.use
     variant = slot.variants.get(variant_name)
     if variant is None:
-        raise PackValidationError(
-            pack.id,
+        raise AgentValidationError(
+            agent.id,
             [f"slot {slot_name!r} has no variant {variant_name!r} (have {sorted(slot.variants)})"],
         )
     provider_type = PROVIDER_TYPES.get(variant.type)
     if provider_type is None:
-        raise PackValidationError(pack.id, [f"unknown provider type {variant.type!r}"])
+        raise AgentValidationError(agent.id, [f"unknown provider type {variant.type!r}"])
     config = {"type": variant.type, **(variant.model_extra or {})}
-    # A pack the deployment does not own: its model, answer length, timeout and effort are the
+    # An agent the deployment does not own: its model, answer length, timeout and effort are the
     # deployment's (`deployment_config`), its own values checked at load (`config_problems`).
-    if pack.bounded:
-        config = deployment_config(config, store=pack.origin == "store")
+    if agent.bounded:
+        config = deployment_config(config, store=agent.origin == "store")
     model = config.get("model") if isinstance(config.get("model"), str) else None
     info = ProviderInfo(slot=slot_name, variant=variant_name, type=variant.type, model=model)
-    questions = {key: pack.manifest.questions[key] for key in slot.answers}
-    return provider_type(pack, info, questions, config)
+    questions = {key: agent.manifest.questions[key] for key in slot.answers}
+    return provider_type(agent, info, questions, config)
 
 
 def uses_model(variant: ProviderVariant) -> bool:
@@ -186,12 +186,12 @@ def uses_model(variant: ProviderVariant) -> bool:
     return not types.isdisjoint(MODEL_TYPES)
 
 
-def slots_without_model(pack: Pack, running: Mapping[str, str]) -> list[str]:
-    """The pack's slots that run without a model (`running`: slot -> variant; the pack's default
+def slots_without_model(agent: Agent, running: Mapping[str, str]) -> list[str]:
+    """The agent's slots that run without a model (`running`: slot -> variant; the agent's default
     where absent) although one of their variants has one: the offline floor."""
     return [
         slot
-        for slot, spec in pack.manifest.providers.items()
+        for slot, spec in agent.manifest.providers.items()
         if not uses_model(spec.variants[running.get(slot, spec.use)])
         and any(uses_model(variant) for variant in spec.variants.values())
     ]

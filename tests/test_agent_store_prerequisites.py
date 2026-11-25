@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The pack store's prerequisites (LP-20e), checked by running them at start, not by reading:
+"""The agent store's prerequisites (LP-20e), checked by running them at start, not by reading:
 LP-12's memberships mode, LP-16's bounded engine and budget, LP-10's statistics and ledger,
 LP-11's canonical forms. Each one removed in turn is named."""
 
@@ -9,17 +9,17 @@ from typing import Any
 
 import pytest
 
-from mendari.core import origin, pack_store, patterns
+from mendari.core import agent_store, origin, patterns
 from mendari.evals import canonical, ledger, stats
 
 
 def test_the_stores_prerequisites_are_met() -> None:
-    assert pack_store.prerequisites("memberships") == []
+    assert agent_store.prerequisites("memberships") == []
     # Each by behaviour, on its own.
-    assert pack_store._bounded_problems() == []  # LP-16
-    assert pack_store._statistics_problems() == []  # LP-10
-    assert pack_store._canonical_problems() == []  # LP-11
-    assert pack_store.prerequisites("claims") == [
+    assert agent_store._bounded_problems() == []  # LP-16
+    assert agent_store._statistics_problems() == []  # LP-10
+    assert agent_store._canonical_problems() == []  # LP-11
+    assert agent_store.prerequisites("claims") == [
         "memberships mode (LP-12): sign-in is in claims mode"
     ]
 
@@ -47,5 +47,5 @@ def test_a_missing_prerequisite_is_named(
     monkeypatch: pytest.MonkeyPatch, target: Any, name: str, replacement: Any, named: str
 ) -> None:
     monkeypatch.setattr(target, name, replacement)
-    missing = pack_store.prerequisites("memberships")
+    missing = agent_store.prerequisites("memberships")
     assert any(problem.startswith(named) for problem in missing), missing

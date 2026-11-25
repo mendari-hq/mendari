@@ -312,7 +312,7 @@ The links on a card need `MENDARI_PUBLIC_URL`:
 |---|---|---|
 | The audit trail (`absolute`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?agent=<agent id>#audit/<decision>`, the decision's record, which needs a Mendari sign-in with `read` in the organization. The engine's reasons move behind this link, but for a list read without a source your EHR does not offer (`<list> may be incomplete: …`, below), which stays in the detail, and for an input refused as invalid (an agent's `refused` card), whose reasons stay in its detail. |
 | The agent (`source.url`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?agent=<agent id>#card`, the agent's card. |
-| The launch (`smart`) | also SMART is on (`MENDARI_SMART_CLIENT_ID`), and the request's `fhirServer` is registered in `MENDARI_SMART_EHRS` to the caller's own organization | `<public URL>/smart/launch?pack=<agent id>` (the launch's own parameter keeps the name it had). The EHR adds `iss` and `launch`. |
+| The launch (`smart`) | also SMART is on (`MENDARI_SMART_CLIENT_ID`), and the request's `fhirServer` is registered in `MENDARI_SMART_EHRS` to the caller's own organization | `<public URL>/smart/launch?agent=<agent id>` (the launch's own parameter keeps the name it had). The EHR adds `iss` and `launch`. |
 
 Without `MENDARI_PUBLIC_URL`, a card has no links and the reasons stay in its detail, but for
 the confidence thresholds' reason (such as `confidence 0.94 is below the auto threshold 0.95`):

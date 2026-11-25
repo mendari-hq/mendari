@@ -60,7 +60,7 @@ from functools import lru_cache
 from typing import Any
 
 from mendari.core.policy import PolicyInputs
-from mendari.core.spec import PackManifest, Thresholds
+from mendari.core.spec import AgentManifest, Thresholds
 from mendari.errors import MendariError
 from mendari.evals import stats
 from mendari.evals.ledger import Ledger
@@ -273,14 +273,14 @@ def cases_of(ledger: Ledger, results: Sequence[Any]) -> list[Case]:
     return cases
 
 
-def at_threshold(manifest: PackManifest, threshold: float) -> PackManifest:
+def at_threshold(manifest: AgentManifest, threshold: float) -> AgentManifest:
     """The manifest with one setting changed: `policy.thresholds.auto`."""
     thresholds = Thresholds(auto=threshold, review=manifest.policy.thresholds.review)
     policy = manifest.policy.model_copy(update={"thresholds": thresholds})
     return manifest.model_copy(update={"policy": policy})
 
 
-def decided(manifest: PackManifest, cases: Sequence[Case]) -> list[Decided]:
+def decided(manifest: AgentManifest, cases: Sequence[Case]) -> list[Decided]:
     """Each case's outcome and recommendation under `manifest`: its policy applied again to what
     it decided from, or what the run gave it when no policy ran."""
     out: list[Decided] = []
@@ -406,7 +406,7 @@ class Found:
         return self.tested[self.passed] if self.passed < len(self.tested) else None
 
 
-def recommend(manifest: PackManifest, cases: Sequence[Case], targets: Targets) -> Found:
+def recommend(manifest: AgentManifest, cases: Sequence[Case], targets: Targets) -> Found:
     """Walk the sequence on `cases` and say what it found."""
     labels = len(manifest.evaluation.critical)
     recorded: list[Decided] = [(case.outcome, case.recommendation) for case in cases]
@@ -470,7 +470,7 @@ def recommend(manifest: PackManifest, cases: Sequence[Case], targets: Targets) -
 # --------------------------------------------------------------------------------------------
 
 
-def check(manifest: PackManifest, targets: Targets | None) -> None:
+def check(manifest: AgentManifest, targets: Targets | None) -> None:
     """Refuse a target the agent has nothing to hold to it, before a run is paid for: a target
     on critical misses for an agent that declares no critical label."""
     if targets is None or targets.critical_miss is None or manifest.evaluation.critical:
@@ -482,7 +482,7 @@ def check(manifest: PackManifest, targets: Targets | None) -> None:
 
 
 def build(
-    manifest: PackManifest,
+    manifest: AgentManifest,
     ledger: Ledger,
     results: Sequence[Any],
     targets: Targets | None = None,
@@ -529,7 +529,7 @@ def _point(
 
 
 def block_of(
-    manifest: PackManifest,
+    manifest: AgentManifest,
     names: Sequence[tuple[str, str]],
     targets: Targets,
     current: Tally,

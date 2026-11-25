@@ -4,7 +4,7 @@ with each card, accepted with the suggestion taken or overridden with one of the
 offered, chained on the card's decision as `card.feedback`, codes and ids only. All or nothing: a
 suggestion or reason the card did not offer, a field CDS Hooks 2.0 does not define (but
 `extension`, accepted and never kept) or a time with no UTC time is a `422`; a card that is not
-a decision of the service's pack in the caller's organization, or, when the caller is named,
+a decision of the service's agent in the caller's organization, or, when the caller is named,
 one it did not ask for, is one `404`, whichever it is. The comment is never kept. The route is a
 decide route, rate limited in the decide bucket and never counted against the daily cap. The
 service is the triage test fixture's (`tests/support/cds_messages.py`): one card a message."""
@@ -23,7 +23,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, load_pack
+from mendari import AuditStore, load_agent
 from mendari.cli import main
 from mendari.server.app import create_app
 from mendari.standards import cds_hooks, fhir_structure, terminology
@@ -152,10 +152,10 @@ def test_feedback_for_an_accepted_and_an_overridden_card_is_recorded_and_chained
         assert len(card_feedback(store)) == 3
 
 
-def test_feedback_naming_another_organizations_packs_or_callers_decision_answers_as_unknown(
+def test_feedback_naming_another_organizations_agents_or_callers_decision_answers_as_unknown(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With sign-in on: another organization's card, a decision of another pack, a card another
+    """With sign-in on: another organization's card, a decision of another agent, a card another
     caller of the same organization asked for and an id that names nothing are each the one
     `404`, the same answer but for the id it repeats, and nothing is chained; a request naming
     one of them beside the caller's own card records neither. The caller's own card: `200`."""
@@ -173,7 +173,7 @@ def test_feedback_naming_another_organizations_packs_or_callers_decision_answers
     (card,) = hooked(client, 1, **mine)
     (their_card,) = hooked(client, 1, **theirs)
     chart = client.post(  # a decision of another agent with a hook
-        f"/api/agents/{load_pack(CHART_DIR).id}/decide", json=SHOWCASE.input(), headers=mine
+        f"/api/agents/{load_agent(CHART_DIR).id}/decide", json=SHOWCASE.input(), headers=mine
     ).json()["id"]
     nothing = str(uuid.uuid4())
     with AuditStore(db) as store:
@@ -186,11 +186,11 @@ def test_feedback_naming_another_organizations_packs_or_callers_decision_answers
 
     shown = {
         "another organization's": refused(mine, overridden(their_card)),
-        "another pack's": refused(mine, overridden(chart)),
+        "another agent's": refused(mine, overridden(chart)),
         "another caller's": refused(other_caller, overridden(card)),
         "nothing's": refused(mine, overridden(nothing)),
     }
-    named = {"another organization's": their_card, "another pack's": chart}
+    named = {"another organization's": their_card, "another agent's": chart}
     named |= {"another caller's": card, "nothing's": nothing}
     for which, body in shown.items():
         assert body["error"] == "UnknownCard", which
@@ -199,17 +199,17 @@ def test_feedback_naming_another_organizations_packs_or_callers_decision_answers
     mixed = refused(mine, accepted(card), overridden(nothing))
     assert mixed["detail"] == f"no card of this service: {nothing}"  # all or nothing
     assert refused(mine, overridden(card), path="/cds-services/nope/feedback")["error"] == (
-        "PackNotFoundError"
+        "AgentNotFoundError"
     )
     # An agent with no hook makes no card, so its own decisions take no card feedback either.
-    reviewer = load_pack(CLINICAL_DIR)
+    reviewer = load_agent(CLINICAL_DIR)
     assert reviewer.manifest.cds_hooks is None
     example = client.get(f"/api/agents/{reviewer.id}/examples", headers=mine).json()[0]
     reviewed = client.post(
         f"/api/agents/{reviewer.id}/decide", json=example["input"], headers=mine
     ).json()["id"]
     unhooked = f"/cds-services/{reviewer.id.replace('/', '.')}/feedback"
-    assert refused(mine, overridden(reviewed), path=unhooked)["error"] == "PackNotFoundError"
+    assert refused(mine, overridden(reviewed), path=unhooked)["error"] == "AgentNotFoundError"
     with AuditStore(db) as store:
         assert len(card_feedback(store)) == before
     sent = client.post(FEEDBACK, json=feedback(accepted(card)), headers=mine)

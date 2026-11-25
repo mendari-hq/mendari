@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari import Pack, load_pack
-from mendari.errors import PackValidationError
+from mendari import Agent, load_agent
+from mendari.errors import AgentValidationError
 from mendari.providers import Provider, build_provider
 from mendari.providers.rules import within_one_edit
 from tests.conftest import TRIAGE_DIR, message
@@ -20,7 +20,7 @@ SCREEN_RULES = "logic/screen_rules.yaml"  # the triage fixture's same-day sympto
 
 
 @pytest.fixture(scope="module")
-def red_flags(triage_agent: Pack) -> Provider:
+def red_flags(triage_agent: Agent) -> Provider:
     """The triage fixture's screen: same-day symptoms as keyword rules."""
     return build_provider(triage_agent, "screen", "rules")
 
@@ -34,7 +34,7 @@ def tolerant(tmp_path_factory: pytest.TempPathFactory) -> Provider:
     config = yaml.safe_load(rules.read_text())
     config["typo_tolerance"] = {"min_length": 5}
     rules.write_text(yaml.safe_dump(config, sort_keys=False))
-    return build_provider(load_pack(root), "screen", "rules")
+    return build_provider(load_agent(root), "screen", "rules")
 
 
 def urgency(provider: Provider, body: str) -> tuple[str, float, tuple[str, ...]]:
@@ -100,16 +100,16 @@ def test_a_rules_file_with_a_number_that_is_not_finite_is_refused_when_built(
 ) -> None:
     # Each one made every decision that ran the rules raise (the softmax refuses a score or a
     # temperature that is not finite), so the decision had no outcome and no audit record.
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     rules = root / SCREEN_RULES
     text = rules.read_text()
     assert old in text
     rules.write_text(text.replace(old, new, 1))
-    pack = load_pack(root)
-    assert any("screen_rules.yaml" in warning for warning in pack.warnings)
-    with pytest.raises(PackValidationError, match=r"screen_rules\.yaml"):
-        build_provider(pack, "screen", "rules")
+    agent = load_agent(root)
+    assert any("screen_rules.yaml" in warning for warning in agent.warnings)
+    with pytest.raises(AgentValidationError, match=r"screen_rules\.yaml"):
+        build_provider(agent, "screen", "rules")
 
 
 def test_scores_that_add_up_past_a_float_fail_the_slot_closed_never_raise() -> None:
@@ -131,8 +131,8 @@ def test_scores_that_add_up_past_a_float_fail_the_slot_closed_never_raise() -> N
     ("variant", "refused"),
     [
         (
-            {"type": "agent", "agent_id": "x", "state_fields": ["message.body"],
-             "endpoint_env": "PACK_SAFETY_URL"},
+            {"type": "agent", "service_id": "x", "state_fields": ["message.body"],
+             "endpoint_env": "AGENT_SAFETY_URL"},
             "endpoint_env",
         ),
         ({"type": "llm", "base_url_env": "X", "model_env": "Y"}, "base_url_env, model_env"),
@@ -141,7 +141,7 @@ def test_scores_that_add_up_past_a_float_fail_the_slot_closed_never_raise() -> N
                 "type": "check",
                 "members": {
                     "rules": {"type": "rules", "config": "logic/router_rules.yaml"},
-                    "llm": {"type": "llm", "api_key_env": "PACK_SAFETY_CANARY"},
+                    "llm": {"type": "llm", "api_key_env": "AGENT_SAFETY_CANARY"},
                 },
             },
             "api_key_env",
@@ -152,13 +152,13 @@ def test_scores_that_add_up_past_a_float_fail_the_slot_closed_never_raise() -> N
 def test_a_variant_or_member_naming_the_deployment_s_variables_is_refused_at_load(
     tmp_path: Path, variant: dict[str, Any], refused: str
 ) -> None:
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["providers"]["router"]["variants"]["outside"] = variant
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    with pytest.raises(PackValidationError) as error:
-        load_pack(root)
+    with pytest.raises(AgentValidationError) as error:
+        load_agent(root)
     assert error.value.problems == [
         "providers.router.variants.outside: an agent may not choose the environment variables a "
         f"provider reads its endpoint, model or key from; these are the deployment's. "
@@ -172,4 +172,4 @@ def test_a_variant_or_member_naming_the_deployment_s_variables_is_refused_at_loa
         "x_env": 1,
     }
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    assert load_pack(root).id == "mendari-test/triage"
+    assert load_agent(root).id == "mendari-test/triage"

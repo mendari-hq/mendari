@@ -254,7 +254,7 @@ def written_files() -> tuple[str, str]:
     of what the canned agent wrote for them. The agent is run in a copy of its folder that holds
     the new cases, so the committed folder is read and never changed here."""
     os.environ.pop("MENDARI_AGENT_URL", None)  # the canned agent, on every machine
-    from mendari import Decision, load_pack
+    from mendari import Decision, load_agent
     from mendari.evals import resolve_dataset, written
 
     records, facts = build_written()
@@ -265,11 +265,11 @@ def written_files() -> tuple[str, str]:
         (folder / "data" / WRITTEN.name).write_text(cases, encoding="utf-8")
         # A grades file must be there for the agent to load: an empty one, replaced below.
         (folder / "data" / GRADES.name).write_text("", encoding="utf-8")
-        pack = load_pack(folder)
-        manifest = pack.manifest
-        dataset = resolve_dataset(pack, "written")
+        agent = load_agent(folder)
+        manifest = agent.manifest
+        dataset = resolve_dataset(agent, "written")
         output = manifest.rubrics[RUBRIC].output
-        decision = Decision(pack, origin_cap=False)
+        decision = Decision(agent, origin_cap=False)
         header = written.grades_header(manifest, RUBRIC, dataset, simulated=True)
         items = []  # (item id, the grades the facts say), one for each case with a text
         for record, fact in zip(dataset.records, facts, strict=True):

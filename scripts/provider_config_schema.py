@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Write docs/spec/provider-configs.schema.json: the JSON Schema of every provider config a pack
+"""Write docs/spec/provider-configs.schema.json: the JSON Schema of every provider config an agent
 may write (`mendari.providers.config_json_schema`, from the closed config models that
-`load_pack` checks every variant and composite member against, LP-16e).
+`load_agent` checks every variant and composite member against, LP-16e).
 
 Usage:
 

@@ -27,8 +27,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari.core import clock
+from mendari.core.agent import Agent, load_agent
 from mendari.core.audit import AuditStore
-from mendari.core.pack import Pack, load_pack
 from mendari.core.site_codes import ENV as SITE_CODES_ENV
 from mendari.sandbox import cds_client
 from mendari.server.app import create_app
@@ -202,7 +202,7 @@ def served(tmp_path: Path) -> list[Path]:
 
 def call_every_hook(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[list[Called], ChartEhr, dict[str, Pack]]:
+) -> tuple[list[Called], ChartEhr, dict[str, Agent]]:
     """Every profile patient's hook, of every service on a standard hook the engine lists, called
     as an EHR calls it, on an engine whose FHIR reads go to the profile's server; the server
     (what it was asked is in its `requests`), and the agents by id."""
@@ -211,12 +211,12 @@ def call_every_hook(
     server.install(monkeypatch)
     paths = served(tmp_path)
     agents = {
-        pack.id: pack for pack in (load_pack(CHART_DIR), load_pack(paths[1] / "chart-orders"))
+        agent.id: agent for agent in (load_agent(CHART_DIR), load_agent(paths[1] / "chart-orders"))
     }
     db = tmp_path / "profile.db"
     called = []
     with (
-        TestClient(create_app(db_path=db, packs_paths=paths)) as http,
+        TestClient(create_app(db_path=db, agents_paths=paths)) as http,
         AuditStore(db) as store,
     ):
         listed = http.get("/cds-services").json()["services"]
@@ -249,7 +249,7 @@ def call_every_hook(
     return called, server, agents
 
 
-def test_every_reference_pack_with_a_standard_hook_decides_on_the_vendor_shaped_patients_without_a_failed_hook(  # noqa: E501
+def test_every_reference_agent_with_a_standard_hook_decides_on_the_vendor_shaped_patients_without_a_failed_hook(  # noqa: E501
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Every agent the engine serves whose service is on a standard hook (`patient-view`,
@@ -275,10 +275,10 @@ def test_every_reference_pack_with_a_standard_hook_decides_on_the_vendor_shaped_
         assert {card["uuid"] for card in call.answer["cards"]} <= ids, where
         for record in call.decisions:
             assert record["data_coverage"]["format"] == FORMAT, where
-            assert record["pack"]["id"] == call.agent, where
+            assert record["agent"]["id"] == call.agent, where
 
 
-def test_what_each_pack_cannot_read_yet_is_pinned(
+def test_what_each_agent_cannot_read_yet_is_pinned(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Per agent, the patients it abstains on (with the decision's reasons), those it makes no
@@ -310,7 +310,7 @@ def test_what_each_pack_cannot_read_yet_is_pinned(
     )
 
 
-def test_the_shipped_packs_read_the_profiles_linked_notes_through_the_allow_listed_client(
+def test_the_shipped_agents_read_the_profiles_linked_notes_through_the_allow_listed_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The agents read a note through spec 0.3's `attachment_text`, and their hooks read what a
@@ -376,7 +376,7 @@ def summarized(
     db = folder / "chart.db"
     found: dict[str, dict[str, Any]] = {}
     with (
-        TestClient(create_app(db_path=db, packs_paths=[CHART_DIR])) as http,
+        TestClient(create_app(db_path=db, agents_paths=[CHART_DIR])) as http,
         AuditStore(db) as store,
     ):
         for case in PROFILE:
@@ -464,10 +464,10 @@ def test_the_profiles_site_diagnosis_codes_are_read_through_a_site_code_map_and_
     )
 
 
-def own_record_input(agent: Pack, case: Case) -> dict[str, Any]:
+def own_record_input(agent: Agent, case: Case) -> dict[str, Any]:
     """What the agent reads from the case as its own US Core record (`Case.bundle`): the same
     patient as the profile's, as the case's own resources hold it."""
-    adapter = FhirAdapter.for_pack(agent)
+    adapter = FhirAdapter.for_agent(agent)
     read: dict[str, Any] = adapter.to_input(adapter.index(case.bundle(TODAY)))
     return read
 

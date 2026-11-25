@@ -2,7 +2,7 @@
 """The CapabilityStatement at `GET /fhir/metadata`: what this deployment's FHIR routes do.
 
 It is built from the routes that are mounted, through `CAPABILITIES`: an entry is advertised
-only when its route exists (and, for an operation that needs a kind of pack, when such a pack is
+only when its route exists (and, for an operation that needs a kind of agent, when such an agent is
 served), and `tests/test_capability.py` checks the other way, that every `/fhir/` route has an
 entry. So the statement can neither claim an interaction Mendari lacks nor forget one it adds.
 
@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from mendari import __version__
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.standards.search import DEFAULT_COUNT, MAX_COUNT, SPECS, search_params
 
 DECIDE_URL = "https://mendari.co/fhir/OperationDefinition/decide"
@@ -120,12 +120,12 @@ class FhirCapability:
     name: str | None = None  # the operation's code
     definition: str | None = None  # the operation's canonical (with |version)
     documentation: str = ""
-    # Advertised only when a served pack needs it (e.g. $decide, for packs with FHIR input).
-    serves: Callable[[Iterable[Pack]], bool] | None = None
+    # Advertised only when a served agent needs it (e.g. $decide, for agents with FHIR input).
+    serves: Callable[[Iterable[Agent]], bool] | None = None
 
 
-def _takes_fhir(packs: Iterable[Pack]) -> bool:
-    return any(p.manifest.inputs.fhir for p in packs)
+def _takes_fhir(agents: Iterable[Agent]) -> bool:
+    return any(p.manifest.inputs.fhir for p in agents)
 
 
 CAPABILITIES: tuple[FhirCapability, ...] = (
@@ -135,7 +135,7 @@ CAPABILITIES: tuple[FhirCapability, ...] = (
         "operation",
         name="decide",
         definition=f"{DECIDE_URL}|{__version__}",
-        documentation="Decide one case with an agent: Parameters (`pack`, `version`, `data`, "
+        documentation="Decide one case with an agent: Parameters (`agent`, `version`, `data`, "
         "`focus`) in, a collection Bundle (GuidanceResponse, RequestGroup, Task, Parameters, "
         "OperationOutcome, Provenance) out. Every call is recorded in the audit trail.",
         serves=_takes_fhir,
@@ -162,7 +162,7 @@ _INTERACTIONS = ("read", "vread", "search-type")  # in the order a statement lis
 
 def capability_statement(
     routes: Iterable[tuple[str, str]],
-    packs: Mapping[str, Pack],
+    agents: Mapping[str, Agent],
     *,
     sign_in: bool,
     since: Callable[[str], str],
@@ -170,23 +170,23 @@ def capability_statement(
     place: tuple[str, str] | None = None,
     backend_services: bool = False,
 ) -> dict[str, Any]:
-    """The statement for the mounted `routes` ((method, path) pairs) and the served `packs`.
+    """The statement for the mounted `routes` ((method, path) pairs) and the served `agents`.
     `version` is a digest of everything else in it, so any change makes a new one, and `date` is
     `since(version)`: when that version went live here (`AuditStore.capability_since`).
 
-    It needs no credential. With sign-in on it names no pack (which packs run here is for
+    It needs no credential. With sign-in on it names no agent (which agents run here is for
     signed-in callers, as in /api/health and /api/agents, whose list a decide-scoped credential
-    also reads); the operations it offers are still the ones the served packs use."""
+    also reads); the operations it offers are still the ones the served agents use."""
     mounted = set(routes)
     offered = [
         c
         for c in CAPABILITIES
-        if (c.method, c.path) in mounted and (c.serves is None or c.serves(packs.values()))
+        if (c.method, c.path) in mounted and (c.serves is None or c.serves(agents.values()))
     ]
-    pack_refs = (
+    agent_refs = (
         None
         if sign_in
-        else sorted(f"{p.id}@{p.version}" for p in packs.values() if p.manifest.inputs.fhir)
+        else sorted(f"{p.id}@{p.version}" for p in agents.values() if p.manifest.inputs.fhir)
     )
     searched = any(c.kind == "search-type" for c in offered)
     rest: dict[str, Any] = {
@@ -206,14 +206,14 @@ def capability_statement(
             by_type.setdefault(capability.resource, []).append(capability)
     if by_type:
         rest["resource"] = [_resource(name, by_type[name]) for name in sorted(by_type)]
-    served = _packs_sentence(pack_refs, "Agents with FHIR input served here")
+    served = _agents_sentence(agent_refs, "Agents with FHIR input served here")
     system = [_operation(c, served) for c in offered if c.resource is None]
     if system:
         rest["operation"] = system
     statement: dict[str, Any] = {
         "resourceType": "CapabilityStatement",
         "id": "mendari",
-        "text": _narrative(pack_refs, offered),
+        "text": _narrative(agent_refs, offered),
         "version": "",
         "name": "MendariCapabilityStatement",
         "title": "Mendari FHIR R4 capabilities",
@@ -261,9 +261,9 @@ def _resource(name: str, offered: list[FhirCapability]) -> dict[str, Any]:
     return entry
 
 
-def _operation(capability: FhirCapability, packs: str = "") -> dict[str, Any]:
-    """`packs`: the sentence on the packs served here, for an operation that takes any."""
-    documentation = " ".join(part for part in (capability.documentation, packs) if part)
+def _operation(capability: FhirCapability, agents: str = "") -> dict[str, Any]:
+    """`agents`: the sentence on the agents served here, for an operation that takes any."""
+    documentation = " ".join(part for part in (capability.documentation, agents) if part)
     operation: dict[str, Any] = {"name": capability.name, "definition": capability.definition}
     if documentation:
         operation["documentation"] = documentation
@@ -318,17 +318,17 @@ def _implementation(place: tuple[str, str] | None) -> str:
     return f"Mendari ({environment}, {release})"
 
 
-def _packs_sentence(packs: list[str] | None, lead: str) -> str:
-    """The packs with FHIR input served here, or (None) where they are not public."""
-    if packs is None:
+def _agents_sentence(agents: list[str] | None, lead: str) -> str:
+    """The agents with FHIR input served here, or (None) where they are not public."""
+    if agents is None:
         return (
             f"{lead}: for signed-in callers, the agents GET /api/agents lists whose "
             "GET /api/agents/{namespace}/{name} has manifest.inputs.fhir."
         )
-    return f"{lead}: {', '.join(packs) or 'none'}."
+    return f"{lead}: {', '.join(agents) or 'none'}."
 
 
-def _narrative(packs: list[str] | None, offered: list[FhirCapability]) -> dict[str, str]:
+def _narrative(agents: list[str] | None, offered: list[FhirCapability]) -> dict[str, str]:
     operations = ", ".join(f"${c.name}" for c in offered if c.kind == "operation") or "none"
 
     def kinds(kind: str) -> str:
@@ -338,7 +338,8 @@ def _narrative(packs: list[str] | None, offered: list[FhirCapability]) -> dict[s
         f"<p>Mendari {html.escape(__version__)}: FHIR R4 (JSON). Operations: "
         f"{html.escape(operations)}. Read: {html.escape(kinds('read'))}. Version read: "
         f"{html.escape(kinds('vread'))}. Search: {html.escape(kinds('search-type'))}. "
-        f"{html.escape(_packs_sentence(packs, 'Agents with FHIR input'))} Decisions are served as "
+        f"{html.escape(_agents_sentence(agents, 'Agents with FHIR input'))} Decisions are served "
+        "as "
         "read-only Tasks with their audit trail; no clinical resources are stored or served."
         "</p>"
     )

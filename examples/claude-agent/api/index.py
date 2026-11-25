@@ -33,4 +33,4 @@ def handler(case: Case) -> dict[str, Any]:
     return agent.answer(case, messages())
 
 
-app = create_app(handler, title="Mendari demo agent (Claude)", agent_version=agent.AGENT_VERSION)
+app = create_app(handler, title="Mendari demo agent (Claude)", service_version=agent.SERVICE_VERSION)

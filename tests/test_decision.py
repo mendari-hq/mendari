@@ -6,21 +6,21 @@ import json
 import pytest
 from jsonschema import Draft202012Validator
 
-from mendari import AuditStore, Decision, Outcome, Pack
-from mendari.errors import PackValidationError
+from mendari import Agent, AuditStore, Decision, Outcome
+from mendari.errors import AgentValidationError
 from tests.conftest import message
 
 
 def test_from_hub(triage: Decision) -> None:
     decision = Decision.from_hub("mendari-test/triage")
-    assert decision.pack.digest == triage.pack.digest
+    assert decision.agent.digest == triage.agent.digest
     assert decision.provider_info["router"].variant == "rules"
 
 
 def test_result_matches_generated_output_schema(triage: Decision) -> None:
     result = triage(message("Can I get a refill on my atorvastatin?", channel="portal"))
-    Draft202012Validator(triage.pack.output_schema).validate(result.to_dict())
-    assert result.pack_digest == triage.pack.digest
+    Draft202012Validator(triage.agent.output_schema).validate(result.to_dict())
+    assert result.agent_digest == triage.agent.digest
     assert result.input_hash.startswith("sha256:")  # no store, so no input hash key
 
 
@@ -32,12 +32,12 @@ def test_invalid_input_is_blocked_without_calling_providers(triage: Decision) ->
     assert any("unexpected" in reason for reason in result.reasons)
 
 
-def test_unknown_provider_slot_is_rejected(triage_agent: Pack) -> None:
-    with pytest.raises(PackValidationError, match="unknown provider slots"):
+def test_unknown_provider_slot_is_rejected(triage_agent: Agent) -> None:
+    with pytest.raises(AgentValidationError, match="unknown provider slots"):
         Decision(triage_agent, providers={"nope": "rules"})
 
 
-def test_swapping_providers_keeps_the_contract(triage_agent: Pack) -> None:
+def test_swapping_providers_keeps_the_contract(triage_agent: Agent) -> None:
     """The router's keyword rules by default; its agent variant (canned answers) in their place
     answers the same question in the same shape."""
     decision = Decision(triage_agent, providers={"router": "agent"})
@@ -47,7 +47,7 @@ def test_swapping_providers_keeps_the_contract(triage_agent: Pack) -> None:
 
 
 def test_provider_failure_falls_back_safely(
-    triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The router's LLM with a model and no credential (no gateway key, and the suite's Vercel
     OIDC token refused): the decision abstains and says what a person does instead."""
@@ -61,7 +61,7 @@ def test_provider_failure_falls_back_safely(
     assert result.fallback and "front desk" in result.fallback
 
 
-def test_decisions_are_recorded_when_a_store_is_attached(triage_agent: Pack) -> None:
+def test_decisions_are_recorded_when_a_store_is_attached(triage_agent: Agent) -> None:
     with AuditStore(":memory:") as store:
         decision = Decision(triage_agent, store=store)
         result = decision(message("My A1c came back at 7.8, what does that mean?"))

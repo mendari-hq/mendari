@@ -8,7 +8,7 @@ words MUST, SHOULD and MAY are used as in that spec. These formats name the agen
 `pack`, the word Mendari used before: hashed and signed records hold that key, so it keeps its
 name.
 
-## The report: `mendari.eval/2`
+## The report: `mendari.eval/1`
 
 A report has two parts.
 
@@ -217,7 +217,7 @@ mean forecast and how often each label was the truth there. Tied confidences are
 the calibration error's are, and it is not estimable, as that error is, when a bin would hold
 fewer than 30 cases.
 
-## Shared site reports: `mendari.site-report/2`
+## Shared site reports: `mendari.site-report/1`
 
 What a site sends a registry about its own evaluation (LP-22c,
 [ADR-0017](../decisions/ADR-0017-a-site-network-of-signed-counts.md)): whole counts, names and
@@ -250,7 +250,7 @@ Each field's rule (`share.SUPPRESSION_RULES`; a test holds every field to one):
 | Field | Rule |
 |---|---|
 | `format` | as it is |
-| `pack` | as it is: the published version's id, version and digest |
+| `agent` | as it is: the published version's id, version and digest |
 | `providers` | as it is: names the agent declares |
 | `policy` | as it is |
 | `remote_consent` | as it is |
@@ -369,7 +369,7 @@ it verified (`hub/site_evidence.py`); nothing in it is a rate a site sent.
 - **Never in a rank.** Site evidence is shown apart (`note`): sites choose their own cases, and
   a ticket binds a dataset before its run, not how its cases were chosen.
 
-## Publisher evaluations: `mendari.publisher-evaluation/2`
+## Publisher evaluations: `mendari.publisher-evaluation/1`
 
 A publisher's signed evaluation of one listed version on one of its own public datasets, in one
 configuration ([ADR-0020](../decisions/ADR-0020-publisher-evaluations.md), `hub/evaluations.py`),
@@ -377,12 +377,12 @@ sent by `mendari push AGENT --key publisher.key --evaluate NAME` (every configur
 version) or `mendari eval AGENT --dataset NAME --publish --key publisher.key` (one):
 
 ```json
-{"format": "mendari.publisher-evaluation/2",
- "pack": {"id": "mendari/portal-message-agent", "version": "0.1.2", "digest": "sha256:…"},
+{"format": "mendari.publisher-evaluation/1",
+ "agent": {"id": "mendari/portal-message-agent", "version": "0.1.2", "digest": "sha256:…"},
  "configuration": {"reader": "rules"},
  "dataset": {"name": "test", "sha256": "<64 hex>", "n": 600,
              "provenance": "synthetic", "labelled_by": "The script that wrote the cases"},
- "report": {"format": "mendari.site-report/2", "…": "…"},
+ "report": {"format": "mendari.site-report/1", "…": "…"},
  "claimed": {"latency_ms_p50": 0.05, "latency_ms_p95": 0.06,
              "cost_usd_per_decision": 0.0, "failed_cases": 0},
  "models": ["rules@33463eddba9c"],
@@ -476,7 +476,7 @@ whole counts ("evaluated, 2 configurations, 600 synthetic cases, 0 to 9 critical
 "no evaluation published", "evaluation not verified", "recalled"): an image with no script,
 style, link or reference, never green, and it names no configuration as best.
 
-## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
+## Leaderboards: `mendari.leaderboard/1` and `mendari.rank/1`
 
 A leaderboard row carries its agent's version and digest, the dataset's name, hash, size and
 `limit`, the report's ledger, and `accuracy_proportion` and `false_automation` as k of n with
@@ -568,7 +568,7 @@ The report counts duplicates under `norm/v1`, the stricter rule:
 | `duplicates` | Only with `--ids`: the case ids of each duplicate group, for a file a person holds. |
 
 It names labels, counts and attribute values, never a case's input. The evaluation report
-(`mendari.eval/2`) still counts every positive, so a set built from templates can report many
+(`mendari.eval/1`) still counts every positive, so a set built from templates can report many
 more positives there than it holds distinct.
 
 ## Written output: `mendari.written/1`, its ledger and its grades
@@ -579,7 +579,7 @@ What an evaluation of an agent's written output writes
 implementation is `mendari.evals.written`.
 
 **The ledger, `mendari.written-ledger/1`.** Canonical JSON Lines, its id the SHA-256 of its
-bytes. Line 1 is the header: the agent (`pack`: id, version, digest), the dataset (name,
+bytes. Line 1 is the header: the agent (`agent`: id, version, digest), the dataset (name,
 SHA-256, size), the case-hash scheme, the rubric (its name, the SHA-256 of the rubric as a
 grader reads it, its output and each criterion's levels, scores, pass line and whether it must
 not fail), the floors, the providers, the judge (its model, whether its grades are canned, and
@@ -609,7 +609,7 @@ so a second run gives the same bytes; `result_sha256` covers everything but `run
 
 | Key | Holds |
 |---|---|
-| `pack`, `dataset`, `providers` | as the ledger's header |
+| `agent`, `dataset`, `providers` | as the ledger's header |
 | `rubric` | its name, SHA-256 and output |
 | `ledger` | the ledger's id and how many cases it holds |
 | `judge` | its model, `canned`, `prompt_sha256`, and `same_model_as_agent` |

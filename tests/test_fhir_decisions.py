@@ -17,8 +17,8 @@ from typing import Any
 
 import pytest
 
+from mendari.core.agent import load_agent
 from mendari.core.decision import Decision
-from mendari.core.pack import load_pack
 from mendari.core.spec import Outcome
 from mendari.sandbox.code_systems import CASE_SYSTEM, CHANNEL_SYSTEM, SANDBOX_TAG
 from mendari.standards import fhir_structure, us_core
@@ -66,33 +66,33 @@ def bundle(entries: list[dict[str, Any]]) -> dict[str, Any]:
     return {"resourceType": "Bundle", "type": "collection", "entry": entries}
 
 
-def test_every_mapped_pack_decides_its_synthetic_fhir_as_the_golden_says() -> None:
+def test_every_mapped_agent_decides_its_synthetic_fhir_as_the_golden_says() -> None:
     """Every test fixture's agent with a FHIR mapping, and the bundled demo agent, is in the
     golden, with every case of its dataset, and decides each as the golden says; between them
     the cases reach every outcome. If a change is meant, rerun
     `python -m tests.support.fhir_decisions_golden` and explain each changed case in the pull
     request."""
-    fixtures = [load_pack(path.parent) for path in sorted(FIXTURE_AGENTS.glob("*/agent.yaml"))]
+    fixtures = [load_agent(path.parent) for path in sorted(FIXTURE_AGENTS.glob("*/agent.yaml"))]
     ours = [agent for agent in fixtures if agent.id.split("/")[0] == FIXTURE_NAMESPACE]
     mapped = {
         agent.id
-        for agent in [*ours, load_pack(DEMO_AGENT_DIR)]
+        for agent in [*ours, load_agent(DEMO_AGENT_DIR)]
         if agent.manifest.inputs.fhir is not None
     }
     assert set(script.CASES) == mapped and len(mapped) == 3
     for agent_id, golden in script.CASES.items():
-        assert load_pack(golden.directory).id == agent_id
+        assert load_agent(golden.directory).id == agent_id
     pinned = json.loads(script.GOLDEN.read_text(encoding="utf-8"))
     got = script.golden()
     assert pinned["format"] == got["format"] and pinned["today"] == got["today"]
-    assert list(pinned["packs"]) == list(got["packs"]) == list(script.CASES)
+    assert list(pinned["agents"]) == list(got["agents"]) == list(script.CASES)
     for agent_id in script.CASES:
-        want, have = pinned["packs"][agent_id]["cases"], got["packs"][agent_id]["cases"]
+        want, have = pinned["agents"][agent_id]["cases"], got["agents"][agent_id]["cases"]
         assert [case["id"] for case in want] == [r["id"] for r in script.records(agent_id)]
         differ = [(w, h) for w, h in zip(want, have, strict=True) if w != h]
         assert differ == [], f"{agent_id}: {len(differ)} cases differ; the first: {differ[0]}"
         assert [case["id"] for case in want if "refused" in case] == [], agent_id  # all decided
-    reached = {case["outcome"] for agent in pinned["packs"].values() for case in agent["cases"]}
+    reached = {case["outcome"] for agent in pinned["agents"].values() for case in agent["cases"]}
     assert reached == {outcome.value for outcome in Outcome}
     assert script.render(got) == script.GOLDEN.read_text(encoding="utf-8")  # byte for byte
 

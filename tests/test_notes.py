@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.core import audit as audit_module
 from mendari.core import tenancy
@@ -50,9 +50,9 @@ def stored(store: AuditStore) -> str:
         return json.dumps({table: db.all(f"SELECT * FROM {table}") for table in tables})
 
 
-def reviewed(store: AuditStore, pack: Pack, note: str | None = SECRET) -> str:
+def reviewed(store: AuditStore, agent: Agent, note: str | None = SECRET) -> str:
     """A decision reviewed and rated, each with the note."""
-    decision_id = Decision(pack, store=store)(message(URGENT)).id
+    decision_id = Decision(agent, store=store)(message(URGENT)).id
     store.resolve_review(decision_id, final_label="nurse", reviewer="rn-1", note=note)
     store.record_feedback(decision_id, rating="down", reporter="rn-2", note=note)
     return decision_id
@@ -69,7 +69,7 @@ def audit_events(store: AuditStore) -> list[dict[str, Any]]:
 
 @pytest.mark.parametrize("mode", ["off", "encrypt"])
 def test_the_chain_commits_to_a_note_and_never_copies_it(
-    db_target: str, triage_agent: Pack, mode: PhiMode
+    db_target: str, triage_agent: Agent, mode: PhiMode
 ) -> None:
     store = keeping(db_target, mode)
     decision_id = reviewed(store, triage_agent)
@@ -89,7 +89,7 @@ def test_the_chain_commits_to_a_note_and_never_copies_it(
     assert store.verify(notes=True)["notes"] == {"checked": 2, "erased": 0, "unchecked": 0}
 
 
-def test_a_note_is_answered_to_whoever_wrote_it(db_target: str, triage_agent: Pack) -> None:
+def test_a_note_is_answered_to_whoever_wrote_it(db_target: str, triage_agent: Agent) -> None:
     store = keeping(db_target)
     decision_id = Decision(triage_agent, store=store)(message(URGENT)).id
     review = store.resolve_review(decision_id, final_label="nurse", reviewer="rn-1", note=SECRET)
@@ -101,7 +101,7 @@ def test_a_note_is_answered_to_whoever_wrote_it(db_target: str, triage_agent: Pa
 
 
 def test_notes_open_for_readers_only_and_each_read_is_chained(
-    db_target: str, triage_agent: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     store = keeping(db_target)
     decision_id = reviewed(store, triage_agent)
@@ -126,7 +126,7 @@ def test_notes_open_for_readers_only_and_each_read_is_chained(
     assert store.verify(notes=True)["ok"] is True
 
 
-def test_without_phi_mode_notes_are_read_as_inputs_are(db_target: str, triage_agent: Pack) -> None:
+def test_without_phi_mode_notes_are_read_as_inputs_are(db_target: str, triage_agent: Agent) -> None:
     """PHI mode off: whoever may read the decision reads its notes, and nothing is chained."""
     store = keeping(db_target, "off")
     decision_id = reviewed(store, triage_agent)
@@ -137,7 +137,9 @@ def test_without_phi_mode_notes_are_read_as_inputs_are(db_target: str, triage_ag
     assert [f["note"] for f in store.feedback()] == [SECRET]
 
 
-def test_phi_mode_hash_refuses_a_note_and_keeps_nothing(db_target: str, triage_agent: Pack) -> None:
+def test_phi_mode_hash_refuses_a_note_and_keeps_nothing(
+    db_target: str, triage_agent: Agent
+) -> None:
     store = keeping(db_target, "hash")
     decision_id = Decision(triage_agent, store=store)(message(URGENT)).id
     with pytest.raises(NoteError, match="keeps no free text"):
@@ -167,7 +169,7 @@ def test_the_api_answers_a_note_under_hash_with_422(
     assert client.post(f"/api/review/{decided['id']}", json=review | {"note": None}).is_success
 
 
-def test_a_sealed_note_opens_only_as_itself(db_target: str, triage_agent: Pack) -> None:
+def test_a_sealed_note_opens_only_as_itself(db_target: str, triage_agent: Agent) -> None:
     """The associated data names a note's kind, id and decision: a ciphertext moved to another
     note, or between notes and inputs, does not open."""
     store = keeping(db_target)
@@ -193,7 +195,7 @@ def test_a_sealed_note_opens_only_as_itself(db_target: str, triage_agent: Pack) 
 
 
 def test_verify_notes_finds_a_note_changed_moved_or_removed(
-    db_target: str, triage_agent: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     store = keeping(db_target, "off")
     decision_id = reviewed(store, triage_agent)
@@ -230,7 +232,7 @@ def test_verify_notes_finds_a_note_changed_moved_or_removed(
 
 
 def test_an_erased_note_is_gone_and_the_chain_still_verifies(
-    db_target: str, triage_agent: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     store = keeping(db_target)
     decision_id = reviewed(store, triage_agent)
@@ -266,7 +268,7 @@ def test_an_erased_note_is_gone_and_the_chain_still_verifies(
     assert {"type": "reason", "valueString": "request"} in erasures[0]["entity"][0]["detail"]
 
 
-def test_another_organization_s_note_is_not_erased(db_target: str, triage_agent: Pack) -> None:
+def test_another_organization_s_note_is_not_erased(db_target: str, triage_agent: Agent) -> None:
     """A note is erased through its decision's organization: another one's is refused as an
     unknown note is, and nothing is erased or chained."""
     store = keeping(db_target)
@@ -288,7 +290,7 @@ def test_another_organization_s_note_is_not_erased(db_target: str, triage_agent:
 
 def test_retention_erases_old_notes_with_the_inputs(
     tmp_path: Path,
-    triage_agent: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -322,7 +324,7 @@ def test_retention_erases_old_notes_with_the_inputs(
 
 def test_the_cli_erases_a_note_and_verify_notes_fails_on_a_change(
     tmp_path: Path,
-    triage_agent: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -347,7 +349,7 @@ def test_the_cli_erases_a_note_and_verify_notes_fails_on_a_change(
 
 
 def test_a_sealed_note_without_the_key_is_unchecked_and_stays_sealed(
-    tmp_path: Path, triage_agent: Pack
+    tmp_path: Path, triage_agent: Agent
 ) -> None:
     """After a switch from encrypt to off, a sealed note can be neither read nor checked."""
     decision_id = reviewed(keeping(tmp_path / "a.db"), triage_agent)
@@ -467,7 +469,7 @@ class _Counted(Session):
 
 
 def test_a_page_of_reads_takes_the_lock_for_two_round_trips(
-    db_target: str, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    db_target: str, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The review queue under encrypt: one `input.read` per decision, written with one read of
     the decisions' organizations, one of the chain's head and one insert, not statements per

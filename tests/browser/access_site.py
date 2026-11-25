@@ -56,7 +56,7 @@ class Site:
 
 @contextmanager
 def running(browser: Browser, db: Path) -> Iterator[Site]:
-    """The server, with the environment the caller set (memberships mode and sign-in; the pack
+    """The server, with the environment the caller set (memberships mode and sign-in; the agent
     registry too, with `MENDARI_REGISTRY=on`, its store closed with the server)."""
     app = create_app(db_path=db)
     try:

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Automation holds in the dashboard: the overview says when one covers the pack, and the
+"""Automation holds in the dashboard: the overview says when one covers the agent, and the
 Decision Card lists them, holds in one click and lifts through a dialog that asks first (the API
 is answered here, so the shared server's decisions never change)."""
 
@@ -12,15 +12,15 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 from tests.browser.conftest import CLINICAL, TRIAGE
-from tests.browser.test_dashboard import open_pack
+from tests.browser.test_dashboard import open_agent
 
 pytestmark = pytest.mark.browser
 
 HOLD = {
     "id": "abc123",
     "org": "default",
-    "pack_id": TRIAGE,
-    "pack_digest": None,
+    "agent_id": TRIAGE,
+    "agent_digest": None,
     "reason": "a missed emergency, checking",
     "set_by": "ops@clinic.example.org",
     "set_at": "2026-10-06T12:00:00Z",
@@ -41,12 +41,12 @@ def holds(page: Page, listed: list[dict[str, Any]], sent: list[tuple[str, str]])
     page.route("**/api/holds**", answer)
 
 
-def test_the_overview_says_a_hold_covers_the_pack(page: Page) -> None:
+def test_the_overview_says_a_hold_covers_the_agent(page: Page) -> None:
     holds(page, [HOLD], [])
-    open_pack(page, TRIAGE)
+    open_agent(page, TRIAGE)
     expect(page.locator(".hold-notice")).to_contain_text("Automation is on hold.")
-    holds(page, [{**HOLD, "pack_id": CLINICAL}], [])
-    open_pack(page, TRIAGE)
+    holds(page, [{**HOLD, "agent_id": CLINICAL}], [])
+    open_agent(page, TRIAGE)
     expect(page.locator(".hold-notice")).to_have_count(0)
 
 
@@ -57,7 +57,7 @@ def lifts(sent: list[tuple[str, str]]) -> bool:
 def test_the_card_holds_and_lifts(page: Page) -> None:
     sent: list[tuple[str, str]] = []
     holds(page, [HOLD], sent)
-    open_pack(page, TRIAGE, "card")
+    open_agent(page, TRIAGE, "card")
     section = page.locator("#card-approval")
     expect(section).to_contain_text("a missed emergency, checking")
     # Lifting raises automation again: it asks first, and Cancel keeps the hold.

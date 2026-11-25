@@ -39,7 +39,7 @@ PRE_RELEASE_SHAPES: dict[str, dict[str, tuple[str, ...]]] = {
     "engine": {
         "marked by an older store": (
             "CREATE TABLE decisions (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, "
-            "pack_id TEXT NOT NULL, pack_version TEXT NOT NULL, outcome TEXT NOT NULL, "
+            "agent_id TEXT NOT NULL, agent_version TEXT NOT NULL, outcome TEXT NOT NULL, "
             "record TEXT NOT NULL)",
             "CREATE TABLE audit_events (seq BIGINT PRIMARY KEY, decision_id TEXT NOT NULL, "
             "event TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, "

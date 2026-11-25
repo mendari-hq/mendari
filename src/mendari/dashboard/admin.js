@@ -10,7 +10,7 @@
 // and its usage (the usage ledger, LP-21g): the remote model calls its decisions and evaluations
 // made over the last 30 days and what they cost, never a cost where a call was not priced; and
 // its activity (12g-ii, administrators): its administrative events of the last 90 days, newest
-// first, asked for each time the tab is shown, and all of them exported as FHIR. Where the pack
+// first, asked for each time the tab is shown, and all of them exported as FHIR. Where the agent
 // registry is served here (MENDARI_REGISTRY=on), registry.js adds its namespaces and publisher
 // tokens (`extendAdmin`).
 // Open mode has no view: its API acts for every organization. Someone who may use none of the
@@ -78,9 +78,9 @@ views.admin.update = (params) => {
 
 views.admin.available = () => ADMIN_TABS.some((t) => t.shown());
 
-// An organization's people and credentials, not a pack's: shown without waiting for the pack's
+// An organization's people and credentials, not an agent's: shown without waiting for the agent's
 // details (router.js).
-views.admin.packless = true;
+views.admin.agentless = true;
 
 // The link leaves the page with the view: an open dialog (a link or a key shown once among them)
 // closes, but one whose request is running (`data-busy`, ui.js actionDialog) closes with its
@@ -1221,8 +1221,8 @@ const ACTIVITY_TEXT = {
   "client.keys_replaced": "Client's key set replaced",
   "governance.approved": "Automation approved",
   "governance.revoked": "Automation approval revoked",
-  "registry_pack.approved": "Agent from a registry approved",
-  "registry_pack.revoked": "Agent from a registry no longer approved",
+  "registry_agent.approved": "Agent from a registry approved",
+  "registry_agent.revoked": "Agent from a registry no longer approved",
   "automation.held": "Automation held",
   "automation.lifted": "Automation hold lifted",
   "eval.recorded": "Evaluation report recorded",
@@ -1236,14 +1236,14 @@ const ACTIVITY_TEXT = {
   "invitation.revoked": "Invitation revoked",
   "access.requested": "Asked to join",
   "access.handled": "Request to join answered",
-  "pack_version.created": "Agent store version added",
-  "pack_version.withdrawn": "Agent store version withdrawn",
+  "store_version.created": "Agent store version added",
+  "store_version.withdrawn": "Agent store version withdrawn",
   "store_key.added": "Agent store author key registered",
   "store_key.revoked": "Agent store author key revoked",
   "store_dataset.created": "Agent store dataset added",
   "store_job.created": "Agent store evaluation job made",
-  "pack_version.promoted": "Agent store version promoted to be served",
-  "pack_version.retired": "Agent store version's promotion retired",
+  "store_version.promoted": "Agent store version promoted to be served",
+  "store_version.retired": "Agent store version's promotion retired",
   "store_dataset.proposal_accepted": "Proposed test accepted for an agent store version",
   "store_dataset.proposal_dismissed": "Proposed test dismissed for an agent store version",
   "agent_connection.set": "Agent connection set",
@@ -1256,7 +1256,7 @@ const SUBJECT_TEXT = {
   key: "API key", client: "Client", governance: "Automation approval", registry_approval: "Registry approval",
   hold: "Automation hold", eval: "Evaluation report", org: "Organization", membership: "Member",
   invitation: "Invitation", access: "Request to join",
-  pack_version: "Agent store version", store_key: "Agent store author key",
+  store_version: "Agent store version", store_key: "Agent store author key",
   store_dataset: "Agent store dataset", store_job: "Agent store evaluation job",
   agent_connection: "Agent connection",
 };

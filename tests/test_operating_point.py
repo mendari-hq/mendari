@@ -22,15 +22,15 @@ from typing import Any
 import pytest
 from scipy import stats as st
 
-from mendari import Decision, Pack, load_pack
+from mendari import Agent, Decision, load_agent
 from mendari.cli import main
 from mendari.core.card import render_card
 from mendari.core.policy import PolicyInputs
 from mendari.core.spec import (
+    AgentManifest,
     Condition,
     LabelPolicy,
     Outcome,
-    PackManifest,
     PolicyRule,
     RiskLevel,
 )
@@ -49,12 +49,12 @@ URGENT = [("urgent_symptoms", "yes")]  # the demo agent's one critical label
 
 
 @pytest.fixture(scope="module")
-def demo() -> Pack:
-    return load_pack(DEMO_AGENT_DIR)
+def demo() -> Agent:
+    return load_agent(DEMO_AGENT_DIR)
 
 
 @pytest.fixture(scope="module")
-def demo_run(demo: Pack) -> tuple[Any, list[Any]]:
+def demo_run(demo: Agent) -> tuple[Any, list[Any]]:
     """The demo agent on its 600-case set: the evaluation, and its decisions."""
     decision = Decision(demo, origin_cap=False)
     dataset = load_dataset(demo.path("data/test.jsonl"), name="test")
@@ -387,7 +387,7 @@ def answered(request: str, confidence: float, urgent: float = 0.05) -> dict[str,
 
 
 def a_case(
-    manifest: PackManifest,
+    manifest: AgentManifest,
     request: str,
     confidence: float,
     *,
@@ -405,12 +405,12 @@ def a_case(
     )
 
 
-def outcomes_at(manifest: PackManifest, cases: Sequence[Case], threshold: float) -> list[str]:
+def outcomes_at(manifest: AgentManifest, cases: Sequence[Case], threshold: float) -> list[str]:
     return [outcome for outcome, _ in op.decided(op.at_threshold(manifest, threshold), cases)]
 
 
 def test_applying_the_policy_again_at_the_agents_threshold_gives_the_run_back(
-    demo: Pack, demo_run: tuple[Any, list[Any]]
+    demo: Agent, demo_run: tuple[Any, list[Any]]
 ) -> None:
     """Case for case, outcome and recommendation, on the demo agent's 600 cases: and so the
     counts the operating point starts from are the ones `mendari eval` prints."""
@@ -447,7 +447,7 @@ def test_the_block_states_the_counts_the_evaluation_prints(
     assert op.of_report(report) == current  # what a card works out from the result alone
 
 
-def test_another_threshold_changes_only_what_the_threshold_decides(demo: Pack) -> None:
+def test_another_threshold_changes_only_what_the_threshold_decides(demo: Agent) -> None:
     """The rule, the label that is never automated and a failed provider decide as they did at
     every threshold; a plain case is automated exactly from its own confidence down."""
     manifest = demo.manifest
@@ -478,7 +478,7 @@ def test_another_threshold_changes_only_what_the_threshold_decides(demo: Pack) -
     assert outcomes_at(manifest, [plain], 0.94) == ["HUMAN_REVIEW"]
 
 
-def test_a_risk_cap_holds_at_every_threshold(demo: Pack) -> None:
+def test_a_risk_cap_holds_at_every_threshold(demo: Agent) -> None:
     """Policy only lowers automation: at risk level 2 nothing is automated, however low the
     threshold, and the run says there is no threshold to recommend."""
     risky = demo.manifest.model_copy(
@@ -507,7 +507,7 @@ def test_a_risk_cap_holds_at_every_threshold(demo: Pack) -> None:
     assert found.status == op.NOTHING_AUTOMATED
 
 
-def test_a_label_with_a_threshold_of_its_own_keeps_it(demo: Pack) -> None:
+def test_a_label_with_a_threshold_of_its_own_keeps_it(demo: Agent) -> None:
     policy = demo.manifest.policy
     labels = {**policy.labels, "refill": LabelPolicy(auto_threshold=0.97)}
     manifest = demo.manifest.model_copy(
@@ -534,7 +534,7 @@ def _current(cases: Sequence[Case], labels: int = 1) -> Tally:
     return op.tally(cases, [(case.outcome, case.recommendation) for case in cases], labels)
 
 
-def _block(manifest: PackManifest, cases: Sequence[Case], targets: Targets) -> dict[str, Any]:
+def _block(manifest: AgentManifest, cases: Sequence[Case], targets: Targets) -> dict[str, Any]:
     """The block of a run that holds `cases`, as `build` makes it from a ledger."""
     found = op.recommend(manifest, cases, targets) if targets.given else op.Found(op.NO_TARGET)
     return op.block_of(manifest, URGENT, targets, _current(cases), found)
@@ -543,7 +543,7 @@ def _block(manifest: PackManifest, cases: Sequence[Case], targets: Targets) -> d
 # -- a threshold the cases support ----------------------------------------------------------------
 
 
-def graded(manifest: PackManifest) -> list[Case]:
+def graded(manifest: AgentManifest) -> list[Case]:
     """600 cases whose confidence tells. 200 are critical: the agent flags 190 (a rule sends
     them to a nurse) and misses 10, answering them wrongly with a confidence of 0.85 to 0.92
     (two each at 0.85 and 0.86, one at each hundredth above). 380 plain ones are right, at 0.93
@@ -558,7 +558,7 @@ def graded(manifest: PackManifest) -> list[Case]:
     return cases
 
 
-def test_a_threshold_is_recommended_with_its_guarantee(demo: Pack) -> None:
+def test_a_threshold_is_recommended_with_its_guarantee(demo: Agent) -> None:
     """The agent's 0.90 automates three critical cases it missed. The cases support 0.93, the
     lowest threshold at which none of the 200 is automated: 0 of 200 is at most 1.5%, and the
     1 of 200 at 0.92 is at most 2.4%, above the 2% target."""
@@ -637,7 +637,7 @@ def test_a_threshold_is_recommended_with_its_guarantee(demo: Pack) -> None:
     assert st.beta.ppf(0.95, 1, 200) <= 0.02 < st.beta.ppf(0.95, 2, 199)
 
 
-def test_the_strictest_of_the_thresholds_that_automate_as_much_is_the_one(demo: Pack) -> None:
+def test_the_strictest_of_the_thresholds_that_automate_as_much_is_the_one(demo: Agent) -> None:
     """Every threshold down to the review threshold is certified for false automation at most
     10% (30 of 600 is at most 6.8%), and from 0.70 down they all automate the same 410 cases:
     0.70 is the one recommended, never 0.50, of which the set says nothing more."""
@@ -665,7 +665,7 @@ def test_the_strictest_of_the_thresholds_that_automate_as_much_is_the_one(demo: 
 
 
 def test_the_agents_own_threshold_is_supported_when_none_certified_automates_more(
-    demo: Pack,
+    demo: Agent,
 ) -> None:
     targets = Targets(critical_miss=0.02)
     manifest = op.at_threshold(demo.manifest, 0.93)
@@ -682,7 +682,7 @@ def test_the_agents_own_threshold_is_supported_when_none_certified_automates_mor
 
 
 def test_a_threshold_between_two_tested_ones_is_supported_from_the_lowest_certified_up(
-    demo: Pack,
+    demo: Agent,
 ) -> None:
     """A manifest's threshold need not be a hundredth. At or above the lowest certified
     threshold it is supported (the policy automates no more at it); under it, it is not,
@@ -718,7 +718,7 @@ def test_a_threshold_between_two_tested_ones_is_supported_from_the_lowest_certif
     assert op.threshold_text(0.695) == "0.695" and op.threshold_text(0.9) == "0.90"
 
 
-def test_two_targets_share_the_error_level(demo: Pack) -> None:
+def test_two_targets_share_the_error_level(demo: Agent) -> None:
     """0 of 200 is at most 1.49% at 95% and at most 1.83% at 97.5%: within a 1.6% target on its
     own, and not once a second target takes half of the error level."""
     manifest = demo.manifest
@@ -756,7 +756,7 @@ def test_two_targets_share_the_error_level(demo: Pack) -> None:
     )
 
 
-def test_a_target_on_a_share_of_all_cases(demo: Pack) -> None:
+def test_a_target_on_a_share_of_all_cases(demo: Agent) -> None:
     """The same misses held to a share of every case: 6 of 600 at 0.87 is at most 2.0%, and the
     8 of 600 at 0.86 is at most 2.4%. The agent's 0.90 is supported, and 0.87 automates more."""
     manifest = demo.manifest
@@ -777,7 +777,7 @@ def test_a_target_on_a_share_of_all_cases(demo: Pack) -> None:
     )
 
 
-def test_every_critical_label_is_held_to_the_target_on_its_own(demo: Pack) -> None:
+def test_every_critical_label_is_held_to_the_target_on_its_own(demo: Agent) -> None:
     """Two critical labels: the common one is never automated, and 2 of the rare one's 40 cases
     are. Pooled, 2 of 440 would be within a 2% target (at most 1.5%); the rare label on its own
     is not (0 of 40 is at most 7.3%), and the run says how many of its cases would show it."""
@@ -829,7 +829,7 @@ def test_every_critical_label_is_held_to_the_target_on_its_own(demo: Pack) -> No
 
 
 def test_nothing_qualifies_and_the_cases_needed_are_said(
-    demo_run: tuple[Any, list[Any]], demo: Pack
+    demo_run: tuple[Any, list[Any]], demo: Agent
 ) -> None:
     """The demo agent, held to critical misses at most 1%: 114 critical cases cannot show it at
     any threshold (0 of 114 is at most 2.6%), and 299 with none automated would."""
@@ -875,7 +875,7 @@ def test_nothing_qualifies_and_the_cases_needed_are_said(
 
 
 def test_a_risk_the_threshold_cannot_fix_is_said_to_be_one(
-    demo_run: tuple[Any, list[Any]], demo: Pack
+    demo_run: tuple[Any, list[Any]], demo: Agent
 ) -> None:
     """The demo agent misses urgent messages at any confidence: at 0.95, the strictest
     threshold that automates anything, 3 of its 114 are automated already."""
@@ -909,7 +909,7 @@ def test_a_risk_the_threshold_cannot_fix_is_said_to_be_one(
     ]
 
 
-def test_cases_automated_whatever_the_threshold_are_beyond_it(demo: Pack) -> None:
+def test_cases_automated_whatever_the_threshold_are_beyond_it(demo: Agent) -> None:
     """A rule that automates on its own, at any confidence: the critical cases it automates are
     automated at 1.00 too, and no threshold changes that."""
     policy = demo.manifest.policy
@@ -940,7 +940,7 @@ def test_cases_automated_whatever_the_threshold_are_beyond_it(demo: Pack) -> Non
 
 
 def test_a_run_that_did_not_keep_what_its_policy_decided_from_recommends_nothing(
-    demo: Pack,
+    demo: Agent,
 ) -> None:
     """A case automated with nothing to apply the policy to again, or one whose policy gives
     another outcome than the run recorded: no threshold is recommended on such cases."""
@@ -960,7 +960,7 @@ def test_a_run_that_did_not_keep_what_its_policy_decided_from_recommends_nothing
     assert op.recommend(manifest, [*kept, refused], targets).status == op.SUPPORTED
 
 
-def test_a_target_on_critical_misses_needs_a_critical_label(demo: Pack) -> None:
+def test_a_target_on_critical_misses_needs_a_critical_label(demo: Agent) -> None:
     evaluation_ = demo.manifest.evaluation.model_copy(update={"critical": []})
     manifest = demo.manifest.model_copy(update={"evaluation": evaluation_})
     with pytest.raises(MendariError, match="declares no critical label"):
@@ -1001,7 +1001,7 @@ def test_with_no_target_the_bound_at_the_agents_threshold_is_reported(
 
 
 def test_cases_that_repeat_an_input_are_counted_and_said(
-    demo: Pack, demo_run: tuple[Any, list[Any]]
+    demo: Agent, demo_run: tuple[Any, list[Any]]
 ) -> None:
     """A case whose input is another's is not new evidence. The counts stay the report's (each
     case counts), and the block says how many repeat: for the demo set, the 64 its 536 distinct
@@ -1029,7 +1029,7 @@ def test_cases_that_repeat_an_input_are_counted_and_said(
     assert said["lines"][0].startswith("1 of the 3 cases repeats another case's input.")
 
 
-def test_each_line_says_what_it_is(demo: Pack, demo_run: tuple[Any, list[Any]]) -> None:
+def test_each_line_says_what_it_is(demo: Agent, demo_run: tuple[Any, list[Any]]) -> None:
     """A block's `kinds` name its `lines` one for one, so a caller can show some of them: the
     demo shows what to do, without the counts it has printed already."""
     run, results = demo_run
@@ -1080,7 +1080,7 @@ def test_a_bound_is_rounded_up_and_never_reads_as_within_a_target_it_is_above() 
         assert float(op._at_most(bound).rstrip("%")) / 100 >= bound  # never under the bound
 
 
-def test_an_empty_set_and_tiny_sets_say_what_they_cannot_show(demo: Pack) -> None:
+def test_an_empty_set_and_tiny_sets_say_what_they_cannot_show(demo: Agent) -> None:
     manifest = demo.manifest
     targets = Targets(critical_miss=0.01, false_automation=0.02)
     empty = _block(manifest, [], targets)
@@ -1110,7 +1110,7 @@ def test_an_empty_set_and_tiny_sets_say_what_they_cannot_show(demo: Pack) -> Non
     assert "(at most 100.0%)" in alone["lines"][0]
 
 
-def test_cases_with_no_label_are_not_counted_as_wrong(demo: Pack) -> None:
+def test_cases_with_no_label_are_not_counted_as_wrong(demo: Agent) -> None:
     manifest = demo.manifest
     inputs = PolicyInputs(answered("refill", 0.95), {}, None, {})
     result = inputs.apply(manifest)
@@ -1137,7 +1137,7 @@ def _leaks(said: str, dataset: Dataset, ledger: Any) -> list[str]:
 
 
 def test_no_case_text_and_no_case_id_is_in_any_output(
-    demo: Pack, demo_run: tuple[Any, list[Any]]
+    demo: Agent, demo_run: tuple[Any, list[Any]]
 ) -> None:
     """The block, its text and a card's rows hold counts, thresholds and the manifest's own
     names: nothing of a message, no case id and no case hash."""
@@ -1187,7 +1187,7 @@ def an_agent(tmp_path: Path, rows: Sequence[Row]) -> tuple[Path, Dataset]:
         labels = {"request": request, "urgent_symptoms": "yes" if critical else "no"}
         body = f"A synthetic message, {token}."
         lines.append({"id": f"s{number}", "input": {"message": {"body": body}}, "labels": labels})
-    mock = {"model": "synthetic", "agent_version": "0", "cases": canned}
+    mock = {"model": "synthetic", "service_version": "0", "cases": canned}
     (root / "fixtures" / "mock_agent.json").write_text(json.dumps(mock), encoding="utf-8")
     data = root / "data" / "synthetic.jsonl"
     data.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
@@ -1212,7 +1212,7 @@ def test_a_run_recommends_what_the_policy_then_does(tmp_path: Path) -> None:
     run does exactly that, case counts and all, and is told its threshold is supported."""
     root, dataset = an_agent(tmp_path, graded_rows())
     targets = Targets(critical_miss=0.02)
-    before = evaluation(Decision(load_pack(root), origin_cap=False), dataset, targets=targets)
+    before = evaluation(Decision(load_agent(root), origin_cap=False), dataset, targets=targets)
     block = before.report["run"]["operating_point"]
     assert block["status"] == op.RECOMMENDED and block["change"]["line"] == "auto: 0.93"
     assert block["current"]["automated"] == {"k": 383, "n": 600}
@@ -1222,7 +1222,7 @@ def test_a_run_recommends_what_the_policy_then_does(tmp_path: Path) -> None:
     text = manifest.read_text(encoding="utf-8")
     assert text.count("    auto: 0.90 ") == 1  # the one line, as the manifest writes it
     manifest.write_text(text.replace("    auto: 0.90 ", f"    {block['change']['line']} "))
-    after = evaluation(Decision(load_pack(root), origin_cap=False), dataset, targets=targets)
+    after = evaluation(Decision(load_agent(root), origin_cap=False), dataset, targets=targets)
     report = after.report
     assert report["policy"]["thresholds"]["auto"] == 0.93
     assert report["decisions"]["outcome_counts"]["AUTO"] == said["automated"]["k"]
@@ -1247,7 +1247,7 @@ def test_a_refused_input_and_a_failed_provider_stay_as_they_were(tmp_path: Path)
     with dataset.path.open("a", encoding="utf-8") as lines:
         lines.writelines(json.dumps(line) + "\n" for line in extra)
     dataset = load_dataset(dataset.path)
-    decision = Decision(load_pack(root), origin_cap=False)
+    decision = Decision(load_agent(root), origin_cap=False)
     results = [decision.decide(record["input"]) for record in dataset.records]
     assert [result.outcome.value for result in results[-2:]] == ["BLOCK", "ABSTAIN"]
     assert results[-2].policy_inputs is None and results[-1].policy_inputs is not None
@@ -1255,7 +1255,7 @@ def test_a_refused_input_and_a_failed_provider_stay_as_they_were(tmp_path: Path)
     cases = op.cases_of(run.ledger, results)
     assert all(case.replays for case in cases)
     for threshold in (1.0, 0.95, 0.5):
-        outcomes = outcomes_at(decision.pack.manifest, cases, threshold)
+        outcomes = outcomes_at(decision.agent.manifest, cases, threshold)
         assert outcomes[-2:] == ["BLOCK", "ABSTAIN"]
         assert outcomes[:200] == ["AUTO" if threshold <= 0.95 else "HUMAN_REVIEW"] * 200
     block = run.report["run"]["operating_point"]
@@ -1270,9 +1270,9 @@ def test_a_refused_input_and_a_failed_provider_stay_as_they_were(tmp_path: Path)
 
 
 def test_the_block_is_in_the_run_and_the_result_is_as_it_was(
-    demo: Pack, demo_run: tuple[Any, list[Any]]
+    demo: Agent, demo_run: tuple[Any, list[Any]]
 ) -> None:
-    """The result (`mendari.eval/2`, what `result_sha256` covers) and the ledger are the same
+    """The result (`mendari.eval/1`, what `result_sha256` covers) and the ledger are the same
     bytes whatever the targets, and the same as without the block: the operating point is in
     the report's `run`, which no hash and no signed record reads."""
     plain, _ = demo_run
@@ -1282,7 +1282,7 @@ def test_the_block_is_in_the_run_and_the_result_is_as_it_was(
     assert held.report["result_sha256"] == plain.report["result_sha256"]
     assert result_of(held.report) == result_of(plain.report)
     assert held.ledger.dumps() == plain.ledger.dumps()
-    assert held.report["format"] == plain.report["format"] == "mendari.eval/2"
+    assert held.report["format"] == plain.report["format"] == "mendari.eval/1"
     for report in (plain.report, held.report):
         assert "operating_point" not in result_of(report) and "operating_point" not in report
         assert report["run"]["operating_point"]["format"] == "mendari.operating-point/1"
@@ -1307,9 +1307,9 @@ def test_a_target_the_agent_cannot_be_held_to_is_refused_before_the_run(
     critical = '  critical:\n    - {question: urgent_symptoms, label: "yes"}\n'
     assert critical in text
     manifest.write_text(text.replace(critical, ""), encoding="utf-8")
-    pack = load_pack(root)
-    dataset = load_dataset(pack.path("data/test.jsonl"), name="test")
-    decision = Decision(pack, origin_cap=False)
+    agent = load_agent(root)
+    dataset = load_dataset(agent.path("data/test.jsonl"), name="test")
+    decision = Decision(agent, origin_cap=False)
     asked: list[Any] = []
     monkeypatch.setattr(decision, "decide", asked.append)  # no case is decided
     with pytest.raises(MendariError, match="declares no critical label"):
@@ -1499,14 +1499,14 @@ DISPOSITIONS = ("released", "held", "blocked", "denied")
 
 @pytest.mark.usefixtures("release_agents")
 def test_the_demo_runs_the_bundled_agent_where_a_pulled_copy_is_cached(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], demo: Pack
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], demo: Agent
 ) -> None:
     """A copy pulled from a registry comes first on the search path and never automates until
     an organization approves it. The demo is the bundled agent's: its first message is still
     automated, and its actions are the four the story shows."""
     cached = tmp_path / "hub-cache" / "agents" / demo.id / demo.version
     shutil.copytree(DEMO_AGENT_DIR, cached)
-    assert Decision.from_hub(demo.id).pack.origin == "hub"  # the copy, wherever it is asked for
+    assert Decision.from_hub(demo.id).agent.origin == "hub"  # the copy, wherever it is asked for
     run_demo()
     out = capsys.readouterr().out
     first = out.split("\n== 1. ")[1].splitlines()[1]
@@ -1523,7 +1523,7 @@ def test_the_demo_runs_the_bundled_agent_where_a_pulled_copy_is_cached(
 @pytest.mark.usefixtures("release_agents")
 def test_the_demo_ends_with_its_verdict_its_operating_point_and_what_to_type_next(
     capsys: pytest.CaptureFixture[str],
-    demo: Pack,
+    demo: Agent,
     demo_run: tuple[Any, list[Any]],
 ) -> None:
     """The demo is one story: six numbered sections, then its closing. The closing, after the
@@ -1647,7 +1647,7 @@ def test_the_demos_verdict_and_advice_follow_the_operating_points_status() -> No
     assert advice(none) == "The policy automates no case."
 
 
-def with_a_benchmark(root: Path, report: dict[str, Any]) -> Pack:
+def with_a_benchmark(root: Path, report: dict[str, Any]) -> Agent:
     """The agent at `root`, with `report` as its published benchmark."""
     manifest = root / "agent.yaml"
     text = manifest.read_text(encoding="utf-8")
@@ -1659,7 +1659,7 @@ def with_a_benchmark(root: Path, report: dict[str, Any]) -> Pack:
         )
     (root / "evals").mkdir(exist_ok=True)
     (root / "evals" / "benchmark.json").write_text(json.dumps(report), encoding="utf-8")
-    return load_pack(root)
+    return load_agent(root)
 
 
 def test_the_card_shows_the_bound_at_the_benchmarks_threshold(
@@ -1703,7 +1703,7 @@ def test_the_card_works_its_figures_out_and_reads_none_from_the_runs_block(
     never the threshold the block recommends."""
     run, results = demo_run
     block = op.build(
-        load_pack(DEMO_AGENT_DIR).manifest, run.ledger, results, Targets(critical_miss=0.2)
+        load_agent(DEMO_AGENT_DIR).manifest, run.ledger, results, Targets(critical_miss=0.2)
     )
     forged = json.loads(json.dumps(block))
     forged["current"]["critical"][0]["of_critical"] = {"k": 0, "n": 114, "upper": 0.001}
@@ -1765,7 +1765,7 @@ def test_the_guides_numbers_of_cases_are_the_ones_worked_out() -> None:
 
 
 def test_the_guide_shows_what_the_command_prints(
-    demo: Pack, demo_run: tuple[Any, list[Any]]
+    demo: Agent, demo_run: tuple[Any, list[Any]]
 ) -> None:
     """Each example in the guide is the tool's own output, word for word: the demo agent's, and
     the graded cases'."""
@@ -1810,7 +1810,7 @@ STOP = "action 'renew_prescription' (order) is never released without a person"
 
 
 def test_the_demo_agents_proposals_are_in_what_each_case_decided_from(
-    demo: Pack, demo_run: tuple[Any, list[Any]]
+    demo: Agent, demo_run: tuple[Any, list[Any]]
 ) -> None:
     """The demo agent's canned answers propose actions on every case, and one of them is never
     released without a person: the stop is kept with the case, so the policy applied again
@@ -1836,7 +1836,7 @@ def test_a_case_with_a_stopped_action_is_never_automated_at_any_threshold() -> N
     confidence down, and the same answer with an order proposed never does, however low the
     threshold. Applying the policy again is exact for both."""
     decision = Decision.from_path(ACTIONS_MINI, origin_cap=False)
-    manifest = decision.pack.manifest
+    manifest = decision.agent.manifest
     plain = decision({"message": {"body": "Could you refill my lisinopril?"}})
     order = decision({"message": {"body": "Please renew my prescription."}})
     undeclared = decision({"message": {"body": "Try an undeclared thing."}})

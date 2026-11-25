@@ -41,7 +41,7 @@ otherwise: the owner's decisions still open are listed in `tasks/todo.md`.
 Terminology updated 2026-11-23: what this record called a pack is an agent.
 
 ## Context
-Mendari compares an agent's configurations today with leaderboards (`mendari.leaderboard/2`), ranked
+Mendari compares an agent's configurations today with leaderboards (`mendari.leaderboard/1`), ranked
 by one function (`mendari.rank/1`, `evals/ranking.py`): critical cases automated first, then the
 worst critical label's lower bound, false automation, accuracy and cost, on raw 95% bounds, with a
 strict name tiebreak.
@@ -73,7 +73,7 @@ grade is given.
 2. **A separate scoreboard format, with `mendari.rank/1` kept as data.** The scoreboard's entries
    are a new format (`mendari.scoreboard/1`, LP-17d), computed from five committed inputs: the
    ledger, the dataset, a run record, a dated price table and the method. `mendari.rank/1`,
-   `mendari.eval/2`, `mendari.ledger/1`, `mendari.compare/1` and every committed benchmark and
+   `mendari.eval/1`, `mendari.ledger/1`, `mendari.compare/1` and every committed benchmark and
    ledger stay byte for byte as they are. Changing `rank/1` would make every published Decision
    Card stale.
 3. **Grades and ranks on frozen hidden sets only.** A grade is a set of attestations, each met,

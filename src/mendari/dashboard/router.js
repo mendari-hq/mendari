@@ -6,7 +6,7 @@ import { closeDrawer } from "./drawer.js";
 import { wireSimulators } from "./report.js";
 import { skeleton } from "./skeleton.js";
 import { wireTables } from "./table.js";
-import { $, api, esc, focusHeading, packLoaded, state } from "./ui.js";
+import { $, api, esc, focusHeading, agentLoaded, state } from "./ui.js";
 
 export const views = {};
 
@@ -79,7 +79,7 @@ async function paint({ navigated = false } = {}, seq = renderSeq) {
   main.innerHTML = skeleton(view);
   let target = null;
   try {
-    if (!views[view].packless) await packLoaded(); // the skeleton shows meanwhile
+    if (!views[view].agentless) await agentLoaded(); // the skeleton shows meanwhile
     if (seq !== renderSeq) return;
     target = await views[view](main, params);
   } catch (error) {
@@ -125,42 +125,42 @@ let reviewCountSeq = 0;
 
 export async function refreshReviewCount() {
   if (state.launchOnly || state.noAccess || state.labelOnly || state.reviewOnly || state.storeOnly) return; // no review queue for these
-  const packId = state.packId;
+  const agentId = state.agentId;
   const seq = ++reviewCountSeq;
   try {
     const [pending, summary] = await Promise.all([
-      api(`/api/review?pack_id=${encodeURIComponent(packId)}&limit=500`),
-      state.packs.length > 1 ? api("/api/review/summary").catch(() => null) : Promise.resolve(null),
+      api(`/api/review?agent_id=${encodeURIComponent(agentId)}&limit=500`),
+      state.agents.length > 1 ? api("/api/review/summary").catch(() => null) : Promise.resolve(null),
     ]);
-    if (seq !== reviewCountSeq || state.packId !== packId) return;
+    if (seq !== reviewCountSeq || state.agentId !== agentId) return;
     $("#review-count").textContent = pending.length || "";
     keepActiveSectionInView(); // the count changes the strip's width
     if (Array.isArray(summary)) {
-      state.packQueue = new Map(summary.map((row) => [row.pack_id, row]));
-      updateCrossPackStat(summary, packId);
+      state.agentQueue = new Map(summary.map((row) => [row.agent_id, row]));
+      updateCrossAgentStat(summary, agentId);
     }
   } catch { /* the badge is optional */ }
 }
 
-function updateCrossPackStat(summary, currentPackId) {
+function updateCrossAgentStat(summary, currentAgentId) {
   const pill = $("#other-stat-pill");
   if (!pill) return;
-  const others = summary.filter((row) => row.pack_id !== currentPackId && row.stat > 0);
+  const others = summary.filter((row) => row.agent_id !== currentAgentId && row.stat > 0);
   const totalStat = others.reduce((sum, row) => sum + row.stat, 0);
   if (!totalStat) {
     pill.hidden = true;
     return;
   }
   const first = others[0];
-  const packName = state.packs.find((p) => p.id === first.pack_id)?.name ?? first.pack_id;
+  const agentName = state.agents.find((p) => p.id === first.agent_id)?.name ?? first.agent_id;
   pill.textContent = others.length === 1
-    ? `${totalStat} stat in ${packName}`
+    ? `${totalStat} stat in ${agentName}`
     : `${totalStat} stat in other agents`;
-  pill.title = `Open urgent review queue for ${packName}`;
+  pill.title = `Open urgent review queue for ${agentName}`;
   pill.onclick = () => {
-    const select = $("#pack-select");
+    const select = $("#agent-select");
     if (select) {
-      select.value = first.pack_id;
+      select.value = first.agent_id;
       select.dispatchEvent(new Event("change"));
     }
     location.hash = "#review";

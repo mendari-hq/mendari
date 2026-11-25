@@ -32,7 +32,7 @@ So the registry serves every site report marked unverified, and the Hub shows no
 2. **A site signs with its own Ed25519 keys.** It can hold several, add one and revoke one. A
    site key is never a publisher's key. A revocation says whether the key is thought
    compromised; if so, every report it signed leaves the pooled figures and stays listed.
-3. **Counts in, rates out.** The shared payload (`mendari.site-report/2`) holds whole counts
+3. **Counts in, rates out.** The shared payload (`mendari.site-report/1`) holds whole counts
    only. The registry computes every rate and interval it shows. Figures that are not counts
    (calibration error, Brier, latency, cost) stay with the site.
 4. **One suppression function, a written rule per field, run on both sides.** A run under a

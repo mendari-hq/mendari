@@ -20,7 +20,7 @@ import yaml
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mendari import Decision, Outcome, Priority, load_pack
+from mendari import Decision, Outcome, Priority, load_agent
 from mendari.core.decision import DecisionResult
 from mendari.core.text import _KEYBOARD as KEYBOARD_TABLE
 from mendari.core.text import plain
@@ -29,7 +29,7 @@ from mendari.providers import base
 from mendari.providers.base import text_from
 from tests.conftest import FIXTURE_AGENTS, ROOT, message
 
-PACKS = sorted(path for path in FIXTURE_AGENTS.iterdir() if (path / "agent.yaml").is_file())
+AGENTS = sorted(path for path in FIXTURE_AGENTS.iterdir() if (path / "agent.yaml").is_file())
 
 CURLY = "\N{RIGHT SINGLE QUOTATION MARK}"  # a phone's apostrophe
 NO_BREAK = "\N{NO-BREAK SPACE}"  # a web form's space
@@ -143,7 +143,8 @@ def test_every_other_character_that_ends_a_line_is_white_space(end: str) -> None
 
 
 def test_a_newline_stays_a_newline() -> None:
-    # A pack's patterns never match across one, and a negation stops at one (`providers/rules.py`).
+    # An agent's patterns never match across one, and a negation stops at one
+    # (`providers/rules.py`).
     assert plain("No fever\n\nChest  pain now \n") == "No fever\n\nChest pain now \n"
 
 
@@ -201,7 +202,7 @@ def test_text_that_composing_would_lengthen_stays_as_it_is() -> None:
 
 
 def test_the_spec_lists_every_character_the_plain_form_writes_another_way() -> None:
-    """Spec §5 names each by its code point (a pack author writes patterns by that list): the
+    """Spec §5 names each by its code point (an agent author writes patterns by that list): the
     table's, and the zero-width space, which becomes a space."""
     pages = sorted((ROOT / "docs" / "spec").glob("agent-manifest*.md"))
     spec = "\n".join(page.read_text(encoding="utf-8") for page in pages)
@@ -290,19 +291,19 @@ def _texts(value: Any) -> list[str]:
     return [value] if isinstance(value, str) else []
 
 
-@pytest.mark.parametrize("path", PACKS, ids=lambda path: path.name)
-def test_every_text_of_a_reference_packs_data_is_already_plain(path: Path) -> None:
+@pytest.mark.parametrize("path", AGENTS, ids=lambda path: path.name)
+def test_every_text_of_a_reference_agents_data_is_already_plain(path: Path) -> None:
     """So the agents' data, benchmarks and digests are what they were: the plain form changes no
     text they hold."""
-    pack = load_pack(path)
-    for name in pack.manifest.evaluation.datasets:
-        for record in resolve_dataset(pack, name).records:
+    agent = load_agent(path)
+    for name in agent.manifest.evaluation.datasets:
+        for record in resolve_dataset(agent, name).records:
             changed = [text for text in _texts(record["input"]) if plain(text) != text]
             assert not changed, (name, record["id"])
 
 
-@pytest.mark.parametrize("path", PACKS, ids=lambda path: path.name)
-def test_every_pattern_of_a_reference_pack_is_written_in_plain_text(path: Path) -> None:
+@pytest.mark.parametrize("path", AGENTS, ids=lambda path: path.name)
+def test_every_pattern_of_a_reference_agent_is_written_in_plain_text(path: Path) -> None:
     """A pattern is matched against plain text, so a character the plain form never holds (a
     curly quote, a no-break space) could never match."""
     for config in sorted((path / "logic").glob("*.yaml")):
@@ -364,19 +365,19 @@ RETYPED: dict[str, Callable[[str], str]] = {
 }
 
 
-@pytest.mark.parametrize("path", PACKS, ids=lambda path: path.name)
+@pytest.mark.parametrize("path", AGENTS, ids=lambda path: path.name)
 @pytest.mark.parametrize("how", RETYPED)
 def test_a_critical_case_decides_the_same_however_it_is_typed(path: Path, how: str) -> None:
-    """Every true critical case of every reference pack's datasets, but its training data,
+    """Every true critical case of every reference agent's datasets, but its training data,
     retyped: the same outcome, recommendation, priority and answers as the text as shipped."""
     decision = Decision.from_path(path)
-    manifest = decision.pack.manifest
+    manifest = decision.agent.manifest
     critical = [(item.question, item.label) for item in manifest.evaluation.critical]
     checked = 0
     for name in manifest.evaluation.datasets:
         if name in ("train", "calibration"):
             continue
-        for record in resolve_dataset(decision.pack, name).records:
+        for record in resolve_dataset(decision.agent, name).records:
             labels = record.get("labels", {})
             if not any(labels.get(question) == label for question, label in critical):
                 continue
@@ -388,8 +389,8 @@ def test_a_critical_case_decides_the_same_however_it_is_typed(path: Path, how: s
 
 
 # What the retypings above hide when the text is matched as received: of the true critical cases
-# a pack detects as shipped, how many it still detects. In plain form, every one (the test
-# above). (pack, question, label, retyping): (detected as shipped, detected as received).
+# an agent detects as shipped, how many it still detects. In plain form, every one (the test
+# above). (agent, question, label, retyping): (detected as shipped, detected as received).
 SPACES, SEPARATORS, HYPHENS = (
     "no-break and double spaces",
     "zero-width spaces and line separators",
@@ -419,9 +420,9 @@ def test_matched_as_received_the_same_retyping_hides_critical_cases(
 
     shipped = [
         record["input"]
-        for dataset in decision.pack.manifest.evaluation.datasets
+        for dataset in decision.agent.manifest.evaluation.datasets
         if dataset not in ("train", "calibration")
-        for record in resolve_dataset(decision.pack, dataset).records
+        for record in resolve_dataset(decision.agent, dataset).records
         if record.get("labels", {}).get(question) == label and detects(record["input"])
     ]
     received = sum(detects(_retyped(copy.deepcopy(inputs), RETYPED[how])) for inputs in shipped)

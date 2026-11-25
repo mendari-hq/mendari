@@ -54,8 +54,8 @@ def test_the_first_administrator_adopts_an_agent_on_an_installs_settings_without
     monkeypatch.setattr(reach, "resolve", lambda host, port: ["93.184.216.34"])
     monkeypatch.setattr(reach, "public_client", lambda: outside.client)
     token, key = hub.namespace("acme")
-    pack = as_published(tmp_path, ACME)
-    hub.client(token).push(pack, key)
+    agent = as_published(tmp_path, ACME)
+    hub.client(token).push(agent, key)
 
     site = tmp_path / "site"
     made = run(site, {**ANSWERS, "REGISTRY_URL": hub.url}).values
@@ -84,14 +84,14 @@ def test_the_first_administrator_adopts_an_agent_on_an_installs_settings_without
         # The administrator gives themself the author's role, in Access, and adds the agent.
         [mine] = [m for m in client.get("/api/auth/members").json() if m["you"]]
         given = client.put(
-            f"/api/auth/members/{mine['id']}/roles", json={"roles": ["admin", "pack_author"]}
+            f"/api/auth/members/{mine['id']}/roles", json={"roles": ["admin", "agent_author"]}
         )
         assert given.status_code == 200, given.text
         assert "author" in client.get("/api/auth/me").json()["principal"]["permissions"]
         added = client.post("/api/store/pulls", json={"ref": ACME})
         assert added.status_code == 201, added.text
         job = client.post(
-            "/api/store/jobs", json={"version": pack.digest, "dataset": {"name": "examples"}}
+            "/api/store/jobs", json={"version": agent.digest, "dataset": {"name": "examples"}}
         )
         assert job.status_code == 201, job.text
         for _ in range(200):
@@ -100,12 +100,12 @@ def test_the_first_administrator_adopts_an_agent_on_an_installs_settings_without
                 break
         assert step["state"] == "done", step
         promotion = {
-            "version": pack.digest,
+            "version": agent.digest,
             "reports": [step["report_id"]],
             "reference": "AI committee, item 2",
             "automate": True,
         }
-        approval = {"pack_id": ACME, "pack_digest": pack.digest, "reference": "minutes 9"}
+        approval = {"agent_id": ACME, "agent_digest": agent.digest, "reference": "minutes 9"}
         # The two-person rule: alone, they can neither start serving what they added nor
         # approve it. An organization of one person stops here, by design.
         alone = client.post("/api/store/promotions", json=promotion)
@@ -167,11 +167,11 @@ def test_the_first_administrator_adopts_an_agent_on_an_installs_settings_without
         said = client.get("/api/audit/administrative").json()["items"]
         kinds = [item["event"] for item in said]
         for kind in (
-            "pack_version.created",
-            "pack_version.promoted",
+            "store_version.created",
+            "store_version.promoted",
             "agent_connection.origin_allowed",
             "agent_connection.set",
-            "registry_pack.approved",
+            "registry_agent.approved",
         ):
             assert kind in kinds, kind
         assert TOKEN not in client.get("/api/audit/administrative").text

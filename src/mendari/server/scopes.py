@@ -40,7 +40,7 @@ OUTCOME = "https://mendari.co/fhir/scope/outcome"
 # Mendari's URI scopes and the permission each grants.
 ACTIONS: dict[str, str] = {DECIDE: "decide", OUTCOME: "outcome"}
 READ = "read"  # the permission every FHIR read scope grants
-DISCOVER = "discover"  # the permission DECIDE implies: the lists of packs to decide with
+DISCOVER = "discover"  # the permission DECIDE implies: the lists of agents to decide with
 # The FHIR types `/fhir` serves to read (`r`, read and vread) and search (`s`). No NamingSystem
 # search is served, so `system/NamingSystem.rs` is not granted.
 SERVED: dict[str, str] = {

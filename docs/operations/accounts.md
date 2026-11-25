@@ -23,7 +23,7 @@ claims mode too (for an administrator who signed in). Claims mode never reads or
   with `MENDARI_INPUT_HASH_KEY` when the deployment has one). An address here is ASCII, and
   matched without regard to the case of its letters; an internationalised one is refused.
 - A membership holds the server's roles (`viewer`, `reviewer`, `service`, `governance`,
-  `admin`), and may also hold `pack_author`, which grants `author` alone: writing agents in the
+  `admin`), and may also hold `agent_author`, which grants `author` alone: writing agents in the
   organization's agent store (LP-20f; memberships mode only, mounted with `MENDARI_AGENT_STORE=on`:
   the routes under `/api/store`, [agent store](agent-store.md); an administrator who writes agents
   gives themself the role), and `labeller`, which
@@ -260,7 +260,7 @@ client is "You", a member's name, or what the chain recorded (an e-mail address 
   membership given or bound at sign-in): it is chained as handled, outcome `joined`, and no
   longer counts against their five open requests. Granting one left open from before this,
   of someone who is a member already, is a `409`: refuse it to close it.
-- `pack_author` grants `author` only, and `labeller` grants `label` only; a role that is none of
+- `agent_author` grants `author` only, and `labeller` grants `label` only; a role that is none of
   these, or of the server's, is refused (`422`).
 - Inviting and handling a request to join give someone access, so they wait for the notice
   acknowledgement as creating a key does; accepting an invitation does not.

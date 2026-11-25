@@ -3,7 +3,7 @@
 
 A failure the probe found is written as a behaviour test, so `mendari test` fails on it until the
 agent is fixed and guards it after. The tests live where the agent's own do, in two files
-(`evals/pack_tests.py` names them and reads the first):
+(`evals/behaviour_tests.py` names them and reads the first):
 
 - `tests/probe.yaml`: the tests that run. Each is a behaviour test (`name`, `input`, `expect`)
   with a `probe` mapping saying where it came from: its `id`, the transformation, the seed, the
@@ -33,12 +33,10 @@ from typing import Any
 
 import yaml
 
-from mendari.core.pack import Pack, parse_yaml
+from mendari.core.agent import Agent, parse_yaml
 from mendari.core.registry import origin_of
-from mendari.errors import MendariError, PackValidationError
-from mendari.evals.canonical import canonical_input
-from mendari.evals.ledger import canonical
-from mendari.evals.pack_tests import (
+from mendari.errors import AgentValidationError, MendariError
+from mendari.evals.behaviour_tests import (
     PROBE_KEY,
     PROBE_TESTS,
     PROBE_UNCONFIRMED,
@@ -46,6 +44,8 @@ from mendari.evals.pack_tests import (
     probe_case_problem,
     probe_cases,
 )
+from mendari.evals.canonical import canonical_input
+from mendari.evals.ledger import canonical
 
 FOUND_BY = "mendari probe"
 ID_PREFIX = "probe-"
@@ -85,12 +85,12 @@ class Written:
     already: int
 
 
-def not_writable(pack: Pack) -> str | None:
+def not_writable(agent: Agent) -> str | None:
     """Why the probe keeps no test in this agent, or None: it writes only into an agent of its
     author's own. One this release bundles (its data comes from its generator), one in the
     registry's cache (a verified copy) or a version in an agent store is not changed in place,
     by where it is on disk (`core.registry.origin_of`), whatever it was loaded as."""
-    where = {pack.origin, origin_of(pack.root)} - {"local"}
+    where = {agent.origin, origin_of(agent.root)} - {"local"}
     if not where:
         return None
     what = {
@@ -101,13 +101,13 @@ def not_writable(pack: Pack) -> str | None:
     return f"{what} is not changed in place: copy it, and probe the copy"
 
 
-def waiting(pack: Pack) -> list[dict[str, Any]]:
+def waiting(agent: Agent) -> list[dict[str, Any]]:
     """The tests that wait for a person to confirm what they expect, as their file holds them
     (a person may have corrected one): none of them is run, and each is held to its shape only
     when it is confirmed."""
-    if not pack.path(PROBE_UNCONFIRMED).is_file():
+    if not agent.path(PROBE_UNCONFIRMED).is_file():
         return []
-    cases = pack.read_yaml(PROBE_UNCONFIRMED) or []
+    cases = agent.read_yaml(PROBE_UNCONFIRMED) or []
     shaped = isinstance(cases, list) and all(
         isinstance(case, dict)
         and isinstance(case.get("input"), dict)
@@ -120,13 +120,13 @@ def waiting(pack: Pack) -> list[dict[str, Any]]:
             f"{PROBE_UNCONFIRMED}: expected the list of tests `mendari probe` wrote, each with "
             f"its `input` and its `{PROBE_KEY}` mapping's `id`"
         )
-        raise PackValidationError(pack.id, [problem])
+        raise AgentValidationError(agent.id, [problem])
     found: list[dict[str, Any]] = cases
     return found
 
 
 def write(
-    pack: Pack,
+    agent: Agent,
     found: Sequence[Mapping[str, Any]],
     unconfirmed: Sequence[Mapping[str, Any]] = (),
 ) -> Written:
@@ -134,12 +134,12 @@ def write(
     its file holds, leaving out every test the agent has already (the module's docstring). A
     file with nothing new is not touched. The agent is read as it was loaded: one whose test
     files changed since is refused, and loaded again by the caller."""
-    problem = not_writable(pack)
+    problem = not_writable(agent)
     if problem is not None:
         raise MendariError(problem)
-    kept, held = probe_cases(pack), waiting(pack)
+    kept, held = probe_cases(agent), waiting(agent)
     ids = {case[PROBE_KEY]["id"] for case in (*kept, *held)}
-    inputs = {canonical_input(case["input"]) for case in (*load_cases(pack), *kept, *held)}
+    inputs = {canonical_input(case["input"]) for case in (*load_cases(agent), *kept, *held)}
     added: list[str] = []
     waits: list[str] = []
     already = 0
@@ -155,21 +155,21 @@ def write(
             into.append(case)
             names.append(case[PROBE_KEY]["id"])
     if added:
-        _write(pack, PROBE_TESTS, _KEPT, kept)
+        _write(agent, PROBE_TESTS, _KEPT, kept)
     if waits:
-        _write(pack, PROBE_UNCONFIRMED, _WAITING, held)
+        _write(agent, PROBE_UNCONFIRMED, _WAITING, held)
     return Written(tuple(added), tuple(waits), already)
 
 
-def confirm(pack: Pack, ids: Sequence[str]) -> tuple[str, ...]:
+def confirm(agent: Agent, ids: Sequence[str]) -> tuple[str, ...]:
     """Move the waiting tests with these ids among those that run, as a person left them
     (`confirmed: true` is added to where each came from). Each must be a test `mendari test`
     can read, expecting what the agent can decide: one that is not is named, and nothing is
     moved. Returns the ids moved."""
-    problem = not_writable(pack)
+    problem = not_writable(agent)
     if problem is not None:
         raise MendariError(problem)
-    held = waiting(pack)
+    held = waiting(agent)
     if not held:
         raise MendariError(f"no test waits in {PROBE_UNCONFIRMED}: there is none to confirm")
     by_id = {case[PROBE_KEY]["id"]: case for case in held}
@@ -182,12 +182,12 @@ def confirm(pack: Pack, ids: Sequence[str]) -> tuple[str, ...]:
                 f"{name} is not a test waiting in {PROBE_UNCONFIRMED} (it holds: "
                 f"{', '.join(shown)}{more})"
             )
-        refused = probe_case_problem(pack.manifest, by_id[name])
+        refused = probe_case_problem(agent.manifest, by_id[name])
         if refused is not None:
             raise MendariError(
                 f"{name} cannot be confirmed as it is in {PROBE_UNCONFIRMED}: {refused}"
             )
-    kept = probe_cases(pack)
+    kept = probe_cases(agent)
     running = {case[PROBE_KEY]["id"] for case in kept}
     kept += [
         {**by_id[name], PROBE_KEY: {**by_id[name][PROBE_KEY], "confirmed": True}}
@@ -195,11 +195,11 @@ def confirm(pack: Pack, ids: Sequence[str]) -> tuple[str, ...]:
         if name not in running
     ]
     rest = [case for case in held if case[PROBE_KEY]["id"] not in wanted]
-    _write(pack, PROBE_TESTS, _KEPT, kept)
+    _write(agent, PROBE_TESTS, _KEPT, kept)
     if rest:
-        _write(pack, PROBE_UNCONFIRMED, _WAITING, rest)
+        _write(agent, PROBE_UNCONFIRMED, _WAITING, rest)
     else:
-        pack.path(PROBE_UNCONFIRMED).unlink()
+        agent.path(PROBE_UNCONFIRMED).unlink()
     return wanted
 
 
@@ -221,18 +221,18 @@ _Dumper.add_representer(str, _visible)
 _WIDTH = 100_000
 
 
-def _write(pack: Pack, relative: str, heading: str, cases: list[dict[str, Any]]) -> None:
+def _write(agent: Agent, relative: str, heading: str, cases: list[dict[str, Any]]) -> None:
     """One of the probe's files, whole: checked first to read back as the very cases it was
     given (a variant's text is white space, typography and line breaks: what is run must be
     what was found), then put in place in one step."""
     dumped = yaml.dump(cases, Dumper=_Dumper, sort_keys=False, allow_unicode=True, width=_WIDTH)
     text = heading + dumped
-    if parse_yaml(text.encode("utf-8"), relative, pack.id) != cases:
+    if parse_yaml(text.encode("utf-8"), relative, agent.id) != cases:
         raise MendariError(
             f"{relative}: a test's text does not read back from YAML as it was found; nothing "
             "was written"
         )
-    target = pack.path(relative)
+    target = agent.path(relative)
     target.parent.mkdir(parents=True, exist_ok=True)
     staged = target.with_name(f".{target.name}.writing")  # hidden: never part of the agent
     staged.write_text(text, encoding="utf-8", newline="\n")

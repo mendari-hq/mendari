@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from mendari.cli import main
-from mendari.core.pack import load_pack
+from mendari.core.agent import load_agent
 from mendari.errors import MendariError
 from mendari.sandbox import DEMO_AGENT, fhir_workflow
 from mendari.sandbox.code_systems import CASE_SYSTEM
@@ -79,7 +79,7 @@ def test_worker_processes_each_message_once_despite_stale_searches() -> None:
 
 
 def test_seed_resources_are_tagged_and_linked() -> None:
-    record = fhir_workflow.labelled_cases(load_pack(DEMO_AGENT_DIR)).records[0]
+    record = fhir_workflow.labelled_cases(load_agent(DEMO_AGENT_DIR)).records[0]
     entries = message_entries(record)
     patient, communication = (entry["resource"] for entry in entries)
     assert patient["meta"]["tag"][0]["code"] == "synthetic"
@@ -107,7 +107,7 @@ def test_synthetic_generation_is_deterministic() -> None:
     assert len(made) == script.CASES
     ids = [record["id"] for record in made]
     assert len(ids) == len(set(ids))
-    benchmark = load_pack(DEMO_AGENT_DIR).manifest.evaluation.benchmark_dataset
+    benchmark = load_agent(DEMO_AGENT_DIR).manifest.evaluation.benchmark_dataset
     assert benchmark == "test"
     committed = (DEMO_AGENT_DIR / "data" / "test.jsonl").read_text(encoding="utf-8")
     assert script.render(made) == committed
@@ -118,7 +118,7 @@ def test_every_seeded_resource_conforms_to_us_core() -> None:
     fixture's), as the sandbox seeds it. The HL7 validator checks a sample in CI
     (scripts/sandbox_fhir_sample.py)."""
     for folder in (DEMO_AGENT_DIR, TRIAGE_DIR):
-        records = fhir_workflow.labelled_cases(load_pack(folder)).records
+        records = fhir_workflow.labelled_cases(load_agent(folder)).records
         resources = [entry["resource"] for record in records for entry in message_entries(record)]
         assert records and us_core.validate(resources) == [], folder.name
 
@@ -185,7 +185,7 @@ def test_the_sandbox_seeds_the_demo_agents_messages() -> None:
     benchmark set, a reproducible mix that always holds urgent messages, each a Patient carrying
     the case id and a Communication that reads back, through the agent's own mapping, as the
     case's input. Every resource conforms to US Core."""
-    demo = load_pack(DEMO_AGENT_DIR)
+    demo = load_agent(DEMO_AGENT_DIR)
     assert demo.id == DEMO_AGENT
     cases = {r["id"]: r for r in fhir_workflow.labelled_cases(demo).records}
     assert len(cases) == 600  # its benchmark dataset, `test`
@@ -196,7 +196,7 @@ def test_the_sandbox_seeds_the_demo_agents_messages() -> None:
     assert seeded == _case_ids(fhir_workflow.seed_bundle(demo, 20))  # the same mix every time
     urgent = [case for case in seeded if cases[case]["labels"]["urgent_symptoms"] == "yes"]
     assert len(urgent) == 2  # one in ten of the count, and never none
-    adapter = FhirAdapter.for_pack(demo)
+    adapter = FhirAdapter.for_agent(demo)
     for position, case in enumerate(seeded):
         pair = bundle["entry"][2 * position : 2 * position + 2]
         read = adapter.to_input(adapter.index({"resourceType": "Bundle", "entry": pair}))
@@ -210,7 +210,7 @@ def test_seed_takes_another_message_agent_and_dataset_and_refuses_other_cases() 
     """Another message agent is named (`--agent`, here the triage test fixture), and its cases
     (`--dataset`: one of its own, or a file). Cases that are not messages (the chart-summary
     fixture's patient charts) are refused, saying what a message is."""
-    triage = load_pack(TRIAGE_DIR)
+    triage = load_agent(TRIAGE_DIR)
     by_file = str(TRIAGE_DIR / "data" / "calibration.jsonl")
     calibration = _case_ids(fhir_workflow.seed_bundle(triage, 10, by_file))
     assert calibration == _case_ids(fhir_workflow.seed_bundle(triage, 10, "calibration"))
@@ -219,7 +219,7 @@ def test_seed_takes_another_message_agent_and_dataset_and_refuses_other_cases() 
     named = fhir_workflow.seed_bundle(triage, 4, "examples")
     assert len(_bodies(named)) == 4
     assert set(_bodies(named)) <= {record["input"]["message"]["body"] for record in own}
-    chart = load_pack(CHART_DIR)
+    chart = load_agent(CHART_DIR)
     with pytest.raises(MendariError, match=f"seeds portal messages, and {chart.id}'s"):
         fhir_workflow.seed_bundle(chart, 3)
     with pytest.raises(MendariError, match="neither a file nor an agent dataset"):
@@ -257,7 +257,7 @@ def test_the_cli_seeds_and_works_the_demo_agent_by_default(
     assert main([*worker, "http://engine.test"]) == 0
     assert main([*worker, "http://e.test", "--agent", str(TRIAGE_DIR)]) == 0
     assert main([*worker, "http://e.test", "--agent", "my-clinic/not-on-this-machine"]) == 0
-    triage = load_pack(TRIAGE_DIR).id
+    triage = load_agent(TRIAGE_DIR).id
     assert worked == [
         (FHIR, f"http://engine.test/api/agents/{DEMO_AGENT}/fhir/decide"),
         (FHIR, f"http://e.test/api/agents/{triage}/fhir/decide"),

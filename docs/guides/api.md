@@ -56,7 +56,7 @@ recorded decision with `outcome: BLOCK`.
 ## FHIR in, FHIR out
 
 The FHIR base is `/fhir`, and `GET /fhir/metadata` is its CapabilityStatement. `POST
-/fhir/$decide` takes `Parameters` (`pack`, and `data` as a Bundle) and returns the decision as a
+/fhir/$decide` takes `Parameters` (`agent`, and `data` as a Bundle) and returns the decision as a
 FHIR Bundle, a `GuidanceResponse` first: act on its `outcome`, not its `status`. Decisions are read
 and searched as `Task`, and their audit trail as `AuditEvent` and `Provenance`, your
 organization's only. Mendari is a decision engine, not a FHIR data server: it stores and serves no
@@ -213,7 +213,7 @@ in [Deploying with real patient data](../deploying-with-phi.md).
 ## An organization's agent store
 
 Where the operator turns it on (`MENDARI_AGENT_STORE=on`, memberships mode), a person who holds
-`pack_author` in an organization keeps that organization's own versions of agents under
+`agent_author` in an organization keeps that organization's own versions of agents under
 `/api/store` ([the agent store](../operations/agent-store.md)). Every route acts for the
 organization the person acts for; no key or client reaches them.
 

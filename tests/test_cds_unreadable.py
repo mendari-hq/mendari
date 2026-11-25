@@ -25,9 +25,9 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
-from mendari.core.pack import load_pack
+from mendari.core.agent import load_agent
 from mendari.core.spec import Outcome
 from mendari.sandbox.fhir_records import message_entries
 from mendari.sandbox.fhir_workflow import labelled_cases
@@ -172,7 +172,7 @@ def twin(tmp_path: Path) -> Iterator[TestClient]:
     """An engine serving the test fixtures' agents and the chart fixture's `order-sign` twin."""
     order_sign(tmp_path / "agents")
     served = [CHART_DIR.parent, tmp_path / "agents"]
-    with TestClient(create_app(db_path=tmp_path / "twin.db", packs_paths=served)) as client:
+    with TestClient(create_app(db_path=tmp_path / "twin.db", agents_paths=served)) as client:
         yield client
 
 
@@ -304,14 +304,14 @@ def patient_view(resources: list[dict[str, Any]]) -> dict[str, Any]:
         "hook": "patient-view",
         "hookInstance": "4b4c1b2e-0000-4000-8000-000000000002",
         "context": {"patientId": patient["id"], "userId": "Practitioner/1"},
-        "prefetch": prefetch_of(load_pack(CHART_DIR), resources),
+        "prefetch": prefetch_of(load_agent(CHART_DIR), resources),
     }
 
 
-def prefetch_of(pack: Pack, resources: list[dict[str, Any]]) -> dict[str, Any]:
-    """Each of the pack's prefetch keys filled from `resources`: a read with the first resource
+def prefetch_of(agent: Agent, resources: list[dict[str, Any]]) -> dict[str, Any]:
+    """Each of the agent's prefetch keys filled from `resources`: a read with the first resource
     of its type (null when there is none), a search with a searchset of all of them."""
-    hooks = pack.manifest.cds_hooks
+    hooks = agent.manifest.cds_hooks
     assert hooks is not None
     filled: dict[str, Any] = {}
     for key, template in hooks.prefetch.items():
@@ -474,7 +474,7 @@ def test_no_provider_runs_when_the_record_is_unreadable(monkeypatch: pytest.Monk
     assert result.outcome is Outcome.ABSTAIN and result.recommendation is None
     assert result.reasons == ("could not read conditions: timeout",)
     assert result.unreadable == (("conditions", "timeout"),)
-    assert result.fallback == decision.pack.manifest.policy.fallback
+    assert result.fallback == decision.agent.manifest.policy.fallback
     assert task["description"] == result.fallback  # the Task is the agent's fallback
 
 
@@ -512,7 +512,7 @@ def _first_automated(decision: Decision, records: list[dict[str, Any]]) -> dict[
 def _messages(folder: Path) -> list[dict[str, Any]]:
     """A message agent's first cases as the sandbox seeds them: each a Patient and its
     Communication, as a collection Bundle."""
-    cases = labelled_cases(load_pack(folder)).records[:20]
+    cases = labelled_cases(load_agent(folder)).records[:20]
     return [
         {"resourceType": "Bundle", "type": "collection", "entry": message_entries(case)}
         for case in cases
@@ -525,10 +525,10 @@ def _agents(base: Path) -> list[tuple[Decision, dict[str, Any]]]:
     triage fixture and the bundled demo agent on a synthetic message."""
     found = []
     for folder in (CHART_DIR, order_sign(base)):
-        decision = Decision(load_pack(folder))
+        decision = Decision(load_agent(folder))
         found.append((decision, _first_automated(decision, [CASE.bundle()])))
     for folder in (TRIAGE_DIR, DEMO_AGENT_DIR):
-        decision = Decision(load_pack(folder))
+        decision = Decision(load_agent(folder))
         found.append((decision, _first_automated(decision, _messages(folder))))
     return found
 
@@ -539,17 +539,17 @@ def test_an_unreadable_record_never_raises_automation(tmp_path: Path) -> None:
     automated, never sent for review as if the record were whole."""
     agents = _agents(tmp_path)
     automated = [
-        d.pack.id for d, record in agents if d.decide_fhir(record)[0].outcome.value == "AUTO"
+        d.agent.id for d, record in agents if d.decide_fhir(record)[0].outcome.value == "AUTO"
     ]
     assert CHART_ID in automated  # the chart fixture's case is one it automates
     for decision, bundle in agents:
-        hooks = decision.pack.manifest.cds_hooks
+        hooks = decision.agent.manifest.cds_hooks
         assert hooks is not None and hooks.prefetch
         for key in hooks.prefetch:
             for reason in sorted(READ_REASONS):
                 failed = {key: reason}
                 result, _ = decision.decide_fhir(copy.deepcopy(bundle), unreadable=failed)
-                assert result.outcome in (Outcome.ABSTAIN, Outcome.BLOCK), (decision.pack.id, key)
+                assert result.outcome in (Outcome.ABSTAIN, Outcome.BLOCK), (decision.agent.id, key)
                 assert f"could not read {key}: {reason}" in result.reasons
 
 
@@ -631,8 +631,8 @@ def test_an_unreadable_abstain_shows_a_card_whatever_show_says(app: TestClient) 
     """The chart fixture shows cards for `soon`, `routine` and a refused input only, so an
     ABSTAIN (no recommendation) would be silent; over unreadable data it shows an `info` card, so
     the clinician knows the record was not checked (owner decision 6)."""
-    pack = load_pack(CHART_DIR)
-    hooks = pack.manifest.cds_hooks
+    agent = load_agent(CHART_DIR)
+    hooks = agent.manifest.cds_hooks
     assert hooks is not None and hooks.card is not None and hooks.card.show is not None
     assert "none" not in hooks.card.show
     body = patient_view(CASE.resources())
@@ -641,7 +641,7 @@ def test_an_unreadable_abstain_shows_a_card_whatever_show_says(app: TestClient) 
     assert card["indicator"] == "info"
     assert card["summary"] == cds_hooks.UNREADABLE_SUMMARY
     assert "- conditions: operation_outcome" in card["detail"]
-    assert pack.status_label in card["detail"]  # every card says the agent's status
+    assert agent.status_label in card["detail"]  # every card says the agent's status
 
 
 # -- SMART decide ------------------------------------------------------------------------------
@@ -672,7 +672,7 @@ class FailingEhr(FakeEhr):
 def launched_for_the_chart(client: TestClient, ehr: FailingEhr) -> None:
     """The EHR launches Mendari for the chart fixture, and the browser comes back with the
     code."""
-    params = {"iss": ehr.iss, "launch": "xyz", "pack": CHART_ID}
+    params = {"iss": ehr.iss, "launch": "xyz", "agent": CHART_ID}
     started = client.get("/smart/launch", params=params, follow_redirects=False)
     assert started.status_code == 302, started.text
     location = started.headers["location"]
@@ -705,7 +705,7 @@ def smart(
         yield client, ehr
 
 
-SMART_DECIDE = {"pack_id": CHART_ID, "focus": f"Patient/{SHOWCASE.id}"}
+SMART_DECIDE = {"agent_id": CHART_ID, "focus": f"Patient/{SHOWCASE.id}"}
 
 
 def test_smart_decide_abstains_on_a_failed_prefetch_read(

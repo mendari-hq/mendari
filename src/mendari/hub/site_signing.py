@@ -17,10 +17,10 @@ registry refuses one a site has used (LP-22e), and `at` within `MAX_SKEW_S` of i
 recall's time is checked.
 
 Formats:
-- `mendari.site-ticket-request/1` (22e): the pack (id, version, digest), the configuration
+- `mendari.site-ticket-request/1` (22e): the agent (id, version, digest), the configuration
   (each slot's variant), `remote_consent`, the commitment and the dataset's size `n`;
 - `mendari.site-ticket-withdrawal/1` (22e): the ticket given up;
-- `mendari.site-submission/1` (22f): the ticket and the `mendari.site-report/2` payload.
+- `mendari.site-submission/1` (22f): the ticket and the `mendari.site-report/1` payload.
 
 The site's own files, in the client's configuration directory (`client.config_dir()`), written
 private (0600) as credentials are: `site.json` (the site's id and its key's id),

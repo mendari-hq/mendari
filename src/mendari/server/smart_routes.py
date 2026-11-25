@@ -12,13 +12,13 @@
   says so, and never shows the other patient). The session ends after 30 minutes idle, 8 hours,
   or when the EHR's token expires, whichever is first (`server/sessions.py`).
 - `GET /api/smart/session` (`{"active": false}` without one), `POST /api/smart/logout`: public.
-  The session names the launch (`launch_id`, not a secret) and the packs it may use (id, name,
+  The session names the launch (`launch_id`, not a secret) and the agents it may use (id, name,
   origin and its label), so a browser that only launched opens the dashboard on the patient
   view alone.
 - `GET /api/smart/patient`: the launch's patient, for the banner.
-- `GET /api/smart/focus?pack_id=`: the patient's resources the pack decides about (their portal
+- `GET /api/smart/focus?agent_id=`: the patient's resources the agent decides about (their portal
   messages, their referrals).
-- `POST /api/smart/decide`: decide one of them, with the record fetched through the pack's own
+- `POST /api/smart/decide`: decide one of them, with the record fetched through the agent's own
   prefetch templates; the decision is audited like any other.
 - These three take the launch a dashboard window is pinned to (`X-Mendari-Launch`) and answer
   `409` when the browser's launch is another one now, before reading anything from the EHR.
@@ -62,12 +62,12 @@ from pydantic import BaseModel, Field
 
 from mendari import notices
 from mendari.core import tenancy
+from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack
 from mendari.core.session_seal import SealError
 from mendari.core.site_codes import SiteCodeMaps
-from mendari.errors import FhirError, PackNotFoundError, SmartError
+from mendari.errors import AgentNotFoundError, FhirError, SmartError
 from mendari.server import security_log, sessions
 from mendari.server.auth import Auth, chain_name, ehr_id
 from mendari.standards import smart
@@ -86,7 +86,7 @@ MAX_FOCUS = 50
 
 
 class SmartDecideRequest(BaseModel):
-    pack_id: str = Field(min_length=3, max_length=200, title="Agent id")
+    agent_id: str = Field(min_length=3, max_length=200, title="Agent id")
     focus: str = Field(min_length=3, max_length=200, description='e.g. "ServiceRequest/123"')
 
 
@@ -95,10 +95,10 @@ def add_smart_routes(
     *,
     settings: SmartSettings | None,
     store: AuditStore,
-    packs: Mapping[str, Pack],
-    pack_or_404: Callable[[str], Pack],
+    agents: Mapping[str, Agent],
+    agent_or_404: Callable[[str], Agent],
     decision_for: Callable[[str], Decision],
-    default_pack: str | None,
+    default_agent: str | None,
     auth: Auth,
     lifetime: sessions.Lifetime | None = None,
     site_codes: SiteCodeMaps | None = None,
@@ -170,19 +170,19 @@ def add_smart_routes(
             ) from None
 
     @app.get("/smart/launch", include_in_schema=False)
-    def smart_launch(request: Request, iss: str, launch: str, pack: str | None = None) -> Response:
+    def smart_launch(request: Request, iss: str, launch: str, agent: str | None = None) -> Response:
         with refusals_logged(unreachable="issuer"):
             options = configured()
             registered(iss)  # before anything leaves for the EHR
             # Launched on another name: begin again on the public URL, where the callback lands.
-            params = {"iss": iss, "launch": launch} | ({"pack": pack} if pack else {})
+            params = {"iss": iss, "launch": launch} | ({"agent": agent} if agent else {})
             moved = sessions.to_public_url(request, options.public_url, "/smart/launch", params)
             if moved is not None:
                 return moved
-            pack_id = pack or default_pack
-            if pack_id is None:
-                raise SmartError("no agent to launch", 404, reason="pack")
-            pack_or_404(pack_id)
+            agent_id = agent or default_agent
+            if agent_id is None:
+                raise SmartError("no agent to launch", 404, reason="agent")
+            agent_or_404(agent_id)
             redirect_uri = f"{public_url(request)}/smart/callback"
             with GuardedHttp() as http:
                 url, state, pending = smart.begin(
@@ -193,7 +193,7 @@ def add_smart_routes(
                     http=http,
                     identify=identify,
                 )
-        pending["pack"] = pack_id
+        pending["agent"] = agent_id
         response = RedirectResponse(url, status_code=302)
         # Only this browser may finish the launch: the row is sealed under its binding cookie.
         _, binding = sessions.bind(response, request, sessions.LAUNCH)
@@ -241,7 +241,7 @@ def add_smart_routes(
                 session = smart.complete(
                     pending, code, settings=options, http=http, identify=identify
                 )
-        session["pack"] = pending["pack"]
+        session["agent"] = pending["agent"]
         # The launch's name in the window it opens (`#patient/<launch_id>`): not a secret, it
         # tells that window whether the browser's launch is still this one.
         session["launch_id"] = secrets.token_hex(8)
@@ -272,9 +272,9 @@ def add_smart_routes(
         store.smart_put(sid, "session", row, expires_at)
         org = registration.org if registration is not None and auth.enabled else None
         security_log.event("smart.launch.ok", actor=actor, org=org)
-        pack = quote(pending["pack"], safe="/")
+        agent = quote(pending["agent"], safe="/")
         base = options.public_url or ""
-        opened = f"{base}/?agent={pack}#patient/{session['launch_id']}"
+        opened = f"{base}/?agent={agent}#patient/{session['launch_id']}"
         response = RedirectResponse(opened, status_code=302)
         sessions.set_cookie(response, request, COOKIE, sid)
         sessions.clear_cookie(response, request, sessions.LAUNCH)  # used: one launch, once
@@ -290,28 +290,28 @@ def add_smart_routes(
         is an answer, not an error): the EHR, patient and encounter, who launched (`fhir_user`),
         the scopes, when the EHR's token expires, the agent launched, the launch's id
         (`launch_id`: the dashboard window it opened carries it, to tell a replaced launch), and
-        the agents it may use (`packs`: id, name, origin and `origin_label`)."""
+        the agents it may use (`agents`: id, name, origin and `origin_label`)."""
         launch = auth.launch(request) if settings is not None else None
         if launch is None:
             return {"active": False}
         session = launch.session
-        shown = ("iss", "patient", "encounter", "fhir_user", "scope", "expires_at", "pack")
+        shown = ("iss", "patient", "encounter", "fhir_user", "scope", "expires_at", "agent")
         context = {key: session.get(key) for key in shown}
         listed = [
             {
-                "id": pack.id,
-                "name": pack.manifest.name,
-                "origin": pack.origin,
-                "origin_label": pack.origin_label,
-                "status_label": pack.status_label,
+                "id": agent.id,
+                "name": agent.manifest.name,
+                "origin": agent.origin,
+                "origin_label": agent.origin_label,
+                "status_label": agent.status_label,
             }
-            for pack in packs.values()
+            for agent in agents.values()
         ]
         return {
             "active": True,
             **context,
             "launch_id": session.get("launch_id"),
-            "packs": sorted(listed, key=lambda pack: pack["id"]),
+            "agents": sorted(listed, key=lambda agent: agent["id"]),
         }
 
     @app.post(
@@ -351,7 +351,7 @@ def add_smart_routes(
         summary="Items to decide about",
     )
     def smart_focus(
-        request: Request, pack_id: Annotated[str, Query(title="Agent id")]
+        request: Request, agent_id: Annotated[str, Query(title="Agent id")]
     ) -> list[dict[str, Any]]:
         """The patient's resources the agent decides about (e.g. referrals), from the EHR.
 
@@ -360,7 +360,7 @@ def add_smart_routes(
         token (the launch has ended: open Mendari again from the EHR). `409` when
         `X-Mendari-Launch` names another launch than the browser's (a later one replaced it)."""
         session = session_of(request)
-        adapter = FhirAdapter.for_pack(pack_or_404(pack_id))
+        adapter = FhirAdapter.for_agent(agent_or_404(agent_id))
         # As the decision finds its focus: with the organization's site code map (LP-23k).
         org = tenancy.current() or tenancy.DEFAULT_ORG
         site = None if site_codes is None else site_codes.for_org(org)
@@ -384,7 +384,7 @@ def add_smart_routes(
         browser's (a later one replaced it): nothing is read or decided. With sign-in on the
         decision is the EHR's registered organization's."""
         session = session_of(request)
-        decision = decision_for(body.pack_id)
+        decision = decision_for(body.agent_id)
         # What the EHR does not offer, as the site declared it for this organization.
         org = tenancy.current() or tenancy.DEFAULT_ORG
         declared = None if declarations is None else declarations.for_base(session["iss"], org)
@@ -398,15 +398,15 @@ def add_smart_routes(
 @contextmanager
 def refusals_logged(*, unreachable: str) -> Iterator[None]:
     """One `smart.launch.refused` line for a launch step that fails: the `SmartError`'s fixed
-    reason, `pack` for an unknown pack, and `unreachable` when the allow-listed client refuses
+    reason, `agent` for an unknown agent, and `unreachable` when the allow-listed client refuses
     or cannot reach a server (the launch's issuer, or the keys that verify its id_token)."""
     try:
         yield
     except SmartError as error:
         _refused(error.reason)
         raise
-    except PackNotFoundError:
-        _refused("pack")
+    except AgentNotFoundError:
+        _refused("agent")
         raise
     except FhirError:
         _refused(unreachable)
@@ -473,7 +473,7 @@ def focus_items(
     *,
     site_codes: SiteCodes | None = None,
 ) -> list[dict[str, Any]]:
-    """The patient's resources of the pack's focus type (only those the pack decides about, as
+    """The patient's resources of the agent's focus type (only those the agent decides about, as
     its decision finds them: with the organization's site code map, `site_codes`, LP-23k)."""
     kind = adapter.mapping.focus
     if kind == "Patient":
@@ -494,7 +494,7 @@ def decide_for(
     *,
     declared: EhrDeclaration | None = None,
 ) -> tuple[Any, dict[str, Any]]:
-    """Decide one of the patient's focus resources, with the record the pack's CDS prefetch
+    """Decide one of the patient's focus resources, with the record the agent's CDS prefetch
     templates describe, read with the session's token. Each prefetch read stands alone, as a
     CDS hook's do (`cds_hooks.read_each`): one that fails makes the decision ABSTAIN with its
     reason (LP-23d), but a `401` still ends the launch (`ehr`). A focus resource that cannot be
@@ -502,9 +502,9 @@ def decide_for(
     reaches by a link the record does not hold is read with the same token, as a CDS hook's is
     (`standards/linked.py`, LP-23h), and a `401` there ends the launch too. A key of a type the
     EHR does not offer, as the site declared it (`declared`, `standards/ehr_declarations.py`), is
-    not read when the pack may read its list without it and another source of that list is read
+    not read when the agent may read its list without it and another source of that list is read
     here (`EhrDeclaration.skipped`): the decision records so, and never automates."""
-    adapter = FhirAdapter.for_pack(decision.pack)
+    adapter = FhirAdapter.for_agent(decision.agent)
     kind, _, resource_id = focus_ref.partition("/")
     if kind != adapter.mapping.focus or not _ID.fullmatch(resource_id):
         raise FhirError(f"this agent decides about a {adapter.mapping.focus}, not {focus_ref!r}")
@@ -513,7 +513,7 @@ def decide_for(
     if about != patient_id:
         raise SmartError("that resource is not about the launch's patient", 403)
     context = {"patientId": patient_id, f"{kind[0].lower()}{kind[1:]}Id": resource_id}
-    hooks = decision.pack.manifest.cds_hooks
+    hooks = decision.agent.manifest.cds_hooks
     templates = dict(hooks.prefetch) if hooks else {"patient": "Patient/{{context.patientId}}"}
     queries = {}
     for key, template in templates.items():

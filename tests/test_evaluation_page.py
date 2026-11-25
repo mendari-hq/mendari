@@ -24,8 +24,8 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from mendari.core.agent import Agent, load_agent
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack, load_pack
 from mendari.errors import MendariError
 from mendari.evals import figures, ranking
 from mendari.evals.harness import evaluation, resolve_dataset
@@ -113,7 +113,7 @@ def test_a_published_evaluation_is_read_back_verified_and_shown(published: Regis
     agent = signed(published.key, "agent", dataset=labelled)
     for record in (rules, agent):
         assert send(published, record).status_code == 201
-    assert rules["format"] == "mendari.publisher-evaluation/2"
+    assert rules["format"] == "mendari.publisher-evaluation/1"
     assert rules["engine"] and rules["claimed"]["failed_cases"] == 0
     # Read back: the signed record itself, which verifies with the key the namespace lists.
     listed = published.client.get(f"{AGENT}/{demo().version}/evaluations").json()["evaluations"]
@@ -164,7 +164,7 @@ def test_a_published_evaluation_is_read_back_verified_and_shown(published: Regis
         "verified": True,
     }
     assert one["engine"] == rules["engine"] and one["models"] == rules["models"]
-    assert one["record_format"] == "mendari.publisher-evaluation/2"
+    assert one["record_format"] == "mendari.publisher-evaluation/1"
     assert one["providers"] == counted["providers"] and one["tokens"] == counted["tokens"]
     assert one["claimed"] == rules["claimed"]
     # Every figure is k of n with its interval, from the counts: the outcome mix, the automation
@@ -276,7 +276,7 @@ def test_a_tampered_record_is_shown_as_not_verified_with_none_of_its_numbers(
     [
         ({"body": "not json"}, "record"),
         ({"body": "[]"}, "record"),
-        ({"body": '{"format": "mendari.publisher-evaluation/2"}'}, "record"),
+        ({"body": '{"format": "mendari.publisher-evaluation/1"}'}, "record"),
         ({"configuration": '{"reader":"agent"}'}, "record"),
         ({"configuration": "not json"}, "record"),
         ({"configuration": "[]"}, "record"),
@@ -401,7 +401,7 @@ def member(
             "dataset": "test",
             "dataset_sha256": "0" * 64,
             "n": n,
-            "pack_digest": "sha256:d",
+            "agent_digest": "sha256:d",
             "critical": labels,
             "false_automation": {"k": false_automation, "n": n},
             "accuracy_proportion": {"k": right, "n": n},
@@ -551,7 +551,7 @@ def _rows(registry: Registry) -> list[dict[str, Any]]:
     return rows
 
 
-def three_readers(tmp_path: Path) -> Pack:
+def three_readers(tmp_path: Path) -> Agent:
     """The demo agent under another name with a third variant of its one slot: rules that read
     any mention of breath, chest, face or numbness as urgent."""
     root = tmp_path / "three-readers"
@@ -568,22 +568,22 @@ def three_readers(tmp_path: Path) -> Pack:
         {"name": "any-sign", "pattern": "breath|chest|face|numb|weak|dizzy|faint", "weight": 6}
     )
     (root / "logic" / "cautious.yaml").write_text(yaml.safe_dump(rules), encoding="utf-8")
-    return load_pack(root)
+    return load_agent(root)
 
 
 def test_three_configurations_of_one_agent_are_published_and_compared(
     registry: Registry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MENDARI_REGISTRY_REGRESSION", "on")
-    pack = three_readers(tmp_path)
-    assert registry.publish(pack).status_code == 201
+    agent = three_readers(tmp_path)
+    assert registry.publish(agent).status_code == 201
     base = "/v1/agents/mendari/three-readers"
     for variant in ("rules", "cautious", "agent"):
-        decision = Decision(pack, providers={"reader": variant}, origin_cap=False)
-        made = evaluation(decision, resolve_dataset(pack, "test"))
-        record = evaluations.build(pack, made, key=registry.key)
+        decision = Decision(agent, providers={"reader": variant}, origin_cap=False)
+        made = evaluation(decision, resolve_dataset(agent, "test"))
+        record = evaluations.build(agent, made, key=registry.key)
         sent = registry.client.post(
-            f"{base}/{pack.version}/evaluations",
+            f"{base}/{agent.version}/evaluations",
             json=record,
             headers={"authorization": f"Bearer {registry.token}"},
         )
@@ -633,7 +633,7 @@ def test_evaluations_belong_to_a_version_and_a_new_version_starts_with_none(
     (newer / "agent.yaml").write_text(
         manifest.replace(f"version: {demo().version}", "version: 9.0.0", 1), encoding="utf-8"
     )
-    assert published.publish(load_pack(newer)).status_code == 201
+    assert published.publish(load_agent(newer)).status_code == 201
     shown = page(published)
     assert shown["state"] == "none" and shown["agent"]["version"] == "9.0.0"
     assert shown["versions"] == {
@@ -656,7 +656,7 @@ def test_a_recalled_agent_reads_recalled(published: Registry) -> None:
     assert send(published, record).status_code == 201
     found = published.operator.version("mendari", "portal-message-agent", demo().version)
     recall = yank.sign(
-        pack="mendari/portal-message-agent",
+        agent="mendari/portal-message-agent",
         version=demo().version,
         digest=found["digest"],
         archive_sha256=found["archive_sha256"],
@@ -709,7 +709,7 @@ def test_an_unlisted_namespace_s_badge_is_what_the_public_reads(
         manifest.replace("id: mendari/portal-message-agent", "id: waiting/agent", 1),
         encoding="utf-8",
     )
-    sent = registry.publish(load_pack(root), key=archive.load_private_key(private), token=token)
+    sent = registry.publish(load_agent(root), key=archive.load_private_key(private), token=token)
     assert sent.status_code == 201, sent.text
     base = "/v1/agents/waiting/agent"
     assert registry.client.get(f"{base}/evaluation").status_code == 404
@@ -954,9 +954,9 @@ def test_the_badge_under_the_engine_keeps_its_headers(
 
 
 def _mounted_badge(world: World) -> None:
-    token, pack = world.published()
+    token, agent = world.published()
     world.registry.decide_claim("acme", approve=True, by="operator", note="read")
-    path = f"/registry/v1/agents/{pack.id}/badge.svg"
+    path = f"/registry/v1/agents/{agent.id}/badge.svg"
     for sent in ({}, CROSS_SITE, {"sec-fetch-site": "cross-site", "sec-fetch-dest": "image"}):
         answer = world.http.get(path, headers=sent)
         assert answer.status_code == 200, (sent, answer.text)
@@ -967,7 +967,7 @@ def _mounted_badge(world: World) -> None:
         assert answer.headers["content-security-policy"] == f"{REGISTRY_CSP}; sandbox"
         assert answer.headers["x-content-type-options"] == "nosniff"
         assert "set-cookie" not in answer.headers
-    shown = world.http.get(f"/registry/v1/agents/{pack.id}/evaluation")
+    shown = world.http.get(f"/registry/v1/agents/{agent.id}/evaluation")
     assert shown.status_code == 200 and shown.json()["state"] == "none"
     assert shown.headers["cache-control"] == "no-store"
     del token

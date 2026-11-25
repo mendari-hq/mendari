@@ -43,12 +43,12 @@ from mendari.core.policy import (
     risk_permits_auto,
     stricter,
 )
-from mendari.core.spec import ActionSpec, Effect, Outcome, PackManifest, RiskLevel
+from mendari.core.spec import ActionSpec, AgentManifest, Effect, Outcome, RiskLevel
 from mendari.providers.base import Answer, ProviderInfo
 from tests.conftest import INPUT_HASH_KEY
 from tests.test_spec_04 import raw_manifest
 
-MANIFEST = PackManifest.model_validate(raw_manifest())
+MANIFEST = AgentManifest.model_validate(raw_manifest())
 CHECKERS = actions.validators(MANIFEST)
 REVIEWS: tuple[Review, ...] = get_args(Review)
 DECISION, AUTO, PERSON = Gate.DECISION, Gate.AUTO, Gate.PERSON
@@ -281,7 +281,7 @@ def test_risk_permits_auto_is_what_the_risk_cap_decides(level: RiskLevel) -> Non
     `apply_policy` itself, with and without a governance approval."""
     raw = raw_manifest()
     raw["risk"]["level"] = int(level)
-    manifest = PackManifest.model_validate(raw)
+    manifest = AgentManifest.model_validate(raw)
     info = ProviderInfo("reader", "agent", "agent")
     answers = {
         "request": Answer("request", "refill", 0.95, {"refill": 0.95}, info),
@@ -484,7 +484,7 @@ def test_at_most_ten_problems_are_kept() -> None:
     }
     raw = raw_manifest()
     raw["actions"]["many"] = {"description": "Many.", "effect": "read", "schema": schema}
-    manifest = PackManifest.model_validate(raw)
+    manifest = AgentManifest.model_validate(raw)
     wrong = {f"p{n}": n for n in range(30)}
     found = actions.check(manifest, actions.validators(manifest), Proposed("many", wrong))
     assert found.refusal == "invalid_arguments" and len(found.problems) == actions.MAX_PROBLEMS

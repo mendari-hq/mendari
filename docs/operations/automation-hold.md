@@ -13,8 +13,8 @@ out: a missed emergency, a provider behaving oddly, an agent version you are uns
 
 | Hold | Covers | Set and lifted |
 |---|---|---|
-| One version of an agent (`pack_id` and `pack_digest`) | that digest, in your organization | the API, the command line (lifted in the dashboard too) |
-| An agent (`pack_id`) | every version of it, in your organization | the API, the dashboard, the command line |
+| One version of an agent (`agent_id` and `agent_digest`) | that digest, in your organization | the API, the command line (lifted in the dashboard too) |
+| An agent (`agent_id`) | every version of it, in your organization | the API, the dashboard, the command line |
 | Every agent | every decision in your organization | the API, the command line (lifted in the dashboard too) |
 | Every organization (`--all-orgs`) | every decision on the deployment | the command line only |
 
@@ -35,7 +35,7 @@ says when one covers the agent. People who may approve automation (signed in wit
 `governance` or `admin` role) can hold the agent there with a reason and lift their
 organization's holds. Holding is one click; lifting asks first, in a dialog that says the agent
 then decides on its own again. API keys and clients cannot hold or lift (their roles never approve); they
-can read `GET /api/holds`. The routes are `POST /api/holds` (`pack_id`, optional `pack_digest`
+can read `GET /api/holds`. The routes are `POST /api/holds` (`agent_id`, optional `agent_digest`
 of the version this deployment serves, `reason`) and `DELETE /api/holds/{id}`.
 
 ## From the command line (break-glass)

@@ -192,7 +192,7 @@ every decision that would have been automated goes to a person, with the reason 
 
 No key of the manifest turns this off and no governance approval lifts it. Calibrate the new
 version, ship the new file (a new version of the agent, approved where digests are approved),
-and automation returns. So an agent's service should change its `agent_version` whenever its
+and automation returns. So an agent's service should change its `service_version` whenever its
 model or its prompt changes, and plan a calibration into each release. A service that reports
 no version cannot be calibrated.
 
@@ -260,7 +260,7 @@ many more cases from automation.
       checked:
         type: check
         members:
-          agent: {type: agent, agent_id: portal-agent, state_fields: [message.body]}
+          agent: {type: agent, service_id: portal-agent, state_fields: [message.body]}
           second: {type: llm, state_fields: [message.body]}
 ```
 

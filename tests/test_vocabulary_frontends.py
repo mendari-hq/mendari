@@ -568,13 +568,7 @@ SURFACES = [
 ]
 
 # Texts that say the old word on purpose: (file, the whole text) -> why.
-ALLOWED: dict[tuple[str, str], str] = {
-    (
-        "src/mendari/dashboard/snippets/fhir.sh",
-        '{"name": "pack", "valueString": "mendari/portal-message-agent"},',
-    ): "the `$decide` operation's parameter is named `pack` on the wire, and a FHIR Parameters "
-    "resource gives a parameter's name as a value",
-}
+ALLOWED: dict[tuple[str, str], str] = {}
 
 
 @pytest.mark.parametrize("surface", SURFACES, ids=lambda surface: surface.name)

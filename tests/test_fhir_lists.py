@@ -16,9 +16,9 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from mendari import Decision, load_pack
-from mendari.core.spec import PackManifest
-from mendari.errors import FhirError, PackValidationError
+from mendari import Decision, load_agent
+from mendari.core.spec import AgentManifest
+from mendari.errors import AgentValidationError, FhirError
 from mendari.standards import cds_hooks
 from mendari.standards.fhir import FhirAdapter, age_years
 from tests.conftest import CHART_DIR, TRIAGE_DIR
@@ -82,11 +82,11 @@ def searchset(resources: list[dict[str, Any]]) -> dict[str, Any]:
 
 def chart() -> Decision:
     """The chart fixture on its default providers (its canned agent)."""
-    return Decision(load_pack(CHART_DIR))
+    return Decision(load_agent(CHART_DIR))
 
 
 def test_a_patient_record_maps_to_lists() -> None:
-    adapter = FhirAdapter.for_pack(load_pack(CHART_DIR))
+    adapter = FhirAdapter.for_agent(load_agent(CHART_DIR))
     inputs = adapter.to_input(adapter.index(BUNDLE))
     assert inputs["patient"] == {"age": 54, "sex": "female"}
     assert [c["code"] for c in inputs["conditions"]] == ["E11.9", "I10", "J06.9"]
@@ -124,7 +124,7 @@ def test_a_fhir_record_is_decided_and_becomes_a_task() -> None:
     result, task = chart().decide_fhir(BUNDLE)
     assert (result.recommendation, result.answers["on_anticoagulant"].label) == ("routine", "yes")
     assert result.outcome.value == "AUTO"  # risk level 1, a sure answer
-    by_rules, _ = Decision(load_pack(CHART_DIR), providers={"reader": "rules"}).decide_fhir(BUNDLE)
+    by_rules, _ = Decision(load_agent(CHART_DIR), providers={"reader": "rules"}).decide_fhir(BUNDLE)
     assert "routine:routine-follow-up" in by_rules.answers["follow_up"].evidence  # the notes
     assert task["focus"] == {"reference": "Patient/pat-9"}
     assert task["for"] == {"reference": "Patient/pat-9"}
@@ -135,7 +135,7 @@ def test_a_fhir_record_is_decided_and_becomes_a_task() -> None:
 
 
 def test_prefetch_search_bundles_are_flattened_and_deduplicated() -> None:
-    adapter = FhirAdapter.for_pack(load_pack(CHART_DIR))
+    adapter = FhirAdapter.for_agent(load_agent(CHART_DIR))
     prefetch = chart_fixture.prefetch(CASE, TODAY)
     prefetch["notes"]["entry"].insert(0, {"resource": PATIENT_9})
     indexed = adapter.index(prefetch)
@@ -155,7 +155,7 @@ def cds_request(prefetch: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def test_patient_view_cards_use_the_packs_wording() -> None:
+def test_patient_view_cards_use_the_agents_wording() -> None:
     decision = chart()
     prefetch = chart_fixture.prefetch(CASE, TODAY)
     card = cds_hooks.invoke(decision, cds_request(prefetch))["cards"][0]
@@ -196,14 +196,14 @@ def test_card_keys_must_be_recommendations() -> None:
     raw = yaml.safe_load((CHART_DIR / "agent.yaml").read_text())
     raw["cds_hooks"]["card"]["show"] = ["soon", "maybe"]
     with pytest.raises(ValidationError, match="unknown recommendations"):
-        PackManifest.model_validate(raw)
+        AgentManifest.model_validate(raw)
 
 
 def test_age_years_and_bad_attachments() -> None:
     assert age_years("1970-06-01", today=date(2026, 5, 31)) == 55
     assert age_years("1970-06-01", today=date(2026, 6, 1)) == 56
     assert age_years("2030-01-01", today=date(2026, 1, 1)) is None
-    adapter = FhirAdapter.for_pack(load_pack(CHART_DIR))
+    adapter = FhirAdapter.for_agent(load_agent(CHART_DIR))
     broken = {"resourceType": "DocumentReference", "content": [{"attachment": {"data": "%%%"}}]}
     inputs = adapter.to_input(adapter.index({"p": PATIENT_9, "d": broken}))
     assert "notes" not in inputs
@@ -214,7 +214,7 @@ def test_validate_parses_the_fhir_mapping(
 ) -> None:
     from mendari.cli import main
 
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(CHART_DIR, root)
     (root / "fhir" / "mapping.yaml").write_text("fields: {code: {path: code.coding[0].code}}\n")
     assert main(["validate", str(root)]) != 0
@@ -223,8 +223,8 @@ def test_validate_parses_the_fhir_mapping(
 
 def test_invalid_manifest_or_policy_yaml_is_a_validation_error(tmp_path: Path) -> None:
     """The manifest, which holds the policy too."""
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     (root / "agent.yaml").write_text("summary: a: b\n")
-    with pytest.raises(PackValidationError, match=r"agent\.yaml: invalid YAML"):
-        load_pack(root)
+    with pytest.raises(AgentValidationError, match=r"agent\.yaml: invalid YAML"):
+        load_agent(root)

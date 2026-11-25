@@ -19,11 +19,11 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.core import actions, tenancy
 from mendari.core.audit import DECISION_KINDS
 from mendari.core.phi import PhiPolicy
-from mendari.errors import MendariError, PackNotFoundError, ReviewError
+from mendari.errors import AgentNotFoundError, MendariError, ReviewError
 from mendari.standards import audit_fhir
 from tests.conftest import INPUT_HASH_KEY, PHI_KEY, ROOT, TRIAGE_DIR, message
 
@@ -131,7 +131,7 @@ def test_each_proposal_is_chained_after_its_decision_in_order(store: AuditStore)
 def test_a_decision_without_proposals_chains_only_itself(store: AuditStore) -> None:
     quiet = agent(store)(message("Hello there."))
     assert [e["event"] for e in of(store, quiet.id)] == ["decision.created"]
-    triaged = Decision(load_pack(TRIAGE_DIR), store=store)(message("Crushing chest pain"))
+    triaged = Decision(load_agent(TRIAGE_DIR), store=store)(message("Crushing chest pain"))
     assert [e["event"] for e in of(store, triaged.id)] == ["decision.created"]
     found = store.get(triaged.id)
     assert found is not None and "actions" not in found  # an agent that declares none: none
@@ -199,7 +199,7 @@ def test_no_argument_and_no_undeclared_name_is_in_the_chain_or_a_record(
                 assert (payload["note_ref"] is not None) is kept, event
                 keyed = payload["arguments_hash"].startswith("hmac-sha256:")
                 assert keyed is (mode != "off"), event  # keyed wherever the deployment has a key
-            assert payload["name"] in (None, *decision.pack.manifest.actions), event
+            assert payload["name"] in (None, *decision.agent.manifest.actions), event
         assert store.verify()["ok"]
         notes = store.verify(notes=True)
         assert notes["ok"] and (notes["notes"]["checked"] > 0) is kept
@@ -419,7 +419,7 @@ def test_a_review_with_nothing_held_answers_as_it_always_did(store: AuditStore) 
     answer = store.resolve_review(abstained.id, final_label="other", reviewer="rn-1")
     assert "actions" not in answer and answer["human_override"] is None
     assert of(store, abstained.id, "action.resolved") == []
-    triaged = Decision(load_pack(TRIAGE_DIR), store=store)(message("Crushing chest pain"))
+    triaged = Decision(load_agent(TRIAGE_DIR), store=store)(message("Crushing chest pain"))
     plain = store.resolve_review(triaged.id, final_label="nurse", reviewer="rn-1", note="a note")
     assert set(plain) == {
         "id", "resolved_at", "final_label", "human_override", "reviewer", "note", "note_ref",
@@ -551,7 +551,7 @@ def test_an_undeclared_or_malformed_action_asked_for_is_blocked_and_stops_later_
 
 def test_a_hold_set_after_an_automated_decision_stops_new_releases(store: AuditStore) -> None:
     holds: list[str] = []
-    decision = agent(store, hold_source=lambda pack: holds[0] if holds else None)
+    decision = agent(store, hold_source=lambda agent: holds[0] if holds else None)
     result = decision(message(REFILL))
     assert ask(decision, result.id, "file_note", note="before") == ("released", "automated")
     holds.append("an operator's hold")
@@ -572,7 +572,7 @@ def test_a_decision_of_another_version_of_the_agent_gets_nothing(
     raw["actions"]["look_up_medications"]["description"] = "Read the medication list."
     (newer / "agent.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
     changed = Decision.from_path(newer, store=store)
-    assert changed.pack.id == agent(store).pack.id and changed.pack.digest != result.pack_digest
+    assert changed.agent.id == agent(store).agent.id and changed.agent.digest != result.agent_digest
     found = changed.authorize_action(result.id, "look_up_medications", {})
     assert (found["disposition"], found["reason"]) == ("blocked", "agent_changed")
     assert (found["name"], found["effect"]) == (None, None)  # what it declared is not this
@@ -584,11 +584,11 @@ def test_a_decision_that_is_unknown_anothers_or_another_agents_is_one_answer(
     decision = agent(store)
     with tenancy.acting_for("clinic-a"):
         theirs = decision(message(REFILL)).id
-    triaged = Decision(load_pack(TRIAGE_DIR), store=store)(message("Crushing chest pain")).id
+    triaged = Decision(load_agent(TRIAGE_DIR), store=store)(message("Crushing chest pain")).id
     before = chained(store)
     with tenancy.acting_for("clinic-b"):
         for unknown in ("no-such-decision", theirs, triaged):
-            with pytest.raises(PackNotFoundError) as refused:
+            with pytest.raises(AgentNotFoundError) as refused:
                 decision.authorize_action(unknown, "look_up_medications", {})
             assert str(refused.value) == f"no decision {unknown} of mendari-test/actions-mini"
     with tenancy.acting_for("clinic-a"):
@@ -612,7 +612,7 @@ def test_authorizing_needs_a_store_and_a_well_formed_question() -> None:
 def test_an_agent_older_than_0_4_authorizes_nothing(store: AuditStore) -> None:
     """An agent that declares no actions, as none did before spec 0.4 (the triage fixture):
     whatever is asked of it is blocked, as undeclared."""
-    triaged = Decision(load_pack(TRIAGE_DIR), store=store)
+    triaged = Decision(load_agent(TRIAGE_DIR), store=store)
     result = triaged(message("Can you send a refill for metformin to my pharmacy?"))
     found = triaged.authorize_action(result.id, "send_reply", {})
     assert (found["disposition"], found["reason"], found["name"]) == ("blocked", "undeclared", None)

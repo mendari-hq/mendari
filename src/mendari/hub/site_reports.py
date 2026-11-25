@@ -3,15 +3,15 @@
 
 A site shares one evaluation as a `mendari.site-submission/1` record it signs with one of its
 live keys (`hub/site_signing.py`): `{format, site, key_id, nonce, at, ticket, report,
-signature}`, `report` the `mendari.site-report/2` payload (whole counts, suppressed). It answers
+signature}`, `report` the `mendari.site-report/1` payload (whole counts, suppressed). It answers
 one ticket (LP-22e), and the ticket's one-time secret is its bearer credential: the registry
 finds the ticket by the secret's SHA-256 before it reads a byte of the body.
 
 Then, in order: at most `MAX_REPORT_BYTES` read; the body parsed and validated (a closed model,
 nothing it refuses echoed); the ticket is the one the record names and the route's version,
 still open (not expired, withdrawn or reported); the key is a live key of the ticket's verified
-site; the signature over the record's exact fields; the nonce is new; the report's pack, version,
-digest, configuration, n and remote consent are the ticket's; its names are the pack's; and
+site; the signature over the record's exact fields; the nonce is new; the report's agent, version,
+digest, configuration, n and remote consent are the ticket's; its names are the agent's; and
 `suppress` changes nothing. The report and the ticket's `reported` status are written in one
 transaction. There is no clock check: a submission may be read first and sent later, by hand,
 within its ticket's 30 days (`mendari eval --share-out`, `mendari site submit`).
@@ -41,7 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.errors import HubError
 from mendari.evals import figures
-from mendari.evals.share import SiteReportV2, composite_members, unchanged_by_suppression
+from mendari.evals.share import SiteReportV1, composite_members, unchanged_by_suppression
 from mendari.hub import archive, site_signing
 from mendari.hub.sites import NOT_A_SITE_KEY, _canonical_text, _iso, _recall_free, _status
 
@@ -87,7 +87,7 @@ class Submission(BaseModel):
     at: str
     signature: str
     ticket: Annotated[str, Field(pattern=r"^[0-9a-f]{16}$")]
-    report: SiteReportV2
+    report: SiteReportV1
 
 
 def secret_sha256(secret: str) -> str:
@@ -161,7 +161,7 @@ class SiteReportStore:
         except ValidationError:
             raise HubError(
                 f"not a {site_signing.SUBMISSION} record: its fields are the ticket and a "
-                "mendari.site-report/2 report (whole counts, as `mendari eval --share-out` "
+                "mendari.site-report/1 report (whole counts, as `mendari eval --share-out` "
                 "writes it)"
             ) from None
         if ticket_id is not None and submission.ticket != ticket_id:
@@ -198,8 +198,8 @@ class SiteReportStore:
             raise HubError("the record's signature does not hold", 403)
         configuration = {slot: p.variant for slot, p in report.providers.items()}
         if (
-            (report.pack.id, report.pack.version) != (f"{namespace}/{name}", version)
-            or report.pack.digest != ticket["digest"]
+            (report.agent.id, report.agent.version) != (f"{namespace}/{name}", version)
+            or report.agent.digest != ticket["digest"]
             or _canonical_text(configuration) != ticket["configuration"]
             or report.dataset.n != int(ticket["n"])
             or report.remote_consent != bool(ticket["remote_consent"])
@@ -215,7 +215,7 @@ class SiteReportStore:
         if not unchanged_by_suppression(report):
             raise HubError(
                 "the report shares a cell its suppression rule hides, or counts that do not add "
-                "up (mendari.site-report/2: cells of 1 to 9 and their complements are null)"
+                "up (mendari.site-report/1: cells of 1 to 9 and their complements are null)"
             )
         shown = figures.site(report.model_dump(mode="json"))  # before anything is written
         body = json.dumps(dict(record), sort_keys=True, separators=(",", ":"))
@@ -279,7 +279,7 @@ class SiteReportStore:
                 subject,
                 {
                     "report_id": report_id,
-                    "pack": f"{namespace}/{name}",
+                    "agent": f"{namespace}/{name}",
                     "version": version,
                     "site": ticket["site"],
                     "org": signer["org"],
@@ -322,7 +322,7 @@ class SiteReportStore:
             raise HubError(f"the ticket is {status}: it takes no report", 409)
 
     def site_reports(self, namespace: str, name: str) -> list[dict[str, Any]]:
-        """A pack's signed reports, oldest first, for anyone who reads the pack: each with its
+        """An agent's signed reports, oldest first, for anyone who reads the agent: each with its
         site, key, ticket, whether it was superseded (and by which) and whether its key was
         revoked as compromised, and its figures, worked out from its counts."""
         with self._db.session(exclusive=False) as db:

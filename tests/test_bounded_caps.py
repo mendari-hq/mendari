@@ -19,11 +19,11 @@ from typing import Any
 
 import pytest
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari.core import caps
 from mendari.core.origin import long_text
-from mendari.core.patterns import MAX_PACK_PATTERNS
-from mendari.errors import PackValidationError
+from mendari.core.patterns import MAX_AGENT_PATTERNS
+from mendari.errors import AgentValidationError
 from tests.conftest import DEMO_AGENT_DIR, FIXTURE_AGENTS, ROOT, TRIAGE_DIR
 from tests.support.engine import RULES, SORTER_SCHEMA, pulled, sorter
 
@@ -36,7 +36,7 @@ TOO_LONG = (
 
 def refused(root: Path) -> list[str]:
     """Why the agent at `root`, pulled from a registry, is refused at load."""
-    with pytest.raises(PackValidationError) as error:
+    with pytest.raises(AgentValidationError) as error:
         pulled(root)
     return error.value.problems
 
@@ -59,7 +59,7 @@ def doubling(depth: int, leaf: dict[str, Any]) -> dict[str, Any]:
 # -- (a) text_fields name each field once --------------------------------------------------------
 
 
-def test_a_bounded_pack_may_not_name_a_text_field_twice(tmp_path: Path) -> None:
+def test_a_bounded_agent_may_not_name_a_text_field_twice(tmp_path: Path) -> None:
     """The finding: `message` listed ten times made a 9,990-character message a 99,999-character
     text, and one question pattern took 22 s on it."""
     root = sorter(tmp_path, rules=lambda r: r.update(text_fields=["message"] * 10))
@@ -83,7 +83,7 @@ def test_nor_may_a_questions_own_text_fields(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("window", [10_000, "10000", 201])
-def test_a_bounded_packs_negation_window_is_at_most_200_characters(
+def test_a_bounded_agents_negation_window_is_at_most_200_characters(
     tmp_path: Path, window: Any
 ) -> None:
     """The finding: a window of 10,000 made every negated match search the text before it, and
@@ -100,7 +100,7 @@ def test_a_window_of_200_characters_is_allowed(tmp_path: Path) -> None:
     assert pulled(root).bounded
 
 
-def test_a_bounded_pack_has_at_most_50_negation_cues(tmp_path: Path) -> None:
+def test_a_bounded_agent_has_at_most_50_negation_cues(tmp_path: Path) -> None:
     """Each negated match searches its window for every cue: 20,000 cues and 500 negatable
     patterns took 4 s on 10,000 characters."""
     cues = [f"cue{i}" for i in range(51)]
@@ -113,7 +113,7 @@ def test_a_bounded_pack_has_at_most_50_negation_cues(tmp_path: Path) -> None:
 # -- what the deployment owns is not capped ------------------------------------------------------
 
 
-def test_a_pack_that_is_not_bounded_is_not_capped(tmp_path: Path) -> None:
+def test_an_agent_that_is_not_bounded_is_not_capped(tmp_path: Path) -> None:
     """The same agent as the operator's own (a local folder): the same settings load and decide
     as before."""
 
@@ -121,27 +121,29 @@ def test_a_pack_that_is_not_bounded_is_not_capped(tmp_path: Path) -> None:
         rules.update(text_fields=["message"] * 10, negation_cues=["no"], negation_window=10_000)
 
     schema = doubling(6, {"type": "string", "pattern": "."})
-    root = sorter(tmp_path, rules=edit, schema=lambda s: s.update(schema), pack_id="someone/sorter")
-    pack = load_pack(root)
-    assert not pack.bounded
-    assert Decision(pack).decide({"message": "my bill"}).outcome is not None
+    root = sorter(
+        tmp_path, rules=edit, schema=lambda s: s.update(schema), agent_id="someone/sorter"
+    )
+    agent = load_agent(root)
+    assert not agent.bounded
+    assert Decision(agent).decide({"message": "my bill"}).outcome is not None
 
 
-def test_the_maintained_packs_load_as_before_and_would_pass_the_caps() -> None:
+def test_the_maintained_agents_load_as_before_and_would_pass_the_caps() -> None:
     """The caps are set above what the agents the deployment owns use: the bundled demo agent's
     and the test fixtures' (the triage fixture's screen window of 30 characters and its 5 cues),
     their schemas' pattern runs."""
     bundled = [p for p in sorted(FIXTURE_AGENTS.iterdir()) if (p / "agent.yaml").is_file()]
     assert bundled
     for root in [*bundled, DEMO_AGENT_DIR]:
-        pack = load_pack(root, origin="maintained")
-        assert not pack.bounded
-        for relative, data in pack.parsed.items():
+        agent = load_agent(root, origin="maintained")
+        assert not agent.bounded
+        for relative, data in agent.parsed.items():
             assert caps.rules_problems(relative, data) == [], relative
-        assert caps.schema_runs(pack.input_schema) <= caps.MAX_SCHEMA_RUNS, root.name
-        size = caps.pack_size(pack.manifest, pack.parsed, pack.input_schema)
-        assert 0 < size <= caps.MAX_PACK_PATTERN_SIZE, root.name
-    screen = load_pack(TRIAGE_DIR).parsed["logic/screen_rules.yaml"]
+        assert caps.schema_runs(agent.input_schema) <= caps.MAX_SCHEMA_RUNS, root.name
+        size = caps.agent_size(agent.manifest, agent.parsed, agent.input_schema)
+        assert 0 < size <= caps.MAX_AGENT_PATTERN_SIZE, root.name
+    screen = load_agent(TRIAGE_DIR).parsed["logic/screen_rules.yaml"]
     assert (screen["negation_window"], len(screen["negation_cues"])) == (30, 5)
 
 
@@ -302,7 +304,7 @@ def test_a_reference_cycle_without_patterns_is_allowed() -> None:
     assert caps.schema_runs(tree) == 1
 
 
-def test_the_rules_and_the_schema_run_at_most_max_pack_patterns_together(tmp_path: Path) -> None:
+def test_the_rules_and_the_schema_run_at_most_max_agent_patterns_together(tmp_path: Path) -> None:
     """A rules pattern runs once for each question it answers and each composite member that
     holds it: 26 questions sharing 20 patterns (a YAML alias) run 520."""
     shared = [{"name": f"p{i}", "pattern": f"word{i}", "weight": 1} for i in range(20)]
@@ -325,7 +327,7 @@ def test_the_rules_and_the_schema_run_at_most_max_pack_patterns_together(tmp_pat
     assert problems == [
         "the rules run 520 patterns on each input (each pattern once for each question it "
         "answers and each composite member holding it) and the input schema up to 0 on one "
-        f"value: 520 together; a registry or store agent runs at most {MAX_PACK_PATTERNS}"
+        f"value: 520 together; a registry or store agent runs at most {MAX_AGENT_PATTERNS}"
     ]
 
 
@@ -337,9 +339,9 @@ def test_a_composite_counts_each_rules_member(tmp_path: Path) -> None:
             "members": {f"m{i}": member for i in range(2)},
         }
 
-    pack = pulled(sorter(tmp_path, manifest=manifest))
+    agent = pulled(sorter(tmp_path, manifest=manifest))
     # The slot's busiest variant, the check: each member runs the fixture's two patterns.
-    assert caps.rules_runs(pack.manifest, pack.parsed) == 2 * 2
+    assert caps.rules_runs(agent.manifest, agent.parsed) == 2 * 2
 
 
 # -- (e) the size of the patterns run on one input ------------------------------------------------
@@ -384,16 +386,16 @@ def test_patterns_whose_sizes_come_to_more_than_3000_are_refused(tmp_path: Path)
     one = sorter(
         tmp_path / "one", rules=lambda r: r["questions"]["topic"]["labels"].update(billing=gaps[:1])
     )
-    pack = pulled(one)
+    agent = pulled(one)
     assert (
-        caps.pack_size(pack.manifest, pack.parsed, pack.input_schema) == 2_001 + 27
+        caps.agent_size(agent.manifest, agent.parsed, agent.input_schema) == 2_001 + 27
     )  # and the fixture's scheduling pattern
     root = sorter(
         tmp_path / "local",
         rules=lambda r: r["questions"]["topic"]["labels"].update(billing=gaps),
-        pack_id="someone/sorter",
+        agent_id="someone/sorter",
     )
-    assert not load_pack(root).bounded  # the deployment's own: not capped
+    assert not load_agent(root).bounded  # the deployment's own: not capped
 
 
 def test_the_schema_patterns_size_counts_on_one_value(tmp_path: Path) -> None:
@@ -461,7 +463,7 @@ def test_whether_a_schema_runs_patterns_on_keys(schema: Any, keys: bool) -> None
     assert caps.patterns_on_keys(schema) is keys
 
 
-def test_a_bounded_pack_reads_long_keys_its_schema_runs_no_pattern_on(tmp_path: Path) -> None:
+def test_a_bounded_agent_reads_long_keys_its_schema_runs_no_pattern_on(tmp_path: Path) -> None:
     """The fixture's schema runs no pattern on keys: an input whose texts and keys together are
     longer than 10,000 characters, each within it, is checked against the schema (which refuses
     the extra field), not refused for its length."""
@@ -472,7 +474,7 @@ def test_a_bounded_pack_reads_long_keys_its_schema_runs_no_pattern_on(tmp_path: 
     assert result.schema_problems and "characters" not in result.schema_problems[0]
 
 
-def test_a_bounded_pack_counts_keys_its_schema_runs_patterns_on(tmp_path: Path) -> None:
+def test_a_bounded_agent_counts_keys_its_schema_runs_patterns_on(tmp_path: Path) -> None:
     def schema(s: dict[str, Any]) -> None:
         s["properties"]["extra"] = {"type": "object", "patternProperties": {"^k": {}}}
 
@@ -482,13 +484,13 @@ def test_a_bounded_pack_counts_keys_its_schema_runs_patterns_on(tmp_path: Path) 
     assert result.reasons == (TOO_LONG,)
 
 
-def test_the_rules_provider_refuses_the_same_for_a_pack_built_by_hand(tmp_path: Path) -> None:
-    """A `Pack` not loaded by `load_pack` (a test's, a tool's) gets the caps when its rules
+def test_the_rules_provider_refuses_the_same_for_an_agent_built_by_hand(tmp_path: Path) -> None:
+    """An `Agent` not loaded by `load_agent` (a test's, a tool's) gets the caps when its rules
     provider is built."""
-    pack = pulled(sorter(tmp_path))
-    rules = {**pack.parsed[RULES], "text_fields": ["message", "message"]}
-    with pytest.raises(PackValidationError) as error:
-        Decision(replace(pack, parsed={RULES: rules}))
+    agent = pulled(sorter(tmp_path))
+    rules = {**agent.parsed[RULES], "text_fields": ["message", "message"]}
+    with pytest.raises(AgentValidationError) as error:
+        Decision(replace(agent, parsed={RULES: rules}))
     assert error.value.problems == [
         f"{RULES}: text_fields names 'message' 2 times; name each field once (a field named "
         "twice is read twice)"

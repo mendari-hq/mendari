@@ -637,7 +637,7 @@ def serving(
         auth_module, "GuardedHttp", lambda **kw: GuardedHttp(transport=transport, **kw)
     )
     # The product's own agents (the bundled demo agent alone), as the engine's image has them.
-    app = create_app(db_path=database, packs_paths=[ROOT / "agents"])
+    app = create_app(db_path=database, agents_paths=[ROOT / "agents"])
     return TestClient(app, base_url=PUBLIC, headers=DASHBOARD)
 
 

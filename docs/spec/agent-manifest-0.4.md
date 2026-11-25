@@ -370,7 +370,7 @@ providers:
     variants:
       agent:
         type: agent
-        agent_id: portal-agent
+        service_id: portal-agent
         state_fields: [message.subject, message.body]
         calibration: models/reader-agent-calibration.json
 ```
@@ -381,7 +381,7 @@ providers:
 ```json
 {
   "format": "mendari.agent-calibration/1",
-  "agent": {"id": "portal-agent", "version": "2.1.0", "model": null},
+  "service": {"id": "portal-agent", "version": "2.1.0", "model": null},
   "method": "temperature",
   "temperatures": {"request": 1.66},
   "questions": {"request": {"cases": 400, "nll_before": 0.7571, "nll_after": 0.6703,
@@ -406,14 +406,14 @@ the map scales log(c (K - 1) / (1 - c)) by 1 / T. The answer's label MUST be kep
 gave it; the map keeps the order of the labels, so no other label has a larger p'. A question
 with no temperature is left as reported.
 
-**The version.** A runtime MUST compare, for each call, the variant's `agent_id` and the
-`agent_version` in the agent's response with `agent.id` and `agent.version` of the file.
+**The version.** A runtime MUST compare, for each call, the variant's `service_id` and the
+`service_version` in the agent's response with `service.id` and `service.version` of the file.
 
 - Equal: the map is applied.
-- Not equal, or the response has no `agent_version`: the map MUST NOT be applied, and the
+- Not equal, or the response has no `service_version`: the map MUST NOT be applied, and the
   decision carries the cap
   `the agent changed since its confidence was calibrated (was X, is Y)`, where X is the file's
-  version and Y the reported one, or `not reported`. When the two `agent_id`s differ, X and Y
+  version and Y the reported one, or `not reported`. When the two `service_id`s differ, X and Y
   each give the id and then the version.
 
 Answers read from the variant's `mock_file` are not the agent's confidence: the map MUST NOT be
@@ -423,12 +423,12 @@ applied to them, and they carry no version cap.
 case of a labelled dataset once and fits each question's T by minimising the negative
 log-likelihood of the true label. A fitter:
 
-- MUST NOT fit on canned answers, on a service that reports no `agent_version`, or on one that
+- MUST NOT fit on canned answers, on a service that reports no `service_version`, or on one that
   reported more than one version while it was asked;
 - MUST NOT fit a question on fewer than 100 labelled cases the agent answered, and MUST leave a
   question unfitted when no temperature is the best one (the best is at the edge of its search);
 - MUST record the dataset's name, its sha256, the number of cases and the date, and the
-  `agent_id` and reported `agent_version`;
+  `service_id` and reported `service_version`;
 - SHOULD be given a dataset that no evaluation reports on (an agent's `calibration` set), and
   SHOULD say so when it is given one of the agent's evaluation sets.
 
@@ -486,7 +486,7 @@ never an argument.
       checked:
         type: check
         members:
-          agent: {type: agent, agent_id: portal-agent, state_fields: [message.body]}
+          agent: {type: agent, service_id: portal-agent, state_fields: [message.body]}
           second: {type: llm, state_fields: [message.body]}
 ```
 
@@ -635,7 +635,7 @@ The manifest of §2.3, at risk level 0, automating `refill` from confidence 0.90
 Mendari to the agent (0.2's body, with §4.1's `actions`):
 
 ```json
-{"pack_id": "my-clinic/portal-agent", "slot": "reader", "agent_id": "portal-agent",
+{"agent_id": "my-clinic/portal-agent", "slot": "reader", "service_id": "portal-agent",
  "questions": [{"key": "request", "type": "choice", "instructions": "What does the patient ask for?",
                 "choices": ["refill", "appointment", "other"], "criteria": {"refill": "…"}}],
  "input": {"message": {"body": "Could you refill my lisinopril? I am running low."}},

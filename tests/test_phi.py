@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.core.phi import PhiPolicy, phi_policy
 from mendari.errors import MendariError
@@ -47,7 +47,7 @@ def test_the_settings(monkeypatch: pytest.MonkeyPatch) -> None:
         phi_policy()
 
 
-def test_hash_mode_stores_no_input(tmp_path: Path, triage_agent: Pack) -> None:
+def test_hash_mode_stores_no_input(tmp_path: Path, triage_agent: Agent) -> None:
     store = AuditStore(tmp_path / "a.db", phi=PhiPolicy(mode="hash"))
     result = Decision(triage_agent, store=store)(message(SECRET_WORDS))
     item = store.get(result.id, reader="anyone")
@@ -58,7 +58,7 @@ def test_hash_mode_stores_no_input(tmp_path: Path, triage_agent: Pack) -> None:
 
 
 def test_encrypt_mode_keeps_only_ciphertext_and_reveals_it_to_readers(
-    tmp_path: Path, triage_agent: Pack
+    tmp_path: Path, triage_agent: Agent
 ) -> None:
     store = encrypting(tmp_path)
     result = Decision(triage_agent, store=store)(message(SECRET_WORDS))
@@ -80,7 +80,7 @@ def test_encrypt_mode_keeps_only_ciphertext_and_reveals_it_to_readers(
     assert store.verify()["ok"] is True
 
 
-def test_a_ciphertext_only_opens_for_its_own_decision(tmp_path: Path, triage_agent: Pack) -> None:
+def test_a_ciphertext_only_opens_for_its_own_decision(tmp_path: Path, triage_agent: Agent) -> None:
     store = encrypting(tmp_path)
     decide = Decision(triage_agent, store=store)
     first, second = decide(message(SECRET_WORDS)), decide(message("refill please"))
@@ -98,7 +98,7 @@ def test_a_ciphertext_only_opens_for_its_own_decision(tmp_path: Path, triage_age
         wrong_key.get(first.id, reader="Nurse Kim")
 
 
-def test_retention_purges_inputs_and_keeps_the_chain(tmp_path: Path, triage_agent: Pack) -> None:
+def test_retention_purges_inputs_and_keeps_the_chain(tmp_path: Path, triage_agent: Agent) -> None:
     store = encrypting(tmp_path)
     decide = Decision(triage_agent, store=store)
     old, new = decide(message(SECRET_WORDS)), decide(message("refill please"))
@@ -128,7 +128,7 @@ def test_only_reviewers_and_admins_read_inputs() -> None:
 
 
 def test_the_server_reports_the_mode_and_reads_through_the_policy(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
     monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
@@ -145,7 +145,7 @@ def test_the_server_reports_the_mode_and_reads_through_the_policy(
 
 
 def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
     monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
@@ -185,7 +185,7 @@ def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
 
 def test_the_cli_purges(
     tmp_path: Path,
-    triage_agent: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:

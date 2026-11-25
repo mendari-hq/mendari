@@ -268,14 +268,14 @@ test("publisher text is shown as text: an agent's name and who labelled its case
 
 test("a new version starts with no evaluation, and an earlier one's is its own page", async ({ page }) => {
   await page.goto(at("older"));
-  await expect(page.locator(".pack-id-pill")).toHaveText("states/older@2.0.0");
+  await expect(page.locator(".agent-id-pill")).toHaveText("states/older@2.0.0");
   const none = page.getByRole("region", { name: "No evaluation published" });
   await expect(none).toContainText("The publisher has not published how version 2.0.0 did on any dataset.");
   await expect(none).toContainText("An earlier version has a published evaluation: 1.0.0. It is of that version, not of this one.");
   await expect(badgeAlt(page)).toHaveAttribute("alt", "Mendari: no evaluation published");
   await none.getByRole("link", { name: "1.0.0" }).click();
   await expect(page).toHaveURL(at("older", "?version=1.0.0"));
-  await expect(page.locator(".pack-id-pill")).toHaveText("states/older@1.0.0");
+  await expect(page.locator(".agent-id-pill")).toHaveText("states/older@1.0.0");
   await expect(page.locator(".eval-older")).toHaveText("You are reading version 1.0.0. The newest version is 2.0.0: read its evaluation.");
   await expect(rows(page)).toHaveCount(2);
   // The badge is the newest version's, so the earlier version's page shows none.

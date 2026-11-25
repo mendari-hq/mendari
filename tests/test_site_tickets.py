@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Evaluation tickets (LP-22e, ADR-0017): before a run a verified site asks for a ticket bound
-to the site, the pack's digest, the configuration, the dataset's size and a keyed commitment to
+to the site, the agent's digest, the configuration, the dataset's size and a keyed commitment to
 the dataset, signed with a live site key. Synthetic sites and data only; every key and secret
 is made here."""
 
@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari.cli import _site_configuration, main
-from mendari.core.pack import load_pack
+from mendari.core.agent import load_agent
 from mendari.errors import MendariError
 from mendari.hub import site_signing, sites
 from mendari.hub.registry import create_registry_app
@@ -26,7 +26,7 @@ from tests.conftest import FIXTURE_NAMESPACE, TRIAGE_DIR, Registry
 
 # The agent `Registry.publish()` publishes; a site's own labelled cases for it (here its test
 # set's file), and how many.
-TRIAGE = load_pack(TRIAGE_DIR)
+TRIAGE = load_agent(TRIAGE_DIR)
 NAMESPACE, NAME = TRIAGE.id.split("/")
 DATASET = TRIAGE_DIR / "data" / "test.jsonl"
 N = len(DATASET.read_text().splitlines())
@@ -49,7 +49,7 @@ def _site(registry: Registry, tmp_path: Path, *, org: str = "north-health") -> S
 
 def _request(site: Site, **changes: Any) -> dict[str, Any]:
     fields: dict[str, Any] = {
-        "pack": {"id": TRIAGE.id, "version": TRIAGE.version, "digest": TRIAGE.digest},
+        "agent": {"id": TRIAGE.id, "version": TRIAGE.version, "digest": TRIAGE.digest},
         "configuration": LOCAL,
         "remote_consent": False,
         "commitment": site.commitment(DATASET.read_bytes()),
@@ -156,10 +156,10 @@ def test_a_digest_that_is_not_the_published_versions_is_refused(
 ) -> None:
     site = _site(published, tmp_path)
     other = {"id": TRIAGE.id, "version": TRIAGE.version, "digest": "sha256:" + "0" * 64}
-    answer = _post(published, _request(site, pack=other))
+    answer = _post(published, _request(site, agent=other))
     assert answer.status_code == 409 and "digest" in answer.text
     unknown = {**other, "version": "9.9.9", "digest": TRIAGE.digest}
-    assert _post(published, _request(site, pack=unknown)).status_code == 404
+    assert _post(published, _request(site, agent=unknown)).status_code == 404
 
 
 def test_a_recalled_deleted_or_unlisted_version_gets_no_ticket(
@@ -335,7 +335,7 @@ def test_an_old_or_replayed_record_never_counts_against_the_sites_key(
     old = site.sign(
         site_signing.TICKET_REQUEST,
         {
-            "pack": {"id": TRIAGE.id, "version": TRIAGE.version, "digest": TRIAGE.digest},
+            "agent": {"id": TRIAGE.id, "version": TRIAGE.version, "digest": TRIAGE.digest},
             "configuration": LOCAL,
             "remote_consent": False,
             "commitment": site.commitment(b"x"),
@@ -362,12 +362,12 @@ def test_a_closed_sites_unreported_tickets_stay_listed(published: Registry, tmp_
     assert (group["site"], group["site_status"], group["unreported"]) == (site.id, "closed", 1)
 
 
-def test_the_tickets_of_a_pack_nobody_may_read_are_a_404(
+def test_the_tickets_of_an_agent_nobody_may_read_are_a_404(
     published: Registry, tmp_path: Path
 ) -> None:
     site = _site(published, tmp_path)
     assert _post(published, _request(site)).status_code == 201
-    assert published.client.get("/v1/agents/mendari/no-such-pack/tickets").status_code == 404
+    assert published.client.get("/v1/agents/mendari/no-such-agent/tickets").status_code == 404
     _plant_a_pending_claim(published)
     hidden = published.client.get(f"/v1/agents/{TRIAGE.id}/tickets")
     assert hidden.status_code == 404 and site.id not in hidden.text

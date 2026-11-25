@@ -19,12 +19,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mendari.core.agent import Agent
 from mendari.core.origin import MAX_BOUNDED_TEXT_CHARS
-from mendari.core.pack import Pack
 from mendari.core.patterns import RULES_FLAGS, Matcher, OutOfTime, check_time
 from mendari.core.patterns import compile as compile_pattern
 from mendari.core.spec import Question
-from mendari.errors import PackValidationError, ProviderError
+from mendari.errors import AgentValidationError, ProviderError
 from mendari.providers.base import (
     FileConfig,
     Provider,
@@ -81,19 +81,19 @@ class RulesProvider(Provider):
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        rules, problems = self._read(self.pack, self.info.slot, self.config)
+        rules, problems = self._read(self.agent, self.info.slot, self.config)
         if rules is None:
-            raise PackValidationError(self.pack.id, problems)
+            raise AgentValidationError(self.agent.id, problems)
         self.rules = rules
         relative = self.config["config"]
-        self.info = replace(self.info, model=f"rules@{fingerprint(self.pack, relative)}")
-        problems = self._rules_problems(relative, rules, self.questions, bounded=self.pack.bounded)
+        self.info = replace(self.info, model=f"rules@{fingerprint(self.agent, relative)}")
+        problems = self._rules_problems(relative, rules, self.questions, bounded=self.agent.bounded)
         if problems:
-            raise PackValidationError(self.pack.id, problems)
+            raise AgentValidationError(self.agent.id, problems)
 
-        # The pack's own patterns, on its engine (`core/patterns.py`); the negation pattern
+        # The agent's own patterns, on its engine (`core/patterns.py`); the negation pattern
         # below is Mendari's, built from escaped cues, and stays on `re`.
-        bounded = self.pack.bounded
+        bounded = self.agent.bounded
         self._compiled = {
             question: {
                 label: [
@@ -112,7 +112,7 @@ class RulesProvider(Provider):
     @classmethod
     def config_problems(
         cls,
-        pack: Pack,
+        agent: Agent,
         where: str,
         config: Mapping[str, Any],
         questions: Mapping[str, Question],
@@ -122,21 +122,21 @@ class RulesProvider(Provider):
         closed = closed_problems(FileConfig, where, config)
         if closed:
             return closed
-        rules, problems = cls._read(pack, where, config)
+        rules, problems = cls._read(agent, where, config)
         if rules is None:
             return problems
         return cls._rules_problems(config["config"], rules, questions, bounded=bounded)
 
     @staticmethod
     def _read(
-        pack: Pack, where: str, config: Mapping[str, Any]
+        agent: Agent, where: str, config: Mapping[str, Any]
     ) -> tuple[RulesConfig | None, list[str]]:
         """The rules file `config` names, read and checked against `RulesConfig`, or None and
         why not."""
         relative = config.get("config")
         if not isinstance(relative, str):
             return None, [f"{where}: rules need `config`"]
-        data, problems = read_problems(lambda: pack.read_yaml(relative))
+        data, problems = read_problems(lambda: agent.read_yaml(relative))
         if problems:
             return None, problems
         try:
@@ -149,7 +149,7 @@ class RulesProvider(Provider):
         relative: str, rules: RulesConfig, questions: Mapping[str, Question], *, bounded: bool
     ) -> list[str]:
         """The caps of an agent on the bounded engine (`bounded`; `core/caps.py`, imported only
-        for one; `load_pack` checks them too, as written), and a rule for each question of the
+        for one; `load_agent` checks them too, as written), and a rule for each question of the
         slot, with its labels."""
         problems: list[str] = []
         if bounded:
@@ -183,7 +183,7 @@ class RulesProvider(Provider):
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         try:
             return self._answer(inputs)
-        except OutOfTime as error:  # a bounded pack's patterns used this decision's budget
+        except OutOfTime as error:  # a bounded agent's patterns used this decision's budget
             raise ProviderError("time_budget", str(error)) from None
 
     def _answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
@@ -213,10 +213,10 @@ class RulesProvider(Provider):
         if not self._keywords:
             return text, []
         corrections: list[str] = []
-        # The patterns of an agent on the bounded engine (`Pack.bounded`) run on texts of at
+        # The patterns of an agent on the bounded engine (`Agent.bounded`) run on texts of at
         # most this length (`core/origin.py`; the caps on their work are measured on it): a
         # correction that would make the text longer is not made.
-        bounded = self.pack.bounded
+        bounded = self.agent.bounded
         room = [MAX_BOUNDED_TEXT_CHARS - len(text)] if bounded else None
         timed = bounded  # each word is compared with many keywords
 

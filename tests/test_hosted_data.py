@@ -27,7 +27,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack, load_pack
+from mendari import Agent, AuditStore, Decision, load_agent
 from mendari import cli as cli_module
 from mendari.cli import main
 from mendari.core import audit as audit_module
@@ -63,10 +63,10 @@ CRON = "a-cron-secret-of-some-length-0123456789"
 
 
 @pytest.fixture(scope="module")
-def chart() -> Pack:
+def chart() -> Agent:
     """The fixture that reads a patient's FHIR record: decided with `quoting_agent`, whose
     answers' evidence quotes the record."""
-    return load_pack(CHART_DIR)
+    return load_agent(CHART_DIR)
 
 
 def service(compose: str, name: str) -> str:
@@ -118,7 +118,7 @@ def test_the_hosted_site_refuses_plaintext_and_runs_encrypt_by_default(
 
 def test_sign_in_refuses_plaintext_whatever_the_database(
     db_target: str,
-    triage_agent: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -211,7 +211,7 @@ def test_an_open_local_sandbox_still_starts_without_a_mode(
 
 def test_a_protected_database_never_takes_plaintext_again(
     tmp_path: Path,
-    triage_agent: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -239,7 +239,7 @@ def test_a_protected_database_never_takes_plaintext_again(
 
 
 def test_the_refusal_comes_before_any_provider_and_sees_a_later_mark(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     db = tmp_path / "a.db"
     early = AuditStore(db, phi=policy("off"))  # a long-running store, opened before the mark
@@ -275,7 +275,7 @@ def test_the_signed_in_templates_choose_a_mode() -> None:
 
 def test_the_signed_in_sandbox_resets_alone() -> None:
     """Starting the signed-in sandbox over removes its engine and volume only: `down -v` would
-    also remove `mendari-data`, the open engine's database and the registry's packs. The volume's
+    also remove `mendari-data`, the open engine's database and the registry's agents. The volume's
     name follows the compose project's."""
     compose = (ROOT / "docker-compose.yml").read_text()
     assert "\nname: mendari\n" in compose and "  mendari-signin-data:\n" in compose
@@ -290,7 +290,7 @@ def test_the_signed_in_sandbox_resets_alone() -> None:
 
 
 def test_a_legacy_input_opens_only_for_a_reader_and_the_read_is_chained(
-    db_target: str, chart: Pack, monkeypatch: pytest.MonkeyPatch
+    db_target: str, chart: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     quoting_agent(monkeypatch)
     before = AuditStore(db_target, phi=policy("off"))
@@ -312,7 +312,7 @@ def test_a_legacy_input_opens_only_for_a_reader_and_the_read_is_chained(
     store.close()
 
 
-def test_under_off_a_record_still_carries_its_input(tmp_path: Path, chart: Pack) -> None:
+def test_under_off_a_record_still_carries_its_input(tmp_path: Path, chart: Agent) -> None:
     store = AuditStore(tmp_path / "a.db", phi=policy("off"))
     result, _ = Decision(chart, store=store).decide_fhir(marked_bundle())
     item = store.get(result.id)
@@ -322,7 +322,7 @@ def test_under_off_a_record_still_carries_its_input(tmp_path: Path, chart: Pack)
 
 
 def test_the_server_gates_legacy_inputs_by_role(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     db = tmp_path / "a.db"
     decided = Decision(triage_agent, store=AuditStore(db, phi=policy("off")))(message(URGENT))
@@ -344,7 +344,7 @@ def test_the_server_gates_legacy_inputs_by_role(
 
 def test_exporting_older_inputs_under_hash_is_logged_as_a_read(
     tmp_path: Path,
-    triage_agent: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -400,8 +400,8 @@ def input_reads(store: AuditStore) -> int:
 
 def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
     db_target: str,
-    chart: Pack,
-    triage_agent: Pack,
+    chart: Agent,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -453,7 +453,7 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
             continue
         filled = [path.replace("{resource_id}", FIXED_IDS.get(path, "{resource_id}"))]
         if path == "/api/monitoring":
-            filled = [f"{path}?pack_id={pack.id}" for pack in (triage_agent, chart)]
+            filled = [f"{path}?agent_id={agent.id}" for agent in (triage_agent, chart)]
         if "{key_id}" in path:  # a key's history: one of the keys above
             filled = [path.replace("{key_id}", keys["service"]["id"])]
         if "{decision_id}" in path or "/Task/{resource_id}" in path:
@@ -463,8 +463,8 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
         for kind, ids in found.items():
             if f"/{kind}/{{resource_id}}" in path:
                 filled = [path.replace("{resource_id}", i) for i in ids[:6]]
-        for pack in (triage_agent, chart):
-            namespace, name = pack.id.split("/")
+        for agent in (triage_agent, chart):
+            namespace, name = agent.id.split("/")
             if "{namespace}" in path:
                 filled += [
                     p.replace("{namespace}", namespace).replace("{name}", name) for p in filled
@@ -510,7 +510,7 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
 
 def test_a_decision_rated_twice_is_logged_as_read_once(
     tmp_path: Path,
-    triage_agent: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -535,7 +535,7 @@ def test_a_decision_rated_twice_is_logged_as_read_once(
 
 
 def test_erasing_a_kept_input_and_its_notes_keeps_the_chain(
-    db_target: str, chart: Pack, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    db_target: str, chart: Agent, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     quoting_agent(monkeypatch)  # the chart's answers quote its record: sealed beside its input
     store = AuditStore(db_target, phi=policy("encrypt"))
@@ -564,7 +564,7 @@ def test_erasing_a_kept_input_and_its_notes_keeps_the_chain(
     store.close()
 
 
-def test_what_the_chain_holds_is_said_to_remain(tmp_path: Path, triage_agent: Pack) -> None:
+def test_what_the_chain_holds_is_said_to_remain(tmp_path: Path, triage_agent: Agent) -> None:
     db = tmp_path / "a.db"
     before = AuditStore(db, phi=policy("off"))
     legacy = Decision(triage_agent, store=before)(message(URGENT))
@@ -581,7 +581,7 @@ def test_what_the_chain_holds_is_said_to_remain(tmp_path: Path, triage_agent: Pa
     assert store.verify(notes=True)["ok"] is True
 
 
-def test_what_cannot_be_erased_is_refused(tmp_path: Path, triage_agent: Pack) -> None:
+def test_what_cannot_be_erased_is_refused(tmp_path: Path, triage_agent: Agent) -> None:
     store = AuditStore(tmp_path / "a.db", phi=policy("encrypt"))
     with pytest.raises(NoteError, match="no decision"):
         store.erase_input("nope", erased_by="dpo@example.org", reason="request")
@@ -593,7 +593,7 @@ def test_what_cannot_be_erased_is_refused(tmp_path: Path, triage_agent: Pack) ->
     assert store.verify()["ok"] is True
 
 
-def test_the_export_says_an_input_was_erased(tmp_path: Path, triage_agent: Pack) -> None:
+def test_the_export_says_an_input_was_erased(tmp_path: Path, triage_agent: Agent) -> None:
     store = AuditStore(tmp_path / "a.db", phi=policy("encrypt"))
     decided = Decision(triage_agent, store=store)(message(SECRET))
     store.erase_input(decided.id, erased_by="dpo@example.org", reason="error")
@@ -608,7 +608,7 @@ def test_the_export_says_an_input_was_erased(tmp_path: Path, triage_agent: Pack)
 
 
 def test_admins_erase_through_the_api(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     encrypt_mode(monkeypatch)
     sign_in_env(monkeypatch)
@@ -635,7 +635,7 @@ def test_admins_erase_through_the_api(
 
 def test_the_cli_erases(
     tmp_path: Path,
-    triage_agent: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -666,7 +666,7 @@ def test_retention_keeps_30_days_unless_told_and_never_0_from_a_setting(
 
 def test_purging_everything_is_asked_for_on_the_command_line(
     tmp_path: Path,
-    triage_agent: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -693,7 +693,7 @@ def test_purging_everything_is_asked_for_on_the_command_line(
 
 
 def test_retention_purges_in_batches_and_chains_a_summary(
-    db_target: str, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    db_target: str, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(audit_module, "PURGE_BATCH", 2)
     store = AuditStore(db_target, phi=policy("encrypt"))
@@ -726,7 +726,7 @@ def cron_client(
 
 
 def test_the_scheduled_purge_runs_with_the_cron_secret_only(
-    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = cron_client(tmp_path, monkeypatch)
     store = AuditStore(tmp_path / "a.db", phi=policy("encrypt"))

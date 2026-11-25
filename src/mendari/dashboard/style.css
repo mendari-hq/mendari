@@ -51,7 +51,7 @@
   --outcome-abstain-soft: var(--color-neutral-soft);
   --outcome-block: var(--color-danger);
   --outcome-block-soft: var(--color-danger-soft);
-  /* Where a pack comes from: every origin is neutral. */
+  /* Where an agent comes from: every origin is neutral. */
   --origin-other: var(--color-neutral);
   --origin-other-soft: var(--color-neutral-soft);
 
@@ -224,10 +224,10 @@ button.other-stat-pill:hover { opacity: 0.9; }
   padding: var(--space-0-5) var(--space-1); border-radius: 4px;
   background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted);
 }
-.pack-picker { min-width: 0; }  /* long pack names shrink the picker, not widen the page */
+.agent-picker { min-width: 0; }  /* long agent names shrink the picker, not widen the page */
 /* Its width is fixed from first paint: filled in later with long pack names, it used to wrap the top
    bar at tablet widths and shift the whole page (a 0.50 layout shift at 768 px). */
-.pack-picker select { width: 15rem; max-width: 100%; }
+.agent-picker select { width: 15rem; max-width: 100%; }
 /* Memberships mode: the organization a person in several acts for (main.js), and choosing one
    on the access page (access.js). */
 .org-picker { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; }
@@ -242,7 +242,7 @@ button.other-stat-pill:hover { opacity: 0.9; }
   .topbar:has(#org-form:not([hidden])) :is(.tag-detail, .segmented .label) {
     position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
   }
-  .topbar:has(#org-form:not([hidden])) :is(.pack-picker, .org-picker) select { width: 9rem; }
+  .topbar:has(#org-form:not([hidden])) :is(.agent-picker, .org-picker) select { width: 9rem; }
 }
 .org-choices { display: grid; gap: var(--space-2); margin: 0; padding: 0; border: 0; }
 .org-choices legend { margin-bottom: var(--space-2); font-weight: var(--weight-medium); }
@@ -436,26 +436,26 @@ button.open-record { white-space: nowrap; display: inline-flex; align-items: cen
 .stat.small .stat-value { font-size: var(--text-kpi-sm); line-height: var(--leading-kpi-sm); font-weight: var(--weight-semibold); }
 .stat.small .stat-value .icon { width: 18px; height: 18px; }
 
-/* The pack hero card: elevated header with quick actions, risk, and deployed provider pipeline. */
-.pack-hero {
+/* The agent hero card: elevated header with quick actions, risk, and deployed provider pipeline. */
+.agent-hero {
   background: var(--color-surface); border: 1px solid var(--color-border); border-top: 3px solid var(--color-accent);
   border-radius: var(--radius-md); box-shadow: var(--shadow-1); padding: var(--space-5);
 }
-.pack-hero-top { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3) var(--space-4); }
-.pack-hero-title { min-width: 0; }
-.pack-hero-title h1 { margin: var(--space-2) 0 0; }
-.pack-risk { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1-5) var(--space-2); }
-.pack-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.pack-header-meta { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
-.pack-header p { margin: 0 0 var(--space-1); }
-.pack-header .deployed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.agent-hero-top { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3) var(--space-4); }
+.agent-hero-title { min-width: 0; }
+.agent-hero-title h1 { margin: var(--space-2) 0 0; }
+.agent-risk { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1-5) var(--space-2); }
+.agent-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.agent-header-meta { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
+.agent-header p { margin: 0 0 var(--space-1); }
+.agent-header .deployed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .command-center { border-top: 3px solid var(--color-accent); }
 .trace-num {
   font-family: var(--font-mono); font-size: var(--text-xs); font-weight: var(--weight-semibold);
   color: var(--color-text); margin-right: var(--space-0-5);
 }
 .badge.risk { color: var(--color-text); background: var(--color-surface-sunken); border: 1px solid var(--color-border-strong); }
-/* Where the pack comes from (pack.js originBadge). */
+/* Where the agent comes from (manifest.js originBadge). */
 .badge.origin { color: var(--origin-other); background: var(--origin-other-soft); }
 /* Empty views: an icon in a soft circle, one line on what goes here, one action. Grouped by a dashed
    outline rather than a card: there is no object here yet. */
@@ -819,7 +819,7 @@ input[readonly] { background: var(--color-surface-sunken); border-style: dashed;
 .right-answer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .right-answer .icon { color: var(--outcome-auto); }
 
-/* Callouts: what to do instead (fallback), the sandbox notice, passing pack checks. */
+/* Callouts: what to do instead (fallback), the sandbox notice, passing agent checks. */
 .callout { margin: var(--space-3) 0; padding: var(--space-3) var(--space-4); border-left: 4px solid; border-radius: var(--radius-sm); }
 .callout.ok { background: var(--color-success-soft); border-color: var(--color-success); }
 .callout.danger { background: var(--outcome-block-soft); border-color: var(--color-danger); }
@@ -1028,7 +1028,7 @@ button.priority-filter[aria-pressed="true"] { border-color: var(--color-text); b
 .result-head h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--text-xl); line-height: var(--leading-xl); }
 .result-head h2 .icon { width: 20px; height: 20px; }
 .result-head p { margin: var(--space-1) 0 0; }
-/* LP-05b: the result in words. A pack's code sits beside each name, hidden until "Show codes". */
+/* LP-05b: the result in words. An agent's code sits beside each name, hidden until "Show codes". */
 .code-ref { display: none; font-family: var(--font-mono); font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-muted); font-weight: normal; }
 .code-ref code { font: inherit; }
 .show-codes .code-ref { display: inline; }
@@ -1048,7 +1048,7 @@ button.priority-filter[aria-pressed="true"] { border-color: var(--color-text); b
 .result-head.tone-solid a { color: inherit; }
 .samples { align-items: center; }
 
-/* Try it on record packs: a form generated from the pack's input schema (form.js), or the JSON. */
+/* Try it on record agents: a form generated from the agent's input schema (form.js), or the JSON. */
 .try-mode { justify-content: space-between; margin-bottom: var(--space-2); }
 .try-mode-label { font-weight: var(--weight-semibold); }
 /* A refusal said where it happened: under the FHIR input, above the PAS request's button. */
@@ -1095,7 +1095,7 @@ textarea.code.sf-json { min-height: 90px; }
 .label-option input[type="radio"] { width: 24px; height: 24px; min-height: 0; margin: 0; flex: none; accent-color: var(--color-accent); }
 .field-error { margin: 0; color: var(--color-danger); font-weight: var(--weight-medium); }
 
-/* The pack registry (registry.js, LP-19f): a claim's versions, each one's two fact lists side by
+/* The agent registry (registry.js, LP-19f): a claim's versions, each one's two fact lists side by
    side, and a card read as plain text. */
 .registry-version { border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
 .registry-version h4 { margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
@@ -1137,7 +1137,7 @@ ol.rules p { margin: var(--space-1) 0; }
 }
 @keyframes undo-time { to { transform: scaleX(0); } }
 
-/* Structured records (packs whose input is not a message). */
+/* Structured records (agents whose input is not a message). */
 .record { margin: var(--space-3) 0; }
 .record .chips { margin-bottom: var(--space-2); }
 .list-name { font-weight: var(--weight-semibold); font-size: var(--text-xs); margin: var(--space-3) 0 var(--space-1); }
@@ -1273,14 +1273,14 @@ ol.rules p { margin: var(--space-1) 0; }
   .nav.scrolled { box-shadow: inset 16px 0 12px -12px rgba(0, 0, 0, 0.3); }
   .nav.scrolled.more-right { box-shadow: inset 16px 0 12px -12px rgba(0, 0, 0, 0.3), inset -16px 0 12px -12px rgba(0, 0, 0, 0.3); }
   .nav a.external { margin-top: 0; }
-  .pack-picker select { width: 13rem; }
+  .agent-picker select { width: 13rem; }
   .stats-primary:is(:has(> :nth-child(4):last-child), :has(> :nth-child(6):last-child)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topbar .segmented .label {
     position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
   }
 }
 
-/* Phones: a 56 px top bar (brand and a Settings button); the theme and the pack open in a sheet
+/* Phones: a 56 px top bar (brand and a Settings button); the theme and the agent open in a sheet
    under it, with their names shown. */
 @media (max-width: 760px) {
   .topbar { flex-wrap: nowrap; min-height: 56px; padding: 0 var(--space-2) 0 var(--space-4); }
@@ -1304,9 +1304,9 @@ ol.rules p { margin: var(--space-1) 0; }
   .topbar.settings-open .setting-name { color: var(--color-text-muted); font-size: var(--text-sm); }
   .topbar.settings-open .segmented { justify-self: start; }
   @keyframes sheet-in { from { opacity: 0; transform: translateY(-4px); } }
-  /* The pack's name is the label's first child: the picker becomes a row of its own grid. */
-  .topbar.settings-open :is(.pack-picker, .org-picker:not([hidden])) { display: contents; }
-  .topbar.settings-open :is(.pack-picker, .org-picker) select { width: 100%; }
+  /* The agent's name is the label's first child: the picker becomes a row of its own grid. */
+  .topbar.settings-open :is(.agent-picker, .org-picker:not([hidden])) { display: contents; }
+  .topbar.settings-open :is(.agent-picker, .org-picker) select { width: 100%; }
   .topbar.settings-open .org-picker button { grid-column: 2; justify-self: start; }
   /* Who is signed in closes the sheet, on a row of its own. */
   .topbar.settings-open .signed-in:not([hidden]) {
@@ -1369,7 +1369,7 @@ ol.rules p { margin: var(--space-1) 0; }
 .check-state { justify-self: start; }
 .check-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
 .check-findings { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: var(--space-2); font-size: var(--text-sm); }
-.setup + .pack-hero { margin-top: var(--space-4); }
+.setup + .agent-hero { margin-top: var(--space-4); }
 @media (max-width: 760px) {
   .check-row { grid-template-columns: minmax(0, 1fr); }
   .check-actions { justify-content: flex-start; }

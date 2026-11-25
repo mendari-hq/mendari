@@ -22,7 +22,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.core import actions
 from mendari.core.actions import Proposed
 from mendari.core.policy import (
@@ -36,7 +36,7 @@ from mendari.core.policy import (
     gate_of,
     lowered,
 )
-from mendari.core.spec import Effect, Outcome, PackManifest
+from mendari.core.spec import AgentManifest, Effect, Outcome
 from mendari.errors import ProviderError
 from mendari.evals import operating_point as op
 from mendari.evals.harness import build_evaluation, load_dataset
@@ -125,8 +125,8 @@ def checking(tmp_path: Path, second: dict[str, Any] | None = None, name: str = "
         reader["variants"]["checked"] = {
             "type": "check",
             "members": {
-                "agent": live_member(manifest, agent_id="first-agent"),
-                "second": second or live_member(manifest, agent_id="second-agent"),
+                "agent": live_member(manifest, service_id="first-agent"),
+                "second": second or live_member(manifest, service_id="second-agent"),
             },
         }
         reader["use"] = "checked"
@@ -139,13 +139,13 @@ def two(first: Any, second: Any) -> Any:
     `second`."""
 
     def respond(body: dict[str, Any]) -> Any:
-        return first if body["agent_id"] == "first-agent" else second
+        return first if body["service_id"] == "first-agent" else second
 
     return respond
 
 
 def decide(root: Path, **kwargs: Any) -> Any:
-    return Decision(load_pack(root), **kwargs)(REFILL)
+    return Decision(load_agent(root), **kwargs)(REFILL)
 
 
 def shown(result: Any) -> list[tuple[str, str, str]]:
@@ -186,7 +186,7 @@ def test_the_three_caps_apply_in_one_order_and_read_as_one_list(
     )
     # Each alone lowers the same decision, and none of them is needed for another to hold.
     plain = PolicyInputs(inputs.answers, {}, None, inputs.variants)
-    manifest = load_pack(tmp_path / "all").manifest
+    manifest = load_agent(tmp_path / "all").manifest
     assert plain.apply(manifest).outcome is Outcome.AUTO
     for caps, stops in ((inputs.caps[:1], ()), (inputs.caps[1:], ()), ((), inputs.actions)):
         alone = PolicyInputs(inputs.answers, {}, None, inputs.variants, caps=caps, actions=stops)
@@ -234,7 +234,7 @@ def test_a_decision_already_going_to_a_person_gets_the_same_reasons(
 def test_a_block_stands_with_the_caps_as_notes_and_blocks_every_action() -> None:
     """A rule's BLOCK is final: no cap turns it into a review, a provider's cap is a note that
     does not say a person decides, and the actions' cap says nothing (every action is blocked)."""
-    manifest = PackManifest.model_validate(raw_manifest())
+    manifest = AgentManifest.model_validate(raw_manifest())
     answers = {
         "request": said("request", "refill", 0.99),
         "abusive": said("abusive", "yes", 0.99),
@@ -315,7 +315,7 @@ proposals = st.lists(
 )
 
 
-def manifest_of(made: dict[str, Any]) -> PackManifest:
+def manifest_of(made: dict[str, Any]) -> AgentManifest:
     raw = raw_manifest()
     raw["policy"]["thresholds"] = {
         "auto": made["auto"],
@@ -330,7 +330,7 @@ def manifest_of(made: dict[str, Any]) -> PackManifest:
     for name, effect in zip(NAMES, made["effects"], strict=True):
         raw["actions"][name]["effect"] = effect.value
         raw["actions"][name]["allow_auto"] = name not in made["tightened"]
-    return PackManifest.model_validate(raw)
+    return AgentManifest.model_validate(raw)
 
 
 def inputs_of(case: dict[str, Any], caps: Any = (), stops: Any = ()) -> PolicyInputs:
@@ -807,9 +807,9 @@ def test_no_run_raises_an_outcome_or_releases_an_action_with_every_feature_on(
     for each run on its own. So the three together make AUTO of nothing, and release nothing.
     (The calibration here is the identity, T = 1: its version cap is all it can change. A
     fitted map is a measured correction and may move a confidence either way.)"""
-    plain = Decision(load_pack(acting(tmp_path, "plain")))
-    everything = Decision(load_pack(with_all(tmp_path)))
-    checked = Decision(load_pack(checking(tmp_path)))
+    plain = Decision(load_agent(acting(tmp_path, "plain")))
+    everything = Decision(load_agent(with_all(tmp_path)))
+    checked = Decision(load_agent(checking(tmp_path)))
 
     def alone(run: Any) -> Any:
         serve(monkeypatch, [an_answer(run)])
@@ -851,11 +851,11 @@ def test_no_run_raises_an_outcome_or_releases_an_action_with_every_feature_on(
                 assert result.outcome is not Outcome.AUTO
 
     manifests_by_digest = {
-        decision.pack.digest: decision.pack.manifest for decision in (everything, checked)
+        decision.agent.digest: decision.agent.manifest for decision in (everything, checked)
     }
 
-    def result_manifest(result: Any) -> PackManifest:
-        return manifests_by_digest[result.pack_digest]
+    def result_manifest(result: Any) -> AgentManifest:
+        return manifests_by_digest[result.agent_digest]
 
     for run in SOUND:  # three runs that agree, then each one of them doing something else
         holds([run, run, run])
@@ -899,7 +899,7 @@ def test_applying_the_policy_again_gives_the_run_back_with_all_three_in_play(
         assert found is not None
         token, number = found.group(1), int(found.group(2))
         if number >= 250:  # the service was upgraded part of the way through
-            response["agent_version"] = "2.2.0"
+            response["service_version"] = "2.2.0"
         queue = "refill" if response["answers"]["request"]["value"] == "refill" else "scheduling"
         proposed = [{"name": "assign_queue", "arguments": {"queue": queue}}]
         if number % 7 == 0:  # a message to the patient: never released without a person
@@ -909,10 +909,10 @@ def test_applying_the_policy_again_gives_the_run_back_with_all_three_in_play(
         return {**response, "actions": proposed}
 
     serve(monkeypatch, respond)
-    pack = load_pack(root)
-    manifest = pack.manifest
+    agent = load_agent(root)
+    manifest = agent.manifest
     dataset = load_dataset(root / "data" / "test.jsonl")
-    decision = Decision(pack, origin_cap=False)
+    decision = Decision(agent, origin_cap=False)
     results = [decision(record["input"]) for record in dataset.records]
     run = build_evaluation(decision, dataset, results)
     cases = op.cases_of(run.ledger, results)

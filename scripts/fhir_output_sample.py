@@ -51,8 +51,8 @@ from sample_agent import (  # noqa: E402
 )
 
 from mendari import AuditStore, Decision  # noqa: E402
-from mendari.core.pack import Pack  # noqa: E402
-from mendari.core.registry import resolve_pack  # noqa: E402
+from mendari.core.agent import Agent  # noqa: E402
+from mendari.core.registry import resolve_agent  # noqa: E402
 from mendari.errors import MendariError  # noqa: E402
 from mendari.sandbox import DEMO_AGENT  # noqa: E402
 from mendari.server.app import create_app  # noqa: E402
@@ -67,7 +67,7 @@ FORM = {"content-type": "application/x-www-form-urlencoded"}
 CAPABILITY = Path("capability.json")
 
 
-def main(out: Path, fixtures: Mapping[str, Pack] | None = None) -> None:
+def main(out: Path, fixtures: Mapping[str, Agent] | None = None) -> None:
     """`fixtures`: the agent that decides each US Core fixture, by the fixture's name."""
     given = dict(fixtures or {})
     out.mkdir(parents=True, exist_ok=True)
@@ -80,7 +80,7 @@ def main(out: Path, fixtures: Mapping[str, Pack] | None = None) -> None:
             result, task = decision.decide_fhir(json.loads(source.read_text(encoding="utf-8")))
             written = out / f"task-{name}.json"
             write(written, task)
-            print(f"{decision.pack.id}: {result.outcome.value}, Task written to {written}")
+            print(f"{decision.agent.id}: {result.outcome.value}, Task written to {written}")
         store.close()
     served(out, given)
 
@@ -89,17 +89,17 @@ def fixture(name: str) -> Path:
     return FIXTURES / f"{name}.json"
 
 
-def engine(db_path: str | Path, agents: Iterable[Pack] = (), **settings: Any) -> FastAPI:
+def engine(db_path: str | Path, agents: Iterable[Agent] = (), **settings: Any) -> FastAPI:
     """A local engine that serves the demo agent, read by its rules, and `agents`."""
     return create_app(
         db_path=db_path,
-        packs_paths=[DEMO_AGENT_DIR, *(agent.root for agent in agents)],
+        agents_paths=[DEMO_AGENT_DIR, *(agent.root for agent in agents)],
         default_providers={DEMO_AGENT: LOCAL},
         **settings,
     )
 
 
-def served(out: Path, fixtures: Mapping[str, Pack]) -> None:
+def served(out: Path, fixtures: Mapping[str, Agent]) -> None:
     with tempfile.TemporaryDirectory() as scratch:
         for mode in ("warn", "enforce"):
             app = engine(Path(scratch) / f"{mode}.db", fixtures.values(), fhir_validation=mode)
@@ -185,7 +185,7 @@ def decide(client: TestClient, agent_id: str, source: Path) -> Any:
     parameters = {
         "resourceType": "Parameters",
         "parameter": [
-            {"name": "pack", "valueString": agent_id},
+            {"name": "agent", "valueString": agent_id},
             {"name": "data", "resource": data},
         ],
     }
@@ -198,7 +198,7 @@ def write(path: Path, resource: dict[str, Any]) -> None:
     path.write_text(json.dumps(resource, indent=2) + "\n", encoding="utf-8")
 
 
-def _fixture_agent(value: str) -> tuple[str, Pack]:
+def _fixture_agent(value: str) -> tuple[str, Agent]:
     """`NAME=AGENT` as (the US Core fixture's name, the agent that decides it)."""
     name, separator, agent = value.partition("=")
     if not separator or not name or not agent:
@@ -207,7 +207,7 @@ def _fixture_agent(value: str) -> tuple[str, Pack]:
         known = ", ".join(sorted(path.stem for path in FIXTURES.glob("*.json")))
         raise argparse.ArgumentTypeError(f"{name!r} is no US Core fixture here ({known})")
     try:
-        return name, resolve_pack(agent)
+        return name, resolve_agent(agent)
     except MendariError as error:
         raise argparse.ArgumentTypeError(f"{agent}: {error}") from None
 

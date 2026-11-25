@@ -14,8 +14,8 @@ import pytest
 
 from mendari import Decision
 from mendari.cli import main
+from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore
-from mendari.core.pack import Pack
 from mendari.errors import MendariError
 
 AGENT = "mendari-test/triage"  # the agent these tests decide with
@@ -33,11 +33,11 @@ def run(command: str, db: str, tmp_path: Path) -> int:
     return main([*argv, "--db", db])
 
 
-def used_database(path: Path, pack: Pack) -> Path:
+def used_database(path: Path, agent: Agent) -> Path:
     """A server's SQLite database with a decision in it, in rollback-journal mode (not WAL), so
     any write would show in its bytes or its journal mode."""
     with AuditStore(path) as store:
-        Decision(pack, store=store)({"message": {"body": "Can I get a refill of my lisinopril?"}})
+        Decision(agent, store=store)({"message": {"body": "Can I get a refill of my lisinopril?"}})
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute("PRAGMA journal_mode=DELETE")
     return path
@@ -71,7 +71,7 @@ def test_another_applications_database_is_refused_untouched(
 
 @pytest.mark.parametrize("command", sorted(COMMANDS))
 def test_the_servers_database_is_left_exactly_as_it_was(
-    command: str, tmp_path: Path, triage_agent: Pack
+    command: str, tmp_path: Path, triage_agent: Agent
 ) -> None:
     db = used_database(tmp_path / "mendari.db", triage_agent)
     before = db.read_bytes()
@@ -81,7 +81,7 @@ def test_the_servers_database_is_left_exactly_as_it_was(
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
 
 
-def test_a_read_only_file_verifies(tmp_path: Path, triage_agent: Pack) -> None:
+def test_a_read_only_file_verifies(tmp_path: Path, triage_agent: Agent) -> None:
     db = used_database(tmp_path / "mendari.db", triage_agent)
     db.chmod(0o444)
     try:
@@ -90,14 +90,14 @@ def test_a_read_only_file_verifies(tmp_path: Path, triage_agent: Pack) -> None:
         db.chmod(0o644)
 
 
-def test_a_read_only_store_refuses_any_write(db_target: str, triage_agent: Pack) -> None:
+def test_a_read_only_store_refuses_any_write(db_target: str, triage_agent: Agent) -> None:
     with AuditStore(db_target) as store:  # the server's: created and used
         Decision(triage_agent, store=store)({"message": {"body": "Refill please."}})
     with AuditStore(db_target, read_only=True) as store:
         assert store.verify()["ok"]
         with pytest.raises(MendariError, match="opened read-only"):
             store.hold_automation(
-                org=None, pack_id=None, pack_digest=None, reason="drill", set_by="test"
+                org=None, agent_id=None, agent_digest=None, reason="drill", set_by="test"
             )
 
 
@@ -116,7 +116,7 @@ def test_an_empty_postgres_schema_is_refused_and_left_empty(db_target: str) -> N
 
 
 def test_a_wal_database_no_server_has_open_gains_no_files(
-    tmp_path: Path, triage_agent: Pack
+    tmp_path: Path, triage_agent: Agent
 ) -> None:
     """A server leaves its SQLite database in WAL mode, the -wal and -shm files gone once it
     closes: reading it then creates no sidecar file a server might later be unable to write."""

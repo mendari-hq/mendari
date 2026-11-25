@@ -80,7 +80,7 @@ PAIRS = [
     # chips the outcome pairs: all above. New: a copy button that has copied turns success.
     ("color-success", "color-surface", TEXT),
     ("color-text-muted", "color-bg", UI),  # the diagram's arrows
-    # Where a pack comes from, as a badge on the surface and the page.
+    # Where an agent comes from, as a badge on the surface and the page.
     ("origin-other", "origin-other-soft", TEXT),
 ]
 

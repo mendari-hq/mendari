@@ -63,7 +63,7 @@ def _shipped() -> dict[str, bytes]:
     return files
 
 
-def test_every_shipped_synthetic_dataset_and_pack_file_passes() -> None:
+def test_every_shipped_synthetic_dataset_and_agent_file_passes() -> None:
     """The measurement in the module's docstring, kept: no finding of any kind, names included,
     in the bundled demo agent and the test fixtures' agents, their synthetic datasets
     included."""

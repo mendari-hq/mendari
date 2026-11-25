@@ -44,7 +44,7 @@ const GRADING = {
 };
 
 views.written = (main) => labellingScreen(main, GRADING);
-views.written.packless = true; // reads no agent: a grader may hold none
+views.written.agentless = true; // reads no agent: a grader may hold none
 // The person holds `label`, this deployment serves a grader's routes and a round holds work of
 // theirs (main.js asks).
 views.written.available = () => Boolean(state.written) && !state.launchOnly;
@@ -52,10 +52,10 @@ views.written.available = () => Boolean(state.written) && !state.launchOnly;
 const STATE_WORDS = { open: "Open: being graded", closing: "Closing: not finished", closed: "Closed" };
 
 // The rounds of one agent, into `box`; each closed one's report under it.
-export async function roundsPanel(box, packId) {
+export async function roundsPanel(box, agentId) {
   let rounds;
   try {
-    rounds = await api(`/api/written/rounds?pack_id=${encodeURIComponent(packId)}`);
+    rounds = await api(`/api/written/rounds?agent_id=${encodeURIComponent(agentId)}`);
   } catch (error) {
     // Not served here (it needs memberships mode and PHI mode encrypt), or not this reader's.
     box.innerHTML = emptyState({

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Review queue: grouped by priority, stat first; resolving moves focus to the next card.
 
-import { actionsList, inputView, labelName, statusNotice } from "./pack.js";
+import { actionsList, inputView, labelName, statusNotice } from "./manifest.js";
 import { refreshReviewCount, views } from "./router.js";
 import { $, announce, api, emptyState, esc, focusHeading, icon, may, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, reducedMotion, signedIn, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
 
@@ -20,8 +20,8 @@ const isTyping = (target) => Boolean(target?.closest?.("input, textarea, select,
 views.review = async (main) => {
   stopKeys();
   const [items, stats] = await Promise.all([
-    api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=100`),
-    api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
+    api(`/api/review?agent_id=${encodeURIComponent(state.agentId)}&limit=100`),
+    api(`/api/stats?agent_id=${encodeURIComponent(state.agentId)}`),
   ]);
   const known = new Set(PRIORITIES);
   const groups = PRIORITIES.map((p) => [p, items.filter((item) => item.priority === p)]).filter(([, g]) => g.length);
@@ -197,7 +197,7 @@ function holdResolution(card, button, label, reviewer, onResolved) {
   announce(`${confirming ? "Confirm" : card.dataset.recommendation ? "Override" : "Label"} ${name} sends in ${UNDO_SECONDS} seconds. Press Undo to cancel.`);
 }
 
-// Leaving the queue (another view, another pack, another organization: that one waits for them)
+// Leaving the queue (another view, another agent, another organization: that one waits for them)
 // sends what is held; so does closing the page, with keepalive so the request outlives it.
 views.review.leave = () => {
   stopKeys();

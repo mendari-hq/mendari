@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari.core.registry import SearchPath, resolve_pack
+from mendari.core.registry import SearchPath, resolve_agent
 from mendari.server.app import create_app, mounted_routes
 from mendari.server.backend_services import DISCOVERY_PATH
 from mendari.standards import capability, search
@@ -149,10 +149,10 @@ def test_operations_name_their_definitions(client: TestClient) -> None:
     assert f"{TRIAGE}@" in decide["documentation"]  # the agents served here
 
 
-def test_date_and_etag_are_stable_and_the_version_follows_the_packs(
+def test_date_and_etag_are_stable_and_the_version_follows_the_agents(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`date` is when the packs and release went live here (stored), not when the server
+    """`date` is when the agents and release went live here (stored), not when the server
     started, so a restart changes nothing and clients' cached copies stay valid."""
     first = TestClient(create_app(db_path=tmp_path / "s.db")).get("/fhir/metadata")
     again = TestClient(create_app(db_path=tmp_path / "s.db")).get("/fhir/metadata")
@@ -183,16 +183,16 @@ def test_security_says_what_this_deployment_does(
     assert body["implementation"]["url"] == "https://mendari.example.org/fhir"
 
 
-def test_with_sign_in_on_the_statement_names_no_pack(
+def test_with_sign_in_on_the_statement_names_no_agent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """It needs no credential, so with sign-in on it does not say which packs run here (that is
-    for signed-in callers, as /api/agents and /api/health are): two servers with other packs but
+    """It needs no credential, so with sign-in on it does not say which agents run here (that is
+    for signed-in callers, as /api/agents and /api/health are): two servers with other agents but
     the same operations give the same statement, apart from when its version went live here."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
-    served = [resolve_pack(agent_id) for agent_id in (TRIAGE, CHART, CLINICAL)]
+    served = [resolve_agent(agent_id) for agent_id in (TRIAGE, CHART, CLINICAL)]
     monkeypatch.setenv("MENDARI_AGENTS", ",".join(agent.id for agent in served))
     every = statement(TestClient(create_app(db_path=tmp_path / "a.db")))
     monkeypatch.setenv("MENDARI_AGENTS", CHART)
@@ -215,11 +215,11 @@ def test_with_sign_in_on_the_statement_names_no_pack(
 def test_the_date_moves_with_the_version_and_never_back(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """R4: `date` changes when `version` does. Serving an earlier pack set again is a new change
+    """R4: `date` changes when `version` does. Serving an earlier agent set again is a new change
     here, so it gets a new date, not the old one."""
     seen = []
-    for packs in ("", TRIAGE, ""):
-        monkeypatch.setenv("MENDARI_AGENTS", packs)
+    for agents in ("", TRIAGE, ""):
+        monkeypatch.setenv("MENDARI_AGENTS", agents)
         body = statement(TestClient(create_app(db_path=tmp_path / "v.db")))
         seen.append((body["version"], body["date"]))
     (first, d1), (second, d2), (third, d3) = seen
@@ -233,10 +233,10 @@ def test_any_change_to_the_statement_is_a_new_version(
     open_mode = statement(client)["version"]
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.example.org")
     with_url = statement(TestClient(create_app(db_path=tmp_path / "u.db")))["version"]
-    assert with_url != open_mode  # not only the packs: every part of the statement counts
+    assert with_url != open_mode  # not only the agents: every part of the statement counts
 
 
-def test_decide_lists_only_packs_that_take_fhir(
+def test_decide_lists_only_agents_that_take_fhir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
     decide = next(o for o in statement(client)["rest"][0]["operation"] if o["name"] == "decide")
@@ -247,13 +247,13 @@ def test_decide_lists_only_packs_that_take_fhir(
     assert "operation" not in rest  # no agent here takes FHIR, so no $decide is advertised
 
 
-def test_a_pack_whose_terminology_cannot_be_built_is_reported_not_fatal(tmp_path: Path) -> None:
-    """One pack's broken FHIR mapping must not stop the server (it did not before Phase 2)."""
-    broken = tmp_path / "pack"
+def test_an_agent_whose_terminology_cannot_be_built_is_reported_not_fatal(tmp_path: Path) -> None:
+    """One agent's broken FHIR mapping must not stop the server (it did not before Phase 2)."""
+    broken = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, broken)
     (broken / "fhir" / "mapping.yaml").write_text("fhir_version: R5\n")
     # A copy of a bundled agent, standing in for it, as a deployment's own agents are served.
-    app = create_app(db_path=tmp_path / "b.db", packs_paths=[SearchPath(broken, "maintained")])
+    app = create_app(db_path=tmp_path / "b.db", agents_paths=[SearchPath(broken, "maintained")])
     client = TestClient(app)
     invalid = client.get("/api/health").json()["invalid"]
     assert any("terminology" in problem for problem in invalid.values()), invalid

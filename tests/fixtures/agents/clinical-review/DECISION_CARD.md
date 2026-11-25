@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. |
-| Agent digest | `sha256:9fd9f9f0b1631195eeec6f62334ae789a6633e14a21fdb78d3caddeab5ab2799` |
+| Agent digest | `sha256:69ecd25ab3a63ef1bd30200b43cae71a5f3e8567faeef3a4fe4798f39139210f` |
 
 ## Intended use
 

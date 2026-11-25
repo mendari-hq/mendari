@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Governance approvals: a deploying organization lets a level 2-3 pack automate (ADR-0002)."""
+"""Governance approvals: a deploying organization lets a level 2-3 agent automate (ADR-0002)."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari.core.audit import AuditStore
-from mendari.core.registry import resolve_pack
+from mendari.core.registry import resolve_agent
 from mendari.errors import ReviewError
-from mendari.evals.pack_tests import load_cases
+from mendari.evals.behaviour_tests import load_cases
 from mendari.server.app import create_app
 
 CLINICAL = "mendari-test/clinical-review"  # risk level 2: the clinical review fixture
@@ -21,7 +21,7 @@ TRIAGE = "mendari-test/triage"  # risk level 1
 # a person confirms it unless the organization records a governance approval.
 CASE = next(
     c
-    for c in load_cases(resolve_pack(CLINICAL))
+    for c in load_cases(resolve_agent(CLINICAL))
     if c["name"] == "mild pain of two days is care at home, which a person confirms at risk level 2"
 )
 
@@ -38,7 +38,7 @@ def decide(app: TestClient) -> dict[str, Any]:
     return decision
 
 
-def test_an_approval_lets_a_level_2_pack_automate_and_is_written_into_each_decision(
+def test_an_approval_lets_a_level_2_agent_automate_and_is_written_into_each_decision(
     app: TestClient,
 ) -> None:
     before = decide(app)
@@ -49,7 +49,7 @@ def test_an_approval_lets_a_level_2_pack_automate_and_is_written_into_each_decis
     approved = app.post(
         "/api/governance",
         json={
-            "pack_id": CLINICAL,
+            "agent_id": CLINICAL,
             "reference": "AI committee minutes 2026-09-30, item 4",
             "days": 30,
             "approver": "dr-chair",
@@ -63,14 +63,14 @@ def test_an_approval_lets_a_level_2_pack_automate_and_is_written_into_each_decis
         "reference": "AI committee minutes 2026-09-30, item 4",
         "allow_auto": True,
     }
-    state = app.get("/api/governance", params={"pack_id": CLINICAL}).json()
+    state = app.get("/api/governance", params={"agent_id": CLINICAL}).json()
     assert state["approvable"] is True and state["active"]["id"] == approved.json()["id"]
 
 
 def test_revoking_an_approval_stops_automation_at_once(app: TestClient) -> None:
     approval = app.post(
         "/api/governance",
-        json={"pack_id": CLINICAL, "reference": "minutes 12", "approver": "dr-chair"},
+        json={"agent_id": CLINICAL, "reference": "minutes 12", "approver": "dr-chair"},
     ).json()
     assert decide(app)["outcome"] == "AUTO"
     assert app.delete(f"/api/governance/{approval['id']}").status_code == 204
@@ -82,8 +82,8 @@ def test_levels_that_need_no_approval_or_can_never_have_one_are_refused(tmp_path
     store = AuditStore(tmp_path / "a.db")
     with pytest.raises(ReviewError, match="needs no approval"):
         store.approve_automation(
-            pack_id=TRIAGE,
-            pack_digest="d",
+            agent_id=TRIAGE,
+            agent_digest="d",
             risk_level=1,
             approver="a",
             reference="r",
@@ -91,8 +91,8 @@ def test_levels_that_need_no_approval_or_can_never_have_one_are_refused(tmp_path
         )
     with pytest.raises(ReviewError, match="is never automated"):
         store.approve_automation(
-            pack_id="x/y",
-            pack_digest="d",
+            agent_id="x/y",
+            agent_digest="d",
             risk_level=4,
             approver="a",
             reference="r",
@@ -100,11 +100,11 @@ def test_levels_that_need_no_approval_or_can_never_have_one_are_refused(tmp_path
         )
 
 
-def test_an_approval_is_for_exactly_one_pack_and_expires(tmp_path: Path) -> None:
+def test_an_approval_is_for_exactly_one_agent_and_expires(tmp_path: Path) -> None:
     store = AuditStore(tmp_path / "a.db")
     store.approve_automation(
-        pack_id=CLINICAL,
-        pack_digest="sha256:old",
+        agent_id=CLINICAL,
+        agent_digest="sha256:old",
         risk_level=2,
         approver="a",
         reference="r",
@@ -114,8 +114,8 @@ def test_an_approval_is_for_exactly_one_pack_and_expires(tmp_path: Path) -> None
     assert store.active_approval(CLINICAL, "sha256:new") is None
     assert store.active_approval(CLINICAL, "sha256:old") is not None
     store.approve_automation(
-        pack_id=CLINICAL,
-        pack_digest="sha256:e",
+        agent_id=CLINICAL,
+        agent_digest="sha256:e",
         risk_level=2,
         approver="a",
         reference="r",
@@ -127,7 +127,7 @@ def test_an_approval_is_for_exactly_one_pack_and_expires(tmp_path: Path) -> None
 def test_approvals_and_revocations_are_in_the_hash_chain(app: TestClient, tmp_path: Path) -> None:
     approval = app.post(
         "/api/governance",
-        json={"pack_id": CLINICAL, "reference": "minutes 12", "approver": "dr-chair"},
+        json={"agent_id": CLINICAL, "reference": "minutes 12", "approver": "dr-chair"},
     ).json()
     app.delete(f"/api/governance/{approval['id']}")
     store = AuditStore(tmp_path / "a.db")
@@ -143,7 +143,7 @@ def test_approvals_and_revocations_are_in_the_hash_chain(app: TestClient, tmp_pa
     assert store.verify()["ok"] is True
     assert (
         app.post(
-            "/api/governance", json={"pack_id": TRIAGE, "reference": "minutes", "approver": "x"}
+            "/api/governance", json={"agent_id": TRIAGE, "reference": "minutes", "approver": "x"}
         ).status_code
         == 409
     )
@@ -158,23 +158,23 @@ def test_a_deployment_is_recorded_when_it_changes_not_at_every_start(
     monkeypatch.setenv("MENDARI_ENVIRONMENT", "pilot")
     monkeypatch.setenv("MENDARI_RELEASE", "r1")
     db = tmp_path / "a.db"
-    first = TestClient(create_app(db_path=db)).get("/api/deployments", params={"pack_id": TRIAGE})
+    first = TestClient(create_app(db_path=db)).get("/api/deployments", params={"agent_id": TRIAGE})
     [row] = first.json()
-    pack = resolve_pack(TRIAGE)
+    agent = resolve_agent(TRIAGE)
     assert row["environment"] == "pilot" and row["release"] == "r1"
-    assert (row["pack_id"], row["pack_version"], row["pack_digest"]) == (
+    assert (row["agent_id"], row["agent_version"], row["agent_digest"]) == (
         TRIAGE,
-        pack.version,
-        pack.digest,
+        agent.version,
+        agent.digest,
     )
     assert row["providers"] == {"router": "rules", "screen": "rules"}
 
-    again = TestClient(create_app(db_path=db)).get("/api/deployments", params={"pack_id": TRIAGE})
+    again = TestClient(create_app(db_path=db)).get("/api/deployments", params={"agent_id": TRIAGE})
     assert [r["id"] for r in again.json()] == [row["id"]]  # a restart changes nothing
 
     monkeypatch.setenv("MENDARI_RELEASE", "r2")
     released = TestClient(create_app(db_path=db))
-    rows = released.get("/api/deployments", params={"pack_id": TRIAGE}).json()
+    rows = released.get("/api/deployments", params={"agent_id": TRIAGE}).json()
     assert [r["release"] for r in rows] == ["r2", "r1"]
 
     store = AuditStore(db)
@@ -192,6 +192,6 @@ def test_another_environment_is_its_own_row(
     db = tmp_path / "a.db"
     for environment in ("staging", "production"):
         monkeypatch.setenv("MENDARI_ENVIRONMENT", environment)
-        TestClient(create_app(db_path=db)).get("/api/deployments", params={"pack_id": TRIAGE})
+        TestClient(create_app(db_path=db)).get("/api/deployments", params={"agent_id": TRIAGE})
     rows = AuditStore(db).deployments(TRIAGE)
     assert sorted(r["environment"] for r in rows) == ["production", "staging"]

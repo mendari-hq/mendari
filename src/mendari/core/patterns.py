@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Regular expressions a pack's author wrote, compiled when the pack loads, and the engine
+"""Regular expressions an agent's author wrote, compiled when the agent loads, and the engine
 that runs them.
 
-A pack's rules patterns (`rules` providers, case ignored) and the `pattern` keywords and
+An agent's rules patterns (`rules` providers, case ignored) and the `pattern` keywords and
 `patternProperties` keys of its input schema are written in Python's `re` syntax. A pattern
-that does not compile, or one too large, is the pack's problem: at load each is compiled as it
-will run, at most `MAX_PATTERN_CHARS` long, and a pack holds at most `MAX_PACK_PATTERNS`, so a
-bad one is a `PackValidationError` naming the pack, the file and the rule, never a traceback in
+that does not compile, or one too large, is the agent's problem: at load each is compiled as it
+will run, at most `MAX_PATTERN_CHARS` long, and an agent holds at most `MAX_AGENT_PATTERNS`, so a
+bad one is an `AgentValidationError` naming the agent, the file and the rule, never a traceback in
 `mendari validate` or an error answer from `/api/health`.
 
 One engine choice, `compile` (and `search`), runs every one of them. Its keyword `bounded`
-names the bounded engine, which runs the agents the deployment does not own (`Pack.bounded`,
+names the bounded engine, which runs the agents the deployment does not own (`Agent.bounded`,
 `core/origin.py`, ADR-0009):
 
 - **An agent the deployment does not own** (one pulled from a registry, or kept in an
@@ -20,11 +20,11 @@ names the bounded engine, which runs the agents the deployment does not own (`Pa
   size, never exponentially, so no pattern can stall a worker the way `(a+)+$` stalls `re`.
   Each is rewritten for RE2 to mean what `re` means (`core/re2_syntax.py`, which lists the
   differences that remain); one RE2 cannot run (a lookaround, a back reference) or cannot
-  compile (too large once compiled) makes the pack invalid, saying what to write instead.
+  compile (too large once compiled) makes the agent invalid, saying what to write instead.
 - **Every other pack's** (the bundled agents, a pulled copy of one included, and an operator's
   local packs) run on `re`, exactly as they always have. `re` has no time limit, and checking a
   pattern at load cannot tell how long it will take on an input: a pattern like `(a+)+$`
-  backtracks for seconds on a few dozen characters. Installing such a pack means trusting its
+  backtracks for seconds on a few dozen characters. Installing such an agent means trusting its
   author, as with any plugin (SECURITY.md).
 
 Mendari's own patterns (the rules provider's scope, word and negation patterns) are not agent
@@ -36,12 +36,12 @@ The patterns of an agent on the bounded engine, and its input schema's checks, s
 budget per decision (`time_budget`, set by `Decision.decide`), counted in the CPU time of the
 decision's own thread (`time.thread_time`): waiting for a model or for another request costs it
 nothing, so the same input decides the same way on a busy server. RE2's time is linear and the
-caps bound how many patterns run and how large they are (`core/caps.py`), but a crafted pack
+caps bound how many patterns run and how large they are (`core/caps.py`), but a crafted agent
 within every cap can still take seconds on adversarial text. Each search, each match a search
 yields, each step of the rules provider's own loops over a text, each schema applied and each
 error a schema check finds (`check_time`) checks the budget, and raises `OutOfTime` once it is
-spent: the pack's rules, or its schema check, stop there and the decision abstains, for a person
-(an input the schema had already found wrong is refused). A decision runs such a pack's
+spent: the agent's rules, or its schema check, stop there and the decision abstains, for a person
+(an input the schema had already found wrong is refused). A decision runs such an agent's
 patterns and schema for at most the budget plus one step already under way: one search can
 take about 2.5 s on 10,000 characters of emoji against the largest pattern RE2 compiles, so
 about 3.5 s of CPU at worst.
@@ -61,7 +61,7 @@ from typing import Any, Protocol
 from mendari.errors import MendariError
 
 MAX_PATTERN_CHARS = 2_000
-MAX_PACK_PATTERNS = 500
+MAX_AGENT_PATTERNS = 500
 RULES_FLAGS = re.IGNORECASE  # as `providers/rules.py` compiles them
 BOUNDED_TIME_BUDGET_S = 1.0  # a bounded agent's patterns, together, in one decision
 _DEADLINE: ContextVar[float | None] = ContextVar("bounded_pattern_deadline", default=None)
@@ -154,7 +154,7 @@ def _options() -> Any:
     options = re2.Options()
     options.max_mem = RE2_MAX_MEMORY
     options.never_capture = True  # only where a match starts is read
-    options.log_errors = False  # a refused pattern is the pack's problem, not a log line
+    options.log_errors = False  # a refused pattern is the agent's problem, not a log line
     return options
 
 
@@ -180,7 +180,7 @@ def _re2(text: str, flags: int) -> _Re2Pattern:
 
 def compile(text: str, flags: int = 0, *, bounded: bool = False) -> Matcher:
     """A pack's pattern compiled for the engine its pack's patterns run on (module docstring):
-    `bounded` for an agent on the bounded engine (`Pack.bounded`); for any other, this is
+    `bounded` for an agent on the bounded engine (`Agent.bounded`); for any other, this is
     `re.compile(text, flags)`."""
     if bounded:
         return _re2(text, flags)
@@ -188,15 +188,15 @@ def compile(text: str, flags: int = 0, *, bounded: bool = False) -> Matcher:
 
 
 def search(pattern: str, text: str, *, bounded: bool = False) -> bool:
-    """Whether a pack's pattern (an input schema's, so no flags) matches anywhere in `text`."""
+    """Whether an agent's pattern (an input schema's, so no flags) matches anywhere in `text`."""
     if bounded:
         return _re2(pattern, 0).search(text) is not None
     return re.search(pattern, text) is not None
 
 
 def problem(text: str, flags: int = 0, *, bounded: bool = False) -> str | None:
-    """Why `text` may not be a pack pattern compiled with `flags`, or None. A pattern of a pack
-    on the bounded engine (`bounded`, `Pack.bounded`) must also run on RE2."""
+    """Why `text` may not be an agent pattern compiled with `flags`, or None. A pattern of an agent
+    on the bounded engine (`bounded`, `Agent.bounded`) must also run on RE2."""
     if len(text) > MAX_PATTERN_CHARS:
         return f"longer than {MAX_PATTERN_CHARS} characters"
     with warnings.catch_warnings():  # a FutureWarning is not a reason to refuse a pattern

@@ -88,7 +88,7 @@ class CheckProvider(CompositeProvider):
             failed[second] = error.code
         answered, checking = outputs[first], outputs.get(second)
         canned = any(output.canned is not None for output in outputs.values())
-        deciding = deciding_questions(self.pack.manifest)
+        deciding = deciding_questions(self.agent.manifest)
         caps: list[Cap] = []
         disagreed: list[str] = []
         answers = {}
@@ -139,7 +139,7 @@ class CheckProvider(CompositeProvider):
         mine = proposals.distinct(answered.actions)
         if not self.members[second].proposes:
             return tuple(mine), []  # the second member checks answers, not actions
-        manifest = self.pack.manifest
+        manifest = self.agent.manifest
         if checking is None:
             disputed = tuple(replace(proposal, disputed=True) for proposal in mine)
             said = f"{second} failed, so what {first} proposed to do was not checked"

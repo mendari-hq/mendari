@@ -17,7 +17,7 @@ import httpx
 import pytest
 from playwright.sync_api import Browser, Page, expect
 
-from mendari.core.registry import resolve_pack
+from mendari.core.registry import resolve_agent
 from mendari.hub import site_signing
 from mendari.hub.site_signing import Site as SiteFiles
 from mendari.hub.site_signing import init_site
@@ -101,11 +101,11 @@ def test_a_revoked_key_says_so_and_gets_no_ticket(site: Site, tmp_path: Path) ->
     expect(dialog(admin)).to_have_count(0)
     expect(the_row).to_contain_text("revoked")
     expect(the_row).to_contain_text("as compromised")
-    agent = resolve_pack(TRIAGE)
+    agent = resolve_agent(TRIAGE)
     request = files.sign(
         site_signing.TICKET_REQUEST,
         {
-            "pack": {"id": agent.id, "version": agent.version, "digest": agent.digest},
+            "agent": {"id": agent.id, "version": agent.version, "digest": agent.digest},
             "configuration": {"router": "rules", "screen": "rules"},
             "remote_consent": False,
             "commitment": files.commitment(b"cases"),

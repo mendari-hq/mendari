@@ -16,8 +16,8 @@ import json
 import sys
 from pathlib import Path
 
-from mendari.core.pack import load_pack
-from mendari.core.registry import resolve_pack
+from mendari.core.agent import load_agent
+from mendari.core.registry import resolve_agent
 from mendari.sandbox import fhir_workflow
 
 DEMO_AGENT_DIR = Path(__file__).resolve().parent.parent / "agents" / "portal-message-agent"
@@ -27,9 +27,9 @@ COUNT = 20  # cases a sample holds
 
 def main(out: Path, agents: list[str] | None = None) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    samples = {MESSAGES: fhir_workflow.seed_bundle(load_pack(DEMO_AGENT_DIR), COUNT)}
+    samples = {MESSAGES: fhir_workflow.seed_bundle(load_agent(DEMO_AGENT_DIR), COUNT)}
     for given in agents or []:
-        agent = resolve_pack(given)
+        agent = resolve_agent(given)
         name = agent.id.rsplit("/", 1)[-1]
         if name in samples:
             raise SystemExit(f"sandbox sample: two samples would be named sandbox-{name}.json")

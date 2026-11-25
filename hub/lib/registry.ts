@@ -28,7 +28,7 @@ export type Checked = {
   accepted?: Acceptance | null;
 };
 
-export type Acceptance = { format: string; pack: string; version: string; digest: string; archive_sha256: string; publisher_key_id: string; key_id: string; at: string; signature: string };
+export type Acceptance = { format: string; agent: string; version: string; digest: string; archive_sha256: string; publisher_key_id: string; key_id: string; at: string; signature: string };
 
 // The counter-signature in a sentence. The page states what the registry recorded; a pull checks
 // the signature itself, against a key shipped with the client or pinned for the registry.
@@ -65,7 +65,7 @@ export function regressionWords(check: Regression | null | undefined, shown: (f:
   return `Accuracy ${shown(check.accuracy)}${on}${against}`;
 }
 
-// What the publisher says about the pack, unchecked.
+// What the publisher says about the agent, unchecked.
 export type Claimed = {
   publisher: { name: string; type: string } | null;
   risk: { level: number; category: string; declared_by: "publisher"; confirmed?: boolean | null };
@@ -77,13 +77,13 @@ export type Claimed = {
 // it did not compute itself, so these stay null until it computes one.
 export type VersionFigures = { format: string; benchmark: Figure | null; leaderboard: null };
 
-export type PackSummary = {
+export type AgentSummary = {
   id: string;
   namespace: string;
   name: string;
   version: string;
   published_at: string;
-  pack_name: string;
+  agent_name: string;
   summary: string;
   license: string;
   risk: Risk;
@@ -105,7 +105,7 @@ export type PackSummary = {
 // deletion, if the version's archive was removed.
 export type Yank = {
   format: string;
-  pack: string;
+  agent: string;
   version: string;
   reason: string;
   severity: "low" | "medium" | "high" | "critical";
@@ -117,10 +117,10 @@ export type Deleted = { reason: string; at: string };
 export type Recalled = { version: string; yank: Yank | null; deleted: Deleted | null };
 
 // The card the registry rendered from the agent's own files.
-export type PackVersion = PackSummary & { card_markdown: string; yank?: Yank | null; deleted?: Deleted | null };
+export type AgentVersion = AgentSummary & { card_markdown: string; yank?: Yank | null; deleted?: Deleted | null };
 
 // `latest` is the newest version that is not recalled: null when every version is.
-export type PackDetail = { id: string; versions: string[]; recalled?: Recalled[]; latest: PackVersion | null };
+export type AgentDetail = { id: string; versions: string[]; recalled?: Recalled[]; latest: AgentVersion | null };
 
 export type Namespace = {
   name: string;
@@ -129,7 +129,7 @@ export type Namespace = {
   created_at: string;
   // `revoked_at`: when the registry's operator revoked the key, null while it is live.
   keys: { key_id: string; created_at: string; revoked_at: string | null }[];
-  packs: string[];
+  agents: string[];
 };
 
 export class RegistryUnavailable extends Error {}
@@ -159,21 +159,21 @@ async function get<T>(path: string): Promise<T | null> {
 
 export type SearchFilters = { q?: string; risk?: string; standard?: string; publisher_type?: string };
 
-export async function search(filters: SearchFilters): Promise<PackSummary[]> {
+export async function search(filters: SearchFilters): Promise<AgentSummary[]> {
   const params = new URLSearchParams(
     Object.entries(filters).filter((entry): entry is [string, string] => Boolean(entry[1])),
   );
-  return (await get<PackSummary[]>(`/v1/search?${params}`)) ?? [];
+  return (await get<AgentSummary[]>(`/v1/search?${params}`)) ?? [];
 }
 
 // An agent's reads, under the registry's /v1/agents/<namespace>/<name>.
 const agentPath = (namespace: string, name: string) =>
   `/v1/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
 
-export const pack = (namespace: string, name: string) => get<PackDetail>(agentPath(namespace, name));
+export const agent = (namespace: string, name: string) => get<AgentDetail>(agentPath(namespace, name));
 
-export const packVersion = (namespace: string, name: string, version: string) =>
-  get<PackVersion>(`${agentPath(namespace, name)}/${encodeURIComponent(version)}`);
+export const agentVersion = (namespace: string, name: string, version: string) =>
+  get<AgentVersion>(`${agentPath(namespace, name)}/${encodeURIComponent(version)}`);
 
 export const namespace = (name: string) => get<Namespace>(`/v1/namespaces/${encodeURIComponent(name)}`);
 
@@ -212,8 +212,8 @@ export function riskWords(risk: Claimed["risk"], review: Checked["review"]): str
   return "declared by the publisher, not confirmed by a review";
 }
 
-// Site evidence (mendari.site-evidence/1, LP-22g): sites' signed counts of a pack, worked out by
-// the registry from counts it verified. Shown apart from everything else on a pack's page.
+// Site evidence (mendari.site-evidence/1, LP-22g): sites' signed counts of an agent, worked out by
+// the registry from counts it verified. Shown apart from everything else on an agent's page.
 export type SiteFigure = Figure & { report: string; site: string; site_name: string; insufficient_evidence: boolean };
 export type Pooled = Partial<Figure> & { method: string; status: string; needs_sites?: number };
 export type RandomEffects = { method: string; status: string; estimate?: number; low?: number; high?: number; needs_sites?: number };
@@ -243,7 +243,7 @@ export type EvidenceGroup = {
   figures: EvidenceFigure[];
   tests_run: number;
 };
-export type SiteEvidence = { format: string; pack: string; note: string; alpha: number; groups: EvidenceGroup[] };
+export type SiteEvidence = { format: string; agent: string; note: string; alpha: number; groups: EvidenceGroup[] };
 
 export const siteEvidence = (namespace: string, name: string) =>
   get<SiteEvidence>(`${agentPath(namespace, name)}/site-evidence`);
@@ -294,7 +294,7 @@ export type PublisherEvaluation = {
 };
 export type PublisherEvaluations = {
   format: string;
-  pack: string;
+  agent: string;
   version: string;
   note: string;
   evaluations: PublisherEvaluation[];

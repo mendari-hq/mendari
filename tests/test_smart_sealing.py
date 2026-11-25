@@ -126,7 +126,7 @@ def test_a_launch_session_row_holds_nothing_readable(
     assert "refresh_token" not in kept and "id_token" not in kept
     assert set(kept) == {
         *("iss", "access_token", "scope", "patient", "encounter", "fhir_user", "expires_at"),
-        *("pack", "launch_id", "absolute_at", "identity", "actor"),
+        *("agent", "launch_id", "absolute_at", "identity", "actor"),
     }
     assert kept["identity"] == {"iss": ISS, "sub": "clinician-1"}  # no email kept
 
@@ -252,7 +252,7 @@ def test_a_launch_ends_at_its_sealed_absolute_limit(
     ("method", "path", "body"),
     [
         ("GET", "/api/smart/patient", None),
-        ("GET", f"/api/smart/focus?pack_id={CHART}", None),
+        ("GET", f"/api/smart/focus?agent_id={CHART}", None),
         ("POST", "/api/smart/decide", DECIDE_BODY),
     ],
 )
@@ -279,7 +279,7 @@ def test_an_ehr_that_refuses_the_token_ends_the_launch(
 
 def test_an_ehr_error_other_than_401_leaves_the_launch(app: TestClient, ehr: FakeEhr) -> None:
     full_launch(app, ehr)
-    focus = {"pack_id": CHART, "focus": "Patient/not-there"}
+    focus = {"agent_id": CHART, "focus": "Patient/not-there"}
     missing = app.post("/api/smart/decide", json=focus)  # the EHR answers 404
     assert missing.status_code == 422
     assert app.get("/api/smart/session").json()["active"] is True
@@ -332,7 +332,7 @@ def test_offline_access_is_refused_at_launch(
     with smart_app(db_target, ehr, monkeypatch) as client:
         assert client.get("/api/health").status_code == 200
         capsys.readouterr()
-        refused = client.get("/smart/launch", params={"iss": ISS, "launch": "xyz", "pack": CHART})
+        refused = client.get("/smart/launch", params={"iss": ISS, "launch": "xyz", "agent": CHART})
         assert refused.status_code == 400 and "offline_access" in refused.text
         assert ehr.requests == []
         assert raw_rows(db_target, "pending") == []

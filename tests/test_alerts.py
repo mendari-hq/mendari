@@ -20,7 +20,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari import alerts as alerts_module
 from mendari.alerts import (
     AlertSettings,
@@ -84,7 +84,7 @@ def one(**overrides: Any) -> dict[str, Any]:
     return {
         "event": "monitor.alerts",
         "org": "clinic-a",
-        "alerts": [{"pack": {"id": "mendari/x"}, "alerts": [{"kind": "drift"}]}],
+        "alerts": [{"agent": {"id": "mendari/x"}, "alerts": [{"kind": "drift"}]}],
         "lines": ["mendari/x: [medium] drift: PSI 0.31"],
         **overrides,
     }
@@ -287,7 +287,7 @@ def test_monitor_exit_codes_tell_alerts_from_a_failed_delivery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    triage_agent: Pack,
+    triage_agent: Agent,
     no_waiting: list[float],
 ) -> None:
     db = tmp_path / "a.db"
@@ -334,7 +334,7 @@ def test_a_webhook_the_client_cannot_parse_fails_at_startup_never_on_a_decision(
 def test_the_format_setting_reaches_what_is_posted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    triage_agent: Pack,
+    triage_agent: Agent,
     no_waiting: list[float],
 ) -> None:
     db = tmp_path / "a.db"

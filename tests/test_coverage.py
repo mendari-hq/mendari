@@ -14,12 +14,12 @@ from typing import Any
 import pytest
 
 from mendari.cli import main
-from mendari.core.registry import resolve_pack
+from mendari.core.registry import resolve_agent
 from mendari.errors import MendariError
 from mendari.evals import load_dataset
 from mendari.evals.coverage import FORMAT, coverage
 
-PACK = "mendari-test/triage"  # its critical label: urgency=yes (same-day symptoms)
+AGENT = "mendari-test/triage"  # its critical label: urgency=yes (same-day symptoms)
 
 
 def written(tmp_path: Path, records: list[dict[str, Any]]) -> Path:
@@ -37,8 +37,8 @@ def case(text: str, urgency: str | None, **attributes: str) -> dict[str, Any]:
 
 
 def report(path: Path, **options: Any) -> dict[str, Any]:
-    pack = resolve_pack(PACK)
-    return coverage(pack.manifest, load_dataset(path), pack=pack.ref, **options)
+    agent = resolve_agent(AGENT)
+    return coverage(agent.manifest, load_dataset(path), agent=agent.ref, **options)
 
 
 def test_duplicates_count_once_under_norm_v1(tmp_path: Path) -> None:
@@ -98,7 +98,7 @@ def test_an_attribute_value_is_cut_and_never_inferred(tmp_path: Path) -> None:
     assert result["mix"]["language"] == {"unknown": 1, "x" * 64: 1}
 
 
-def test_a_set_the_pack_cannot_read_is_refused_by_case_id(tmp_path: Path) -> None:
+def test_a_set_the_agent_cannot_read_is_refused_by_case_id(tmp_path: Path) -> None:
     records = [case("secret text", "no"), {"id": "c-2", "input": {"message": {"body": "secret"}}}]
     records[1]["labels"] = {"no_such_question": "yes"}
     with pytest.raises(MendariError, match="case c-2: labels name a question") as refused:
@@ -116,13 +116,13 @@ def test_the_command_prints_counts_never_a_cases_text(
             {"id": "c-2", **case("i PASSED out at the shop!", "yes")},
         ],
     )
-    assert main(["data", "coverage", PACK, "--dataset", str(path)]) == 0
+    assert main(["data", "coverage", AGENT, "--dataset", str(path)]) == 0
     text = capsys.readouterr().out
     assert "2 cases, 1 distinct (2 exactly)" in text and "urgency=yes: 1 of 2 cases" in text
     assert "shop" not in text.lower() and "c-1" not in text
-    assert main(["data", "coverage", PACK, "--dataset", str(path), "--json", "--ids"]) == 0
+    assert main(["data", "coverage", AGENT, "--dataset", str(path), "--json", "--ids"]) == 0
     printed = capsys.readouterr().out
     assert json.loads(printed)["duplicates"] == [["c-1", "c-2"]]
     assert "shop" not in printed.lower()
-    assert main(["data", "coverage", PACK, "--dataset", str(path), "--ids"]) == 0
+    assert main(["data", "coverage", AGENT, "--dataset", str(path), "--ids"]) == 0
     assert "duplicates: c-1, c-2" in capsys.readouterr().out

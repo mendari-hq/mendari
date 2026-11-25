@@ -1,26 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Where a pack comes from, and what that allows it.
+"""Where an agent comes from, and what that allows it.
 
-A pack's origin is set by where it was found, never by its manifest (`publisher.type` is
+An agent's origin is set by where it was found, never by its manifest (`publisher.type` is
 self-declared):
 
-- `maintained`: the agents Mendari bundles (`packs/`, bundled in the wheel).
-- `hub`: packs pulled from a registry, verified, in the local cache.
+- `maintained`: the agents Mendari bundles (`agents/`, bundled in the wheel).
+- `hub`: agents pulled from a registry, verified, in the local cache.
 - `local`: any other directory (`MENDARI_AGENTS_PATH`, a path given on the command line).
 
 An agent the deployment does not own runs on the bounded engine (`bounded`, ADR-0009): its
 patterns on RE2 (`core/patterns.py`), its settings capped at load (`core/caps.py`), its schema's
 keywords bounded (`core/input_schema.py`), its inputs held to the limits below and its patterns
 and schema checks to a CPU budget per decision. Those are the agents of an origin the deployment
-does not own (`NOT_OWNED`) whose digest, the one `load_pack` hashed, is not that of a bundled
+does not own (`NOT_OWNED`) whose digest, the one `load_agent` hashed, is not that of a bundled
 agent of the installed release (`core/reference.py`): a copy of a bundled agent keeps the
 maintained engine, and nothing a manifest, a registry or a marker file says chooses it. Such an
 agent is labelled by where it was found ("From a registry"), and keeps its policy: it may
 automate under it and may block. Maintained and local agents (an operator's own: a copy of a
 pulled agent in `MENDARI_AGENTS_PATH` is one) stay on `re`.
 
-Such a pack's provider configs are refused at load unless every variant and composite member
-passes its provider's closed config (`providers.config_problems`; an owned pack loads with them
+Such an agent's provider configs are refused at load unless every variant and composite member
+passes its provider's closed config (`providers.config_problems`; an owned agent loads with them
 as warnings), and each of its model variants names the input fields it sends (`state_fields`).
 Its model, answer length, timeout and effort are the deployment's (`deployment_config`): the
 model it names is dropped, `max_tokens` and `timeout_ms` are held to `NOT_OWNED_CAPS` (a lower
@@ -59,7 +59,7 @@ MAX_BOUNDED_DEPTH = 32
 # that combine them.
 LOCAL_PROVIDER_TYPES = frozenset({"rules"})
 COMPOSITE_PROVIDER_TYPES = frozenset({"check"})
-# Variant keys a pack the deployment does not own (`bounded`) may set but the deployment decides:
+# Variant keys an agent the deployment does not own (`bounded`) may set but the deployment decides:
 # which model a remote provider calls. Its answer length and timeout are held to the provider
 # defaults below, a lower value of its own kept, and its effort to `MAX_NOT_OWNED_EFFORT`.
 DEPLOYMENT_CHOSEN_KEYS = ("model", "endpoint")
@@ -72,13 +72,13 @@ NOT_OWNED_CAPS: Mapping[str, Mapping[str, int | float]] = {
 # LLM's temperature. Dropped, so the provider's defaults apply. An agent from a registry keeps
 # them (a change would change its decisions).
 STORE_DEPLOYMENT_KEYS = ("batch", "temperature")
-# `reasoning_effort`, lowest first: a value above the most a not-owned pack keeps is dropped, so
+# `reasoning_effort`, lowest first: a value above the most a not-owned agent keeps is dropped, so
 # the model's own default applies.
 EFFORTS = ("none", "low", "medium", "high")
 MAX_NOT_OWNED_EFFORT = "low"
-# What every surface says about where a pack comes from (the API, the dashboard, the Decision
+# What every surface says about where an agent comes from (the API, the dashboard, the Decision
 # Card, CDS Hooks, the docs landing). Set by origin, never by the manifest; neither label claims
-# clinical review, which no pack has had through Mendari.
+# clinical review, which no agent has had through Mendari.
 ORIGIN_LABELS: Mapping[Origin, str] = {
     "maintained": "Maintained by Mendari",
     "hub": "From a registry",
@@ -87,17 +87,17 @@ ORIGIN_LABELS: Mapping[Origin, str] = {
 }
 
 
-# Beside a pulled pack in the registry cache: where it came from (LP-18d, `hub/client.py`
-# writes it after verifying the archive). Hidden, so outside the pack's digest.
+# Beside a pulled agent in the registry cache: where it came from (LP-18d, `hub/client.py`
+# writes it after verifying the archive). Hidden, so outside the agent's digest.
 MARKER = ".mendari-verified"
 ORIGIN_FORMAT = "mendari.origin/1"
-# Why automation is held for a pack from a registry until its organization approves its digest
-# (`core/decision.py`): no field in the pack lifts it.
+# Why automation is held for an agent from a registry until its organization approves its digest
+# (`core/decision.py`): no field in the agent lifts it.
 UNAPPROVED = "an agent from a registry, not approved for automation by this organization"
 
 
 def pulled_record(root: Path) -> dict[str, Any]:
-    """What the verified marker beside a pulled pack records: the registry's URL, namespace,
+    """What the verified marker beside a pulled agent records: the registry's URL, namespace,
     publisher type, signing key id, archive SHA-256, digest, when it was pulled and the recall
     the registry served then, if any; a missing or unreadable one, nothing."""
     try:
@@ -113,11 +113,11 @@ def pulled_record(root: Path) -> dict[str, Any]:
 
 def bounded(origin: Origin, digest: str) -> bool:
     """An agent the deployment does not own, which runs on the bounded engine (module
-    docstring): an agent of a `NOT_OWNED` origin whose `digest` (the one `load_pack` hashed,
+    docstring): an agent of a `NOT_OWNED` origin whose `digest` (the one `load_agent` hashed,
     never one a manifest or a registry names) is not a bundled agent's."""
     if origin not in NOT_OWNED:
         return False
-    from mendari.core.reference import reference_digests  # `core/pack.py` imports this module
+    from mendari.core.reference import reference_digests  # `core/agent.py` imports this module
 
     return digest not in reference_digests()
 
@@ -217,11 +217,11 @@ def is_local(config: Mapping[str, Any]) -> bool:
 
 
 def deployment_config(config: Mapping[str, Any], *, store: bool = False) -> dict[str, Any]:
-    """The provider config a pack the deployment does not own (`bounded`) runs with, in the
+    """The provider config an agent the deployment does not own (`bounded`) runs with, in the
     variant and each composite member: without the keys the deployment chooses
-    (`DEPLOYMENT_CHOSEN_KEYS`, and for a pack from a store, `store`, `STORE_DEPLOYMENT_KEYS`),
+    (`DEPLOYMENT_CHOSEN_KEYS`, and for an agent from a store, `store`, `STORE_DEPLOYMENT_KEYS`),
     its `max_tokens` and `timeout_ms` at most `NOT_OWNED_CAPS` (an absent key stays absent), and
-    its `reasoning_effort` kept only up to `MAX_NOT_OWNED_EFFORT`. The pack's own values were
+    its `reasoning_effort` kept only up to `MAX_NOT_OWNED_EFFORT`. The agent's own values were
     checked at load, before this (`providers.config_problems`)."""
     chosen = DEPLOYMENT_CHOSEN_KEYS + (STORE_DEPLOYMENT_KEYS if store else ())
     kept = {key: value for key, value in config.items() if key not in chosen}
@@ -248,7 +248,7 @@ def _config_number(value: Any, cap: int | float) -> int | float | None:
     """`value` as a provider's config model reads a numeric setting: pydantic's lax mode, so
     `"32000"`, `32000.0` and `"32000.0"` are 32000 for integer caps (`LlmConfig`),
     and finite floats for float caps (`AgentConfig.timeout_seconds`). None for what the models
-    refuse (a bool, `32000.5` for int caps, `"x"`): `load_pack` refused a pack with one."""
+    refuse (a bool, `32000.5` for int caps, `"x"`): `load_agent` refused an agent with one."""
     if isinstance(value, bool):
         return None
     try:

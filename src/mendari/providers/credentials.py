@@ -6,7 +6,7 @@ set, is used instead and the token is not looked up.
 Secrets are never logged and never appear in error messages or audit records.
 
 Which environment variables supply a provider's endpoint, model and key is fixed in code and
-belongs to the deployment. A pack's provider config may not name them: a pack that could would
+belongs to the deployment. An agent's provider config may not name them: an agent that could would
 choose which process secret is sent, and to which URL (`core/spec.py`, `DEPLOYMENT_ENV_KEYS`).
 """
 

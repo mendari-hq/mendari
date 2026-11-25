@@ -37,7 +37,7 @@ from mendari.core.audit import RESULT_EVENTS, AuditStore
 from mendari.core.query import Atom, OneOf, Page, Query, Within
 from mendari.standards import audit_fhir, task_fhir
 from mendari.standards.audit_fhir import EVENT_SYSTEM
-from mendari.standards.fhir import DECISION_ID_SYSTEM, OUTCOME_SYSTEM, PACK_TAG_SYSTEM
+from mendari.standards.fhir import AGENT_TAG_SYSTEM, DECISION_ID_SYSTEM, OUTCOME_SYSTEM
 from mendari.standards.search import (
     PRIORITY_SYSTEM,
     TASK_STATUS_SYSTEM,
@@ -126,11 +126,11 @@ def _task(clause: Clause) -> tuple[Atom, ...] | None:
     return None if codes is None else (OneOf(field, frozenset(codes_to_values(codes))),)
 
 
-def _packs(codes: frozenset[str]) -> Iterator[tuple[str, str]]:
+def _agents(codes: frozenset[str]) -> Iterator[tuple[str, str]]:
     for code in codes:
-        pack, at, version = code.rpartition("@")
-        if at and pack and version:
-            yield pack, version
+        agent, at, version = code.rpartition("@")
+        if at and agent and version:
+            yield agent, version
 
 
 def _same(codes: frozenset[str]) -> frozenset[str]:
@@ -149,7 +149,7 @@ _TASK_TOKENS: dict[str, tuple[str, str, Callable[[frozenset[str]], Any]]] = {
     "status": (TASK_STATUS_SYSTEM, "state", _states),
     "business-status": (OUTCOME_SYSTEM, "outcome", _same),
     "priority": (PRIORITY_SYSTEM, "priority", _same),
-    "_tag": (PACK_TAG_SYSTEM, "pack", _packs),
+    "_tag": (AGENT_TAG_SYSTEM, "agent", _agents),
 }
 
 
@@ -273,7 +273,7 @@ def provenance(store: AuditStore, resource_id: str, *, base: str) -> dict[str, A
 
 def code_systems(search: Search, terminology: Terminology) -> Found:
     """The served CodeSystems that match, by id. Terminology is the same for every
-    organization (it describes the packs, never a decision)."""
+    organization (it describes the agents, never a decision)."""
     systems = sorted(
         (r for r in terminology.resources if r["resourceType"] == "CodeSystem"),
         key=lambda r: str(r["id"]),

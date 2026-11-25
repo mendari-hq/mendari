@@ -16,13 +16,13 @@ from typing import Any
 
 import yaml
 
-from mendari import Decision, load_pack
-from mendari.core.pack import Pack
+from mendari import Decision, load_agent
+from mendari.core.agent import Agent
 from mendari.evals import leaderboard
 from mendari.evals.harness import evaluate, resolve_dataset
 from tests.conftest import TRIAGE_DIR
 
-TRIAGE = load_pack(TRIAGE_DIR)
+TRIAGE = load_agent(TRIAGE_DIR)
 # The engine's public address in the tests that sign people in to it (conftest's `member` and
 # `signed_in` name `mendari.test` as their host).
 HTTPS = "https://mendari.test"
@@ -154,8 +154,8 @@ def with_lookahead(root: Path) -> Path:
     return root
 
 
-def attested(pack: Pack) -> Pack:
-    """`pack` (a copy, changed in place) carrying what a publisher uploads about it beside its
+def attested(agent: Agent) -> Agent:
+    """`agent` (a copy, changed in place) carrying what a publisher uploads about it beside its
     files: a benchmark, the evaluation of its benchmark set on its own providers, which its
     manifest names (`evaluation.benchmark`), and a leaderboard of that run. Neither file is in
     its digest; the manifest's line naming the benchmark is."""
@@ -163,12 +163,12 @@ def attested(pack: Pack) -> Pack:
     def named(manifest: dict[str, Any]) -> None:
         manifest["evaluation"]["benchmark"] = "evals/benchmark.json"
 
-    edit_yaml(pack.root / "agent.yaml", named)
-    pack = load_pack(pack.root)
-    dataset = resolve_dataset(pack, pack.manifest.evaluation.benchmark_dataset or "test")
-    report = evaluate(Decision(pack), dataset)
-    (pack.root / "evals").mkdir(exist_ok=True)
-    (pack.root / "evals" / "benchmark.json").write_text(json.dumps(report), encoding="utf-8")
-    board = leaderboard.build(pack, [report])
-    pack.attestation(leaderboard.PATH).write_text(json.dumps(board), encoding="utf-8")
-    return load_pack(pack.root)
+    edit_yaml(agent.root / "agent.yaml", named)
+    agent = load_agent(agent.root)
+    dataset = resolve_dataset(agent, agent.manifest.evaluation.benchmark_dataset or "test")
+    report = evaluate(Decision(agent), dataset)
+    (agent.root / "evals").mkdir(exist_ok=True)
+    (agent.root / "evals" / "benchmark.json").write_text(json.dumps(report), encoding="utf-8")
+    board = leaderboard.build(agent, [report])
+    agent.attestation(leaderboard.PATH).write_text(json.dumps(board), encoding="utf-8")
+    return load_agent(agent.root)

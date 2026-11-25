@@ -316,14 +316,14 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   inside the agent's directory; an agent whose directory holds a symbolic link that leads outside
   it is refused at load (hidden entries and `__pycache__` are not part of an agent, never digested,
   archived or read, so a `.venv` beside its files is fine). Whatever an agent decides or tests
-  with is inside its digest, the identity a governance approval covers: `load_pack` hashes the
-  agent first, and every file it or a provider then reads (`Pack.path`) must be one of the files
+  with is inside its digest, the identity a governance approval covers: `load_agent` hashes the
+  agent first, and every file it or a provider then reads (`Agent.path`) must be one of the files
   hashed, compared by the file on disk (device and inode), not by how the path is spelled. So
   a case variant on a case-insensitive filesystem (`EVALS/rules.yaml`, `__PYCACHE__/x.yaml`,
   `logic/decision_card.md` on macOS or Windows), a link, a file added after the load or a key
   the load does not list cannot reach a file the digest leaves out. Its content must still be
   the bytes hashed: each read takes the file's bytes once and checks them against the SHA-256
-  the load took of that file (`Pack.read_bytes`), and parses those bytes, so a file edited in
+  the load took of that file (`Agent.read_bytes`), and parses those bytes, so a file edited in
   place after the load, or while it runs, is refused naming the file (its decisions answer
   `422`), never used under a digest that does not describe it; loading the agent again picks the
   edit up under its new digest. The manifest fields naming
@@ -331,11 +331,11 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   provider's `config` and `calibration`) are checked at load, and a
   refusal names the field and why (through a hidden entry or `__pycache__`, in `evals/` or a
   `DECISION_CARD.md`, or not a file the digest covers). The attestations, left out of the
-  digest, are read only through a separate accessor (`Pack.attestation`) by their fixed names
+  digest, are read only through a separate accessor (`Agent.attestation`) by their fixed names
   (`evals/benchmark.json`, `evals/leaderboard.json`, `DECISION_CARD.md`) and
   `evaluation.benchmark`, the one manifest path that names one, which must be in `evals/` (not
   a `DECISION_CARD.md`); `mendari card --write` does not write through a link. A signed archive holds regular files only (no symbolic or hard
-  link, device, FIFO or sparse file), each named `pack/` and then plain path segments (none
+  link, device, FIFO or sparse file), each named `agent/` and then plain path segments (none
   empty, `.`, `..` or hidden, no backslash), no two of them one file where case and Unicode
   normalization are not significant (`A` and `a/x.yaml`, `agent.yaml` and `AGENT.yaml`, NFC and
   NFD spellings), so it extracts to the same files on macOS, Windows and Linux, and extracting
@@ -430,7 +430,7 @@ automates under its own policy only once its organization approves its digest (a
   `low` is dropped. Every variant and member is checked at load against its provider's closed
   config (`docs/spec/provider-configs.schema.json`): a key its provider does not read, or a value
   it refuses, refuses the agent. An owned agent loads with such problems as warnings (`mendari
-  list`, the start-up log, `/api/health` `pack_warnings`), and `mendari validate` refuses both.
+  list`, the start-up log, `/api/health` `agent_warnings`), and `mendari validate` refuses both.
 - **At most 10,000 characters of text**, alone or together
   (keys too, where its input schema runs patterns on them: `patternProperties`,
   `propertyNames`), and at most 10,000 values

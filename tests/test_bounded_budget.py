@@ -20,12 +20,12 @@ from typing import Any
 
 import pytest
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari.core import patterns
 from mendari.core.origin import Origin
 from mendari.core.spec import Outcome
-from mendari.errors import PackValidationError
-from mendari.evals.pack_tests import _run
+from mendari.errors import AgentValidationError
+from mendari.evals.behaviour_tests import _run
 from tests.support.engine import SORTER_SCHEMA, pulled, sorter
 
 EMOJI = "\U0001f600" * 10_000
@@ -56,18 +56,18 @@ def slow_rules(*, negatable: bool = False) -> Any:
     return edit
 
 
-def timed(pack: Any, inputs: dict[str, Any]) -> tuple[Any, float]:
+def timed(agent: Any, inputs: dict[str, Any]) -> tuple[Any, float]:
     started = time.monotonic()
-    result = Decision(pack).decide(inputs)
+    result = Decision(agent).decide(inputs)
     return result, time.monotonic() - started
 
 
-def test_a_bounded_packs_rules_stop_at_the_budget_and_a_person_decides(tmp_path: Path) -> None:
+def test_a_bounded_agents_rules_stop_at_the_budget_and_a_person_decides(tmp_path: Path) -> None:
     """The rules fail as any provider that cannot answer does: the decision abstains, with no
     recommendation, and a person decides."""
-    pack = pulled(sorter(tmp_path, rules=slow_rules(), schema=long_message))
-    assert pack.bounded
-    result, took = timed(pack, {"message": EMOJI})
+    agent = pulled(sorter(tmp_path, rules=slow_rules(), schema=long_message))
+    assert agent.bounded
+    result, took = timed(agent, {"message": EMOJI})
     assert took < BOUND_S
     assert result.outcome is Outcome.ABSTAIN and result.recommendation is None
     assert set(result.errors.values()) == {"time_budget"}
@@ -75,9 +75,9 @@ def test_a_bounded_packs_rules_stop_at_the_budget_and_a_person_decides(tmp_path:
 
 def test_negated_patterns_stop_at_the_budget_too(tmp_path: Path) -> None:
     """Before, each negated match made RE2 scan ahead again: 17.5 s within every cap."""
-    pack = pulled(sorter(tmp_path, rules=slow_rules(negatable=True), schema=long_message))
+    agent = pulled(sorter(tmp_path, rules=slow_rules(negatable=True), schema=long_message))
     text = (("no " + "\U0001f600" * 190 + " ") * 60)[:10_000]
-    result, took = timed(pack, {"message": text})
+    result, took = timed(agent, {"message": text})
     assert took < BOUND_S
     assert set(result.errors.values()) == {"time_budget"}
 
@@ -91,7 +91,7 @@ def stopped_for_a_person(result: Any) -> bool:
     )
 
 
-def test_a_bounded_packs_schema_patterns_stop_at_the_budget(tmp_path: Path) -> None:
+def test_a_bounded_agents_schema_patterns_stop_at_the_budget(tmp_path: Path) -> None:
     """The input fails the first patterns (no `0` in it): those errors refuse it, and the rest
     are not searched once the budget is spent."""
 
@@ -99,8 +99,8 @@ def test_a_bounded_packs_schema_patterns_stop_at_the_budget(tmp_path: Path) -> N
         long_message(schema)
         schema["properties"]["message"]["allOf"] = [{"pattern": p} for p in SLOW]
 
-    pack = pulled(sorter(tmp_path, schema=slow_schema))
-    result, took = timed(pack, {"message": EMOJI})
+    agent = pulled(sorter(tmp_path, schema=slow_schema))
+    result, took = timed(agent, {"message": EMOJI})
     assert took < BOUND_S and result.outcome is Outcome.BLOCK
     assert 0 < len(result.reasons) < len(SLOW)
     assert all("does not match the pattern" in reason for reason in result.reasons)
@@ -116,9 +116,9 @@ def test_a_schema_that_fans_out_without_patterns_stops_at_the_budget(tmp_path: P
             for i in range(24)
         } | {"t24": {"minLength": 1}}
 
-    pack = pulled(sorter(tmp_path, schema=fan_out))
-    assert timed(pack, {"message": "my bill"})[1] < 1  # without the field, nothing fans out
-    result, took = timed(pack, {"message": "my bill", "note": "x"})
+    agent = pulled(sorter(tmp_path, schema=fan_out))
+    assert timed(agent, {"message": "my bill"})[1] < 1  # without the field, nothing fans out
+    result, took = timed(agent, {"message": "my bill", "note": "x"})
     assert took < BOUND_S and stopped_for_a_person(result)
 
 
@@ -132,11 +132,11 @@ def test_an_enum_is_short_and_stops_at_the_budget_on_many_items(tmp_path: Path) 
 
         return edit
 
-    with pytest.raises(PackValidationError) as error:
+    with pytest.raises(AgentValidationError) as error:
         pulled(sorter(tmp_path / "long", schema=codes(list(range(501)))))
     assert any("lists 501 values, at most 500" in problem for problem in error.value.problems)
-    pack = pulled(sorter(tmp_path / "short", schema=codes(list(range(500)))))
-    result, took = timed(pack, {"message": "my bill", "codes": [499] * 9_990})
+    agent = pulled(sorter(tmp_path / "short", schema=codes(list(range(500)))))
+    result, took = timed(agent, {"message": "my bill", "codes": [499] * 9_990})
     assert took < BOUND_S and result.outcome is not Outcome.BLOCK
 
 
@@ -151,7 +151,7 @@ def test_an_enum_is_short_and_stops_at_the_budget_on_many_items(tmp_path: Path) 
         ("definitions", {}),
     ],
 )
-def test_a_bounded_packs_schema_uses_only_the_keywords_mendari_bounds(
+def test_a_bounded_agents_schema_uses_only_the_keywords_mendari_bounds(
     tmp_path: Path, keyword: str, value: Any
 ) -> None:
     """`contains` applied its subschema to every item outside the budget (48 s), `uniqueItems`
@@ -161,7 +161,7 @@ def test_a_bounded_packs_schema_uses_only_the_keywords_mendari_bounds(
         schema["$defs"] = {"x": {"type": "integer"}}
         schema["properties"]["codes"] = {"type": "array", keyword: value}
 
-    with pytest.raises(PackValidationError) as error:
+    with pytest.raises(AgentValidationError) as error:
         pulled(sorter(tmp_path, schema=used))
     assert any(
         f"properties/codes/{keyword}: a registry or store agent's schema may not use {keyword}"
@@ -174,7 +174,7 @@ def test_a_bounded_packs_schema_uses_only_the_keywords_mendari_bounds(
     "reference",
     ["#", "#/$defs/h/default", "#/properties/message", "#/$defs/missing"],
 )
-def test_a_bounded_packs_ref_names_one_of_its_defs(tmp_path: Path, reference: str) -> None:
+def test_a_bounded_agents_ref_names_one_of_its_defs(tmp_path: Path, reference: str) -> None:
     """A `$ref` into data (`default`, `const`) made it a schema, out of this check's sight, and
     one to the root brought back jsonschema's own validator."""
 
@@ -182,7 +182,7 @@ def test_a_bounded_packs_ref_names_one_of_its_defs(tmp_path: Path, reference: st
         schema["$defs"] = {"h": {"type": "object", "default": {"uniqueItems": True}}}
         schema["properties"]["meta"] = {"$ref": reference}
 
-    with pytest.raises(PackValidationError) as error:
+    with pytest.raises(AgentValidationError) as error:
         pulled(sorter(tmp_path, schema=referred))
     expected = "is not in the schema" if reference.endswith("missing") else "a $ref names one"
     assert any(expected in problem for problem in error.value.problems)
@@ -204,7 +204,7 @@ def test_lists_and_values_a_schema_compares_at_once_are_short_and_flat(
     def listed(schema: dict[str, Any]) -> None:
         schema["properties"]["meta"] = {"type": "object", keyword: value}
 
-    with pytest.raises(PackValidationError) as error:
+    with pytest.raises(AgentValidationError) as error:
         pulled(sorter(tmp_path, schema=listed))
     assert any(problem in found for found in error.value.problems)
 
@@ -220,18 +220,18 @@ def test_the_budget_counts_the_decisions_own_cpu_time_not_waiting() -> None:
                 patterns.check_time()
 
 
-def test_a_pack_test_that_runs_out_of_time_says_so(tmp_path: Path) -> None:
-    pack = pulled(sorter(tmp_path, rules=slow_rules(), schema=long_message))
+def test_an_agent_test_that_runs_out_of_time_says_so(tmp_path: Path) -> None:
+    agent = pulled(sorter(tmp_path, rules=slow_rules(), schema=long_message))
     case = {"name": "slow", "input": {"message": EMOJI}, "expect": {"recommendation": "billing"}}
-    failures = _run(Decision(pack), case).failures
+    failures = _run(Decision(agent), case).failures
     assert any("time_budget" in failure for failure in failures)
     assert any("ran out of the 1 s time budget" in failure for failure in failures)
 
 
 def test_the_budget_belongs_to_one_decision(tmp_path: Path) -> None:
     """Spent in one decision, it is not in the next; outside a decision there is none."""
-    pack = pulled(sorter(tmp_path, rules=slow_rules(), schema=long_message))
-    decision = Decision(pack)
+    agent = pulled(sorter(tmp_path, rules=slow_rules(), schema=long_message))
+    decision = Decision(agent)
     assert set(decision.decide({"message": EMOJI}).errors.values()) == {"time_budget"}
     assert patterns._DEADLINE.get() is None
     quick = decision.decide({"message": "a question about my bill !0"})  # `\W{1,299}0`
@@ -239,12 +239,12 @@ def test_the_budget_belongs_to_one_decision(tmp_path: Path) -> None:
     patterns.check_time()  # no budget, no limit
 
 
-def test_a_pack_that_is_not_bounded_has_no_budget(tmp_path: Path) -> None:
+def test_an_agent_that_is_not_bounded_has_no_budget(tmp_path: Path) -> None:
     """The same agent as the operator's own: its patterns run on `re`, as before, with no budget
     (a short text: `re` would take long on the slow one)."""
-    root = sorter(tmp_path, rules=slow_rules(), schema=long_message, pack_id="someone/sorter")
-    result = Decision(load_pack(root)).decide({"message": "a question about my bill 0"})
-    assert not load_pack(root).bounded and result.errors == {}
+    root = sorter(tmp_path, rules=slow_rules(), schema=long_message, agent_id="someone/sorter")
+    result = Decision(load_agent(root)).decide({"message": "a question about my bill 0"})
+    assert not load_agent(root).bounded and result.errors == {}
 
 
 def test_the_budget_is_spent_once_and_restored() -> None:
@@ -276,7 +276,7 @@ def test_keywords_jsonschema_walks_on_its_own_are_refused(tmp_path: Path, keywor
         schema["properties"]["extra"] = {keyword: False, "$ref": "#/$defs/t0"}
         schema["$defs"] = fan_out(20)
 
-    with pytest.raises(PackValidationError) as error:
+    with pytest.raises(AgentValidationError) as error:
         pulled(sorter(tmp_path, schema=walked))
     assert any(f"may not use {keyword}" in problem for problem in error.value.problems)
 
@@ -288,23 +288,23 @@ def test_a_property_named_like_a_keyword_is_allowed(tmp_path: Path) -> None:
     assert pulled(sorter(tmp_path, schema=named)).bounded
 
 
-def test_a_bounded_packs_input_holds_a_bounded_number_of_values(tmp_path: Path) -> None:
+def test_a_bounded_agents_input_holds_a_bounded_number_of_values(tmp_path: Path) -> None:
     """Its schema applies to every value: a subschema with no keyword on 2 million items took
     15.7 s before (the budget never checked)."""
 
     def many(schema: dict[str, Any]) -> None:
         schema["properties"]["xs"] = {"type": "array", "items": {"x-note": 1}}
 
-    pack = pulled(sorter(tmp_path, schema=many))
-    result, took = timed(pack, {"message": "my bill", "xs": [1] * 2_000_000})
+    agent = pulled(sorter(tmp_path, schema=many))
+    result, took = timed(agent, {"message": "my bill", "xs": [1] * 2_000_000})
     assert took < BOUND_S and result.outcome is Outcome.BLOCK  # refused before any keyword
     assert result.reasons == (
         "input rejected: (root): more than 10,000 values, the most an agent from a registry reads",
     )
-    assert timed(pack, {"message": "my bill", "xs": [1] * 9_000})[0].outcome is not Outcome.BLOCK
+    assert timed(agent, {"message": "my bill", "xs": [1] * 9_000})[0].outcome is not Outcome.BLOCK
 
 
-def test_a_bounded_packs_input_is_nested_at_most_32_deep(tmp_path: Path) -> None:
+def test_a_bounded_agents_input_is_nested_at_most_32_deep(tmp_path: Path) -> None:
     """Before, 200 levels crashed the check (RecursionError, a 500)."""
 
     def nested(schema: dict[str, Any]) -> None:
@@ -341,7 +341,7 @@ def test_a_number_past_checking_is_refused_not_a_crash(tmp_path: Path) -> None:
     def money(schema: dict[str, Any]) -> None:
         schema["properties"]["amount"] = {"type": "number", "multipleOf": 0.01}
 
-    for name, loaded in (("pulled", pulled), ("own", load_pack)):
+    for name, loaded in (("pulled", pulled), ("own", load_agent)):
         root = sorter(tmp_path / name, schema=money)
         result = Decision(loaded(root)).decide({"message": "my bill", "amount": 10**4000})
         assert result.outcome is Outcome.BLOCK
@@ -361,14 +361,14 @@ def test_errors_found_before_the_budget_runs_out_still_refuse_the_input(tmp_path
         }
         schema["$defs"] = fan_out(24)
 
-    pack = pulled(sorter(tmp_path, schema=checked_first))
-    result, took = timed(pack, {"a": "one", "message": "my bill", "note": "x"})
+    agent = pulled(sorter(tmp_path, schema=checked_first))
+    result, took = timed(agent, {"a": "one", "message": "my bill", "note": "x"})
     assert took < BOUND_S and result.outcome is Outcome.BLOCK
     assert result.reasons == ("input rejected: a: must be of type integer",)
 
 
 def test_mendari_validate_checks_test_inputs_within_the_budget(tmp_path: Path) -> None:
-    from mendari.evals.pack_tests import input_problems
+    from mendari.evals.behaviour_tests import input_problems
 
     def noted(schema: dict[str, Any]) -> None:
         schema["properties"]["note"] = {"type": "string", "$ref": "#/$defs/t0"}
@@ -397,7 +397,7 @@ def test_a_defs_name_is_one_a_ref_names_exactly(tmp_path: Path, name: str) -> No
         schema["$defs"] = {"h": {"type": "array", "default": unique}, name: {}}
         schema["properties"]["codes"] = {"$ref": f"#/$defs/{name}"}
 
-    with pytest.raises(PackValidationError) as error:
+    with pytest.raises(AgentValidationError) as error:
         pulled(sorter(tmp_path, schema=hidden))
     assert any(
         f"$defs/{name}: a $defs name is letters" in p or "is not in the schema" in p
@@ -405,13 +405,13 @@ def test_a_defs_name_is_one_a_ref_names_exactly(tmp_path: Path, name: str) -> No
     )
 
 
-def test_the_error_limit_and_short_reasons_are_a_bounded_packs_only(tmp_path: Path) -> None:
+def test_the_error_limit_and_short_reasons_are_a_bounded_agents_only(tmp_path: Path) -> None:
     """Every agent the deployment owns lists what it always listed."""
 
     def many(schema: dict[str, Any]) -> None:
         schema["properties"]["meta"] = {"type": "object", "required": [f"n{i}" for i in range(9)]}
 
-    outside = load_pack(sorter(tmp_path / "a", schema=many, pack_id="someone/sorter"))
+    outside = load_agent(sorter(tmp_path / "a", schema=many, agent_id="someone/sorter"))
     reasons = Decision(outside).decide({"message": "my bill", "meta": {}}).reasons
     assert reasons[0] == f"input rejected: meta: {', '.join(f'n{i}' for i in range(9))} is required"
     assert len(reasons) == 9  # one per missing name, as before
@@ -435,18 +435,18 @@ def test_a_schemas_texts_are_short(tmp_path: Path, keyword: str, value: Any) -> 
     def long(schema: dict[str, Any]) -> None:
         schema["properties"]["meta"] = {"type": "object", keyword: value}
 
-    with pytest.raises(PackValidationError) as error:
+    with pytest.raises(AgentValidationError) as error:
         pulled(sorter(tmp_path, schema=long))
     assert any("longer than 200 characters" in p for p in error.value.problems)
 
 
-def test_validate_called_alone_holds_a_bounded_packs_text_to_its_length(
+def test_validate_called_alone_holds_a_bounded_agents_text_to_its_length(
     tmp_path: Path,
 ) -> None:
     """`mendari data check` validates a dataset's inputs without deciding them: the length cap
     applies too."""
-    pack = pulled(sorter(tmp_path, schema=long_message))
-    assert Decision(pack).validate({"message": "x" * 10_001}) == [
+    agent = pulled(sorter(tmp_path, schema=long_message))
+    assert Decision(agent).validate({"message": "x" * 10_001}) == [
         "message: longer than 10,000 characters, the most an agent from a registry reads"
     ]
 
@@ -456,7 +456,7 @@ def test_refused_keywords_say_what_to_write_instead(tmp_path: Path) -> None:
         schema["properties"]["meta"] = {"type": "object", "dependentRequired": {"a": ["b"]}}
         schema["definitions"] = {}
 
-    with pytest.raises(PackValidationError) as error:
+    with pytest.raises(AgentValidationError) as error:
         pulled(sorter(tmp_path, schema=used))
     found = " ".join(error.value.problems)
     assert "dependentRequired" in found and "use if/then" in found and "use $defs" in found
@@ -482,8 +482,8 @@ def test_enum_and_const_errors_do_not_copy_the_schema_or_the_input() -> None:
 def test_a_root_id_that_is_not_text_is_refused(tmp_path: Path, origin: Origin) -> None:
     """Before, it failed the load with an AttributeError (on every agent, pulled or the
     deployment's own)."""
-    with pytest.raises(PackValidationError) as error:
-        load_pack(sorter(tmp_path, schema=lambda s: s.update({"$id": 5})), origin=origin)
+    with pytest.raises(AgentValidationError) as error:
+        load_agent(sorter(tmp_path, schema=lambda s: s.update({"$id": 5})), origin=origin)
     assert "input schema: $id: $id is a text" in error.value.problems
 
 
@@ -502,6 +502,6 @@ def test_a_refused_keyword_says_why_and_what_instead(
     def used(schema: dict[str, Any]) -> None:
         schema["properties"]["meta"] = {"type": "object", keyword: {"enum": [1]}}
 
-    with pytest.raises(PackValidationError) as error:
+    with pytest.raises(AgentValidationError) as error:
         pulled(sorter(tmp_path, schema=used))
     assert any(words in problem for problem in error.value.problems), error.value.problems

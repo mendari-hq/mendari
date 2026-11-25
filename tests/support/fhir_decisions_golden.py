@@ -35,8 +35,8 @@ from typing import Any, NamedTuple
 from unittest import mock
 
 from mendari.core import clock
+from mendari.core.agent import load_agent
 from mendari.core.decision import Decision
-from mendari.core.pack import load_pack
 from mendari.errors import FhirError
 from mendari.evals.harness import resolve_dataset
 from mendari.providers.agent import ENDPOINT_ENV, TOKEN_ENV
@@ -92,7 +92,7 @@ CASES: dict[str, Golden] = {
 def records(agent_id: str) -> list[dict[str, Any]]:
     """The cases the golden pins for `agent_id`: its dataset's lines, in the file's order."""
     golden = CASES[agent_id]
-    return resolve_dataset(load_pack(golden.directory), golden.dataset).records
+    return resolve_dataset(load_agent(golden.directory), golden.dataset).records
 
 
 @contextmanager
@@ -136,24 +136,24 @@ def golden() -> dict[str, Any]:
     with on_the_day():
         for agent_id, (directory, dataset, build) in CASES.items():
             decision = Decision.from_path(directory)  # no store: unkeyed hashes
-            if decision.pack.id != agent_id or not offline(decision):
+            if decision.agent.id != agent_id or not offline(decision):
                 raise SystemExit(f"{directory}: not {agent_id} answering offline")
             agents[agent_id] = {
                 "dataset": dataset,
                 "cases": [decided(decision, record, build) for record in records(agent_id)],
             }
-    return {"format": FORMAT, "today": TODAY.isoformat(), "packs": agents}
+    return {"format": FORMAT, "today": TODAY.isoformat(), "agents": agents}
 
 
 def render(data: dict[str, Any]) -> str:
     """The golden as committed: one case a line, its id first, one trailing newline."""
     lines = ["{", f'  "format": {json.dumps(data["format"])},', f'  "today": "{data["today"]}",']
-    lines.append('  "packs": {')
-    for position, (agent_id, agent) in enumerate(data["packs"].items()):
+    lines.append('  "agents": {')
+    for position, (agent_id, agent) in enumerate(data["agents"].items()):
         lines += [f"    {json.dumps(agent_id)}: {{", f'      "dataset": "{agent["dataset"]}",']
         lines.append('      "cases": [')
         lines.append(",\n".join(f"        {json.dumps(case)}" for case in agent["cases"]))
-        lines += ["      ]", "    }" + ("," if position < len(data["packs"]) - 1 else "")]
+        lines += ["      ]", "    }" + ("," if position < len(data["agents"]) - 1 else "")]
     lines += ["  }", "}"]
     return "\n".join(lines) + "\n"
 

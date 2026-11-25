@@ -22,10 +22,10 @@ from mendari.core.origin import MARKER, ORIGIN_FORMAT
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError
 from mendari.hub import yank
-from mendari.hub.client import packs_cache, pull
+from mendari.hub.client import agents_cache, pull
 from mendari.server.app import create_app
 from mendari.server.recalls import UNSIGNED, RecallWatch, fetch_signs, fetch_yanks
-from tests.test_hub_client import Hub, copy_pack, hub  # noqa: F401 - the live registry fixture
+from tests.test_hub_client import Hub, copy_agent, hub  # noqa: F401 - the live registry fixture
 from tests.test_registry_engine import BILL, outside_sorter
 
 REGISTRY = "https://hub.example.org"
@@ -45,16 +45,16 @@ class Clock:
 
 
 def _pulled(tmp_path: Path, registry: str | None = REGISTRY, **marked: Any) -> Any:
-    pack = outside_sorter(tmp_path)
+    agent = outside_sorter(tmp_path)
     record: dict[str, Any] = {"format": ORIGIN_FORMAT, **marked}
     if registry:
         record["registry"] = registry
-    (pack.root / MARKER).write_text(json.dumps(record))
-    return pack
+    (agent.root / MARKER).write_text(json.dumps(record))
+    return agent
 
 
 def test_what_the_watch_holds_and_when(tmp_path: Path) -> None:
-    pack = _pulled(tmp_path)
+    agent = _pulled(tmp_path)
     listed: list[dict[str, Any]] = []
     clock = Clock()
     failing = [False]
@@ -66,7 +66,7 @@ def test_what_the_watch_holds_and_when(tmp_path: Path) -> None:
         return listed
 
     watch = RecallWatch(
-        [pack],
+        [agent],
         fetch=fetch,
         fetch_key=no_key,
         clock=clock,
@@ -74,29 +74,29 @@ def test_what_the_watch_holds_and_when(tmp_path: Path) -> None:
         stale_s=3600,
         background=False,
     )
-    assert watch.held(pack) == "its registry has not been checked for recalls yet"
+    assert watch.held(agent) == "its registry has not been checked for recalls yet"
     watch.refresh(REGISTRY)
-    assert watch.held(pack) is None
-    listed.append({"pack": pack.id, "version": pack.version, "yank": {"severity": "high"}})
+    assert watch.held(agent) is None
+    listed.append({"agent": agent.id, "version": agent.version, "yank": {"severity": "high"}})
     watch.refresh(REGISTRY)
-    assert watch.held(pack) == "recalled (high) by its registry"
-    listed[0] = {"pack": pack.id, "version": pack.version, "yank": None, "deleted": {}}
+    assert watch.held(agent) == "recalled (high) by its registry"
+    listed[0] = {"agent": agent.id, "version": agent.version, "yank": None, "deleted": {}}
     watch.refresh(REGISTRY)
-    assert watch.held(pack) == "deleted by its registry"
+    assert watch.held(agent) == "deleted by its registry"
     listed.clear()
     watch.refresh(REGISTRY)
     failing[0] = True
     clock.now += 3000
     watch.refresh(REGISTRY)  # a failed read keeps what was known until it is stale
-    assert watch.held(pack) is None
+    assert watch.held(agent) is None
     clock.now += 1000
-    assert watch.held(pack) == "its registry could not be checked for recalls"
+    assert watch.held(agent) == "its registry could not be checked for recalls"
     assert watch.status() == {
         REGISTRY: {"checked_s_ago": 4000, "recalled": 0, "failing": "MendariError", "signs": False}
     }
 
 
-def test_a_pack_that_names_no_registry_is_held_and_others_are_not(tmp_path: Path) -> None:
+def test_an_agent_that_names_no_registry_is_held_and_others_are_not(tmp_path: Path) -> None:
     unnamed = _pulled(tmp_path / "a", registry=None)
     watch = RecallWatch(
         [unnamed], fetch=lambda _: [], fetch_key=no_key, check_s=300, stale_s=3600, background=False
@@ -108,11 +108,11 @@ def test_a_pack_that_names_no_registry_is_held_and_others_are_not(tmp_path: Path
 
 
 def test_a_watched_recall_stops_automation_and_its_own_block(tmp_path: Path) -> None:
-    pack = _pulled(tmp_path)
+    agent = _pulled(tmp_path)
     watch = RecallWatch(
-        [pack], fetch=lambda _: [], fetch_key=no_key, check_s=300, stale_s=3600, background=False
+        [agent], fetch=lambda _: [], fetch_key=no_key, check_s=300, stale_s=3600, background=False
     )
-    decision = Decision(pack, origin_approval=lambda _: True, recall_source=watch.held)
+    decision = Decision(agent, origin_approval=lambda _: True, recall_source=watch.held)
     assert decision.decide(BILL).outcome is Outcome.HUMAN_REVIEW  # not checked yet
     watch.refresh(REGISTRY)
     assert decision.decide(BILL).outcome is Outcome.AUTO
@@ -162,7 +162,7 @@ def test_once_its_registry_has_a_key_a_copy_it_never_counter_signed_is_held(
     watch.refresh(REGISTRY)  # a registry that drops its key: nothing it lists is held for it
     assert watch.held(unsigned) is None
     # The copy is pulled again, counter-signed: the marker beside it now says so, and the same
-    # pack, as the server loaded it, automates again.
+    # agent, as the server loaded it, automates again.
     signs[0] = True
     watch.refresh(REGISTRY)
     assert watch.held(unsigned) == UNSIGNED
@@ -174,17 +174,17 @@ def test_once_its_registry_has_a_key_a_copy_it_never_counter_signed_is_held(
 
 
 def test_a_recall_is_said_before_a_missing_counter_signature(tmp_path: Path) -> None:
-    pack = _pulled(tmp_path, accepted=None)
-    listed = [{"pack": pack.id, "version": pack.version, "yank": {"severity": "low"}}]
+    agent = _pulled(tmp_path, accepted=None)
+    listed = [{"agent": agent.id, "version": agent.version, "yank": {"severity": "low"}}]
     watch = RecallWatch(
-        [pack], fetch=lambda _: listed, fetch_key=lambda _: True, check_s=300, stale_s=3600,
+        [agent], fetch=lambda _: listed, fetch_key=lambda _: True, check_s=300, stale_s=3600,
         background=False,
     )  # fmt: skip
     watch.refresh(REGISTRY)
-    assert watch.held(pack) == "recalled (low) by its registry"
+    assert watch.held(agent) == "recalled (low) by its registry"
 
 
-def test_a_running_server_stops_automating_a_pack_its_registry_recalls(
+def test_a_running_server_stops_automating_an_agent_its_registry_recalls(
     hub: Hub,  # noqa: F811
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -194,14 +194,14 @@ def test_a_running_server_stops_automating_a_pack_its_registry_recalls(
     hub.client(token).push(source, key)
     pulled = pull("someone/visit-sorter", hub.client())
     assert pulled.pulled["registry"] == hub.url
-    assert pulled.root.is_relative_to(packs_cache())
+    assert pulled.root.is_relative_to(agents_cache())
     monkeypatch.setenv("MENDARI_AGENTS", "someone/visit-sorter")
     with TestClient(create_app(db_path=tmp_path / "engine.db")) as client:
         watch = client.app.state.recall_watch  # type: ignore[attr-defined]
         watch.refresh(hub.url)
         body = {
-            "pack_id": pulled.id,
-            "pack_digest": pulled.digest,
+            "agent_id": pulled.id,
+            "agent_digest": pulled.digest,
             "reference": "minutes 9",
             "approver": "dr-a",
         }
@@ -239,8 +239,8 @@ def test_a_running_server_holds_a_copy_its_registry_never_counter_signed(
     with TestClient(create_app(db_path=db_target)) as client:
         watch = client.app.state.recall_watch  # type: ignore[attr-defined]
         approval = {
-            "pack_id": pulled.id,
-            "pack_digest": pulled.digest,
+            "agent_id": pulled.id,
+            "agent_digest": pulled.digest,
             "reference": "minutes 9",
             "approver": "dr-a",
         }
@@ -290,7 +290,7 @@ class _Registry(BaseHTTPRequestHandler):
             self.wfile.write(b"{}")
             return
         body = {
-            "ok": b'[{"pack": "a/b", "version": "1.0.0"}, 3]',
+            "ok": b'[{"agent": "a/b", "version": "1.0.0"}, 3]',
             "list": b'{"not": "a list"}',
             "huge": b"[" + b" " * 6_000_000 + b"]",
             "moved": b"[]",
@@ -322,7 +322,7 @@ def test_a_registrys_answer_is_bounded_in_size_time_and_shape(local_registry: st
     """The LP-18e review: a read had no total time limit and buffered any size before the cap.
     Now the whole answer has a deadline and a size cap, a redirect is never followed, and only a
     list of objects is read."""
-    assert fetch_yanks(f"{local_registry}/ok") == [{"pack": "a/b", "version": "1.0.0"}]
+    assert fetch_yanks(f"{local_registry}/ok") == [{"agent": "a/b", "version": "1.0.0"}]
     for case, problem in (
         ("error", "HTTP 500"),
         ("moved", "HTTP 302"),
@@ -346,7 +346,7 @@ def test_whether_a_registry_has_a_key_is_read_from_its_status_only(local_registr
 
 
 def test_a_lost_read_is_started_again_and_one_reads_at_a_time(tmp_path: Path) -> None:
-    pack = _pulled(tmp_path)
+    agent = _pulled(tmp_path)
     clock = Clock()
     calls: list[str] = []
     gate = threading.Event()
@@ -357,14 +357,14 @@ def test_a_lost_read_is_started_again_and_one_reads_at_a_time(tmp_path: Path) ->
         return []
 
     watch = RecallWatch(
-        [pack], fetch=fetch, fetch_key=no_key, clock=clock, check_s=300, stale_s=3600
+        [agent], fetch=fetch, fetch_key=no_key, clock=clock, check_s=300, stale_s=3600
     )
     for _ in range(5):
-        watch.held(pack)  # one background read in flight, however many decisions
+        watch.held(agent)  # one background read in flight, however many decisions
     time.sleep(0.2)
     assert len(calls) == 1
     clock.now += 61  # that read is taken as lost: another starts
-    watch.held(pack)
+    watch.held(agent)
     time.sleep(0.2)
     assert len(calls) == 2
     gate.set()

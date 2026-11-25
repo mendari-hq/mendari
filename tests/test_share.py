@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Shareable evaluations (evals/share.py, LP-22c): counts leave the site, cases never do.
 
-A shared report is `mendari.site-report/2`, a closed schema the client builds from a run's
+A shared report is `mendari.site-report/1`, a closed schema the client builds from a run's
 ledger and the registry checks: whole counts, names and flags only, no rate, small cells
 suppressed by one function both sides run, no subgroup, no case id, no dataset identity, no
 approver."""
@@ -21,9 +21,9 @@ import pytest
 import yaml
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from mendari import Decision, Pack, load_pack
+from mendari import Agent, Decision, load_agent
 from mendari.core.policy import GovernanceOverride
-from mendari.core.registry import resolve_pack
+from mendari.core.registry import resolve_agent
 from mendari.errors import FAILURE_CODES, MendariError
 from mendari.evals import resolve_dataset
 from mendari.evals.harness import Evaluation, evaluation
@@ -35,7 +35,7 @@ from mendari.evals.share import (
     Count,
     ErrorKey,
     SharedProvider,
-    SiteReportV2,
+    SiteReportV1,
     composite_members,
     counted_report,
     shareable,
@@ -55,26 +55,26 @@ from tests.conftest import (
 )
 
 # The test fixtures' agents; the first is the one `shared_benchmark()` shares by default.
-TRIAGE, CLINICAL, CHART = (load_pack(d) for d in (TRIAGE_DIR, CLINICAL_DIR, CHART_DIR))
-PACKS = (TRIAGE.id, CLINICAL.id, CHART.id)
+TRIAGE, CLINICAL, CHART = (load_agent(d) for d in (TRIAGE_DIR, CLINICAL_DIR, CHART_DIR))
+AGENTS = (TRIAGE.id, CLINICAL.id, CHART.id)
 SHARED = shared_benchmark()
 FREE_TEXT = "Jane Doe, DOB 1960-02-01, called about chest pain"
 
 
-def _run(pack_id: str, dataset: str, **options: Any) -> Evaluation:
-    pack = resolve_pack(pack_id)
-    return evaluation(Decision(pack, **options), resolve_dataset(pack, dataset))
+def _run(agent_id: str, dataset: str, **options: Any) -> Evaluation:
+    agent = resolve_agent(agent_id)
+    return evaluation(Decision(agent, **options), resolve_dataset(agent, dataset))
 
 
 def test_case_ids_and_dataset_identity_stay_home(tmp_path: Path) -> None:
-    pack = resolve_pack(TRIAGE.id)
+    agent = resolve_agent(TRIAGE.id)
     site_file = tmp_path / "north-clinic-cases.jsonl"  # a site's own file, named as it names it
     shutil.copyfile(TRIAGE_DIR / "data" / "test.jsonl", site_file)
-    dataset = resolve_dataset(pack, str(site_file))
-    run = evaluation(Decision(pack), dataset)
+    dataset = resolve_dataset(agent, str(site_file))
+    run = evaluation(Decision(agent), dataset)
     shared = shareable(run.ledger)
     text = json.dumps(shared)
-    assert shared["format"] == "mendari.site-report/2"
+    assert shared["format"] == "mendari.site-report/1"
     assert all(record["id"] not in text for record in dataset.records)
     assert all(case["c"] not in text for case in run.ledger.cases)  # nor their hashes
     assert shared["dataset"] == {"n": len(dataset.records)}  # no name, no digest
@@ -102,9 +102,9 @@ def _leaves(value: Any, path: tuple[Any, ...] = ()) -> Iterator[tuple[tuple[Any,
         yield path, value
 
 
-@pytest.mark.parametrize("pack_id", PACKS)
-def test_a_shared_report_holds_whole_counts_and_no_rate(pack_id: str) -> None:
-    shared = shared_benchmark(pack_id)
+@pytest.mark.parametrize("agent_id", AGENTS)
+def test_a_shared_report_holds_whole_counts_and_no_rate(agent_id: str) -> None:
+    shared = shared_benchmark(agent_id)
     for path, leaf in _leaves(shared):
         assert leaf is None or isinstance(leaf, int | str | bool), path
         assert not isinstance(leaf, float), path
@@ -136,14 +136,14 @@ def test_a_rate_or_a_fraction_anywhere_is_refused_on_both_sides(path: tuple[Any,
     or a string is refused by the model both sides validate with."""
     for bad in (0.5, 0.9876, 3.0, "3", True):
         with pytest.raises(ValidationError):
-            SiteReportV2.model_validate(_set(SHARED, path, bad))
+            SiteReportV1.model_validate(_set(SHARED, path, bad))
 
 
 # A hand-made run with small cells, to try to recover each suppressed one.
 _BINS = [(0, 0)] * 7 + [(30, 11), (40, 10), (25, 0)]  # rights 95, wrongs 21
 FIXTURE: dict[str, Any] = {
-    "format": "mendari.site-report/2",
-    "pack": {"id": "mendari-test/hand-made", "version": "1.0.0", "digest": "sha256:" + "0" * 64},
+    "format": "mendari.site-report/1",
+    "agent": {"id": "mendari-test/hand-made", "version": "1.0.0", "digest": "sha256:" + "0" * 64},
     "providers": {"router": {"variant": "rules", "type": "rules", "model": None}},
     "policy": {
         "risk_level": 2,
@@ -285,17 +285,17 @@ def test_safety_counts_are_shared_exactly_and_small_runs_are_not_shared() -> Non
     with pytest.raises(MendariError, match="fewer than 100 cases"):
         suppress(small)
     with pytest.raises(ValidationError):
-        SiteReportV2.model_validate(small)
+        SiteReportV1.model_validate(small)
     run = _run(TRIAGE.id, "critical")  # 40 cases
     with pytest.raises(MendariError, match="fewer than 100 cases"):
         shareable(run.ledger)
 
 
 def test_the_receiver_refuses_what_suppression_would_change() -> None:
-    assert unchanged_by_suppression(SiteReportV2.model_validate(SHARED))
-    assert unchanged_by_suppression(SiteReportV2.model_validate(suppress(FIXTURE)))
+    assert unchanged_by_suppression(SiteReportV1.model_validate(SHARED))
+    assert unchanged_by_suppression(SiteReportV1.model_validate(suppress(FIXTURE)))
     for changed in (FIXTURE, _set(suppress(FIXTURE), ("decisions", "outcomes", "BLOCK"), 1)):
-        assert not unchanged_by_suppression(SiteReportV2.model_validate(changed))
+        assert not unchanged_by_suppression(SiteReportV1.model_validate(changed))
 
 
 def _types(annotation: Any) -> list[Any]:
@@ -322,7 +322,7 @@ def _field_paths(model: type[BaseModel], prefix: str = "") -> Iterator[str]:
 
 def test_every_field_has_a_written_suppression_rule() -> None:
     spec = (ROOT / "docs" / "spec" / "evaluation-reports.md").read_text()
-    paths = list(_field_paths(SiteReportV2))
+    paths = list(_field_paths(SiteReportV1))
     assert "questions.calibration.wrong" in paths and "decisions.critical.n" in paths
     for path in paths:
         rule = next(
@@ -363,10 +363,10 @@ def test_the_counts_are_the_ledgers() -> None:
     assert counts["dataset"]["n"] == report["dataset"]["n"]
 
 
-@pytest.mark.parametrize("pack_id", PACKS)
-def test_every_shipped_benchmark_can_be_shared(pack_id: str) -> None:
-    shared = SiteReportV2.model_validate(shared_benchmark(pack_id))
-    assert shared.pack.id == pack_id
+@pytest.mark.parametrize("agent_id", AGENTS)
+def test_every_shipped_benchmark_can_be_shared(agent_id: str) -> None:
+    shared = SiteReportV1.model_validate(shared_benchmark(agent_id))
+    assert shared.agent.id == agent_id
     assert unchanged_by_suppression(shared)
 
 
@@ -393,13 +393,13 @@ def test_an_unknown_key_anywhere_is_refused(path: tuple[Any, ...]) -> None:
     # pattern; everywhere else any extra key is.
     target[FREE_TEXT] = target[next(iter(target))] if target else 1
     with pytest.raises(ValidationError):
-        SiteReportV2.model_validate(payload)
+        SiteReportV1.model_validate(payload)
 
 
 @pytest.mark.parametrize("path", STRINGS, ids=lambda p: ".".join(map(str, p)))
 def test_free_text_in_any_string_is_refused(path: tuple[Any, ...]) -> None:
     with pytest.raises(ValidationError):
-        SiteReportV2.model_validate(_set(SHARED, path, FREE_TEXT))
+        SiteReportV1.model_validate(_set(SHARED, path, FREE_TEXT))
 
 
 def test_a_run_that_cannot_be_shared_names_fields_never_values() -> None:
@@ -416,12 +416,12 @@ def test_a_run_that_cannot_be_shared_names_fields_never_values() -> None:
 # -- composite providers -------------------------------------------------------------------------
 
 
-def _composite_run(tmp_path: Path) -> tuple[Pack, Evaluation]:
+def _composite_run(tmp_path: Path) -> tuple[Agent, Evaluation]:
     """The triage fixture with each slot on a `check` composite (each slot's agent and its keyword
     rules; the router's members named apart from the screen's), evaluated offline on their
     canned answers. At a new version: changed at its own, a registry refuses it (it would take
-    the reference pack's place)."""
-    root = tmp_path / "pack"
+    the reference agent's place)."""
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["version"] = "9.9.9"
@@ -431,28 +431,28 @@ def _composite_run(tmp_path: Path) -> tuple[Pack, Evaluation]:
         "members": {"service": variants["agent"], "keywords": variants["rules"]},
     }
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    pack = load_pack(root)
-    decision = Decision(pack, providers={"router": "checked", "screen": "checked"})
-    return pack, evaluation(decision, resolve_dataset(pack, "test"))
+    agent = load_agent(root)
+    decision = Decision(agent, providers={"router": "checked", "screen": "checked"})
+    return agent, evaluation(decision, resolve_dataset(agent, "test"))
 
 
 def test_a_composite_is_shared_as_recorded_and_the_registry_accepts_it(
     registry: Registry, tmp_path: Path
 ) -> None:
     """Each composite's model lists its members in order, joined as its type joins them: the
-    shared report says what the evaluation recorded. The registry accepts it for the pack whose
-    members those are, and refuses member names that are not the pack's own, as it does every
+    shared report says what the evaluation recorded. The registry accepts it for the agent whose
+    members those are, and refuses member names that are not the agent's own, as it does every
     other name."""
-    pack, run = _composite_run(tmp_path)
+    agent, run = _composite_run(tmp_path)
     shared = shareable(run.ledger, remote_consent=True)  # agents: off the site's machines
     assert shared["providers"] == run.report["providers"]
-    received = SiteReportV2.model_validate(shared).providers
+    received = SiteReportV1.model_validate(shared).providers
     assert received["router"].type == "check" and " + " in (received["router"].model or "")
     assert composite_members(received["router"]) == ["service", "keywords"]
     assert received["screen"].type == "check"
     assert composite_members(received["screen"]) == ["agent", "second"]
 
-    assert registry.publish(pack).status_code == 201
+    assert registry.publish(agent).status_code == 201
     site = verified_site(registry, tmp_path)
     accepted = share_signed(registry, site, shared)
     assert accepted.status_code == 201, accepted.text
@@ -468,7 +468,7 @@ def test_a_composite_is_shared_as_recorded_and_the_registry_accepts_it(
     first, second = router.split(" + ")
     refused = [
         renamed("router", router.replace("keywords:", "Jane_Doe:")),
-        renamed("router", f"{second} + {first}"),  # the pack's members, out of order
+        renamed("router", f"{second} + {first}"),  # the agent's members, out of order
         renamed("router", f"{first} + {second} + {second}"),  # one listed twice
         renamed("screen", screen.replace("second:", "keywords:")),  # the router's member
     ]
@@ -586,7 +586,7 @@ def test_counts_that_do_not_add_up_are_refused_at_once(where: tuple[Any, ...], v
     are refused, by the model or by `suppress`, in one pass."""
     changed = _set(SHARED, where, value)
     try:
-        report = SiteReportV2.model_validate(changed)
+        report = SiteReportV1.model_validate(changed)
     except ValidationError:
         return
     assert not unchanged_by_suppression(report)

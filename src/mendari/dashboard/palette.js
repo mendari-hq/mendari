@@ -26,13 +26,13 @@ const isTyping = (target) => {
 
 const modalOpen = () => Boolean(document.querySelector("dialog[open]")) || drawerOpen();
 
-export function setupPalette({ onSelectPack }) {
+export function setupPalette({ onSelectAgent }) {
   const trigger = $("#palette-trigger");
   if (trigger) {
     const isMac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent);
     const kbd = trigger.querySelector("kbd");
     if (kbd) kbd.textContent = isMac ? "⌘K" : "Ctrl K";
-    trigger.addEventListener("click", () => openPalette(onSelectPack));
+    trigger.addEventListener("click", () => openPalette(onSelectAgent));
   }
 
   let gChordTimer = null;
@@ -50,7 +50,7 @@ export function setupPalette({ onSelectPack }) {
       if (document.querySelector("dialog.palette[open]")) {
         document.querySelector("dialog.palette[open]").close();
       } else if (!modalOpen()) {
-        openPalette(onSelectPack);
+        openPalette(onSelectAgent);
       }
       return;
     }
@@ -80,7 +80,7 @@ export function setupPalette({ onSelectPack }) {
 
 const isViewVisible = (view) => Boolean(document.querySelector(`.nav a[data-view="${view}"]:not([hidden])`));
 
-function buildItems(query, onSelectPack) {
+function buildItems(query, onSelectAgent) {
   const items = [];
   const trimmed = query.trim();
   const q = trimmed.toLowerCase();
@@ -114,19 +114,19 @@ function buildItems(query, onSelectPack) {
   }
 
   // Governed agents (when available), enriched with live cross-agent queue counts.
-  if (state.packs.length > 1 && !$("#pack-select")?.closest(".pack-picker")?.hidden) {
-    for (const pack of state.packs) {
-      const q = state.packQueue?.get?.(pack.id);
+  if (state.agents.length > 1 && !$("#agent-select")?.closest(".agent-picker")?.hidden) {
+    for (const agent of state.agents) {
+      const q = state.agentQueue?.get?.(agent.id);
       const queueNote = q?.pending
         ? ` · ${q.pending} waiting${q.stat ? ` (${q.stat} stat)` : ""}`
         : "";
       items.push({
         group: "Agents",
         icon: "package",
-        label: pack.name,
-        detail: `${pack.id} v${pack.version}${pack.id === state.packId ? " · Active" : ""}${queueNote}`,
-        search: `${pack.name} ${pack.id} ${pack.origin ?? ""} ${q?.stat ? "stat urgent" : ""}`,
-        run: () => onSelectPack(pack.id),
+        label: agent.name,
+        detail: `${agent.id} v${agent.version}${agent.id === state.agentId ? " · Active" : ""}${queueNote}`,
+        search: `${agent.name} ${agent.id} ${agent.origin ?? ""} ${q?.stat ? "stat urgent" : ""}`,
+        run: () => onSelectAgent(agent.id),
       });
     }
   }
@@ -179,7 +179,7 @@ function buildItems(query, onSelectPack) {
   });
 }
 
-function openPalette(onSelectPack) {
+function openPalette(onSelectAgent) {
   const opener = document.activeElement;
   const dialog = document.createElement("dialog");
   dialog.className = "confirm palette";
@@ -216,7 +216,7 @@ function openPalette(onSelectPack) {
         ${item.shortcut ? `<kbd class="kbd">${esc(item.shortcut)}</kbd>` : ""}
       </div>`;
   const paint = () => {
-    matches = buildItems(input.value, onSelectPack);
+    matches = buildItems(input.value, onSelectAgent);
     active = matches.length ? Math.min(active, matches.length - 1) : 0;
     if (!matches.length) {
       results.innerHTML = `<p class="palette-empty muted" role="presentation">No matching view, agent, or action.</p>`;

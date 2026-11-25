@@ -19,7 +19,7 @@ one):
     uv run python scripts/doc_blocks.py run python   # needs mendari importable
     python3 scripts/doc_blocks.py list               # every block and its marker
 
-What a run leaves in the clone that git neither tracks nor ignores (the packs `mendari new`
+What a run leaves in the clone that git neither tracks nor ignores (the agents `mendari new`
 writes) is removed afterwards, so a second run starts as the first did.
 """
 

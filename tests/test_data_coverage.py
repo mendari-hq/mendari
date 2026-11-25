@@ -22,7 +22,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core.decision import DecisionResult
 from mendari.core.phi import PhiPolicy
@@ -81,7 +81,7 @@ def test_each_mapped_field_says_what_was_looked_for_and_found_as_counts() -> Non
     result = decided(fixture("chart"))
     coverage = result.data_coverage
     assert coverage is not None and coverage["format"] == FORMAT
-    adapter = FhirAdapter.for_pack(Decision.from_hub(CHART).pack)
+    adapter = FhirAdapter.for_agent(Decision.from_hub(CHART).agent)
     assert list(coverage["fields"]) == sorted(adapter.mapping.fields)
     assert list(coverage["lists"]) == sorted(adapter.mapping.lists)
     assert coverage["focus"] == {
@@ -168,7 +168,7 @@ def test_a_missing_list_and_an_empty_list_are_told_apart(tmp_path: Path) -> None
     def allow(schema: dict[str, Any]) -> None:
         schema["properties"].update(labs={"type": "array"}, documents={"type": "array"})
 
-    agent = load_pack(chart_fixture.chart_copy(tmp_path, {"lists": lists}, schema=allow))
+    agent = load_agent(chart_fixture.chart_copy(tmp_path, {"lists": lists}, schema=allow))
     bare = {"resourceType": "DocumentReference", "id": "d9", "status": "current", "content": []}
     record = bundle(PATIENT, bare)
     result, _ = Decision(agent).decide_fhir(record, unreadable={"conditions": "timeout"})
@@ -217,7 +217,7 @@ def test_every_fhir_decision_carries_its_data_coverage(
         json={
             "resourceType": "Parameters",
             "parameter": [
-                {"name": "pack", "valueString": CHART},
+                {"name": "agent", "valueString": CHART},
                 {"name": "data", "resource": fixture("chart")},
             ],
         },
@@ -365,8 +365,8 @@ def test_the_unreadable_notes_are_counted_by_reason(tmp_path: Path) -> None:
     attachment with neither data nor a link. (The chart fixture's own notes are
     `attachment_text`, whose reasons `test_an_attachment_text_note_...` below counts.)"""
     notes = {"path": "DocumentReference.content.attachment.data", "transform": "base64_text"}
-    pack = load_pack(chart_fixture.chart_copy(tmp_path, {"fields": {"notes": notes}}))
-    adapter = FhirAdapter.for_pack(pack)
+    agent = load_agent(chart_fixture.chart_copy(tmp_path, {"fields": {"notes": notes}}))
+    adapter = FhirAdapter.for_agent(agent)
     note = {
         "resourceType": "DocumentReference",
         "content": [
@@ -406,8 +406,8 @@ def test_a_primitive_array_s_null_padding_is_not_a_value(tmp_path: Path) -> None
     lists = {"addresses": {"resource": "Patient", "fields": {"line": {"path": "address[0].line"}}}}
     fields = {"name": {"path": "Patient.name[0].given", "transform": "join"}}
     changes = {"fields": fields, "lists": lists}
-    pack = load_pack(chart_fixture.chart_copy(tmp_path, changes, folder="join"))
-    adapter = FhirAdapter.for_pack(pack)
+    agent = load_agent(chart_fixture.chart_copy(tmp_path, changes, folder="join"))
+    adapter = FhirAdapter.for_agent(agent)
     record = bundle(padded(["Ann", None]))
     assert fhir_structure.blocking(fhir_structure.check(record)) == []  # R4 allows the nulls
     coverage = data_coverage.measure(adapter.mapping, adapter.index(record), unreadable={})
@@ -416,8 +416,8 @@ def test_a_primitive_array_s_null_padding_is_not_a_value(tmp_path: Path) -> None
 
     notes = {"notes": {"path": "Patient.name[0].given", "transform": "base64_text"}}
     copied = chart_fixture.chart_copy(tmp_path, {"fields": notes}, folder="notes")
-    decision = Decision(load_pack(copied))
-    adapter = FhirAdapter.for_pack(decision.pack)
+    decision = Decision(load_agent(copied))
+    adapter = FhirAdapter.for_agent(decision.agent)
     record = bundle(padded([b64("Ann"), None]))
     assert data_coverage.unreadable_notes(adapter.mapping, adapter.index(record)) == {}
     result, _ = decision.decide_fhir(record)
@@ -482,8 +482,8 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
             },
         },
     }
-    mapped = FhirAdapter.for_pack(
-        load_pack(chart_fixture.chart_copy(tmp_path, changes, systems=(PAYER,)))
+    mapped = FhirAdapter.for_agent(
+        load_agent(chart_fixture.chart_copy(tmp_path, changes, systems=(PAYER,)))
     )
 
     def coded(*codings: tuple[str, str]) -> dict[str, Any]:
@@ -570,7 +570,7 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
     assert data_coverage.unreadable_links(mapped.mapping, indexed) == {
         "medications.code": {"not_fetched": 1}
     }
-    systems = [use.url for use in mapped.pack.manifest.code_systems]
+    systems = [use.url for use in mapped.agent.manifest.code_systems]
     sources = {"meds": "Medication?patient={{context.patientId}}"}
     coverage = data_coverage.measure(
         mapped.mapping, indexed, unreadable={"meds": "timeout"}, systems=systems, sources=sources
@@ -657,7 +657,7 @@ def test_an_attachment_text_note_that_cannot_be_read_abstains_with_its_reason() 
     """As a `base64_text` note that cannot be read does (LP-23d), an `attachment_text` one
     (spec 0.3, the chart fixture's) makes the decision ABSTAIN before any provider, with its
     reason; a note that reads, or an attachment with nothing in it, does not."""
-    decision = Decision(load_pack(CHART_DIR))
+    decision = Decision(load_agent(CHART_DIR))
 
     def decided_on(**attachment: Any) -> DecisionResult:
         note = {

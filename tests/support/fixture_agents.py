@@ -389,8 +389,8 @@ def card(folder: Path, data: Mapping[str, str]) -> str:
     """The Decision Card the engine renders for the fixture in `folder` as a bundled agent, with
     `data` (its files under `data/`, by name) in place of its own: rendered in a copy, so the
     folder is only read."""
+    from mendari.core.agent import load_agent
     from mendari.core.card import render_card
-    from mendari.core.pack import load_pack
 
     with tempfile.TemporaryDirectory() as scratch:
         copy = Path(scratch) / folder.name
@@ -398,7 +398,7 @@ def card(folder: Path, data: Mapping[str, str]) -> str:
         (copy / "data").mkdir(exist_ok=True)
         for name, text in data.items():
             (copy / "data" / name).write_bytes(text.encode("utf-8"))
-        return render_card(load_pack(copy, origin="maintained"))
+        return render_card(load_agent(copy, origin="maintained"))
 
 
 def files(fixtures: tuple[Fixture, ...] = FIXTURES) -> dict[Path, str]:

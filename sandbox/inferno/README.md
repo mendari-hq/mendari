@@ -48,7 +48,7 @@ request that records the change.
 ### SMART App Launch: Inferno as the EHR (`smart-client`)
 
 Suite option `client_type`: `SMART,authorization_code,public`, Mendari's EHR launch as a public
-client. The engine (one agent, so a launch needs no `pack`) is registered with Inferno by its
+client. The engine (one agent, so a launch needs no `agent`) is registered with Inferno by its
 client id, launch URL and redirect URI, and Inferno's FHIR server is given one synthetic
 patient, made as the sandbox makes its own, as the launch's context. When the access test
 waits, the driver runs `mendari sandbox smart-launch --launch-url <Inferno's launch URL>` in the

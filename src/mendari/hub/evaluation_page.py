@@ -166,7 +166,7 @@ def evaluation(
         answer["badge"] = _badge(badge.RECALLED, None)
         return answer
     answer["agent"] = {
-        "name": shown.get("pack_name"),
+        "name": shown.get("agent_name"),
         "version": shown["version"],
         "digest": shown.get("digest"),
         "published_at": shown.get("published_at"),
@@ -223,7 +223,7 @@ def _datasets(
     datasets = []
     for (name, sha256, n), members in sorted(groups.items()):
         # Each record names the version's digest (checked when it was published).
-        ordered, compared = compare(members, digest or members[0]["row"]["pack_digest"])
+        ordered, compared = compare(members, digest or members[0]["row"]["agent_digest"])
         stated = [m["dataset"] for m in members]
         provenance = {d.get("provenance") for d in stated} - {None}
         datasets.append(
@@ -231,7 +231,7 @@ def _datasets(
                 "name": name,
                 "sha256": sha256,
                 "n": n,
-                # What the signed records state of it (`mendari.publisher-evaluation/2`); null:
+                # What the signed records state of it (`mendari.publisher-evaluation/1`); null:
                 # none states it. Who labelled it is each publisher's own word, once each.
                 "provenance": next(iter(provenance)) if len(provenance) == 1 else None,
                 "labelled_by": sorted({d["labelled_by"] for d in stated if d.get("labelled_by")}),
@@ -287,7 +287,7 @@ def _shown(row: Mapping[str, Any], record: Mapping[str, Any]) -> dict[str, Any] 
             "dataset": record["dataset"]["name"],
             "dataset_sha256": record["dataset"]["sha256"],
             "n": record["dataset"]["n"],
-            "pack_digest": record["pack"]["digest"],
+            "agent_digest": record["agent"]["digest"],
             "critical": [
                 {k: c[k] for k in ("question", "label", "n", "detected", "auto_missed")}
                 for c in critical

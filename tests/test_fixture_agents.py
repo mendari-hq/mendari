@@ -20,12 +20,12 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari import Decision, Outcome, Pack, load_pack
+from mendari import Agent, Decision, Outcome, load_agent
 from mendari.cli import main as mendari
-from mendari.core.pack import authored_patterns
+from mendari.core.agent import authored_patterns
 from mendari.core.phi_detect import detect_files
 from mendari.core.policy import GovernanceOverride
-from mendari.core.registry import resolve_pack
+from mendari.core.registry import resolve_agent
 from mendari.core.status import SYNTHETIC_EXAMPLE
 from mendari.core.text import plain
 from mendari.evals.harness import resolve_dataset
@@ -104,7 +104,7 @@ def test_every_fixture_with_generated_files_is_one_the_tests_read() -> None:
     assert {TRIAGE_DIR, CLINICAL_DIR} <= {fixture.folder for fixture in fixture_agents.FIXTURES}
     for fixture in fixture_agents.FIXTURES:
         assert fixture.folder.parent == FIXTURE_AGENTS
-        declared = load_pack(fixture.folder).manifest.evaluation.datasets
+        declared = load_agent(fixture.folder).manifest.evaluation.datasets
         assert declared == {name: f"data/{name}.jsonl" for name in fixture.counts}
 
 
@@ -114,10 +114,10 @@ def test_each_case_is_labelled_with_the_facts_it_was_made_from(name: str) -> Non
     says which facts, and its labels are what that kind means. Each dataset holds the counts the
     generator names, no id twice and no input twice across the fixture's datasets."""
     fixture = FIXTURES[name]
-    pack = load_pack(fixture.folder)
+    agent = load_agent(fixture.folder)
     seen: set[str] = set()
     for dataset, counts in fixture.counts.items():
-        records = resolve_dataset(pack, dataset).records
+        records = resolve_dataset(agent, dataset).records
         kinds = [record["attributes"]["kind"] for record in records]
         assert {kind: kinds.count(kind) for kind in counts} == dict(counts), dataset
         assert len(kinds) == sum(counts.values())
@@ -167,13 +167,13 @@ def asks(team: str, given: dict[str, Any]) -> bool:
 
 @pytest.mark.parametrize("folder", [TRIAGE_DIR, CLINICAL_DIR], ids=ids)
 def test_each_fixture_says_it_is_synthetic_and_not_clinically_reviewed(folder: Path) -> None:
-    pack = load_pack(folder)
-    manifest = pack.manifest
+    agent = load_agent(folder)
+    manifest = agent.manifest
     assert manifest.id.startswith(f"{FIXTURE_NAMESPACE}/") and "(test fixture)" in manifest.name
     assert manifest.summary.startswith(SYNTHETIC) and manifest.summary.endswith(NOT_REVIEWED)
     assert manifest.card.provenance == "synthetic"
     assert SYNTHETIC.lower().rstrip(".") in manifest.card.intended_use.lower()
-    assert pack.status_label == SYNTHETIC_EXAMPLE
+    assert agent.status_label == SYNTHETIC_EXAMPLE
     assert SYNTHETIC_EXAMPLE == "Synthetic example. Not clinically reviewed. Not for patient care."
     card = (folder / "DECISION_CARD.md").read_text(encoding="utf-8").splitlines()
     assert card[2] == f"**{SYNTHETIC_EXAMPLE}**"
@@ -192,12 +192,12 @@ def test_no_file_of_a_fixture_looks_like_a_persons_details(folder: Path) -> None
     }
     report = detect_files(files)
     assert report.findings == () and len(files) >= 9
-    pack = load_pack(folder)
-    for name in pack.manifest.evaluation.datasets:
-        for record in resolve_dataset(pack, name).records:
+    agent = load_agent(folder)
+    for name in agent.manifest.evaluation.datasets:
+        for record in resolve_dataset(agent, name).records:
             for text in texts(record["input"]):
                 assert plain(text) == text and "  " not in text, record["id"]
-    for where, pattern, _ in authored_patterns(pack):
+    for where, pattern, _ in authored_patterns(agent):
         assert plain(pattern) == pattern, where
 
 
@@ -216,12 +216,12 @@ def test_each_fixture_is_a_bundled_agent_and_would_load_from_a_registry(
     """Found by its id as the tests' bundled agents are (maintained), with no warning; and
     loaded as an agent the deployment does not own (its patterns on RE2, its schema's keywords
     and its caps), with no problem in any variant."""
-    pack = load_pack(folder)
-    found = resolve_pack(pack.id)
-    assert (found.root, found.origin, found.digest) == (folder, "maintained", pack.digest)
-    assert pack.warnings == () and not pack.bounded
-    monkeypatch.setattr(Pack, "bounded", property(lambda self: True))
-    bounded = load_pack(folder)
+    agent = load_agent(folder)
+    found = resolve_agent(agent.id)
+    assert (found.root, found.origin, found.digest) == (folder, "maintained", agent.digest)
+    assert agent.warnings == () and not agent.bounded
+    monkeypatch.setattr(Agent, "bounded", property(lambda self: True))
+    bounded = load_agent(folder)
     assert bounded.bounded and config_problems(bounded) == []
 
 
@@ -261,9 +261,9 @@ def test_the_clinical_review_fixture_automates_only_under_an_approval(
     confident suggestion is: care at home, for no symptom or a mild one of a few days; a
     moderate or severe symptom goes to a person at priority urgent, and no case to be seen today
     is automated. Level 3 is as level 2; level 4 is never automated, approval or not."""
-    pack = load_pack(CLINICAL_DIR)
-    records = resolve_dataset(pack, "test").records
-    default, approved = Decision(pack), Decision(pack, governance=APPROVED)
+    agent = load_agent(CLINICAL_DIR)
+    records = resolve_dataset(agent, "test").records
+    default, approved = Decision(agent), Decision(agent, governance=APPROVED)
     assert not [r["id"] for r in records if default(r["input"]).outcome is Outcome.AUTO]
     automated = [r for r in records if approved(r["input"]).outcome is Outcome.AUTO]
     assert {r["attributes"]["kind"] for r in automated} == {"none", "mild_short"}
@@ -280,7 +280,7 @@ def test_the_clinical_review_fixture_automates_only_under_an_approval(
         def at(manifest: dict[str, Any], level: int = level) -> None:
             manifest["risk"]["level"] = level
 
-        copy = load_pack(agent_copy(manifest=at, agent=CLINICAL_DIR))
+        copy = load_agent(agent_copy(manifest=at, agent=CLINICAL_DIR))
         assert Decision(copy, governance=APPROVED)(mild).outcome is outcome, level
         assert Decision(copy)(mild).outcome is Outcome.HUMAN_REVIEW
 
@@ -288,7 +288,7 @@ def test_the_clinical_review_fixture_automates_only_under_an_approval(
 def test_the_severity_rule_reads_the_expected_score() -> None:
     """`min_score: 1.5`: a confident `moderate` (an expected score just under 2) matches it, a
     confident `mild` (about 1) does not."""
-    triage = Decision(load_pack(CLINICAL_DIR))
+    triage = Decision(load_agent(CLINICAL_DIR))
     moderate = triage({"note": {"text": "Patient reports moderate back pain since yesterday."}})
     assert moderate.answers["severity"].label == "moderate"
     assert 1.5 <= (moderate.answers["severity"].value or 0) < 2
@@ -304,25 +304,25 @@ def test_the_severity_rule_reads_the_expected_score() -> None:
 @pytest.mark.parametrize("folder", [TRIAGE_DIR, CLINICAL_DIR], ids=ids)
 def test_a_registry_takes_each_fixture(registry: Registry, folder: Path) -> None:
     """Published as it is, under its own namespace (`Registry.fixture_publisher`)."""
-    pack = load_pack(folder)
-    published = registry.publish(pack)
+    agent = load_agent(folder)
+    published = registry.publish(agent)
     assert published.status_code == 201, published.text
-    namespace, name = pack.id.split("/")
+    namespace, name = agent.id.split("/")
     assert namespace == FIXTURE_NAMESPACE
     listed = registry.client.get(f"/v1/agents/{namespace}/{name}").json()
-    assert listed["versions"] == [pack.version] and listed["latest"]["digest"] == pack.digest
+    assert listed["versions"] == [agent.version] and listed["latest"]["digest"] == agent.digest
 
 
 def test_the_triage_fixtures_shared_benchmark_is_evaluated_once() -> None:
     """It commits no benchmark: what a site would share of a run of its `test` set, run once a
     session, and a copy each time."""
-    pack = load_pack(TRIAGE_DIR)
+    agent = load_agent(TRIAGE_DIR)
     assert not (TRIAGE_DIR / "evals").exists()
-    shared = shared_benchmark(pack.id)
-    assert shared["format"] == "mendari.site-report/2"
-    assert shared["pack"] == {"id": pack.id, "version": pack.version, "digest": pack.digest}
+    shared = shared_benchmark(agent.id)
+    assert shared["format"] == "mendari.site-report/1"
+    assert shared["agent"] == {"id": agent.id, "version": agent.version, "digest": agent.digest}
     assert shared["dataset"]["n"] == 300
-    again = shared_benchmark(pack.id)
+    again = shared_benchmark(agent.id)
     assert again == shared and again is not shared
 
 
@@ -335,11 +335,11 @@ def test_the_fixtures_manifests_are_as_written() -> None:
         "front_desk": {"auto_threshold": 0.95},
     }
     screen = triage["providers"]["screen"]["variants"]
-    assert screen["agent"]["agent_id"] == screen["repeated"]["agent_id"] == "triage-screen"
+    assert screen["agent"]["service_id"] == screen["repeated"]["service_id"] == "triage-screen"
     assert screen["repeated"]["repeat"] == 3 and screen["checked"]["type"] == "check"
     for mock in ("router.json", "screen.json"):
         canned = json.loads((TRIAGE_DIR / "fixtures" / mock).read_text(encoding="utf-8"))
-        assert canned["agent_version"] == "2.0.0", mock
+        assert canned["service_version"] == "2.0.0", mock
     clinical = yaml.safe_load((CLINICAL_DIR / "agent.yaml").read_text(encoding="utf-8"))
     assert clinical["risk"]["level"] == 2
     assert clinical["questions"]["severity"]["type"] == "score"

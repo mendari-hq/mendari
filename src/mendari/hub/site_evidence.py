@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Site evidence (`mendari.site-evidence/1`, LP-22g, ADR-0017): what sites' signed reports say
-about one pack, side by side, worked out on read from the reports the registry verified.
+about one agent, side by side, worked out on read from the reports the registry verified.
 
-Per pack digest and configuration (and the site's consent to a remote arm), never across them:
-two digests are two packs as far as evidence goes, and a remote configuration is never pooled
+Per agent digest and configuration (and the site's consent to a remote arm), never across them:
+two digests are two agents as far as evidence goes, and a remote configuration is never pooled
 with a local one. For each pooled figure (owner decision 8 of the plan: the primary question's
 accuracy, each critical label's detection, each critical label's cases automated, and false
 automation):
@@ -18,12 +18,12 @@ automation):
 
 Each figure is tested alone at 0.05, and the answer says how many tests were run (owner
 decision 11's default). Out of the pool, and listed with the reason: the publisher's own site
-(its organization holds the pack's namespace, owner decision 2), a report signed with a key
+(its organization holds the agent's namespace, owner decision 2), a report signed with a key
 later revoked as compromised (decision 9), and a superseded report. Beside the figures: how
 many tickets for the group are unreported (open, or expired with no report), how many were
 withdrawn, and how many reports were superseded.
 
-Every number is computed here from counts the registry verified (`mendari.site-report/2`);
+Every number is computed here from counts the registry verified (`mendari.site-report/1`);
 none is a rate a site sent. The pooling of a set of counts is cached, so a read never redoes
 the exact or permutation test for counts it has seen.
 """
@@ -110,13 +110,13 @@ def _label(key: str) -> str:
 
 
 def evidence(store: RegistryStore, namespace: str, name: str) -> dict[str, Any]:
-    """`mendari.site-evidence/1` of one pack (see the module)."""
+    """`mendari.site-evidence/1` of one agent (see the module)."""
     reports = store.site_reports(namespace, name)
     records = {
         report["id"]: store.signed_report(namespace, name, report["id"])["record"]["report"]
         for report in reports
     }
-    tickets = store.pack_ticket_rows(namespace, name)
+    tickets = store.agent_ticket_rows(namespace, name)
     groups: dict[tuple[str, str, bool], dict[str, Any]] = {}
 
     def group_of(digest: str, configuration: Any, consent: bool, version: str) -> dict[str, Any]:
@@ -201,7 +201,7 @@ def evidence(store: RegistryStore, namespace: str, name: str) -> dict[str, Any]:
         )
     return {
         "format": FORMAT,
-        "pack": f"{namespace}/{name}",
+        "agent": f"{namespace}/{name}",
         "note": NOTE,
         "alpha": pooling.ALPHA,
         "groups": answer_groups,

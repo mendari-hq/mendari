@@ -21,7 +21,7 @@ from mendari.standards.fhir import FhirAdapter
 from tests.conftest import without_request_id
 
 FIXTURES = Path(__file__).parent / "fixtures" / "us-core"
-PACKS = {
+AGENTS = {
     "triage.json": "mendari-test/triage",  # a message (tests/support/triage_records.py)
     "chart.json": "mendari-test/chart-summary",  # a patient's record (fixture_records.py)
 }
@@ -52,14 +52,14 @@ def replaced(document: Any, path: tuple[Any, ...], value: Any) -> Any:
     return changed
 
 
-@pytest.mark.parametrize("fixture", sorted(PACKS))
+@pytest.mark.parametrize("fixture", sorted(AGENTS))
 def test_no_mistyped_element_crashes_the_fhir_layer(fixture: str) -> None:
     """Every element of a US Core fixture, replaced by each wrong JSON type: the structural gate
     rejects it, or the US Core checks, the mapping and the Task either work or raise a FhirError
     (an HTTP 4xx), never anything else."""
     seed = json.loads((FIXTURES / fixture).read_text(encoding="utf-8"))
-    decision = Decision.from_hub(PACKS[fixture])
-    adapter = FhirAdapter.for_pack(decision.pack)
+    decision = Decision.from_hub(AGENTS[fixture])
+    adapter = FhirAdapter.for_agent(decision.agent)
     result, _ = decision.decide_fhir(seed)
     for path in element_paths(seed):
         for wrong in WRONG_TYPES:
@@ -150,8 +150,8 @@ def test_structure_is_checked_even_with_validation_off(tmp_path: Path) -> None:
 def test_fhir_route_errors_are_operation_outcomes(client: TestClient) -> None:
     missing = client.post(f"{TRIAGE}/fhir/decide", json={"resourceType": "Patient", "id": "p"})
     assert outcome_of(missing, 422)[0]["code"] == "processing"
-    unknown_pack = client.post("/api/agents/mendari/nope/fhir/decide", json=message_bundle())
-    assert outcome_of(unknown_pack, 404)[0]["code"] == "not-found"
+    unknown_agent = client.post("/api/agents/mendari/nope/fhir/decide", json=message_bundle())
+    assert outcome_of(unknown_agent, 404)[0]["code"] == "not-found"
     no_route = client.get("/fhir/Patient/p1")  # Mendari serves no clinical resources
     assert outcome_of(no_route, 404)[0]["code"] == "not-found"
 
@@ -180,7 +180,7 @@ def test_mendari_api_errors_keep_their_shape(client: TestClient) -> None:
     response = client.post("/api/agents/mendari/nope/decide", json={})
     assert response.status_code == 404
     assert response.headers["content-type"] == "application/json"
-    assert response.json()["error"] == "PackNotFoundError"
+    assert response.json()["error"] == "AgentNotFoundError"
 
 
 def test_an_unexpected_error_is_a_json_500_that_says_nothing(

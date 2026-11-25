@@ -8,9 +8,9 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from pydantic import ValidationError
 
-from mendari import GovernanceOverride, Outcome, Pack, Priority, RiskLevel, load_pack
+from mendari import Agent, GovernanceOverride, Outcome, Priority, RiskLevel, load_agent
 from mendari.core.policy import PolicyInputs, apply_policy, threshold_reason
-from mendari.core.spec import PackManifest, Risk
+from mendari.core.spec import AgentManifest, Risk
 from mendari.providers import Answer, ProviderInfo
 from tests.conftest import TRIAGE_DIR
 
@@ -24,7 +24,7 @@ def answer(question: str, label: str, confidence: float) -> Answer:
     return Answer(question, label, confidence, {label: confidence}, INFO)
 
 
-def at_level(manifest: PackManifest, level: RiskLevel) -> PackManifest:
+def at_level(manifest: AgentManifest, level: RiskLevel) -> AgentManifest:
     return manifest.model_copy(
         update={"risk": Risk(level=level, category="test", rationale="test")}
     )
@@ -63,13 +63,13 @@ def emergency(urgency_probability: float = 0.40) -> dict[str, Answer]:
         ("billing", 0.99, Outcome.HUMAN_REVIEW),
     ],
 )
-def test_thresholds(triage_agent: Pack, label: str, confidence: float, outcome: Outcome) -> None:
+def test_thresholds(triage_agent: Agent, label: str, confidence: float, outcome: Outcome) -> None:
     result = apply_policy(triage_agent.manifest, routine(label, confidence), {}, None, SCREENED)
     assert result.outcome is outcome
     assert result.recommendation == (None if outcome is Outcome.ABSTAIN else label)
 
 
-def test_emergency_rule_wins_over_confident_routing(triage_agent: Pack) -> None:
+def test_emergency_rule_wins_over_confident_routing(triage_agent: Agent) -> None:
     result = apply_policy(triage_agent.manifest, emergency(), {})
     assert result.outcome is Outcome.HUMAN_REVIEW
     assert result.recommendation == "nurse"
@@ -77,18 +77,18 @@ def test_emergency_rule_wins_over_confident_routing(triage_agent: Pack) -> None:
     assert result.rule == "possible-emergency"
 
 
-def test_emergency_rule_respects_its_confidence_floor(triage_agent: Pack) -> None:
+def test_emergency_rule_respects_its_confidence_floor(triage_agent: Agent) -> None:
     assert apply_policy(triage_agent.manifest, emergency(0.30), {}).rule is None
 
 
-def test_provider_failure_never_automates(triage_agent: Pack) -> None:
+def test_provider_failure_never_automates(triage_agent: Agent) -> None:
     answers = {"destination": answer("destination", "nurse", 0.99)}
     result = apply_policy(triage_agent.manifest, answers, {"urgency": "timeout"})
     assert result.outcome is Outcome.HUMAN_REVIEW
     assert any("timeout" in reason for reason in result.reasons)
 
 
-def test_the_confidence_thresholds_reason_is_known_as_theirs(triage_agent: Pack) -> None:
+def test_the_confidence_thresholds_reason_is_known_as_theirs(triage_agent: Agent) -> None:
     """Each of the thresholds' three reasons (AUTO, below the auto threshold, below the review
     threshold) is theirs (`threshold_reason`), for a CDS Hooks card to leave out its bare
     figures; a rule's, a cap's and a missing answer's are not."""
@@ -107,7 +107,7 @@ def test_the_confidence_thresholds_reason_is_known_as_theirs(triage_agent: Pack)
         assert result.reasons and not any(map(threshold_reason, result.reasons)), result.reasons
 
 
-def test_a_site_code_is_named_in_the_reasons_whatever_the_outcome(triage_agent: Pack) -> None:
+def test_a_site_code_is_named_in_the_reasons_whatever_the_outcome(triage_agent: Agent) -> None:
     """The `site_code` cap (LP-23i) turns AUTO into HUMAN_REVIEW; a decision already going to a
     person (below the auto threshold, below the review threshold, a rule's HUMAN_REVIEW) keeps
     its outcome and recommendation, and its reasons name the translation too, once."""
@@ -135,7 +135,7 @@ def test_a_site_code_is_named_in_the_reasons_whatever_the_outcome(triage_agent: 
             )
 
 
-def test_canned_answers_never_block_alone(triage_agent: Pack) -> None:
+def test_canned_answers_never_block_alone(triage_agent: Agent) -> None:
     """The `canned` cap turns a rule's BLOCK (final at once, seen by nobody) into HUMAN_REVIEW,
     as it turns AUTO: the rule, recommendation and priority stay, and the reason says why."""
     canned = "canned answers: MENDARI_AGENT_URL is not set"
@@ -157,7 +157,7 @@ def test_canned_answers_never_block_alone(triage_agent: Pack) -> None:
     assert held.reasons == (*live.reasons, instead)
 
 
-def test_missing_primary_answer_abstains(triage_agent: Pack) -> None:
+def test_missing_primary_answer_abstains(triage_agent: Agent) -> None:
     answers = {"urgency": answer("urgency", "no", 0.9), "abusive": answer("abusive", "no", 0.9)}
     result = apply_policy(triage_agent.manifest, answers, {"destination": "rate_limited"})
     assert result.outcome is Outcome.ABSTAIN
@@ -167,7 +167,7 @@ def test_missing_primary_answer_abstains(triage_agent: Pack) -> None:
 
 @pytest.mark.parametrize("level", [RiskLevel.CLINICAL_SUPPORT, RiskLevel.PATIENT_PREDICTION])
 def test_risk_levels_2_and_3_require_review_unless_governance_allows(
-    triage_agent: Pack, level: RiskLevel
+    triage_agent: Agent, level: RiskLevel
 ) -> None:
     manifest = at_level(triage_agent.manifest, level)
     unapproved = apply_policy(manifest, routine("nurse", 0.99), {}, None, SCREENED)
@@ -178,7 +178,7 @@ def test_risk_levels_2_and_3_require_review_unless_governance_allows(
     assert any("governance override" in reason for reason in result.reasons)
 
 
-def test_risk_level_4_is_never_autonomous(triage_agent: Pack) -> None:
+def test_risk_level_4_is_never_autonomous(triage_agent: Agent) -> None:
     manifest = at_level(triage_agent.manifest, RiskLevel.TIME_CRITICAL)
     governance = GovernanceOverride(approved_by="CMIO", reference="AI-committee-2026-09")
     result = apply_policy(manifest, routine("nurse", 0.99), {}, governance, SCREENED)
@@ -190,10 +190,10 @@ def test_governance_override_needs_accountability() -> None:
         GovernanceOverride(approved_by=" ", reference="x")
 
 
-def test_automation_can_require_provider_variants(triage_agent: Pack) -> None:
+def test_automation_can_require_provider_variants(triage_agent: Agent) -> None:
     raw = triage_agent.manifest.model_dump(by_alias=True)
     raw["policy"]["automation_requires"] = {"screen": ["checked", "repeated"]}
-    manifest = PackManifest.model_validate(raw)
+    manifest = AgentManifest.model_validate(raw)
     answers = routine("nurse", 0.99)
     guarded = apply_policy(manifest, answers, {}, None, {"router": "agent", "screen": "rules"})
     assert guarded.outcome is Outcome.HUMAN_REVIEW
@@ -204,7 +204,7 @@ def test_automation_can_require_provider_variants(triage_agent: Pack) -> None:
 
     raw["policy"]["automation_requires"] = {"screen": ["nope"], "missing": ["x"]}
     with pytest.raises(ValidationError, match="unknown slot 'missing'") as error:
-        PackManifest.model_validate(raw)
+        AgentManifest.model_validate(raw)
     assert "unknown: ['nope']" in str(error.value)
 
 
@@ -215,7 +215,7 @@ UNDECLARED = "the agent proposed an action its manifest does not declare"
 
 
 def test_a_stopped_action_turns_auto_into_human_review_and_changes_nothing_else(
-    triage_agent: Pack,
+    triage_agent: Agent,
 ) -> None:
     manifest = triage_agent.manifest
     answers = routine("nurse", 0.95)
@@ -240,7 +240,7 @@ def test_a_stopped_action_turns_auto_into_human_review_and_changes_nothing_else(
     [("nurse", 0.80, Outcome.HUMAN_REVIEW), ("nurse", 0.40, Outcome.ABSTAIN)],
 )
 def test_a_decision_already_going_to_a_person_keeps_its_outcome_and_gets_the_reason(
-    triage_agent: Pack, label: str, confidence: float, outcome: Outcome
+    triage_agent: Agent, label: str, confidence: float, outcome: Outcome
 ) -> None:
     manifest = triage_agent.manifest
     answers = routine(label, confidence)
@@ -254,7 +254,7 @@ def test_a_decision_already_going_to_a_person_keeps_its_outcome_and_gets_the_rea
     ]
 
 
-def test_a_block_stands_and_says_nothing_of_the_action(triage_agent: Pack) -> None:
+def test_a_block_stands_and_says_nothing_of_the_action(triage_agent: Agent) -> None:
     """A rule's BLOCK blocks every action: the cap neither lowers it to a person nor adds a
     reason. (Unlike the caps that turn a rule's BLOCK into HUMAN_REVIEW, this one has nothing
     to protect by doing so: no action is released under a BLOCK.)"""
@@ -268,14 +268,14 @@ def test_a_block_stands_and_says_nothing_of_the_action(triage_agent: Pack) -> No
             "reason": "Billing messages are not routed here.",
         },
     )
-    manifest = PackManifest.model_validate(raw)
+    manifest = AgentManifest.model_validate(raw)
     answers = routine("billing", 0.99)
     plain = apply_policy(manifest, answers, {}, None, SCREENED)
     stopped = apply_policy(manifest, answers, {}, None, SCREENED, actions=(STOP, UNDECLARED))
     assert plain.outcome is Outcome.BLOCK and stopped == plain
 
 
-def test_the_stop_is_kept_with_the_cap_that_also_lowered_the_decision(triage_agent: Pack) -> None:
+def test_the_stop_is_kept_with_the_cap_that_also_lowered_the_decision(triage_agent: Agent) -> None:
     """A hold, a provider failure or a risk cap lowers the decision first; the action's reason
     is still given, so a reviewer reads why an action waits."""
     manifest = triage_agent.manifest
@@ -304,7 +304,7 @@ def test_the_stop_is_kept_with_the_cap_that_also_lowered_the_decision(triage_age
 
 
 def test_the_policys_inputs_keep_the_stops_so_it_is_applied_again_the_same(
-    triage_agent: Pack,
+    triage_agent: Agent,
 ) -> None:
     manifest = triage_agent.manifest
     inputs = PolicyInputs(routine("nurse", 0.95), {}, None, SCREENED, actions=(STOP,))
@@ -315,7 +315,7 @@ def test_the_policys_inputs_keep_the_stops_so_it_is_applied_again_the_same(
     assert PolicyInputs(routine("nurse", 0.95), {}, None, SCREENED).actions == ()
 
 
-_TRIAGE = load_pack(TRIAGE_DIR).manifest
+_TRIAGE = load_agent(TRIAGE_DIR).manifest
 _ORDER = {Outcome.AUTO: 0, Outcome.HUMAN_REVIEW: 1, Outcome.ABSTAIN: 1, Outcome.BLOCK: 1}
 _STOPS = st.lists(
     st.one_of(st.just(STOP), st.just(UNDECLARED), st.text(min_size=1, max_size=30)), max_size=4

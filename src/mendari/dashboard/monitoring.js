@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Monitoring: the served version of the pack over time, against its benchmark only where that
+// Monitoring: the served version of the agent over time, against its benchmark only where that
 // measured this build with the providers that run here: alerts first, then the last 7 days
 // (reviewed accuracy, overrides, confidence drift, automated decisions rated wrong), then week
 // by week, operational health included (provider errors, abstentions, how long 95% of decisions
@@ -41,9 +41,9 @@ const took = (ms) => {
 views.monitoring = async (main) => {
   const storedDays = Number(storageGet("oh.monitoring.days", "30"));
   const days = PERIODS.includes(storedDays) ? storedDays : 30;
-  const packId = state.packId;
-  const report = await api(`/api/monitoring?pack_id=${encodeURIComponent(packId)}&days=${days}`);
-  if (state.packId !== packId) return;
+  const agentId = state.agentId;
+  const report = await api(`/api/monitoring?agent_id=${encodeURIComponent(agentId)}&days=${days}`);
+  if (state.agentId !== agentId) return;
   const week = report.last_7_days;
   const bench = report.benchmark;
   const psi = week.drift_psi;

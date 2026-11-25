@@ -9,7 +9,7 @@
 # 0.97 (sure), 0.70 (a person reviews), 0.45 (it abstains: under 0.50, and no other label as
 # likely as the policy's 0.30 for `soon`). Any other chart gets `default`.
 model: mock-chart-summary
-agent_version: 1.0.0
+service_version: 1.0.0
 cases:
   - match: {contains_all: [flag-soon], contains_any: ["11289", "1364430", "1114195", "1599538"]}
     response:

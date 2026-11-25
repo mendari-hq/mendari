@@ -40,7 +40,7 @@ The owner decided (2026-10-04):
   agent's id is refused and reported, whatever its version. Agents from anywhere else are found
   as before (the newest version of an id is served); one whose id is in `community/` gets the
   community limits wherever it was loaded from. A community agent's FHIR systems live under its
-  own url (`https://mendari.co/packs/community/<name>/`), and its name, CDS title and publisher
+  own url (`https://mendari.co/agents/community/<name>/`), and its name, CDS title and publisher
   never name Mendari nor copy a maintained agent's name (CI).
 - **Served, labelled, recommend-only.** A deployment serves community agents only with
   `MENDARI_COMMUNITY_AGENTS=on` (default off; the one switch turns them all on or off). Every

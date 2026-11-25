@@ -25,8 +25,8 @@ import jsonschema
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, load_pack
-from mendari.core.pack import manifest_template_problems
+from mendari import AuditStore, Decision, load_agent
+from mendari.core.agent import manifest_template_problems
 from mendari.core.policy import threshold_reason
 from mendari.core.spec import SUMMARY_CHARS, card_summary_problems
 from mendari.core.templates import (
@@ -37,8 +37,8 @@ from mendari.core.templates import (
     fill_display,
     longest,
 )
-from mendari.errors import PackValidationError
-from mendari.evals.pack_tests import validate_pack
+from mendari.errors import AgentValidationError
+from mendari.evals.behaviour_tests import validate_agent
 from mendari.server.app import create_app
 from mendari.standards import cds_hooks, terminology
 from tests.conftest import CHART_DIR, DEMO_AGENT_DIR, FIXTURE_AGENTS, TRIAGE_DIR, encrypt_mode
@@ -193,7 +193,7 @@ def served(tmp_path: Path, name: str = "cards.db") -> TestClient:
     agents = tmp_path / "agents"
     if not agents.is_dir():
         order_sign(agents)
-    return TestClient(create_app(db_path=tmp_path / name, packs_paths=[FIXTURE_AGENTS, agents]))
+    return TestClient(create_app(db_path=tmp_path / name, agents_paths=[FIXTURE_AGENTS, agents]))
 
 
 def cards_of(client: TestClient, path: str, body: dict[str, Any] | None = None) -> list[Any]:
@@ -235,7 +235,7 @@ def test_the_card_uuid_is_its_decision_id_and_suggestion_ids_are_stable(tmp_path
     result, task = twin.decide_fhir(
         body["prefetch"], focus=body["context"]["draftOrders"]["entry"][0]["resource"]
     )
-    made = [cds_hooks.card(twin.pack, result, task) for _ in range(2)]
+    made = [cds_hooks.card(twin.agent, result, task) for _ in range(2)]
     assert made[0]["uuid"] == made[1]["uuid"] == result.id
     assert made[0]["suggestions"][0]["uuid"] == made[1]["suggestions"][0]["uuid"]
 
@@ -264,12 +264,12 @@ def test_card_summaries_use_display_names_and_task_text_is_unchanged(tmp_path: P
     result, _ = reader.decide_fhir(prefetch(SHOWCASE))
     template = "{follow_up} {on_anticoagulant} {recommendation} {priority}"
     assert fill(template, result, recommendation="soon") == "soon yes soon urgent"
-    assert fill_display(template, result, reader.pack.manifest) == (
+    assert fill_display(template, result, reader.agent.manifest) == (
         "Follow-up soon Yes Follow-up soon urgent"
     )
     abstained = copy.copy(result)
     object.__setattr__(abstained, "recommendation", None)
-    assert fill_display("{recommendation}", abstained, reader.pack.manifest) == (NO_RECOMMENDATION)
+    assert fill_display("{recommendation}", abstained, reader.agent.manifest) == (NO_RECOMMENDATION)
 
 
 def with_summary(base: Path, summary: str) -> Path:
@@ -293,12 +293,12 @@ def test_every_summary_expansion_fits_140_characters(tmp_path: Path) -> None:
     assert TRIAGE_DIR in roots and CHART_DIR in roots
     counted = 0
     for root in roots:
-        pack = load_pack(root)
-        assert card_summary_problems(pack.manifest) == [], root
-        card = pack.manifest.cds_hooks.card if pack.manifest.cds_hooks else None
+        agent = load_agent(root)
+        assert card_summary_problems(agent.manifest) == [], root
+        card = agent.manifest.cds_hooks.card if agent.manifest.cds_hooks else None
         if card is None:
             continue
-        choices = display_choices(pack.manifest)
+        choices = display_choices(agent.manifest)
         for summary in card.summary_templates().values():  # also_show's summaries too
             texts = [text for text, _ in expansions(summary, choices)]
             assert max(len(text) for text in texts) <= SUMMARY_CHARS, summary
@@ -316,21 +316,21 @@ def test_every_summary_expansion_fits_140_characters(tmp_path: Path) -> None:
     # from a registry as it is, and 140 is refused.
     assert SUMMARY_CHARS == 139
     fits = with_summary(tmp_path / "fits", "Soon: " + "x" * 123 + " ({on_anticoagulant})")
-    loaded = load_pack(fits, origin="hub")
+    loaded = load_agent(fits, origin="hub")
     assert loaded.warnings == () and card_summary_problems(loaded.manifest) == []
     long = with_summary(tmp_path / "long", "Soon: " + "x" * 124 + " ({on_anticoagulant})")
     problem = (
         "cds_hooks.card.summaries.soon can read 140 characters with display names; "
         "a card's summary is at most 139 (CDS Hooks: under 140)"
     )
-    with pytest.raises(PackValidationError) as refused:
-        load_pack(long, origin="hub")
+    with pytest.raises(AgentValidationError) as refused:
+        load_agent(long, origin="hub")
     assert refused.value.problems == [problem]
-    owned = load_pack(long)
+    owned = load_agent(long)
     assert owned.warnings == (problem,)
     assert manifest_template_problems(owned.manifest) == [problem]
-    with pytest.raises(PackValidationError, match=re.escape(problem)):
-        validate_pack(owned)
+    with pytest.raises(AgentValidationError, match=re.escape(problem)):
+        validate_agent(owned)
     # An owned agent's summary that reads longer is cut under 140 on its card.
     cut = with_summary(tmp_path / "cut", "Soon: " + "x" * 140 + " ({on_anticoagulant})")
     (made,) = cds_hooks.invoke(Decision.from_path(cut), hook(SHOWCASE))["cards"]
@@ -442,7 +442,7 @@ def test_a_card_links_to_the_launch_view_only_for_a_registered_ehr_of_the_same_o
     assert _launch_links(client, EHR_A) == [
         {
             "label": cds_hooks.LAUNCH_LINK,
-            "url": f"{PUBLIC}/smart/launch?pack=mendari-test/chart-summary",
+            "url": f"{PUBLIC}/smart/launch?agent=mendari-test/chart-summary",
             "type": "smart",
         }
     ]
@@ -513,8 +513,8 @@ def test_the_spec_0_3_card_keys_are_checked_with_the_manifest(
 
     def refused_by(edit: Any, problem: str) -> None:
         root = agent_copy(manifest=edit)
-        with pytest.raises(PackValidationError, match=re.escape(problem)):
-            load_pack(root)
+        with pytest.raises(AgentValidationError, match=re.escape(problem)):
+            load_agent(root)
 
     def unknown_rule(m: dict[str, Any]) -> None:
         _card_of(m)["also_show"] = {"no-such-rule": {"summary": "Something to see"}}
@@ -537,7 +537,7 @@ def test_the_spec_0_3_card_keys_are_checked_with_the_manifest(
     root = agent_copy(
         manifest=lambda m: _card_of(m)["also_show"]["possible-emergency"].update(summary="x" * 140)
     )
-    owned = load_pack(root)
+    owned = load_agent(root)
     assert card_summary_problems(owned.manifest) == [
         "cds_hooks.card.also_show.possible-emergency.summary can read 140 characters with "
         "display names; a card's summary is at most 139 (CDS Hooks: under 140)"
@@ -560,7 +560,7 @@ def test_a_template_that_does_not_name_refused_keys_refused_input_as_none(
     child = replace(SHOWCASE, id="chart-cards-child", age=12)
     quiet = Decision.from_path(chart_copy(tmp_path, manifest=drop_refused))
     assert cds_hooks.invoke(quiet, hook(child)) == {"cards": []}
-    template = quiet.pack.manifest.cds_hooks
+    template = quiet.agent.manifest.cds_hooks
     assert template is not None and template.card is not None
     assert not template.card.names_refused()
     result, _ = quiet.decide_fhir(prefetch(child))
@@ -568,6 +568,6 @@ def test_a_template_that_does_not_name_refused_keys_refused_input_as_none(
     assert cds_hooks.card_key(template.card, result) == "none"
     assert not cds_hooks.shows_card(template.card, result)
     shown = Decision.from_path(CHART_DIR)
-    template = shown.pack.manifest.cds_hooks
+    template = shown.agent.manifest.cds_hooks
     assert template is not None and template.card is not None
     assert cds_hooks.card_key(template.card, result) == "refused"

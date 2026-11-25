@@ -13,7 +13,7 @@ from urllib.parse import quote
 
 import pytest
 
-from mendari import AuditStore, Decision, DecisionResult, Pack
+from mendari import Agent, AuditStore, Decision, DecisionResult
 from tests.conftest import message
 
 Decide = Callable[[str], DecisionResult]
@@ -33,7 +33,7 @@ def tamper(store: AuditStore, sql: str, params: tuple[Any, ...] = ()) -> None:
 
 
 @pytest.fixture
-def decide(triage_agent: Pack, store: AuditStore) -> Decide:
+def decide(triage_agent: Agent, store: AuditStore) -> Decide:
     decision = Decision(triage_agent, providers=SCREENED, store=store)
     return lambda body: decision(message(body))
 
@@ -131,7 +131,7 @@ def _with_isolation(target: str, level: str) -> str:
 
 
 def test_concurrent_writers_never_fork_whatever_the_servers_isolation(
-    db_target: str, triage_agent: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     """A Postgres role or database may default to REPEATABLE READ. An exclusive session's
     snapshot would then be taken as it waits for the chain's lock, so it would read the head as
@@ -240,7 +240,7 @@ def test_a_decision_made_to_look_automated_breaks_verification(
 
 @pytest.mark.parametrize(
     ("column", "value"),
-    [("priority", "routine"), ("pack_id", "other-pack"), ("pack_version", "9.9.9")],
+    [("priority", "routine"), ("agent_id", "other-agent"), ("agent_version", "9.9.9")],
 )
 def test_each_unchanging_column_is_checked_against_the_record(
     store: AuditStore, decide: Decide, column: str, value: str
@@ -283,12 +283,12 @@ def test_a_decision_added_past_the_store_breaks_verification(
     never recorded."""
     decide(ROUTINE)
     columns = (
-        "id, created_at, pack_id, pack_version, outcome, recommendation, priority, confidence, "
+        "id, created_at, agent_id, agent_version, outcome, recommendation, priority, confidence, "
         "latency_ms, cost_usd, record, review_status, org"
     )
     tamper(
         store,
-        f"INSERT INTO decisions ({columns}) SELECT 'forged', created_at, pack_id, pack_version, "
+        f"INSERT INTO decisions ({columns}) SELECT 'forged', created_at, agent_id, agent_version, "
         "outcome, recommendation, priority, confidence, latency_ms, cost_usd, record, "
         "review_status, org FROM decisions",
     )

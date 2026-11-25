@@ -36,11 +36,11 @@ from mendari.core.rate_buckets import RateBuckets
 from mendari.core.session_seal import SealError, seal, unseal
 from mendari.core.spec import Outcome
 from mendari.errors import (
+    AgentNotFoundError,
     AuthError,
     InvitationRefused,
     MendariError,
     NoteError,
-    PackNotFoundError,
     ProviderError,
     ReviewError,
     UnknownCard,
@@ -67,7 +67,7 @@ _CHAIN_LOCK = 0x0E4_A0D17
 # A person acknowledged a notice version (mendari.notices; chained under notice:<v>:<id>).
 NOTICE_EVENT = "notice.acknowledged"
 SYSTEM_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,99}$")
-# A served pack's labels for one of its questions, by (pack id, question); None when unknown.
+# A served agent's labels for one of its questions, by (agent id, question); None when unknown.
 QuestionLabels = Callable[[str, str], Sequence[str] | None]
 # Notes (Phase 4b, ADR-0005: commit, don't copy). Free text a person writes about a decision
 # is kept in `notes`, apart from the chain, which keeps `note: null` and a `note_ref`:
@@ -149,17 +149,17 @@ SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
     "key": ("api_keys", "id", _ROW_ORG),
     "client": ("oauth_clients", "client_id", _ROW_ORG),
     "governance": ("governance_approvals", "id", _ROW_ORG),
-    "registry_approval": ("registry_approvals", "id", _ROW_ORG),  # a pulled pack (LP-18d)
+    "registry_approval": ("registry_approvals", "id", _ROW_ORG),  # a pulled agent (LP-18d)
     "hold": ("automation_holds", "id", "org"),
     "eval": ("eval_reports", "id", _ROW_ORG),
     "org": ("organizations", "id", "id"),  # an organization is its own
     "membership": ("memberships", "id", _ROW_ORG),
     "invitation": ("invitations", "id", _ROW_ORG),
     "access": ("access_requests", "id", _ROW_ORG),
-    "pack_version": ("store_versions", "id", "org"),  # a version in a pack store (LP-20e)
-    "store_key": ("store_keys", "id", "org"),  # an author's key for a pack store (LP-20f)
-    "store_dataset": ("store_datasets", "id", "org"),  # a pack store's dataset (LP-20g)
-    "store_job": ("store_jobs", "id", "org"),  # a pack store's evaluation job (LP-20g)
+    "store_version": ("store_versions", "id", "org"),  # a version in an agent store (LP-20e)
+    "store_key": ("store_keys", "id", "org"),  # an author's key for an agent store (LP-20f)
+    "store_dataset": ("store_datasets", "id", "org"),  # an agent store's dataset (LP-20g)
+    "store_job": ("store_jobs", "id", "org"),  # an agent store's evaluation job (LP-20g)
     # An agent's connection, set in the console for one organization (ADR-0021).
     "agent_connection": ("agent_connections", "id", "org"),
     # A grading round of written output (ADR-0025, `core/written.py`).
@@ -174,8 +174,8 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     "client.keys_replaced": "client",  # a client's JWK Set replaced (LP-12h)
     "governance.approved": "governance",
     "governance.revoked": "governance",
-    "registry_pack.approved": "registry_approval",  # a pulled pack's digest (LP-18d)
-    "registry_pack.revoked": "registry_approval",
+    "registry_agent.approved": "registry_approval",  # a pulled agent's digest (LP-18d)
+    "registry_agent.revoked": "registry_approval",
     "automation.held": "hold",
     "automation.lifted": "hold",
     "eval.recorded": "eval",
@@ -189,14 +189,14 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
     "invitation.revoked": "invitation",
     "access.requested": "access",
     "access.handled": "access",
-    # A pack store's version (LP-20e, `core/pack_store.py`): its digest, the actor's id and the
+    # An agent store's version (LP-20e, `core/agent_store.py`): its digest, the actor's id and the
     # hash of its row as written; each move of its state. Never a file's content.
-    "pack_version.created": "pack_version",
-    "pack_version.withdrawn": "pack_version",
+    "store_version.created": "store_version",
+    "store_version.withdrawn": "store_version",
     # Promotion (LP-20h): a version signed off to be served to its organization, by someone who
     # wrote no version of it, on named evaluation reports; and the promotion it replaced.
-    "pack_version.promoted": "pack_version",
-    "pack_version.retired": "pack_version",
+    "store_version.promoted": "store_version",
+    "store_version.retired": "store_version",
     # An author's public key registered for an organization's store, and revoked (LP-20f).
     "store_key.added": "store_key",
     "store_key.revoked": "store_key",
@@ -232,20 +232,20 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
 # The kinds whose payload commits to something a grading round stores: a grade, and a closed
 # round's report (`core/written.py` `check_stored`, which `verify` runs).
 _WRITTEN_COMMITTED = frozenset({"written.graded", "written.round_closed"})
-# A pack store version's state after each of its kinds: `verify` checks a version's row against
+# An agent store version's state after each of its kinds: `verify` checks a version's row against
 # its newest (LP-20e).
 STORE_STATES: dict[str, str] = {
-    "pack_version.created": "draft",
-    "pack_version.withdrawn": "withdrawn",
-    "pack_version.promoted": "promoted",
-    "pack_version.retired": "retired",
+    "store_version.created": "draft",
+    "store_version.withdrawn": "withdrawn",
+    "store_version.promoted": "promoted",
+    "store_version.retired": "retired",
 }
 # A version row's columns that never change once written, in the order their hash reads them.
 STORE_VERSION_COLUMNS = (
     "id",
     "org",
     "digest",
-    "pack_id",
+    "agent_id",
     "version",
     "files",
     "parent_digest",
@@ -280,8 +280,8 @@ _TABLES = """
 CREATE TABLE IF NOT EXISTS decisions (
     id              TEXT PRIMARY KEY,
     created_at      TEXT NOT NULL,
-    pack_id         TEXT NOT NULL,
-    pack_version    TEXT NOT NULL,
+    agent_id         TEXT NOT NULL,
+    agent_version    TEXT NOT NULL,
     outcome         TEXT NOT NULL,
     recommendation  TEXT,
     priority        TEXT NOT NULL,
@@ -300,7 +300,7 @@ CREATE TABLE IF NOT EXISTS decisions (
     observed_label  TEXT
 );
 CREATE INDEX IF NOT EXISTS decisions_queue ON decisions (review_status, priority, created_at);
-CREATE INDEX IF NOT EXISTS decisions_pack ON decisions (pack_id, created_at);
+CREATE INDEX IF NOT EXISTS decisions_agent ON decisions (agent_id, created_at);
 CREATE TABLE IF NOT EXISTS audit_events (
     seq         {serial},
     decision_id TEXT NOT NULL,
@@ -316,7 +316,7 @@ CREATE INDEX IF NOT EXISTS decisions_created ON decisions (created_at, id);
 CREATE TABLE IF NOT EXISTS eval_reports (
     id          TEXT PRIMARY KEY,
     created_at  TEXT NOT NULL,
-    pack_id     TEXT NOT NULL,
+    agent_id     TEXT NOT NULL,
     dataset     TEXT NOT NULL,
     report      TEXT NOT NULL,
     org         TEXT,
@@ -332,14 +332,14 @@ CREATE TABLE IF NOT EXISTS feedback (
     id                TEXT PRIMARY KEY,
     decision_id       TEXT NOT NULL,
     created_at        TEXT NOT NULL,
-    pack_id           TEXT NOT NULL,
+    agent_id           TEXT NOT NULL,
     rating            TEXT NOT NULL,
     reporter          TEXT,
     expected_question TEXT,
     expected_label    TEXT,
     superseded_by     TEXT
 );
-CREATE INDEX IF NOT EXISTS feedback_pack ON feedback (pack_id, rating, created_at);
+CREATE INDEX IF NOT EXISTS feedback_agent ON feedback (agent_id, rating, created_at);
 CREATE INDEX IF NOT EXISTS feedback_decision ON feedback (decision_id);
 CREATE TABLE IF NOT EXISTS decision_inputs (
     decision_id  TEXT PRIMARY KEY,
@@ -350,8 +350,8 @@ CREATE TABLE IF NOT EXISTS decision_inputs (
 CREATE TABLE IF NOT EXISTS governance_approvals (
     id           TEXT PRIMARY KEY,
     org          TEXT NOT NULL,
-    pack_id      TEXT NOT NULL,
-    pack_digest  TEXT NOT NULL,
+    agent_id      TEXT NOT NULL,
+    agent_digest  TEXT NOT NULL,
     risk_level   INTEGER NOT NULL,
     approver     TEXT NOT NULL,
     reference    TEXT NOT NULL,
@@ -363,8 +363,8 @@ CREATE TABLE IF NOT EXISTS governance_approvals (
 CREATE TABLE IF NOT EXISTS registry_approvals (
     id           TEXT PRIMARY KEY,
     org          TEXT NOT NULL,
-    pack_id      TEXT NOT NULL,
-    pack_digest  TEXT NOT NULL,
+    agent_id      TEXT NOT NULL,
+    agent_digest  TEXT NOT NULL,
     registry     TEXT NOT NULL,
     approver     TEXT NOT NULL,
     reference    TEXT NOT NULL,
@@ -375,8 +375,8 @@ CREATE TABLE IF NOT EXISTS registry_approvals (
 CREATE TABLE IF NOT EXISTS automation_holds (
     id           TEXT PRIMARY KEY,
     org          TEXT,
-    pack_id      TEXT,
-    pack_digest  TEXT,
+    agent_id      TEXT,
+    agent_digest  TEXT,
     reason       TEXT NOT NULL,
     set_by       TEXT NOT NULL,
     set_at       TEXT NOT NULL,
@@ -387,13 +387,13 @@ CREATE TABLE IF NOT EXISTS deployments (
     id           TEXT PRIMARY KEY,
     environment  TEXT NOT NULL,
     release      TEXT NOT NULL,
-    pack_id      TEXT NOT NULL,
-    pack_version TEXT NOT NULL,
-    pack_digest  TEXT NOT NULL,
+    agent_id      TEXT NOT NULL,
+    agent_version TEXT NOT NULL,
+    agent_digest  TEXT NOT NULL,
     providers    TEXT NOT NULL,
     started_at   TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS deployments_pack ON deployments (pack_id, started_at);
+CREATE INDEX IF NOT EXISTS deployments_agent ON deployments (agent_id, started_at);
 CREATE TABLE IF NOT EXISTS api_keys (
     id          TEXT PRIMARY KEY,
     key_sha256  TEXT NOT NULL UNIQUE,
@@ -585,7 +585,7 @@ CREATE TABLE IF NOT EXISTS store_versions (
     id             TEXT PRIMARY KEY,
     org            TEXT NOT NULL,
     digest         TEXT NOT NULL,
-    pack_id        TEXT NOT NULL,
+    agent_id        TEXT NOT NULL,
     version        TEXT NOT NULL,
     files          TEXT NOT NULL,
     parent_digest  TEXT,
@@ -600,7 +600,7 @@ CREATE TABLE IF NOT EXISTS store_versions (
     pulled         TEXT,
     UNIQUE (org, digest)
 );
-CREATE INDEX IF NOT EXISTS store_versions_pack ON store_versions (org, pack_id, created_at);
+CREATE INDEX IF NOT EXISTS store_versions_agent ON store_versions (org, agent_id, created_at);
 CREATE TABLE IF NOT EXISTS store_pins (
     org        TEXT NOT NULL,
     registry   TEXT NOT NULL,
@@ -613,7 +613,7 @@ CREATE TABLE IF NOT EXISTS store_pins (
 CREATE TABLE IF NOT EXISTS agent_connections (
     id            TEXT PRIMARY KEY,
     org           TEXT NOT NULL,
-    pack_id       TEXT NOT NULL,
+    agent_id       TEXT NOT NULL,
     endpoint      TEXT,
     token         TEXT,
     token_set_by  TEXT,
@@ -623,7 +623,7 @@ CREATE TABLE IF NOT EXISTS agent_connections (
     allowed_origin TEXT,
     allowed_by    TEXT,
     allowed_at    TEXT,
-    UNIQUE (org, pack_id)
+    UNIQUE (org, agent_id)
 );
 CREATE TABLE IF NOT EXISTS store_usage (
     org      TEXT NOT NULL,
@@ -656,7 +656,7 @@ CREATE TABLE IF NOT EXISTS store_datasets (
     id          TEXT PRIMARY KEY,
     org         TEXT NOT NULL,
     name        TEXT NOT NULL,
-    pack_id     TEXT NOT NULL,
+    agent_id     TEXT NOT NULL,
     digest      TEXT NOT NULL,
     sha256      TEXT NOT NULL,
     cases       INTEGER NOT NULL,
@@ -696,7 +696,7 @@ CREATE INDEX IF NOT EXISTS store_jobs_org ON store_jobs (org, created_at);
 CREATE TABLE IF NOT EXISTS store_promotions (
     id          TEXT PRIMARY KEY,
     org         TEXT NOT NULL,
-    pack_id     TEXT NOT NULL,
+    agent_id     TEXT NOT NULL,
     digest      TEXT NOT NULL,
     version     TEXT NOT NULL,
     version_id  TEXT NOT NULL,
@@ -710,7 +710,7 @@ CREATE TABLE IF NOT EXISTS store_promotions (
     retired_at  TEXT,
     retired_by  TEXT
 );
-CREATE INDEX IF NOT EXISTS store_promotions_org ON store_promotions (org, pack_id, retired_at);
+CREATE INDEX IF NOT EXISTS store_promotions_org ON store_promotions (org, agent_id, retired_at);
 CREATE TABLE IF NOT EXISTS store_proposals (
     id          TEXT PRIMARY KEY,
     org         TEXT NOT NULL,
@@ -729,11 +729,11 @@ CREATE TABLE IF NOT EXISTS store_upload_parts (
     PRIMARY KEY (upload_id, n)
 );
 CREATE INDEX IF NOT EXISTS governance_approvals_lookup
-    ON governance_approvals (org, pack_id, pack_digest, revoked_at);
+    ON governance_approvals (org, agent_id, agent_digest, revoked_at);
 CREATE INDEX IF NOT EXISTS registry_approvals_lookup
-    ON registry_approvals (org, pack_id, pack_digest, revoked_at);
+    ON registry_approvals (org, agent_id, agent_digest, revoked_at);
 CREATE INDEX IF NOT EXISTS automation_holds_active
-    ON automation_holds (lifted_at, org, pack_id);
+    ON automation_holds (lifted_at, org, agent_id);
 CREATE INDEX IF NOT EXISTS audit_events_event_seq
     ON audit_events (event, seq);
 CREATE INDEX IF NOT EXISTS oauth_tokens_client
@@ -751,8 +751,8 @@ CREATE INDEX IF NOT EXISTS alert_deliveries_created
 CREATE TABLE IF NOT EXISTS written_rounds (
     id             TEXT PRIMARY KEY,
     org            TEXT NOT NULL,
-    pack_id        TEXT NOT NULL,
-    pack_digest    TEXT NOT NULL,
+    agent_id        TEXT NOT NULL,
+    agent_digest    TEXT NOT NULL,
     rubric         TEXT NOT NULL,
     rubric_sha256  TEXT NOT NULL,
     header         TEXT NOT NULL,
@@ -807,7 +807,7 @@ CREATE INDEX IF NOT EXISTS written_assignments_round
 # answer's evidence; NULL: none). `store_usage.datasets`: the datasets an organization's store
 # added that day (NULL: none yet).
 
-# The `store_` tables (LP-20e, ADR-0016, `core/pack_store.py`) hold each organization's pack
+# The `store_` tables (LP-20e, ADR-0016, `core/agent_store.py`) hold each organization's agent
 # store: `store_files` each file once by its SHA-256, whichever versions hold it;
 # `store_versions` a version's row, written once (`STORE_VERSION_COLUMNS`) but its `state`, each
 # write one chained event; and `store_usage` an organization's uploads and bytes a day, outside
@@ -817,7 +817,7 @@ CREATE INDEX IF NOT EXISTS written_assignments_round
 # the store is on. A version pulled from
 # a registry in the console (`source` `hub`) keeps where it came from in `pulled` (the registry,
 # the namespace, the signing key, the archive's SHA-256 and what was checked), hashed into its
-# `pack_version.created` event with the rest of its row; `store_pins` keeps the registry keys an
+# `store_version.created` event with the rest of its row; `store_pins` keeps the registry keys an
 # organization pinned on first use (per registry: a namespace's key ids, the registry's own key
 # id), outside the chain, as the command line keeps them in a file (`hub/client.py`).
 
@@ -1067,7 +1067,7 @@ class AuditStore(RateBuckets):
         """`target` is a SQLite path (or ":memory:") or a postgres:// / postgresql:// URL.
 
         `migrate_url` is an optional direct (unpooled) Postgres URL used only for schema setup.
-        `phi` is how inputs are kept (`core/phi.py`; default: as the pack says). `marks`
+        `phi` is how inputs are kept (`core/phi.py`; default: as the agent says). `marks`
         (default): opening marks the database with this store's PHI mode and keys (`_protected`);
         a read-only tool passes False and only reads the marks. `read_only` opens an existing
         Mendari database and writes nothing to it, not even a mark (`core/db.py`). Every open
@@ -1214,8 +1214,8 @@ class AuditStore(RateBuckets):
         store_input: Literal["full", "hash"] = "full",
     ) -> None:
         """Keep a decision and chain its digest. The input, and each answer's evidence (which can
-        quote it: a lab value and its date), stay in the record only under PHI mode `off` with a
-        pack that keeps inputs; under `encrypt` with such a pack both are sealed apart
+        quote it: a lab value and its date), stay in the record only under PHI mode `off` with an
+        agent that keeps inputs; under `encrypt` with such an agent both are sealed apart
         (`decision_inputs`), so retention can delete them; otherwise neither is kept. The
         caller's own answer (`/decide`) is unchanged. With sign-in on (and, in open mode, for a
         CDS client's verified token), the chained event also names who asked (`requested_by`,
@@ -1238,15 +1238,15 @@ class AuditStore(RateBuckets):
                 self._refuse_retired(db)
             epoch = self._mark_hash_epoch(db) if self.phi.hash_key else None
             db.all(
-                "INSERT INTO decisions (id, created_at, pack_id, pack_version, outcome, "
+                "INSERT INTO decisions (id, created_at, agent_id, agent_version, outcome, "
                 "recommendation, priority, confidence, latency_ms, cost_usd, record, "
                 "review_status, org, refused, provider_errors) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     result.id,
                     result.created_at,
-                    result.pack_id,
-                    result.pack_version,
+                    result.agent_id,
+                    result.agent_version,
                     result.outcome.value,
                     result.recommendation,
                     result.priority.value,
@@ -1341,7 +1341,7 @@ class AuditStore(RateBuckets):
                 raise ReviewError(f"unknown decision {decision_id}")
             if row["review_status"] != "pending":
                 raise ReviewError(f"decision {decision_id} is not awaiting review")
-            _check_label(row["pack_id"], json.loads(row["record"]), final_label, labels)
+            _check_label(row["agent_id"], json.loads(row["record"]), final_label, labels)
             # Overriding means disagreeing with a recommendation; an abstention made none.
             recommendation = row["recommendation"]
             override = None if recommendation is None else recommendation != final_label
@@ -1404,13 +1404,13 @@ class AuditStore(RateBuckets):
         self,
         decision_id: str,
         *,
-        pack_id: str,
+        agent_id: str,
         arguments_hash: str,
         kept: str | None,
         ask: Callable[[Mapping[str, Any], Sequence[Mapping[str, Any]]], actions.Asked],
     ) -> dict[str, Any]:
         """Record that a caller asked whether one action may be run for a decision of agent
-        `pack_id` (`Decision.authorize_action`, spec 0.4 section 6), and answer how the action
+        `agent_id` (`Decision.authorize_action`, spec 0.4 section 6), and answer how the action
         stands. In one exclusive session: `ask` judges it from the decision's row (its record
         parsed) and its events; an action already proposed on the decision (the same chained
         name, the same arguments' hash; for an action with no chained name, also the same
@@ -1420,11 +1420,11 @@ class AuditStore(RateBuckets):
         under PHI mode `hash`; `kept` is None for an agent that keeps only hashes).
 
         A decision that is unknown, another organization's or another agent's is
-        `PackNotFoundError`, one answer for all three."""
+        `AgentNotFoundError`, one answer for all three."""
         with self._db.session(exclusive=True) as db:
             item = _decision(db, decision_id)
-            if item is None or item["pack_id"] != pack_id:
-                raise PackNotFoundError(f"no decision {decision_id} of {pack_id}")
+            if item is None or item["agent_id"] != agent_id:
+                raise AgentNotFoundError(f"no decision {decision_id} of {agent_id}")
             events = _events_of(db, [decision_id])[decision_id]
             asked = ask(item, events)
             for action in actions.state(events):
@@ -1487,7 +1487,7 @@ class AuditStore(RateBuckets):
         with self._db.session(exclusive=True) as db:
             scope, scoped = _scope()
             row = db.one(
-                f"SELECT review_status, pack_id, record, org FROM decisions d "
+                f"SELECT review_status, agent_id, record, org FROM decisions d "
                 f"WHERE id = ? AND {scope}",
                 (decision_id, *scoped),
             )
@@ -1495,7 +1495,7 @@ class AuditStore(RateBuckets):
                 raise ReviewError(f"unknown decision {decision_id}")
             if row["review_status"] == "pending":
                 raise ReviewError("resolve the pending review instead of recording an outcome")
-            _check_label(row["pack_id"], json.loads(row["record"]), final_label, labels)
+            _check_label(row["agent_id"], json.loads(row["record"]), final_label, labels)
             db.all(
                 "UPDATE decisions SET observed_label = ? WHERE id = ?", (final_label, decision_id)
             )
@@ -1504,7 +1504,7 @@ class AuditStore(RateBuckets):
             self._append(db, decision_id, "outcome.recorded", chained)
 
     def record_card_feedback(
-        self, pack_id: str, service: str, items: Sequence[Mapping[str, Any]]
+        self, agent_id: str, service: str, items: Sequence[Mapping[str, Any]]
     ) -> list[dict[str, Any]]:
         """What clinicians did with CDS Hooks cards (`POST /cds-services/{id}/feedback`, LP-23f),
         one `card.feedback` event per item, all or none, in one transaction. An item is its card
@@ -1513,7 +1513,7 @@ class AuditStore(RateBuckets):
         `outcome_timestamp`. Each chained event also names the `service` and who sent the
         feedback (`reporter`, `tenancy.requester`, None in open mode), never a comment.
 
-        Every card must be a decision of `pack_id` in the organization this request acts for
+        Every card must be a decision of `agent_id` in the organization this request acts for
         and, when the request names who asks (`tenancy.requester`: sign-in on, or a CDS client's
         verified token), one that same caller asked for (its chained `requested_by`). Otherwise
         `UnknownCard`, one refusal whichever it is, naming the cards as sent, and nothing is
@@ -1529,10 +1529,10 @@ class AuditStore(RateBuckets):
             rows = {
                 row["id"]: row
                 for row in db.all(
-                    f"SELECT id, org, pack_id FROM decisions d WHERE id IN ({marks}) AND {scope}",
+                    f"SELECT id, org, agent_id FROM decisions d WHERE id IN ({marks}) AND {scope}",
                     (*unique_cards, *scoped),
                 )
-                if row["pack_id"] == pack_id
+                if row["agent_id"] == agent_id
             }
             if requester is not None and rows:
                 asked = {
@@ -1591,7 +1591,7 @@ class AuditStore(RateBuckets):
         with self._db.session(exclusive=True) as db:
             scope, scoped = _scope()
             row = db.one(
-                f"SELECT pack_id, record, org FROM decisions d WHERE id = ? AND {scope}",
+                f"SELECT agent_id, record, org FROM decisions d WHERE id = ? AND {scope}",
                 (decision_id, *scoped),
             )
             if row is None:
@@ -1605,13 +1605,13 @@ class AuditStore(RateBuckets):
                 (decision_id, reporter or ""),
             )
             db.all(
-                "INSERT INTO feedback (id, decision_id, created_at, pack_id, rating, reporter, "
+                "INSERT INTO feedback (id, decision_id, created_at, agent_id, rating, reporter, "
                 "expected_question, expected_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     feedback_id,
                     decision_id,
                     created_at,
-                    row["pack_id"],
+                    row["agent_id"],
                     rating,
                     reporter,
                     answer and answer["question"],
@@ -1653,7 +1653,7 @@ class AuditStore(RateBuckets):
     ) -> None:
         """Keep an evaluation report, and the ledger its result is computed from, for the
         organization; chained as `eval.recorded` with ids and hashes only (which report, result
-        and ledger, of which pack digest and dataset). The run's remote calls (`usage`) go to
+        and ledger, of which agent digest and dataset). The run's remote calls (`usage`) go to
         the usage ledger in the same transaction, as the organization's evaluations."""
         from mendari.evals.result import normalize
 
@@ -1663,8 +1663,8 @@ class AuditStore(RateBuckets):
             "report": run["id"],
             "result_sha256": report.get("result_sha256"),
             "ledger": (report.get("ledger") or {}).get("id"),
-            "pack_id": report["pack"]["id"],
-            "pack_digest": report["pack"].get("digest"),
+            "agent_id": report["agent"]["id"],
+            "agent_digest": report["agent"].get("digest"),
             "dataset_sha256": report["dataset"].get("sha256"),
             "org": org,
         }
@@ -1681,15 +1681,15 @@ class AuditStore(RateBuckets):
         ledger: bytes | None,
         usage: Mapping[str, Metered] | None,
     ) -> None:
-        """`save_report`'s writes, in the caller's transaction (a pack store's job writes its
+        """`save_report`'s writes, in the caller's transaction (an agent store's job writes its
         report with its own state, LP-20g)."""
         db.all(
-            "INSERT INTO eval_reports (id, created_at, pack_id, dataset, report, org, ledger) "
+            "INSERT INTO eval_reports (id, created_at, agent_id, dataset, report, org, ledger) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 run["id"],
                 run["created_at"],
-                report["pack"]["id"],
+                report["agent"]["id"],
                 report["dataset"]["name"],
                 _canonical(report),
                 org,
@@ -1708,8 +1708,8 @@ class AuditStore(RateBuckets):
             "report": run["id"],
             "result_sha256": report.get("result_sha256"),
             "ledger": (report.get("ledger") or {}).get("id"),
-            "pack_id": report["pack"]["id"],
-            "pack_digest": report["pack"].get("digest"),
+            "agent_id": report["agent"]["id"],
+            "agent_digest": report["agent"].get("digest"),
             "dataset_sha256": report["dataset"].get("sha256"),
             "org": org,
         }
@@ -2170,7 +2170,7 @@ class AuditStore(RateBuckets):
             return _events_of(db, decision_ids)
 
     def event(self, decision_id: str, seq: int) -> dict[str, Any] | None:
-        """One chained event of a decision, with its decision's pack and record (as `events()`
+        """One chained event of a decision, with its decision's agent and record (as `events()`
         returns them), or None: unknown, another decision's, or another organization's."""
         scope, scoped = _scope()
         with self._db.session(exclusive=False) as db:
@@ -2650,7 +2650,7 @@ class AuditStore(RateBuckets):
             summary["batches"] += bool(notes)
 
     def _rotate_datasets(self, prefix: str, batch: int, summary: dict[str, Any]) -> None:
-        """A pack store's datasets sealed under another key (LP-20g), re-sealed as notes are."""
+        """An agent store's datasets sealed under another key (LP-20g), re-sealed as notes are."""
         after = ""
         while True:
             with self._db.session(exclusive=False) as db:
@@ -2697,7 +2697,7 @@ class AuditStore(RateBuckets):
         while True:
             with self._db.session(exclusive=False) as db:
                 rows = db.all(
-                    "SELECT id, org, pack_id, token FROM agent_connections WHERE id > ? "
+                    "SELECT id, org, agent_id, token FROM agent_connections WHERE id > ? "
                     "AND token IS NOT NULL AND substr(token, 1, 20) <> ? ORDER BY id LIMIT ?",
                     (after, prefix, batch),
                 )
@@ -2706,7 +2706,7 @@ class AuditStore(RateBuckets):
             after = rows[-1]["id"]
             changes = []
             for row in rows:
-                ids = (str(row["id"]), str(row["org"]), str(row["pack_id"]))
+                ids = (str(row["id"]), str(row["org"]), str(row["agent_id"]))
                 try:
                     token, opened = self.phi.open("connection", row["token"], *ids)
                 except MendariError:
@@ -2892,7 +2892,7 @@ class AuditStore(RateBuckets):
                     and _commitment(salt, str(body.get("text"))) != refs[row["id"]]
                 ):
                     failures.append({"kind": "note", "id": row["id"], "key": "commitment"})
-        # A pack store's sealed datasets (LP-20g), counted only where there are any.
+        # An agent store's sealed datasets (LP-20g), counted only where there are any.
         with self._db.session(exclusive=False) as db:
             sealed_sets = db.all("SELECT id, created_at, data FROM store_datasets WHERE sealed = 1")
         for row in sealed_sets:
@@ -2905,7 +2905,7 @@ class AuditStore(RateBuckets):
         # Agents' connection tokens (ADR-0021), counted only where there are any.
         with self._db.session(exclusive=False) as db:
             sealed_tokens = db.all(
-                "SELECT id, org, pack_id, token, token_set_at FROM agent_connections "
+                "SELECT id, org, agent_id, token, token_set_at FROM agent_connections "
                 "WHERE token IS NOT NULL"
             )
         for row in sealed_tokens:
@@ -2913,7 +2913,11 @@ class AuditStore(RateBuckets):
             named = seen("connections", row["token"], row["token_set_at"] or "")
             try:
                 alone.open(
-                    "connection", row["token"], str(row["id"]), str(row["org"]), str(row["pack_id"])
+                    "connection",
+                    row["token"],
+                    str(row["id"]),
+                    str(row["org"]),
+                    str(row["agent_id"]),
                 )
             except MendariError:
                 failures.append({"kind": "connection", "id": row["id"], "key": named})
@@ -2977,7 +2981,7 @@ class AuditStore(RateBuckets):
     def query(
         self,
         *,
-        pack_id: str | None = None,
+        agent_id: str | None = None,
         outcome: str | None = None,
         review_status: str | None = None,
         limit: int = 50,
@@ -2986,7 +2990,7 @@ class AuditStore(RateBuckets):
         scope, scoped = _scope()
         clauses, params = [scope], list(scoped)
         for column, value in (
-            ("pack_id", pack_id),
+            ("agent_id", agent_id),
             ("outcome", outcome),
             ("review_status", review_status),
         ):
@@ -3015,19 +3019,19 @@ class AuditStore(RateBuckets):
     def events(
         self,
         *,
-        pack_id: str | None = None,
+        agent_id: str | None = None,
         since: str | None = None,
         until: str | None = None,
         after_seq: int = 0,
         limit: int = 500,
     ) -> list[dict[str, Any]]:
-        """Chained events in order, each with its decision's pack and record, for exports. Pages
+        """Chained events in order, each with its decision's agent and record, for exports. Pages
         by `after_seq` (the last `seq` returned); `since` / `until` bound `created_at` (ISO)."""
         scope, scoped = _scope()
         clauses: list[str] = ["e.seq > ?", scope]
         params: list[Any] = [after_seq, *scoped]
         for clause, value in (
-            ("d.pack_id = ?", pack_id),
+            ("d.agent_id = ?", agent_id),
             ("e.created_at >= ?", since),
             ("e.created_at < ?", until),
         ):
@@ -3275,15 +3279,15 @@ class AuditStore(RateBuckets):
         return bool(won)
 
     # -- governance approvals -------------------------------------------------------------------
-    # A deploying organization's recorded decision to let a level 2-3 pack automate (ADR-0002):
-    # bound to the pack's exact digest (a changed pack needs a new approval), with an expiry, per
+    # A deploying organization's recorded decision to let a level 2-3 agent automate (ADR-0002):
+    # bound to the agent's exact digest (a changed agent needs a new approval), with an expiry, per
     # organization, and chained like decisions ("governance:<id>" in the audit chain).
 
     def approve_automation(
         self,
         *,
-        pack_id: str,
-        pack_digest: str,
+        agent_id: str,
+        agent_digest: str,
         risk_level: int,
         approver: str,
         reference: str,
@@ -3297,8 +3301,8 @@ class AuditStore(RateBuckets):
         approval = {
             "id": secrets.token_hex(8),
             "org": tenancy.current() or tenancy.DEFAULT_ORG,
-            "pack_id": pack_id,
-            "pack_digest": pack_digest,
+            "agent_id": agent_id,
+            "agent_digest": agent_digest,
             "risk_level": risk_level,
             "approver": approver.strip(),
             "reference": reference.strip(),
@@ -3307,7 +3311,7 @@ class AuditStore(RateBuckets):
         }
         with self._db.session(exclusive=True) as db:
             db.all(
-                "INSERT INTO governance_approvals (id, org, pack_id, pack_digest, risk_level, "
+                "INSERT INTO governance_approvals (id, org, agent_id, agent_digest, risk_level, "
                 "approver, reference, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 tuple(approval.values()),
             )
@@ -3343,31 +3347,31 @@ class AuditStore(RateBuckets):
         self,
         *,
         org: str | None,
-        pack_id: str | None,
-        pack_digest: str | None,
+        agent_id: str | None,
+        agent_digest: str | None,
         reason: str,
         set_by: str,
     ) -> dict[str, Any]:
         """Stop automation (AUTO becomes HUMAN_REVIEW) for every decision a hold covers: an
-        organization (None: every one), a pack (None: every pack) and a digest (None: every
+        organization (None: every one), an agent (None: every agent) and a digest (None: every
         version). Chained as `automation.held`; it lasts until lifted."""
         reason = " ".join(reason.split())
         if not reason or len(reason) > 200:
             raise ReviewError("a hold needs a reason of at most 200 characters")
-        if pack_digest is not None and pack_id is None:
+        if agent_digest is not None and agent_id is None:
             raise ReviewError("a hold on a digest names its agent")
         hold = {
             "id": secrets.token_hex(8),
             "org": org,
-            "pack_id": pack_id,
-            "pack_digest": pack_digest,
+            "agent_id": agent_id,
+            "agent_digest": agent_digest,
             "reason": reason,
             "set_by": set_by,
             "set_at": _now(),
         }
         with self._db.session(exclusive=True) as db:
             db.all(
-                "INSERT INTO automation_holds (id, org, pack_id, pack_digest, reason, set_by, "
+                "INSERT INTO automation_holds (id, org, agent_id, agent_digest, reason, set_by, "
                 "set_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 tuple(hold.values()),
             )
@@ -3404,14 +3408,14 @@ class AuditStore(RateBuckets):
         with self._db.session(exclusive=False) as db:
             return [dict(row) for row in db.all(query + " ORDER BY set_at, id", params)]
 
-    def hold_for(self, pack_id: str, pack_digest: str, org: str) -> dict[str, Any] | None:
-        """The first active hold that covers a decision of this pack, digest and organization."""
+    def hold_for(self, agent_id: str, agent_digest: str, org: str) -> dict[str, Any] | None:
+        """The first active hold that covers a decision of this agent, digest and organization."""
         with self._db.session(exclusive=False) as db:
             row = db.one(
                 "SELECT * FROM automation_holds WHERE lifted_at IS NULL "
-                "AND (org IS NULL OR org = ?) AND (pack_id IS NULL OR pack_id = ?) "
-                "AND (pack_digest IS NULL OR pack_digest = ?) ORDER BY set_at, id LIMIT 1",
-                (org, pack_id, pack_digest),
+                "AND (org IS NULL OR org = ?) AND (agent_id IS NULL OR agent_id = ?) "
+                "AND (agent_digest IS NULL OR agent_digest = ?) ORDER BY set_at, id LIMIT 1",
+                (org, agent_id, agent_digest),
             )
         return None if row is None else dict(row)
 
@@ -3435,31 +3439,31 @@ class AuditStore(RateBuckets):
             self._append(db, f"governance:{approval_id}", "governance.revoked", payload)
         return True
 
-    def approvals(self, pack_id: str | None = None) -> list[dict[str, Any]]:
+    def approvals(self, agent_id: str | None = None) -> list[dict[str, Any]]:
         org = tenancy.current() or tenancy.DEFAULT_ORG
-        packs = ("AND pack_id = ?", (pack_id,)) if pack_id else ("", ())
+        agents = ("AND agent_id = ?", (agent_id,)) if agent_id else ("", ())
         with self._db.session(exclusive=False) as db:
             return db.all(
-                f"SELECT * FROM governance_approvals WHERE org = ? {packs[0]} "
+                f"SELECT * FROM governance_approvals WHERE org = ? {agents[0]} "
                 "ORDER BY created_at DESC",
-                (org, *packs[1]),
+                (org, *agents[1]),
             )
 
-    # -- packs from a registry (LP-18d) ---------------------------------------------------------
-    # A pulled pack never automates until its organization approves its exact digest here, at
-    # any risk level (`core/decision.py`); a risk level 2 or 3 pack needs its governance approval
+    # -- agents from a registry (LP-18d) ---------------------------------------------------------
+    # A pulled agent never automates until its organization approves its exact digest here, at
+    # any risk level (`core/decision.py`); a risk level 2 or 3 agent needs its governance approval
     # too. Each approval and revocation is chained under `registry_approval:<id>`.
 
-    def approve_registry_pack(
-        self, *, pack_id: str, pack_digest: str, registry: str, approver: str, reference: str
+    def approve_registry_agent(
+        self, *, agent_id: str, agent_digest: str, registry: str, approver: str, reference: str
     ) -> dict[str, Any]:
         if not approver.strip() or not reference.strip():
             raise ReviewError("an approval needs an approver and a reference")
         approval = {
             "id": secrets.token_hex(8),
             "org": tenancy.current() or tenancy.DEFAULT_ORG,
-            "pack_id": pack_id,
-            "pack_digest": pack_digest,
+            "agent_id": agent_id,
+            "agent_digest": agent_digest,
             "registry": registry,
             "approver": approver.strip(),
             "reference": reference.strip(),
@@ -3467,24 +3471,24 @@ class AuditStore(RateBuckets):
         }
         with self._db.session(exclusive=True) as db:
             if db.one(
-                "SELECT id FROM registry_approvals WHERE org = ? AND pack_id = ? "
-                "AND pack_digest = ? AND revoked_at IS NULL",
-                (approval["org"], pack_id, pack_digest),
+                "SELECT id FROM registry_approvals WHERE org = ? AND agent_id = ? "
+                "AND agent_digest = ? AND revoked_at IS NULL",
+                (approval["org"], agent_id, agent_digest),
             ):
                 # One live approval a digest, so revoking it stops automation at once.
                 raise ReviewError("this digest is approved already: revoke that approval first")
             db.all(
-                "INSERT INTO registry_approvals (id, org, pack_id, pack_digest, registry, "
+                "INSERT INTO registry_approvals (id, org, agent_id, agent_digest, registry, "
                 "approver, reference, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 tuple(approval.values()),
             )
             self._append(
-                db, f"registry_approval:{approval['id']}", "registry_pack.approved", approval
+                db, f"registry_approval:{approval['id']}", "registry_agent.approved", approval
             )
         return approval
 
     def revoke_registry_approval(self, approval_id: str, *, revoked_by: str) -> bool:
-        """Revoke this organization's approval of a pulled pack: it stops automating at once."""
+        """Revoke this organization's approval of a pulled agent: it stops automating at once."""
         org = tenancy.current() or tenancy.DEFAULT_ORG
         with self._db.session(exclusive=True) as db:
             row = db.one(
@@ -3498,47 +3502,47 @@ class AuditStore(RateBuckets):
                 (_now(), revoked_by, approval_id),
             )
             payload = self._bound(
-                "registry_pack.revoked", {"id": approval_id, "revoked_by": revoked_by}, org
+                "registry_agent.revoked", {"id": approval_id, "revoked_by": revoked_by}, org
             )
-            self._append(db, f"registry_approval:{approval_id}", "registry_pack.revoked", payload)
+            self._append(db, f"registry_approval:{approval_id}", "registry_agent.revoked", payload)
         return True
 
-    def registry_approvals(self, pack_id: str | None = None) -> list[dict[str, Any]]:
+    def registry_approvals(self, agent_id: str | None = None) -> list[dict[str, Any]]:
         org = tenancy.current() or tenancy.DEFAULT_ORG
-        packs = ("AND pack_id = ?", (pack_id,)) if pack_id else ("", ())
+        agents = ("AND agent_id = ?", (agent_id,)) if agent_id else ("", ())
         with self._db.session(exclusive=False) as db:
             return db.all(
-                f"SELECT * FROM registry_approvals WHERE org = ? {packs[0]} "
+                f"SELECT * FROM registry_approvals WHERE org = ? {agents[0]} "
                 "ORDER BY created_at DESC",
-                (org, *packs[1]),
+                (org, *agents[1]),
             )
 
     def registry_approval(
-        self, pack_id: str, pack_digest: str, in_org: str | None = None
+        self, agent_id: str, agent_digest: str, in_org: str | None = None
     ) -> dict[str, Any] | None:
-        """The approval in force for exactly this pulled pack in one organization (`in_org`;
+        """The approval in force for exactly this pulled agent in one organization (`in_org`;
         None: this request's, never every one's), or None."""
         org = in_org or tenancy.current() or tenancy.DEFAULT_ORG
         with self._db.session(exclusive=False) as db:
             return db.one(
-                "SELECT * FROM registry_approvals WHERE org = ? AND pack_id = ? "
-                "AND pack_digest = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1",
-                (org, pack_id, pack_digest),
+                "SELECT * FROM registry_approvals WHERE org = ? AND agent_id = ? "
+                "AND agent_digest = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1",
+                (org, agent_id, agent_digest),
             )
 
-    def active_approval(self, pack_id: str, pack_digest: str) -> dict[str, Any] | None:
-        """The approval in force for exactly this pack, for this request's organization."""
+    def active_approval(self, agent_id: str, agent_digest: str) -> dict[str, Any] | None:
+        """The approval in force for exactly this agent, for this request's organization."""
         org = tenancy.current() or tenancy.DEFAULT_ORG
         with self._db.session(exclusive=False) as db:
             return db.one(
-                "SELECT * FROM governance_approvals WHERE org = ? AND pack_id = ? "
-                "AND pack_digest = ? AND revoked_at IS NULL AND expires_at > ? "
+                "SELECT * FROM governance_approvals WHERE org = ? AND agent_id = ? "
+                "AND agent_digest = ? AND revoked_at IS NULL AND expires_at > ? "
                 "ORDER BY created_at DESC LIMIT 1",
-                (org, pack_id, pack_digest, _now()),
+                (org, agent_id, agent_digest, _now()),
             )
 
     # -- the deployment registry -----------------------------------------------------------------
-    # Which pack version runs where, with which providers, since when: one row each time that
+    # Which agent version runs where, with which providers, since when: one row each time that
     # changes (not each start, since a serverless platform starts the server many times a day),
     # chained like decisions ("deployment:<id>").
 
@@ -3547,35 +3551,35 @@ class AuditStore(RateBuckets):
         *,
         environment: str,
         release: str,
-        pack_id: str,
-        pack_version: str,
-        pack_digest: str,
+        agent_id: str,
+        agent_version: str,
+        agent_digest: str,
         providers: Mapping[str, str],
     ) -> dict[str, Any] | None:
-        """Records that this pack runs here, unless the latest record for the environment already
+        """Records that this agent runs here, unless the latest record for the environment already
         says so (same digest, providers and release). Returns the new record, or None."""
         deployment = {
             "id": secrets.token_hex(8),
             "environment": environment,
             "release": release,
-            "pack_id": pack_id,
-            "pack_version": pack_version,
-            "pack_digest": pack_digest,
+            "agent_id": agent_id,
+            "agent_version": agent_version,
+            "agent_digest": agent_digest,
             "providers": _canonical(dict(providers)),
             "started_at": _now(),
         }
         with self._db.session(exclusive=True) as db:
             last = db.one(
-                "SELECT release, pack_digest, providers FROM deployments "
-                "WHERE environment = ? AND pack_id = ? ORDER BY started_at DESC LIMIT 1",
-                (environment, pack_id),
+                "SELECT release, agent_digest, providers FROM deployments "
+                "WHERE environment = ? AND agent_id = ? ORDER BY started_at DESC LIMIT 1",
+                (environment, agent_id),
             )
-            unchanged = ("release", "pack_digest", "providers")
+            unchanged = ("release", "agent_digest", "providers")
             if last is not None and all(last[k] == deployment[k] for k in unchanged):
                 return None
             db.all(
-                "INSERT INTO deployments (id, environment, release, pack_id, pack_version, "
-                "pack_digest, providers, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO deployments (id, environment, release, agent_id, agent_version, "
+                "agent_digest, providers, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 tuple(deployment.values()),
             )
             self._append(db, f"deployment:{deployment['id']}", "deployment.recorded", deployment)
@@ -3617,13 +3621,13 @@ class AuditStore(RateBuckets):
         return since
 
     def deployments(
-        self, pack_id: str | None = None, limit: int = 50, *, digest: str | None = None
+        self, agent_id: str | None = None, limit: int = 50, *, digest: str | None = None
     ) -> list[dict[str, Any]]:
-        """Newest first, of one pack and one build of it if given. Deployments belong to the
+        """Newest first, of one agent and one build of it if given. Deployments belong to the
         server, so every organization sees them."""
         wheres = [
             (column, value)
-            for column, value in (("pack_id", pack_id), ("pack_digest", digest))
+            for column, value in (("agent_id", agent_id), ("agent_digest", digest))
             if value
         ]
         where = ("WHERE " + " AND ".join(f"{column} = ?" for column, _ in wheres)) if wheres else ""
@@ -3635,21 +3639,21 @@ class AuditStore(RateBuckets):
         return [{**row, "providers": json.loads(row["providers"])} for row in rows]
 
     def configuration_started(
-        self, pack_id: str, digest: str, providers: Mapping[str, str], limit: int = 500
+        self, agent_id: str, digest: str, providers: Mapping[str, str], limit: int = 500
     ) -> str | None:
-        """When this build of a pack started running on these providers (slot -> variant), by
+        """When this build of an agent started running on these providers (slot -> variant), by
         the deployment records: the oldest of the newest unbroken run of records with this
         digest and these providers, newest first across environments; None without one. A time
         only, for monitoring (which compares decisions made since): never a record."""
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                "SELECT pack_digest, providers, started_at FROM deployments WHERE pack_id = ? "
+                "SELECT agent_digest, providers, started_at FROM deployments WHERE agent_id = ? "
                 "ORDER BY started_at DESC LIMIT ?",
-                (pack_id, limit),
+                (agent_id, limit),
             )
         started = None
         for row in rows:
-            if row["pack_digest"] == digest and json.loads(row["providers"]) == dict(providers):
+            if row["agent_digest"] == digest and json.loads(row["providers"]) == dict(providers):
                 started = str(row["started_at"])
             elif started is not None:
                 break  # the run before this configuration
@@ -5110,13 +5114,13 @@ class AuditStore(RateBuckets):
             after = page.after
 
     def decision_rows(
-        self, pack_id: str, since: str, version: str | None = None
+        self, agent_id: str, since: str, version: str | None = None
     ) -> list[dict[str, Any]]:
-        """Each decision of a pack since a time (ISO), of one version if given, for monitoring:
+        """Each decision of an agent since a time (ISO), of one version if given, for monitoring:
         when, the outcome, the primary confidence, whether its input was refused, whether it
         awaits review, what a person or a downstream system said, and the cost."""
         scope, scoped = _scope()
-        versions = ("AND d.pack_version = ? ", (version,)) if version is not None else ("", ())
+        versions = ("AND d.agent_version = ? ", (version,)) if version is not None else ("", ())
         with self._db.session(exclusive=False) as db:
             return db.all(
                 "SELECT d.id, d.created_at, d.outcome, d.confidence, d.recommendation, "
@@ -5125,9 +5129,9 @@ class AuditStore(RateBuckets):
                 "d.review_status, d.latency_ms, d.provider_errors, "
                 "(SELECT COUNT(*) FROM feedback f WHERE f.decision_id = d.id "
                 "AND f.superseded_by IS NULL AND f.rating = 'down') AS rated_wrong "
-                f"FROM decisions d WHERE {scope} AND d.pack_id = ? AND d.created_at >= ? "
+                f"FROM decisions d WHERE {scope} AND d.agent_id = ? AND d.created_at >= ? "
                 f"{versions[0]}ORDER BY d.created_at",
-                (*scoped, pack_id, since, *versions[1]),
+                (*scoped, agent_id, since, *versions[1]),
             )
 
     def organizations_since(self, since: str) -> list[str]:
@@ -5142,38 +5146,38 @@ class AuditStore(RateBuckets):
             )
         return [str(row["org"]) for row in rows]
 
-    def decision_versions(self, pack_id: str, since: str) -> dict[str, int]:
-        """How many decisions each version of a pack made since a time (ISO), for monitoring,
+    def decision_versions(self, agent_id: str, since: str) -> dict[str, int]:
+        """How many decisions each version of an agent made since a time (ISO), for monitoring,
         which compares one version's with its benchmark and counts the others apart."""
         scope, scoped = _scope()
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                "SELECT d.pack_version, COUNT(*) AS n FROM decisions d "
-                f"WHERE {scope} AND d.pack_id = ? AND d.created_at >= ? GROUP BY d.pack_version",
-                (*scoped, pack_id, since),
+                "SELECT d.agent_version, COUNT(*) AS n FROM decisions d "
+                f"WHERE {scope} AND d.agent_id = ? AND d.created_at >= ? GROUP BY d.agent_version",
+                (*scoped, agent_id, since),
             )
-        return {str(row["pack_version"]): int(row["n"]) for row in rows}
+        return {str(row["agent_version"]): int(row["n"]) for row in rows}
 
-    def pending_by_pack(self) -> list[dict[str, Any]]:
-        """Pending review counts grouped by pack for the current organization (aggregate counts
+    def pending_by_agent(self) -> list[dict[str, Any]]:
+        """Pending review counts grouped by agent for the current organization (aggregate counts
         only, never inputs or PHI), ordered with stat items first."""
         scope, scoped = _scope()
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                "SELECT d.pack_id, "
+                "SELECT d.agent_id, "
                 "COUNT(*) AS pending, "
                 "SUM(CASE WHEN d.priority = 'stat' THEN 1 ELSE 0 END) AS stat, "
                 "SUM(CASE WHEN d.priority = 'asap' THEN 1 ELSE 0 END) AS asap, "
                 "SUM(CASE WHEN d.priority = 'urgent' THEN 1 ELSE 0 END) AS urgent "
                 "FROM decisions d "
                 f"WHERE {scope} AND d.review_status = 'pending' "
-                "GROUP BY d.pack_id "
-                "ORDER BY stat DESC, asap DESC, urgent DESC, pending DESC, d.pack_id ASC",
+                "GROUP BY d.agent_id "
+                "ORDER BY stat DESC, asap DESC, urgent DESC, pending DESC, d.agent_id ASC",
                 scoped,
             )
         return [
             {
-                "pack_id": str(row["pack_id"]),
+                "agent_id": str(row["agent_id"]),
                 "pending": int(row["pending"] or 0),
                 "stat": int(row["stat"] or 0),
                 "asap": int(row["asap"] or 0),
@@ -5182,24 +5186,24 @@ class AuditStore(RateBuckets):
             for row in rows
         ]
 
-    def validation_summary(self, pack_id: str, *, days: int = 30) -> dict[str, Any]:
-        """Aggregate clinical and operational summary for `pack_id` over the last `days` calendar
+    def validation_summary(self, agent_id: str, *, days: int = 30) -> dict[str, Any]:
+        """Aggregate clinical and operational summary for `agent_id` over the last `days` calendar
         days (zero PHI: reads only counts, outcomes, label codes, latencies, and policy reasons)."""
         scope, scoped = _scope()
         cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="milliseconds")
-        params = (*scoped, pack_id, cutoff)
+        params = (*scoped, agent_id, cutoff)
         with self._db.session(exclusive=False) as db:
             rows = db.all(
                 "SELECT outcome, priority, recommendation, final_label, observed_label, "
                 "human_override, review_status, latency_ms, cost_usd, record "
                 "FROM decisions d "
-                f"WHERE {scope} AND d.pack_id = ? AND d.created_at >= ?",
+                f"WHERE {scope} AND d.agent_id = ? AND d.created_at >= ?",
                 params,
             )
             ratings = db.all(
                 "SELECT f.rating, d.outcome FROM feedback f "
                 "JOIN decisions d ON d.id = f.decision_id "
-                f"WHERE f.superseded_by IS NULL AND {scope} AND d.pack_id = ? "
+                f"WHERE f.superseded_by IS NULL AND {scope} AND d.agent_id = ? "
                 "AND d.created_at >= ?",
                 params,
             )
@@ -5293,13 +5297,13 @@ class AuditStore(RateBuckets):
         }
 
     def pending_reviews(
-        self, pack_id: str | None = None, limit: int = 50, *, reader: str | None = None
+        self, agent_id: str | None = None, limit: int = 50, *, reader: str | None = None
     ) -> list[dict[str, Any]]:
         """The queue, most urgent first; under PHI mode `encrypt`, with inputs for a `reader`.
         A decision with proposed actions (spec 0.4) has `actions`, each as it stands, so a
         reviewer sees what confirming the decision releases; their arguments are shown as
         inputs are (to a `reader`, the read chained)."""
-        items = self.query(pack_id=pack_id, review_status="pending", limit=limit)
+        items = self.query(agent_id=agent_id, review_status="pending", limit=limit)
         if items:
             with self._db.session(exclusive=False) as db:
                 found = _events_of(
@@ -5315,22 +5319,22 @@ class AuditStore(RateBuckets):
                 del item["events"]
         return items
 
-    def stats(self, pack_id: str | None = None) -> dict[str, Any]:
+    def stats(self, agent_id: str | None = None) -> dict[str, Any]:
         scope, scoped = _scope()
-        packs = ("AND d.pack_id = ?", (pack_id,)) if pack_id else ("", ())
-        params = (*scoped, *packs[1])
+        agents = ("AND d.agent_id = ?", (agent_id,)) if agent_id else ("", ())
+        params = (*scoped, *agents[1])
         with self._db.session(exclusive=False) as db:
             rows = db.all(
                 "SELECT outcome, recommendation, final_label, observed_label, human_override, "
                 f"review_status, latency_ms, cost_usd, created_at FROM decisions d "
-                f"WHERE {scope} {packs[0]}",
+                f"WHERE {scope} {agents[0]}",
                 params,
             )
             # Each person's current rating: a changed rating counts once, as its latest value.
             ratings = db.all(
                 "SELECT f.rating, f.expected_label, d.outcome FROM feedback f "
                 "JOIN decisions d ON d.id = f.decision_id "
-                f"WHERE f.superseded_by IS NULL AND {scope} {packs[0]}",
+                f"WHERE f.superseded_by IS NULL AND {scope} {agents[0]}",
                 params,
             )
         total = len(rows)
@@ -5401,7 +5405,7 @@ class AuditStore(RateBuckets):
     def feedback(
         self,
         *,
-        pack_id: str | None = None,
+        agent_id: str | None = None,
         rating: Rating | None = None,
         limit: int = 100,
         reader: str | None = None,
@@ -5411,14 +5415,14 @@ class AuditStore(RateBuckets):
         `encrypt`, with inputs for a `reader`. Notes as `reveal_inputs` shows them."""
         scope, scoped = _scope()
         clauses, params = ["f.superseded_by IS NULL", scope], list(scoped)
-        for column, value in (("f.pack_id", pack_id), ("f.rating", rating)):
+        for column, value in (("f.agent_id", agent_id), ("f.rating", rating)):
             if value is not None:
                 clauses.append(f"{column} = ?")
                 params.append(value)
         where = f"WHERE {' AND '.join(clauses)}"
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                "SELECT f.id, f.decision_id, f.created_at, f.pack_id, f.rating, f.reporter, "
+                "SELECT f.id, f.decision_id, f.created_at, f.agent_id, f.rating, f.reporter, "
                 "f.expected_question, f.expected_label, d.record FROM feedback f "
                 f"JOIN decisions d ON d.id = f.decision_id {where} "
                 "ORDER BY f.created_at DESC LIMIT ?",
@@ -5428,19 +5432,19 @@ class AuditStore(RateBuckets):
         return self.reveal_inputs(items, reader, id_key="decision_id", own_notes=True)
 
     def labelled(
-        self, *, pack_id: str, limit: int = 1000, reader: str | None = None
+        self, *, agent_id: str, limit: int = 1000, reader: str | None = None
     ) -> list[dict[str, Any]]:
-        """A pack's decisions that someone has labelled, newest first: a reviewer's
+        """An agent's decisions that someone has labelled, newest first: a reviewer's
         `final_label` (a resolved review), a downstream outcome's `observed_label`, or both
         (`truth_label` says which one counts). Each as `query` gives a decision; under PHI mode
         `encrypt`, with inputs for a `reader`, each such read chained (`reveal_inputs`)."""
         scope, scoped = _scope()
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                f"SELECT d.* FROM decisions d WHERE {scope} AND d.pack_id = ? "
+                f"SELECT d.* FROM decisions d WHERE {scope} AND d.agent_id = ? "
                 "AND (d.final_label IS NOT NULL OR d.observed_label IS NOT NULL) "
                 "ORDER BY d.created_at DESC, d.id LIMIT ?",
-                (*scoped, pack_id, limit),
+                (*scoped, agent_id, limit),
             )
         items = [_row(row) for row in rows]
         # A database binds only so many values in one statement: inputs are opened a part at a
@@ -5449,14 +5453,14 @@ class AuditStore(RateBuckets):
             self.reveal_inputs(items[start : start + _REVEALED_AT_ONCE], reader)
         return items
 
-    def reports(self, pack_id: str | None = None) -> list[dict[str, Any]]:
+    def reports(self, agent_id: str | None = None) -> list[dict[str, Any]]:
         scope, scoped = _scope()
-        packs = ("AND pack_id = ?", (pack_id,)) if pack_id else ("", ())
+        agents = ("AND agent_id = ?", (agent_id,)) if agent_id else ("", ())
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                f"SELECT report FROM eval_reports d WHERE {scope} {packs[0]} "
+                f"SELECT report FROM eval_reports d WHERE {scope} {agents[0]} "
                 "ORDER BY created_at DESC",
-                (*scoped, *packs[1]),
+                (*scoped, *agents[1]),
             )
         return [json.loads(row["report"]) for row in rows]
 
@@ -5621,7 +5625,7 @@ class AuditStore(RateBuckets):
                     later.setdefault(str(row["decision_id"]), set()).add(str(row["event"]))
             subjects = _subject_orgs(db)
             kept = db.all("SELECT id, decision_id, event, sealed FROM notes") if notes else []
-            # A pack store's versions (LP-20e): each against its chained hash and newest state.
+            # An agent store's versions (LP-20e): each against its chained hash and newest state.
             stored = {str(row["id"]): row for row in db.all("SELECT * FROM store_versions")}
             # Grading rounds of written output (ADR-0025): each stored grade and each closed
             # round's stored report, against what the chain committed to (`_check_written`).
@@ -5847,10 +5851,10 @@ def _asked(decision_id: str, action: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-# A chained event joined with its decision's pack and record (`events()`, `event()`).
+# A chained event joined with its decision's agent and record (`events()`, `event()`).
 _JOINED = (
-    "e.seq, e.decision_id, e.event, e.payload, e.created_at, e.prev_hash, e.hash, d.pack_id, "
-    "d.pack_version, d.record FROM audit_events e JOIN decisions d ON d.id = e.decision_id"
+    "e.seq, e.decision_id, e.event, e.payload, e.created_at, e.prev_hash, e.hash, d.agent_id, "
+    "d.agent_version, d.record FROM audit_events e JOIN decisions d ON d.id = e.decision_id"
 )
 
 
@@ -5881,7 +5885,7 @@ _DECISION_SQL: dict[str, _Field] = {
     "id": "d.id",
     "outcome": "d.outcome",
     "priority": "d.priority",
-    "pack": ("d.pack_id", "d.pack_version"),
+    "agent": ("d.agent_id", "d.agent_version"),
     "state": _STATES,
     "created": "d.created_at",
     "updated": _UPDATED,
@@ -5991,17 +5995,17 @@ def _feedback_item(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _check_label(
-    pack_id: str, record: Mapping[str, Any], label: str, labels: QuestionLabels | None
+    agent_id: str, record: Mapping[str, Any], label: str, labels: QuestionLabels | None
 ) -> None:
     """A final label must be one of the labels of the decision's primary question: those its
-    answer gave probabilities for (the pack version that decided), or else, for a decision with
-    no answer (refused before any provider ran, or its provider failed), the installed pack's.
+    answer gave probabilities for (the agent version that decided), or else, for a decision with
+    no answer (refused before any provider ran, or its provider failed), the installed agent's.
     With neither, no label can be checked, so none is accepted."""
     primary = record.get("primary")
     answer = (record.get("answers") or {}).get(primary) or {}
     known = list(answer.get("probabilities") or ())
     if not known and labels is not None and isinstance(primary, str):
-        known = list(labels(pack_id, primary) or ())
+        known = list(labels(agent_id, primary) or ())
     if not known:
         raise ReviewError("this decision's labels are unknown here, so no label can be recorded")
     if label not in known:
@@ -6115,7 +6119,7 @@ def _sha(value: Any) -> str:
 
 
 def store_version_sha256(row: Mapping[str, Any]) -> str:
-    """The hash a pack store version's `pack_version.created` event chains of its row: the
+    """The hash an agent store version's `store_version.created` event chains of its row: the
     columns that never change (`STORE_VERSION_COLUMNS`, and `pulled` where a version has it), so
     a row changed past the store fails `verify` (LP-20e)."""
     hashed = {column: row[column] for column in STORE_VERSION_COLUMNS}
@@ -6247,7 +6251,7 @@ def _chain_break(
     if event["event"] in STORE_STATES:
         version_id = str(event["decision_id"]).partition(":")[2]
         row = stored.get(version_id)
-        if event["event"] == "pack_version.created" and (
+        if event["event"] == "store_version.created" and (
             row is None
             or json.loads(event["payload"]).get("version_sha256") != store_version_sha256(row)
         ):
@@ -6263,7 +6267,7 @@ _VERIFY_BATCH = 500
 # A decision row's columns that never change once written, each as its chained record holds it
 # (`_row_as_chained`): what lists, the review queue and statistics read instead of the record.
 _DECISION_CHAINED = (
-    "id", "created_at", "pack_id", "pack_version", "outcome", "recommendation", "priority",
+    "id", "created_at", "agent_id", "agent_version", "outcome", "recommendation", "priority",
 )  # fmt: skip
 # The events that make a decision and settle its review (`_unsettled`): only a reviewer's, as an
 # outcome waits for a pending review (`record_outcome`).
@@ -6272,17 +6276,17 @@ _DECISION_STATES = ("decision.created", "review.resolved")
 
 def _row_as_chained(row: Mapping[str, Any], record: Any) -> bool:
     """Whether a decision row's unchanging columns (`_DECISION_CHAINED`) are its chained
-    record's: a row whose outcome, priority or pack was changed past the store (an escalated
+    record's: a row whose outcome, priority or agent was changed past the store (an escalated
     decision made to look automated, say) breaks `verify` at its `decision.created`."""
     if not isinstance(record, Mapping):
         return False
-    found = record.get("pack")
-    pack: Mapping[str, Any] = found if isinstance(found, Mapping) else {}
+    found = record.get("agent")
+    agent: Mapping[str, Any] = found if isinstance(found, Mapping) else {}
     chained = {
         "id": record.get("id"),
         "created_at": record.get("created_at"),
-        "pack_id": pack.get("id"),
-        "pack_version": pack.get("version"),
+        "agent_id": agent.get("id"),
+        "agent_version": agent.get("version"),
         "outcome": record.get("outcome"),
         "recommendation": record.get("recommendation"),
         "priority": record.get("priority"),

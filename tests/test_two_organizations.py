@@ -45,14 +45,14 @@ from fastapi.testclient import TestClient
 from mendari import AuditStore
 from mendari.core import audit as audit_module
 from mendari.core import tenancy
+from mendari.core.agent import Agent, load_agent
 from mendari.core.audit import (
     ADMINISTRATIVE_KINDS,
     DECISION_KINDS,
     DEPLOYMENT_KINDS,
     PERSON_KINDS,
 )
-from mendari.core.pack import Pack, load_pack
-from mendari.core.registry import resolve_pack
+from mendari.core.registry import resolve_agent
 from mendari.hub import archive
 from mendari.hub.client import RegistryClient
 from mendari.hub.registry import RegistryStore, create_registry_app
@@ -101,7 +101,7 @@ SERVICE = f"/cds-services/{AGENT.replace('/', '.')}"  # its CDS service
 REFILL = "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks"
 APPROVABLE = "mendari-test/clinical-review"  # risk level 2: automated under an approval
 # An EHR launch decides about its patient's chart, read from the EHR (the chart fixture).
-SMART_DECIDE = {"pack_id": CHART, "focus": f"Patient/{SHOWCASE.id}"}
+SMART_DECIDE = {"agent_id": CHART, "focus": f"Patient/{SHOWCASE.id}"}
 TENANTS = "https://ehrs.example.org"  # one host, two tenants, two organizations
 # The agent that asks a service of its own (an `agent` variant), served here beside the others:
 # the one whose connection each organization sets (ADR-0021).
@@ -126,21 +126,21 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
     ("GET", "/redoc"): "the reference's other renderer",
     ("GET", "/favicon.ico"): "an icon",
     ("GET", "/api/health/ready"): "readiness: fixed codes and the version, from a cached read of "
-    "the chain's table and the packs start-up found",
+    "the chain's table and the agents start-up found",
     ("GET", "/invite"): "the invitation page, static: the token stays in the fragment",
-    ("GET", "/openapi.json"): "generated from code, settings and the served packs",
-    ("GET", "/api/agents"): "the served packs, read from files, never the store",
-    ("GET", "/api/agents/{namespace}/{name}"): "a served pack, from its files",
-    ("GET", "/api/agents/{namespace}/{name}/datasets"): "the pack's and the deployment's "
+    ("GET", "/openapi.json"): "generated from code, settings and the served agents",
+    ("GET", "/api/agents"): "the served agents, read from files, never the store",
+    ("GET", "/api/agents/{namespace}/{name}"): "a served agent, from its files",
+    ("GET", "/api/agents/{namespace}/{name}/datasets"): "the agent's and the deployment's "
     "datasets folder, from files (what it may hold in memberships mode is an owner decision)",
-    ("GET", "/api/agents/{namespace}/{name}/examples"): "the pack's examples, from its files",
-    ("GET", "/cds-services"): "the CDS services, generated from the packs",
+    ("GET", "/api/agents/{namespace}/{name}/examples"): "the agent's examples, from its files",
+    ("GET", "/cds-services"): "the CDS services, generated from the agents",
     ("GET", "/fhir/metadata"): "conformance; capability_versions is deployment-wide, unchained",
     ("GET", "/fhir/OperationDefinition/{resource_id}"): "conformance",
     ("GET", "/fhir/.well-known/smart-configuration"): "the endpoints' configuration",
-    ("GET", "/fhir/CodeSystem"): "terminology built in memory from the packs",
-    ("POST", "/fhir/CodeSystem/_search"): "terminology built in memory from the packs",
-    ("GET", "/fhir/CodeSystem/{resource_id}"): "terminology built in memory from the packs",
+    ("GET", "/fhir/CodeSystem"): "terminology built in memory from the agents",
+    ("POST", "/fhir/CodeSystem/_search"): "terminology built in memory from the agents",
+    ("GET", "/fhir/CodeSystem/{resource_id}"): "terminology built in memory from the agents",
     ("GET", "/fhir/NamingSystem/{resource_id}"): "terminology built in memory",
     ("GET", "/api/auth/keys/presets"): "the preset table and the route rules",
     ("GET", "/api/hub"): "the registry the deployment names, and whether agents can be added "
@@ -196,7 +196,7 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("GET", "/api/written/labelling/next"),
     ("POST", "/api/written/labelling/{assignment_id}"),
     ("GET", "/api/written/rounds"),
-    # An organization's pack store (LP-20f): MENDARI_AGENT_STORE=on, which this world sets in
+    # An organization's agent store (LP-20f): MENDARI_AGENT_STORE=on, which this world sets in
     # memberships mode.
     ("GET", "/api/store/agents"),
     ("GET", "/api/store/agents/{namespace}/{name}"),
@@ -561,15 +561,15 @@ def hub(tmp_path: Path) -> Iterator[Hub]:
     thread.join(timeout=5)
 
 
-def as_published(base: Path, pack_id: str) -> Pack:
+def as_published(base: Path, agent_id: str) -> Agent:
     """The bundled demo agent under a publisher's own id, as a publisher puts one in a
     registry."""
-    target = base / "published" / pack_id.replace("/", "-")
+    target = base / "published" / agent_id.replace("/", "-")
     shutil.copytree(DEMO_AGENT_DIR, target)
     manifest = yaml.safe_load((target / "agent.yaml").read_text())
-    manifest["id"] = pack_id
+    manifest["id"] = agent_id
     (target / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    return load_pack(target)
+    return load_agent(target)
 
 
 @pytest.fixture(params=["claims", "memberships"])
@@ -594,7 +594,7 @@ def world(
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
     monkeypatch.setenv("MENDARI_ACCOUNTS", accounts)
-    if accounts == "memberships":  # an organization's pack store (LP-20f): memberships only
+    if accounts == "memberships":  # an organization's agent store (LP-20f): memberships only
         monkeypatch.setenv("MENDARI_AGENT_STORE", "on")
     monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "required")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
@@ -731,7 +731,7 @@ def seed(world: World, org: Org) -> None:
         org.launch,
         ("GET", "/smart/launch"),
         "/smart/launch",
-        params={"iss": org.ehr.iss, "launch": "xyz", "pack": CHART},
+        params={"iss": org.ehr.iss, "launch": "xyz", "agent": CHART},
         expect=302,
     )
     location = started.headers["location"]
@@ -769,7 +769,7 @@ def seed(world: World, org: Org) -> None:
     parameters = {
         "resourceType": "Parameters",
         "parameter": [
-            {"name": "pack", "valueString": AGENT},
+            {"name": "agent", "valueString": AGENT},
             {"name": "data", "resource": FHIR_EXAMPLE},
         ],
     }
@@ -777,7 +777,7 @@ def seed(world: World, org: Org) -> None:
         org, service, ("POST", "/fhir/$decide"), "/fhir/$decide", json=parameters, expect=200
     ).json()
     org.made("decision", bundle["entry"][0]["resource"]["identifier"][0]["value"])
-    packed = world.call(
+    answered = world.call(
         org,
         org.people["reviewer"],
         ("POST", "/api/agents/{namespace}/{name}/fhir/decide"),
@@ -785,7 +785,7 @@ def seed(world: World, org: Org) -> None:
         json=FHIR_EXAMPLE,
         expect=200,
     ).json()
-    org.made("decision", packed["decision"]["id"])
+    org.made("decision", answered["decision"]["id"])
     hook = world.call(
         org,
         service,
@@ -831,7 +831,7 @@ def seed(world: World, org: Org) -> None:
             governance,
             ("POST", "/api/governance"),
             "/api/governance",
-            json={"pack_id": APPROVABLE, "reference": f"minutes {m}", "days": 30},
+            json={"agent_id": APPROVABLE, "reference": f"minutes {m}", "days": 30},
             expect=201,
         ).json()
         org.made("approval", approval["id"])
@@ -840,27 +840,27 @@ def seed(world: World, org: Org) -> None:
             governance,
             ("POST", "/api/holds"),
             "/api/holds",
-            json={"pack_id": APPROVABLE, "reason": f"hold {m}"},
+            json={"agent_id": APPROVABLE, "reason": f"hold {m}"},
             expect=201,
         ).json()
         org.made("hold", hold["id"])
-        # A pulled pack's approval (LP-18d): none is served here, so made in the store.
+        # A pulled agent's approval (LP-18d): none is served here, so made in the store.
         with tenancy.acting_for(org.name):
-            pulled = world.store.approve_registry_pack(
-                pack_id="someone/pulled",
-                pack_digest=f"sha256:{len(org.ids.get('registry_approval', []))}{'0' * 63}",
+            pulled = world.store.approve_registry_agent(
+                agent_id="someone/pulled",
+                agent_digest=f"sha256:{len(org.ids.get('registry_approval', []))}{'0' * 63}",
                 registry="https://hub.example.org",
                 approver="cmo",
                 reference=f"pulled minutes {m}",
             )
         org.made("registry_approval", pulled["id"])
-    # Only a pack served from a registry is approved this way.
+    # Only an agent served from a registry is approved this way.
     world.call(
         org,
         governance,
         ("POST", "/api/registry-approvals"),
         "/api/registry-approvals",
-        json={"pack_id": APPROVABLE, "pack_digest": "sha256:" + "0" * 64, "reference": "minutes"},
+        json={"agent_id": APPROVABLE, "agent_digest": "sha256:" + "0" * 64, "reference": "minutes"},
         expect=422,
     )
     run = world.call(
@@ -976,30 +976,30 @@ def written_round(world: World, org: Org, db_target: str) -> None:
     one: two texts the fixture agent wrote for messages carrying `org`'s marker, each given to
     its first two labellers. The round's id, each item's id and each assignment's are `org`'s,
     which the other never sees. Left open, for phase 2's grader to grade through the routes."""
-    from mendari import Decision, load_pack
+    from mendari import Decision, load_agent
     from mendari.core.written import WrittenStore
     from mendari.evals import written
     from mendari.evals.harness import load_dataset
     from mendari.providers.judge import Judge
 
     m = org.marker
-    pack = load_pack(ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini")
+    agent = load_agent(ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini")
     lines = [
         {"id": f"written-{m}-{n}", "input": {"message": {"body": f"Where do I park {m} {n}?"}}}
         for n in range(2)
     ]
     raw = "".join(json.dumps(line) + "\n" for line in lines).encode()
     run = written.run(
-        Decision(pack, origin_cap=False),
+        Decision(agent, origin_cap=False),
         load_dataset("written.jsonl", name="written", raw=raw),
         "reply_quality",
-        judge=Judge(pack, "reply_quality", mode="canned"),
+        judge=Judge(agent, "reply_quality", mode="canned"),
     )
     # The operator's command opens the database under the deployment's PHI mode and keys.
     with encrypted_store(db_target) as sealing:
         rounds = WrittenStore(sealing)
         made = rounds.create_round(
-            org.name, pack, "reply_quality", run, sample=2, created_by="operator"
+            org.name, agent, "reply_quality", run, sample=2, created_by="operator"
         )
         round_id = org.made("written round", made["round"])
         for item in run.items:
@@ -1386,7 +1386,7 @@ def refusals(world: World, x: Org, o: Org) -> None:
         (
             ("GET", "/api/smart/focus"),
             "/api/smart/focus",
-            {"params": {"pack_id": SMART_DECIDE["pack_id"]}},
+            {"params": {"agent_id": SMART_DECIDE["agent_id"]}},
         ),
         (("GET", "/api/smart/patient"), "/api/smart/patient", {}),
         (("POST", "/api/smart/decide"), "/api/smart/decide", {"json": SMART_DECIDE}),
@@ -1495,14 +1495,14 @@ def reads(world: World, x: Org) -> dict[str, str]:
     shapes the dashboard sends, every page of each: what the other's work must not change (the
     differential). The answers by URL, steadied (`steady`)."""
     viewer, admin = x.people["viewer"], x.people["admin"]
-    pack = {"pack_id": AGENT}
+    agent = {"agent_id": AGENT}
     total = {"_total": "accurate", "_count": 3}
     asked: list[tuple[TestClient, Route, str, dict[str, Any]]] = [
-        (viewer, ("GET", "/api/audit"), "/api/audit", pack),
+        (viewer, ("GET", "/api/audit"), "/api/audit", agent),
         (viewer, ("GET", "/api/audit"), "/api/audit", {}),
-        (viewer, ("GET", "/api/audit"), "/api/audit", {**pack, "outcome": "HUMAN_REVIEW"}),
-        (viewer, ("GET", "/api/audit"), "/api/audit", {**pack, "limit": 2, "offset": 2}),
-        (viewer, ("GET", "/api/review"), "/api/review", pack),
+        (viewer, ("GET", "/api/audit"), "/api/audit", {**agent, "outcome": "HUMAN_REVIEW"}),
+        (viewer, ("GET", "/api/audit"), "/api/audit", {**agent, "limit": 2, "offset": 2}),
+        (viewer, ("GET", "/api/review"), "/api/review", agent),
         (viewer, ("GET", "/api/review"), "/api/review", {}),
         (viewer, ("GET", "/api/review/summary"), "/api/review/summary", {}),
         (
@@ -1520,22 +1520,22 @@ def reads(world: World, x: Org) -> dict[str, str]:
             {},
         ),
         (viewer, ("GET", "/api/feedback"), "/api/feedback", {}),
-        (viewer, ("GET", "/api/feedback"), "/api/feedback", {**pack, "rating": "down"}),
+        (viewer, ("GET", "/api/feedback"), "/api/feedback", {**agent, "rating": "down"}),
         (viewer, ("GET", "/api/holds"), "/api/holds", {}),
         (viewer, ("GET", "/api/governance"), "/api/governance", {}),
-        (viewer, ("GET", "/api/governance"), "/api/governance", {"pack_id": APPROVABLE}),
+        (viewer, ("GET", "/api/governance"), "/api/governance", {"agent_id": APPROVABLE}),
         (viewer, ("GET", "/api/registry-approvals"), "/api/registry-approvals", {}),
         (
             viewer,
             ("GET", "/api/registry-approvals"),
             "/api/registry-approvals",
-            {"pack_id": APPROVABLE},
+            {"agent_id": APPROVABLE},
         ),
         (viewer, ("GET", "/api/evals"), "/api/evals", {}),
-        (viewer, ("GET", "/api/evals"), "/api/evals", pack),
-        (viewer, ("GET", "/api/stats"), "/api/stats", pack),
+        (viewer, ("GET", "/api/evals"), "/api/evals", agent),
+        (viewer, ("GET", "/api/stats"), "/api/stats", agent),
         (viewer, ("GET", "/api/stats"), "/api/stats", {}),
-        (viewer, ("GET", "/api/monitoring"), "/api/monitoring", pack),
+        (viewer, ("GET", "/api/monitoring"), "/api/monitoring", agent),
         (viewer, ("GET", "/api/health"), "/api/health", {}),
         (viewer, ("GET", "/api/health/ready"), "/api/health/ready", {}),
         (viewer, ("GET", "/api/auth/me"), "/api/auth/me", {}),
@@ -1544,7 +1544,7 @@ def reads(world: World, x: Org) -> dict[str, str]:
         (viewer, ("GET", "/fhir/AuditEvent"), "/fhir/AuditEvent", total),
         (viewer, ("GET", "/fhir/Provenance"), "/fhir/Provenance", total),
         (admin, ("GET", "/api/audit/export/fhir"), "/api/audit/export/fhir", {}),
-        (admin, ("GET", "/api/audit/export/fhir"), "/api/audit/export/fhir", pack),
+        (admin, ("GET", "/api/audit/export/fhir"), "/api/audit/export/fhir", agent),
         (admin, ("GET", "/api/audit/administrative"), "/api/audit/administrative", {"limit": 4}),
         (
             admin,
@@ -1740,7 +1740,7 @@ def served(world: World, x: Org) -> None:
         x.launch,
         ("GET", "/api/smart/focus"),
         "/api/smart/focus",
-        params={"pack_id": SMART_DECIDE["pack_id"]},
+        params={"agent_id": SMART_DECIDE["agent_id"]},
         headers=pinned,
         expect=200,
     )
@@ -1909,14 +1909,14 @@ def served_agents(world: World, x: Org) -> None:
         assert written(world.store) == before
     # Its author adds the agent the registry lists: a draft of its own store, whatever the
     # other added (the same version, so the same digest: no organization's secret).
-    author = person(world, x, "pack_author")
+    author = person(world, x, "agent_author")
     world.call(x, viewer, ("POST", "/api/store/pulls"), "/api/store/pulls",
                json={"ref": LISTED}, expect=403)  # fmt: skip
     added = world.call(
         x, author, ("POST", "/api/store/pulls"), "/api/store/pulls", json={"ref": LISTED},
         expect=201,
     ).json()  # fmt: skip
-    assert (added["pack_id"], added["state"], added["source"]) == (LISTED, "draft", "hub")
+    assert (added["agent_id"], added["state"], added["source"]) == (LISTED, "draft", "hub")
     found = world.call(x, viewer, ("GET", "/api/hub/search"), "/api/hub/search", expect=200)
     assert [a["installed"]["state"] for a in found.json()["agents"]] == ["draft"]
     with world.store._db.session(exclusive=False) as db:
@@ -1932,22 +1932,22 @@ def _store_archive(org: str, key: Any, note: str) -> bytes:
 
     import yaml
 
-    from mendari.core.pack import load_pack
+    from mendari.core.agent import load_agent
     from mendari.hub import archive
 
     with tempfile.TemporaryDirectory() as scratch:
-        root = Path(scratch) / "pack"
-        shutil.copytree(resolve_pack(AGENT).root, root)
+        root = Path(scratch) / "agent"
+        shutil.copytree(resolve_agent(AGENT).root, root)
         manifest = yaml.safe_load((root / "agent.yaml").read_text())
         manifest["id"] = f"{org}/triage-upload"
         (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
         cases = root / "tests" / "cases.yaml"
         cases.write_text(cases.read_text() + f"\n# {note}\n")
-        return archive.build(load_pack(root), key)
+        return archive.build(load_agent(root), key)
 
 
 def served_store(world: World, x: Org) -> None:
-    """Memberships mode, the pack store on (LP-20f): `x`'s administrator registers an author
+    """Memberships mode, the agent store on (LP-20f): `x`'s administrator registers an author
     key; its author copies the triage fixture, edits the copy, runs its tests, uploads a signed
     archive whole and another in parts, lists and reads them, and withdraws one; the key is
     revoked. Every digest, key and upload of the other organization's answers `404` here."""
@@ -1957,7 +1957,7 @@ def served_store(world: World, x: Org) -> None:
 
     o = world.other(x)
     admin = x.people["admin"]
-    author = person(world, x, "pack_author")
+    author = person(world, x, "agent_author")
     for kind, route, template in (
         ("store version", "/api/store/versions/{d}", ("GET", "/api/store/versions/{digest}")),
         ("store version", "/api/store/versions/{d}/tests",
@@ -2025,11 +2025,11 @@ def served_store(world: World, x: Org) -> None:
         author,
         ("POST", "/api/store/copies"),
         "/api/store/copies",
-        json={"pack": AGENT, "name": "triage-copy"},
+        json={"agent": AGENT, "name": "triage-copy"},
         expect=201,
     ).json()
     x.made("store version", copy["digest"])
-    rules = resolve_pack(AGENT).read_bytes("logic/router_rules.yaml").decode()
+    rules = resolve_agent(AGENT).read_bytes("logic/router_rules.yaml").decode()
     rules += f"\n# {x.marker}\n"
     world.call(
         x,
@@ -2091,7 +2091,7 @@ def served_store(world: World, x: Org) -> None:
     ).json()
     x.made("store version", parts["digest"])
     listed = world.call(x, author, ("GET", "/api/store/agents"), "/api/store/agents", expect=200)
-    assert {lineage["pack_id"] for lineage in listed.json()} == {
+    assert {lineage["agent_id"] for lineage in listed.json()} == {
         f"{x.name}/triage-copy",
         f"{x.name}/triage-upload",
     }
@@ -2127,7 +2127,7 @@ def served_store(world: World, x: Org) -> None:
 
 
 def served_store_jobs(world: World, x: Org, author: TestClient, digest: str) -> None:
-    """LP-20g: `x`'s author uploads a dataset, runs a job on its draft and one on the pack it
+    """LP-20g: `x`'s author uploads a dataset, runs a job on its draft and one on the agent it
     was copied from, and compares them; the other organization's dataset, jobs and comparison
     answer `404` here."""
     o = world.other(x)
@@ -2160,7 +2160,7 @@ def served_store_jobs(world: World, x: Org, author: TestClient, digest: str) -> 
             params={"draft": others[0], "current": others[1]},
             expect=404,
         )
-    lines = resolve_pack(AGENT).read_bytes("data/test.jsonl").decode().splitlines()[:4]
+    lines = resolve_agent(AGENT).read_bytes("data/test.jsonl").decode().splitlines()[:4]
     dataset = world.call(
         x,
         author,
@@ -2179,7 +2179,7 @@ def served_store_jobs(world: World, x: Org, author: TestClient, digest: str) -> 
         expect=200,
     )
     made = []
-    for target in ({"version": digest}, {"pack": AGENT}):
+    for target in ({"version": digest}, {"agent": AGENT}):
         job = world.call(
             x,
             author,
@@ -2244,9 +2244,9 @@ def served_store_promotion(world: World, x: Org, digest: str, job_id: str) -> No
         expect=201,
     ).json()
     x.made("store promotion", made["id"])
-    pack_id = f"{x.name}/triage-copy"
+    agent_id = f"{x.name}/triage-copy"
     served = world.call(x, x.people["viewer"], ("GET", "/api/agents"), "/api/agents", expect=200)
-    assert pack_id in {p["id"] for p in served.json()}
+    assert agent_id in {p["id"] for p in served.json()}
     world.call(
         x,
         governance,
@@ -2264,7 +2264,7 @@ def served_store_improvement(world: World, x: Org, digest: str) -> None:
     sub = f"author-reader-{x.marker}"
     reader = client_of(
         world.app,
-        member(world.store, org=x.name, roles=["admin", "pack_author"], sub=sub),
+        member(world.store, org=x.name, roles=["admin", "agent_author"], sub=sub),
     )
     x.made("person", person_id(IDP, sub))
     for found in o.ids.get("store improvement", []):
@@ -2465,7 +2465,7 @@ def again(world: World, x: Org) -> None:
         x.people["governance"],
         ("POST", "/api/holds"),
         "/api/holds",
-        json={"pack_id": AGENT, "reason": f"again {x.marker}"},
+        json={"agent_id": AGENT, "reason": f"again {x.marker}"},
         expect=201,
     ).json()
     x.made("hold", hold["id"])
@@ -2503,7 +2503,7 @@ def again(world: World, x: Org) -> None:
         x.people["governance"],
         ("POST", "/api/governance"),
         "/api/governance",
-        json={"pack_id": APPROVABLE, "reference": f"again {x.marker}", "days": 30},
+        json={"agent_id": APPROVABLE, "reference": f"again {x.marker}", "days": 30},
         expect=201,
     ).json()
     x.made("approval", approval["id"])
@@ -2701,7 +2701,7 @@ def both(world: World, a: Org, b: Org) -> None:
     assert (shown["principal"]["org"], shown["principal"]["roles"]) == (a.name, ["viewer"])
     assert sorted(m["org"] for m in shown["memberships"]) == sorted((a.name, b.name))
     world.call(a, who, ("GET", "/api/auth/keys"), "/api/auth/keys", expect=403)  # a's roles
-    for url, params in (("/api/audit", {"pack_id": AGENT}), ("/api/holds", {}),
+    for url, params in (("/api/audit", {"agent_id": AGENT}), ("/api/holds", {}),
                         ("/api/feedback", {}), ("/api/evals", {})):  # fmt: skip
         world.call(a, who, ("GET", url), url, params=params, expect=200)
     before = written(world.store)

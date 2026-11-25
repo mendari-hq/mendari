@@ -19,8 +19,8 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 from mendari.cli import main
 from mendari.core import clock
-from mendari.core.pack import load_pack
-from mendari.core.registry import resolve_pack
+from mendari.core.agent import load_agent
+from mendari.core.registry import resolve_agent
 from mendari.errors import FhirError, MendariError
 from mendari.sandbox import DEMO_AGENT, fhir_workflow
 from mendari.sandbox.code_systems import CASE_SYSTEM
@@ -524,11 +524,11 @@ def exported(tmp_path: Path, cases: list[list[dict[str, Any]]]) -> Path:
 
 
 @pytest.mark.usefixtures("on_the_day")
-def test_an_export_becomes_the_packs_dataset_with_the_sites_labels(tmp_path: Path) -> None:
+def test_an_export_becomes_the_agents_dataset_with_the_sites_labels(tmp_path: Path) -> None:
     cases = records.cases("test")[:6]
     export_dir = chart_export(tmp_path, cases)
     labels = {case.id: case.labels for case in cases[:4]}  # the site labelled four of six
-    adapter = FhirAdapter.for_pack(resolve_pack(CHART))
+    adapter = FhirAdapter.for_agent(resolve_agent(CHART))
     made, skipped = bulk.dataset(
         adapter, list(bulk.read_ndjson(export_dir)), labels, key_system=CASE_SYSTEM
     )
@@ -588,7 +588,7 @@ def test_the_sandbox_bulk_check_compares_the_export_with_the_file(
         }
 
     monkeypatch.setattr(bulk_check.bulk, "export", fake_export)
-    result = bulk_check.run("http://fhir:8080/fhir", resolve_pack(CHART), str(LABELS))
+    result = bulk_check.run("http://fhir:8080/fhir", resolve_agent(CHART), str(LABELS))
     assert result["cases"] == 8 and result["identical"] and result["differences"] == []
     # The export asks for what the agent's mapping reads, and no more: its focus, the types it
     # names (a note's, a request's drug's) and its lists' (one of them read from two types).
@@ -602,7 +602,7 @@ def test_the_sandbox_bulk_check_compares_the_export_with_the_file(
             "MedicationRequest",
         ]
     ]
-    clinical = load_pack(CLINICAL_DIR)  # a note as JSON: no FHIR mapping
+    clinical = load_agent(CLINICAL_DIR)  # a note as JSON: no FHIR mapping
     with pytest.raises(MendariError, match=f"{clinical.id} has no FHIR mapping"):
         bulk_check.run("http://fhir:8080/fhir", clinical)
 
@@ -616,7 +616,7 @@ def test_the_sandbox_bulk_check_runs_on_the_demo_agent_by_default(
     from mendari.sandbox import bulk_check
 
     monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
-    demo = load_pack(DEMO_AGENT_DIR)
+    demo = load_agent(DEMO_AGENT_DIR)
     seeded = fhir_workflow.seed_bundle(demo, 12)["entry"]
     asked: list[list[str]] = []
 

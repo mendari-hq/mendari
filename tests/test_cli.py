@@ -27,17 +27,17 @@ from tests.test_record_hygiene import (
     stored_text,
 )
 
-PACK = TRIAGE
+AGENT = TRIAGE
 
 
 def test_validate_and_test(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["validate", str(TRIAGE_DIR)]) == 0
-    assert main(["test", PACK]) == 0
+    assert main(["test", AGENT]) == 0
     assert "0 failed" in capsys.readouterr().out
 
 
 def test_decide_text(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["decide", PACK, "--text", "Can I pay my bill online?"]) == 0
+    assert main(["decide", AGENT, "--text", "Can I pay my bill online?"]) == 0
     assert json.loads(capsys.readouterr().out)["recommendation"] == "billing"
 
 
@@ -65,7 +65,7 @@ def test_decide_records_under_the_deployments_phi_mode(
     kept = stored_text(store)
     for mark in (NAMED, ONSET, MRN):
         assert not planted(mark, kept), mark
-    [item] = store.query(pack_id=CHART)
+    [item] = store.query(agent_id=CHART)
     record = store.item(item["id"])
     assert record is not None and KEYED.match(record["record"]["input_hash"])
 
@@ -106,7 +106,7 @@ def test_provider_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_validate_checks_behaviour_test_inputs_against_the_schema(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    root = tmp_path / "pack"
+    root = tmp_path / "agent"
     shutil.copytree(TRIAGE_DIR, root)
     cases = root / "tests" / "cases.yaml"
     quoted = '{body: "Answer me this time, you morons. I have had chest pain since last night."}'

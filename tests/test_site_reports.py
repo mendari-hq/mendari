@@ -15,8 +15,8 @@ import pytest
 from pydantic import ValidationError
 
 from mendari.cli import main
-from mendari.core.pack import load_pack
-from mendari.evals.share import SiteReportV2
+from mendari.core.agent import load_agent
+from mendari.evals.share import SiteReportV1
 from mendari.hub import archive, site_signing
 from mendari.hub.site_signing import Site, init_site
 from tests.conftest import (
@@ -30,7 +30,7 @@ from tests.conftest import (
 
 # The agent `Registry.publish()` publishes, whose benchmark set's counts `shared_benchmark()`
 # shares.
-TRIAGE = load_pack(TRIAGE_DIR)
+TRIAGE = load_agent(TRIAGE_DIR)
 NAMESPACE, NAME = TRIAGE.id.split("/")
 PATH = f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}/reports"
 LISTED = f"/v1/agents/{TRIAGE.id}/reports"
@@ -123,7 +123,7 @@ def test_a_report_for_another_digest_configuration_size_or_site_than_its_ticket_
     report = shared_benchmark()
     if field == "digest":
         issued = site_ticket(published, site, report)
-        report = {**report, "pack": {**report["pack"], "digest": "sha256:" + "1" * 64}}
+        report = {**report, "agent": {**report["agent"], "digest": "sha256:" + "1" * 64}}
     elif field == "configuration":
         slot = next(s for s, p in TRIAGE.manifest.providers.items() if len(p.variants) > 1)
         variants = list(TRIAGE.manifest.providers[slot].variants)
@@ -162,7 +162,7 @@ def test_a_payload_with_any_case_text_fails_on_both_sides(
             slot = next(iter(bad["providers"]))
             bad["providers"][slot]["model"] = text
         with pytest.raises(ValidationError):  # the sender's model refuses it
-            SiteReportV2.model_validate(bad)
+            SiteReportV1.model_validate(bad)
         answer = _send(published, _submission(site, issued, bad), issued["submit_secret"])
         assert answer.status_code == 422 and "Jane" not in answer.text
     assert _stored(published) == []
@@ -374,4 +374,4 @@ def test_the_client_sends_only_a_submission_it_can_read(tmp_path: Path) -> None:
     from mendari.hub.client import RegistryClient
 
     with RegistryClient("http://127.0.0.1:9") as client, pytest.raises(MendariError):
-        client.submit({"report": {"pack": {"id": "../../v1/tickets", "version": "x"}}}, "s")
+        client.submit({"report": {"agent": {"id": "../../v1/tickets", "version": "x"}}}, "s")
