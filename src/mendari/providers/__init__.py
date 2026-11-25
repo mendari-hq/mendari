@@ -43,8 +43,8 @@ PROVIDER_TYPES: dict[str, type[Provider]] = {
 MODEL_TYPES = frozenset({LlmProvider.type, AgentProvider.type})
 
 # Each provider type's closed config: every key a variant (or a composite member) of that type
-# may set, and nothing else (`config_problems`). The LLM's leaves out `type`, which its
-# constructor takes off; a composite's `members` are each one of the other types'.
+# may set, and nothing else (`config_problems`). The LLM's and the agent's leave out `type`, which
+# their constructors take off; a composite's `members` are each one of the other types'.
 PROVIDER_CONFIG_MODELS: Mapping[str, type[BaseModel]] = {
     RulesProvider.type: FileConfig,
     LlmProvider.type: LlmConfig,
