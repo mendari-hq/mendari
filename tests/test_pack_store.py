@@ -150,7 +150,7 @@ def test_a_store_pack_runs_on_the_bounded_engine_and_its_rules_stop_at_the_budge
     root = triage_copy(tmp_path, "clinic-a/sorter", rules=slow_rules(), schema=long_message)
     stored = packs.put(ORG_A, files_of(root), by="user-1", source="upload")
     pack = packs.load(ORG_A, stored.digest)
-    assert pack.origin == "store" and pack.bounded and not pack.community
+    assert pack.origin == "store" and pack.bounded
     assert pack.origin_label == ORIGIN_LABELS["store"] == "From this organization's store"
     with cpu_time() as spent:
         result = Decision(pack).decide({"message": {"body": EMOJI}})

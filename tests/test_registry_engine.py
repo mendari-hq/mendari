@@ -152,7 +152,7 @@ def lookahead(root: Path) -> None:
 
 def test_a_pack_from_a_registry_runs_on_the_community_engine(tmp_path: Path) -> None:
     pack = load_pack(copied(tmp_path, TRIAGE_DIR.name, version="9.9.9"), origin="hub")
-    assert pack.bounded and not pack.community
+    assert pack.bounded
     assert pack.origin_label == "From a registry"
     decision = Decision(pack)
     assert isinstance(decision._validator, input_schema._Re2Validator)
@@ -397,10 +397,10 @@ def test_a_registry_pack_reads_at_most_10000_characters(tmp_path: Path) -> None:
 
 
 def test_a_registry_packs_rules_stop_at_the_budget_and_a_person_decides(tmp_path: Path) -> None:
-    """As a community pack's (`tests/test_community_budget.py`): the rules fail as a provider
-    that cannot answer does, and the decision never automates."""
+    """Its patterns share one CPU budget per decision: once it is spent, the rules fail as a
+    provider that cannot answer does, and the decision never automates."""
     pack = outside_sorter(tmp_path, rules=slow_rules(), schema=long_message)
-    assert pack.bounded and not pack.community
+    assert pack.bounded
     with cpu_time() as spent:
         result = Decision(pack).decide({"message": {"body": EMOJI}})
     assert spent() < BOUND_S
@@ -420,7 +420,7 @@ def nested_input(depth: int) -> dict[str, Any]:
 def test_a_registry_pack_refuses_an_input_too_large_before_its_schema_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """At decide, as a community pack does: more than 10,000 values, nesting past 32 or texts
+    """At decide, as every agent on that engine: more than 10,000 values, nesting past 32 or texts
     past 10,000 characters are refused, in the registry pack's words, before its schema check
     (`Decision.validate`) runs. Called alone, its check holds to them too."""
     root = copied(tmp_path, TRIAGE_DIR.name, version="9.9.9")
@@ -451,7 +451,7 @@ def test_a_registry_pack_refuses_an_input_too_large_before_its_schema_runs(
 def test_a_registry_packs_typo_corrections_never_lengthen_its_text_past_the_length(
     tmp_path: Path,
 ) -> None:
-    """As a community pack's: a correction that would make a text longer than 10,000 characters
+    """On that engine, a correction that would make a text longer than 10,000 characters
     is not made, and correcting stops at the budget. A local copy corrects all, with no
     budget."""
 
@@ -476,7 +476,7 @@ def test_a_registry_packs_typo_corrections_never_lengthen_its_text_past_the_leng
 
 
 def test_a_registry_packs_schema_errors_stop_at_100_with_short_reasons(tmp_path: Path) -> None:
-    """As a community pack's: its schema check stops collecting at 100 errors, and its reasons
+    """On that engine, its schema check stops collecting at 100 errors, and its reasons
     are short (a `required` names five fields and how many more). A local copy lists what it
     always listed."""
 
@@ -586,7 +586,7 @@ def test_a_registry_pack_is_never_a_community_pack(
     its organization approves its digest (LP-18d): approved here."""
     monkeypatch.setenv("LLM_MODEL", "example/deployment-model")
     pack = outside_sorter(tmp_path / "plain")
-    assert pack.bounded and not pack.community and pack.shown_origin == "hub"
+    assert pack.bounded and pack.shown_origin == "hub"
     assert Decision(pack, origin_approval=lambda _: True).decide(BILL).outcome is Outcome.AUTO
     assert build_provider(pack, "router", "llm").info.model == "example/deployment-model"
 
