@@ -14,7 +14,6 @@ from mendari.core.spec import ProviderVariant
 from mendari.errors import PackValidationError
 from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
 from mendari.providers.agent import AgentConfig, AgentProvider
-from mendari.providers.any_of import AnyOfConfig, AnyOfProvider
 from mendari.providers.base import (
     Answer,
     FileConfig,
@@ -24,63 +23,39 @@ from mendari.providers.base import (
     checking_once,
     prefixed,
 )
-from mendari.providers.cascade import CascadeConfig, CascadeProvider
 from mendari.providers.check import CheckConfig, CheckProvider
-from mendari.providers.cql import CqlConfig, CqlProvider
-from mendari.providers.criteria import CriteriaProvider
-from mendari.providers.dosing import DosingProvider
 from mendari.providers.http import allowed_origins, require_listed
-from mendari.providers.jev import ENDPOINT_ENV as JEV_ENDPOINT_ENV
-from mendari.providers.jev import JevConfig, JevProvider
 from mendari.providers.llm import BASE_URL_ENV as LLM_BASE_URL_ENV
 from mendari.providers.llm import LlmConfig, LlmProvider
-from mendari.providers.naive_bayes import NaiveBayesConfig, NaiveBayesProvider
 from mendari.providers.rules import RulesProvider
-from mendari.providers.vote import VoteConfig, VoteProvider
 
 PROVIDER_TYPES: dict[str, type[Provider]] = {
     provider.type: provider
     for provider in (
         RulesProvider,
-        CriteriaProvider,
-        CqlProvider,
-        DosingProvider,
-        NaiveBayesProvider,
-        JevProvider,
         LlmProvider,
         AgentProvider,
-        AnyOfProvider,
-        CascadeProvider,
-        VoteProvider,
         CheckProvider,
     )
 }
 
 # The provider types that ask a model to read the input.
-MODEL_TYPES = frozenset({JevProvider.type, LlmProvider.type, AgentProvider.type})
+MODEL_TYPES = frozenset({LlmProvider.type, AgentProvider.type})
 
 # Each provider type's closed config: every key a variant (or a composite member) of that type
-# may set, and nothing else (`config_problems`). Jev's and the LLM's leave out `type`, which their
-# constructors take off; a composite's `members` are each one of the other types'.
+# may set, and nothing else (`config_problems`). The LLM's and the agent's leave out `type`, which
+# their constructors take off; a composite's `members` are each one of the other types'.
 PROVIDER_CONFIG_MODELS: Mapping[str, type[BaseModel]] = {
     RulesProvider.type: FileConfig,
-    CriteriaProvider.type: FileConfig,
-    CqlProvider.type: CqlConfig,
-    DosingProvider.type: FileConfig,
-    NaiveBayesProvider.type: NaiveBayesConfig,
-    JevProvider.type: JevConfig,
     LlmProvider.type: LlmConfig,
     AgentProvider.type: AgentConfig,
-    AnyOfProvider.type: AnyOfConfig,
-    CascadeProvider.type: CascadeConfig,
-    VoteProvider.type: VoteConfig,
     CheckProvider.type: CheckConfig,
 }
 # Where the generated JSON Schema of those configs is published (`config_json_schema`).
 CONFIG_SCHEMA_ID = "https://mendari.co/spec/provider-configs.schema.json"
 # The deployment's variables that name a remote provider's endpoint: when it lists the origins
 # its providers may be called at, each one it sets must be on that list (`provider_allow_list`).
-ENDPOINT_ENVS = (LLM_BASE_URL_ENV, JEV_ENDPOINT_ENV, AGENT_ENDPOINT_ENV)
+ENDPOINT_ENVS = (LLM_BASE_URL_ENV, AGENT_ENDPOINT_ENV)
 
 __all__ = [
     "ENDPOINT_ENVS",
@@ -105,8 +80,7 @@ def provider_allow_list() -> list[str] | None:
     (`MENDARI_PROVIDER_ALLOWED_ORIGINS`, `providers/http.py`), sorted, or None when it is unset
     or blank (no allow-list, as before). A malformed list, or an endpoint variable the
     deployment set (`ENDPOINT_ENVS`) whose origin it leaves out, is a `MendariError` naming the
-    variable. The AI Gateway's default and Vercel Connect are checked when called: an unused
-    one stops nothing."""
+    variable. The AI Gateway's default is checked when called: unused, it stops nothing."""
     allowed = allowed_origins()
     if allowed is None:
         return None
@@ -120,14 +94,14 @@ def config_problems(pack: Pack, *, trained: bool = True) -> list[str]:
     the environment or the network (`Provider.config_problems`): its closed config, its pack
     files, the slot's questions and, for a pack the deployment does not own (`Pack.bounded`),
     `state_fields` on every model variant and member. Each problem names
-    `providers.<slot>.variants.<variant>` first. `trained=False` leaves the trained files
-    (`model_file`, `calibration`) unread, as `load_pack(missing_models_ok=True)` does.
+    `providers.<slot>.variants.<variant>` first. `trained=False` leaves the calibrations
+    unread, as `load_pack(missing_models_ok=True)` does.
 
     `load_pack` runs it: a pack the deployment does not own is refused for any problem, an owned
     one loads with them as `Pack.warnings`. `mendari validate` refuses both."""
     bounded = pack.bounded
     problems: list[str] = []
-    with checking_once():  # a model file several variants name is read once
+    with checking_once():  # a file several variants name is read once
         for slot_name, slot in pack.manifest.providers.items():
             questions = {key: pack.manifest.questions[key] for key in slot.answers}
             for name, variant in slot.variants.items():
@@ -150,12 +124,7 @@ def config_json_schema() -> dict[str, Any]:
     Published as `docs/spec/provider-configs.schema.json` (`scripts/provider_config_schema.py`,
     which `--check`s it)."""
     definitions: dict[str, Any] = {}
-    composites = {
-        AnyOfProvider.type,
-        CascadeProvider.type,
-        VoteProvider.type,
-        CheckProvider.type,
-    }
+    composites = {CheckProvider.type}
     for kind, model in sorted(PROVIDER_CONFIG_MODELS.items()):
         schema = model.model_json_schema(ref_template="#/$defs/{model}")
         for name, nested in schema.pop("$defs", {}).items():
@@ -213,7 +182,8 @@ def build_provider(pack: Pack, slot_name: str, variant_name: str | None = None) 
 
 
 def uses_model(variant: ProviderVariant) -> bool:
-    """Whether a variant asks a model (Jev or an LLM), itself or through a composite's member."""
+    """Whether a variant asks a model (an LLM or an agent), itself or through a composite's
+    member."""
     members = (variant.model_extra or {}).get("members")
     types = {variant.type}
     if isinstance(members, dict):

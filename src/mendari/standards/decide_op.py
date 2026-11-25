@@ -334,7 +334,7 @@ def _issues(result: DecisionResult) -> list[dict[str, Any]]:
 
 def _provider_issue(failure: str) -> str:
     """The issue type for a question's provider failure: its stable code, or for a combined
-    provider (`any_of`, `vote`) the members' codes (`member:code, ...`)."""
+    provider (`check`) the members' codes (`member:code, ...`)."""
     codes = {part.rpartition(":")[2].strip() for part in failure.split(",")}
     for code, issue in _PROVIDER_ISSUE.items():
         if code in codes:

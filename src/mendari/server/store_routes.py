@@ -286,8 +286,8 @@ def add_store_routes(
     @app.get("/api/store/versions/{digest}/file", tags=[TAG], summary="One text file of a version")
     def store_version_file(request: Request, digest: str, path: str) -> dict[str, Any]:
         """A text file of a version of your organization's store, for its editor (LP-20j): the
-        manifest, policy, rules, criteria, wording or tests. Not a held version's, not a trained
-        model, not a file that is not UTF-8 text, and at most 1 MiB. Nothing is recorded."""
+        manifest, policy, rules, wording or tests. Not a held version's, not a file that is not
+        UTF-8 text, and at most 1 MiB. Nothing is recorded."""
         _, org = person(request)
         owned(org, digest, states=(DRAFT, "promoted", "retired"))
         try:
@@ -417,9 +417,9 @@ def add_store_routes(
     )
     def edit_version(request: Request, digest: str, body: EditRequest) -> JSONResponse:
         """A new draft whose parent is this version, with these text files replaced (the
-        manifest, policy, rules, criteria, wording, tests). Only files the version has, that are
-        UTF-8 text and not a trained model or calibration: a model is trained and uploaded. The
-        version itself never changes."""
+        manifest, policy, rules, wording, tests). Only files the version has, that are UTF-8 text
+        and not a calibration: a calibration is fitted and uploaded. The version itself never
+        changes."""
         by, org = person(request)
         owned(org, digest, states=(DRAFT, "promoted", "retired"))
         try:
@@ -852,8 +852,8 @@ def add_store_routes(
 
 
 def _trained_files(pack: Pack) -> set[str]:
-    """The files a pack's variants and composite members name as trained (a model, a
-    calibration): retrained and uploaded, never edited on the server."""
+    """The files an agent's variants and composite members name as trained (a calibration):
+    fitted again and uploaded, never edited on the server."""
     found: set[str] = set()
     for slot in pack.manifest.providers.values():
         for variant in slot.variants.values():
@@ -862,15 +862,14 @@ def _trained_files(pack: Pack) -> set[str]:
             if isinstance(members, dict):
                 configs += [m for m in members.values() if isinstance(m, dict)]
             for config in configs:
-                for key in ("model_file", "calibration"):
-                    if isinstance(config.get(key), str):
-                        found.add(config[key])
+                if isinstance(config.get("calibration"), str):
+                    found.add(config["calibration"])
     return found
 
 
 def _trained_paths(manifest: bytes) -> set[str]:
-    """The trained files an edited manifest names (as `_trained_files` reads a loaded pack's),
-    so an edit cannot point a variant's model at a file it rewrites in the same request."""
+    """The trained files an edited manifest names (as `_trained_files` reads a loaded agent's),
+    so an edit cannot point a variant's calibration at a file it rewrites in the same request."""
     import yaml
 
     try:
@@ -889,7 +888,6 @@ def _trained_paths(manifest: bytes) -> set[str]:
             if isinstance(members, dict):
                 configs += [m for m in members.values() if isinstance(m, dict)]
             for config in configs:
-                for key in ("model_file", "calibration"):
-                    if isinstance(config.get(key), str):
-                        found.add(config[key])
+                if isinstance(config.get("calibration"), str):
+                    found.add(config["calibration"])
     return found

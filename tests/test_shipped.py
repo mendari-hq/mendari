@@ -98,8 +98,8 @@ def test_the_scan_sees_each_way_to_import_a_mock(source: str) -> None:
     assert any(n in MOCK_MODULES or n.startswith("unittest.mock") for n in _imports(node))
 
 
-# §4. No vendor or model name in product code outside src/mendari/providers/. `jev` and `llm`
-# are provider types (mendari.providers), not vendors.
+# §4. No vendor or model name in product code outside src/mendari/providers/. `llm` is a
+# provider type (mendari.providers), not a vendor.
 
 # Distinctive names match as the start of a word (gpt-4o, llama3, OPENAI_API_KEY, ClaudeClient);
 # names that begin ordinary words (coherent, grokking) only as whole words; the o-series alone.
@@ -137,7 +137,7 @@ NAMES_ONE = (
     "gpt-4o", "gpt4o", "gpt-35-turbo", "llama3.1:8b", "qwen2.5", "gemma3", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "ClaudeClient", "geminiPro", "opus", '"o1"', "o3-mini",
 )  # fmt: skip
-NAMES_NONE = ("0o600", "coherent", "grokking", "jev-1.13.0", "llm")
+NAMES_NONE = ("0o600", "coherent", "grokking", "llm")
 
 
 @pytest.mark.parametrize(

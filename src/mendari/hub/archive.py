@@ -12,9 +12,9 @@ mtime 0), so the same pack always gives the same bytes and the same archive dige
   the rendered card included, so they are signed too, though the pack digest leaves them out).
 
 `build` makes no archive of a pack that holds a site's cases that say what they are: cases
-`mendari improve` added to it or `mendari feedback export` wrote, or a model built from them.
-They may be patient text. Each is marked (`core/site_cases.py`), and those marks are looked for
-in every file the archive would hold, before anything is signed (`refuse_site_cases`). So
+`mendari feedback export` wrote. They may be patient text. Each is marked
+(`core/site_cases.py`), and that mark is looked for in every file the archive would hold,
+before anything is signed (`refuse_site_cases`). So
 `mendari archive build` and `mendari push` stop there, and a registry looks again at what it is
 sent (`hub/registry.py`), since a client need not have.
 
@@ -147,12 +147,11 @@ def archive_name(pack: Pack) -> str:
 
 def refuse_site_cases(files: Mapping[str, bytes]) -> None:
     """A `HubError` when a pack's files (path -> content, as an archive holds them) hold a
-    site's cases: cases `mendari improve` added or `mendari feedback export` wrote, or a model
-    built from them, found by their marks, in any file and however it is laid out
-    (`core/site_cases.py`). One line that names the first `MAX_FILES_NAMED` files with how many
-    times each is marked, and counts the rest; never a case's id or text. A site's cases stay
-    where the site keeps them: whether such a pack may ever be published is not this function's
-    to decide, so nothing turns it off."""
+    site's cases: cases `mendari feedback export` wrote, found by their marks, in any file and
+    however it is laid out (`core/site_cases.py`). One line that names the first
+    `MAX_FILES_NAMED` files with how many times each is marked, and counts the rest; never a
+    case's id or text. A site's cases stay where the site keeps them: whether such an agent may
+    ever be published is not this function's to decide, so nothing turns it off."""
     found = sorted(marked_files(files).items())
     if not found:
         return
@@ -162,11 +161,9 @@ def refuse_site_cases(files: Mapping[str, bytes]) -> None:
         others = "1 other file" if len(rest) == 1 else f"{len(rest)} other files"
         where += f", and {sum(count for _, count in rest)} more in {others}"
     raise HubError(
-        "the agent holds cases `mendari improve` added or `mendari feedback export` wrote, or a "
-        f"model built from them ({where}): a site's cases, which are never published. Keep "
-        "the agent where those cases may be, or take them out before it is built or pushed, "
-        "and where a model was built from them, run `mendari train`, which builds it again "
-        "without them."
+        f"the agent holds cases `mendari feedback export` wrote ({where}): a site's cases, "
+        "which are never published. Keep the agent where those cases may be, or take them out "
+        "before it is built or pushed."
     )
 
 

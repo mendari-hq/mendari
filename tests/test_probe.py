@@ -530,48 +530,6 @@ def test_a_message_given_twice_is_probed_once(tmp_path: Path) -> None:
     assert len(keys) == 5 and all(re.fullmatch(r"[0-9a-f]{64}", key) for key in keys)
 
 
-def test_two_records_a_provider_may_answer_differently_are_two_cases(tmp_path: Path) -> None:
-    """Structured criteria read fields of the input they do not list as text. With such a
-    provider answering, the same message on another channel may be decided otherwise: it is
-    another case, and probed too. The text changed is still what the rules read: the criteria
-    read none, and nothing reads the subject."""
-    message = {"body": "Bad chest pain now", "channel": "phone", "subject": "A question"}
-    again = {
-        "id": "symptom-by-phone",
-        "input": {"message": message},
-        "labels": {"request": "other", "urgent": "yes"},
-    }
-    by_phone = {
-        "type": "boolean",
-        "instructions": "Did the message come by phone?",
-        "criteria": {"yes": "By phone.", "no": "Another way."},
-    }
-    channel = {
-        "answers": ["by_phone"],
-        "use": "criteria",
-        "variants": {"criteria": {"type": "criteria", "config": "logic/channel.yaml"}},
-    }
-    manifest = {
-        "questions": {**MANIFEST["questions"], "by_phone": by_phone},
-        "providers": {**MANIFEST["providers"], "channel": channel},
-    }
-    root = build_agent(tmp_path / "agent", cases=[*CASES, again], manifest=manifest)
-    message_fields(root, subject={"type": "string"})
-    check = {"value": {"field": "message.channel", "in": ["phone"], "then": "yes"}}
-    write_yaml(
-        root,
-        "logic/channel.yaml",
-        {"questions": {"by_phone": {"checks": [check], "default": "no"}}},
-    )
-
-    found = probed(root, "typos")
-    assert found.report["fields"] == ["message.body"]
-    assert found.report["cases"]["in_source"] == 6 and found.report["cases"]["distinct"] == 6
-    assert sorted(variant.case.id for variant in found.variants) == sorted(
-        [*(case["id"] for case in CASES), "symptom-by-phone"]
-    )
-
-
 def test_naming_the_text_to_change_does_not_change_what_a_case_is(tmp_path: Path) -> None:
     """`fields` names the text to change. A case is still what the agent reads of it: two
     messages under one subject are two cases, each known by the hash it has in any probe."""
@@ -990,11 +948,13 @@ def test_an_agent_that_is_not_the_authors_own_is_not_written_into(tmp_path: Path
 
 
 def test_a_sites_own_case_is_reported_and_never_written(tmp_path: Path) -> None:
-    """A case `mendari improve` or `mendari feedback export` wrote is a site's own, and may be
-    a patient's words: its variant is probed here, and never copied into the agent's tests,
-    where nothing would mark it."""
+    """A case `mendari feedback export` wrote is a site's own, and may be a patient's words:
+    its variant is probed here, and never copied into the agent's tests, where nothing would
+    mark it."""
     marked = [
-        {**case, "attributes": {"added_by": "mendari improve"}} if case["id"] == "symptom" else case
+        {**case, "attributes": {"exported_by": "mendari feedback export"}}
+        if case["id"] == "symptom"
+        else case
         for case in CASES
     ]
     root = build_agent(tmp_path / "agent", cases=marked)

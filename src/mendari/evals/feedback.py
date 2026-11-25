@@ -11,14 +11,13 @@ Two sources, each exported as pack-dataset records (JSON Lines), one per decisio
   label: what really happened when an outcome says, else what the reviewer chose
   (`core.audit.truth_label`, as observed accuracy counts it).
 
-A file then is evaluation data (`mendari eval --dataset`) or the cases `mendari improve` learns
-from, and a confirmed miss becomes a behaviour test a person writes for the pack. Nothing here
-changes a pack; improvements stay reviewed and versioned.
+A file then is evaluation data (`mendari eval --dataset`), and a confirmed miss becomes a
+behaviour test a person writes for the agent. Nothing here changes an agent; improvements stay
+reviewed and versioned.
 
 Every record says it was exported (`attributes.exported_by`, `core/site_cases.py`). It is a
 site's case wherever the file goes, and may be patient text: no archive is made of a pack that
-holds one, as the file an export wrote or as records copied into the pack's datasets, nor of a
-pack whose model was trained on one.
+holds one, as the file an export wrote or as records copied into the agent's datasets.
 
 Reviewed cases are not a sample of what a pack sees. They are the decisions it sent to a person
 (the ones it was unsure of, or a rule held), labelled by someone who saw its suggestion. They

@@ -184,7 +184,7 @@ Each bullet is one control; the threat model names the row and the tests behind 
   gateway, where a proxy on the host connects from). Signed in, `/api/health` shows the address
   seen on the request and whether `X-Forwarded-For` gave it. Per-organization daily quotas
   (`MENDARI_ORG_DAILY_LIMITS`) count decisions and their remote calls, and the organization's
-  evaluations' remote calls under their own `eval_jev` and `eval_llm` (unset: no limit), never
+  evaluations' remote calls under their own `eval_llm` (unset: no limit), never
   the decisions' quotas; over a decision quota, decisions fall back to human review, over an
   evaluation quota the evaluation's remote calls fail, and one alert goes to the webhook a day. A daily
   cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set) counts the decisions it
@@ -241,31 +241,29 @@ Each bullet is one control; the threat model names the row and the tests behind 
 
 ## Remote providers
 
-The Jev adapter gets its key from a Vercel Connect connector (exchanged at runtime with the
-deployment's OIDC identity, cached in memory only) or, locally, from `JEV_API_KEY`. Remote
-providers:
+Remote providers:
 - send only an agent's declared `state_fields` (an agent the deployment does not own, a registry
   or store agent, must declare them on every model variant, or it is refused at load; an owned
   agent that omits them sends the whole input);
-- read their endpoint, model and key from fixed environment variables (`JEV_API_URL`,
-  `JEV_MODEL`, `JEV_API_KEY`, `JEV_CONNECTOR`; `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`,
-  `LLM_API_KEY`), which an agent cannot change;
+- read their endpoint, model and key from fixed environment variables (`LLM_BASE_URL`,
+  `LLM_MODEL`, `AI_GATEWAY_API_KEY`, `LLM_API_KEY`; `MENDARI_AGENT_URL`, `MENDARI_AGENT_TOKEN`),
+  which an agent cannot change;
 - require HTTPS (plain HTTP only for localhost);
 - reach only the origins on `MENDARI_PROVIDER_ALLOWED_ORIGINS` when a deployment sets it (the AI
-  Gateway's default and Vercel Connect included): any other request is refused before it is
-  opened (`invalid_endpoint`), and an `LLM_BASE_URL` or `JEV_API_URL` off the list stops startup;
+  Gateway's default included): any other request is refused before it is opened
+  (`invalid_endpoint`), and an `LLM_BASE_URL` or `MENDARI_AGENT_URL` off the list stops startup;
 - refuse redirects and cap response size;
-- share one wall-clock deadline per decision, the CQL engine included
+- share one wall-clock deadline per decision
   (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set): past it a call is not made, one under way
   is cut, and the decision records `timeout` and goes to a person; local providers still answer.
 
 Credentials and provider error bodies never reach audit records or error messages. The same
 outbound guard (allow-listed origins, no redirects, timeouts, size caps) covers every other
-call the engine makes: FHIR servers, the CQL engine, the identity provider and alert webhooks.
+call the engine makes: FHIR servers, the identity provider and alert webhooks.
 
 ## Agent supply chain
 
-Agents contain behaviour: patterns, models, CQL and policies. Review an agent like code before
+Agents contain behaviour: patterns, instructions and policies. Review an agent like code before
 running it: installing an agent means trusting its author, as with any plugin. The patterns of the
 agents a deployment owns (the agents bundled with the release, and its own local agents) run on
 Python `re` with no time limit, so such an agent can slow or stall a worker; on `re`, a crafted
@@ -330,7 +328,7 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   `422`), never used under a digest that does not describe it; loading the agent again picks the
   edit up under its new digest. The manifest fields naming
   such a file (`inputs.schema`, `inputs.fhir`, `policy`, `tests`, `evaluation.datasets`, and a
-  provider's `config`, `library`, `model_file` and `calibration`) are checked at load, and a
+  provider's `config` and `calibration`) are checked at load, and a
   refusal names the field and why (through a hidden entry or `__pycache__`, in `evals/` or a
   `DECISION_CARD.md`, or not a file the digest covers). The attestations, left out of the
   digest, are read only through a separate accessor (`Pack.attestation`) by their fixed names
@@ -354,10 +352,6 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   other files, is refused at load, so the registry refuses its publish (`422`), `mendari pull`
   refuses it before it is cached, and one cached before is listed under `/api/health`
   `invalid`, with the directory to remove, while the bundled agent is served.
-- An agent cannot reach another agent's CQL. The engine at `MENDARI_CQL_URL` is shared, so an agent's
-  library is uploaded under a resource id and a declared name that end in a hash of the agent id
-  and of the library's text: a library that declares another agent's library name and version
-  neither replaces nor shadows it. The declaration must be the library's first statement.
 - An agent's patterns are checked at load. Every rules pattern (of every variant and composite
   member) and every input-schema `pattern` and `patternProperties` key is compiled as it will
   run (with `re`; a registry or store agent's also for RE2, which must be able to run it), is at most
@@ -393,11 +387,11 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   YAML and JSON hold only what a JSON response can carry: a string with a lone surrogate
   (`"\ud800"`, in YAML or JSON), `!!binary`, `!!set`, `!!omap`, `!!pairs`, and in JSON a number
   that is not finite or an integer too large to be one, are refused when the file is read (the manifest, policy, input schema and
-  rules at load; a model, calibration, FHIR mapping or the tests when first read), named by the
+  rules at load; a calibration, FHIR mapping or the tests when first read), named by the
   file and, in YAML, the line and column, so no agent can make the list of agents, an agent's
   detail or a decision a `500`. A JSON file that is not JSON, holds an integer of more than
-  4,300 digits or nests too deep, a naive_bayes model of the wrong shape, a CQL library or
-  `CHANGELOG.md` that is not UTF-8 and a file that cannot be read are named the same way:
+  4,300 digits or nests too deep, a `CHANGELOG.md` that is not UTF-8 and a file that cannot
+  be read are named the same way:
   `mendari validate`, `test` and `card` print no traceback, and the server answers `422`. A
   behaviour test of the wrong shape (each is a mapping with an `input` mapping, an optional text
   `name` and an optional `expect` mapping whose `answers` is a mapping) or that is not JSON (a
@@ -432,7 +426,7 @@ automates under its own policy only once its organization approves its digest (a
 
 - **The deployment's model, caps and provider configs.** The
   model is the deployment's; `max_tokens` and `timeout_ms` are held to the provider defaults
-  (LLM 4,096 tokens and 30 s, Jev 5 s; a lower value stands) and a `reasoning_effort` above
+  (LLM 4,096 tokens and 30 s, an agent's service 15 s; a lower value stands) and a `reasoning_effort` above
   `low` is dropped. Every variant and member is checked at load against its provider's closed
   config (`docs/spec/provider-configs.schema.json`): a key its provider does not read, or a value
   it refuses, refuses the agent. An owned agent loads with such problems as warnings (`mendari

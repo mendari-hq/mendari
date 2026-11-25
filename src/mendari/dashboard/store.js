@@ -265,7 +265,7 @@ function versionBody(version) {
       <div id="tests-result" aria-live="polite"></div></section>
     <form class="panel admin-form" id="edit-form" novalidate>
       <h2>Edit a text file</h2>
-      <p class="muted">Saving makes a new draft; this version never changes. A trained model is trained and uploaded, not edited here.</p>
+      <p class="muted">Saving makes a new draft; this version never changes. A calibration is fitted and uploaded, not edited here.</p>
       <label for="edit-path">File</label>
       <select id="edit-path" name="path"><option value="">Choose a file</option>${editable.map((f) => `<option>${esc(f.path)}</option>`).join("")}</select>
       <label for="edit-content">Content</label>

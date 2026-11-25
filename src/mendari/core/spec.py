@@ -222,7 +222,6 @@ def version_key(version: str) -> tuple[tuple[int, str], ...]:
 # model or key from. Those variables are the deployment's (spec section 5), so a pack that sets
 # one is invalid: it could send any process secret anywhere.
 DEPLOYMENT_ENV_KEYS: dict[str, frozenset[str]] = {
-    "jev": frozenset({"api_key_env", "connector_env", "endpoint_env", "model_env"}),
     "llm": frozenset({"api_key_env", "base_url_env", "local_key_env", "model_env"}),
     "agent": frozenset({"endpoint_env", "token_env", "api_key_env"}),
 }
@@ -230,7 +229,7 @@ DEPLOYMENT_ENV_KEYS: dict[str, frozenset[str]] = {
 
 def deployment_env_problem(config: Any) -> str | None:
     """Why a provider config (a variant's, or a composite member's) is refused, if its `type`
-    is `jev` or `llm` and it names any of `DEPLOYMENT_ENV_KEYS`; None otherwise. Never echoes
+    is `llm` or `agent` and it names any of `DEPLOYMENT_ENV_KEYS`; None otherwise. Never echoes
     the values."""
     if not isinstance(config, dict):
         return None

@@ -27,9 +27,9 @@ names the bounded engine, which runs the agents the deployment does not own (`Pa
   backtracks for seconds on a few dozen characters. Installing such a pack means trusting its
   author, as with any plugin (SECURITY.md).
 
-Mendari's own patterns (dosing, CQL headers, the rules provider's scope, word and negation
-patterns) are not pack content and stay on `re`. RE2 and the rewriting are imported only when a
-pattern of an agent on the bounded engine is compiled, so a deployment without one never loads
+Mendari's own patterns (the rules provider's scope, word and negation patterns) are not agent
+content and stay on `re`. RE2 and the rewriting are imported only when a pattern of an agent on
+the bounded engine is compiled, so a deployment without one never loads
 them.
 
 The patterns of an agent on the bounded engine, and its input schema's checks, share one time

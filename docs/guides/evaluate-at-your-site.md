@@ -73,7 +73,7 @@ mendari eval acme/intake-agent@1.2.0 --dataset reviewed-cases.jsonl --share
 
 The configuration is the deterministic arm (every provider decides on your machines) unless
 you name variants with `--provider SLOT=VARIANT`. A configuration that calls a provider off
-your machines (an LLM, Jev) is shared only with `--consent-remote`, recorded in the ticket and
+your machines (an LLM, an agent's service) is shared only with `--consent-remote`, recorded in the ticket and
 the report; it is never pooled with a local one.
 
 ## Read before sending

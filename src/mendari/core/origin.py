@@ -57,23 +57,21 @@ MAX_BOUNDED_VALUES = 10_000
 MAX_BOUNDED_DEPTH = 32
 # The provider types that decide on this machine, without a call anywhere, and the composites
 # that combine them.
-LOCAL_PROVIDER_TYPES = frozenset({"rules", "criteria", "dosing", "naive_bayes"})
-COMPOSITE_PROVIDER_TYPES = frozenset({"any_of", "cascade", "vote", "check"})
+LOCAL_PROVIDER_TYPES = frozenset({"rules"})
+COMPOSITE_PROVIDER_TYPES = frozenset({"check"})
 # Variant keys a pack the deployment does not own (`bounded`) may set but the deployment decides:
 # which model a remote provider calls. Its answer length and timeout are held to the provider
 # defaults below, a lower value of its own kept, and its effort to `MAX_NOT_OWNED_EFFORT`.
 DEPLOYMENT_CHOSEN_KEYS = ("model", "endpoint")
 NOT_OWNED_CAPS: Mapping[str, Mapping[str, int | float]] = {
     "llm": {"max_tokens": 4096, "timeout_ms": 30_000},
-    "jev": {"timeout_ms": 5_000},
     "agent": {"timeout_seconds": 15.0},
 }
 # Variant keys a pack from a store (LP-20e) may set but the deployment decides, beyond those of
-# any pack it does not own: its price per call (the recorded cost is the deployment's), whether
-# it shares a call with the decision's other questions, and an LLM's temperature. Dropped, so the
-# provider's defaults apply. A pack from a registry keeps them (a change would change its
-# decisions).
-STORE_DEPLOYMENT_KEYS = ("cost_per_1k_input_tokens_usd", "batch", "temperature")
+# any agent it does not own: whether it shares a call with the decision's other questions, and an
+# LLM's temperature. Dropped, so the provider's defaults apply. An agent from a registry keeps
+# them (a change would change its decisions).
+STORE_DEPLOYMENT_KEYS = ("batch", "temperature")
 # `reasoning_effort`, lowest first: a value above the most a not-owned pack keeps is dropped, so
 # the model's own default applies.
 EFFORTS = ("none", "low", "medium", "high")
@@ -248,7 +246,7 @@ _FLOAT = TypeAdapter(float)
 
 def _config_number(value: Any, cap: int | float) -> int | float | None:
     """`value` as a provider's config model reads a numeric setting: pydantic's lax mode, so
-    `"32000"`, `32000.0` and `"32000.0"` are 32000 for integer caps (`LlmConfig`, `JevConfig`),
+    `"32000"`, `32000.0` and `"32000.0"` are 32000 for integer caps (`LlmConfig`),
     and finite floats for float caps (`AgentConfig.timeout_seconds`). None for what the models
     refuse (a bool, `32000.5` for int caps, `"x"`): `load_pack` refused a pack with one."""
     if isinstance(value, bool):

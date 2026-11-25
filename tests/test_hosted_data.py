@@ -377,9 +377,6 @@ NOT_SWEPT = {
     "/api/internal/checkpoint": "the scheduled checkpoint: its own tests, with its secret",
     "/api/audit/checkpoint": "the signed checkpoint: a hash and a day (test_signed_checkpoint.py)",
 }
-# Read routes under these prefixes are left out too: a remote provider's own lists (its models),
-# which need it set up and serve no stored case.
-NOT_SWEPT_UNDER = ("/api/providers/",)
 # Ids for the routes that read one fixed resource.
 FIXED_IDS = {
     "/fhir/CodeSystem/{resource_id}": "audit-event",
@@ -452,7 +449,7 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
     for method, path in sorted(set(mounted_routes(app))):
         if not (method == "GET" or path.endswith("/_search")) or path in ("/", "/openapi.json"):
             continue
-        if path.startswith((*skip, *NOT_SWEPT_UNDER)) or path in NOT_SWEPT:
+        if path.startswith(skip) or path in NOT_SWEPT:
             continue
         filled = [path.replace("{resource_id}", FIXED_IDS.get(path, "{resource_id}"))]
         if path == "/api/monitoring":

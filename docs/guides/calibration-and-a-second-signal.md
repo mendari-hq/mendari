@@ -281,10 +281,8 @@ A second member that fails is recorded as any composite member's failure is, and
 is not automated. A first member that fails fails the slot: the member that checks never
 answers in its place.
 
-`check` is not `vote`, `any_of` or `cascade`. `vote` averages the members' distributions,
-`any_of` lets the more alarming answer win, and `cascade` asks the second only when the first
-is unsure. Use those when you want the second member to change the answer; use `check` when
-you want it only to object.
+`check` never changes the answer: its second member can only object, and an objection sends
+the decision to a person.
 
 ### When the agent also proposes actions
 

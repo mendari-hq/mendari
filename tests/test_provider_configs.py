@@ -59,7 +59,7 @@ TOPICS = ("billing", "scheduling", "other")
 
 RULES = {"type": "rules", "config": "logic/rules.yaml"}
 AGENT = {"type": "agent", "state_fields": SENT, "mock_file": "models/mock_agent.json"}
-# A valid config of every type the engine keeps, in the `reader` slot (one question, `topic`).
+# A valid config of every provider type, in the `reader` slot (one question, `topic`).
 VALID: dict[str, dict[str, Any]] = {
     "rules": RULES,
     "llm": {"type": "llm", "state_fields": SENT, "calibration": "models/calibration.json"},
@@ -153,7 +153,7 @@ def validates(pack: Pack) -> bool:
 def test_every_provider_type_has_a_closed_config_and_checks_it() -> None:
     """Each type's closed model forbids other keys, and each provider checks its own configs
     (`Provider.config_problems` checks nothing)."""
-    assert set(PROVIDER_CONFIG_MODELS) == set(PROVIDER_TYPES) >= set(VALID)
+    assert set(PROVIDER_CONFIG_MODELS) == set(PROVIDER_TYPES) == set(VALID)
     for kind, model in PROVIDER_CONFIG_MODELS.items():
         assert model.model_config.get("extra") == "forbid", kind
         own = [c for c in PROVIDER_TYPES[kind].__mro__ if "config_problems" in vars(c)]
@@ -540,9 +540,7 @@ TYPICAL: dict[str, tuple[Any, ...]] = {
     "instructions": ("Be concise.", ""),
     "timeout_seconds": (0, 0.5, 15.0, 30.5, 120.0, 500.0, "30.5", True),
     **dict.fromkeys((*ENV_KEYS, "url", "endpoint", "base_url", "api_key"), URLS + ENV_NAMES),
-    **dict.fromkeys(
-        ("state_fields", "text_fields"), (["message"], [], ["x"], ["message", "x"], "message")
-    ),
+    "state_fields": (["message"], [], ["x"], ["message", "x"], "message"),
     **dict.fromkeys(
         ("timeout_ms", "max_tokens"),
         (
@@ -555,7 +553,6 @@ TYPICAL: dict[str, tuple[Any, ...]] = {
     "reasoning_effort": ("none", "low", "medium", "high", "extreme"),
     "batch": (True, False),
     "repeat": (1, 2, 3, 5, 6),
-    "cost_per_1k_input_tokens_usd": (0, 0.5, -1),
 }
 
 
@@ -716,6 +713,8 @@ def test_load_and_validate_agree_on_provider_configs(
     @example([{**VALID["check"], "members": {"a": RULES, "b": {"type": "llm"}}}])
     @example([{**VALID["llm"], "max_tokens": 10**8}, {**AGENT, "timeout_seconds": 500.0}])
     @example([{"type": "gpt"}, {**VALID["check"], "members": {"a": RULES}}])
+    @example([{**VALID["llm"], "calibration": "models/missing.json"}])  # a file it does not have
+    @example([{**AGENT, "api_key_env": "LLM_API_KEY"}])  # a variable of the deployment's
     def check(configs: list[dict[str, Any]]) -> None:
         root = write(template, tmp_path_factory.mktemp("parity") / "pack", manifest(place(configs)))
         try:

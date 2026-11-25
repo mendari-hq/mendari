@@ -38,7 +38,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DOCS = ("README.md", "docs/index.md", "docs/guides/api.md")
 # Languages a block may be written in; the ones CHECKED must carry a marker.
 CHECKED = frozenset({"bash", "sh", "shell", "zsh", "console", "python", "py", "pycon"})
-ALLOWED = CHECKED | {"text", "json", "yaml", "toml", "cql", "html", "http", "jsonc", "mermaid"}
+ALLOWED = CHECKED | {"text", "json", "yaml", "toml", "html", "http", "jsonc", "mermaid"}
 RUNNERS = ("quickstart", "cli", "python", "install", "server-db")
 SKIP_REASONS = {
     "private-repo": "the repository is not public yet",
@@ -122,9 +122,9 @@ def marked(runner: str) -> list[Block]:
 
 
 def _clean_env() -> dict[str, str]:
-    """This machine's environment without Mendari's, Jev's or a model's settings: a documented
+    """This machine's environment without Mendari's or a model's settings: a documented
     command runs as on a new machine, and nothing calls out."""
-    prefixes = ("MENDARI_", "JEV_", "LLM_", "AI_GATEWAY_", "VERCEL_", "DATABASE_URL")
+    prefixes = ("MENDARI_", "LLM_", "AI_GATEWAY_", "VERCEL_", "DATABASE_URL")
     return {name: value for name, value in os.environ.items() if not name.startswith(prefixes)}
 
 

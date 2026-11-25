@@ -97,7 +97,7 @@
             <g>
               <rect class="box" x="1" y="169" width="338" height="58" rx="10"/>
               <text class="name" x="170" y="193" text-anchor="middle">Provider slots</text>
-              <text class="what" x="170" y="213" text-anchor="middle">rules · Jev · ML · a language model</text>
+              <text class="what" x="170" y="213" text-anchor="middle">rules · an agent service · a language model</text>
             </g>
             <line class="arrow" x1="170" y1="228" x2="170" y2="250" marker-end="url(#arrow-head)"/>
             <g>
@@ -120,7 +120,7 @@
           <ol class="docs-flow">
             <li>Your EHR, app or script sends an input: FHIR R4, a CDS Hooks request, or JSON over REST.</li>
             <li>The agent's input schema checks it. FHIR input first passes a structural R4 check, then R4 and US Core rules.</li>
-            <li>Provider slots answer the agent's questions: rules, Jev, classical machine learning or a language model, each a variant the deployment chooses.</li>
+            <li>Provider slots answer the agent's questions: rules, an agent service or a language model, each a variant the deployment chooses.</li>
             <li>The decision policy turns the answers into an outcome with thresholds, rules and the agent's risk-level caps. Policy only ever lowers automation.</li>
             <li>The outcome is <code>AUTO</code>, <code>HUMAN_REVIEW</code>, <code>ABSTAIN</code> or <code>BLOCK</code>.</li>
             <li>Every decision is recorded in a hash-chained audit trail. One that needs a person waits in the review queue, and each decision can be read as a FHIR Task.</li>

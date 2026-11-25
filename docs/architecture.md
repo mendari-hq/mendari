@@ -9,7 +9,7 @@
             │        ▼                                   ▼                      ▼        │
             │   ┌─────────────────────────── Decision (runtime) ───────────────────┐    │
             │   │ input schema ─► provider slots ─► policy ─► DecisionResult        │    │
-            │   │                 rules│naive_bayes│jev    rules, thresholds, caps  │    │
+            │   │                 rules│llm│agent          rules, thresholds, caps  │    │
             │   └──────────────────────────────────────────┬───────────────────────┘    │
             │                                              ▼                             │
             │   AuditStore (SQLite): decisions · hash-chained events · review queue ·    │
@@ -42,8 +42,8 @@
   `core/site_codes.py`).
 - **Providers** (`providers/`): a common `answer(inputs) -> ProviderOutput` contract.
   Within one decision, remote providers that share an endpoint and model are merged into a
-  single call (`providers/batch.py`): two slots answered by the same Jev model, for example,
-  make one Jev call and use one budget unit.
+  single call (`providers/batch.py`): two slots answered by the same LLM, for example, make
+  one call and use one budget unit.
 - **Audit** (`core/audit.py`): write-once decision records. Reviews and outcomes are appended
   as events, the hash chain is verifiable, and the store also serves the review queue and
   live statistics.
@@ -111,7 +111,7 @@
   registry's recalls in a thread of its own, started by a decision for one of its agents once the
   last read is five minutes old (`server/recalls.py`), and holds an agent whose registry it could
   not read for a day. The Decision Card shows the origin and the approval.
-- **Remote providers** (Jev, LLMs) receive only `state_fields` over HTTPS (plain http only
+- **Remote providers** (LLMs, agents) receive only `state_fields` over HTTPS (plain http only
   to a model server on localhost), with credentials read from the environment or the
   deployment's OIDC token. LLM prompts carry the input as JSON data under a system prompt that
   forbids following it, and the response schema is fixed by the agent. Their responses are validated strictly and bounded in size. A batched
@@ -122,10 +122,10 @@
   Every variant's config is checked at load against its provider's closed config
   (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): such
   an agent is refused for a problem, an owned one warned.
-  - With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set (`providers/http.py`), every Jev, LLM and Vercel
-    Connect request to an origin it does not list is refused before it is opened
-    (`invalid_endpoint`), and an `LLM_BASE_URL` or `JEV_API_URL` off it stops startup. Unset,
-    the endpoints are only the deployment's own variables, as before.
+  - With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set (`providers/http.py`), every LLM and agent
+    request to an origin it does not list is refused before it is opened (`invalid_endpoint`),
+    and an `LLM_BASE_URL` or `MENDARI_AGENT_URL` off it stops startup. Unset, the endpoints are
+    only the deployment's own variables, as before.
 - **The server** is open by default and binds to localhost. Production sits behind Vercel
   Authentication, and the docker sandbox publishes ports on 127.0.0.1 only.
   - With an OIDC issuer set (`server/auth.py`), every request passes one guard: a signed-in

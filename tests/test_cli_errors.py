@@ -218,10 +218,9 @@ USAGE = {"list", "demo"}
 # and exit 1, as for any failed check: the report is the result, not an error.
 REPORTS = {"smart check"}
 # The commands wave 6 removes, until their code goes (a name, or the first word of a group's):
-# `train`, `improve` and `agreement` (G3); hidden evaluation sets, their
-# grading key and the scoreboard (G13). Set aside, so `BROKEN` holds every command that stays.
+# hidden evaluation sets, their grading key and the scoreboard (G13). Set aside, so `BROKEN`
+# holds every command that stays.
 REMOVED = {
-    *("train", "improve", "agreement"),
     *("evalset", "access grader-key", "scoreboard"),
 }
 

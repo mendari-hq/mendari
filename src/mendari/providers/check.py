@@ -19,14 +19,10 @@ labels are read:
   `<first> and <second> disagree on <question> (<first>: <label>, <second>: <label>)`. On
   another question the disagreement is in the evidence only.
 
-A composite like the others (`providers/composite.py`), so budgets, batching, connections, the
-deadline, cost and usage reach both members as they do a vote's. It differs from them in what
-it does with a second answer: `vote` averages it in, `any_of` lets the more alarming answer
-win, `cascade` asks it only when the first is unsure; none of them keeps the first answer and
-holds the decision when the second differs. A second member that fails is recorded as the
-composites record a member's failure (`<member>:<code>` on each question), which the policy
-never automates over. A first member that fails fails the slot: the member that checks never
-answers in its place.
+A composite (`providers/composite.py`), so budgets, batching, connections, the deadline, cost
+and usage reach both members. A second member that fails is recorded as a composite records a
+member's failure (`<member>:<code>` on each question), which the policy never automates over.
+A first member that fails fails the slot: the member that checks never answers in its place.
 
 The actions the first member proposes (spec 0.4) are the slot's, as its answers are; the second
 member's own are never taken, since it never answers in the first's place. Where the second

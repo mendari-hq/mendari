@@ -115,10 +115,9 @@ from mendari.evals.monitoring import MIN_DAYS as MONITOR_MIN_DAYS
 from mendari.evals.monitoring import monitor, post_alerts
 from mendari.evals.monitoring import organizations as monitored_organizations
 from mendari.evals.pack_tests import load_cases
-from mendari.providers import jev, llm, provider_allow_list, slots_without_model
+from mendari.providers import llm, provider_allow_list, slots_without_model
 from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
 from mendari.providers.agent import AgentProvider, Connection
-from mendari.providers.credentials import key_source
 from mendari.server import api_docs, landing, security_log, sessions, system
 from mendari.server.auth import (
     OPEN,
@@ -193,8 +192,8 @@ _STATUS = {
     UnknownCard: 404,  # card feedback: unknown, another's or another caller's, one answer
     RateLimited: 429,
 }
-# A provider that cannot answer (e.g. listing Jev's models): not set up here, or the upstream
-# service failed; never a client error.
+# A provider that cannot answer: not set up here, or the upstream service failed; never a client
+# error.
 _PROVIDER_STATUS = {
     "not_configured": 503,
     "credential_unavailable": 503,
@@ -915,13 +914,13 @@ def create_app(
     fhir_validation: FhirValidation | None = None,
 ) -> FastAPI:
     """`providers` are the deployment's provider settings (`settings.parse_providers`);
-    `default_providers` (pack id -> slot -> variant, `settings.default_providers`) fill each
-    slot those settings choose nothing for, before the pack's own default."""
+    `default_providers` (agent id -> slot -> variant) fill each slot those settings choose
+    nothing for, before the agent's own default."""
     timezone = clock.zone().key  # an invalid MENDARI_TIMEZONE fails here, at startup
     validation = fhir_validation or settings.fhir_validation()  # likewise
     fhir_servers = sorted(allowed_servers())  # likewise
     # The origins remote providers may be called at (None: no list): a malformed list, or an
-    # LLM or Jev endpoint the deployment set that it leaves out, fails here, at startup.
+    # LLM or agent endpoint the deployment set that it leaves out, fails here, at startup.
     provider_origins = provider_allow_list()
     smart_options = smart_settings()
     # The EHRs whose launches are principals: only a malformed value, or a base off the FHIR
@@ -1281,7 +1280,7 @@ def create_app(
                 chosen[slot] = variant
         return chosen, skipped
 
-    # Say once, at startup, which slots the Jev defaults turn on: ids and variant names only.
+    # Say once, at startup, which slots the defaults turn on: ids and variant names only.
     filled = []
     for pack in packs.values():
         chosen = variants_for(pack)[0]
@@ -1294,7 +1293,7 @@ def create_app(
         filled += [f"{pack.id} {slot}={chosen[slot]}" for slot in sorted(set(chosen) - set(named))]
     if filled:
         level = logging.INFO if phi.mode == "off" else logging.WARNING
-        providers_logger.log(level, "Jev is set up; its defaults run %s", ", ".join(sorted(filled)))
+        providers_logger.log(level, "the provider defaults run %s", ", ".join(sorted(filled)))
 
     def build(pack: Pack) -> Decision:
         """The pack bound to the providers the deployment chose for it (at start-up only)."""
@@ -1467,7 +1466,7 @@ def create_app(
         pack_id: {slot: info.variant for slot, info in decision.provider_info.items()}
         for pack_id, decision in built.items()
     }
-    # The model each slot runs (an LLM's or Jev's from its setting): monitoring compares a
+    # The model each slot runs (an LLM's from its setting): monitoring compares a
     # benchmark only with the models it measured.
     running_models = {
         pack_id: {slot: info.model for slot, info in decision.provider_info.items()}
@@ -1713,7 +1712,7 @@ def create_app(
             "fhir_validation": validation,
             # FHIR servers this deployment may read from (CDS Hooks fetch); empty: none.
             "fhir_allowed_servers": fhir_servers,
-            # The origins remote providers (Jev, LLMs, Vercel Connect) may be called at
+            # The origins remote providers (LLMs, agents' services) may be called at
             # (MENDARI_PROVIDER_ALLOWED_ORIGINS), read at start-up; null: no list is set.
             "provider_allowed_origins": provider_origins,
             # Each registry a served pack came from: its last recall check's age, and how many
@@ -1777,15 +1776,6 @@ def create_app(
             "provider_settings_skipped": skipped_settings,
             # ...and those that apply to no served pack at all (a typo, a pack not served).
             "provider_settings_unused": unused_settings,
-            "jev": {
-                # The bundled agents run Mendari + Jev where no setting chose (JEV_DEFAULTS).
-                "defaults": bool(fallbacks),
-                "credentials": key_source(key_env=jev.API_KEY_ENV, connector_env=jev.CONNECTOR_ENV),
-                "endpoint_configured": bool(os.environ.get(jev.ENDPOINT_ENV, "").strip()),
-                "model": os.environ.get(jev.MODEL_ENV, "").strip() or None,
-                **deployment_total("calls_today", lambda: store.usage("jev")),
-                "daily_limit": (budget_limits or {}).get("jev"),
-            },
             "llm": {
                 **llm.deployment_info(),
                 **deployment_total("calls_today", lambda: store.usage("llm")),
@@ -1881,15 +1871,6 @@ def create_app(
     # `HEAD`, as uptime checks often send it: the same answer without its body (one operation in
     # the reference, so the two methods never share an operation id).
     app.add_api_route("/api/health/ready", ready, methods=["HEAD"], include_in_schema=False)
-
-    @app.get(
-        "/api/providers/jev/models",
-        tags=["Service"],
-        summary="Jev models available",
-    )
-    def jev_models() -> dict[str, Any]:
-        """The models this deployment's Jev account can use. `503` when Jev is not set up here."""
-        return {"models": jev.list_models()}
 
     @app.get(
         "/api/agents",
@@ -2527,7 +2508,7 @@ def create_app(
         chosen = {slot: info.variant for slot, info in active.provider_info.items()}
         asked = request.providers or {}
         # Provider calls count against the daily budgets and the organization's evaluation
-        # quotas (`eval_jev`, `eval_llm`), never its decisions' quotas.
+        # quota (`eval_llm`), never its decisions' quotas.
         decision = Decision(
             pack,
             providers={**chosen, **asked},
@@ -2740,7 +2721,7 @@ def create_app(
     )
     def usage(request: Request, days: Annotated[int, Query(ge=1, le=366)] = 30) -> dict[str, Any]:
         """The usage ledger (LP-21g) of your organization over the last `days` local days, today
-        included (1 to 366; 30): its remote model calls (Jev, an LLM) by day, provider type and
+        included (1 to 366; 30): its remote model calls (an LLM, an agent) by day, provider type and
         purpose (`decision` or `evaluation`), with how many were priced, their tokens and their
         cost, `null` (unknown) unless every call was priced, never a partial sum; and `totals`
         over those days by provider type and purpose, the same way. In open mode, every

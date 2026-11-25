@@ -24,7 +24,7 @@ def test_workers_keep_the_callers_context() -> None:
 
 def test_workers_see_the_requests_vercel_oidc_token(monkeypatch: object) -> None:
     # On Vercel the token arrives in the request's headers (a context variable); evaluations
-    # ran decisions in bare worker threads, so on a cold instance every Jev call failed with
+    # ran decisions in bare worker threads, so on a cold instance every remote call failed with
     # credential_unavailable.
     from vercel.headers import set_headers
 

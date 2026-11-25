@@ -54,8 +54,7 @@ Paths under `src/mendari/` are given without that prefix.
    deployment does not own must declare them (refused at load otherwise). For such an agent the
    model is the deployment's and its answer length, timeout and effort are capped
    (`core/origin.py` `deployment_config`). With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set, these
-   calls (and Vercel Connect's key exchange) reach only the origins it lists
-   (`providers/http.py`).
+   calls reach only the origins it lists (`providers/http.py`).
 5. **Registry ↔ clients:** signed agent archives and signed recalls; the Hub website shows the
    registry's agents to anyone, and a server reads its registries' recalls.
 6. **Engine ↔ database.**

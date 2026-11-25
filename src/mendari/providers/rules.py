@@ -43,7 +43,7 @@ _REGEX_ESCAPE = re.compile(r"\\[A-Za-z]")
 
 class _Model(BaseModel):
     # A weight, score or temperature that is not finite would make every decision's softmax
-    # raise: refused when the file is read, as the criteria and dosing files' numbers are.
+    # raise: refused when the file is read.
     model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
 

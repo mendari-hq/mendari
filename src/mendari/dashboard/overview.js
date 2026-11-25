@@ -223,7 +223,7 @@ function packHeader(d, holds) {
   </div>`;
 }
 
-// Slots on the agent's offline floor although it offers a model there (e.g. no Jev set up).
+// Slots on the agent's offline floor although it offers a model there (e.g. no LLM set up).
 function withoutModel(slots) {
   if (!slots.length) return "";
   return `<div class="callout neutral" role="note"><b>Running without a model:</b> ${slots.map((slot) => esc(slotText(slot))).join(", ")}.

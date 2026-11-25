@@ -167,7 +167,7 @@ def test_an_output_needs_an_agent_behind_its_slot() -> None:
     manifest = raw()
     member = manifest["providers"]["reader"]["variants"]["agent"]
     manifest["providers"]["reader"]["variants"] = {
-        "agent": {"type": "cascade", "members": {"first": member}, "order": ["first"]}
+        "agent": {"type": "check", "members": {"first": member, "second": dict(member)}}
     }
     refused(manifest, "a composite's member does not count")
 

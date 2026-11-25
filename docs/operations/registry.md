@@ -160,10 +160,10 @@ A publisher, with its token, registers its keys (`mendari keys register`), publi
 that `mendari validate` would refuse is refused (`422`, naming up to five problems by file and
 place, never a case; nothing is stored): the registry runs the same validation function as the
 command line. A
-publish whose archive holds cases `mendari improve` added to an agent or `mendari feedback
-export` wrote, or a model built from them, is refused (`422`, naming the files with how many
-times each is marked, never a case): they are a site's cases, which `mendari push` refuses to
-send, and the registry keeps nothing of one sent by a client that did not look. A review shows
+publish whose archive holds cases `mendari feedback export` wrote is refused (`422`, naming
+the files with how many times each is marked, never a case): they are a site's cases, which
+`mendari push` refuses to send, and the registry keeps nothing of one sent by a client that did
+not look. A review shows
 in `checked.review` and `claimed.risk.confirmed`; the newest review of a version is the one
 shown. A review's note stays in the chain for good.
 
@@ -291,7 +291,7 @@ value:
    isolated child (`hub/regression.py` `rerun`: same limits, at most two at once, `503` past
    that) and refused unless its counts are the publisher's exactly. With the check off
    (`MENDARI_REGISTRY_REGRESSION=off`) such a configuration is refused, never taken unchecked.
-   One that calls a model (`agent`, `jev`, `llm`; an `agent` variant that answers offline from
+   One that calls a model (`agent`, `llm`; an `agent` variant that answers offline from
    its `mock_file` too, as the registry goes by the provider's type) is not run again.
 
 One evaluation is live per version, configuration and dataset. A later one supersedes it:

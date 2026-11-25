@@ -18,7 +18,7 @@ written whole, in the order the tests were found, so comments in them are not ke
 edit or delete any case, and what they left is what stays.
 
 The text of a variant is in these files and nowhere else: never in a report. Only an agent of
-the author's own is written into (`improve.not_writable`): never one this release bundles, a
+the author's own is written into (`not_writable`): never one this release bundles, a
 version in an agent store, or one pulled from a registry.
 """
 
@@ -34,6 +34,7 @@ from typing import Any
 import yaml
 
 from mendari.core.pack import Pack, parse_yaml
+from mendari.core.registry import origin_of
 from mendari.errors import MendariError, PackValidationError
 from mendari.evals.canonical import canonical_input
 from mendari.evals.ledger import canonical
@@ -85,10 +86,19 @@ class Written:
 
 
 def not_writable(pack: Pack) -> str | None:
-    """Why the probe keeps no test in this agent, or None (`improve.not_writable`)."""
-    from mendari.evals.improve import not_writable as refused
-
-    return refused(pack, "probe the copy")
+    """Why the probe keeps no test in this agent, or None: it writes only into an agent of its
+    author's own. One this release bundles (its data comes from its generator), one in the
+    registry's cache (a verified copy) or a version in an agent store is not changed in place,
+    by where it is on disk (`core.registry.origin_of`), whatever it was loaded as."""
+    where = {pack.origin, origin_of(pack.root)} - {"local"}
+    if not where:
+        return None
+    what = {
+        "maintained": "an agent this release bundles",
+        "hub": "an agent pulled from a registry",
+        "store": "a version in an agent store",
+    }[sorted(where)[0]]
+    return f"{what} is not changed in place: copy it, and probe the copy"
 
 
 def waiting(pack: Pack) -> list[dict[str, Any]]:

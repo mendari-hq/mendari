@@ -1,19 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """The plain form of a text: what the providers that decide on this machine read.
 
-A pack's patterns and a trained model's words are written as a keyboard types them: a straight
-apostrophe, one space between words. The text they are matched against is written by phones,
-web forms, word processors and language models, which write the same words otherwise: a curly
-apostrophe (U+2019, a phone's default), a no-break space, a zero-width space carried in pasted
-text, an accent as a separate character, an en dash in a range ("every 4 to 6 hours" written
-4, en dash, 6). Matched as written, each makes a pattern miss what it was written to find. On the
-test fixtures' own hand-written emergencies, the curly apostrophe alone took the stat priority
-off 3 of the 55 the keyword rules flagged ("it won't stop bleeding").
+An agent's patterns are written as a keyboard types them: a straight apostrophe, one space between
+words. The text they are matched against is written by phones, web forms, word processors and
+language models, which write the same words otherwise: a curly apostrophe (U+2019, a phone's
+default), a no-break space, a zero-width space carried in pasted text, an accent as a separate
+character, an en dash in a range ("every 4 to 6 hours" written 4, en dash, 6). Matched as written,
+each makes a pattern miss what it was written to find. On the test fixtures' own hand-written
+emergencies, the curly apostrophe alone took the stat priority off 3 of the 55 the keyword rules
+flagged ("it won't stop bleeding").
 
-So every provider that reads free text here reads its plain form, `plain` (`rules`, `dosing`
-and `naive_bayes` through `providers.base.text_from`, and `criteria` a medication's name), and
-text that differs only in such typography decides the same. The plain form is the same words in
-a keyboard's characters:
+So every provider that reads free text here reads its plain form, `plain` (`rules` through
+`providers.base.text_from`), and text that differs only in such typography decides the same. The
+plain form is the same words in a keyboard's characters:
 
 1. a zero-width space becomes a space, as it separates words, and the other invisible format
    characters are left out (Unicode category Cf: zero-width joiners, the byte order mark, the

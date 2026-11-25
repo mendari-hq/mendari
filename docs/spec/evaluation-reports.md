@@ -59,8 +59,8 @@ The result MUST carry everything a `mendari.eval/1` report carries, except case 
 - `models`: per question, the models that answered and how often (each answer's provider
   model, [agent spec 0.2](agent-manifest-0.2.md), §4.2), beside `providers`, the
   configured model per slot. Reports and ledgers made before this was recorded (2026-10-07) by
-  an `llm` slot (alone or in a composite) or a `vote` slot name the configured model there
-  instead; a report's engine version does not tell them apart.
+  an `llm` slot (alone or in a composite) name the configured model there instead; a report's
+  engine version does not tell them apart.
 
 Interval bounds and probabilities are stored to 6 decimal places, so a result is the same on
 every platform. Changing what a figure measures MUST change the format and say which published
@@ -437,7 +437,7 @@ version) or `mendari eval AGENT --dataset NAME --publish --key publisher.key` (o
 - **`report`** is the run's [`mendari.site-report/2`](#shared-site-reports-mendarisite-report2)
   counts (`counted_report`): whole, with no cell suppressed, as a public set holds no patient.
   `remote_consent` is whether the configuration calls a provider off the machine (a type that is
-  not `rules`, `criteria`, `dosing` or `naive_bayes`, or a composite with one).
+  not `rules`, or a composite with one).
   `governance_override` is false: an evaluation measures the agent's own policy.
 - **`claimed`** (the run's latency p50 and p95 in milliseconds, its cost per decision in USD,
   and in `/2` the cases a provider failed on) and **`models`** (the models that answered, as

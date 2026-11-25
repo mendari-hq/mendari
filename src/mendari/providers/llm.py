@@ -274,7 +274,7 @@ class LlmProvider(Provider):
         # The call's usage and cost are reported once, by the first provider that answered.
         lead = next((p for p in batch if p not in failed), None)
         # The model the endpoint says answered (a dated snapshot behind an alias, say), recorded
-        # on each answer as Jev's is (LP-10): only a well-formed id, never remote free text; with
+        # on each answer (LP-10): only a well-formed id, never remote free text; with
         # none, or a malformed one, the answer keeps the configured model and the call stands.
         reported = raw.get("model")
         if not (isinstance(reported, str) and re.fullmatch(MODEL_PATTERN, reported)):

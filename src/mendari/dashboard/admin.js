@@ -1163,7 +1163,7 @@ async function showHistory(button, subject) {
 // day, newest first: calls, how many were priced, tokens, and the cost, "unknown" unless every
 // call was priced (never a partial sum, never $0 for what was not priced).
 
-const PROVIDER_TEXT = { jev: "Jev", llm: "Language model" };
+const PROVIDER_TEXT = { llm: "Language model", agent: "Agent" };
 const PURPOSE_TEXT = { decision: "Decisions", evaluation: "Evaluations" };
 const UNPRICED = "Some of these calls had no price: their provider gave none, or the call failed";
 const whole = (n) => esc(Number(n).toLocaleString("en-US"));
@@ -1183,9 +1183,9 @@ function usageColumns() {
 
 function showUsage() {
   const usage = adminState.usage ?? { rows: [], totals: [] };
-  const intro = `<p class="muted">The calls to Jev and language models${ofOrg()} from ${esc(usage.since ?? "")} to ${esc(usage.until ?? "")} (local days), for decisions and for evaluations. A cost shows only when every call was priced.</p>`;
+  const intro = `<p class="muted">The calls to language models and agents${ofOrg()} from ${esc(usage.since ?? "")} to ${esc(usage.until ?? "")} (local days), for decisions and for evaluations. A cost shows only when every call was priced.</p>`;
   if (!usage.rows.length) {
-    return intro + emptyState({ icon: "inbox", title: "No remote calls", text: "Decisions and evaluations that call Jev or a language model show here." });
+    return intro + emptyState({ icon: "inbox", title: "No remote calls", text: "Decisions and evaluations that call a language model or an agent show here." });
   }
   const totals = tableHtml({ id: "usage-totals", caption: `Over the last ${USAGE_DAYS} days`, columns: usageColumns(), rows: usage.totals });
   const days = tableHtml({

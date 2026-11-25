@@ -8,9 +8,9 @@
   archive only if:
   - its signature verifies with one of the namespace's keys;
   - its manifest names this pack and version;
-  - none of its files holds a case `mendari improve` added or `mendari feedback export`
-    wrote, or a model built from one (`archive.refuse_site_cases`: a site's cases, which a
-    client refuses to archive, and which a client that did not look still cannot publish);
+  - none of its files holds a case `mendari feedback export` wrote
+    (`archive.refuse_site_cases`: a site's cases, which a client refuses to archive, and which
+    a client that did not look still cannot publish);
   - it extracts to a pack that loads with the signed digest, on the engine its pullers run
     (`origin="hub"`: RE2, the caps and the schema keyword list unless it is a bundled agent of
     the registry's own release, ADR-0009);

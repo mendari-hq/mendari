@@ -119,10 +119,9 @@ revoked; that it is of a listed version and of that version's digest; that the c
 and every name in the counts are the agent's; that the dataset is the one in the archive; that
 the counts are whole and add up. Then:
 
-- A configuration whose providers all decide on the machine (`rules`, `criteria`, `dosing`,
-  `naive_bayes`) is **run again by the registry**, and refused unless it counts exactly what
-  you counted.
-- One that calls a model (`agent`, `llm`, `jev`) is not run again: the registry calls no model.
+- A configuration whose providers all decide on the machine (`rules`) is **run again by the
+  registry**, and refused unless it counts exactly what you counted.
+- One that calls a model (`agent`, `llm`) is not run again: the registry calls no model.
   Its counts rest on your signature, and the page says so on its row.
 
 Every time the page or the badge is asked for, each stored record is checked again: it must

@@ -150,15 +150,15 @@ export const criticalText = (question, label) => `${slotText(question)}: ${label
 
 // Plain words for variant names ("rules_and_llm" -> "Rules + LLM"); the raw configuration stays in
 // the row's tooltip.
-const VARIANT_WORDS = { rules: "Rules", llm: "LLM", jev: "Jev", naive_bayes: "Naive Bayes", cascade: "Cascade", vote: "Vote", criteria: "Criteria", dosing: "Dosing" };
+const VARIANT_WORDS = { rules: "Rules", llm: "LLM" };
 
 export const variantText = (variant) => variant.split("_and_").map((part) => VARIANT_WORDS[part] ?? part.replaceAll("_", " ")).join(" + ");
 
-const REMOTE_VARIANTS = new Set(["jev", "llm"]);
+const REMOTE_VARIANTS = new Set(["llm"]);
 
-// A provider in words, with the model where one runs: "Rules + model-2", "Jev 1.13.0",
-// "Naive Bayes". A remote part is named by its model, so nothing is said twice; models of other
-// variants (a cascade, a vote) follow in brackets.
+// A provider in words, with the model where one runs: "Rules + model-2", "model-2",
+// "Rules". A remote part is named by its model, so nothing is said twice; models of other
+// variants (a check's members) follow in brackets.
 export function providerName(p) {
   if (!p) return "–";
   const models = remoteModels(p.model, p.type).map(modelText);
@@ -168,24 +168,21 @@ export function providerName(p) {
   return used < models.length ? `${words} (${models.slice(used).join(", ")})` : words;
 }
 
-const COMPOSITES = new Set(["any_of", "cascade", "vote", "check"]);
+const COMPOSITES = new Set(["check"]);
 
 // The remote models behind a provider ("rules:rules@1a2b + llm:vendor/model-2" ->
 // ["vendor/model-2"]); local fingerprints ("rules@1a2b") are not a deployment choice. Only a
-// composite's model is "member:model" parts (" + ", or " → " for a cascade), as
-// leaderboard.config_label reads it; any other model is one id, colons and all
-// ("vendor.model-v1:0", "model:8b").
+// composite's model is "member:model" parts (joined by " + "), as leaderboard.config_label
+// reads it; any other model is one id, colons and all ("vendor.model-v1:0", "model:8b").
 export const remoteModels = (model, type) => (COMPOSITES.has(type)
-  ? (model ?? "").split(/ \+ | → /).map((part) => (part.includes(":") ? part.slice(part.indexOf(":") + 1) : part))
+  ? (model ?? "").split(" + ").map((part) => (part.includes(":") ? part.slice(part.indexOf(":") + 1) : part))
   : [model ?? ""])
   .filter((m) => m && !m.includes("@"));
 
 // A model as its id says it, without the gateway's vendor prefix ("vendor/model-2" -> "model-2"),
-// whoever makes it; Jev's own versions read as the variant does ("jev-1.13.0" -> "Jev 1.13.0").
+// whoever makes it.
 function modelText(id) {
-  const name = id.split("/").pop();
-  const jev = name.match(/^jev-(\d[\w.-]*)$/);
-  return jev ? `Jev ${jev[1]}` : name;
+  return id.split("/").pop();
 }
 
 // What choosing this label leads to under the pack's own policy: a block rule is danger; a review

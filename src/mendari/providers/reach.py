@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Where an endpoint a person set in the console may lead (ADR-0021).
 
-A deployment's own endpoints come from its environment (`MENDARI_AGENT_URL`, `LLM_BASE_URL`,
-`JEV_API_URL`): whoever sets them runs the server, and may point it at a service on its own
+A deployment's own endpoints come from its environment (`MENDARI_AGENT_URL`, `LLM_BASE_URL`):
+whoever sets them runs the server, and may point it at a service on its own
 network. An agent's connection is set by an organization's administrator through the web
 (`core/connections.py`), so the server must not become a way to reach what only the server can
 reach: this machine, its private network, a cloud's metadata address.
