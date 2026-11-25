@@ -87,18 +87,31 @@ def served(folder: Path, pack_id: str) -> Pack:
     return load_pack(folder / pack_id.split("/", 1)[1])
 
 
-def counted_board(pack: Pack, *, positives: int | None = None) -> dict[str, Any]:
+# What one call to an agent's service costs a deployment (synthetic, in dollars), and how many
+# calls each of the triage fixture's variants makes for a decision: its agent variants answer here
+# from canned examples, at no cost, and the cost chart is drawn only where costs differ.
+CALL_USD = 0.0004
+CALLS = {"agent": 1, "checked": 1, "repeated": 3}
+
+
+def counted_board(
+    pack: Pack, *, positives: int | None = None, priced: bool = False
+) -> dict[str, Any]:
     """The pack's published leaderboard as the server serves it (`figures.board`). With
     `positives`, each critical label's counts are scaled to that many positives (synthetic), so
-    the rows rank: the fixtures' own sets have too few positives for any row to rank."""
+    the rows rank: the fixtures' own sets have too few positives for any row to rank. `priced`:
+    each row costs what its calls to a service would (`CALLS`, synthetic)."""
     board = json.loads(pack.attestation("evals/leaderboard.json").read_text())
-    if positives is not None:
-        for row in board["rows"]:
+    for row in board["rows"]:
+        if positives is not None:
             row["critical"] = [
                 {**c, "n": positives, "detected": round(positives * c["detected"] / c["n"])}
                 for c in row["critical"]
                 if c["n"]
             ]
+        if priced:
+            calls = sum(CALLS.get(p["variant"], 0) for p in row["providers"].values())
+            row["cost_per_decision_usd"] = calls * CALL_USD
     return figures.board(board, pack.digest, pack.version)
 
 
@@ -587,8 +600,9 @@ MONITORING = {
 }
 
 
-# Text a person reads in the view (and its labels and tooltips), with each figure's interval and
-# what is a setting rather than a share of cases taken out: no percentage may remain.
+# Text a person reads in the view (and its labels and tooltips), with each figure's interval (or
+# one-sided bound, "at most", as the operating point gives its counts) and what is a setting rather
+# than a share of cases taken out: no percentage may remain.
 BARE_PERCENT = r"""() => {
   const texts = [];
   const walker = document.createTreeWalker(document.querySelector("main"), NodeFilter.SHOW_TEXT);
@@ -601,6 +615,7 @@ BARE_PERCENT = r"""() => {
   }
   return texts.join("\n")
     .replace(/\[[^\]]*%\]/g, "[interval]")
+    .replace(/\(at most [\d.]+%\)/g, "(bound)")
     .replace(/The vertical axis starts at [\d.]+%/g, "")
     .match(/[^\n]{0,40}\d\s?%[^\n]{0,20}/g) ?? [];
 }"""
@@ -629,11 +644,15 @@ assert "main" not in BARE_PERCENT_IN.split("return")[0]
         (TRIAGE, "monitoring"),
     ],
 )
-def test_no_share_of_cases_is_a_bare_percentage(page: Page, pack_id: str, view: str) -> None:
+def test_no_share_of_cases_is_a_bare_percentage(
+    page: Page, served_agents: Path, pack_id: str, view: str
+) -> None:
     """Every share of cases on the evaluation, overview and monitoring views is k of n with its
-    interval (LP-10); a percentage is only ever a figure's interval or an axis."""
+    interval (LP-10); a percentage is only ever a figure's interval or bound, or an axis."""
     serve_history(page, [{"date": eastern_days_ago(0), "AUTO": 12, "HUMAN_REVIEW": 7, "reviewed": 3,
                           "overridden": 1, "labelled": 4, "agreed": 3}])  # fmt: skip
+    priced = counted_board(served(served_agents, TRIAGE), priced=True)
+    serve_board(page, TRIAGE, priced)  # with its accuracy figures and cost chart
     page.route("**/api/monitoring?*", lambda route: route.fulfill(json=MONITORING))
     open_pack(page, pack_id, view.split("/")[0])
     if "/" in view:
@@ -901,7 +920,8 @@ def test_charts_switch_with_the_theme_without_a_reload(page: Page) -> None:
     assert column.evaluate("el => getComputedStyle(el).fill") != light
 
 
-def test_the_cost_chart_rings_the_deployed_configuration(page: Page) -> None:
+def test_the_cost_chart_rings_the_deployed_configuration(page: Page, served_agents: Path) -> None:
+    serve_board(page, TRIAGE, counted_board(served(served_agents, TRIAGE), priced=True))
     open_pack(page, TRIAGE, "evals")
     chart = page.locator('figure.chart[data-chart^="cost"]')
     configs = page.locator("#board table.data").first.locator("tbody .config").all_inner_texts()
@@ -912,7 +932,7 @@ def test_the_cost_chart_rings_the_deployed_configuration(page: Page) -> None:
     assert all(c.endswith("\ninsufficient evidence") for c in configs)
     assert all(c.split("\n")[0].removesuffix(" Deployed") in names for c in configs)
     expect(chart.locator("svg .ring")).to_have_count(1)  # locally the keyword rules are deployed
-    expect(chart.locator("svg text", has_text="$0").first).to_be_visible()  # local: no cost
+    expect(chart.locator("svg text", has_text="$0").first).to_be_visible()  # rules cost nothing
     expect(chart.locator(".mark").first).to_have_attribute(
         "aria-label",
         re.compile(r"Accuracy \d+ of \d+ \[.*Urgency: yes caught \d+ of \d+ \["),
@@ -926,20 +946,19 @@ def test_the_cost_chart_names_the_deployed_and_the_unbeaten_never_the_first(
     beats on both cost and accuracy (LP-17g): the first in the listing order is not named for
     that alone. Here the first is made the dearest and no more accurate than a cheaper row, and
     the deployed keyword rules are beaten too: the first is named in its tooltip only, the
-    deployed one beside its point. The fixture's configurations all run here at no cost, so each
-    row is given a synthetic one first, the cheaper row's the lowest."""
-    board = counted_board(served(served_agents, TRIAGE), positives=120)
+    deployed one beside its point."""
+    board = counted_board(served(served_agents, TRIAGE), positives=120, priced=True)
     group = board_group(board, "test")
     rows = [r for r in board["rows"] if r["group"] == group]
     first = next(r for r in rows if r["rank"] == 1)
     cheaper = next(r for r in rows if r["rank"] == 3)
     deployed = next(r for r in rows if {p["variant"] for p in r["providers"].values()} == {"rules"})
     beats_deployed = next(
-        r for r in rows if r is not first and r is not cheaper and r is not deployed
+        r
+        for r in rows
+        if (r["providers"]["router"]["variant"], r["providers"]["screen"]["variant"])
+        == ("rules", "repeated")
     )
-    for number, row in enumerate(rows, start=1):
-        row["cost_per_decision_usd"] = number / 10_000
-    cheaper["cost_per_decision_usd"] = 1 / 100_000
     assert first["cost_per_decision_usd"] > cheaper["cost_per_decision_usd"]
     assert len({id(r) for r in (first, cheaper, deployed, beats_deployed)}) == 4
     dearest = 10 * max(r["cost_per_decision_usd"] for r in rows)
@@ -1033,7 +1052,7 @@ def test_the_threshold_sweep_does_not_claim_automation_that_never_happens(page: 
 
     page.route(f"**/api/agents/{TRIAGE}", automating)
     page.select_option("#pack-select", TRIAGE)
-    expect(page.locator("#evals-body")).to_contain_text("Team accuracy")
+    expect(page.locator("#evals-body")).to_contain_text("Destination accuracy")
     expect(page.locator('figure.chart[data-chart^="sweep"]')).not_to_contain_text("Nothing was")
 
 
@@ -1299,7 +1318,7 @@ def test_with_a_model_in_the_screen_the_card_says_the_inbox_automates(page: Page
     page.route(f"**/api/agents/{TRIAGE}", screened)
     open_pack(page, TRIAGE, "card")
     expect(page.locator("dl.facts")).to_contain_text(
-        "At confidence 0.90 or more (some labels need more; see Policy)."
+        "At confidence 0.90 or more (some labels need more, some are never automated; see Policy)."
     )
 
 
@@ -1469,6 +1488,19 @@ def test_the_phone_section_list_shows_where_you_are(page: Page) -> None:
 RECORD_PACKS = [CHART, CLINICAL]  # the served agents whose input is a record, not a message
 
 
+def declared(schema: dict[str, Any], value: Any) -> bool:
+    """Whether every key of every object in `value` is one its schema takes (a closed object
+    takes its properties only): what a form generated from the schema can hold."""
+    if isinstance(value, dict):
+        properties = schema.get("properties") or {}
+        if schema.get("additionalProperties") is False and not set(value) <= set(properties):
+            return False
+        return all(declared(properties.get(key) or {}, item) for key, item in value.items())
+    if isinstance(value, list):
+        return all(declared(schema.get("items") or {}, item) for item in value)
+    return True
+
+
 def view_button(page: Page, name: str) -> Locator:
     return page.get_by_role("group", name="Edit the input as").get_by_role("button", name=name)
 
@@ -1478,11 +1510,16 @@ def test_the_form_carries_every_example_unchanged(
     page: Page, live_server: str, pack_id: str
 ) -> None:
     """Each behaviour-test example goes into the form generated from the pack's input schema and
-    comes out as the same record: the form never adds, drops or retypes a value."""
+    comes out as the same record: the form never adds, drops or retypes a value. (An example of a
+    field the schema refuses has no field in the form to go into: none of those.)"""
     examples = httpx.get(f"{live_server}/api/agents/{pack_id}/examples").json()
+    schema = httpx.get(f"{live_server}/api/agents/{pack_id}").json()["input_schema"]
+    held = [index for index, example in enumerate(examples) if declared(schema, example["input"])]
+    assert len(held) > 1
     open_pack(page, pack_id, "try")
     expect(page.locator("#record-form [data-path]").first).to_be_visible()  # the form by default
-    for index, example in enumerate(examples):
+    for index in held:
+        example = examples[index]
         page.select_option("#example", str(index))
         view_button(page, "JSON").click()
         assert json.loads(page.input_value("#record")) == example["input"], example["name"]
@@ -1589,7 +1626,29 @@ def test_content_uses_a_wide_screen(page: Page) -> None:
     assert abs(left_gap - right_gap) <= 2  # centred, not stopped at the left
 
 
-def test_a_zoomed_rate_axis_says_where_it_starts(page: Page) -> None:
+def test_a_zoomed_rate_axis_says_where_it_starts(page: Page, served_agents: Path) -> None:
+    """A sweep whose rates all sit within 15 points near the top zooms in and says where its
+    axis starts: the triage benchmark, served with such a sweep (synthetic: fewer and fewer of
+    its 300 cases automated, nearly all correct). The clinical review's spans most of the scale,
+    and its axis starts at 0."""
+    report = json.loads(served(served_agents, TRIAGE).attestation(BENCHMARK).read_text())
+    for row, chosen, errors in zip(
+        report["threshold_sweep"],
+        [285, 284, 283, 282, 281, 280, 278, 276, 274],
+        [5, 4, 4, 3, 3, 2, 2, 1, 1],
+        strict=True,
+    ):
+        scored = row["scored"]
+        row.update(
+            chosen=chosen, errors=errors, coverage=chosen / scored, accuracy=1 - errors / chosen
+        )
+
+    def zoomed(route: Route) -> None:
+        body = route.fetch().json()
+        body["benchmark"] = {**report, "figures": figures.guarded(lambda: figures.report(report))}
+        route.fulfill(json=body)
+
+    page.route(re.compile(rf".*/api/agents/{re.escape(TRIAGE)}$"), zoomed)
     open_pack(page, TRIAGE, "evals")
     page.goto("/#evals/report")
     sweep = page.locator('figure.chart[data-chart^="sweep"]')
@@ -1890,14 +1949,17 @@ def test_the_outcome_mix_names_segments_that_have_room(page: Page) -> None:
     expect(legend.locator('[data-outcome="HUMAN_REVIEW"]')).to_be_visible()  # no room on a phone
 
 
-def test_configurations_at_the_same_point_share_one_labelled_mark(page: Page) -> None:
-    """On the triage fixture's critical set, the four screens with the keyword router are as
-    accurate, and all run at no cost: one mark for the four, named once, and the deployed one
-    among them labelled."""
+def test_configurations_at_the_same_point_share_one_labelled_mark(
+    page: Page, served_agents: Path
+) -> None:
+    """On the triage fixture's critical set the four screens, all with the keyword router, are
+    as accurate; the agent and the agent checked by the rules each call the service once, so
+    they cost the same too: one mark for the two, naming both."""
+    serve_board(page, TRIAGE, counted_board(served(served_agents, TRIAGE), priced=True))
     open_pack(page, TRIAGE, "evals")
     page.get_by_role("button", name=re.compile(r"^critical n=")).click()
     chart = page.locator('figure.chart[data-chart^="cost"]').last
-    expect(chart.locator(".mark")).to_have_count(1)  # four configurations, all in one place
+    expect(chart.locator(".mark")).to_have_count(3)  # four configurations, two in one place
     expect(chart.locator(".mark[aria-label*=' and ']")).to_have_count(1)
     expect(chart.locator(".direct-label", has_text="Rules")).not_to_have_count(0)  # deployed
 
@@ -2419,7 +2481,7 @@ def test_the_card_lists_where_the_pack_runs(page: Page) -> None:
     rows = page.locator("#card-deployments tbody tr")
     expect(rows).to_have_count(1)
     expect(rows.first).to_contain_text("local")
-    expect(rows.first).to_contain_text("router=rules")
+    expect(rows.first).to_contain_text("router rules")
 
 
 def test_a_level_1_pack_needs_no_approval(page: Page) -> None:
