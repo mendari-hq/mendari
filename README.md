@@ -384,8 +384,8 @@ declares a hook, so both answer for it
 ## Documentation
 
 The pages in [`docs/`](https://github.com/mendari-hq/mendari/tree/main/docs) build into a site
-with MkDocs Material (`uv sync --group docs`, then `uv run mkdocs build --strict`); it will be
-hosted once the repository is public.
+with MkDocs Material (`uv sync --group docs`, then `uv run mkdocs build --strict`); it is not
+hosted yet.
 
 | If you want to | Read |
 |---|---|
@@ -454,8 +454,7 @@ and how to report a vulnerability in
 
 ## Status and limits
 
-- **Research preview.** The package is 0.1.0 and not released: it is not on PyPI, and the
-  repository is not public yet.
+- **Research preview.** The package is 0.1.0 and not released yet: it is not on PyPI.
 - **Synthetic data only.** Every agent, dataset and figure here is synthetic: the figures show
   that the evaluation works, not how an agent does on real patients.
 - **Not a medical device**, and not for emergencies: patients should call 911.

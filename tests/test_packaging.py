@@ -90,12 +90,29 @@ def test_the_readme_links_work_on_pypi() -> None:
     relative = [t for t in targets if not re.match(r"(https?://|#|mailto:)", t)]
     assert relative == [], "relative links break on pypi.org"
     for target in targets:
-        if not target.startswith(f"{REPOSITORY}/blob/") and not target.startswith(
-            f"{REPOSITORY}/tree/"
-        ):
-            continue
-        kind, branch, path = target.removeprefix(REPOSITORY + "/").split("/", 2)[0:3]
-        path = path.partition("#")[0]
-        assert branch == "main", target
-        expected = "tree" if (ROOT / path).is_dir() else "blob"
-        assert (ROOT / path).exists() and kind == expected, target
+        _assert_names_an_existing_path(target)
+
+
+def test_the_project_links_work_on_pypi() -> None:
+    """The links PyPI shows beside the package (`[project.urls]`): a release's metadata can never
+    change, so each is https, the names PyPI knows are there, and each link into this repository
+    names a path that exists, as the README's do."""
+    urls = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["urls"]
+    assert {"Homepage", "Documentation", "Source", "Issues", "Changelog"} <= set(urls)
+    assert all(url.startswith("https://") for url in urls.values())
+    assert urls["Source"] == REPOSITORY
+    assert urls["Issues"] == f"{REPOSITORY}/issues"
+    for url in urls.values():
+        _assert_names_an_existing_path(url)
+
+
+def _assert_names_an_existing_path(link: str) -> None:
+    """A link into this repository's files (`/blob/main/...`, `/tree/main/...`) names a path that
+    exists, as a file (blob) or a folder (tree). Other links pass."""
+    if not link.startswith((f"{REPOSITORY}/blob/", f"{REPOSITORY}/tree/")):
+        return
+    kind, branch, path = link.removeprefix(REPOSITORY + "/").split("/", 2)
+    path = path.partition("#")[0]
+    assert branch == "main", link
+    expected = "tree" if (ROOT / path).is_dir() else "blob"
+    assert (ROOT / path).exists() and kind == expected, link

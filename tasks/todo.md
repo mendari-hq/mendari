@@ -3939,13 +3939,13 @@ and GitHub's email push protection goes on. Location is the trust label, never t
 - [ ] **A7 (owner)** Repository homepage and description.
 - [ ] **A8 (owner, Vercel)** Fork protection kept, Preview env cleanup, bypass secret, Neon
   preview branches.
-- [ ] **A9 (owner)** Make the repository public.
+- [x] **A9 (owner)** Make the repository public. Done 2026-11-24.
 - [ ] **A10 (owner)** Private vulnerability reporting, secret scanning with push protection,
   Dependabot, CodeQL, fork-PR approval for first-time contributors.
-- [ ] **A11 (owner, then build)** Protected `pypi` and `ghcr` environments, a `v*` tag ruleset,
-  the PyPI trusted publisher; then 0.1.0 and the docs on GitHub Pages (`docs.yml`, LP-15c, run
-  by hand; its deploy skips while the repository is private; owner step 9), and the README's
-  install line switches to `pip install mendari`.
+- [ ] **A11 (owner, then build)** Protected `pypi`, `testpypi` and `ghcr` environments and a `v*`
+  tag ruleset (done 2026-11-24, owner step 7); the trusted publishers on PyPI and TestPyPI; then
+  0.1.0, whose own commit switches the README's install line to `pip install mendari` (owner
+  step 8), and the docs on GitHub Pages (`docs.yml`, LP-15c, run by hand; owner step 9).
 
 **Part B: the contribution flow** (a later PR; B1–B5 before B9; order B1 → B2 → B4 → B5 → B3 →
 B6/B7 → B8 → B9 → B10).
@@ -4169,9 +4169,10 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    - Storage → the Neon database → its settings: preview deployments get their own database
      branch. Check after: the Neon console's Branches list shows `preview/<your branch>` for a
      fresh preview, and the `neon-preview-cleanup` workflow deletes it when the PR closes.
-5. **A9, make it public.** Settings → General → Danger Zone → **Change repository visibility**
-   → Make public. Check after: in a private browser window, the repository, its Actions runs
-   and its PRs open without signing in; `.github/ISSUE_TEMPLATE` shows its two private links.
+5. **A9, make it public.** Done 2026-11-24. Settings → General → Danger Zone → **Change
+   repository visibility** → Make public. Check after: in a private browser window, the
+   repository, its Actions runs and its PRs open without signing in; `.github/ISSUE_TEMPLATE`
+   shows its two private links.
 6. **A10, right after the flip.** Settings → **Code security** (named "Code security and
    analysis" or "Advanced Security" on some accounts):
    - **Private vulnerability reporting**: Enable. Check after: the Security tab shows **Report
@@ -4189,45 +4190,52 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
      and approve pull requests" unticked. Check after: a PR from a second account waits on
      **Approve and run** the first time.
 7. **A11, before any tag.**
-   - Settings → **Environments** → New environment `pypi`: Required reviewers: you; Deployment
-     branches and tags → Selected branches and tags → add a **tag** rule `v*`. Then the same for
-     `testpypi` (the rehearsal) and `ghcr` (`release.yml` publishes the images from it). Check
-     after: all three list one reviewer and the `v*` tag rule. A publishing job refuses to run
-     while its environment has no reviewer.
-     (On GitHub Free, protection rules work only once the repository is public.)
-   - Settings → **Rules → Rulesets** → New ruleset → **New tag ruleset**: name "release tags",
+   - Done 2026-11-24 (through the API, at the owner's request): Settings → **Environments** →
+     `pypi`: Required reviewers: you; Deployment branches and tags → Selected branches and tags
+     → a **tag** rule `v*`; "Allow administrators to bypass configured protection rules" off.
+     The same for `testpypi` (the rehearsal) and `ghcr` (`release.yml` publishes the image from
+     it). Checked: all three list one reviewer and the `v*` tag rule, and the publishing jobs'
+     guard, `scripts/check_release.py environment <name>`, passes for each. A publishing job
+     refuses to run while its environment has no reviewer.
+   - Done 2026-11-24: Settings → **Rules → Rulesets** → the tag ruleset "release tags",
      Enforcement Active, Bypass list: Repository admin; Target tags: include `v*`; rules:
-     **Restrict creations**, **Restrict updates**, **Restrict deletions**. Check after: the
-     ruleset shows Active with those three rules.
-   - pypi.org → Your account → **Publishing** → Add a new pending publisher (GitHub): PyPI
-     project name `mendari`, owner `mendari-hq`, repository `mendari`, workflow
-     `release.yml`, environment `pypi`. Check after: it is listed as a pending publisher, and
-     the name `mendari` is still free on PyPI. The same on **test.pypi.org** with environment
-     `testpypi`.
-8. **Release 0.1.0.** First a rehearsal on TestPyPI, once the repository is public (`release.yml`
-   publishes to TestPyPI only from a public one; going public publishes the tests' SNOMED CT
-   codes and the history, LP-13 and LP-14's counsel item; the packages carry none since the
-   SNOMED CT swap): a build PR sets the version to `0.1.0rc1` everywhere it is
-   written (`tests/test_release_gate.py` lists them; `CHANGELOG.md`'s `## 0.1.0` section serves
-   it) and pins the rc's fixed FHIR resources, which carry the version (`PINNED` in
-   `tests/test_terminology.py`; its failure prints the entry), then tag it
-   `v0.1.0rc1`, and Actions → **release** → Run workflow → "Use workflow from" → **Tags** →
-   `v0.1.0rc1`, publish **on**, target `testpypi`; approve the `testpypi` deployment. Check
-   after: the `verify-testpypi` job passed (TestPyPI serves the tested wheel byte for byte, and
-   it installs and runs `mendari test`). Then, on an up-to-date `main` back at `0.1.0`, with
-   `CHANGELOG.md`'s `## 0.1.0` section as you
-   want it: `git tag v0.1.0 && git push origin v0.1.0` (a tag push starts nothing). Then Actions →
-   **release** → Run workflow → "Use workflow from" → **Tags** → `v0.1.0`, publish **off**; it checks the tag and the version,
-   runs the tests and builds and tests the packages and the six images (amd64 and arm64). When it
-   is green, run it again from the same tag with publish **on** and target **`pypi`**, and in the
-   run approve the `pypi` deployment and the six `ghcr`
-   deployments (the images wait on the image licence compliance PR, owner's decision
-   2026-10-07; once it is in, each `ghcr` deployment pushes `<tag>-sources`, then the image).
-   Check after: pypi.org/project/mendari shows 0.1.0
-   with a wheel and an sdist; in a fresh venv, `pip install mendari` then `mendari test
-   mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
-   build needs" step passed; GitHub → the `mendari-hq` organization → Packages lists the six `mendari-*`
-   images (make each public in its package settings if it is private).
+     **Restrict creations**, **Restrict updates**, **Restrict deletions**.
+   - **Left, the owner's: the trusted publishers.** pypi.org → Your account → **Publishing**
+     (`https://pypi.org/manage/account/publishing/`) → Add a new pending publisher (GitHub):
+     PyPI project name `mendari`, owner `mendari-hq`, repository `mendari`, workflow
+     `release.yml`, environment `pypi`. The same on **test.pypi.org** (an account of its own)
+     with environment `testpypi`. Check after: each is listed as a pending publisher, and the
+     name `mendari` is still free (it was on both on 2026-11-24). A pending publisher does not
+     reserve the name, the first upload does, so step 8 should follow soon.
+8. **Release 0.1.0.** The README is the package's page on PyPI, and a release's page never
+   changes, so the install wording switches in the release's own commit, never after: a build
+   PR, "the release PR", makes `pip install mendari` the install line and drops every "not on
+   PyPI yet" (the README's "Install" and "Status and limits", `CONTRIBUTING.md`,
+   `docs/index.md`, `docs/guides/contributing-an-agent.md`). It is merged when 0.1.0 goes out,
+   right before its tag, so `main` does not offer `pip install mendari` while there is nothing
+   to install.
+   First a rehearsal on TestPyPI (`release.yml` publishes to TestPyPI only from a public
+   repository, so it can run now): on top of the release PR, a branch sets the version to
+   `0.1.0rc1` everywhere it is written (`tests/test_release_gate.py` lists them;
+   `CHANGELOG.md`'s `## 0.1.0` section serves it) and pins the rc's fixed FHIR resources, which
+   carry the version (`PINNED` in `tests/test_terminology.py`; its failure prints the entry).
+   It is never merged: tag its head `v0.1.0rc1` and push the tag, then Actions → **release** →
+   Run workflow → "Use workflow from" → **Tags** → `v0.1.0rc1`, publish **on**, target
+   `testpypi`; approve the `testpypi` deployment. Check after: the `verify-testpypi` job passed
+   (TestPyPI serves the tested wheel byte for byte, and it installs and runs `mendari test`),
+   and test.pypi.org/project/mendari shows the README and the links as they should be.
+   Then merge the release PR, and on an up-to-date `main` at `0.1.0`, with `CHANGELOG.md`'s
+   `## 0.1.0` section as you want it: `git tag v0.1.0 && git push origin v0.1.0` (a tag push
+   starts nothing). Then Actions → **release** → Run workflow → "Use workflow from" → **Tags**
+   → `v0.1.0`, publish **off**; it checks the tag and the version, runs the tests and builds
+   and tests the packages and the image (`mendari-engine`, amd64 and arm64). When it is green,
+   run it again from the same tag with publish **on** and target **`pypi`**, and in the run
+   approve the `pypi` deployment and the `ghcr` deployment (it pushes `<tag>-sources`, then the
+   image). Check after: pypi.org/project/mendari shows 0.1.0 with a wheel and an sdist; in a
+   fresh venv, `pip install mendari` then `mendari test mendari/portal-message-agent` passes;
+   the release job's "The sdist holds only what a source build needs" step passed; GitHub →
+   the `mendari-hq` organization → Packages lists `mendari-engine` (make it public in its
+   package settings if it is private).
 9. **Docs on GitHub Pages** (the deploy workflow is `docs.yml`, LP-15c). The docs host is
    GitHub Pages at `https://mendari-hq.github.io/mendari/` (confirmed by the owner on
    2026-11-07, in chat: "the patent gate is clear and I approve everything on my part"); a custom
@@ -4238,8 +4246,9 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    the site and publishes nothing. After A9: Settings → **Pages** → Source: **GitHub Actions**; then
    Actions → **docs** → Run workflow, from `main`. Check after: the site opens at
    `https://mendari-hq.github.io/mendari/` (mkdocs.yml `site_url`; for a custom domain, change it
-   and add the domain in Pages), every page shows the notice, then a build PR points the README and
-   `mendari new` at it and switches the install line to `pip install mendari`.
+   and add the domain in Pages), every page shows the notice, then a build PR points the README,
+   the package's Documentation link (`[project.urls]`, from the next release) and `mendari new`
+   at it.
 
 ### Community packs: owner steps (B8–B10)
 After the community-packs PR (`claude/community-packs`) is merged and the repository is public
