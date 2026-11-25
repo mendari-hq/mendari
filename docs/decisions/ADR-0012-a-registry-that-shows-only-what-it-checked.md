@@ -29,7 +29,13 @@ gate's line for them stays pending until they are done. The steps, in the order 
 
 The defaults below hold unless the owner chooses otherwise.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Amended by [ADR-0026](ADR-0026-one-release-baseline-agents-only.md) (2026-11-25): the scoreboard
+decision 1 waited for is removed. A registry's database is made with its chain and its mark
+(`mendari-registry/1`), so what decisions 4 and 10 say of rows from before the chain and of
+versions published before applies to none.
+
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 The registry (`src/mendari/hub/registry.py`) checks a publish thoroughly: the archive's signature

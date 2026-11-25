@@ -7,7 +7,8 @@ Proposed (2026-11-10, LP-22a). Nothing in it is built yet. It is built in steps 
 organizations and reviewers. The number 0016 is left for the agent store's decision record, which
 is being written at the same time.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 A health system can evaluate an agent on its own chart-reviewed data and share the result with a

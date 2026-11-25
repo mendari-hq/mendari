@@ -9,7 +9,13 @@ of [ADR-0008](ADR-0008-accounts-and-memberships.md) its permission, adds the ori
 true [ADR-0004](ADR-0004-machine-access-tokens-and-scopes.md)'s line that a credential never
 lists another organization's agents.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Amended by [ADR-0026](ADR-0026-one-release-baseline-agents-only.md) (2026-11-25): no upload is
+compared with hidden sets (decision 7), and no version is held: a version is a draft, promoted,
+retired or withdrawn (decision 2). The one validation function is called by the command line,
+the registry and the store, the community check being gone (decision 5).
+
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 A server reads its agents from the file system once, at start-up, and every organization on it is

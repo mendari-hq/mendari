@@ -3,7 +3,8 @@
 ## Status
 Accepted (v0.1)
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 A public agent could claim `AUTO` at any confidence. Healthcare risk depends on the intended use

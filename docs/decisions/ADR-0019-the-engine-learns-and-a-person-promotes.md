@@ -1,11 +1,18 @@
 # ADR-0019: The engine learns from review, and a person promotes
 
 ## Status
+Superseded by [ADR-0026](ADR-0026-one-release-baseline-agents-only.md) (2026-11-25):
+`mendari improve` and `mendari train` are removed with the `naive_bayes` provider. What stays is
+the export of reviewed decisions as labelled cases (`mendari feedback export --source reviews`,
+each record marked `exported_by`), and the refusal of an archive, a registry publish or a store
+upload that holds a marked file.
+
 Proposed (2026-11-10). Built on the branch that proposes it. Nothing in it changes what an agent
 decides until a person runs `mendari improve --write` on an agent of their own and serves the
 result. Merging it is the owner's decision.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 Mendari records what people say about its decisions and never used it:
