@@ -285,7 +285,7 @@ def _no_jev(monkeypatch: pytest.MonkeyPatch) -> None:
 # The inbox's policy automates only while its urgency screen includes a model
 # (automation_requires). Tests that need an automated inbox decision run the screen with Jev,
 # against `calm_jev`, which finds nothing urgent.
-def shared_benchmark(pack_id: str = "mendari/referral-router") -> dict[str, Any]:
+def shared_benchmark(pack_id: str = "mendari-test/triage") -> dict[str, Any]:
     """The `mendari.site-report/2` a site would share of a shipped pack's benchmark run:
     counted from the benchmark's own ledger (synthetic data), as `mendari eval --share` does."""
     from mendari.core.registry import resolve_pack
@@ -528,13 +528,13 @@ class Registry:
 
     def publish(
         self,
-        pack: Pack | None = None,  # the referral router
+        pack: Pack | None = None,  # the triage fixture
         *,
         key: Any = None,
         token: str | None = None,
         version: str | None = None,
     ) -> Any:
-        pack = pack or resolve_pack("mendari/referral-router")
+        pack = pack or resolve_pack("mendari-test/triage")
         namespace, name = pack.id.split("/")
         if namespace == FIXTURE_NAMESPACE:  # a test fixture's agent: its own namespace's
             fixture_token, fixture_key = self.fixture_publisher()
@@ -908,11 +908,11 @@ def launched(
         "iss": iss,
         "access_token": f"access-{sid[:8]}",
         "scope": "launch openid fhirUser patient/*.rs",
-        "patient": "ref-p1",
+        "patient": "chart-us-core-1",
         "encounter": None,
         "fhir_user": "Practitioner/pr-1",
         "expires_at": now + 3600,
-        "pack": "mendari/referral-router",
+        "pack": "mendari-test/chart-summary",
         "identity": {"iss": iss, "sub": sub},
         "actor": f"{iss}|{sub}",
         "identified": True,  # made with sign-in on: the callback's checks ran
