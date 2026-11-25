@@ -18,7 +18,7 @@ from mendari.core.pack import Pack, load_pack
 from mendari.errors import MendariError
 from mendari.hub import regression
 from tests.conftest import Registry
-from tests.test_registry import INBOX, _at_version
+from tests.test_registry import TRIAGE, _at_version
 
 
 @pytest.fixture(autouse=True)
@@ -27,17 +27,18 @@ def _checking(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _copy(tmp_path: Path, version: str, edit: Any = None) -> Pack:
-    pack = _at_version(tmp_path / version, INBOX, version)
+    pack = _at_version(tmp_path / version, TRIAGE, version)
     if edit is not None:
         edit(pack.root)
     return load_pack(pack.root)
 
 
 def _worse(root: Path) -> None:
-    """The same test set, routed by the pack's keyword rules instead of its model."""
-    manifest = yaml.safe_load((root / "agent.yaml").read_text())
-    manifest["providers"]["router"]["use"] = "rules"
-    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    """The same test set, routed by keyword rules that no longer know a bill."""
+    path = root / "logic" / "router_rules.yaml"
+    rules = yaml.safe_load(path.read_text())
+    del rules["questions"]["destination"]["labels"]["billing"]
+    path.write_text(yaml.safe_dump(rules, sort_keys=False))
 
 
 def test_a_publish_is_checked_on_its_own_test_set_and_shown_as_no_ranking(
@@ -45,21 +46,22 @@ def test_a_publish_is_checked_on_its_own_test_set_and_shown_as_no_ranking(
 ) -> None:
     first = registry.publish(_copy(tmp_path, "9.9.7"))
     assert first.status_code == 201, first.text
-    shown = registry.client.get(f"/v1/agents/{INBOX.id}/9.9.7").json()["checked"]["regression"]
+    shown = registry.client.get(f"/v1/agents/{TRIAGE.id}/9.9.7").json()["checked"]["regression"]
     assert shown["label"] == "publisher's own test set: regression check, not a ranking"
     assert shown["status"] == "measured" and shown["compared_with"] is None
     assert shown["regressions"] == []
-    assert shown["test_set"]["name"] == "test" and shown["test_set"]["n"] == 600
-    assert shown["accuracy"]["n"] == 600 and 590 <= shown["accuracy"]["k"] <= 600
+    n = len((TRIAGE.root / "data" / "test.jsonl").read_text().splitlines())
+    assert shown["test_set"]["name"] == "test" and shown["test_set"]["n"] == n
+    assert shown["accuracy"]["n"] == n and 0.8 * n <= shown["accuracy"]["k"] <= n
 
     worse = registry.publish(_copy(tmp_path, "9.9.8", _worse))
     assert worse.status_code == 201, worse.text  # shown, never refused: it is the publisher's
-    second = registry.client.get(f"/v1/agents/{INBOX.id}/9.9.8").json()["checked"]["regression"]
+    second = registry.client.get(f"/v1/agents/{TRIAGE.id}/9.9.8").json()["checked"]["regression"]
     assert second["compared_with"] == "9.9.7"
     assert second["regressions"] == ["destination accuracy fell by more than 3%"]
     assert second["accuracy"]["k"] < shown["accuracy"]["k"]
     # Not a figure anywhere a ranking would read one.
-    figures = registry.client.get(f"/v1/agents/{INBOX.id}").json()["latest"]["figures"]
+    figures = registry.client.get(f"/v1/agents/{TRIAGE.id}").json()["latest"]["figures"]
     assert figures["benchmark"] is None and figures["leaderboard"] is None
 
 
@@ -71,7 +73,7 @@ def test_a_pack_without_a_test_set_says_so(registry: Registry, tmp_path: Path) -
         (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
 
     assert registry.publish(_copy(tmp_path, "9.9.7", no_test_set)).status_code == 201
-    shown = registry.client.get(f"/v1/agents/{INBOX.id}/9.9.7").json()["checked"]["regression"]
+    shown = registry.client.get(f"/v1/agents/{TRIAGE.id}/9.9.7").json()["checked"]["regression"]
     assert shown["status"] == "no_test_set" and "accuracy" not in shown
 
 
@@ -198,7 +200,7 @@ def test_the_baseline_is_the_newest_measured_check_recalled_or_not(
     assert registry.publish(_copy(tmp_path, "9.9.7", no_test_set)).status_code == 201
     worse = registry.publish(_copy(tmp_path, "9.9.8", _worse))
     assert worse.status_code == 201
-    shown = registry.client.get(f"/v1/agents/{INBOX.id}/9.9.8").json()["checked"]["regression"]
+    shown = registry.client.get(f"/v1/agents/{TRIAGE.id}/9.9.8").json()["checked"]["regression"]
     assert shown["compared_with"] == "9.9.6"  # not 9.9.7, which measured nothing
     assert shown["regressions"] == ["destination accuracy fell by more than 3%"]
 
@@ -225,7 +227,7 @@ def test_the_raw_check_is_never_served_beside_its_figure(
 ) -> None:
     assert registry.publish(_copy(tmp_path, "9.9.6")).status_code == 201
     for version in (
-        registry.client.get(f"/v1/agents/{INBOX.id}/9.9.6").json(),
+        registry.client.get(f"/v1/agents/{TRIAGE.id}/9.9.6").json(),
         registry.client.get("/v1/search").json()[0],
     ):
         assert "regression" not in version
@@ -234,7 +236,7 @@ def test_the_raw_check_is_never_served_beside_its_figure(
 
 def test_a_check_that_fails_names_only_the_errors_type(tmp_path: Path) -> None:
     root = tmp_path / "broken"
-    shutil.copytree(INBOX.root, root)
+    shutil.copytree(TRIAGE.root, root)
     (root / "data" / "test.jsonl").write_text('{"id": "x", "input": "Jane Doe chest pain"}\n')
     shown = regression.check(root, None)
     assert shown["status"] == "failed"
@@ -261,4 +263,4 @@ def test_a_setting_that_is_not_one_is_the_operators_never_the_packs(
     detail = refused.json()["detail"]
     assert "cannot check versions" in detail and "on or off" in detail
     assert "does not load" not in detail
-    assert registry.client.get(f"/v1/agents/{INBOX.id}/9.9.7").status_code == 404
+    assert registry.client.get(f"/v1/agents/{TRIAGE.id}/9.9.7").status_code == 404

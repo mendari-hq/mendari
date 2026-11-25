@@ -17,23 +17,26 @@ import mendari
 from mendari.core.card import render_card
 from mendari.core.pack import Pack, load_pack, pack_digest
 from mendari.core.reference import bundled_dir
-from mendari.core.registry import resolve_pack
 from mendari.evals import figures as figures_module
 from mendari.evals import stats
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore
 from tests.conftest import (
-    INBOX_DIR,
+    CLINICAL_DIR,
+    FIXTURE_NAMESPACE,
+    TRIAGE_DIR,
     Registry,
     share_signed,
     shared_benchmark,
     verified_site,
 )
+from tests.support.registry import with_lookahead
 
-REFERRAL = resolve_pack("mendari/referral-router")
-GUARD = resolve_pack("mendari/ai-guard")
-INBOX = load_pack(INBOX_DIR)
+# The agent `Registry.publish()` publishes, in its own namespace (`FIXTURE_NAMESPACE`), with its
+# own token and key (`Registry.fixture_publisher`); and a second, at risk level 2.
+TRIAGE = load_pack(TRIAGE_DIR)
+CLINICAL = load_pack(CLINICAL_DIR)
 
 
 def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> None:
@@ -41,24 +44,25 @@ def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> No
     assert published.status_code == 201, published.text
     body = published.json()
     assert (body["id"], body["version"], body["digest"]) == (
-        "mendari/referral-router",
-        REFERRAL.version,
-        REFERRAL.digest,
+        TRIAGE.id,
+        TRIAGE.version,
+        TRIAGE.digest,
     )
     assert body["risk"] == {"level": 1, "category": "clinical information"}
-    assert "CDS Hooks order-sign" in body["standards"] and "FHIR R4" in body["standards"]
-    assert body["card_markdown"].startswith("# Decision Card: Referral Router")
+    assert body["standards"] == ["CDS Hooks mendari-message-received", "FHIR R4"]
+    # The publisher's name as plain text: its Markdown escaped.
+    assert body["card_markdown"].startswith(r"# Decision Card: Synthetic Triage \(test fixture\)")
     assert "benchmark" not in body and "leaderboard" not in body
     again = registry.publish()
     assert again.status_code == 409 and "immutable" in again.text
-    pack = registry.client.get("/v1/agents/mendari/referral-router").json()
-    assert pack["versions"] == [REFERRAL.version] and pack["latest"]["digest"] == REFERRAL.digest
+    pack = registry.client.get(f"/v1/agents/{TRIAGE.id}").json()
+    assert pack["versions"] == [TRIAGE.version] and pack["latest"]["digest"] == TRIAGE.digest
 
 
 def test_the_archive_downloads_byte_for_byte(registry: Registry) -> None:
-    data = archive.build(REFERRAL, registry.key)
+    data = archive.build(TRIAGE, registry.fixture_publisher()[1])
     registry.publish()
-    response = registry.client.get(f"/v1/agents/mendari/referral-router/{REFERRAL.version}/archive")
+    response = registry.client.get(f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}/archive")
     assert response.content == data
     assert response.headers["x-archive-sha256"] == hashlib.sha256(data).hexdigest()
 
@@ -105,35 +109,37 @@ def test_the_archive_must_be_the_pack_and_version_in_the_url(registry: Registry)
 
 def test_verification_sets_the_publisher_type(registry: Registry) -> None:
     registry.publish()
-    patched = registry.operator.set_publisher_type("mendari", "verified", by="operator")
+    patched = registry.operator.set_publisher_type(FIXTURE_NAMESPACE, "verified", by="operator")
     assert patched["publisher_type"] == "verified"
-    pack = registry.client.get("/v1/agents/mendari/referral-router").json()
+    pack = registry.client.get(f"/v1/agents/{TRIAGE.id}").json()
     assert pack["latest"]["publisher_type"] == "verified"
-    namespace = registry.client.get("/v1/namespaces/mendari").json()
-    assert namespace["packs"] == ["mendari/referral-router"]
-    assert namespace["keys"][0]["key_id"] == archive.key_id(registry.key.public_key())
+    namespace = registry.client.get(f"/v1/namespaces/{FIXTURE_NAMESPACE}").json()
+    assert namespace["packs"] == [TRIAGE.id]
+    key = registry.fixture_publisher()[1]
+    assert namespace["keys"][0]["key_id"] == archive.key_id(key.public_key())
     found = registry.client.get("/v1/search", params={"publisher_type": "verified"}).json()
-    assert [p["id"] for p in found] == ["mendari/referral-router"]
+    assert [p["id"] for p in found] == [TRIAGE.id]
 
 
 def test_search_by_words_risk_and_standard(registry: Registry) -> None:
     registry.publish()
-    registry.publish(GUARD)
+    registry.publish(CLINICAL)
 
     def ids(**params: Any) -> list[str]:
         return [p["id"] for p in registry.client.get("/v1/search", params=params).json()]
 
-    assert ids() == ["mendari/ai-guard", "mendari/referral-router"]
-    assert ids(q="referral specialty") == ["mendari/referral-router"]
-    assert ids(risk=2) == ["mendari/ai-guard"]
-    assert ids(standard="cds hooks order-sign") == ["mendari/referral-router"]
+    assert ids() == [CLINICAL.id, TRIAGE.id]
+    assert ids(q="message team") == [TRIAGE.id]
+    assert ids(q="severity") == [CLINICAL.id]  # a question's key is searched too
+    assert ids(risk=2) == [CLINICAL.id]
+    assert ids(standard="cds hooks mendari-message-received") == [TRIAGE.id]
     assert ids(q="nothing-like-this") == []
     assert "card_markdown" not in registry.client.get("/v1/search").json()[0]
 
 
 def test_unknown_things_are_404(registry: Registry) -> None:
     assert registry.client.get("/v1/agents/mendari/none").status_code == 404
-    assert registry.client.get("/v1/agents/mendari/referral-router/0.0.1").status_code == 404
+    assert registry.client.get(f"/v1/agents/{TRIAGE.id}/0.0.1").status_code == 404
     assert registry.client.get("/v1/namespaces/nobody").status_code == 404
 
 
@@ -151,15 +157,15 @@ def test_sites_share_signed_counts_and_publisher_tokens_no_longer_do(
 ) -> None:
     registry.publish()
     report = shared_benchmark()
-    path = f"/v1/agents/mendari/referral-router/{REFERRAL.version}/reports"
-    publisher = {"authorization": f"Bearer {registry.token}"}
+    path = f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}/reports"
+    publisher = {"authorization": f"Bearer {registry.fixture_publisher()[0]}"}
     refused = registry.client.post(path, json={"report": report}, headers=publisher)
     assert refused.status_code == 401 and "mendari site init" in refused.text
     assert registry.client.post(path, json={"report": report}).status_code == 401
     site = verified_site(registry, tmp_path)
     shared = share_signed(registry, site, report)
     assert shared.status_code == 201, shared.text
-    listed = registry.client.get("/v1/agents/mendari/referral-router/reports").json()
+    listed = registry.client.get(f"/v1/agents/{TRIAGE.id}/reports").json()
     assert set(listed) == {"id", "reports", "superseded"}  # no uploaded benchmark (ADR-0012)
     (served,) = listed["reports"]
     assert (served["site"], served["verified"], served["key_id"]) == (site.id, True, site.key_id)
@@ -183,12 +189,13 @@ def test_the_registry_computes_every_rate_it_shows(registry: Registry, tmp_path:
     registry.publish()
     report = shared_benchmark()
     assert share_signed(registry, verified_site(registry, tmp_path), report).status_code == 201
-    (served,) = registry.client.get("/v1/agents/mendari/referral-router/reports").json()["reports"]
+    (served,) = registry.client.get(f"/v1/agents/{TRIAGE.id}/reports").json()["reports"]
     figures = served["figures"]
     assert _rates(figures) == []
     assert figures == json.loads(json.dumps(figures_module.site(report)))
-    question = report["questions"]["next_step"]
-    accuracy = figures["questions"]["next_step"]["accuracy"]
+    primary = TRIAGE.manifest.policy.primary
+    question = report["questions"][primary]
+    accuracy = figures["questions"][primary]["accuracy"]
     assert (accuracy["k"], accuracy["n"]) == (question["right"], question["n"])
     assert (accuracy["low"], accuracy["high"]) == pytest.approx(
         stats.clopper_pearson(question["right"], question["n"])
@@ -240,7 +247,8 @@ def test_uploaded_attestations_of_any_shape_are_never_read(
     """T12 made a malformed benchmark or card a 500; since LP-18 the registry reads neither
     (ADR-0012): whatever the pack carries about itself publishes, unread, and shows nothing."""
     root = tmp_path / "pack"
-    shutil.copytree(REFERRAL.root, root)
+    shutil.copytree(TRIAGE.root, root)
+    (root / relative).parent.mkdir(exist_ok=True)
     (root / relative).write_bytes(content)
     answer = registry.publish(load_pack(root))
     assert answer.status_code == 201, answer.text
@@ -257,24 +265,24 @@ def test_an_over_long_version_is_refused_and_search_keeps_working(
     assert registry.publish().status_code == 201
     huge = "1" + "0" * 4400 + ".0.0"
     root = tmp_path / "pack"
-    shutil.copytree(REFERRAL.root, root)
+    shutil.copytree(TRIAGE.root, root)
     manifest = (
         (root / "agent.yaml")
         .read_text()
-        .replace(f"version: {REFERRAL.version}", f"version: '{huge}'", 1)
+        .replace(f"version: {TRIAGE.version}", f"version: '{huge}'", 1)
     )
     (root / "agent.yaml").write_text(manifest)
     signed = Pack(
-        manifest=REFERRAL.manifest.model_copy(update={"version": huge}),
+        manifest=TRIAGE.manifest.model_copy(update={"version": huge}),
         root=root,
         digest=pack_digest(root),
-        input_schema=REFERRAL.input_schema,
+        input_schema=TRIAGE.input_schema,
     )
     refused = registry.publish(signed)
     assert refused.status_code == 422, refused.text
     search = registry.client.get("/v1/search")
     assert search.status_code == 200
-    assert [item["version"] for item in search.json()] == [REFERRAL.version]
+    assert [item["version"] for item in search.json()] == [TRIAGE.version]
 
 
 def _nested(depth: int) -> Any:
@@ -290,21 +298,23 @@ def test_a_deeply_nested_attestation_is_shown_as_none_and_search_keeps_working(
     """`describe` stored `dataset.name`, `n`, `accuracy` and the leaderboard as any JSON value.
     One nested 300 levels deep was committed, then the response serializer gave up (about 255
     levels): the publish was a 500, and so was `GET /v1/search` for everyone, for good."""
-    assert registry.publish(GUARD).status_code == 201
+    assert registry.publish(CLINICAL).status_code == 201
     root = tmp_path / "pack"
-    shutil.copytree(REFERRAL.root, root)
-    benchmark = json.loads((root / "evals" / "benchmark.json").read_text())
-    benchmark["dataset"] = {"name": _nested(300)}
-    primary = benchmark["questions"][REFERRAL.manifest.policy.primary]
-    primary["n"], primary["accuracy"] = True, float("nan")
+    shutil.copytree(TRIAGE.root, root)
+    (root / "evals").mkdir()
+    primary = {"n": True, "accuracy": float("nan")}
+    benchmark = {
+        "dataset": {"name": _nested(300)},
+        "questions": {TRIAGE.manifest.policy.primary: primary},
+    }
     (root / "evals" / "benchmark.json").write_text(json.dumps(benchmark))
     (root / "evals" / "leaderboard.json").write_text(json.dumps({"rows": _nested(300)}))
     answer = registry.publish(load_pack(root))
     assert answer.status_code == 201, answer.text
     assert "benchmark" not in answer.json() and "leaderboard" not in answer.json()
     assert registry.client.get("/v1/search").status_code == 200
-    for path in ("", f"/{REFERRAL.version}"):
-        assert registry.client.get(f"/v1/agents/{REFERRAL.id}{path}").status_code == 200
+    for path in ("", f"/{TRIAGE.version}"):
+        assert registry.client.get(f"/v1/agents/{TRIAGE.id}{path}").status_code == 200
 
 
 def test_metadata_that_cannot_be_served_is_refused_before_it_is_stored(
@@ -329,44 +339,42 @@ def test_a_composite_whose_members_cannot_run_is_refused_at_publish(
     members are a list, or keyed by what YAML reads as a date (once a 500, then published
     without them), is refused naming the variants, before anything is stored; the owned copy
     it was made from loads, with them as warnings, and without them it publishes, its
-    composites' members named. On the inbox pack, whose patterns all run on RE2: a changed copy
-    (at a new version: at its own it is refused, F) is checked on the engine for packs from a
-    registry (ADR-0009)."""
+    composites' members named. On the triage fixture, whose patterns all run on RE2: a changed
+    copy (at a new version: at its own it is refused, F) is checked on the engine for packs from
+    a registry (ADR-0009)."""
     root = tmp_path / "pack"
-    shutil.copytree(INBOX.root, root)
+    shutil.copytree(TRIAGE.root, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["version"] = "9.9.9"
-    variants = manifest["providers"]["safety_screen"]["variants"]
-    rules, jev = variants["rules"], variants["jev"]
-    escalate = {"urgency": "urgent"}
+    variants = manifest["providers"]["screen"]["variants"]
+    rules, agent = variants["rules"], variants["agent"]
     variants["dated"] = {
-        "type": "any_of",
-        "escalate": escalate,
-        "members": {datetime.date(2024, 1, 1): rules, "jev": jev},
+        "type": "check",
+        "members": {datetime.date(2024, 1, 1): rules, "agent": agent},
     }
-    variants["listed"] = {"type": "any_of", "escalate": escalate, "members": [rules, rules]}
+    variants["listed"] = {"type": "check", "members": [rules, agent]}
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     owned = load_pack(root)
     assert [warning.partition(":")[0] for warning in owned.warnings] == [
-        "providers.safety_screen.variants.dated",
-        "providers.safety_screen.variants.listed",
+        "providers.screen.variants.dated",
+        "providers.screen.variants.listed",
     ]
     refused = registry.publish(owned)
     assert refused.status_code == 422, refused.text
     reason = refused.json()["detail"]
     assert reason.startswith("the agent does not load: ")
-    assert "providers.safety_screen.variants.dated: " in reason
-    assert "providers.safety_screen.variants.listed: " in reason
+    assert "providers.screen.variants.dated: " in reason
+    assert "providers.screen.variants.listed: " in reason
     assert registry.client.get("/v1/search").json() == []
 
     del variants["dated"], variants["listed"]
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     published = registry.publish(load_pack(root))
     assert published.status_code == 201, published.text
-    members = published.json()["names"]["members"]["safety_screen"]
+    members = published.json()["names"]["members"]["screen"]
     composites = {
         name
-        for name, variant in INBOX.manifest.providers["safety_screen"].variants.items()
+        for name, variant in TRIAGE.manifest.providers["screen"].variants.items()
         if isinstance((variant.model_extra or {}).get("members"), dict)
     }
     assert composites and set(members) == composites
@@ -387,28 +395,33 @@ def test_a_publish_is_checked_on_the_engine_its_pullers_run(
     registry: Registry, tmp_path: Path
 ) -> None:
     """A pack that is not a reference pack of the registry's release is checked as its pullers
-    will load it, on RE2: a referral pack at a new version, whose lookahead RE2 cannot run, is
-    refused before anything is stored; an inbox pack at a new version publishes."""
-    refused = registry.publish(_at_version(tmp_path, REFERRAL, "9.9.9"))
+    will load it, on RE2: a triage copy at a new version with a lookahead, which `re` runs and
+    RE2 cannot, is refused before anything is stored; the triage fixture at a new version
+    publishes."""
+    changed = load_pack(with_lookahead(_at_version(tmp_path / "changed", TRIAGE, "9.9.9").root))
+    assert not changed.bounded  # an owned copy loads, on `re`
+    refused = registry.publish(changed)
     assert refused.status_code == 422, refused.text
-    assert "lookahead" in refused.text and "not the copy of it in this release" in refused.text
+    assert "lookahead" in refused.text and "a-refill-not-a-question" in refused.text
     assert registry.client.get("/v1/search").json() == []
-    published = registry.publish(_at_version(tmp_path, INBOX, "9.9.9"))
+    published = registry.publish(_at_version(tmp_path, TRIAGE, "9.9.9"))
     assert published.status_code == 201, published.text
 
 
 def test_the_registry_publishes_the_reference_packs_of_its_own_release(
     registry: Registry,
 ) -> None:
-    """`scripts/hub_seed.py` and CI's `hub-e2e` publish the five bundled packs unchanged: each is
-    a reference pack of the registry's release, checked on the maintained engine."""
+    """`scripts/hub_seed.py` and CI's `hub-e2e` publish the release's bundled agents unchanged
+    (in the suite, the test fixtures' agents stand where they are): each is a reference pack of
+    the registry's release, checked on the maintained engine."""
     root = bundled_dir()
     assert root is not None
     packs = [load_pack(d) for d in sorted(root.iterdir()) if (d / "agent.yaml").is_file()]
-    assert len(packs) == 5
+    assert packs
     for pack in packs:
         published = registry.publish(pack)
         assert published.status_code == 201, (pack.id, published.text)
+        assert published.json()["engine"] == "maintained", pack.id
 
 
 def _registry_card(root: Path) -> str:
@@ -426,24 +439,23 @@ def test_a_forged_card_benchmark_and_leaderboard_show_only_what_the_registry_ren
     publisher), and no uploaded figure anywhere: not in the version, the pack, search or the
     reports route (ADR-0012)."""
     root = tmp_path / "pack"
-    shutil.copytree(GUARD.root, root)
-    assert GUARD.manifest.risk.level == 2
+    shutil.copytree(CLINICAL.root, root)
+    assert CLINICAL.manifest.risk.level == 2
     forged_card = "# Decision Card\n\n| Risk level | **1**, administrative |\n\nAccuracy 99.9%\n"
     (root / "DECISION_CARD.md").write_text(forged_card)
-    benchmark = json.loads((root / "evals" / "benchmark.json").read_text())
-    primary = benchmark["questions"][GUARD.manifest.policy.primary]
-    primary["accuracy"], primary["n"] = 0.999, 1000
+    (root / "evals").mkdir()
+    primary = {"accuracy": 0.999, "n": 1000}
+    benchmark = {"dataset": "test", "questions": {CLINICAL.manifest.policy.primary: primary}}
     (root / "evals" / "benchmark.json").write_text(json.dumps(benchmark))
-    board = json.loads((root / "evals" / "leaderboard.json").read_text())
-    board["rows"][0]["accuracy"] = 0.999
+    board = {"rows": [{"variant": "rules", "accuracy": 0.999}]}
     (root / "evals" / "leaderboard.json").write_text(json.dumps(board))
     forged = load_pack(root)
-    assert forged.digest == GUARD.digest  # none of it is in the digest
+    assert forged.digest == CLINICAL.digest  # none of it is in the digest
 
     assert registry.publish(forged).status_code == 201
     shown = [
-        registry.client.get(f"/v1/agents/{GUARD.id}/{GUARD.version}").json(),
-        registry.client.get(f"/v1/agents/{GUARD.id}").json()["latest"],
+        registry.client.get(f"/v1/agents/{CLINICAL.id}/{CLINICAL.version}").json(),
+        registry.client.get(f"/v1/agents/{CLINICAL.id}").json()["latest"],
     ]
     card = _registry_card(root)
     assert "| Risk level | **2**, clinical support (declared by the publisher) |" in card
@@ -453,7 +465,7 @@ def test_a_forged_card_benchmark_and_leaderboard_show_only_what_the_registry_ren
         assert version["checked"]["card"] == "rendered"
         assert version["claimed"]["risk"] == {
             "level": 2,
-            "category": GUARD.manifest.risk.category,
+            "category": CLINICAL.manifest.risk.category,
             "declared_by": "publisher",
             "confirmed": None,
         }
@@ -461,7 +473,7 @@ def test_a_forged_card_benchmark_and_leaderboard_show_only_what_the_registry_ren
         assert version["figures"]["benchmark"] is None
         assert version["figures"]["leaderboard"] is None
     (found,) = registry.client.get("/v1/search").json()
-    reports = registry.client.get(f"/v1/agents/{GUARD.id}/reports").text
+    reports = registry.client.get(f"/v1/agents/{CLINICAL.id}/reports").text
     for text in (json.dumps(shown), json.dumps(found), reports):
         assert "0.999" not in text and "99.9%" not in text and "administrative |" not in text
 
@@ -481,10 +493,10 @@ def _structure(card: str) -> list[str]:
 
 
 def _hostile_copy(tmp_path: Path) -> Path:
-    """The inbox pack under another id, every free-text field carrying Markdown that would read
-    as the registry's own words, a names a publisher chooses holding backticks and pipes."""
+    """The triage fixture under another id, every free-text field carrying Markdown that would
+    read as the registry's own words, a names a publisher chooses holding backticks and pipes."""
     root = tmp_path / "hostile"
-    shutil.copytree(INBOX.root, root)
+    shutil.copytree(TRIAGE.root, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"], manifest["version"] = "site-a/hostile", "1.0.0"
     manifest["name"] = "Hostile" + HOSTILE
@@ -556,13 +568,13 @@ def test_a_changelog_that_is_not_utf8_is_refused_and_a_huge_card_too(
     """The registry reads the changelog for its card: one that is not text is refused with its
     reason (422, never a 500). A card over `MAX_CARD_BYTES` is refused before it is stored."""
     root = tmp_path / "pack"
-    shutil.copytree(INBOX.root, root)
+    shutil.copytree(TRIAGE.root, root)
     (root / "CHANGELOG.md").write_bytes(b"\xff\xfe not text")
     refused = registry.publish(_at_version(tmp_path / "v", load_pack(root), "9.9.9"))
     assert refused.status_code == 422, refused.text
     assert "CHANGELOG.md" in refused.json()["detail"]
     monkeypatch.setattr(registry_module, "MAX_CARD_BYTES", 1000)
-    too_big = registry.publish(_at_version(tmp_path / "w", INBOX, "9.9.10"))
+    too_big = registry.publish(_at_version(tmp_path / "w", TRIAGE, "9.9.10"))
     assert too_big.status_code == 422, too_big.text
     assert "Decision Card is larger than 1000 bytes" in too_big.text
     assert registry.client.get("/v1/search").json() == []
@@ -574,23 +586,24 @@ def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_
     published = registry.publish()
     assert published.status_code == 201
     archive_sha256 = published.json()["archive_sha256"]
+    key = registry.fixture_publisher()[1]
     for version in (
-        registry.client.get(f"/v1/agents/{REFERRAL.id}/{REFERRAL.version}").json(),
-        registry.client.get(f"/v1/agents/{REFERRAL.id}").json()["latest"],
+        registry.client.get(f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}").json(),
+        registry.client.get(f"/v1/agents/{TRIAGE.id}").json()["latest"],
         registry.client.get("/v1/search").json()[0],
     ):
         assert version["checked"] == {
             "signature": {
                 "algorithm": "Ed25519",
-                "key_id": archive.key_id(registry.key.public_key()),
+                "key_id": archive.key_id(key.public_key()),
                 "verified": True,
             },
             "archive_sha256": archive_sha256,
-            "digest": REFERRAL.digest,
+            "digest": TRIAGE.digest,
             "engine": "maintained",  # a copy of a reference pack of the registry's release
             "engine_release": mendari.__version__,
             "card": "rendered",
-            "status_label": REFERRAL.status_label,
+            "status_label": TRIAGE.status_label,
             "review": {"status": "unreviewed"},
             "regression": None,  # the check is off in the suite unless a test turns it on
             "accepted": None,  # no signing key in the suite unless a test sets one (LP-19i)
@@ -598,8 +611,8 @@ def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_
         }
         assert version["claimed"] == {
             "publisher": {
-                "name": REFERRAL.manifest.publisher.name,
-                "type": REFERRAL.manifest.publisher.type,
+                "name": TRIAGE.manifest.publisher.name,
+                "type": TRIAGE.manifest.publisher.type,
             },
             "risk": {
                 "level": 1,
@@ -607,12 +620,12 @@ def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_
                 "declared_by": "publisher",
                 "confirmed": None,
             },
-            "license": REFERRAL.manifest.license,
-            "summary": " ".join(REFERRAL.manifest.summary.split()),
+            "license": TRIAGE.manifest.license,
+            "summary": " ".join(TRIAGE.manifest.summary.split()),
         }
-    inbox = registry.publish(_at_version(tmp_path, INBOX, "9.9.9"))
-    assert inbox.status_code == 201
-    shown = registry.client.get(f"/v1/agents/{INBOX.id}/9.9.9").json()
+    newer = registry.publish(_at_version(tmp_path, TRIAGE, "9.9.9"))
+    assert newer.status_code == 201
+    shown = registry.client.get(f"/v1/agents/{TRIAGE.id}/9.9.9").json()
     assert shown["checked"]["engine"] == "bounded"
 
 
@@ -623,14 +636,14 @@ def test_a_publish_that_shadows_a_reference_pack_is_refused(
     wherever it is pulled. The registry refuses it before anything is stored, saying why; the
     same files at a new version publish."""
     root = tmp_path / "shadow"
-    shutil.copytree(INBOX.root, root)
-    rules = root / "logic" / "routing_rules.yaml"
+    shutil.copytree(TRIAGE.root, root)
+    rules = root / "logic" / "router_rules.yaml"
     rules.write_text(rules.read_text() + "# one more line\n")
     refused = registry.publish(load_pack(root))
     assert refused.status_code == 422, refused.text
     reason = refused.json()["detail"]
     assert reason.startswith("the agent does not load: ")
-    assert f"{INBOX.id}@{INBOX.version} has the id and version of an agent this release" in reason
+    assert f"{TRIAGE.id}@{TRIAGE.version} has the id and version of an agent this release" in reason
     assert "never takes a bundled agent's place" in reason and "remove" not in reason
     assert registry.client.get("/v1/search").json() == []
     assert (
