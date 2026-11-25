@@ -26,10 +26,10 @@ from mendari.core.registry import SearchPath
 from mendari.server import readiness
 from mendari.server.app import create_app
 from mendari.server.readiness import Readiness, packs_state
+from tests.conftest import CLINICAL_DIR, TRIAGE_DIR
 from tests.test_auth import FakeIdp, signing_in_with
 
 READY = "/api/health/ready"
-PACKS = Path(__file__).parent / "fixtures" / "reference-agents"
 # A driver's message can carry the host, the user and the database: none of it may leave.
 SECRET_TEXT = 'connection to server at "db.internal.example" (10.9.8.7) failed: user "mendari"'
 
@@ -407,15 +407,15 @@ def test_packs_that_did_not_load_make_readiness_degraded_and_no_pack_unready(
     tmp_path: Path,
 ) -> None:
     broken = tmp_path / "broken"
-    shutil.copytree(PACKS / "patient-inbox-router", broken)
+    shutil.copytree(TRIAGE_DIR, broken)
     (broken / "fhir" / "mapping.yaml").write_text("fhir_version: R5\n")  # no terminology
-    served = [SearchPath(broken, "maintained"), SearchPath(PACKS / "ai-guard", "maintained")]
+    served = [SearchPath(broken, "maintained"), SearchPath(CLINICAL_DIR, "maintained")]
     degraded = TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=served))
     answer = degraded.get(READY)
     assert answer.status_code == 200
     assert answer.json()["status"] == "degraded"
     assert answer.json()["checks"] == {"database": "ok", "packs": "degraded"}
-    assert "patient-inbox-router" not in answer.text  # signed-in health names it, not this
+    assert "triage" not in answer.text  # signed-in health names it, not this
 
     (tmp_path / "empty").mkdir()
     nothing = create_app(db_path=tmp_path / "b.db", packs_paths=[tmp_path / "empty"])
