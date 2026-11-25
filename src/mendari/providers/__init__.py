@@ -24,25 +24,17 @@ from mendari.providers.base import (
     prefixed,
 )
 from mendari.providers.check import CheckConfig, CheckProvider
-from mendari.providers.cql import CqlConfig, CqlProvider
-from mendari.providers.criteria import CriteriaProvider
-from mendari.providers.dosing import DosingProvider
 from mendari.providers.http import allowed_origins, require_listed
 from mendari.providers.jev import ENDPOINT_ENV as JEV_ENDPOINT_ENV
 from mendari.providers.jev import JevConfig, JevProvider
 from mendari.providers.llm import BASE_URL_ENV as LLM_BASE_URL_ENV
 from mendari.providers.llm import LlmConfig, LlmProvider
-from mendari.providers.naive_bayes import NaiveBayesConfig, NaiveBayesProvider
 from mendari.providers.rules import RulesProvider
 
 PROVIDER_TYPES: dict[str, type[Provider]] = {
     provider.type: provider
     for provider in (
         RulesProvider,
-        CriteriaProvider,
-        CqlProvider,
-        DosingProvider,
-        NaiveBayesProvider,
         JevProvider,
         LlmProvider,
         AgentProvider,
@@ -58,10 +50,6 @@ MODEL_TYPES = frozenset({JevProvider.type, LlmProvider.type, AgentProvider.type}
 # constructors take off; a composite's `members` are each one of the other types'.
 PROVIDER_CONFIG_MODELS: Mapping[str, type[BaseModel]] = {
     RulesProvider.type: FileConfig,
-    CriteriaProvider.type: FileConfig,
-    CqlProvider.type: CqlConfig,
-    DosingProvider.type: FileConfig,
-    NaiveBayesProvider.type: NaiveBayesConfig,
     JevProvider.type: JevConfig,
     LlmProvider.type: LlmConfig,
     AgentProvider.type: AgentConfig,
@@ -111,14 +99,14 @@ def config_problems(pack: Pack, *, trained: bool = True) -> list[str]:
     the environment or the network (`Provider.config_problems`): its closed config, its pack
     files, the slot's questions and, for a pack the deployment does not own (`Pack.bounded`),
     `state_fields` on every model variant and member. Each problem names
-    `providers.<slot>.variants.<variant>` first. `trained=False` leaves the trained files
-    (`model_file`, `calibration`) unread, as `load_pack(missing_models_ok=True)` does.
+    `providers.<slot>.variants.<variant>` first. `trained=False` leaves the calibrations
+    unread, as `load_pack(missing_models_ok=True)` does.
 
     `load_pack` runs it: a pack the deployment does not own is refused for any problem, an owned
     one loads with them as `Pack.warnings`. `mendari validate` refuses both."""
     bounded = pack.bounded
     problems: list[str] = []
-    with checking_once():  # a model file several variants name is read once
+    with checking_once():  # a file several variants name is read once
         for slot_name, slot in pack.manifest.providers.items():
             questions = {key: pack.manifest.questions[key] for key in slot.answers}
             for name, variant in slot.variants.items():

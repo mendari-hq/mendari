@@ -26,8 +26,8 @@ names the B11 community engine, which runs the packs the deployment does not own
   backtracks for seconds on a few dozen characters. Installing such a pack means trusting its
   author, as with any plugin (SECURITY.md).
 
-Mendari's own patterns (dosing, CQL headers, the rules provider's scope, word and negation
-patterns) are not pack content and stay on `re`. RE2 and the rewriting are imported only when a
+Mendari's own patterns (the rules provider's scope, word and negation patterns) are not pack
+content and stay on `re`. RE2 and the rewriting are imported only when a
 pattern of a pack on the community engine is compiled, so a deployment without one never loads
 them.
 

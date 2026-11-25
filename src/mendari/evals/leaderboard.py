@@ -34,7 +34,7 @@ PUBLIC_SET = grade.PUBLIC_SET  # what every table of a leaderboard is
 _COMPOSITES = ("check",)
 
 
-_DETERMINISTIC_PREFIXES = ("rules@", "naive_bayes@", "criteria@", "dosing@", "cql:")
+_DETERMINISTIC_PREFIXES = ("rules@",)
 
 
 def config_label(providers: Mapping[str, Mapping[str, Any]]) -> str:
@@ -51,8 +51,7 @@ def config_label(providers: Mapping[str, Mapping[str, Any]]) -> str:
         remote = [
             m
             for m in models
-            if not (m.startswith(_DETERMINISTIC_PREFIXES) and "@" in m)
-            and m not in ("rules", "naive_bayes", "criteria", "dosing")
+            if not (m.startswith(_DETERMINISTIC_PREFIXES) and "@" in m) and m != "rules"
         ]
         parts.append(f"{slot}={info['variant']}" + (f" ({', '.join(remote)})" if remote else ""))
     return " · ".join(parts)

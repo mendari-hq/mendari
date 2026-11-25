@@ -437,7 +437,7 @@ version) or `mendari eval AGENT --dataset NAME --publish --key publisher.key` (o
 - **`report`** is the run's [`mendari.site-report/2`](#shared-site-reports-mendarisite-report2)
   counts (`counted_report`): whole, with no cell suppressed, as a public set holds no patient.
   `remote_consent` is whether the configuration calls a provider off the machine (a type that is
-  not `rules`, `criteria`, `dosing` or `naive_bayes`, or a composite with one).
+  not `rules`, or a composite with one).
   `governance_override` is false: an evaluation measures the agent's own policy.
 - **`claimed`** (the run's latency p50 and p95 in milliseconds, its cost per decision in USD,
   and in `/2` the cases a provider failed on) and **`models`** (the models that answered, as

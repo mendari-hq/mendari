@@ -131,7 +131,7 @@ class GuardedHttp:
         timeout: float | None = None,
         stop: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
-        """A FHIR JSON request (a CQL `$evaluate`, a Library upload); its JSON answer. A
+        """A FHIR JSON request; its JSON answer. A
         `timeout` (seconds, each step) replaces the client's `TIMEOUT` for this request: what
         remains of a decision's deadline (`providers/deadline.py`). `stop`, asked before each
         part of the answer is read, ends an answer still arriving (`FhirError`): the deadline's

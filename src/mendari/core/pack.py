@@ -332,8 +332,8 @@ def manifests_under(base: Path) -> list[Path]:
 def load_pack(
     path: str | Path, *, missing_models_ok: bool = False, origin: Origin = "local"
 ) -> Pack:
-    """Load and validate a pack. `missing_models_ok` lets `mendari train` load a pack whose
-    trained artifacts (`model_file`, `calibration`) do not exist yet; `origin` is where it was
+    """Load and validate a pack. `missing_models_ok` loads a pack whose calibrations
+    (`calibration`) do not exist yet; `origin` is where it was
     found (`core/registry.py` knows). A pack the deployment does not own (`Pack.bounded`: a
     community pack, or one from a registry that is not a bundled agent of this release) is
     checked as it will run: its patterns on RE2, its schema's keywords and its caps; and one
@@ -452,7 +452,7 @@ def load_pack(
         problem = f"input schema: not a schema the validator can read ({type(error).__name__})"
         raise PackValidationError(manifest.id, [problem]) from None
     if bounded:
-        problems = _community_caps(root, manifest, input_schema, parsed, label, digested)
+        problems = _community_caps(manifest, input_schema, parsed)
         if problems:
             raise PackValidationError(manifest.id, problems)
     # A pack the deployment owns has no time budget: its schema's shape is bounded instead (one
@@ -496,11 +496,6 @@ def load_pack(
 
         if newer := version_problems(pack):
             raise PackValidationError(manifest.id, newer)
-    # Spec 0.3's criteria keys in a 0.1 or 0.2 pack: refused for every pack, the same way.
-    from mendari.providers.criteria import version_problems as criteria_version_problems
-
-    if newer := criteria_version_problems(pack):
-        raise PackValidationError(manifest.id, newer)
     warnings = held + problems
     return replace(pack, warnings=tuple(warnings)) if warnings else pack
 
@@ -570,17 +565,10 @@ def _cached(root: Path) -> str:
     return f"; remove {root} from the cache" if cached else ""
 
 
-def _community_caps(
-    root: Path,
-    manifest: PackManifest,
-    input_schema: Any,
-    parsed: dict[str, Any],
-    label: str,
-    digested: Digested,
-) -> list[str]:
+def _community_caps(manifest: PackManifest, input_schema: Any, parsed: dict[str, Any]) -> list[str]:
     """What multiplies the pattern work of a pack on the community engine (`Pack.bounded`) past
-    its caps (`core/caps.py`): its rules and dosing configs, its input schema, and the patterns
-    they run together. The caps are imported only for such a pack."""
+    its caps (`core/caps.py`): its rules configs, its input schema, and the patterns they run
+    together. The caps are imported only for such a pack."""
     from mendari.core import caps
 
     problems = [
@@ -588,9 +576,6 @@ def _community_caps(
         for relative, data in parsed.items()
         for problem in caps.rules_problems(relative, data)
     ]
-    for relative in _provider_files(manifest, "dosing"):
-        table = parse_yaml(_read(root, relative, label, digested), relative, manifest.id)
-        problems += caps.dosing_problems(relative, table)
     runs = caps.rules_runs(manifest, parsed)
     size = caps.rules_runs(manifest, parsed, caps.rules_size)
     return problems + caps.schema_problems(input_schema, runs, size)
@@ -636,8 +621,8 @@ def _digest(root: Path, label: str = "") -> tuple[str, Digested, dict[str, str]]
 # Manifest fields naming a file the pack decides or tests with, in a provider variant or a
 # composite member's config. Every one is checked at load, naming the field; a file read under
 # any other key goes through `Pack.path`, which accepts only a digested file as well.
-_PROVIDER_FILE_KEYS = ("config", "library", "model_file", "calibration", "mock_file")
-_TRAINED_FILE_KEYS = ("model_file", "calibration")  # may not exist yet (`missing_models_ok`)
+_PROVIDER_FILE_KEYS = ("config", "calibration", "mock_file")
+_TRAINED_FILE_KEYS = ("calibration",)  # may not exist yet (`missing_models_ok`)
 
 
 def _referenced_files(m: PackManifest, *, models: bool = True) -> list[tuple[str, str]]:

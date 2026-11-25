@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """One wall-clock deadline across a decision's remote calls (LP-16b).
 
-A decision's remote providers (Jev, an LLM, the CQL engine) each have a timeout of their own,
+A decision's remote providers (Jev, an LLM) each have a timeout of their own,
 and some retry, so a decision with several of them could hold its request past what the
 platform allows (Vercel stops a function at `maxDuration`, before the audit is written). The
 deployment sets one deadline per decision (`settings.decision_deadline_s`), which
@@ -21,8 +21,8 @@ answer's headers), the clocks being checked only once its body arrives.
 - either way the provider fails with `timeout`, from the closed set, and the policy holds the
   decision for a person (a failure never automates; a missing primary abstains).
 
-Local providers (rules, criteria, naive Bayes, dosing) never look at it: they always answer, so
-a safety screen's keyword rules still fire after the deadline has passed.
+Local providers (rules) never look at it: they always answer, so a safety screen's keyword
+rules still fire after the deadline has passed.
 
 The deadline lives in a context variable per decision, measured on `time.monotonic`, never on
 the shared `Decision` object (one serves every request's thread). It is not the CPU time budget

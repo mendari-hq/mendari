@@ -26,8 +26,8 @@ T = TypeVar("T")
 
 
 class FileConfig(BaseModel):
-    """A `rules`, `criteria` or `dosing` variant: its type and the file of the agent its config
-    is in, and nothing else (`Provider.config_problems`)."""
+    """A `rules` variant: its type and the file of the agent its config is in, and nothing else
+    (`Provider.config_problems`)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -210,8 +210,8 @@ class Provider(ABC):
         the network, each problem naming `where` (the variant, or the member) or the pack file
         it is about. Its closed config model refuses any key it does not read. `bounded`: the
         pack is one the deployment does not own (`Pack.bounded`), held to more. `trained`: the
-        trained files (`model_file`, `calibration`) are read too; `mendari train` loads a pack
-        before it has them. `load_pack` runs it on every variant (`providers.config_problems`:
+        calibrations are read too (`load_pack(missing_models_ok=True)` leaves them unread).
+        `load_pack` runs it on every variant (`providers.config_problems`:
         a pack the deployment does not own is refused, an owned one warned) and so does
         `mendari validate`; each constructor raises on the checks a variant was refused for
         before (an owned pack's unread key only warns, so it still serves)."""
@@ -307,7 +307,7 @@ def read_problems(read: Callable[[], Any]) -> tuple[Any, list[str]]:
 
 
 # What one `providers.config_problems` call has already worked out about a pack file, by key: a
-# pack's composites often name the same trained model, which is then read and checked once.
+# file several variants name is then read and checked once.
 # None outside such a call, so nothing outlives it (a file edited later is read again, and
 # refused).
 _CHECKED: ContextVar[dict[Hashable, Any] | None] = ContextVar("checked", default=None)

@@ -16,7 +16,7 @@ Unset, nothing more is checked than before: every endpoint comes only from the d
 variables (`core/spec.py` `DEPLOYMENT_ENV_KEYS`). Set, a request to any other origin (the AI
 Gateway's default, Jev's model list and Vercel Connect included) is refused before a connection
 is opened (`invalid_endpoint`), and a server whose `LLM_BASE_URL` or `JEV_API_URL` names one
-does not start (`providers.provider_allow_list`). The CQL engine stays on the FHIR allow-list.
+does not start (`providers.provider_allow_list`).
 """
 
 from __future__ import annotations

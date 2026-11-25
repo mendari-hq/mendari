@@ -1,18 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """The cases `mendari probe` changes, and where their text is.
 
-**Which cases.** A labelled dataset (one of the agent's, or a JSON Lines file), or the agent's
-own behaviour tests (`source`). A case is what the agent reads of it (`identity_fields`): two
-records that are the same in every field the running providers say they read are one case
-(`distinct_cases`), probed once. Where a provider is sent the whole input, or reads fields it
-does not list (structured criteria, CQL), a case is the whole input: two records it may decide
-differently are never one. A small probe takes cases with a critical label and cases without
-in turn, in an order the seed gives (`in_turn`), so it reaches both the answers a miss is costly
-on and the cases a wrong answer would automate.
+**Which cases.** A labelled dataset (one of the agent's, or a JSON Lines file), or the agent's own
+behaviour tests (`source`). A case is what the agent reads of it (`identity_fields`): two records
+that are the same in every field the running providers say they read are one case
+(`distinct_cases`), probed once. Where a provider is sent the whole input, a case is the whole
+input: two records it may decide differently are never one. A small probe takes cases with a
+critical label and cases without in turn, in an order the seed gives (`in_turn`), so it reaches both
+the answers a miss is costly on and the cases a wrong answer would automate.
 
 **Which text.** The fields the running providers say they read text in (`read_fields`: an
-agent's, a model's or Jev's `state_fields`; the `text_fields` of rules, a trained classifier or a
-dosing table), or, when one of them is sent the whole input, every string in it. Of those, a
+agent's, a model's or Jev's `state_fields`; the `text_fields` of rules), or, when one of them
+is sent the whole input, every string in it. Of those, a
 string the input schema holds to a list of values or a format (`enum`, `const`, `format`), or to
 a `pattern` that gives it a shape, is a code, a date or an id, not text, and is never changed
 (`text_places`). A pattern that ordinary text meets (`\\S`: not blank; one line only) gives no
@@ -39,12 +38,8 @@ from mendari.evals.probe_transforms import Stream
 from mendari.providers import Provider
 from mendari.providers.agent import AgentProvider
 from mendari.providers.base import select_fields
-from mendari.providers.cql import CqlProvider
-from mendari.providers.criteria import CriteriaProvider
-from mendari.providers.dosing import DosingProvider
 from mendari.providers.jev import JevProvider
 from mendari.providers.llm import LlmProvider
-from mendari.providers.naive_bayes import NaiveBayesProvider
 from mendari.providers.rules import RulesProvider
 
 Place = tuple[str | int, ...]  # where a text is in an input: ("message", "body")
@@ -217,15 +212,10 @@ def leaves(decision: Decision) -> Iterator[Provider]:
         yield from provider.leaves()
 
 
-# Providers that answer from the input's coded data, dates and numbers: they read no free text,
-# and do not list the fields they read.
-_STRUCTURED = (CriteriaProvider, CqlProvider)
-
-
 def read_fields(decision: Decision) -> tuple[str, ...] | None:
     """The input fields the running providers say they read text in, or None when one of them
-    is sent the whole input, or none names a field. A provider of structured data reads none."""
-    return _together(_named(leaf) for leaf in leaves(decision) if not isinstance(leaf, _STRUCTURED))
+    is sent the whole input, or none names a field."""
+    return _together(_named(leaf) for leaf in leaves(decision))
 
 
 def identity_fields(decision: Decision) -> tuple[str, ...] | None:
@@ -237,7 +227,7 @@ def identity_fields(decision: Decision) -> tuple[str, ...] | None:
 
 def _named(leaf: Provider) -> list[str] | None:
     """The input fields a provider says it reads, or None: it is sent the whole input, or does
-    not say (structured criteria, CQL, a provider type this module does not know)."""
+    not say (a provider type this module does not know)."""
     if isinstance(leaf, AgentProvider | LlmProvider | JevProvider):
         fields = leaf.settings.state_fields
         return None if fields is None else list(fields)
@@ -246,10 +236,6 @@ def _named(leaf: Provider) -> list[str] | None:
         for rules in leaf.rules.questions.values():
             named += rules.text_fields or []
         return named
-    if isinstance(leaf, NaiveBayesProvider):
-        return list(leaf.text_fields)
-    if isinstance(leaf, DosingProvider):
-        return list(leaf.table.text_fields)
     return None
 
 

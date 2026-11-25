@@ -147,76 +147,6 @@
       "title": "check provider config",
       "type": "object"
     },
-    "cql": {
-      "additionalProperties": false,
-      "properties": {
-        "as_of": {
-          "default": "as_of",
-          "title": "As Of",
-          "type": "string"
-        },
-        "expressions": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "minProperties": 1,
-          "title": "Expressions",
-          "type": "object"
-        },
-        "library": {
-          "title": "Library",
-          "type": "string"
-        },
-        "type": {
-          "const": "cql"
-        }
-      },
-      "required": [
-        "expressions",
-        "library",
-        "type"
-      ],
-      "title": "cql provider config",
-      "type": "object"
-    },
-    "criteria": {
-      "additionalProperties": false,
-      "description": "A `rules`, `criteria` or `dosing` variant: its type and the file of the agent its config\nis in, and nothing else (`Provider.config_problems`).",
-      "properties": {
-        "config": {
-          "title": "Config",
-          "type": "string"
-        },
-        "type": {
-          "const": "criteria"
-        }
-      },
-      "required": [
-        "config",
-        "type"
-      ],
-      "title": "criteria provider config",
-      "type": "object"
-    },
-    "dosing": {
-      "additionalProperties": false,
-      "description": "A `rules`, `criteria` or `dosing` variant: its type and the file of the agent its config\nis in, and nothing else (`Provider.config_problems`).",
-      "properties": {
-        "config": {
-          "title": "Config",
-          "type": "string"
-        },
-        "type": {
-          "const": "dosing"
-        }
-      },
-      "required": [
-        "config",
-        "type"
-      ],
-      "title": "dosing provider config",
-      "type": "object"
-    },
     "jev": {
       "additionalProperties": false,
       "properties": {
@@ -409,65 +339,19 @@
           "$ref": "#/$defs/agent"
         },
         {
-          "$ref": "#/$defs/cql"
-        },
-        {
-          "$ref": "#/$defs/criteria"
-        },
-        {
-          "$ref": "#/$defs/dosing"
-        },
-        {
           "$ref": "#/$defs/jev"
         },
         {
           "$ref": "#/$defs/llm"
         },
         {
-          "$ref": "#/$defs/naive_bayes"
-        },
-        {
           "$ref": "#/$defs/rules"
         }
       ]
     },
-    "naive_bayes": {
-      "additionalProperties": false,
-      "description": "A `naive_bayes` variant: the trained model file, and the text fields it reads, which must\nbe those it was trained on (by default, the model's own).",
-      "properties": {
-        "model_file": {
-          "title": "Model File",
-          "type": "string"
-        },
-        "text_fields": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Text Fields"
-        },
-        "type": {
-          "const": "naive_bayes"
-        }
-      },
-      "required": [
-        "model_file",
-        "type"
-      ],
-      "title": "naive_bayes provider config",
-      "type": "object"
-    },
     "rules": {
       "additionalProperties": false,
-      "description": "A `rules`, `criteria` or `dosing` variant: its type and the file of the agent its config\nis in, and nothing else (`Provider.config_problems`).",
+      "description": "A `rules` variant: its type and the file of the agent its config is in, and nothing else\n(`Provider.config_problems`).",
       "properties": {
         "config": {
           "title": "Config",
@@ -496,22 +380,10 @@
       "$ref": "#/$defs/check"
     },
     {
-      "$ref": "#/$defs/cql"
-    },
-    {
-      "$ref": "#/$defs/criteria"
-    },
-    {
-      "$ref": "#/$defs/dosing"
-    },
-    {
       "$ref": "#/$defs/jev"
     },
     {
       "$ref": "#/$defs/llm"
-    },
-    {
-      "$ref": "#/$defs/naive_bayes"
     },
     {
       "$ref": "#/$defs/rules"

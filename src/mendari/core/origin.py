@@ -81,7 +81,7 @@ COMMUNITY_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 MAX_COMMUNITY_RISK = RiskLevel.CLINICAL_INFORMATION
 # The provider types that decide on this machine, without a call anywhere, and the composites
 # that combine them. A community pack's default variants use only these.
-LOCAL_PROVIDER_TYPES = frozenset({"rules", "criteria", "dosing", "naive_bayes"})
+LOCAL_PROVIDER_TYPES = frozenset({"rules"})
 COMPOSITE_PROVIDER_TYPES = frozenset({"check"})
 # Variant keys a pack the deployment does not own (`bounded`) may set but the deployment decides:
 # which model a remote provider calls. Its answer length and timeout are held to the provider

@@ -104,13 +104,6 @@ def rules_problems(relative: str, rules: Any) -> list[str]:
     return problems
 
 
-def dosing_problems(relative: str, table: Any) -> list[str]:
-    """Why a community pack's `dosing` table multiplies its work: a text field named twice."""
-    if not isinstance(table, Mapping):
-        return []
-    return _repeated(relative, "text_fields", table.get("text_fields"))
-
-
 def _repeated(relative: str, where: str, fields: Any) -> list[str]:
     if not isinstance(fields, list):
         return []

@@ -256,18 +256,18 @@ providers:
   Gateway's default and Vercel Connect included): any other request is refused before it is
   opened (`invalid_endpoint`), and an `LLM_BASE_URL` or `JEV_API_URL` off the list stops startup;
 - refuse redirects and cap response size;
-- share one wall-clock deadline per decision, the CQL engine included
+- share one wall-clock deadline per decision
   (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set): past it a call is not made, one under way
   is cut, and the decision records `timeout` and goes to a person; local providers still answer.
 
 Credentials and provider error bodies never reach audit records or error messages. The same
 outbound guard (allow-listed origins, no redirects, timeouts, size caps) covers every other
-call the engine makes: FHIR servers, the CQL engine, the identity provider, the payer and alert
+call the engine makes: FHIR servers, the identity provider, the payer and alert
 webhooks.
 
 ## Agent supply chain
 
-Agents contain behaviour: patterns, models, CQL and policies. Review an agent like code before
+Agents contain behaviour: patterns, instructions and policies. Review an agent like code before
 running it: installing an agent means trusting its author, as with any plugin. The patterns of the
 agents a deployment owns (the agents bundled with the release, and its own local agents) run on
 Python `re` with no time limit, so such an agent can slow or stall a worker; on `re`, a crafted
@@ -355,10 +355,6 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   other files, is refused at load, so the registry refuses its publish (`422`), `mendari pull`
   refuses it before it is cached, and one cached before is listed under `/api/health`
   `invalid`, with the directory to remove, while the bundled agent is served.
-- An agent cannot reach another agent's CQL. The engine at `MENDARI_CQL_URL` is shared, so an agent's
-  library is uploaded under a resource id and a declared name that end in a hash of the agent id
-  and of the library's text: a library that declares another agent's library name and version
-  neither replaces nor shadows it. The declaration must be the library's first statement.
 - An agent's patterns are checked at load. Every rules pattern (of every variant and composite
   member) and every input-schema `pattern` and `patternProperties` key is compiled as it will
   run (with `re`; a community agent's also for RE2, which must be able to run it), is at most
@@ -394,11 +390,11 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   YAML and JSON hold only what a JSON response can carry: a string with a lone surrogate
   (`"\ud800"`, in YAML or JSON), `!!binary`, `!!set`, `!!omap`, `!!pairs`, and in JSON a number
   that is not finite or an integer too large to be one, are refused when the file is read (the manifest, policy, input schema and
-  rules at load; a model, calibration, FHIR mapping or the tests when first read), named by the
+  rules at load; a calibration, FHIR mapping or the tests when first read), named by the
   file and, in YAML, the line and column, so no agent can make the list of agents, an agent's
   detail or a decision a `500`. A JSON file that is not JSON, holds an integer of more than
-  4,300 digits or nests too deep, a naive_bayes model of the wrong shape, a CQL library or
-  `CHANGELOG.md` that is not UTF-8 and a file that cannot be read are named the same way:
+  4,300 digits or nests too deep, a `CHANGELOG.md` that is not UTF-8 and a file that cannot
+  be read are named the same way:
   `mendari validate`, `test` and `card` print no traceback, and the server answers `422`. A
   behaviour test of the wrong shape (each is a mapping with an `input` mapping, an optional text
   `name` and an optional `expect` mapping whose `answers` is a mapping) or that is not JSON (a

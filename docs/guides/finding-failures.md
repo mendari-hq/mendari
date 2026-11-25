@@ -113,9 +113,8 @@ take the tests with `--from-tests`. The tests the probe wrote itself are never i
 
 A case is what the agent reads of it. Where every provider names the fields it reads
 (`state_fields`, `text_fields`), the same message given twice, on another day or another channel,
-is one case and is probed once. Where one is sent the whole input, or reads structured data
-(criteria, CQL), a case is the whole input: two records the agent may decide differently are
-never one. `--limit N` takes N cases (50 by default, `all` for every one): cases with a critical
+is one case and is probed once. Where one is sent the whole input, a case is the whole input:
+two records the agent may decide differently are never one. `--limit N` takes N cases (50 by default, `all` for every one): cases with a critical
 label and cases without in turn, in an order the seed gives, so a small probe reaches both the
 answers a miss is costly on and the cases a wrong answer would automate.
 

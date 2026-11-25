@@ -142,7 +142,7 @@ STATUS_WORDS = {CONFIRMED: "Checked against the source", TO_VERIFY: "To verify"}
 _STATUS_SHORT = {CONFIRMED: "Checked", TO_VERIFY: "To verify"}  # in a table's cell
 WHO_WORDS = {"publisher": "The publisher", "site": "This site"}
 # Provider types that call a service off this deployment (`Provider.remote`).
-_CALLS_OUT = frozenset({"agent", "llm", "jev", "cql"})
+_CALLS_OUT = frozenset({"agent", "llm", "jev"})
 OUTCOMES = (
     ("AUTO", "The recommendation is acted on without a person, within the limits of its risk."),
     ("HUMAN_REVIEW", "A person decides. The recommendation and its reasons are shown to them."),

@@ -385,7 +385,7 @@ def test_a_malformed_model_file_is_named_never_a_traceback(
 ) -> None:
     """An agent variant's canned answers (its mock file) as `{`, `[]`, a 5,000-digit integer or
     100,000 nested `[`: named by `mendari validate`, `mendari test` and the agent's detail, never
-    a traceback (the naive Bayes model files these once were made both print one)."""
+    a traceback."""
     outside = tmp_path / "outside"
     pack = _outsider(outside, edit, SOURCE)
     assert problem in _no_traceback(capsys, "validate", str(pack))

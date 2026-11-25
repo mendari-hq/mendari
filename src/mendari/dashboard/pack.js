@@ -229,14 +229,14 @@ export const criticalText = (question, label) => `${slotText(question)}: ${label
 
 // Plain words for variant names ("rules_and_llm" -> "Rules + LLM"); the raw configuration stays in
 // the row's tooltip.
-const VARIANT_WORDS = { rules: "Rules", llm: "LLM", jev: "Jev", naive_bayes: "Naive Bayes", criteria: "Criteria", dosing: "Dosing" };
+const VARIANT_WORDS = { rules: "Rules", llm: "LLM", jev: "Jev" };
 
 export const variantText = (variant) => variant.split("_and_").map((part) => VARIANT_WORDS[part] ?? part.replaceAll("_", " ")).join(" + ");
 
 const REMOTE_VARIANTS = new Set(["jev", "llm"]);
 
 // A provider in words, with the model where one runs: "Rules + model-2", "Jev 1.13.0",
-// "Naive Bayes". A remote part is named by its model, so nothing is said twice; models of other
+// "Rules". A remote part is named by its model, so nothing is said twice; models of other
 // variants (a check's members) follow in brackets.
 export function providerName(p) {
   if (!p) return "–";

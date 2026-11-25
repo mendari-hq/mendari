@@ -159,10 +159,9 @@ it, or why it is left as it is.
 ### Inputs
 
 An agent is a directory, or a signed archive of one (S4). Mendari reads it as data (YAML, JSON and
-text): nothing in it is imported or run as Python, and a `cql` variant's library runs on the
-deployment's CQL engine. Its digest covers every file but those under `evals/`, any
-`DECISION_CARD.md`, and hidden entries and `__pycache__` (S15); a file it decides or tests with
-is read only if the digest covers it, and only as hashed (T2, E9). What an agent sets:
+text): nothing in it is imported or run as Python. Its digest covers every file but those under
+`evals/`, any `DECISION_CARD.md`, and hidden entries and `__pycache__` (S15); a file it decides or
+tests with is read only if the digest covers it, and only as hashed (T2, E9). What an agent sets:
 
 | Input | What it sets | Checked |
 |---|---|---|
@@ -172,7 +171,7 @@ is read only if the digest covers it, and only as hashed (T2, E9). What an agent
 | `inputs.fhir` | The FHIR mapping: how a record becomes an input, and the Task a decision writes; in spec 0.3 also `[system=…]` predicates, fallback `paths`, `follow` (a path of the field's own type read in place, LP-23k), `attachment_text`, `code_sets` and the `code_set` selector (for `focus_where` too, LP-23k), list `resources` and `medication_period` (LP-23g) | At load, that it is a file the digest covers (E9); its content at load for an agent the deployment does not own, for an owned one where it is used, and by `mendari validate`. The 0.3 keys only in a 0.3 agent (a 0.1 or 0.2 agent with one is refused at load, wherever it comes from), whose paths are of the subset and whose `[system=…]` predicates and code sets name systems its `code_systems` declares; for an agent the deployment does not own, and every agent in `mendari validate`, at most 4 paths a field and 200 codes a code set. A `follow` is one hop for every agent, resolved once a field, and the mapping resolves it and an attachment's `url` inside the record only, each by one lookup in the indexed record, so a mapping's work grows with the record, not with its square. What the record lacks, a CDS hook or the SMART launch's decide reads first from the request's `fhirServer` only, under its base, at most 50 notes and 50 followed references a decision and 100 reads a request (E1, D14) |
 | `tests` | Behaviour tests (`mendari test`, the examples in the API reference) | At load, only that it is a file the digest covers; a case's shape where it is read (D7); its input against the schema by `mendari validate` |
 | `evaluation.datasets` | JSON Lines datasets (`mendari eval`, `POST /api/agents/{namespace}/{name}/evals`) | At load, only that each is a file the digest covers; each line where it is read (D7); its input and labels by `mendari validate` |
-| `config`, `library`, `model_file`, `calibration`, `mock_file` | A variant's or composite member's agent file: a rules, criteria or dosing config, a CQL library, a naive Bayes model, an LLM's or an agent's calibration, or an agent offline mock fixture | At load: a file the digest covers, named by its field (E9), and read by its provider's check (E8) |
+| `config`, `calibration`, `mock_file` | A variant's or composite member's agent file: a rules config, an LLM's or an agent's calibration, or an agent offline mock fixture | At load: a file the digest covers, named by its field (E9), and read by its provider's check (E8) |
 | Variant keys | Everything else a variant or composite member sets, by provider type (below) | At load, against its type's closed config (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): refused for an agent the deployment does not own, a warning for an owned one; a `jev` or `llm` variant or member that sets `api_key_env`, `connector_env`, `endpoint_env`, `model_env`, `base_url_env` or `local_key_env` is refused for every agent (`core/spec.py`) (E8) |
 | Wording templates | `cds_hooks.card.summaries` and `also_show`'s summaries (spec 0.3), and the FHIR mapping's `task.description` and `task.performer` | A card summary's placeholder names at load, a Task text's where it is used (at load for an agent the deployment does not own); bare placeholders for an agent the deployment does not own (E4) |
 | `cds_hooks.prefetch` | What a CDS Hooks service needs from the EHR, read from the EHR's FHIR server when the request leaves it out | At load: a relative read or search, refused for an agent the deployment does not own, a warning for an owned one (E1) |
@@ -185,10 +184,6 @@ takes beside `type`:
 | Provider type | Decides | Variant keys |
 |---|---|---|
 | `rules` | On this machine, by weighted patterns in its `config` | `config` |
-| `criteria` | On this machine, on coded data, dates and numbers, by its `config` | `config` |
-| `dosing` | On this machine, by dose arithmetic on text, with its `config` | `config` |
-| `naive_bayes` | On this machine, by its trained `model_file` | `model_file`, `text_fields` |
-| `cql` | On the deployment's CQL engine (`MENDARI_CQL_URL`, on the FHIR allow-list), sent the record as a FHIR Bundle Mendari builds (`standards/record_fhir.py`) | `library`, `expressions`, `as_of` |
 | `jev` | At Jev, the deployment's endpoint | `model`, `timeout_ms`, `state_fields`, `cost_per_1k_input_tokens_usd`, `batch` |
 | `llm` | At a chat model, through the AI Gateway or at `LLM_BASE_URL` | `model`, `timeout_ms`, `max_tokens`, `temperature`, `reasoning_effort`, `state_fields`, `calibration`, `batch`, `repeat` |
 | `agent` | At an external HTTP AI agent (`MENDARI_AGENT_URL`, or `endpoint` on an owned agent) or offline via `mock_file` | `endpoint`, `agent_id`, `system_prompt`, `instructions`, `timeout_seconds`, `state_fields`, `mock_file`, `calibration`, `repeat` |
