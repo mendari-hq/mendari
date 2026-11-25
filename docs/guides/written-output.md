@@ -12,8 +12,8 @@ label to count, so Mendari evaluates it another way.
   floors**. Below them the figure is withheld. It is not shown with a caveat.
 
 This guide walks through it with the bundled demo agent, `agents/portal-message-agent`. The
-rules are in [agent manifest spec 0.4](../spec/agent-manifest-0.4.md) (sections 16 to 20), the
-formats in [evaluation reports](../spec/evaluation-reports.md), and the reasons in
+rules are in [the agent manifest spec](../spec/agent-manifest.md#15-written-output) (section
+15), the formats in [evaluation reports](../spec/evaluation-reports.md), and the reasons in
 [ADR-0025](../decisions/ADR-0025-a-judge-is-trusted-by-measured-agreement.md).
 
 ## See it in a minute

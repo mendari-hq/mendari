@@ -14,7 +14,7 @@ what it says, and about two checks that send an unstable answer to a person:
 The first changes the number. The other two never do: they can only turn an automated decision
 into one a person reviews. The reasons behind each rule are in
 [ADR-0024](../decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md), and the manifest
-keys in [spec 0.4](../spec/agent-manifest-0.4.md), sections 8 to 13. All three need
+keys in [the spec](../spec/agent-manifest.md#14-a-calibrated-confidence-and-a-second-signal), section 14. All three need
 `spec_version: "0.4"`.
 
 This page is for the author of an agent and for the hospital deciding whether to trust its

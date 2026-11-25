@@ -177,7 +177,7 @@ each figure as k of n with its exact 95% interval (twelve cases are a smoke test
 estimate). The
 [authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md)
 explains every section, and
-[the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest-0.2.md)
+[the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest.md)
 specifies it.
 
 **In CI.** The workflow uses Mendari's GitHub Action: on a pull request or a push to `main` it
@@ -391,7 +391,7 @@ hosted once the repository is public.
 |---|---|
 | write an agent's manifest | [the authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md) |
 | find an agent's failures, set its threshold, check every change | [Finding failures](https://github.com/mendari-hq/mendari/blob/main/docs/guides/finding-failures.md), [Choosing an automation threshold](https://github.com/mendari-hq/mendari/blob/main/docs/guides/choosing-a-threshold.md), [Evaluating an agent on every change](https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md) |
-| check an agent's confidence, add a second signal, gate what it does | [Calibration and a second signal](https://github.com/mendari-hq/mendari/blob/main/docs/guides/calibration-and-a-second-signal.md), [Governing actions](https://github.com/mendari-hq/mendari/blob/main/docs/guides/governing-actions.md), [spec 0.4](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest-0.4.md) |
+| check an agent's confidence, add a second signal, gate what it does | [Calibration and a second signal](https://github.com/mendari-hq/mendari/blob/main/docs/guides/calibration-and-a-second-signal.md), [Governing actions](https://github.com/mendari-hq/mendari/blob/main/docs/guides/governing-actions.md), [the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest.md) |
 | grade what an agent writes, with clinicians and a judge whose agreement is measured | [Evaluating written output](https://github.com/mendari-hq/mendari/blob/main/docs/guides/written-output.md) |
 | call Mendari over REST or FHIR | [Using the API](https://github.com/mendari-hq/mendari/blob/main/docs/guides/api.md) |
 | read an evaluation report | [Evaluation reports and ledgers](https://github.com/mendari-hq/mendari/blob/main/docs/spec/evaluation-reports.md) |

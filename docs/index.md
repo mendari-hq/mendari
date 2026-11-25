@@ -31,7 +31,7 @@ governed agent is a folder of plain text:
 | give your AI governance committee one document about an agent | [The committee packet](guides/committee-packet.md) |
 | run Mendari at your organization | [Deploying with real patient data](deploying-with-phi.md) |
 | publish and pull signed agents | [Running a registry](operations/registry.md) |
-| know exactly what a manifest may contain | [The spec](spec/agent-manifest-0.2.md), the FHIR mapping of [0.3](spec/agent-manifest-0.3.md), and the actions, calibration and second signal of [0.4](spec/agent-manifest-0.4.md) |
+| know exactly what a manifest may contain | [The spec](spec/agent-manifest.md): the manifest, the FHIR mapping, actions, calibration, a second signal and written output |
 | understand how the engine works | [Architecture](architecture.md) |
 | review its security | [Threat model](security/threat-model.md) |
 | read why it is built this way | The decision records, from [ADR-0001](decisions/ADR-0001-questions-as-the-core-abstraction.md) on |

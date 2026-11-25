@@ -562,7 +562,7 @@ def test_every_error_code_mendari_records_can_be_counted(code: str) -> None:
 
 
 def test_the_spec_lists_every_error_code() -> None:
-    spec = (ROOT / "docs" / "spec" / "agent-manifest-0.2.md").read_text()
+    spec = (ROOT / "docs" / "spec" / "agent-manifest.md").read_text()
     listed = spec[spec.index("a provider error with one of these") : spec.index("No other code")]
     assert set(re.findall(r"`([a-z_]+)`", listed)) == FAILURE_CODES
 

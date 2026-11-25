@@ -228,7 +228,7 @@ read.
 
 An agent can read a note that is only a link to a Binary, and what a reference points to: the
 payer behind `Coverage.payor`, the drug behind `medicationReference`
-([the mapping](../spec/agent-manifest-0.3.md)). When the record does not hold them, Mendari
+([the mapping](../spec/agent-manifest.md#94-following-a-reference)). When the record does not hold them, Mendari
 reads them from the same `fhirServer`, with the same token:
 
 - one `GET` of one resource by `Type/id`, under the server's base URL, with
@@ -455,7 +455,7 @@ translates (a map translates codings only).
 
 An EHR often codes things its own way: a local code system, or another code of a standard one.
 An agent names sets of its own codes (`code_sets`) and reads a field through one
-(`code_set`, [the spec](../spec/agent-manifest-0.3.md#25-code-sets-03)). `MENDARI_SITE_CODES`
+(`code_set`, [the spec](../spec/agent-manifest.md#96-code-sets)). `MENDARI_SITE_CODES`
 says how a site's codes translate into an agent's, one organization at a time. Off until you set
 it: unset, no code is translated and every decision is made as before.
 

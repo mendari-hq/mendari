@@ -5,7 +5,7 @@ Accepted
 
 Decided by the maintainer on 2026-11-24, before the repository was public, so no comment period ran; open to revision when it is.
 
-Specified in [agent manifest spec 0.4](../spec/agent-manifest-0.4.md), sections 8 to 13. Built
+Specified in [the agent manifest spec](../spec/agent-manifest.md), section 14. Built
 beside [ADR-0023](ADR-0023-an-agent-proposes-actions.md) (actions); point 5 below is where the
 two meet.
 

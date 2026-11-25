@@ -11,8 +11,8 @@ channel. Your caller, the code that runs the agent's tools, runs an action, and 
 was released.
 
 This guide walks through it with the bundled demo agent, `agents/portal-message-agent`. The
-rules are in [agent manifest spec 0.4](../spec/agent-manifest-0.4.md), and the reasons in
-[ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md).
+rules are in [the agent manifest spec](../spec/agent-manifest.md#13-actions), section 13, and
+the reasons in [ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md).
 
 ## See it in a minute
 

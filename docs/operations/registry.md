@@ -268,7 +268,7 @@ publisher.key --evaluate NAME` publishes the version and every configuration's e
 one step, and `mendari eval AGENT --dataset NAME --publish --key publisher.key` one
 configuration ([Publishing an agent's evaluations](../guides/publishing-evaluations.md)). Each
 sends a `mendari.publisher-evaluation/1` record
-([the format](../spec/evaluation-reports.md#publisher-evaluations-mendaripublisher-evaluation2);
+([the format](../spec/evaluation-reports.md#publisher-evaluations-mendaripublisher-evaluation1);
 a `/1` record from an older client is still taken, and shown with what it does not state as
 not stated)
 to `POST /v1/agents/{namespace}/{name}/{version}/evaluations` with the namespace's publisher

@@ -449,7 +449,7 @@ answer: each matching pattern adds its weight to a label's score, and `negatable
 "no chest pain" does not count. Patterns are Python regular expressions matched with case
 ignored, at most 2,000 characters each and 500 in a manifest; keep them simple, since `re` has
 no time limit. Text is read in its plain form first (curly apostrophes, no-break spaces and the
-like become a keyboard's characters; [the spec, §5](../spec/agent-manifest-0.2.md#5-providers),
+like become a keyboard's characters; [the spec, §5.3](../spec/agent-manifest.md#53-the-plain-form),
 lists what changes). An agent from a registry or an agent store runs its patterns on RE2:
 see [Patterns run on RE2](#patterns-run-on-re2).
 
@@ -588,8 +588,8 @@ and declares the hook `mendari-message-received`. Each `cds_hooks.prefetch` temp
 or search relative to the EHR's FHIR server (`Patient/{{context.patientId}}`): no absolute URL,
 `..`, operation or fragment. A card summary or Task text uses bare placeholders (`{request}`),
 and every text a card can give must be under 140 characters. Selecting codings by system,
-fallback paths, following a reference and code sets are in the mapping's own document
-([the FHIR mapping](../spec/agent-manifest-0.3.md)). How an EHR connects is in
+fallback paths, following a reference and code sets are in the spec
+([the FHIR mapping](../spec/agent-manifest.md#91-the-fhir-mapping)). How an EHR connects is in
 [Connecting an EHR](connecting-an-ehr.md).
 
 ## 14. Publish the card
@@ -675,8 +675,7 @@ stronger evidence.
 - [ ] A clinician other than the author reviewed the criteria.
 - [ ] At level 2 or 3, the committee's approval is recorded.
 
-The full format is in the [agent manifest spec](../spec/agent-manifest-0.2.md), the FHIR
-mapping in [its own document](../spec/agent-manifest-0.3.md), and actions, a calibrated
-confidence, a second signal and written output in [their own](../spec/agent-manifest-0.4.md).
+The full format is in the [agent manifest spec](../spec/agent-manifest.md): the manifest, the
+FHIR mapping, actions, a calibrated confidence, a second signal and written output.
 An agent says `spec_version: "0.4"`, the one version Mendari reads, as `mendari new` writes
 it.

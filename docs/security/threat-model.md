@@ -186,7 +186,7 @@ takes beside `type`:
 | `rules` | On this machine, by weighted patterns in its `config` | `config` |
 | `llm` | At a chat model, through the AI Gateway or at `LLM_BASE_URL` | `model`, `timeout_ms`, `max_tokens`, `temperature`, `reasoning_effort`, `state_fields`, `calibration`, `batch`, `repeat` |
 | `agent` | At an external HTTP AI agent (`MENDARI_AGENT_URL`, or `endpoint` on an owned agent) or offline via `mock_file` | `endpoint`, `service_id`, `system_prompt`, `instructions`, `timeout_seconds`, `state_fields`, `mock_file`, `calibration`, `repeat` |
-| `check` | By its first member; its second member is asked the same and can only send the decision to a person (spec 0.4) | `members` |
+| `check` | By its first member; its second member is asked the same and can only send the decision to a person (spec §14.4) | `members` |
 
 ### Trust boundary
 
