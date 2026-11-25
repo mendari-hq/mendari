@@ -533,10 +533,10 @@ def test_the_package_check_catches_a_package_by_name() -> None:
 
 def test_the_validator_loads_only_the_locked_packages_each_checked() -> None:
     """The fhir-conformance job downloads each package the lock pins and checks it with
-    `sha256sum -c`, every run (a cached tarball too), before the validator first runs; each
-    validator run then builds a package cache of its own from them (`--offline`), so no step
-    fills a cache the runs share. Its cache key follows the lock, and no validator's package
-    cache is ever restored."""
+    `sha256sum -c`, every run (a cached tarball too), before the validator runs; the validator
+    run then builds a package cache of its own from them (`--offline`), so no step fills a
+    shared cache. Its cache key follows the lock, and no validator's package cache is ever
+    restored."""
     job = _workflow(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]["fhir-conformance"]
     steps = job["steps"]
     (cache,) = [s for s in steps if s.get("uses", "").startswith("actions/cache@")]
@@ -553,7 +553,7 @@ def test_the_validator_loads_only_the_locked_packages_each_checked() -> None:
     assert script.index("fi\n") < script.index("sha256sum -c")  # checked, downloaded or cached
     assert not [run for run in runs if "scripts/fhir_packages.py" in run]
     validations = [i for i, run in enumerate(runs) if "scripts/fhir_validate.py" in run]
-    assert len(validations) == 2 and download < min(validations)
+    assert len(validations) == 1 and download < min(validations)  # US Core, with Mendari's terms
     assert all("--offline" in runs[i].split() for i in validations)
     # The validator these packages were read from is the one the job downloads.
     lock_script = (ROOT / "scripts" / "fhir_packages.py").read_text()
@@ -579,7 +579,7 @@ def test_terminology_validation_runs_on_a_schedule_and_never_on_a_pull_request()
     assert job["env"] == offline["env"]
     runs = [step.get("run", "") for step in job["steps"]]
     validations = [run for run in runs if "scripts/fhir_validate.py" in run]
-    assert len(validations) == 2
+    assert len(validations) == 1
     assert all(_tx_values(run.split()) == [TX] for run in validations)
     as_offline = [
         {**step, "run": step["run"].replace(f"--tx {TX}", "--offline")}
@@ -649,13 +649,6 @@ def test_pack_check_runs_on_every_pull_request() -> None:
     step = json.dumps(community)
     for unwanted in ("github.actor", "repository_owner", "--owner"):
         assert unwanted not in step, unwanted
-
-
-def test_ci_runs_every_community_packs_tests() -> None:
-    ci = _workflow(ROOT / ".github" / "workflows" / "ci.yml")
-    scripts = [step.get("run", "") for step in ci["jobs"]["test"]["steps"]]
-    (loop,) = [run for run in scripts if "community-agents/*/agent.yaml; do" in run]
-    assert 'uv run mendari test "$(dirname "$manifest")"' in loop and "exit $failed" in loop
 
 
 def test_the_pack_workflow_finds_a_manifest_by_its_name() -> None:

@@ -4,10 +4,8 @@
 
 - `task-message.json`: the Task the bundled demo agent makes from the US Core portal-message
   fixture (`tests/fixtures/us-core/inbox.json`), read by its keyword rules (`sample_agent`);
-- what the FHIR routes serve, from a local server: `davinci/capability.json`
-  (`/fhir/metadata`, which cites DTR's `$questionnaire-package`, so CI checks it with the Da Vinci
-  guides: the US Core run loads none), `operation-definition-decide.json`, and
-  `decide-message.json` (`$decide` on that fixture);
+- what the FHIR routes serve, from a local server: `capability.json` (`/fhir/metadata`),
+  `operation-definition-decide.json`, and `decide-message.json` (`$decide` on that fixture);
 - `served-*.json`: what the read and search routes answer for synthetic decisions made through
   the API (`served_reads_and_searches`): a Task read and vread (a decision reviewed, rated and
   given an outcome: versions 1-3), Task searchsets (a page with a `next` link, a lenient search
@@ -15,19 +13,16 @@
   searchset, and a CodeSystem searchset. `tests/test_fhir_routes.py` runs the same requests
   through the in-process structural gate.
 
-The product bundles one agent, which reads a portal message. An agent of another kind is given:
-
-- `--fixture NAME=AGENT`, any number of times: `task-NAME.json` and `decide-NAME.json`, as
-  above, for the US Core fixture of that name (`tests/fixtures/us-core/NAME.json`) decided by
-  AGENT (an id or a directory) with its own default providers; and, where an invalid fixture of
-  that name exists (`invalid/NAME.json`), `decide-NAME-refused.json`: that input under
-  `enforce`, a refused input with its findings;
-- `--record DATASET`: `record-bundle.json`, the first case of a dataset of patient records as
-  the Bundle a CQL engine reads (`standards/record_fhir.py`).
+The product bundles one agent, which reads a portal message. An agent of another kind is given
+with `--fixture NAME=AGENT`, any number of times: `task-NAME.json` and `decide-NAME.json`, as
+above, for the US Core fixture of that name (`tests/fixtures/us-core/NAME.json`) decided by
+AGENT (an id or a directory) with its own default providers; and, where an invalid fixture of
+that name exists (`invalid/NAME.json`), `decide-NAME-refused.json`: that input under `enforce`,
+a refused input with its findings.
 
     uv run python scripts/fhir_output_sample.py var/fhir-samples
     uv run python scripts/fhir_output_sample.py var/fhir-samples \\
-      --fixture referral=path/to/a-referral-agent --record path/to/records.jsonl
+      --fixture chart=path/to/an-agent-that-reads-a-patients-record
 """
 
 from __future__ import annotations
@@ -37,7 +32,6 @@ import json
 import sys
 import tempfile
 from collections.abc import Iterable, Mapping
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +56,6 @@ from mendari.core.registry import resolve_pack  # noqa: E402
 from mendari.errors import MendariError  # noqa: E402
 from mendari.sandbox import DEMO_AGENT  # noqa: E402
 from mendari.server.app import create_app  # noqa: E402
-from mendari.standards import record_fhir  # noqa: E402
 from mendari.standards.fhir import DECISION_ID_SYSTEM  # noqa: E402
 
 FIXTURES = ROOT / "tests" / "fixtures" / "us-core"
@@ -70,12 +63,11 @@ MESSAGE = "message"  # the demo agent's samples, from the portal-message fixture
 MESSAGE_FIXTURE = FIXTURES / "inbox.json"
 SERVER = "https://mendari.example"  # a reserved name: the samples' links point nowhere real
 FORM = {"content-type": "application/x-www-form-urlencoded"}
-# The CapabilityStatement cites DTR 2.2.0's $questionnaire-package, so it goes with the Da Vinci
-# samples (scripts/davinci_sample.py), which CI validates with DTR 2.2.0 loaded.
-CAPABILITY = Path("davinci") / "capability.json"
+# The CapabilityStatement, beside the other samples: the US Core run validates it.
+CAPABILITY = Path("capability.json")
 
 
-def main(out: Path, fixtures: Mapping[str, Pack] | None = None, record: Path | None = None) -> None:
+def main(out: Path, fixtures: Mapping[str, Pack] | None = None) -> None:
     """`fixtures`: the agent that decides each US Core fixture, by the fixture's name."""
     given = dict(fixtures or {})
     out.mkdir(parents=True, exist_ok=True)
@@ -90,11 +82,6 @@ def main(out: Path, fixtures: Mapping[str, Pack] | None = None, record: Path | N
             write(written, task)
             print(f"{decision.pack.id}: {result.outcome.value}, Task written to {written}")
         store.close()
-    if record is not None:
-        case = json.loads(record.read_text(encoding="utf-8").splitlines()[0])["input"]
-        bundle = record_fhir.bundle(case, date.fromisoformat(case["as_of"]))
-        write(out / "record-bundle.json", bundle)
-        print(f"{len(bundle['entry'])} resources written to {out}/record-bundle.json")
     served(out, given)
 
 
@@ -124,7 +111,6 @@ def served(out: Path, fixtures: Mapping[str, Pack]) -> None:
                         refused = decide(client, agent.id, invalid)
                         write(out / f"decide-{name}-refused.json", refused)
                 continue
-            (out / CAPABILITY).parent.mkdir(parents=True, exist_ok=True)
             write(out / CAPABILITY, client.get("/fhir/metadata").json())
             definition = client.get("/fhir/OperationDefinition/decide").json()
             write(out / "operation-definition-decide.json", definition)
@@ -236,16 +222,10 @@ def cli(argv: list[str] | None = None) -> int:
         type=_fixture_agent,
         metavar="NAME=AGENT",
         help="also decide the US Core fixture NAME with AGENT, an id or a directory: an agent "
-        "of a kind the product does not bundle (a referral, an order, a patient's record)",
-    )
-    parser.add_argument(
-        "--record",
-        type=Path,
-        metavar="DATASET",
-        help="also write the first case of this dataset of patient records as a CQL Bundle",
+        "of a kind the product does not bundle (a patient's record, say)",
     )
     args = parser.parse_args(argv)
-    main(args.out, dict(args.fixture), args.record)
+    main(args.out, dict(args.fixture))
     return 0
 
 
