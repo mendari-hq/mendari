@@ -18,7 +18,7 @@ import re
 import tarfile
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from fastapi.testclient import TestClient
@@ -35,7 +35,7 @@ from mendari.standards.fhir_structure import check
 from mendari.standards.us_core import Issue
 from tests.conftest import DEMO_AGENT_DIR, TRIAGE_DIR
 from tests.support import fixture_records as records
-from tests.support.chart_ehr import ChartEhr
+from tests.support.chart_ehr import ChartEhr, Rendition
 from tests.test_fhir_errors import WRONG_TYPES, element_paths, replaced
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -232,8 +232,8 @@ def samples() -> dict[str, Any]:
     documents["sandbox-messages"] = fhir_workflow.seed_bundle(load_pack(DEMO_AGENT_DIR), 20)
     documents["sandbox-triage"] = fhir_workflow.seed_bundle(load_pack(TRIAGE_DIR), 20)
     charts = records.cases("test")[:8]
-    renditions = itertools.cycle(("plain", "html", "rtf", "twin"))
-    rendition = {case.id: next(renditions) for case in charts}
+    renditions = itertools.cycle(get_args(Rendition))
+    rendition: dict[str, Rendition] = {case.id: next(renditions) for case in charts}
     documents["vendor-shaped-charts"] = ChartEhr.of(*charts, rendition=rendition).bundle()
     return documents
 
