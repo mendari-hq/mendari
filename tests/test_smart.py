@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """SMART on FHIR EHR launch (standards/smart.py, server/smart_routes.py) against a fake EHR: an
 authorization server that checks PKCE and signs RS256 id_tokens, and a FHIR server that answers
-from the US Core referral fixture."""
+from the US Core chart fixture (`tests/fixtures/us-core/chart.json`, the chart-summary test
+fixture's showcase record: synthetic, `tests/support/fixture_records.py`). The launch opens the
+chart-summary fixture, whose focus is the patient."""
 
 from __future__ import annotations
 
@@ -34,16 +36,18 @@ from mendari.server.scopes import DECIDE
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.smart import normalize_base, smart_ehrs
 from tests.conftest import DASHBOARD, encrypt_mode, message, security_lines, signed_in
+from tests.support.fixture_records import SHOWCASE, us_core_chart
 from tests.test_backend_services import RSA_KEY, ask, assertion
 
 EHR = "https://ehr.example.org"
 ISS = f"{EHR}/fhir"
 APP = "https://mendari.test"
 CLIENT = "mendari-app"
-REFERRAL = "mendari/referral-router"
-INBOX = "mendari/patient-inbox-router"
+CHART = "mendari-test/chart-summary"  # the agent the EHR launches: a patient's chart in
+TRIAGE = "mendari-test/triage"  # an agent decided on outside a launch: a patient's message
+PATIENT = SHOWCASE.id  # the record's patient, the launch's
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
-FIXTURE = json.loads((Path(__file__).parent / "fixtures/us-core/referral.json").read_text())
+FIXTURE = us_core_chart()
 
 
 class FakeEhr:
@@ -61,7 +65,7 @@ class FakeEhr:
         self.claims: dict[str, Any] = {}  # overrides for the next id_token
         self.signing_key: Any = self.key
         self.algorithm = "RS256"
-        self.patient = "ref-p1"
+        self.patient = PATIENT
         self.token_prefix = "access"  # the access tokens it issues: <prefix>-<n>
         self.config_overrides: dict[str, Any] = {}
         self.resources = [e["resource"] for e in FIXTURE["entry"]]
@@ -174,7 +178,7 @@ def app(tmp_path: Path, ehr: FakeEhr, monkeypatch: pytest.MonkeyPatch) -> Iterat
         yield client
 
 
-def launch(app: TestClient, pack: str = REFERRAL, iss: str = ISS) -> Any:
+def launch(app: TestClient, pack: str = CHART, iss: str = ISS) -> Any:
     return app.get(
         "/smart/launch", params={"iss": iss, "launch": "xyz", "pack": pack}, follow_redirects=False
     )
@@ -212,18 +216,18 @@ def test_an_ehr_launch_opens_the_patients_view_with_a_server_side_session(
     assert session == {
         "active": True,
         "iss": ISS,
-        "patient": "ref-p1",
+        "patient": PATIENT,
         "encounter": "enc-1",
         "fhir_user": "Practitioner/pr-1",
         "scope": "launch openid fhirUser patient/*.rs",
         "expires_at": session["expires_at"],
-        "pack": REFERRAL,
+        "pack": CHART,
         "launch_id": session["launch_id"],
         "packs": session["packs"],
     }
     # The window opens on this launch's patient view, pinned to the launch, the agent named as
     # the console's address names it (`?agent=`).
-    assert done.headers["location"] == f"{APP}/?agent={REFERRAL}#patient/{session['launch_id']}"
+    assert done.headers["location"] == f"{APP}/?agent={CHART}#patient/{session['launch_id']}"
     assert "access" not in json.dumps(session)  # the token stays on the server
 
 
@@ -257,14 +261,16 @@ def test_the_patient_banner_and_work_items_come_from_the_ehr(app: TestClient, eh
     full_launch(app, ehr)
     patient = app.get("/api/smart/patient").json()
     assert patient == {
-        "id": "ref-p1",
-        "name": "Case ref-us-core-1 Synthetic",
+        "id": PATIENT,
+        "name": "Case chart-us-core-1 Synthetic",
         "gender": "female",
-        "birthDate": "1956-06-15",
+        "birthDate": "1959-04-20",
     }
-    items = app.get("/api/smart/focus", params={"pack_id": REFERRAL}).json()
-    assert [(i["ref"], i["priority"]) for i in items] == [("ServiceRequest/ref-sr1", "routine")]
-    assert items[0]["text"].startswith("Atrial fibrillation")
+    # The chart fixture decides about the patient: its one work item is the patient's record.
+    items = app.get("/api/smart/focus", params={"pack_id": CHART}).json()
+    assert [(i["ref"], i["title"]) for i in items] == [
+        (f"Patient/{PATIENT}", "This patient's record")
+    ]
 
 
 def test_deciding_a_work_item_reads_the_record_and_audits_the_decision(
@@ -272,20 +278,21 @@ def test_deciding_a_work_item_reads_the_record_and_audits_the_decision(
 ) -> None:
     full_launch(app, ehr)
     ehr.requests.clear()
-    response = app.post(
-        "/api/smart/decide", json={"pack_id": REFERRAL, "focus": "ServiceRequest/ref-sr1"}
-    )
+    response = app.post("/api/smart/decide", json=DECIDE_BODY)
     assert response.status_code == 200, response.text
     assert response.json()["notice"] == notices.notice()
     decision = response.json()["decision"]
     assert decision["input_issues"] == []  # the fixture is US Core
     read = sorted(r.url.path.removeprefix("/fhir/") for r in ehr.requests)
     assert read == [
-        "DiagnosticReport",
+        "Condition",
         "DocumentReference",
-        "Observation",
-        "Patient/ref-p1",
-        "ServiceRequest/ref-sr1",
+        # A request's drug, which the search did not include, read by its link (`follow`).
+        f"Medication/{PATIENT}-drug-2",
+        "MedicationRequest",
+        "MedicationStatement",
+        f"Patient/{PATIENT}",  # the focus
+        f"Patient/{PATIENT}",  # the prefetch's `patient`
     ]
     assert app.get(f"/api/audit/{decision['id']}").status_code == 200
 
@@ -332,7 +339,7 @@ def test_a_launch_on_another_name_moves_to_the_public_url_first(
     """The launch binding cookie is host-only and the callback comes back to MENDARI_PUBLIC_URL:
     a launch on another name begins again there, before anything is bound or written."""
     alias = TestClient(app.app, base_url="https://mendari-abc.vercel.app")
-    params = {"iss": ISS, "launch": "xyz", "pack": REFERRAL}
+    params = {"iss": ISS, "launch": "xyz", "pack": CHART}
     moved = alias.get("/smart/launch", params=params, follow_redirects=False)
     assert moved.status_code == 302 and "set-cookie" not in moved.headers
     location = urlsplit(moved.headers["location"])
@@ -348,7 +355,7 @@ def test_a_launch_on_another_name_moves_to_the_public_url_first(
         f"{APP}/smart/callback", params={"code": code, "state": state}, follow_redirects=False
     )
     assert done.status_code == 302
-    assert done.headers["location"].startswith(f"{APP}/?agent={REFERRAL}#patient/")
+    assert done.headers["location"].startswith(f"{APP}/?agent={CHART}#patient/")
     assert alias.get(f"{APP}/api/smart/session").json()["active"] is True
 
 
@@ -433,26 +440,21 @@ def test_pkce_s256_is_required(app: TestClient, ehr: FakeEhr) -> None:
 
 def test_a_work_item_about_another_patient_is_refused(app: TestClient, ehr: FakeEhr) -> None:
     full_launch(app, ehr)
-    other = {
-        **next(r for r in ehr.resources if r["resourceType"] == "ServiceRequest"),
-        "id": "other-sr",
-        "subject": {"reference": "Patient/someone-else"},
-    }
+    other = {**next(r for r in ehr.resources if r["resourceType"] == "Patient"), "id": "someone"}
     ehr.resources.append(other)
-    denied = app.post(
-        "/api/smart/decide", json={"pack_id": REFERRAL, "focus": "ServiceRequest/other-sr"}
-    )
+    denied = app.post("/api/smart/decide", json={"pack_id": CHART, "focus": "Patient/someone"})
     assert denied.status_code == 403
-    wrong = app.post("/api/smart/decide", json={"pack_id": REFERRAL, "focus": "Patient/ref-p1"})
+    order = f"ServiceRequest/{PATIENT}-order"  # the patient's, but not what the agent decides
+    wrong = app.post("/api/smart/decide", json={"pack_id": CHART, "focus": order})
     assert wrong.status_code == 422
 
 
 def test_a_focus_id_with_a_trailing_newline_is_refused(app: TestClient, ehr: FakeEhr) -> None:
-    """`$` matches before a final newline: `ref-sr1\\n` passed, was read as `ref-sr1` and went on
-    into the decision's context with its newline."""
+    """`$` matches before a final newline: an id with one passed, was read without it and went
+    on into the decision's context with its newline."""
     full_launch(app, ehr)
-    focus = "ServiceRequest/ref-sr1\n"
-    refused = app.post("/api/smart/decide", json={"pack_id": REFERRAL, "focus": focus})
+    focus = f"Patient/{PATIENT}\n"
+    refused = app.post("/api/smart/decide", json={"pack_id": CHART, "focus": focus})
     assert refused.status_code == 422
 
 
@@ -461,16 +463,16 @@ def test_an_ehr_answer_of_the_wrong_shape_shows_less_never_a_500(
 ) -> None:
     """Items that are not objects where FHIR has objects raised AttributeError (a 500)."""
     full_launch(app, ehr)
-    wrong: dict[str, dict[str, Any]] = {
-        "Patient": {"name": ["Jane"]},
-        "ServiceRequest": {"code": ["x"], "reasonCode": ["x"], "subject": "Patient/ref-p1"},
-    }
+    wrong: dict[str, dict[str, Any]] = {"Patient": {"name": ["Jane"]}}
     # New objects, never the fixture's own, which other tests read after this one.
     ehr.resources = [{**r, **wrong.get(r["resourceType"], {})} for r in ehr.resources]
     patient = app.get("/api/smart/patient")
     assert patient.status_code == 200 and patient.json()["name"] is None
-    focus = app.get("/api/smart/focus", params={"pack_id": REFERRAL})
+    focus = app.get("/api/smart/focus", params={"pack_id": CHART})  # the patient's record
     assert focus.status_code == 200
+    # An order of the wrong shape, as a work item of an agent that decides about orders.
+    order = {"resourceType": "ServiceRequest", "id": "o1", "code": ["x"], "reasonCode": ["x"]}
+    assert smart_routes._summary(order)["title"] is None
     assert smart_routes.patient_summary({"name": [{"given": "Jane", "family": "Doe"}]}) == {
         "id": None,
         "name": "Doe",  # never "J a n e Doe"
@@ -529,7 +531,7 @@ TENANTS = "https://ehrs.example.org"  # one host, two tenants, two organizations
 TENANT_A = f"{TENANTS}/tenant-a/fhir"
 TENANT_B = f"{TENANTS}/tenant-b/fhir"
 REGISTERED = f"{TENANT_A}=clinic-a:decide,{TENANT_B}=clinic-b:decide"
-DECIDE_BODY = {"pack_id": REFERRAL, "focus": "ServiceRequest/ref-sr1"}
+DECIDE_BODY = {"pack_id": CHART, "focus": f"Patient/{PATIENT}"}
 
 
 def tenant(iss: str) -> FakeEhr:
@@ -628,7 +630,7 @@ def test_decision_created_names_who_asked(
     and `audit verify` still passes. Both backends."""
     a, b = tenants
     opened = signed_site(db_target, monkeypatch, None, a)  # open mode, before sign-in was on
-    before = opened.post(f"/api/agents/{INBOX}/decide", json=message(ROUTINE))
+    before = opened.post(f"/api/agents/{TRIAGE}/decide", json=message(ROUTINE))
     assert before.status_code == 200, before.text
     with AuditStore(db_target) as store:
         earlier = store.events()
@@ -637,7 +639,7 @@ def test_decision_created_names_who_asked(
     asked: dict[str, str] = {}
 
     def decide(headers: dict[str, str]) -> str:
-        made = app.post(f"/api/agents/{INBOX}/decide", json=message(ROUTINE), headers=headers)
+        made = app.post(f"/api/agents/{TRIAGE}/decide", json=message(ROUTINE), headers=headers)
         assert made.status_code == 200, made.text
         return str(made.json()["id"])
 
@@ -730,7 +732,7 @@ def test_a_view_level_launch_cannot_decide(
     app = signed_site(tmp_path / "a.db", monkeypatch, registered, a, b)
     assert full_launch(app, a).status_code == 302
     assert app.get("/api/smart/patient").status_code == 200
-    assert app.get("/api/smart/focus", params={"pack_id": REFERRAL}).status_code == 200
+    assert app.get("/api/smart/focus", params={"pack_id": CHART}).status_code == 200
     a.requests.clear()
     refused = app.post("/api/smart/decide", json=DECIDE_BODY)
     assert refused.status_code == 403 and "to view, not to decide" in refused.text
@@ -894,7 +896,7 @@ def test_a_window_pinned_to_a_replaced_launch_reads_nothing(app: TestClient, ehr
     stale = {"x-mendari-launch": first}
     for answer in (
         app.get("/api/smart/patient", headers=stale),
-        app.get("/api/smart/focus", params={"pack_id": REFERRAL}, headers=stale),
+        app.get("/api/smart/focus", params={"pack_id": CHART}, headers=stale),
         app.post("/api/smart/decide", json=DECIDE_BODY, headers=stale),
     ):
         assert answer.status_code == 409, answer.text
@@ -918,15 +920,15 @@ def test_a_launch_opens_the_dashboard_page_and_nothing_else(
     app = signed_site(tmp_path / "a.db", monkeypatch, REGISTERED, a, b)
     location = full_launch(app, a).headers["location"]
     session = app.get("/api/smart/session").json()
-    assert location == f"{APP}/?agent={REFERRAL}#patient/{session['launch_id']}"
-    referral = {
-        "id": REFERRAL,
-        "name": "Referral Router",
+    assert location == f"{APP}/?agent={CHART}#patient/{session['launch_id']}"
+    chart = {
+        "id": CHART,
+        "name": "Synthetic Chart Summary (test fixture)",
         "origin": "maintained",
         "origin_label": "Maintained by Mendari",
         "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
     }
-    assert referral in session["packs"]
+    assert chart in session["packs"]
     assert app.get("/", follow_redirects=False).status_code == 200
     for path in ("/api/audit", "/api/agents", "/api/review", "/openapi.json"):
         assert app.get(path).status_code == 401, path
