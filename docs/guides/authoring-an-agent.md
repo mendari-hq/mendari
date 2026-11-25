@@ -459,7 +459,7 @@ lists what changes). A community agent's patterns run on RE2: see
 - **Self-contained.** Every file the manifest names stays inside the folder (a symbolic link out
   of it is refused), and a hidden folder such as `.venv` beside it is ignored. The files named
   by `inputs.schema`, `inputs.fhir`, `policy`, `tests`, `evaluation.datasets` and each
-  provider's `config`, `library`, `model_file`, `calibration` and `mock_file` are in the
+  provider's `config`, `calibration` and `mock_file` are in the
   digest; none of them may be in `evals/`, a hidden folder or `__pycache__`, or be a
   `DECISION_CARD.md`. `evaluation.benchmark`, a published result about the agent, is the
   opposite: it lives in `evals/`.

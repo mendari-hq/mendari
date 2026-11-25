@@ -292,8 +292,8 @@ def _texts(value: Any) -> list[str]:
 
 @pytest.mark.parametrize("path", PACKS, ids=lambda path: path.name)
 def test_every_text_of_a_reference_packs_data_is_already_plain(path: Path) -> None:
-    """So the packs' data, trained models, benchmarks and digests are what they were: the plain
-    form changes no text they hold."""
+    """So the agents' data, benchmarks and digests are what they were: the plain form changes no
+    text they hold."""
     pack = load_pack(path)
     for name in pack.manifest.evaluation.datasets:
         for record in resolve_dataset(pack, name).records:

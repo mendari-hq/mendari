@@ -119,7 +119,7 @@ label and cases without in turn, in an order the seed gives, so a small probe re
 answers a miss is costly on and the cases a wrong answer would automate.
 
 The text changed is the fields the running variant says it reads: an agent's or a model's
-`state_fields`, the `text_fields` of rules or a trained classifier. Where a variant is sent the
+`state_fields`, the `text_fields` of rules. Where a variant is sent the
 whole input, it is every string in it, those of a list's items too (the report names
 `notes[].text` once, however many notes a case has). Of those, a string the input schema holds
 to a list of values or a format (`enum`, `const`, `format`), or to a `pattern` that gives it a
