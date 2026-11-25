@@ -14,23 +14,23 @@ from mendari.evals import load_dataset
 from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import evaluate
 from mendari.server.app import create_app
-from tests.conftest import INBOX_DIR, LOCAL_DATASET, ROOT, message
+from tests.conftest import TRIAGE_DIR, message
 
-# destination = medical_assistant; AUTO when a model screens urgency (`screened`)
+# destination = pharmacy (the triage fixture's keyword rules, at 0.97); AUTO when its screen runs
+# its agent (`SCREENED`, canned answers that find nothing urgent), as its policy requires.
 AUTO_REFILL = "Hi, I need a refill on my metoprolol. I have about a week's worth of pills left."
+SCREENED = {"screen": "agent"}
 FRONT_DESK = {"question": "destination", "label": "front_desk"}
 
 
-def test_thumbs_are_recorded_and_chained(
-    inbox_pack: Pack, store: AuditStore, screened: dict[str, str]
-) -> None:
-    decision = Decision(inbox_pack, providers=screened, store=store)
+def test_thumbs_are_recorded_and_chained(triage_agent: Pack, store: AuditStore) -> None:
+    decision = Decision(triage_agent, providers=SCREENED, store=store)
     good = decision(message(AUTO_REFILL))
     bad = decision(message("Can someone call me back?"))
     store.record_feedback(good.id, rating="up", reporter="rn-1")
     store.record_feedback(bad.id, rating="down", reporter="rn-1", note="should go to nurse")
 
-    down = store.feedback(pack_id=inbox_pack.id, rating="down")
+    down = store.feedback(pack_id=triage_agent.id, rating="down")
     assert [(f["decision_id"], f["note"]) for f in down] == [(bad.id, "should go to nurse")]
     assert down[0]["record"]["input"]["message"]["body"] == "Can someone call me back?"
     assert store.get(bad.id)["events"][-1]["event"] == "feedback.recorded"  # type: ignore[index]
@@ -44,32 +44,34 @@ def test_thumbs_are_recorded_and_chained(
 
 
 def test_thumbs_down_on_an_automated_decision_is_confidently_wrong(
-    inbox_pack: Pack, store: AuditStore, screened: dict[str, str]
+    triage_agent: Pack, store: AuditStore
 ) -> None:
-    result = Decision(inbox_pack, providers=screened, store=store)(message(AUTO_REFILL))
+    result = Decision(triage_agent, providers=SCREENED, store=store)(message(AUTO_REFILL))
     assert result.outcome.value == "AUTO"
     store.record_feedback(result.id, rating="down")
     assert store.stats()["feedback"]["down_on_auto"] == 1
 
 
-def test_feedback_validation(inbox_pack: Pack, store: AuditStore) -> None:
-    result = Decision(inbox_pack, store=store)(message(AUTO_REFILL))
+def test_feedback_validation(triage_agent: Pack, store: AuditStore) -> None:
+    result = Decision(triage_agent, store=store)(message(AUTO_REFILL))
     with pytest.raises(ReviewError, match="unknown decision"):
         store.record_feedback("nope", rating="down")
     with pytest.raises(ReviewError, match="rating"):
         store.record_feedback(result.id, rating="meh")  # type: ignore[arg-type]
 
 
-def test_export_is_a_dataset_to_label(inbox_pack: Pack, store: AuditStore, tmp_path: Path) -> None:
-    decision = Decision(inbox_pack, store=store)
+def test_export_is_a_dataset_to_label(
+    triage_agent: Pack, store: AuditStore, tmp_path: Path
+) -> None:
+    decision = Decision(triage_agent, store=store)
     result = decision(message("I just started to vomit a lot of blood"))
     store.record_feedback(result.id, rating="down", note="missed emergency")
     store.record_feedback(result.id, rating="down", reporter="rn-2", note="second reviewer agrees")
-    hashed = Decision(inbox_pack)(message("text we must not export"))
+    hashed = Decision(triage_agent)(message("text we must not export"))
     store.record(hashed, message("text we must not export"), store_input="hash")
     store.record_feedback(hashed.id, rating="down")
 
-    records, skipped = feedback_dataset(store, pack_id=inbox_pack.id)
+    records, skipped = feedback_dataset(store, pack_id=triage_agent.id)
     assert skipped == 1 and len(records) == 1  # one line per decision, notes collected
     record = records[0]
     assert record["labels"] == {} and record["input"]["message"]["body"].startswith("I just")
@@ -79,12 +81,12 @@ def test_export_is_a_dataset_to_label(inbox_pack: Pack, store: AuditStore, tmp_p
     assert load_dataset(path).records[0]["id"] == record["id"]  # loads as a pack dataset
 
 
-def test_a_rated_decision_says_it_was_exported(inbox_pack: Pack, store: AuditStore) -> None:
+def test_a_rated_decision_says_it_was_exported(triage_agent: Pack, store: AuditStore) -> None:
     """A site's case wherever the file goes: the mark that keeps a pack that holds it out of
     an archive (`core/site_cases.py`)."""
-    result = Decision(inbox_pack, store=store)(message(AUTO_REFILL))
+    result = Decision(triage_agent, store=store)(message(AUTO_REFILL))
     store.record_feedback(result.id, rating="down", expected=FRONT_DESK)
-    (record,), _ = feedback_dataset(store, pack_id=inbox_pack.id)
+    (record,), _ = feedback_dataset(store, pack_id=triage_agent.id)
     assert record["attributes"] == {
         "source": "feedback",
         "decision_id": result.id,
@@ -92,10 +94,10 @@ def test_a_rated_decision_says_it_was_exported(inbox_pack: Pack, store: AuditSto
     }
 
 
-def test_feedback_api_and_export(db_target: str, screened: dict[str, str]) -> None:
-    app = create_app(db_path=db_target, providers=screened, datasets_dir=LOCAL_DATASET.parent)
+def test_feedback_api_and_export(db_target: str) -> None:
+    app = create_app(db_path=db_target, providers=SCREENED)
     client = TestClient(app)
-    pack = "/api/agents/mendari/patient-inbox-router"
+    pack = "/api/agents/mendari-test/triage"
     decision = client.post(f"{pack}/decide", json=message(AUTO_REFILL)).json()
 
     missing = client.post(f"/api/audit/{decision['id']}/feedback", json={"rating": "sideways"})
@@ -132,10 +134,10 @@ def test_feedback_api_and_export(db_target: str, screened: dict[str, str]) -> No
 def test_cli_export(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     db = tmp_path / "audit.db"
     with AuditStore(db) as store:
-        result = Decision.from_path(INBOX_DIR, store=store)(message(AUTO_REFILL))
+        result = Decision.from_path(TRIAGE_DIR, store=store)(message(AUTO_REFILL))
         store.record_feedback(result.id, rating="down", expected=FRONT_DESK)
     out = tmp_path / "down.jsonl"
-    assert main(["feedback", "export", str(INBOX_DIR), "--db", str(db), "--out", str(out)]) == 0
+    assert main(["feedback", "export", str(TRIAGE_DIR), "--db", str(db), "--out", str(out)]) == 0
     printed = capsys.readouterr().out
     assert "1 rated decisions" in printed and "1 already carry the right answer" in printed
     assert "Fill in" not in printed
@@ -145,12 +147,12 @@ def test_cli_export(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
 # -- the right answer on a thumbs-down --------------------------------------------------------
 
 
-def test_a_thumbs_down_can_carry_the_right_answer(inbox_pack: Pack, store: AuditStore) -> None:
-    result = Decision(inbox_pack, store=store)(message(AUTO_REFILL))
-    assert result.recommendation == "medical_assistant"
+def test_a_thumbs_down_can_carry_the_right_answer(triage_agent: Pack, store: AuditStore) -> None:
+    result = Decision(triage_agent, store=store)(message(AUTO_REFILL))
+    assert result.recommendation == "pharmacy"
     recorded = store.record_feedback(result.id, rating="down", reporter="rn-1", expected=FRONT_DESK)
     assert recorded["expected"] == FRONT_DESK
-    assert store.feedback(pack_id=inbox_pack.id)[0]["expected"] == FRONT_DESK
+    assert store.feedback(pack_id=triage_agent.id)[0]["expected"] == FRONT_DESK
     event = store.get(result.id)["events"][-1]  # type: ignore[index]
     assert event["event"] == "feedback.recorded" and event["payload"]["expected"] == FRONT_DESK
     assert store.stats()["feedback"]["down_with_expected"] == 1
@@ -163,23 +165,21 @@ def test_a_thumbs_down_can_carry_the_right_answer(inbox_pack: Pack, store: Audit
         ("up", FRONT_DESK, "only a thumbs-down"),
         ("down", {"question": "priority", "label": "stat"}, "not a question this decision"),
         ("down", {"question": "destination", "label": "janitor"}, "not a label of destination"),
-        ("down", {"question": "destination", "label": "medical_assistant"}, "already answered"),
+        ("down", {"question": "destination", "label": "pharmacy"}, "already answered"),
     ],
 )
 def test_the_right_answer_is_checked_against_the_decision(
-    inbox_pack: Pack, store: AuditStore, rating: str, expected: dict[str, str], error: str
+    triage_agent: Pack, store: AuditStore, rating: str, expected: dict[str, str], error: str
 ) -> None:
-    result = Decision(inbox_pack, store=store)(message(AUTO_REFILL))
+    result = Decision(triage_agent, store=store)(message(AUTO_REFILL))
     with pytest.raises(ReviewError, match=error):
         store.record_feedback(result.id, rating=rating, expected=expected)  # type: ignore[arg-type]
     assert store.feedback() == []  # nothing half-written
 
 
-def test_a_changed_rating_counts_once(
-    inbox_pack: Pack, store: AuditStore, screened: dict[str, str]
-) -> None:
+def test_a_changed_rating_counts_once(triage_agent: Pack, store: AuditStore) -> None:
     """Each person's latest rating counts; the hash chain keeps every rating."""
-    result = Decision(inbox_pack, providers=screened, store=store)(message(AUTO_REFILL))
+    result = Decision(triage_agent, providers=SCREENED, store=store)(message(AUTO_REFILL))
     first = store.record_feedback(result.id, rating="down", reporter="rn-1", expected=FRONT_DESK)
     changed = store.record_feedback(result.id, rating="up", reporter="rn-1")
     store.record_feedback(result.id, rating="down", reporter="rn-2")  # someone else
@@ -205,9 +205,9 @@ def test_a_changed_rating_counts_once(
 
 
 def test_the_export_labels_what_reporters_agree_on(
-    inbox_pack: Pack, store: AuditStore, tmp_path: Path
+    triage_agent: Pack, store: AuditStore, tmp_path: Path
 ) -> None:
-    decision = Decision(inbox_pack, store=store)
+    decision = Decision(triage_agent, store=store)
     agreed, disputed, unanswered = (decision(message(AUTO_REFILL)) for _ in range(3))
     for reporter in ("rn-1", "rn-2"):
         store.record_feedback(agreed.id, rating="down", reporter=reporter, expected=FRONT_DESK)
@@ -216,7 +216,7 @@ def test_the_export_labels_what_reporters_agree_on(
     store.record_feedback(disputed.id, rating="down", reporter="rn-2", expected=billing)
     store.record_feedback(unanswered.id, rating="down", reporter="rn-1")
 
-    records, _ = feedback_dataset(store, pack_id=inbox_pack.id)
+    records, _ = feedback_dataset(store, pack_id=triage_agent.id)
     labels = {r["attributes"]["decision_id"]: r["labels"] for r in records}
     assert labels == {agreed.id: {"destination": "front_desk"}, disputed.id: {}, unanswered.id: {}}
     dispute = next(r for r in records if r["attributes"]["decision_id"] == disputed.id)
@@ -226,7 +226,7 @@ def test_the_export_labels_what_reporters_agree_on(
     path = tmp_path / "wrong.jsonl"
     ready = next(r for r in records if r["labels"])
     path.write_text(json.dumps(ready) + "\n")
-    report = evaluate(Decision(inbox_pack), load_dataset(path))
+    report = evaluate(Decision(triage_agent), load_dataset(path))
     assert report["questions"]["destination"]["n"] == 1
     assert report["questions"]["destination"]["accuracy"] == 0.0  # the pack still gets it wrong
 
@@ -234,40 +234,31 @@ def test_the_export_labels_what_reporters_agree_on(
 def test_a_check_of_a_derived_decision_can_be_the_right_answer(
     store: AuditStore, tmp_path: Path
 ) -> None:
-    """AI Guard: "Which check was wrong?" labels that check alone, and the record still
-    evaluates (a dataset may label any subset of questions)."""
-    guard = Decision.from_path(
-        ROOT / "tests" / "fixtures" / "reference-agents" / "ai-guard", store=store
-    )
-    result = guard(
-        {
-            "question": "I have heavy pressure in my chest and I'm short of breath right now.",
-            "draft": "Try to rest and we will check in with you tomorrow.",
-        }
-    )
-    answered = result.answers["unsafe_advice"].label
+    """ "Which check was wrong?": a thumbs-down that answers one of the decision's checks (the
+    triage fixture's same-day-symptom screen, not its primary question) labels that check alone,
+    and the record still evaluates (a dataset may label any subset of questions)."""
+    triage = Decision.from_path(TRIAGE_DIR, store=store)
+    result = triage(message("I have heavy pressure in my chest and I'm short of breath right now."))
+    answered = result.answers["urgency"].label
     other = next(label for label in ("yes", "no") if label != answered)
-    expected = {"question": "unsafe_advice", "label": other}
+    expected = {"question": "urgency", "label": other}
     store.record_feedback(result.id, rating="down", reporter="rn-1", expected=expected)
 
-    records, _ = feedback_dataset(store, pack_id=guard.pack.id)
-    assert records[0]["labels"] == {"unsafe_advice": other}
-    path = tmp_path / "guard.jsonl"
+    records, _ = feedback_dataset(store, pack_id=triage.pack.id)
+    assert records[0]["labels"] == {"urgency": other}
+    path = tmp_path / "screen.jsonl"
     path.write_text(json.dumps(records[0]) + "\n")
-    report = evaluate(
-        Decision.from_path(ROOT / "tests" / "fixtures" / "reference-agents" / "ai-guard"),
-        load_dataset(path),
-    )
-    assert report["questions"]["unsafe_advice"]["n"] == 1
+    report = evaluate(Decision.from_path(TRIAGE_DIR), load_dataset(path))
+    assert report["questions"]["urgency"]["n"] == 1
 
 
 # -- the ratings on each audit row ----------------------------------------------------------------
 
 
 def test_audit_rows_carry_each_decisions_current_ratings(
-    inbox_pack: Pack, store: AuditStore
+    triage_agent: Pack, store: AuditStore
 ) -> None:
-    decision = Decision(inbox_pack, store=store)
+    decision = Decision(triage_agent, store=store)
     rated, unrated = decision(message(AUTO_REFILL)), decision(message(AUTO_REFILL))
     store.record_feedback(rated.id, rating="down", reporter="rn-1")
     store.record_feedback(rated.id, rating="up", reporter="rn-1")  # changed: counts once
