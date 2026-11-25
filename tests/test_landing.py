@@ -16,21 +16,11 @@ from fastapi.testclient import TestClient
 from mendari.server import api_docs, landing, scopes, snippets
 from mendari.server.app import DASHBOARD_DIR, create_app, mounted_routes
 from mendari.server.auth import permission_for
-from mendari.settings import default_providers
-from tests.conftest import (
-    ROOT,
-    calm_jev,
-    encrypt_mode,
-    encrypted_store,
-    evalset_on,
-    evalsets_are_on,
-    member,
-    signed_in,
-)
+from tests.conftest import ROOT, calm_agent, encrypt_mode
 from tests.test_backend_services import PUBLIC_URL
 from tests.test_backend_services import on as backend_services_on
 
-SECTIONS = ("what", "quickstart", "fhir", "guard", "auth", "more")
+SECTIONS = ("what", "quickstart", "fhir", "auth", "more")
 _INLINE = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", re.S)
 
 
@@ -102,15 +92,15 @@ def test_with_sign_in_on_the_landing_is_public_and_tells_nothing_of_the_deployme
     count, nothing from the store. Only the mode shows, which /api/auth/me says anyway."""
     _sign_in_on(monkeypatch)
     every = TestClient(create_app(db_path=tmp_path / "a.db")).get("/docs", follow_redirects=False)
-    # Nor whether Jev is set up, nor whether the demo agent is served: the quickstart shows the
-    # agent's offline answer.
-    calm_jev(monkeypatch)
-    app = create_app(db_path=tmp_path / "c.db", default_providers=default_providers())
-    with_jev = TestClient(app).get("/docs", follow_redirects=False)
-    monkeypatch.setenv("MENDARI_AGENTS", "mendari/ai-guard")
+    # Nor whether an agent service is set up, nor whether the demo agent is served: the
+    # quickstart shows the agent's offline answer.
+    calm_agent(monkeypatch)
+    app = create_app(db_path=tmp_path / "c.db")
+    with_service = TestClient(app).get("/docs", follow_redirects=False)
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari-test/clinical-review")
     one = TestClient(create_app(db_path=tmp_path / "b.db")).get("/docs", follow_redirects=False)
-    assert every.status_code == one.status_code == with_jev.status_code == 200
-    assert every.text == one.text == with_jev.text
+    assert every.status_code == one.status_code == with_service.status_code == 200
+    assert every.text == one.text == with_service.text
     assert html.escape(json.dumps(landing.PRINTED, indent=2, ensure_ascii=False)) in every.text
     assert "Sign-in is on here" in every.text and 'href="/auth/login"' in every.text
     assert "/?agent=" not in every.text and 'href="/#card"' in every.text
@@ -171,29 +161,16 @@ def _table(text: str) -> dict[tuple[str, str], str]:
 def test_the_table_of_what_each_call_needs_is_the_route_rules(
     mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With sign-in on, hidden evaluation sets are on too, so the routes they mount are in the
-    table (LP-11g, conflict 37); open mode cannot have them. In memberships mode a labeller's
-    routes are listed under `label`, a person's only (LP-11j), and an organization's curators'
-    under `curate`, an administrator's who signed in (LP-11k); in every mode with the keys, the
-    grading route under `grade`, an organization's grading key's only, with no scope (LP-11l)."""
+    """In memberships mode a grader's routes over written output are listed under `label`, a
+    person's only (ADR-0025)."""
     if mode in ("sign-in", "memberships"):
         _sign_in_on(monkeypatch)
     if mode == "backend services":
         backend_services_on(monkeypatch)
     if mode == "memberships":
         monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
-    if mode != "open":
-        evalset_on(monkeypatch)
     app = create_app(db_path=tmp_path / "a.db")
     client = TestClient(app, base_url=PUBLIC_URL)
-    if mode != "open":
-        with encrypted_store(tmp_path / "a.db") as served:
-            reader = (
-                member(served, org="default", roles=["viewer"], sub="evalsets-reader")
-                if mode == "memberships"
-                else signed_in(served, role="viewer")
-            )
-        evalsets_are_on(client, reader)
     text = client.get("/docs").text
     expected = {(m, p): permission_for(m, p) for m, p in mounted_routes(app)}
     assert _table(text) == expected
@@ -207,38 +184,13 @@ def test_the_table_of_what_each_call_needs_is_the_route_rules(
     if mode == "memberships":
         assert labelling and "labeller role" in labelling[1] and "never a key" in labelling[1]
         assert {route for route, permission in expected.items() if permission == "label"} == {
-            ("GET", "/api/labelling"),
-            ("GET", "/api/labelling/next"),
-            ("POST", "/api/labelling/{assignment_id}"),
-            # A grader's, over written output (ADR-0025): the same role, the same rule.
             ("GET", "/api/written/labelling"),
             ("GET", "/api/written/labelling/next"),
             ("POST", "/api/written/labelling/{assignment_id}"),
         }
         assert "docs-scope" not in labelling[1]  # no scope reaches them
-        curating = re.search(r'<tr data-permission="curate">(.*?)</tr>', text, re.S)
-        assert curating and "an administrator of the organization" in curating[1]
-        assert "never a key, a token or a labeller" in curating[1]
-        assert {route for route, permission in expected.items() if permission == "curate"} == {
-            ("GET", "/api/evalsets"),
-            ("GET", "/api/evalsets/{set_id}"),
-            ("POST", "/api/evalsets/{set_id}/sample"),
-            ("POST", "/api/evalsets/{set_id}/assignments"),
-            ("POST", "/api/evalsets/{set_id}/adjudication"),
-        }
-        assert "docs-scope" not in curating[1]
     else:
         assert labelling is None
-        assert '<tr data-permission="curate">' not in text
-    grading = re.search(r'<tr data-permission="grade">(.*?)</tr>', text, re.S)
-    if mode == "open":
-        assert grading is None
-    else:
-        assert grading and "grading key, which only the operator makes" in grading[1]
-        assert {route for route, permission in expected.items() if permission == "grade"} == {
-            ("POST", "/api/evalsets/{set_id}/runs")
-        }
-        assert "docs-scope" not in grading[1]  # no scoped key or token grades
     if mode == "backend services":
         assert ("POST", "/auth/token") in expected
         assert f"<code>POST {PUBLIC_URL}/auth/token</code>" in text
@@ -268,11 +220,7 @@ def test_the_quickstart_prints_what_the_server_decides(
     that step: the bundled demo agent's, on its offline fixture."""
     monkeypatch.delenv("MENDARI_AGENT_URL", raising=False)
     # The tests' search path is their fixtures (conftest); a release's is the bundled agent.
-    app = create_app(
-        db_path=tmp_path / "a.db",
-        packs_paths=[ROOT / "agents"],
-        default_providers=default_providers(),
-    )
+    app = create_app(db_path=tmp_path / "a.db", packs_paths=[ROOT / "agents"])
     client = TestClient(app)
     printed = landing.PRINTED
     (step,) = [s for s in snippets.load("quickstart") if s.name == "decide"]
