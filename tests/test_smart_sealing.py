@@ -25,10 +25,10 @@ from mendari.core.session_seal import SealError, seal, unseal
 from mendari.server import auth as auth_module
 from mendari.server import sessions, smart_routes
 from mendari.server.app import create_app
+from mendari.server.security_log import FIELDS
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
-from tests.conftest import DASHBOARD, encrypt_mode, signed_in
+from tests.conftest import DASHBOARD, encrypt_mode, security_lines, signed_in
 from tests.test_auth import IDP, FakeIdp, sign_in
-from tests.test_security_log import logged
 from tests.test_smart import (
     APP,
     CHART,
@@ -49,6 +49,16 @@ LAUNCH_COOKIE = f"__Host-{sessions.LAUNCH}"
 @pytest.fixture
 def ehr() -> FakeEhr:
     return FakeEhr()
+
+
+def logged(capsys: pytest.CaptureFixture[str]) -> list[dict[str, Any]]:
+    """The security log's lines since the last read, every stdout line checked to be one (as
+    `tests/test_security_log.py` reads them)."""
+    out = capsys.readouterr().out
+    for line in out.splitlines():
+        parsed = json.loads(line)  # nothing else is printed: every line is a whole JSON object
+        assert set(parsed) <= set(FIELDS), line
+    return security_lines(out)
 
 
 def smart_app(db_target: str, ehr: FakeEhr, monkeypatch: pytest.MonkeyPatch) -> TestClient:
