@@ -1918,15 +1918,15 @@ def cmd_keys_generate(args: argparse.Namespace) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     private, public = archive.generate_key()
-    secret = out / f"{args.name}.key"
-    if secret.exists():
-        raise MendariError(f"{secret} exists; not overwriting a key")
-    descriptor = os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    key_file = out / f"{args.name}.key"  # its path is printed, never what it holds
+    if key_file.exists():
+        raise MendariError(f"{key_file} exists; not overwriting a key")
+    descriptor = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "wb") as handle:
         handle.write(private)
     (out / f"{args.name}.pub").write_bytes(public)
     key_id = archive.key_id(archive.load_public_key(public))
-    print(f"{key_id}\n  private: {secret} (keep it secret)\n  public:  {out / args.name}.pub")
+    print(f"{key_id}\n  private: {key_file} (keep it secret)\n  public:  {out / args.name}.pub")
     return 0
 
 
