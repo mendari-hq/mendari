@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from mendari import Decision, Pack
-from mendari.core.card import benchmark, render_card
+from mendari import Decision, Outcome, Pack
+from mendari.core.card import render_card
 from mendari.errors import MendariError
 from mendari.evals import (
     compare,
@@ -20,7 +20,30 @@ from mendari.evals import (
     resolve_dataset,
     run_pack_tests,
 )
-from tests.conftest import LOCAL_DATASET
+from tests.conftest import calm_agent
+from tests.support.engine import benchmark
+
+DRUGS = ("metformin", "lisinopril", "atorvastatin", "levothyroxine", "amlodipine", "sertraline")
+
+
+def local_site(base: Path, triage: Pack) -> Path:
+    """A site's own cases for the triage fixture (synthetic): its `test` set, and 60 text
+    messages asking whether a medicine is ready, in words its keyword rules cannot place, so
+    the site's routing degrades on `sms`."""
+    records = [dict(record) for record in resolve_dataset(triage, "test").records]
+    for i in range(60):
+        body = f"Is my {DRUGS[i % len(DRUGS)]} ready to collect at the counter? ({i})"
+        records.append(
+            {
+                "id": f"local-{i + 1:03d}",
+                "input": {"message": {"body": body, "channel": "sms"}},
+                "labels": {"destination": "pharmacy", "urgency": "no", "abusive": "no"},
+                "attributes": {"source": "synthetic", "channel": "sms"},
+            }
+        )
+    path = base / "local-site.jsonl"
+    path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+    return path
 
 
 def test_classification_metrics() -> None:
@@ -74,78 +97,82 @@ def test_dataset_loading_errors(tmp_path: Path) -> None:
         load_dataset(bad)
 
 
-def test_benchmark_report_shape(inbox_pack: Pack, screened: dict[str, str]) -> None:
-    """With the deployed screen (a fake Jev that finds nothing urgent), most cases are automated:
-    an emergency the screen misses must still never be."""
-    dataset = resolve_dataset(inbox_pack, "calibration")
-    report = evaluate(Decision(inbox_pack, providers=screened), dataset)
-    assert report["dataset"]["n"] == len(dataset.records) == 300
-    assert set(report["questions"]) == {"destination", "urgency"}
+def test_benchmark_report_shape(triage_agent: Pack) -> None:
+    """With the screen's canned agent, which the policy lets automate, about half the cases are
+    automated. Its canned answers miss some same-day symptoms, on purpose: the report counts
+    each one it automated (`auto_missed`), for the gate to refuse."""
+    decision = Decision(triage_agent, providers={"screen": "agent"})
+    dataset = resolve_dataset(triage_agent, "calibration")
+    report = evaluate(decision, dataset)
+    assert report["dataset"]["n"] == len(dataset.records) == 200
+    assert set(report["questions"]) == {"destination", "urgency", "abusive"}
     decisions = report["decisions"]
-    assert sum(decisions["outcome_counts"].values()) == 300
-    assert decisions["outcome_counts"]["AUTO"] > 250
-    assert decisions["critical"][0]["auto_missed"] == 0
-    assert set(report["subgroups"]) == {"language", "channel", "age_band", "topic"}
+    assert sum(decisions["outcome_counts"].values()) == 200
+    assert decisions["outcome_counts"]["AUTO"] > 80
+    automated = [
+        record
+        for record in dataset.records
+        if record["labels"].get("urgency") == "yes"
+        and decision.decide(record["input"]).outcome is Outcome.AUTO
+    ]
+    assert decisions["critical"][0]["auto_missed"] == len(automated) > 0
+    assert set(report["subgroups"]) == {"channel"}
     json.dumps(report, allow_nan=False)  # reports must be strict JSON
 
 
-def test_reports_never_contain_case_text(router: Decision) -> None:
-    dataset = resolve_dataset(router.pack, "calibration")
-    serialized = json.dumps(evaluate(router, dataset))
+def test_reports_never_contain_case_text(triage: Decision) -> None:
+    dataset = resolve_dataset(triage.pack, "calibration")
+    serialized = json.dumps(evaluate(triage, dataset))
     assert dataset.records[0]["input"]["message"]["body"] not in serialized
 
 
-def test_local_validation_localises_degradation(inbox_pack: Pack, screened: dict[str, str]) -> None:
-    baseline = benchmark(inbox_pack)
-    assert baseline is not None
-    local = evaluate(Decision(inbox_pack, providers=screened), load_dataset(LOCAL_DATASET))
-    comparison = compare(local, baseline, inbox_pack.manifest.evaluation.degradation_tolerance)
+def test_local_validation_localises_degradation(triage_agent: Pack, tmp_path: Path) -> None:
+    baseline = benchmark()  # the triage fixture's test set, on its default providers
+    local = evaluate(Decision(triage_agent), load_dataset(local_site(tmp_path, triage_agent)))
+    comparison = compare(local, baseline, triage_agent.manifest.evaluation.degradation_tolerance)
     assert comparison["status"] == "degraded"
     assert comparison["delta"] < -0.03
     subjects = {finding["subject"] for finding in comparison["findings"]}
-    assert "language=es" in subjects
-    # Emergencies stay protected even where routing degrades and the model misses them.
-    assert local["decisions"]["outcome_counts"]["AUTO"] > 300
+    assert "channel=sms" in subjects
+    # Emergencies stay protected where routing degrades: with the screen's keyword rules alone,
+    # nothing is automated.
+    assert local["decisions"]["outcome_counts"]["AUTO"] == 0
     assert local["decisions"]["critical"][0]["auto_missed"] == 0
 
 
-def test_comparison_with_itself_is_clean(inbox_pack: Pack) -> None:
-    baseline = benchmark(inbox_pack)
-    assert baseline is not None
+def test_comparison_with_itself_is_clean() -> None:
+    baseline = benchmark()
     comparison = compare(baseline, baseline, 0.03)
     assert comparison["status"] == "ok" and comparison["findings"] == []
 
 
-def test_a_subgroup_the_benchmark_lacks_is_compared_with_its_overall_figure(
-    inbox_pack: Pack,
-) -> None:
+def test_a_subgroup_the_benchmark_lacks_is_compared_with_its_overall_figure() -> None:
     """Never the whole benchmark's count shown as if it were the subgroup's."""
     from mendari.evals.render import comparison_text
 
-    baseline = benchmark(inbox_pack)
-    assert baseline is not None
+    baseline = benchmark()
     local = copy.deepcopy(baseline)
     group = {"n": 40, "labelled": 40, "accuracy": 0.5, "auto_rate": 0.0, "abstention_rate": 0.0}
-    local["subgroups"]["language"]["xx"] = {**group, "false_automation_rate": None}
+    local["subgroups"]["channel"]["xx"] = {**group, "false_automation_rate": None}
     comparison = compare(local, baseline, 0.03)
-    (finding,) = [f for f in comparison["findings"] if f["subject"] == "language=xx"]
+    (finding,) = [f for f in comparison["findings"] if f["subject"] == "channel=xx"]
     assert finding["baseline_scope"] == "overall" and finding["local_n"] == 40
     primary = baseline["questions"][baseline["primary"]]
-    line = next(x for x in comparison_text(comparison).splitlines() if "language=xx" in x)
-    assert line.startswith(f"  - language=xx: benchmark overall {round(primary['accuracy'] * 600)}")
+    overall = round(primary["accuracy"] * primary["n"])  # 266 of 300
+    line = next(x for x in comparison_text(comparison).splitlines() if "channel=xx" in x)
+    assert line.startswith(f"  - channel=xx: benchmark overall {overall}")
     assert line.endswith("-> 20 of 40 [33.8-66.2%]")
 
 
-def test_a_subgroup_with_few_labelled_members_is_never_flagged(inbox_pack: Pack) -> None:
+def test_a_subgroup_with_few_labelled_members_is_never_flagged() -> None:
     """Before, the smallest group worth flagging (MIN_GROUP) was counted in members, not in the
     labelled members an accuracy is over: 40 cases with 2 labelled, both wrong, were flagged."""
-    baseline = benchmark(inbox_pack)
-    assert baseline is not None
+    baseline = benchmark()
     local = copy.deepcopy(baseline)
     group = {"n": 40, "labelled": 2, "accuracy": 0.0, "auto_rate": 0.0, "abstention_rate": 0.0}
-    local["subgroups"]["language"]["xx"] = {**group, "false_automation_rate": None}
+    local["subgroups"]["channel"]["xx"] = {**group, "false_automation_rate": None}
     comparison = compare(local, baseline, 0.03)
-    assert not [f for f in comparison["findings"] if f["subject"] == "language=xx"]
+    assert not [f for f in comparison["findings"] if f["subject"] == "channel=xx"]
 
 
 @pytest.mark.parametrize(
@@ -156,30 +183,28 @@ def test_a_subgroup_with_few_labelled_members_is_never_flagged(inbox_pack: Pack)
             [b.pop("primary")]  # with subgroups counted as mendari.eval/1 counts them
             + [m.pop("labelled") for v in b["subgroups"].values() for m in v.values()]
         ),
-        lambda b: next(iter(b["subgroups"]["language"].values())).update(labelled="many"),
+        lambda b: next(iter(b["subgroups"]["channel"].values())).update(labelled="many"),
     ],
     ids=["dataset", "primary", "labelled"],
 )
 def test_a_baseline_without_what_it_measured_cannot_be_compared(
-    inbox_pack: Pack, spoil: Callable[[dict[str, Any]], None]
+    spoil: Callable[[dict[str, Any]], None],
 ) -> None:
     """Before, these raised a KeyError or a ValueError in `compare` (a 500 from POST .../evals),
     as the malformed figures below once did."""
-    baseline = benchmark(inbox_pack)
-    assert baseline is not None
+    baseline = benchmark()
     local = copy.deepcopy(baseline)
-    for members in local["subgroups"]["language"].values():
+    for members in local["subgroups"]["channel"].values():
         members["accuracy"] = 0.0  # every subgroup reads the baseline's
     spoil(baseline)
     assert compare(local, baseline, 0.03)["status"] == "unknown"
 
 
-def test_a_baseline_without_its_counts_is_compared_with_n_a(inbox_pack: Pack) -> None:
+def test_a_baseline_without_its_counts_is_compared_with_n_a() -> None:
     """The counts each figure is of are read from a published benchmark only where they are."""
     from mendari.evals.render import comparison_text
 
-    baseline = benchmark(inbox_pack)
-    assert baseline is not None
+    baseline = benchmark()
     baseline["decisions"]["automation"]["false_automation_rate"] = 0.0
     local = copy.deepcopy(baseline)
     local["decisions"]["automation"].update(false_automation_rate=0.5, n=10)
@@ -200,18 +225,17 @@ def test_a_baseline_without_its_counts_is_compared_with_n_a(inbox_pack: Pack) ->
         lambda b: b["questions"][b["primary"]].update(accuracy=None),
         lambda b: b["questions"][b["primary"]].update(per_label=[1]),
         lambda b: b["questions"][b["primary"]].update(calibration={"ece": "low"}),
-        lambda b: b.update(subgroups={"language": [1]}),
+        lambda b: b.update(subgroups={"channel": [1]}),
         lambda b: b.update(decisions={"automation": {"false_automation_rate": "x"}}),
     ],
     ids=["accuracy", "per-label", "calibration", "subgroups", "automation"],
 )
 def test_a_baseline_with_malformed_figures_cannot_be_compared(
-    inbox_pack: Pack, spoil: Callable[[dict[str, Any]], None]
+    spoil: Callable[[dict[str, Any]], None],
 ) -> None:
     """A published benchmark is the pack author's file: one whose accuracy was null passed the
     card's checks and made POST .../evals answer 500 (TypeError in compare)."""
-    baseline = benchmark(inbox_pack)
-    assert baseline is not None
+    baseline = benchmark()
     local = copy.deepcopy(baseline)
     spoil(baseline)
     comparison = compare(local, baseline, 0.03)
@@ -219,13 +243,13 @@ def test_a_baseline_with_malformed_figures_cannot_be_compared(
     assert "published benchmark" in comparison["reason"] and comparison["findings"] == []
 
 
-def test_pack_behaviour_tests_pass(router: Decision) -> None:
-    outcomes = run_pack_tests(router)
+def test_pack_behaviour_tests_pass(triage: Decision) -> None:
+    outcomes = run_pack_tests(triage)
     assert outcomes and all(o.passed for o in outcomes), [o for o in outcomes if not o.passed]
 
 
-def test_decision_card_renders(inbox_pack: Pack) -> None:
-    card = render_card(inbox_pack)
+def test_decision_card_renders(triage_agent: Pack) -> None:
+    card = render_card(triage_agent)
     for heading in (
         "## Intended use",
         "## Decision policy",
@@ -233,11 +257,14 @@ def test_decision_card_renders(inbox_pack: Pack) -> None:
         "## Known failure modes",
     ):
         assert heading in card
-    assert inbox_pack.digest in card
+    assert triage_agent.digest in card
 
 
-def test_parallel_evaluation_matches_sequential(inbox_pack: Pack, screened: dict[str, str]) -> None:
-    router = Decision(inbox_pack, providers=screened)  # remote: evaluated in parallel
+def test_parallel_evaluation_matches_sequential(
+    triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A live agent service in both slots (in place of the network): evaluated in parallel.
+    router = Decision(triage_agent, providers=calm_agent(monkeypatch))
     dataset = resolve_dataset(router.pack, "calibration").head(60)
     sequential = evaluate(router, dataset)
     parallel = evaluate(router, dataset, workers=4)
