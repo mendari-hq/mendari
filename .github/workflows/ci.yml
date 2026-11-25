@@ -38,6 +38,8 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # 400 connections, as the local test container: each xdist worker's tests hold several
+      # stores' pools at once, and 100 ran out ("too many clients").
       - name: Start disposable Postgres 16 (tuned for fast parallel tests)
         if: matrix.python == '3.12'
         run: |
@@ -47,7 +49,8 @@ jobs:
             -e POSTGRES_DB=mendari_test \
             postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea \
             postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off \
-            -c autovacuum=off -c checkpoint_timeout=5min -c max_wal_size=1GB
+            -c autovacuum=off -c checkpoint_timeout=5min -c max_wal_size=1GB \
+            -c max_connections=400
           for i in $(seq 1 30); do
             docker exec mendari-pg pg_isready -U postgres -d mendari_test >/dev/null 2>&1 && exit 0
             sleep 1
