@@ -221,10 +221,10 @@ def test_the_break_glass_refuses_a_database_that_is_not_the_servers(
 
     db = str(tmp_path / "server.db")
     TestClient(create_app(db_path=db, providers=screened)).post(DECIDE, json=message(REFILL))
-    assert main([*args, "--pack", "mendari/referal-router", "--db", db]) == 1  # a typo
-    assert main([*args, "--pack", INBOX, "--digest", "nonsense", "--db", db]) == 1
+    assert main([*args, "--agent", "mendari/referal-router", "--db", db]) == 1  # a typo
+    assert main([*args, "--agent", INBOX, "--digest", "nonsense", "--db", db]) == 1
     unserved = "sha256:" + "0" * 64
-    assert main([*args, "--pack", INBOX, "--digest", unserved, "--db", db]) == 1
+    assert main([*args, "--agent", INBOX, "--digest", unserved, "--db", db]) == 1
     assert "never served" in capsys.readouterr().err
     assert main([*args, "--db", db]) == 0
     assert f"held in {db}" in capsys.readouterr().err

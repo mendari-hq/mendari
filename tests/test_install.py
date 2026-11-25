@@ -89,8 +89,8 @@ def test_no_page_tells_a_reader_to_install_the_server_extra() -> None:
 
 def test_the_demo_ends_with_what_an_installed_mendari_can_do() -> None:
     """Its last words name a URL, not a folder of the clone (an installed Mendari has no
-    `examples/` beside it), and commands as the command line reads them, with no flag it had
-    before (`mendari new --agent`): an agent of one's own, its failures, the console."""
+    `examples/` beside it), and commands as the command line reads them: an agent of one's
+    own, its failures, the console."""
     assert demo.EXAMPLES in demo.MODEL and " examples/" not in demo.MODEL
     prefix = f"{REPOSITORY}/tree/main/"
     assert demo.EXAMPLES.startswith(prefix)

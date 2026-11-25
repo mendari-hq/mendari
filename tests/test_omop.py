@@ -148,14 +148,14 @@ def test_the_cli_writes_datasets_and_reports_populations(
     db = tmp_path / "omop.db"
     assert main(["sandbox", "omop", "--dataset", str(dataset), "--db", str(db)]) == 0
     out = tmp_path / "people.jsonl"
-    args = ["omop", "dataset", "--db", str(db), "--pack", TRIAL, "--out", str(out)]
+    args = ["omop", "dataset", "--db", str(db), "--agent", TRIAL, "--out", str(out)]
     assert main([*args, "--labels", str(dataset)]) == 0
     [person] = [json.loads(line) for line in out.read_text().splitlines()]
     assert person["id"] == "case-0" and person["labels"] == {"eligibility": "candidate"}
     capsys.readouterr()
-    assert main(["omop", "run", "--db", str(db), "--pack", TRIAL, "--json"]) == 0
+    assert main(["omop", "run", "--db", str(db), "--agent", TRIAL, "--json"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["people"] == 1 and set(report["outcomes"].values()) == {None}  # one person
     assert "Doing well" not in json.dumps(report)
-    inbox = ["omop", "dataset", "--db", str(db), "--pack", "mendari/patient-inbox-router"]
+    inbox = ["omop", "dataset", "--db", str(db), "--agent", "mendari/patient-inbox-router"]
     assert main([*inbox, "--out", str(tmp_path / "x.jsonl")]) == 1  # not a record pack

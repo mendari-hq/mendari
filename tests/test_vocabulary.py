@@ -398,7 +398,6 @@ def _scaffolded(tmp_path: Path) -> Iterator[tuple[str, Path]]:
     """Each kind of agent `mendari new` scaffolds: the command as typed, and the folder made."""
     made = {
         "mendari new": (tmp_path / "plain" / "refills", ["--id", "my-clinic/refills"]),
-        "mendari new --agent": (tmp_path / "agent" / "refills", ["--agent", "--id", "a/refills"]),
         "mendari new --community": (tmp_path / "community-agents" / "refills", ["--community"]),
     }
     for shown, (target, flags) in made.items():

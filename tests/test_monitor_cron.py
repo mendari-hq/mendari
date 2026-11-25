@@ -386,7 +386,7 @@ def test_mendari_monitor_each_org_posts_one_alert_per_organization(
     monkeypatch.setenv("MENDARI_STATUS_ORG", "status")
     hook = Webhook()
     monkeypatch.setattr(alerts_module.httpx, "post", hook)
-    args = ["monitor", "--db", str(db), "--pack", inbox_pack.id, "--each-org", "--webhook", HOOK]
+    args = ["monitor", "--db", str(db), "--agent", inbox_pack.id, "--each-org", "--webhook", HOOK]
     assert main(args) == 0  # a scheduled job: every alert posted is the job done
     out = capsys.readouterr().out
     assert "clinic-a: mendari/patient-inbox-router: 1 alert(s)" in out
@@ -412,7 +412,7 @@ def test_a_lost_alert_or_a_failed_organization_never_hides_behind_another(
     store = AuditStore(db)
     degraded(store, inbox_pack, "clinic-a")
     degraded(store, inbox_pack, "clinic-b")
-    args = ["monitor", "--db", str(db), "--pack", inbox_pack.id, "--each-org", "--webhook", HOOK]
+    args = ["monitor", "--db", str(db), "--agent", inbox_pack.id, "--each-org", "--webhook", HOOK]
     hook = Webhook(*[httpx.ConnectError("down")] * 3)
     monkeypatch.setattr(alerts_module.httpx, "post", hook)
     assert main(args) == 3

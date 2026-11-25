@@ -483,7 +483,7 @@ def test_the_operator_exports_one_organization_or_every_event_on_no_decision(
     every = exported("--administrative")
     codes = {r["subtype"][0]["code"] for r in every}
     assert "retention.purged" in codes and len(every) > len(alpha)
-    assert main(["audit", "export", "--db", db, "--administrative", "--pack", INBOX]) == 2
+    assert main(["audit", "export", "--db", db, "--administrative", "--agent", INBOX]) == 2
     capsys.readouterr()
     trail = exported("--org", ORGS[0])  # a decision trail: that organization's only
     events = [r for r in trail if r["resourceType"] == "AuditEvent"]

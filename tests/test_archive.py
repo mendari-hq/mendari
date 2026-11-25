@@ -106,7 +106,7 @@ def test_extract_on_the_hub_engine_refuses_a_changed_reference_pack(
 def test_pack_verify_checks_an_archive_as_a_puller_loads_it(
     key: archive.Ed25519PrivateKey, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`mendari pack verify` loads an archive on the engine a puller runs it on: a signed copy of
+    """`mendari archive verify` loads an archive on the engine a puller runs it on: a signed copy of
     the referral pack with one changed byte (at a new version) fails, naming the lookahead and
     why; the reference pack itself passes."""
     root = changed_referral(tmp_path, "9.9.9")
@@ -114,13 +114,13 @@ def test_pack_verify_checks_an_archive_as_a_puller_loads_it(
     public.write_bytes(archive.public_pem(key.public_key()))
     changed = tmp_path / "changed.mendari"
     changed.write_bytes(archive.build(load_pack(root), key))
-    assert main(["pack", "verify", str(changed), "--public-key", str(public)]) != 0
+    assert main(["archive", "verify", str(changed), "--public-key", str(public)]) != 0
     err = capsys.readouterr().err
     assert "lookahead" in err and "not the copy of it in this release" in err
     assert "Traceback" not in err
     reference = tmp_path / "reference.mendari"
     reference.write_bytes(archive.build(REFERRAL, key))
-    assert main(["pack", "verify", str(reference), "--public-key", str(public)]) == 0
+    assert main(["archive", "verify", str(reference), "--public-key", str(public)]) == 0
     assert f"OK {REFERRAL.id}@{REFERRAL.version} {REFERRAL.digest}" in capsys.readouterr().out
 
 
@@ -128,12 +128,12 @@ def test_pack_verify_refuses_a_shadow_without_a_traceback(
     key: archive.Ed25519PrivateKey, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """F: a signed copy of the referral pack with one changed byte at the reference pack's own
-    version would take its place where it is pulled: `mendari pack verify` fails, saying why."""
+    version would take its place where it is pulled: `mendari archive verify` fails, saying why."""
     public = tmp_path / "publisher.pub"
     public.write_bytes(archive.public_pem(key.public_key()))
     shadow = tmp_path / "shadow.mendari"
     shadow.write_bytes(archive.build(load_pack(changed_referral(tmp_path)), key))
-    assert main(["pack", "verify", str(shadow), "--public-key", str(public)]) != 0
+    assert main(["archive", "verify", str(shadow), "--public-key", str(public)]) != 0
     err = capsys.readouterr().err
     shadowed = f"{REFERRAL.id}@{REFERRAL.version}"
     assert f"{shadowed} has the id and version of an agent this release bundles" in err
@@ -240,7 +240,7 @@ def test_names_that_are_one_file_where_case_is_not_significant_are_refused(
     built, public = tmp_path / "odd.mendari", tmp_path / "publisher.pub"
     built.write_bytes(data)
     public.write_bytes(archive.public_pem(key.public_key()))
-    assert main(["pack", "verify", str(built), "--public-key", str(public)]) == 1
+    assert main(["archive", "verify", str(built), "--public-key", str(public)]) == 1
     err = capsys.readouterr().err
     assert "where case and Unicode normalization" in err and "Traceback" not in err
 
@@ -470,7 +470,7 @@ def test_the_cli_generates_keys_builds_and_verifies(
     assert "not overwriting" in capsys.readouterr().err
     key = str(tmp_path / "publisher.key")
     assert (
-        main(["pack", "build", "mendari/referral-router", "--key", key, "--out", str(tmp_path)])
+        main(["archive", "build", "mendari/referral-router", "--key", key, "--out", str(tmp_path)])
         == 0
     )
     # An archive is written as `<namespace>-<name>-<version>.mendari`, and nothing else.
@@ -480,7 +480,8 @@ def test_the_cli_generates_keys_builds_and_verifies(
         built.name
     ]
     assert (
-        main(["pack", "verify", str(built), "--public-key", str(tmp_path / "publisher.pub")]) == 0
+        main(["archive", "verify", str(built), "--public-key", str(tmp_path / "publisher.pub")])
+        == 0
     )
     shown = f"OK mendari/referral-router@{REFERRAL.version} {REFERRAL.digest}"
     assert shown in capsys.readouterr().out

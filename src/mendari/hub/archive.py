@@ -15,7 +15,7 @@ mtime 0), so the same pack always gives the same bytes and the same archive dige
 `mendari improve` added to it or `mendari feedback export` wrote, or a model built from them.
 They may be patient text. Each is marked (`core/site_cases.py`), and those marks are looked for
 in every file the archive would hold, before anything is signed (`refuse_site_cases`). So
-`mendari pack build` and `mendari push` stop there, and a registry looks again at what it is
+`mendari archive build` and `mendari push` stop there, and a registry looks again at what it is
 sent (`hub/registry.py`), since a client need not have.
 
 `verify` checks the whole archive before anything is written to disk: only regular files under
@@ -277,7 +277,7 @@ def verify(archive: bytes, trusted: Mapping[str, Ed25519PublicKey]) -> Verified:
 def extract(verified: Verified, dest: Path, *, origin: Origin) -> Pack:
     """Write a verified archive's pack to `dest` and load it as `origin` (required, so every
     caller chooses the engine it is checked on: `hub` for a registry's publish, a pull and
-    `mendari pack verify`); its digest, id and version must be the ones the signed manifest
+    `mendari archive verify`); its digest, id and version must be the ones the signed manifest
     names."""
     dest.mkdir(parents=True, exist_ok=True)
     root = dest.resolve()

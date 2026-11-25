@@ -81,7 +81,6 @@ def test_new_agent_pack_works_offline_as_written(
     args = [
         "new",
         str(target),
-        "--agent",
         "--id",
         "my-clinic/agent-router",
         "--publisher",
@@ -108,6 +107,3 @@ def test_new_agent_pack_works_offline_as_written(
         ["eval", str(target), "--dataset", "examples"],
     ):
         assert main(command) == 0
-
-    assert main(["new", str(tmp_path / "both"), "--community", "--agent", "--id", "a/b"]) == 1
-    assert not (tmp_path / "both").exists()

@@ -535,7 +535,7 @@ def test_the_cli_builds_a_dataset_that_mendari_eval_reads(
             [
                 "bulk",
                 "dataset",
-                "--pack",
+                "--agent",
                 "mendari/referral-router",
                 "--ndjson",
                 str(export_dir),
