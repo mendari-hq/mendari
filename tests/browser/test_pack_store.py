@@ -256,18 +256,16 @@ def test_a_held_upload_says_only_that_it_is_held(
     expect(row).not_to_contain_text("hidden")
 
 
-def test_the_agents_tab_opens_from_the_address_it_had_before(site: Site) -> None:
-    """The Agents tab was at `#store/packs`: a link made then opens the tab, and the address says
-    `#store/agents` from there on. The tab names the command that builds an archive as it is
-    typed now."""
+def test_the_agents_tab_names_how_an_archive_is_built(site: Site) -> None:
+    """The Agents tab (`#store/agents`) names the command that builds an archive, and offers an
+    archive by the extension it is written with."""
     page = site.window(
         person(site, sub="aria", email="aria@example.org", org=CLINIC_B, roles=["pack_author"])
     )
     page.goto("about:blank")
-    page.goto("/#store/packs")
+    page.goto("/#store/agents")
     expect(page.locator("main h1")).to_have_text("Agent store")
     expect(page.locator('.tabs a[data-tab="agents"]')).to_have_attribute("aria-current", "page")
-    expect(page).to_have_url(re.compile(r"#store/agents$"))
     expect(page.get_by_role("heading", name="Copy an agent")).to_be_visible()
     expect(page.locator("#upload-form")).to_contain_text("Built with mendari archive build")
     # The file chooser offers an archive by the extension it is written with

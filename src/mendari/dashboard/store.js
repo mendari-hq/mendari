@@ -63,11 +63,7 @@ const short = (digest) => esc(String(digest).replace("sha256:", "").slice(0, 12)
 const digestCode = (digest) => `<code title="${esc(digest)}">${short(digest)}</code>`;
 
 views.store = async (main, params = []) => {
-  const [asked = defaultTab(), ...rest] = params;
-  // The Agents tab's address was "#store/packs": a link made then opens the tab, and the address
-  // says "#store/agents" from there on.
-  const tab = asked === "packs" ? "agents" : asked;
-  if (tab !== asked) history.replaceState(history.state, "", `${location.pathname}${location.search}#store/${tab}`);
+  const [tab = defaultTab(), ...rest] = params;
   if (tab === "version" && rest[0]) return showVersion(main, rest[0]);
   const tabs = TABS.filter((t) => t.shown());
   const current = tabs.find((t) => t.key === tab) ?? tabs[0];

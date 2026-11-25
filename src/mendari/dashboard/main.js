@@ -157,11 +157,8 @@ async function boot() {
 // The agent travels in the address ("?agent=mendari/portal-message-agent#review"), so a shared or
 // bookmarked link opens the agent it was copied from, and a record link opens over that agent's
 // list. Without one, the agent last chosen here. Hash links keep the query, so no link builds it.
-// The address said "?pack=" before: a link made then (a bookmark, a CDS card, an EHR launch) is
-// still read, and the address is written as "?agent=" from there on.
 function packInAddress() {
-  const query = new URLSearchParams(location.search);
-  return query.get("agent") ?? query.get("pack");
+  return new URLSearchParams(location.search).get("agent");
 }
 
 function switchPack(packId) {

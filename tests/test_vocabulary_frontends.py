@@ -23,8 +23,8 @@ them). The rule lets one through when it is written as code, which a page does w
 **What says the old word on purpose** is listed with its reason in `ALLOWED`. An entry that
 is no longer said fails here, so the list never outlives its reasons.
 
-The addresses the console writes (`?agent=`, `#store/agents`) and still reads (`?pack=`,
-`#store/packs`) are held by the browser tests, which see the address bar."""
+The addresses the console writes and reads (`?agent=`, `#store/agents`) are held by the browser
+tests, which see the address bar."""
 
 from __future__ import annotations
 
@@ -617,6 +617,7 @@ def test_every_page_script_and_example_of_a_front_end_is_read() -> None:
 
 
 # -- the Hub's addresses --------------------------------------------------------------------------
+
 
 def test_the_hub_s_addresses_say_agents() -> None:
     """A folder of `hub/app` is a part of an address, which people see and type (Next.js routes

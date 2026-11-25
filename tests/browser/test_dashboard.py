@@ -283,20 +283,6 @@ def test_an_unknown_pack_in_the_address_falls_back_to_the_last_one(page: Page) -
     expect(page).to_have_url(re.compile(f"\\?agent={GUARD}#overview$"))
 
 
-def test_a_link_made_before_the_address_said_agent_still_opens_its_agent(page: Page) -> None:
-    """The address named the agent `?pack=` before. A link from then (a bookmark, the link a CDS
-    card or an EHR launch gives) opens the agent it names, and the address says `?agent=` from
-    there on. Given both, `?agent=` is the one read."""
-    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
-    page.goto(f"/?pack={GUARD}#overview")
-    expect(page.locator("#pack-select")).to_have_value(GUARD)
-    expect(page.locator("main h1")).to_have_text("AI Guard")
-    expect(page).to_have_url(re.compile(f"/\\?agent={GUARD}#overview$"))
-    page.goto(f"/?agent={INBOX}&pack={GUARD}#overview")
-    expect(page.locator("#pack-select")).to_have_value(INBOX)
-    expect(page).to_have_url(re.compile(f"/\\?agent={INBOX}#overview$"))
-
-
 def test_going_back_across_a_pack_change_shows_that_pack(page: Page) -> None:
     open_pack(page, INBOX, "overview")
     page.locator('.nav a[data-view="audit"]').click()
