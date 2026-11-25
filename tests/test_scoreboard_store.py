@@ -446,7 +446,7 @@ def test_the_store_is_run_and_checked_against_the_repositorys_packs(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A newer copy of a reference pack on `MENDARI_PACKS_PATH` (or pulled from a registry)
+    """A newer copy of a reference pack on `MENDARI_AGENTS_PATH` (or pulled from a registry)
     comes first on the search path; the store never reads it."""
     name = stored(store, inbox)
     copy = tmp_path / "elsewhere" / "patient-inbox-router"
@@ -455,7 +455,7 @@ def test_the_store_is_run_and_checked_against_the_repositorys_packs(
     newer = re.sub(r"^version: .*$", "version: 99.0.0", manifest, count=1, flags=re.M)
     assert newer != manifest
     (copy / "agent.yaml").write_text(newer, encoding="utf-8")
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(copy.parent))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(copy.parent))
     assert resolve_pack(INBOX).root == copy.resolve()
     assert results_store.maintained_pack(INBOX).digest == inbox.digest
     found = results_store.check(store, base={})

@@ -57,7 +57,7 @@ def signed(registry_key: Any, variant: str = "rules", **changes: Any) -> dict[st
 
 
 def path(version: str | None = None) -> str:
-    return f"/v1/packs/mendari/portal-message-agent/{version or demo().version}/evaluations"
+    return f"/v1/agents/mendari/portal-message-agent/{version or demo().version}/evaluations"
 
 
 def send(registry: Registry, record: Any, token: str | None = None) -> Any:

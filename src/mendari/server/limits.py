@@ -73,7 +73,7 @@ from mendari.core import clock
 from mendari.core.audit import AuditStore
 from mendari.core.rate_buckets import RateBuckets
 from mendari.errors import MendariError
-from mendari.server import paths, security_log
+from mendari.server import security_log
 
 Mode = Literal["on", "log", "off"]
 _UNITS = {"s": 1, "min": 60, "h": 3600}
@@ -124,8 +124,6 @@ DEFAULT_RATES: dict[str, Rate] = {
     "store": Rate(240, 3600, 60),
 }
 
-# Each names a route's current path; `Limiter.classify` and `DailyCap.counts` read a renamed
-# route's former path as its current one first (`server/paths.py`), so both count alike.
 _GUARD = re.compile(r"^/api/agents/[^/]+/[^/]+/guard$")
 # What is made to be kept: the exports, and the committee packet (one document of every
 # aggregate read about an agent, made for a meeting and not for polling).
@@ -284,7 +282,7 @@ class DailyCap:
     def counts(method: str, path: str) -> bool:
         """Whether the guard counts this request (one decision); a CDS Hooks request is counted
         in its route, which knows how many it makes."""
-        return method == "POST" and _DECIDES.match(paths.current(path)) is not None
+        return method == "POST" and _DECIDES.match(path) is not None
 
     def check(self, principal_id: str, org: str | None, cost: int = 1) -> DailyCapReached | None:
         """Count `cost` decisions, all or none; the refusal if they would pass the cap."""
@@ -339,7 +337,6 @@ class Limiter:
 
     def classify(self, method: str, path: str, permission: str) -> str | None:
         """The class a request counts against, or None (not limited here)."""
-        path = paths.current(path)
         if method == "GET" and path in ("/auth/login", "/smart/launch"):
             return "signin"
         if method == "POST" and permission == "person":

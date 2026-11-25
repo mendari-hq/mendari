@@ -132,7 +132,7 @@ def test_a_symbolic_link_out_of_the_pack_is_refused(
     inbox_copy: Path, tmp_path: Path, link: str
 ) -> None:
     # A CHANGELOG.md link to /proc/self/environ once put the server's environment in the card
-    # that GET /api/packs/{id} returns; a link to a directory would do the same for its files.
+    # that GET /api/agents/{id} returns; a link to a directory would do the same for its files.
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "secret.txt").write_text(CANARY)

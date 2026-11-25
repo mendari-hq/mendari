@@ -547,7 +547,7 @@ def test_the_api_compares_with_the_providers_the_server_runs(
     tmp_path: Path, inbox_pack: Pack
 ) -> None:
     client = TestClient(create_app(db_path=tmp_path / "a.db", providers=SCREENED))
-    decided = client.post(f"/api/packs/{inbox_pack.id}/decide", json=message(ROUTINE)).json()
+    decided = client.post(f"/api/agents/{inbox_pack.id}/decide", json=message(ROUTINE)).json()
     assert decided["outcome"] == "AUTO"
     report = client.get("/api/monitoring", params={"pack_id": inbox_pack.id}).json()
     assert report["last_7_days"]["decisions"] == 1 and report["pack"]["id"] == inbox_pack.id
@@ -614,7 +614,7 @@ def test_the_cli_exits_1_on_alerts_and_posts_them(
         return Response()
 
     monkeypatch.setattr("httpx.post", post)
-    args = ["monitor", "--db", str(db), "--pack", inbox_pack.id]
+    args = ["monitor", "--db", str(db), "--agent", inbox_pack.id]
     hook = ["--webhook", "https://alerts.example/hook"]
     assert main([*args, *hook]) == 0  # no server recorded what runs: nothing to compare
     assert "(no comparable benchmark: providers_unknown)" in capsys.readouterr().out
@@ -687,7 +687,7 @@ def test_the_cli_watches_one_organization(
     ran_here(store, inbox_pack, MEASURED)
     with tenancy.acting_for("clinic-a"):
         reviewed(store, inbox_pack, 25, days_ago=1, final="billing")
-    args = ["monitor", "--db", str(db), "--pack", inbox_pack.id]
+    args = ["monitor", "--db", str(db), "--agent", inbox_pack.id]
     assert main([*args, "--org", "clinic-b"]) == 0
     assert main([*args, "--org", "clinic-a"]) == 1
     assert "reviewed decisions: accuracy 0 of 25 [" in capsys.readouterr().out
@@ -811,7 +811,7 @@ def test_a_command_reading_a_database_without_the_count_is_refused_in_one_line(
     with closing(sqlite3.connect(db)) as connection:
         connection.execute("ALTER TABLE decisions DROP COLUMN provider_errors")
         connection.commit()
-    assert main(["monitor", "--db", str(db), "--pack", inbox_pack.id]) == 1
+    assert main(["monitor", "--db", str(db), "--agent", inbox_pack.id]) == 1
     assert "decisions.provider_errors" in capsys.readouterr().err
 
 

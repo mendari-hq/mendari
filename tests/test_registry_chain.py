@@ -18,7 +18,7 @@ from mendari.hub.registry import RegistryStore, ReviewRequest, token_id
 from tests.conftest import Registry, share_signed, shared_benchmark, verified_site
 
 REFERRAL = resolve_pack("mendari/referral-router")
-VERSION_PATH = f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"
+VERSION_PATH = f"/v1/agents/{REFERRAL.id}/{REFERRAL.version}"
 
 
 def _events(db_target: str) -> list[dict[str, Any]]:
@@ -400,7 +400,7 @@ def test_a_review_confirms_or_corrects_the_declared_risk_level(registry: Registr
     again = registry.client.get(VERSION_PATH).json()
     assert again["checked"]["review"]["matches_declared"] is True  # the newest review is shown
     for shown in (
-        registry.client.get(f"/v1/packs/{REFERRAL.id}").json()["latest"],
+        registry.client.get(f"/v1/agents/{REFERRAL.id}").json()["latest"],
         registry.client.get("/v1/search").json()[0],
     ):
         assert shown["claimed"]["risk"]["confirmed"] is True

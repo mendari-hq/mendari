@@ -183,7 +183,7 @@ def test_with_jev_set_up_a_server_runs_mendari_and_jev(
     assert health["provider_settings_skipped"] == {}
     assert health["jev"]["defaults"] is True  # type: ignore[index]
     app = create_app(db_path=tmp_path / "b.db", default_providers=default_providers())
-    inbox = TestClient(app).get("/api/packs/mendari/patient-inbox-router").json()
+    inbox = TestClient(app).get("/api/agents/mendari/patient-inbox-router").json()
     assert inbox["without_model"] == []  # what runs, not the pack's defaults
     # At risk level 2, automation rests on an approval of what runs: the deployment names it.
     assert health["without_model"] == {
@@ -304,7 +304,7 @@ def test_the_vercel_app_runs_the_jev_defaults(
     for name in ("VERCEL", "DATABASE_URL", "MENDARI_PROVIDERS"):
         monkeypatch.delenv(name, raising=False)
     # A process of its own does not see the tests' fixture packs unless told where they are.
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT / "tests" / "fixtures" / "reference-agents"))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT / "tests" / "fixtures" / "reference-agents"))
     script = (
         _SET_DEFAULTS + "import json; from fastapi.testclient import TestClient; "
         "from mendari.server.vercel import app; "

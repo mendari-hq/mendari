@@ -42,7 +42,7 @@ approved wherever a digest is approved, as any change is. Nothing here serves it
 It also holds a site's cases now, which may be patient text, and its model holds their words.
 Every case a run adds says so (`attributes.added_by`, `core/site_cases.py`), `apply` writes none
 that does not, and the model built from them says so too (`evals/training.py` `fit`). No
-archive is made of a pack that holds either (`hub/archive.py`), so `mendari pack build` and
+archive is made of a pack that holds either (`hub/archive.py`), so `mendari archive build` and
 `mendari push` refuse it, and a registry refuses one sent to it all the same. The file a run
 was given is a site's cases too, a third of them only held out, and it need carry no mark (an
 export's records do, cases a site labelled itself do not): the command reads none from the

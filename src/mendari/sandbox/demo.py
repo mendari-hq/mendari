@@ -69,8 +69,8 @@ REVIEWED = 200  # the first cases of the test set, decided and then reviewed
 # What the demo holds the agent to: of the urgent messages, at most 1% automated, so read by no
 # person (critical misses), shown with 95% confidence.
 TARGETS = Targets(critical_miss=0.01)
-# The demo's last words: the commands to type next, each as the command line reads it (none
-# with a flag it had before), and what each is for. They are what an installed Mendari can do.
+# The demo's last words: the commands to type next, each as the command line reads it, and what
+# each is for. They are what an installed Mendari can do.
 NEXT = (
     ("mendari new my-agent --id my-clinic/my-agent", "an agent of your own, from a template"),
     ("mendari probe my-agent", "its failures, found and kept as tests (--write)"),

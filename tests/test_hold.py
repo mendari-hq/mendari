@@ -22,7 +22,7 @@ from mendari.server.app import create_app
 from tests.conftest import message
 
 INBOX = "mendari/patient-inbox-router"
-DECIDE = f"/api/packs/{INBOX}/decide"
+DECIDE = f"/api/agents/{INBOX}/decide"
 REFILL = "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks"
 CHEST = "Crushing chest pain for 30 minutes, going down my left arm."
 
@@ -103,7 +103,7 @@ def test_holding_and_lifting_over_http_takes_effect_at_once(
     assert (emergency["outcome"], emergency["priority"]) == ("HUMAN_REVIEW", "stat")
     assert client.get("/api/holds").json()[0]["reason"] == "a missed emergency"
     assert client.get("/api/health").json()["holds"] == 1
-    other = client.post("/api/packs/mendari/referral-router/examples")  # unrelated pack: unheld
+    other = client.post("/api/agents/mendari/referral-router/examples")  # unrelated pack: unheld
     assert other.status_code in (200, 405)
     assert client.delete(f"/api/holds/{hold.json()['id']}").status_code == 204
     assert client.post(DECIDE, json=message(REFILL)).json()["outcome"] == "AUTO"
@@ -149,7 +149,7 @@ def test_fhir_and_cds_hooks_decisions_are_held_too(
     client = TestClient(create_app(db_path=tmp_path / "f.db", providers=screened))
     client.post("/api/holds", json={"reason": "every pack"})
     bundle = {"communication": COMMUNICATION, "patient": PATIENT}
-    fhir = client.post(f"/api/packs/{INBOX}/fhir/decide", json=bundle).json()
+    fhir = client.post(f"/api/agents/{INBOX}/fhir/decide", json=bundle).json()
     assert fhir["decision"]["outcome"] != "AUTO"
     cards = client.post(
         "/cds-services/mendari.patient-inbox-router",
@@ -181,7 +181,7 @@ def test_the_api_refuses_a_digest_it_does_not_serve(tmp_path: Path) -> None:
     assert client.post("/api/holds", json=wrong).status_code == 422
     alone = {"pack_digest": "sha256:" + "0" * 64, "reason": "no pack"}
     assert client.post("/api/holds", json=alone).status_code == 422
-    served = client.get(f"/api/packs/{INBOX}").json()["digest"]
+    served = client.get(f"/api/agents/{INBOX}").json()["digest"]
     right = {"pack_id": INBOX, "pack_digest": served, "reason": "this version"}
     assert client.post("/api/holds", json=right).status_code == 201
 
@@ -221,10 +221,10 @@ def test_the_break_glass_refuses_a_database_that_is_not_the_servers(
 
     db = str(tmp_path / "server.db")
     TestClient(create_app(db_path=db, providers=screened)).post(DECIDE, json=message(REFILL))
-    assert main([*args, "--pack", "mendari/referal-router", "--db", db]) == 1  # a typo
-    assert main([*args, "--pack", INBOX, "--digest", "nonsense", "--db", db]) == 1
+    assert main([*args, "--agent", "mendari/referal-router", "--db", db]) == 1  # a typo
+    assert main([*args, "--agent", INBOX, "--digest", "nonsense", "--db", db]) == 1
     unserved = "sha256:" + "0" * 64
-    assert main([*args, "--pack", INBOX, "--digest", unserved, "--db", db]) == 1
+    assert main([*args, "--agent", INBOX, "--digest", unserved, "--db", db]) == 1
     assert "never served" in capsys.readouterr().err
     assert main([*args, "--db", db]) == 0
     assert f"held in {db}" in capsys.readouterr().err

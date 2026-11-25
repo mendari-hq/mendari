@@ -1239,7 +1239,6 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.29" },
     { name = "vercel-oidc", specifier = ">=0.9" },
 ]
-provides-extras = ["server"]
 
 [package.metadata.requires-dev]
 dev = [

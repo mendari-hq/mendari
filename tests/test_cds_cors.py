@@ -127,10 +127,10 @@ def test_a_registered_origin_gets_cors_on_cds_services_only(
     with AuditStore(db) as store:
         key = store.create_api_key(name="rest", role="service", org="default", created_by="t")
     elsewhere = [
-        http.get("/api/packs", headers={**page_on(APP), **bearer(key["key"])}),
+        http.get("/api/agents", headers={**page_on(APP), **bearer(key["key"])}),
         http.get("/fhir/metadata", headers=page_on(APP)),
         http.get("/api/health", headers=page_on(APP)),
-        http.options("/api/packs", headers=preflight(APP, "GET")),
+        http.options("/api/agents", headers=preflight(APP, "GET")),
     ]
     assert [answer.status_code for answer in elsewhere] == [200, 200, 200, 403]
     assert all(cors_headers(answer) == {} for answer in elsewhere)

@@ -20,12 +20,11 @@ applied here to what each front end shows (`SURFACES`):
 **A wire name stays** (`pack_id`, the `pack` parameter of `$decide`: the plan's wave 6 renames
 them). The rule lets one through when it is written as code, which a page does with `<code>`.
 
-**What says the old word on purpose** is listed with its reason: `ALLOWED` (a text) and
-`FORMER_ADDRESSES` (an address of the Hub). An entry that is no longer said fails here, so
-neither list outlives its reasons.
+**What says the old word on purpose** is listed with its reason in `ALLOWED`. An entry that
+is no longer said fails here, so the list never outlives its reasons.
 
-The addresses the console writes (`?agent=`, `#store/agents`) and still reads (`?pack=`,
-`#store/packs`) are held by the browser tests, which see the address bar."""
+The addresses the console writes and reads (`?agent=`, `#store/agents`) are held by the browser
+tests, which see the address bar."""
 
 from __future__ import annotations
 
@@ -619,28 +618,15 @@ def test_every_page_script_and_example_of_a_front_end_is_read() -> None:
 
 # -- the Hub's addresses --------------------------------------------------------------------------
 
-# Parts of the Hub's addresses that say the old word on purpose, each with why.
-FORMER_ADDRESSES = {
-    "packs": "where an agent's page was (`/packs/<namespace>/<name>`): it redirects to "
-    "`/agents/<namespace>/<name>`, so a link made before still opens the page",
-}
-
 
 def test_the_hub_s_addresses_say_agents() -> None:
     """A folder of `hub/app` is a part of an address, which people see and type (Next.js routes
-    by folder; `[name]` is a parameter). None says the old word but a former address, and that
-    one holds a redirect and nothing else."""
+    by folder; `[name]` is a parameter). None says the old word."""
     app = HUB / "app"
     routed = [path.relative_to(app) for path in files(app, *SCRIPTS)]
     parts = {part for path in routed for part in path.parts[:-1] if not part.startswith("[")}
     assert {"agents", "publishers"} <= parts
-    assert {part for part in parts if offences(part)} == set(FORMER_ADDRESSES)
-    for part, reason in FORMER_ADDRESSES.items():
-        assert reason.strip(), part
-        held = [path for path in routed if path.parts[0] == part]
-        assert [path.name for path in held] == ["route.ts"], held
-        source = (app / held[0]).read_text(encoding="utf-8")
-        assert "permanentRedirect(`/agents/" in source
+    assert not {part for part in parts if offences(part)}
 
 
 # -- the readers, on what they must tell apart ----------------------------------------------------

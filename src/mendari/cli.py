@@ -559,17 +559,7 @@ def _publish_run(
             "run; the evaluation says so. Run it again for one with none",
             file=sys.stderr,
         )
-    try:
-        return dict(registry.publish_evaluation(record))
-    except HubError as error:
-        if f"not a {evaluations.FORMAT_V1} record: format" not in str(error):
-            raise
-        # A registry from before `mendari.publisher-evaluation/2` names the one format it takes.
-        raise HubError(
-            f"{error}. This registry is from a release before {evaluations.FORMAT}: it takes "
-            "this evaluation once it is upgraded",
-            error.status,
-        ) from None
+    return dict(registry.publish_evaluation(record))
 
 
 def _linkable(url: Any, ends: str) -> str | None:
@@ -4298,16 +4288,13 @@ CI_GUIDE = "https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate
 def cmd_new(args: argparse.Namespace) -> int:
     """A new agent from the template: YAML only, and it validates, tests and evaluates as it is,
     on an offline mock fixture that switches to a live agent endpoint when `MENDARI_AGENT_URL`
-    is set. `--agent` asked for that when it was not the default, and is still read. With it
-    comes the workflow that checks the agent on every change in its own repository
+    is set, with the workflow that checks the agent on every change in its own repository
     (`CI_WORKFLOW`), which is no part of the agent: a hidden folder is in no digest or archive.
     With `--community`, a community agent (`community-agents/<name>`, id `community/<name>`)
     that also passes `mendari community-check`, its benchmark and card written."""
     from mendari.core.origin import COMMUNITY_NAME, COMMUNITY_NAMESPACE
     from mendari.core.spec import _PACK_ID
 
-    if args.community and args.agent:
-        raise MendariError("choose either --community or --agent, not both")
     target = Path(args.dir)
     if target.exists() and any(target.iterdir()):
         raise MendariError(f"{target} exists and is not empty")
@@ -4567,15 +4554,11 @@ class UsageError(MendariError):
 
 class _Parser(argparse.ArgumentParser):
     """Every parser and subparser of `mendari` (add_subparsers makes its subparsers of this
-    class): a usage error is one line and exit 1, like any other error (LP-15), every command
-    takes `--debug`, and a command or an option is still read under the name it had before."""
+    class): a usage error is one line and exit 1, like any other error (LP-15), and every
+    command takes `--debug`."""
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        # The name one of this parser's commands or options had -> the name it has now. The old
-        # name is read as the new one when typed whole (never abbreviated), and argparse never
-        # learns it: no usage, help or error names it.
-        self.renamed: dict[str, str] = {}
         self.add_argument(
             "--debug",
             action="store_true",
@@ -4585,17 +4568,6 @@ class _Parser(argparse.ArgumentParser):
 
     def error(self, message: str) -> NoReturn:
         raise UsageError(f"{self.prog}: {message} (see {self.prog} --help)")
-
-    def _parse_optional(self, arg_string: str) -> Any:
-        """An option typed under the name it had (`--pack x`, `--pack=x`) is the one it is now."""
-        name, equals, value = arg_string.partition("=")
-        return super()._parse_optional(self.renamed.get(name, name) + equals + value)
-
-    def _get_values(self, action: argparse.Action, arg_strings: list[str]) -> Any:
-        """A command typed under the name it had (`mendari pack build`) is the one it is now."""
-        if action.nargs == argparse.PARSER and arg_strings:
-            arg_strings = [self.renamed.get(arg_strings[0], arg_strings[0]), *arg_strings[1:]]
-        return super()._get_values(action, arg_strings)
 
 
 def _agent_argument(
@@ -4607,12 +4579,10 @@ def _agent_argument(
     command.add_argument("pack", metavar="agent", help=about, **kwargs)
 
 
-def _agent_option(command: _Parser, **kwargs: Any) -> None:
-    """`--agent`, the agent a command is about; the commands read it as `args.pack`. `--pack`,
-    the name it had, is still read (`_Parser.renamed`)."""
+def _agent_option(command: argparse.ArgumentParser, **kwargs: Any) -> None:
+    """`--agent`, the agent a command is about; the commands read it as `args.pack`."""
     if "choices" not in kwargs:  # with choices, the usage lists them
         kwargs.setdefault("metavar", "AGENT")
-    command.renamed["--pack"] = "--agent"
     command.add_argument("--agent", dest="pack", **kwargs)
 
 
@@ -4667,13 +4637,12 @@ def _subcommands(parser: argparse.ArgumentParser) -> Any:
 
 def _command(parser: Any, words: Sequence[str]) -> argparse.ArgumentParser | None:
     """The parser of the command `words` spell from `parser` down (`audit verify`), or None when
-    they spell none. A name a command had before is read here too."""
+    they spell none."""
     for word in words:
         commands = _subcommands(parser)
-        name = parser.renamed.get(word, word)
-        if commands is None or name not in commands.choices:
+        if commands is None or word not in commands.choices:
             return None
-        parser = commands.choices[name]
+        parser = commands.choices[word]
     return parser
 
 
@@ -5849,7 +5818,6 @@ def build_parser() -> argparse.ArgumentParser:
     pack_cmd = sub.add_parser("archive", help="signed agent archives").add_subparsers(
         dest="archive_command", required=True
     )
-    parser.renamed["pack"] = "archive"
     build_pack = pack_cmd.add_parser("build", help="build a signed .mendari archive")
     _agent_argument(build_pack, "namespace/name[@version] or a directory")
     build_pack.add_argument("--key", required=True, help="publisher private key (PEM)")
@@ -6457,7 +6425,6 @@ def build_parser() -> argparse.ArgumentParser:
         "list", help="every round with its state and counts (ids and counts)"
     )
     round_list.add_argument("--org", help="only this organization's")
-    # A new command: `--agent` only (the older `--pack` spelling was never its option).
     round_list.add_argument(
         "--agent", dest="agent", metavar="AGENT", help="only this agent's (namespace/name)"
     )
@@ -6626,8 +6593,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="a community agent for community-agents/<name> (id community/<name>), with the "
         "defaults community-check asks for",
     )
-    # What `mendari new` writes without it, since an agent became the default: still read.
-    new.add_argument("--agent", action="store_true", help=argparse.SUPPRESS)
     new.set_defaults(handler=cmd_new)
 
     community = sub.add_parser(

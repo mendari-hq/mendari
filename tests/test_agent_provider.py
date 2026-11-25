@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for the first-class AI agent provider (`providers/agent.py`) and `mendari new --agent`."""
+"""Tests for the first-class AI agent provider (`providers/agent.py`) and `mendari new`."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ CANARY = "canary-agent-secret-token"
 @pytest.fixture
 def agent_pack_dir(tmp_path: Path) -> Path:
     target = tmp_path / "agent-pack"
-    assert main(["new", str(target), "--agent", "--id", "clinic/agent-pack"]) == 0
+    assert main(["new", str(target), "--id", "clinic/agent-pack"]) == 0
     return target
 
 
@@ -146,7 +146,7 @@ def test_offline_mock_file_answers_with_tool_calls_and_rationale(agent_pack: Pac
 
 def test_offline_mock_file_supports_yaml_and_exact_input_match(tmp_path: Path) -> None:
     target = tmp_path / "yaml-agent"
-    assert main(["new", str(target), "--agent", "--id", "clinic/yaml-agent"]) == 0
+    assert main(["new", str(target), "--id", "clinic/yaml-agent"]) == 0
     yaml_mock = {
         "agent_version": "1.0.0",
         "cases": [
@@ -187,7 +187,7 @@ def test_offline_mock_file_supports_yaml_and_exact_input_match(tmp_path: Path) -
 
 def test_offline_mock_file_respects_state_fields(tmp_path: Path) -> None:
     target = tmp_path / "filtered-mock"
-    assert main(["new", str(target), "--agent", "--id", "clinic/filtered-mock"]) == 0
+    assert main(["new", str(target), "--id", "clinic/filtered-mock"]) == 0
     pack = load_pack(target)
     provider = build_provider(pack, "reader", "agent")
     # "chest pain" only appears in an unshared field outside `state_fields`
@@ -575,7 +575,7 @@ def test_agent_pack_may_not_choose_deployment_env_vars(agent_pack_dir: Path, fie
         load_pack(agent_pack_dir)
 
 
-# -- composites & end-to-end `mendari new --agent` ------------------------------------------------
+# -- composites & end-to-end `mendari new` --------------------------------------------------------
 
 
 def test_agent_works_inside_composite_safety_screen(
@@ -615,7 +615,6 @@ def test_mendari_new_agent_end_to_end_offline_and_live_switch(
             [
                 "new",
                 str(target),
-                "--agent",
                 "--id",
                 "my-clinic/clinic-agent",
                 "--publisher",
@@ -754,7 +753,7 @@ def test_a_server_with_sign_in_never_automates_on_canned_answers(
     from tests.conftest import DASHBOARD
 
     monkeypatch.delenv(ENDPOINT_ENV, raising=False)
-    route = "/api/packs/mendari/portal-message-agent/decide"
+    route = "/api/agents/mendari/portal-message-agent/decide"
     agents = [ROOT / "agents"]
     open_mode = TestClient(create_app(db_path=tmp_path / "open.db", packs_paths=agents))
     assert open_mode.post(route, json=REFILL).json()["outcome"] == "AUTO"

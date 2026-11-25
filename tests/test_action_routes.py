@@ -342,9 +342,6 @@ def test_an_unknown_decision_another_agents_and_an_unknown_agent_are_404s(
     )
     assert nobody.status_code == 404
     assert [e["event"] for e in events(client, decided["id"])].count("action.proposed") == 2
-    # It was made since the rename: it has no former path.
-    former = client.post(f"/api/packs/{AGENT}/actions", json={"decision_id": decided["id"], **body})
-    assert former.status_code in (404, 405)
 
 
 def test_an_agent_older_than_0_4_authorizes_nothing_over_http(client: TestClient) -> None:
@@ -491,7 +488,6 @@ def test_the_api_description_describes_the_route_and_the_reviews_new_field(
     operation = described["paths"]["/api/agents/{namespace}/{name}/actions"]["post"]
     assert operation["summary"] == "Authorize an action" and operation["tags"] == ["Decisions"]
     assert "runs nothing" in operation["description"]
-    assert "/api/packs/{namespace}/{name}/actions" not in described["paths"]
     request = described["components"]["schemas"]["ActionRequest"]
     assert request["required"] == ["decision_id", "name"]
     assert request["properties"]["name"]["pattern"] == actions.NAME_PATTERN

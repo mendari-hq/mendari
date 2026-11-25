@@ -183,7 +183,7 @@ def test_one_decision_as_a_bundle(store: AuditStore, inbox_pack: Pack) -> None:
 
 def test_the_api_serves_a_bundle_and_ndjson(tmp_path: Path, inbox_pack: Pack) -> None:
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    decided = client.post(f"/api/packs/{inbox_pack.id}/decide", json=message(EMERGENCY)).json()
+    decided = client.post(f"/api/agents/{inbox_pack.id}/decide", json=message(EMERGENCY)).json()
     client.post(f"/api/review/{decided['id']}", json={"final_label": "nurse", "reviewer": "rn-1"})
     one = client.get(f"/api/audit/{decided['id']}/fhir")
     assert one.headers["content-type"].startswith("application/fhir+json")
@@ -205,7 +205,7 @@ def test_the_exports_bounds_are_read_as_times_not_text(tmp_path: Path, inbox_pac
     """`since` with another offset was compared as text with the stored UTC times, so an hour
     after the decision, written at -05:00, still exported it; `zzz` exported nothing, silently."""
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    client.post(f"/api/packs/{inbox_pack.id}/decide", json=message(EMERGENCY))
+    client.post(f"/api/agents/{inbox_pack.id}/decide", json=message(EMERGENCY))
     export = client.get("/api/audit/export/fhir").text.splitlines()
     recorded = datetime.fromisoformat(json.loads(export[0])["recorded"])
     later = (recorded + timedelta(hours=1)).astimezone(timezone(timedelta(hours=-5)))

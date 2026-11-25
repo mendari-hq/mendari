@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Community packs (plan B1, B2): packs outside developers contribute by pull request, in
 `community-agents/<name>/` with id `community/<name>`. Where a pack was found sets its origin
-(`core/origin.py`); a community pack is served only with MENDARI_COMMUNITY_PACKS=on, never
+(`core/origin.py`); a community pack is served only with MENDARI_COMMUNITY_AGENTS=on, never
 automates, decides with local providers unless the deployment names it, keeps only a hash of its
 inputs and is at most risk level 1. One id is one pack, whatever the versions."""
 
@@ -102,14 +102,14 @@ def test_community_packs_are_searched_only_when_turned_on(
     assert {pack.id for pack in discover().packs} == SHIPPED
 
     for off in ("off", "OFF", ""):
-        monkeypatch.setenv("MENDARI_COMMUNITY_PACKS", off)
+        monkeypatch.setenv("MENDARI_COMMUNITY_AGENTS", off)
         assert SearchPath(base, "community") not in search_paths()
-    # Off means off, even where MENDARI_PACKS_PATH names community-agents/.
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(base))
+    # Off means off, even where MENDARI_AGENTS_PATH names community-agents/.
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(base))
     assert SORTER_ID not in {pack.id for pack in discover().packs}
 
-    monkeypatch.delenv("MENDARI_PACKS_PATH")
-    monkeypatch.setenv("MENDARI_COMMUNITY_PACKS", "on")
+    monkeypatch.delenv("MENDARI_AGENTS_PATH")
+    monkeypatch.setenv("MENDARI_COMMUNITY_AGENTS", "on")
     assert search_paths()[-1] == SearchPath(base, "community")
     found = discover()
     assert {pack.id for pack in found.packs} == SHIPPED | {SORTER_ID}
@@ -121,8 +121,8 @@ def test_community_packs_are_searched_only_when_turned_on(
 def test_an_unknown_switch_value_fails_rather_than_guessing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MENDARI_COMMUNITY_PACKS", "yes")
-    with pytest.raises(MendariError, match="MENDARI_COMMUNITY_PACKS must be on or off"):
+    monkeypatch.setenv("MENDARI_COMMUNITY_AGENTS", "yes")
+    with pytest.raises(MendariError, match="MENDARI_COMMUNITY_AGENTS must be on or off"):
         search_paths()
 
 
@@ -134,7 +134,7 @@ def test_a_directory_has_the_origin_of_where_it_sits(
     assert origin_of(PACKS) == origin_of(INBOX_DIR) == "maintained"
     assert origin_of(base) == origin_of(base / "visit-sorter") == "community"
     assert origin_of(tmp_path) == origin_of(SORTER) == "local"
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(tmp_path / "mine"))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(tmp_path / "mine"))
     assert search_paths()[0] == SearchPath(tmp_path / "mine", "local")
     # A pack given by its directory carries that directory's origin.
     assert resolve_pack(str(base / "visit-sorter")).origin == "community"
@@ -242,10 +242,10 @@ def test_a_pack_in_the_community_namespace_elsewhere_gets_the_community_limits(
 def test_a_path_holding_packs_finds_them_as_maintained_with_community_packs_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """MENDARI_PACKS_PATH naming a checkout (CONTRIBUTING's `MENDARI_PACKS_PATH=<parent>`):
+    """MENDARI_AGENTS_PATH naming a checkout (CONTRIBUTING's `MENDARI_AGENTS_PATH=<parent>`):
     before, every pack under it took the path's origin (local), so the five reference packs
     were refused for their namespace and then skipped as already seen: none was served."""
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT))
     found = discover()
     # (A working copy may hold other packs, untracked: only the reference packs are asserted.)
     assert {pack.id for pack in found.packs if pack.origin == "maintained"} == SHIPPED
@@ -260,10 +260,10 @@ def test_a_path_holding_community_packs_serves_them_only_when_on(
     checkout = tmp_path / "checkout"
     base = _community(checkout)
     monkeypatch.setattr(registry, "_COMMUNITY_DIR", base)
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(checkout))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(checkout))
     found = discover()
     assert SORTER_ID not in {pack.id for pack in found.packs} and not found.problems
-    monkeypatch.setenv("MENDARI_COMMUNITY_PACKS", "on")
+    monkeypatch.setenv("MENDARI_COMMUNITY_AGENTS", "on")
     found = discover()
     origins = {pack.id: pack.origin for pack in found.packs}
     assert origins[SORTER_ID] == "community" and not found.problems
@@ -295,7 +295,7 @@ def test_a_pulled_copy_at_the_reference_version_is_served_on_the_maintained_engi
     pulled = resolve_pack(f"mendari/referral-router@{reference.version}", paths)
     assert (pulled.origin, pulled.bounded, pulled.digest) == ("hub", False, reference.digest)
     client = TestClient(create_app(db_path=tmp_path / "h.db", packs_paths=paths))
-    detail = client.get("/api/packs/mendari/referral-router").json()
+    detail = client.get("/api/agents/mendari/referral-router").json()
     assert detail["manifest"]["version"] == reference.version
 
 
@@ -319,9 +319,9 @@ def test_a_newer_pulled_version_is_served_on_the_community_engine(tmp_path: Path
     assert (referral.origin, referral.bounded) == ("maintained", False)
     assert referral.version == load_pack(PACKS / "referral-router").version
     client = TestClient(create_app(db_path=tmp_path / "h.db", packs_paths=paths))
-    detail = client.get("/api/packs/mendari/patient-inbox-router").json()
+    detail = client.get("/api/agents/mendari/patient-inbox-router").json()
     assert detail["manifest"]["version"] == "9.9.9"
-    detail = client.get("/api/packs/mendari/referral-router").json()
+    detail = client.get("/api/agents/mendari/referral-router").json()
     assert detail["manifest"]["version"] == referral.version
 
 
@@ -356,32 +356,6 @@ def test_the_registry_cache_still_holds_versions_of_one_pack(tmp_path: Path) -> 
     assert resolve_pack("someone/sorter", [SearchPath(cache, "hub")]).version == "0.2.0"
 
 
-def test_the_registry_caches_two_folders_are_one_place_in_the_search_order(tmp_path: Path) -> None:
-    """The registry cache is read in two folders, the one it has and the one it had before
-    (`hub/client.py` `caches`). Versions of one agent pulled before and after the rename are one
-    claim to its id, as they are in one folder, also where a community agent claims that id:
-    both stay, and the community agent is the one refused. Another folder of agents from a
-    registry is still a second claim."""
-    from mendari.hub.client import caches
-
-    now, before = caches()
-    _copy(now / "community" / "visit-sorter", "0.3.0", _set(version="0.3.0"))
-    _copy(before / "community" / "visit-sorter", "0.2.0", _set(version="0.2.0"))
-    community = SearchPath(_community(tmp_path), "community")
-    cache = [SearchPath(now, "hub"), SearchPath(before, "hub")]
-    assert search_paths()[:2] == cache  # as the search path lists them: the folder it has first
-    found = discover([*cache, community])
-    kept = sorted((pack.version, pack.origin) for pack in found.packs)
-    assert kept == [("0.2.0", "hub"), ("0.3.0", "hub")]
-    refused = found.problems[str((community.path / "visit-sorter").resolve())]
-    assert "already taken by the agent at" in refused
-    assert resolve_pack(SORTER_ID, [*cache, community]).version == "0.3.0"
-    elsewhere = tmp_path / "elsewhere"
-    _copy(elsewhere / "community" / "visit-sorter", "0.4.0", _set(version="0.4.0"))
-    found = discover([SearchPath(now, "hub"), SearchPath(elsewhere, "hub"), community])
-    assert [(p.version, p.origin) for p in found.packs] == [("0.3.0", "hub")]
-
-
 def test_the_server_reports_both_claims_of_a_community_id_and_serves_the_first(
     tmp_path: Path,
 ) -> None:
@@ -396,7 +370,7 @@ def test_the_server_reports_both_claims_of_a_community_id_and_serves_the_first(
     )
     health = client.get("/api/health").json()
     assert set(health["invalid"]) == {str(first), str(later.resolve())}
-    detail = client.get(f"/api/packs/{SORTER_ID}").json()
+    detail = client.get(f"/api/agents/{SORTER_ID}").json()
     assert detail["manifest"]["version"] == "0.1.0"
 
 
@@ -418,9 +392,9 @@ def test_an_invalid_community_pack_is_listed_and_every_other_pack_decides(
     assert set(health["invalid"]) == {str(broken.resolve()), str((base / "unreadable").resolve())}
     for pack_dir in sorted(PACKS.iterdir()):
         case = yaml.safe_load((pack_dir / "tests" / "cases.yaml").read_text())[0]
-        response = client.post(f"/api/packs/mendari/{pack_dir.name}/decide", json=case["input"])
+        response = client.post(f"/api/agents/mendari/{pack_dir.name}/decide", json=case["input"])
         assert response.status_code == 200, (pack_dir.name, response.text)
-    response = client.post(f"/api/packs/{SORTER_ID}/decide", json=BILL)
+    response = client.post(f"/api/agents/{SORTER_ID}/decide", json=BILL)
     assert response.status_code == 200, response.text
     assert response.json()["recommendation"] == "billing"
 
@@ -635,13 +609,13 @@ def labelled(tmp_path: Path) -> TestClient:
 
 
 def test_the_api_names_every_packs_origin_by_where_it_was_found(labelled: TestClient) -> None:
-    listed = {pack["id"]: pack for pack in labelled.get("/api/packs").json()}
+    listed = {pack["id"]: pack for pack in labelled.get("/api/agents").json()}
     assert {listed[pack_id]["origin"] for pack_id in SHIPPED} == {"maintained"}
     assert {listed[pack_id]["origin_label"] for pack_id in SHIPPED} == {"Maintained by Mendari"}
     for pack_id in (SORTER_ID, "community/inbox-copy"):
         assert listed[pack_id]["origin"] == "community"
         assert listed[pack_id]["origin_label"] == COMMUNITY_LABEL
-    detail = labelled.get(f"/api/packs/{SORTER_ID}").json()
+    detail = labelled.get(f"/api/agents/{SORTER_ID}").json()
     assert detail["origin"] == "community" and detail["origin_label"] == COMMUNITY_LABEL
     assert f"| Source | {COMMUNITY_LABEL} |" in detail["card_markdown"]
 
@@ -812,9 +786,9 @@ def test_a_community_packs_dtr_questionnaire_is_labelled(tmp_path: Path) -> None
 def test_the_eval_endpoint_runs_a_community_pack_remotely_only_where_named(
     tmp_path: Path, labelled: TestClient
 ) -> None:
-    """Before, POST /api/packs/<community>/evals with `providers` ran any variant: up to 200
+    """Before, POST /api/agents/<community>/evals with `providers` ran any variant: up to 200
     paid calls per request, which the deployment never chose for the pack."""
-    url = "/api/packs/community/inbox-copy/evals"
+    url = "/api/agents/community/inbox-copy/evals"
     remote = labelled.post(url, json={"dataset": "red_flags", "providers": {"router": "llm"}})
     assert remote.status_code == 400
     assert "runs a remote variant only where the deployment names it" in remote.json()["detail"]
@@ -823,7 +797,7 @@ def test_the_eval_endpoint_runs_a_community_pack_remotely_only_where_named(
     assert local.json()["providers"]["router"]["variant"] == "rules"
     # A maintained pack's evaluation takes any variant, as before (here, a local one).
     shipped = labelled.post(
-        f"/api/packs/{INBOX_ID}/evals",
+        f"/api/agents/{INBOX_ID}/evals",
         json={"dataset": "red_flags", "providers": {"router": "rules"}},
     )
     assert shipped.status_code == 200

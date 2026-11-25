@@ -203,7 +203,7 @@ def test_a_fhir_decision_shows_what_it_read_in_its_record(axe_page: Page, live_s
     from tests.browser.test_accessibility import violations  # it imports this module
     from tests.test_fhir import BUNDLE
 
-    made = httpx.post(f"{live_server}/api/packs/{INBOX}/fhir/decide", json=BUNDLE, timeout=30)
+    made = httpx.post(f"{live_server}/api/agents/{INBOX}/fhir/decide", json=BUNDLE, timeout=30)
     assert made.status_code == 200, made.text
     decision = made.json()["decision"]["id"]
     axe_page.goto(f"/?agent={INBOX}#audit/{decision}")  # as the card writes it
@@ -240,7 +240,7 @@ def test_a_list_of_several_resource_types_shows_a_row_per_source(
         "type": "collection",
         "entry": [{"resource": r} for r in _record()],
     }
-    made = httpx.post(f"{live_server}/api/packs/{TRIAL}/fhir/decide", json=record, timeout=30)
+    made = httpx.post(f"{live_server}/api/agents/{TRIAL}/fhir/decide", json=record, timeout=30)
     assert made.status_code == 200, made.text
     axe_page.goto(f"/?agent={TRIAL}#audit/{made.json()['decision']['id']}")
     table = axe_page.locator(".drawer section.coverage table")
@@ -281,20 +281,6 @@ def test_an_unknown_pack_in_the_address_falls_back_to_the_last_one(page: Page) -
     page.goto("/?agent=someone/else#overview")
     expect(page.locator("#pack-select")).to_have_value(GUARD)
     expect(page).to_have_url(re.compile(f"\\?agent={GUARD}#overview$"))
-
-
-def test_a_link_made_before_the_address_said_agent_still_opens_its_agent(page: Page) -> None:
-    """The address named the agent `?pack=` before. A link from then (a bookmark, the link a CDS
-    card or an EHR launch gives) opens the agent it names, and the address says `?agent=` from
-    there on. Given both, `?agent=` is the one read."""
-    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
-    page.goto(f"/?pack={GUARD}#overview")
-    expect(page.locator("#pack-select")).to_have_value(GUARD)
-    expect(page.locator("main h1")).to_have_text("AI Guard")
-    expect(page).to_have_url(re.compile(f"/\\?agent={GUARD}#overview$"))
-    page.goto(f"/?agent={INBOX}&pack={GUARD}#overview")
-    expect(page.locator("#pack-select")).to_have_value(INBOX)
-    expect(page).to_have_url(re.compile(f"/\\?agent={INBOX}#overview$"))
 
 
 def test_going_back_across_a_pack_change_shows_that_pack(page: Page) -> None:
@@ -1068,7 +1054,7 @@ REFILL = "Hi, I need a refill on my lisinopril. I have about three pills left."
 
 def decide_inbox(base: str, body: str) -> dict[str, Any]:
     response = httpx.post(
-        f"{base}/api/packs/{INBOX}/decide", json={"message": {"body": body}}, timeout=30
+        f"{base}/api/agents/{INBOX}/decide", json={"message": {"body": body}}, timeout=30
     )
     return dict(response.json())
 
@@ -1215,7 +1201,7 @@ def test_a_wrong_rating_takes_the_right_answer_and_can_be_changed(
 
 def test_the_feedback_page_leads_with_the_cases_to_act_on(page: Page, live_server: str) -> None:
     decision = decide_inbox(live_server, REFILL)
-    labels = httpx.get(f"{live_server}/api/packs/{INBOX}").json()["labels"]
+    labels = httpx.get(f"{live_server}/api/agents/{INBOX}").json()["labels"]
     other = next(label for label in labels if label != decision["recommendation"])
     expected = {"question": "destination", "label": other}
     httpx.post(
@@ -1523,7 +1509,7 @@ def test_the_form_carries_every_example_unchanged(
 ) -> None:
     """Each behaviour-test example goes into the form generated from the pack's input schema and
     comes out as the same record: the form never adds, drops or retypes a value."""
-    examples = httpx.get(f"{live_server}/api/packs/{pack_id}/examples").json()
+    examples = httpx.get(f"{live_server}/api/agents/{pack_id}/examples").json()
     open_pack(page, pack_id, "try")
     expect(page.locator("#record-form [data-path]").first).to_be_visible()  # the form by default
     for index, example in enumerate(examples):
@@ -1669,7 +1655,7 @@ def test_configurations_are_named_once(page: Page) -> None:
 
 def test_a_record_drawer_is_titled_in_words(page: Page, live_server: str) -> None:
     decision = httpx.post(
-        f"{live_server}/api/packs/{INBOX}/decide",
+        f"{live_server}/api/agents/{INBOX}/decide",
         json={"message": {"body": "Crushing chest pain and my left arm is numb"}},
     ).json()
     page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")

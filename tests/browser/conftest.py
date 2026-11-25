@@ -48,10 +48,10 @@ def _seed(base: str) -> None:
     """At least one decision per pack (a behaviour-test example), plus inbox decisions that land
     in the review queue and a thumbs-down, so every view has something to render."""
     with httpx.Client(base_url=base, timeout=30) as client:
-        for pack in client.get("/api/packs").json():
-            examples = client.get(f"/api/packs/{pack['id']}/examples").json()
+        for pack in client.get("/api/agents").json():
+            examples = client.get(f"/api/agents/{pack['id']}/examples").json()
             for example in examples[:2]:
-                client.post(f"/api/packs/{pack['id']}/decide", json=example["input"])
+                client.post(f"/api/agents/{pack['id']}/decide", json=example["input"])
         messages = [
             "Having tight chest pressure and I'm sweating a lot right now.",
             "Hi, I need a refill on my lisinopril. I have about three pills left.",
@@ -59,7 +59,7 @@ def _seed(base: str) -> None:
         ]
         decided = [
             client.post(
-                f"/api/packs/{INBOX}/decide",
+                f"/api/agents/{INBOX}/decide",
                 json={"message": {"body": body, "channel": "portal"}},
             ).json()
             for body in messages
@@ -108,7 +108,7 @@ def base_url(live_server: str) -> str:
 
 @pytest.fixture(scope="session")
 def pack_ids(live_server: str) -> list[str]:
-    return [pack["id"] for pack in httpx.get(f"{live_server}/api/packs").json()]
+    return [pack["id"] for pack in httpx.get(f"{live_server}/api/agents").json()]
 
 
 @pytest.fixture

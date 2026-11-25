@@ -171,7 +171,7 @@ def test_the_evaluation_route_records_its_calls(
     providers = calm_jev(monkeypatch)
     client = TestClient(create_app(db_path=tmp_path / "a.db", providers=providers))
     done = client.post(
-        "/api/packs/mendari/patient-inbox-router/evals",
+        "/api/agents/mendari/patient-inbox-router/evals",
         json={"dataset": "test", "limit": 4},
     )
     assert done.status_code == 200, done.text

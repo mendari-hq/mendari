@@ -41,7 +41,6 @@ from mendari.server.limits import (
 )
 from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import (
-    FORMER_ROUTES,
     ROOT,
     encrypt_mode,
     evalset_on,
@@ -66,7 +65,7 @@ from tests.test_backend_services import (
 from tests.test_backend_services import on as backend_on
 
 INBOX = "mendari/patient-inbox-router"
-DECIDE = f"/api/packs/{INBOX}/decide"
+DECIDE = f"/api/agents/{INBOX}/decide"
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 NO_STORE = "no-store"
 
@@ -266,7 +265,7 @@ def test_a_refused_request_calls_no_provider_and_writes_nothing(
     assert client.post(DECIDE, json=message(ROUTINE), headers=key).status_code == 200
     with AuditStore(db) as store:
         before = (len(store.query(limit=500)), store.verify()["events"])
-    for route in (DECIDE, f"/api/packs/{INBOX}/fhir/decide", "/fhir/$decide"):
+    for route in (DECIDE, f"/api/agents/{INBOX}/fhir/decide", "/fhir/$decide"):
         assert_retry_after(client.post(route, json=message(ROUTINE), headers=key))
     assert decided == [INBOX]  # the pack ran once, for the request admitted
     with AuditStore(db) as store:
@@ -608,11 +607,6 @@ EXPECTED_CLASSES = {
     ("POST", "/api/system/alerts/test"): "label",
     ("POST", "/api/system/ehr-check"): "label",
 }
-# A renamed route at the path it had before (`server/paths.py`) counts against the class the
-# route counts against now: one bucket for both, so the former path is no second allowance.
-FORMER_CLASSES = {
-    old: EXPECTED_CLASSES[now] for old, now in FORMER_ROUTES.items() if now in EXPECTED_CLASSES
-}
 # What memberships mode adds (ADR-0008): a person's own three routes, counted per address as
 # signing in is, and, with the evaluation-set keys, a labeller's, per person (LP-11j). An
 # organization's curators' routes (LP-11k) have no class, as an administrator's other writes.
@@ -653,9 +647,8 @@ def test_costly_routes_have_their_class_reads_none_and_one_call_of_each_passes(
     )
     classes = {r: limiter.classify(*r, permission_for(*r)) for r in routes}
     added = MEMBERSHIPS_CLASSES if accounts == "memberships" else {}
-    assert len(FORMER_CLASSES) == 6 and set(FORMER_ROUTES) <= set(routes)
     limited = {r: c for r, c in classes.items() if c is not None}
-    assert limited == EXPECTED_CLASSES | FORMER_CLASSES | added
+    assert limited == EXPECTED_CLASSES | added
     if accounts == "memberships":
         with AuditStore(tmp_path / "signin.db") as store:
             admin = member(store, org="default", roles=["admin"], sub="lead")
@@ -750,7 +743,7 @@ def test_an_evaluation_over_its_quota_never_lowers_a_live_decision(
     monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=10,jev=10,eval_jev=3")
     db = str(tmp_path / "quota.db")
     client = TestClient(create_app(db_path=db, providers=screened))
-    run = client.post(f"/api/packs/{INBOX}/evals", json={"dataset": "test", "limit": 5})
+    run = client.post(f"/api/agents/{INBOX}/evals", json={"dataset": "test", "limit": 5})
     assert run.status_code == 200, run.text
     with AuditStore(db) as store:
         assert store.org_usage("default") == {"eval_jev": 3}
@@ -776,7 +769,7 @@ def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
     db = str(tmp_path / "quota.db")
     client = TestClient(create_app(db_path=db, providers=screened))
     # Evaluations never spend the decisions quota (only `eval_*`, unset here: no limit).
-    run = client.post(f"/api/packs/{INBOX}/evals", json={"dataset": "test", "limit": 5})
+    run = client.post(f"/api/agents/{INBOX}/evals", json={"dataset": "test", "limit": 5})
     assert run.status_code == 200, run.text
     outcomes = [client.post(DECIDE, json=message(ROUTINE)).json() for _ in range(4)]
     assert [o["outcome"] for o in outcomes[:2]] == ["AUTO", "AUTO"]
@@ -1049,7 +1042,7 @@ def test_a_capped_request_does_no_work_and_is_logged_once(
     with AuditStore(db) as store:
         before = (len(store.query(limit=500)), store.verify()["events"])
     capsys.readouterr()
-    for route in (DECIDE, f"/api/packs/{INBOX}/fhir/decide", "/fhir/$decide", DECIDE):
+    for route in (DECIDE, f"/api/agents/{INBOX}/fhir/decide", "/fhir/$decide", DECIDE):
         assert_retry_after(client.post(route, json=message(ROUTINE), headers=key))
     assert decided == [INBOX]  # the pack ran once, for the request admitted
     with AuditStore(db) as store:
@@ -1150,7 +1143,7 @@ def test_every_principal_kind_is_capped_on_the_routes_it_decides_on(
         ("person", DECIDE, message(ROUTINE), person(db, "reviewer")),
         (
             "key",
-            "/api/packs/mendari/ai-guard/guard",
+            "/api/agents/mendari/ai-guard/guard",
             {"question": "Headache?", "draft": "Rest and drink water."},
             service_key(db),
         ),
@@ -1203,7 +1196,6 @@ def test_only_what_decides_counts_against_the_cap(
     not_decisions = {
         ("POST", "/api/notice/acknowledge"),
         ("POST", "/api/agents/{namespace}/{name}/pas"),
-        ("POST", "/api/packs/{namespace}/{name}/pas"),  # the path it had before
         # Authorizing an action for a decision already made and counted: no new decision.
         ("POST", "/api/agents/{namespace}/{name}/actions"),
         ("POST", "/fhir/Questionnaire/$questionnaire-package"),
@@ -1212,12 +1204,6 @@ def test_only_what_decides_counts_against_the_cap(
     counted = {r for r in deciding if DailyCap.counts(r[0], re.sub(r"\{[^}]+\}", "x", r[1]))}
     assert counted | in_route | not_decisions == deciding
     assert not counted & (in_route | not_decisions)
-    # A renamed route counts against the cap at the path it had before as it does now.
-    assert {old in counted for old, now in FORMER_ROUTES.items() if now in counted} == {True}
-    assert {old for old in FORMER_ROUTES if old in counted} == {
-        ("POST", f"/api/packs/{{namespace}}/{{name}}/{what}")
-        for what in ("decide", "guard", "fhir/decide")
-    }
     monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "required")
     db = str(tmp_path / "notice.db")
     client = TestClient(create_app(db_path=db))

@@ -50,7 +50,7 @@ def ok(response: Any) -> Any:
 
 def decide(client: TestClient, body: str, headers: dict[str, str] | None = None) -> str:
     answer = client.post(
-        f"/api/packs/{INBOX}/decide", json={"message": {"body": body}}, headers=headers
+        f"/api/agents/{INBOX}/decide", json={"message": {"body": body}}, headers=headers
     )
     assert answer.status_code == 200, answer.text
     return str(answer.json()["id"])

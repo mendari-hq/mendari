@@ -63,11 +63,7 @@ const short = (digest) => esc(String(digest).replace("sha256:", "").slice(0, 12)
 const digestCode = (digest) => `<code title="${esc(digest)}">${short(digest)}</code>`;
 
 views.store = async (main, params = []) => {
-  const [asked = defaultTab(), ...rest] = params;
-  // The Agents tab's address was "#store/packs": a link made then opens the tab, and the address
-  // says "#store/agents" from there on.
-  const tab = asked === "packs" ? "agents" : asked;
-  if (tab !== asked) history.replaceState(history.state, "", `${location.pathname}${location.search}#store/${tab}`);
+  const [tab = defaultTab(), ...rest] = params;
   if (tab === "version" && rest[0]) return showVersion(main, rest[0]);
   const tabs = TABS.filter((t) => t.shown());
   const current = tabs.find((t) => t.key === tab) ?? tabs[0];
@@ -120,7 +116,7 @@ async function showPacks(body) {
       <h2>Upload a signed archive</h2>
       <p class="muted">Built with <code>mendari archive build</code> and signed with one of your organization's author keys. Files that read as a person's details are refused.</p>
       <label for="upload-file">Archive</label>
-      <input id="upload-file" name="file" type="file" required accept=".mendari,.ohpack,application/gzip">
+      <input id="upload-file" name="file" type="file" required accept=".mendari,application/gzip">
       <progress id="upload-progress" max="1" value="0" hidden aria-label="Upload progress"></progress>
       <button type="submit" class="primary">Upload</button>
     </form>

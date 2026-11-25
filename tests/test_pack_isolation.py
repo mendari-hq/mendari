@@ -115,7 +115,7 @@ def _shipped_packs_all_decide(client: TestClient) -> None:
     assert health.json()["packs"] >= 5
     for pack_dir in sorted(PACKS.iterdir()):
         case = yaml.safe_load((pack_dir / "tests" / "cases.yaml").read_text())[0]
-        response = client.post(f"/api/packs/mendari/{pack_dir.name}/decide", json=case["input"])
+        response = client.post(f"/api/agents/mendari/{pack_dir.name}/decide", json=case["input"])
         assert response.status_code == 200, (pack_dir.name, response.text)
 
 
@@ -269,13 +269,13 @@ def test_a_pack_whose_providers_cannot_be_built_never_fails_health(
     assert "mendari/clinical-trial-prescreener" in body["providers"]
     case = yaml.safe_load((TRIAL_DIR / "tests" / "cases.yaml").read_text())[0]
     refused = client.post(
-        "/api/packs/outsider/clinical-trial-prescreener/decide", json=case["input"]
+        "/api/agents/outsider/clinical-trial-prescreener/decide", json=case["input"]
     )
     assert refused.status_code == 422, refused.text
     # As README says: such a pack stays listed, counted and offered to EHRs, answering 422.
     pack_id = "outsider/clinical-trial-prescreener"
-    assert client.get(f"/api/packs/{pack_id}").status_code == 422
-    assert pack_id in [item["id"] for item in client.get("/api/packs").json()]
+    assert client.get(f"/api/agents/{pack_id}").status_code == 422
+    assert pack_id in [item["id"] for item in client.get("/api/agents").json()]
     assert body["packs"] == 6
     services = [s["id"] for s in client.get("/cds-services").json()["services"]]
     assert "outsider.clinical-trial-prescreener" in services
@@ -424,7 +424,7 @@ def test_a_tests_file_that_expands_past_the_cap_never_reaches_the_api_reference(
     client = TestClient(create_app(db_path=tmp_path / "e.db", packs_paths=[outside, PACKS]))
     reference = client.get("/openapi.json")
     assert reference.status_code == 200 and len(reference.content) < 5_000_000
-    examples = client.get(f"/api/packs/outsider/{INBOX_DIR.name}/examples")
+    examples = client.get(f"/api/agents/outsider/{INBOX_DIR.name}/examples")
     assert examples.status_code == 422, examples.status_code
 
 
@@ -465,7 +465,7 @@ def test_an_example_over_64_kb_as_json_is_left_out_of_the_api_reference(tmp_path
         for e in decide["requestBody"]["content"]["application/json"]["examples"].values()
     ]
     assert len(summaries) >= 5 and not any(s.startswith("outsider/") for s in summaries)
-    examples = client.get(f"/api/packs/outsider/{INBOX_DIR.name}/examples")
+    examples = client.get(f"/api/agents/outsider/{INBOX_DIR.name}/examples")
     assert examples.status_code == 200 and examples.json()[0]["name"] == "nul"
     assert MAX_EXAMPLE_BYTES == 64 * 1024
 
@@ -645,8 +645,8 @@ def test_a_test_input_that_is_not_json_is_a_validation_problem(
     err = capsys.readouterr().err
     assert problem in err and "Traceback" not in err
     client = TestClient(create_app(db_path=tmp_path / "e.db", packs_paths=[outside, PACKS]))
-    examples = client.get(f"/api/packs/outsider/{INBOX_DIR.name}/examples")
+    examples = client.get(f"/api/agents/outsider/{INBOX_DIR.name}/examples")
     assert examples.status_code == 422
     assert problem in examples.text
     assert client.get("/openapi.json").status_code == 200
-    assert client.get(f"/api/packs/mendari/{INBOX_DIR.name}/examples").status_code == 200
+    assert client.get(f"/api/agents/mendari/{INBOX_DIR.name}/examples").status_code == 200

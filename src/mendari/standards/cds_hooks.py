@@ -170,9 +170,8 @@ class CardLinks:
     launch the pack's SMART view from the card (SMART on, and the request's `fhirServer`
     registered for launches in the caller's organization, `MENDARI_SMART_EHRS`).
 
-    A link into the console names the agent as the console's address does, `?agent=` (it was
-    `?pack=` until 2026-11, which the console still reads: a card an EHR kept opens as before).
-    The launch link keeps `?pack=`: that is the launch route's own query parameter
+    A link into the console names the agent as the console's address does, `?agent=`. The
+    launch link keeps `?pack=`: that is the launch route's own query parameter
     (`server/smart_routes.py`), a name on the wire that an EHR's registered launch may hold."""
 
     public_url: str | None = None

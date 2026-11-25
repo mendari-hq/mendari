@@ -319,7 +319,7 @@ def test_health_names_the_hash_kind_and_key_id(
     kind = f"hmac-sha256:{key_id(INPUT_HASH_KEY)}"
     assert keyed.get("/api/health").json()["input_hash"] == kind
     decided = keyed.post(
-        "/api/packs/mendari/patient-inbox-router/decide", json=message("refill please")
+        "/api/agents/mendari/patient-inbox-router/decide", json=message("refill please")
     ).json()
     assert decided["input_hash"].startswith(kind + ":")
 

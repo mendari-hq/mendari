@@ -421,7 +421,7 @@ def test_exporting_older_inputs_under_hash_is_logged_as_a_read(
     client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
     admin = signed_in(AuditStore(db, phi=policy("hash")), role="admin")
     capsys.readouterr()
-    exported = client.get(f"/api/packs/{inbox_pack.id}/feedback/export", headers=admin)
+    exported = client.get(f"/api/agents/{inbox_pack.id}/feedback/export", headers=admin)
     assert exported.status_code == 200 and "Rosalind" in exported.text
     lines = security_lines(capsys.readouterr().out)
     assert [line["ids"] for line in lines if line["event"] == "phi.inputs.read"] == [[rated.id]]
@@ -722,7 +722,7 @@ def test_admins_erase_through_the_api(
     people = AuditStore(db, phi=policy("encrypt"))
     admin, reviewer = signed_in(people, role="admin"), signed_in(people, role="reviewer")
     decided = client.post(
-        f"/api/packs/{inbox_pack.id}/decide", json=message(SECRET), headers=admin
+        f"/api/agents/{inbox_pack.id}/decide", json=message(SECRET), headers=admin
     ).json()
     path = f"/api/audit/{decided['id']}/erase"
     assert client.post(path, json={"reason": "request"}, headers=reviewer).status_code == 403

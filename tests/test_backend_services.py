@@ -553,10 +553,10 @@ def test_a_token_reaches_only_what_its_scope_names(server: Server) -> None:
     for path in ("/api/audit", "/api/stats", "/openapi.json", "/cds-services"):
         assert server.http.get(path, headers=reads).status_code == 403, path
     assert server.http.get("/", headers=reads).status_code == 403  # nor the dashboard
-    decide = server.http.post(f"/api/packs/{INBOX}/decide", json=message("hi"), headers=reads)
+    decide = server.http.post(f"/api/agents/{INBOX}/decide", json=message("hi"), headers=reads)
     assert decide.status_code == 403
     decider = bearer(server.token(client_id, DECIDE))
-    made = server.http.post(f"/api/packs/{INBOX}/decide", json=message("refill"), headers=decider)
+    made = server.http.post(f"/api/agents/{INBOX}/decide", json=message("refill"), headers=decider)
     assert made.status_code == 200
     assert server.http.get("/fhir/Task", headers=decider).status_code == 403
 
@@ -597,7 +597,7 @@ def test_a_token_acts_in_its_clients_organization_only(server: Server) -> None:
     a = server.register(org="clinic-a", scope=f"system/*.rs {DECIDE}")
     b = server.register(org="clinic-b", scope="system/*.rs")
     deciding = bearer(server.token(a, f"system/*.rs {DECIDE}"))
-    made = server.http.post(f"/api/packs/{INBOX}/decide", json=message("refill"), headers=deciding)
+    made = server.http.post(f"/api/agents/{INBOX}/decide", json=message("refill"), headers=deciding)
     decision_id = made.json()["id"]
     reader_b = bearer(server.token(b))
     assert server.http.get(f"/fhir/Task/{decision_id}", headers=deciding).status_code == 200
@@ -932,7 +932,7 @@ def through(http: TestClient, seen: list[dict[str, str]]) -> httpx.MockTransport
 def test_mendaris_bulk_client_gets_a_token_and_reads_tasks(server: Server, signer: Signer) -> None:
     client_id = server.register(scope=f"system/Task.rs {DECIDE}")
     deciding = bearer(server.token(client_id, DECIDE))
-    made = server.http.post(f"/api/packs/{INBOX}/decide", json=message("refill"), headers=deciding)
+    made = server.http.post(f"/api/agents/{INBOX}/decide", json=message("refill"), headers=deciding)
     sent: list[dict[str, str]] = []
     with GuardedHttp(allowed={PUBLIC_URL}, transport=through(server.http, sent)) as http:
         token = bulk.backend_token(

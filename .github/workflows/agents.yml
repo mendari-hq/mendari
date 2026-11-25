@@ -58,7 +58,7 @@ jobs:
             case "$dir" in agents/*) ;; *) continue ;; esac
             name="${dir#agents/}"
             name="${name//\//__}"
-            if [ ! -f "$dir/agent.yaml" ] && [ ! -f "$dir/pack.yaml" ]; then printf '%s was removed\n' "$dir" >> "$GITHUB_STEP_SUMMARY"; continue; fi
+            if [ ! -f "$dir/agent.yaml" ]; then printf '%s was removed\n' "$dir" >> "$GITHUB_STEP_SUMMARY"; continue; fi
             uv run mendari validate "$dir"
             uv run mendari data check "$dir" >> "$GITHUB_STEP_SUMMARY"
             uv run mendari test "$dir"
@@ -83,7 +83,7 @@ jobs:
           failed=0
           while IFS= read -r -d '' dir <&3; do
             case "$dir" in community-agents/*) ;; *) continue ;; esac
-            [ -f "$dir/agent.yaml" ] || [ -f "$dir/pack.yaml" ] || continue
+            [ -f "$dir/agent.yaml" ] || continue
             uv run mendari data check "$dir" >> "$GITHUB_STEP_SUMMARY" || failed=1
           done 3< /tmp/agents/changed
           exit $failed

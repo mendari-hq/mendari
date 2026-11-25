@@ -64,7 +64,7 @@ def test_every_check_passes_on_a_working_site_and_readiness_sign_in_and_decide_f
     checks = script()
     monkeypatch.setattr(readiness, "READY_SECONDS", 0.0)
     idp = FakeIdp()
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT / "agents"))  # the agent it decides with
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT / "agents"))  # the agent it decides with
     with signing_in_with(idp, tmp_path, monkeypatch) as site:
         key = key_for(site, idp)
         clients = {"api": site, "registry": elsewhere(200), "hub": elsewhere(200)}

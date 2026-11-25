@@ -331,7 +331,7 @@ def test_only_an_administrator_exports_and_only_their_organizations_cases(
         encrypt_mode(monkeypatch)
         sign_in_env(monkeypatch)
         client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
-        url = f"/api/packs/{inbox_pack.id}/feedback/export"
+        url = f"/api/agents/{inbox_pack.id}/feedback/export"
         for role in ("viewer", "reviewer", "governance"):
             refused = client.get(
                 url, params={"source": "reviews"}, headers=signed_in(store, role=role)
@@ -355,7 +355,7 @@ def test_only_an_administrator_exports_and_only_their_organizations_cases(
 def test_the_route_exports_reviewed_decisions(db_target: str) -> None:
     app = create_app(db_path=db_target, datasets_dir=LOCAL_DATASET.parent)
     client = TestClient(app)
-    pack = "/api/packs/mendari/patient-inbox-router"
+    pack = "/api/agents/mendari/patient-inbox-router"
     decision = client.post(f"{pack}/decide", json=message(CALL_BACK)).json()
     assert client.get(f"{pack}/feedback/export", params={"source": "reviews"}).text == ""
     reviewed = client.post(

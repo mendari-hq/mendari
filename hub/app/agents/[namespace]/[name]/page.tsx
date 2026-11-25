@@ -74,7 +74,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       </div>
     );
   }
-  // One read, for the version shown. A registry from before them answers 404 (null).
+  // One read, for the version shown.
   let evaluations: PublisherEvaluations | null = null;
   let evaluationsUnavailable = false;
   try {
@@ -216,13 +216,11 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
             <Item term="Archive"><span className="mono break">sha256 {checked.archive_sha256}</span></Item>
             <Item term="Agent digest"><span className="mono break">{checked.digest}</span></Item>
             <Item term="Engine">
-              {checked.engine ? ENGINE_WORDS[checked.engine] : "Not recorded (published before the registry recorded it)"}
+              {ENGINE_WORDS[checked.engine]}
               {checked.engine_release ? ` (registry release ${checked.engine_release})` : null}
             </Item>
             <Item term="Decision Card">
-              {checked.card === "rendered"
-                ? "Rendered by the registry from the files the digest covers; the uploaded card is not shown"
-                : "Not shown: published before the registry rendered cards"}
+              Rendered by the registry from the files the digest covers; the uploaded card is not shown
             </Item>
             <Item term="Review">{reviewWords(checked.review, risk.level)}</Item>
             <Item term="Regression check">
@@ -272,20 +270,18 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
 
       <Recalls recalled={recalled} />
 
-      {latest.card_markdown ? (
-        <section className="card-doc" aria-labelledby="decision-card-heading">
-          <div className="card-doc-head">
-            <h2 id="decision-card-heading">Decision Card</h2>
-            <p className="muted">Rendered by the registry from the agent&apos;s own files. What it says is the publisher&apos;s.</p>
-          </div>
-          <article className="markdown">
-            {/* Publisher text: no raw HTML, and only safe link schemes (react-markdown's default). */}
-            <Markdown components={CARD_ELEMENTS} remarkPlugins={[remarkGfm]} skipHtml>
-              {latest.card_markdown}
-            </Markdown>
-          </article>
-        </section>
-      ) : null}
+      <section className="card-doc" aria-labelledby="decision-card-heading">
+        <div className="card-doc-head">
+          <h2 id="decision-card-heading">Decision Card</h2>
+          <p className="muted">Rendered by the registry from the agent&apos;s own files. What it says is the publisher&apos;s.</p>
+        </div>
+        <article className="markdown">
+          {/* Publisher text: no raw HTML, and only safe link schemes (react-markdown's default). */}
+          <Markdown components={CARD_ELEMENTS} remarkPlugins={[remarkGfm]} skipHtml>
+            {latest.card_markdown}
+          </Markdown>
+        </article>
+      </section>
     </div>
   );
 }

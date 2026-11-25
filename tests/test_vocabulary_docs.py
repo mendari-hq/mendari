@@ -128,14 +128,11 @@ _ARCHIVE = (
     "a signed archive holds an agent's files under `pack/` (`hub/archive.py`): the format's "
     "own name, which signatures cover, renamed with the stored formats (wave 6)"
 )
-_EITHER_NAME = (
-    "a workflow finds an agent's manifest by either name: one named `pack.yaml`, as it was "
-    "before, still loads (`core/pack.py` `manifest_name`), so CI must not take it for removed"
-)
 # A text left alone in the files a pattern names (`*`: any of them): (files, text) -> why.
 ALLOWED: dict[tuple[str, str], str] = {
     ("docs/spec/agent-manifest-0.2.md", "A manifest named `pack.yaml`"): "the spec's one "
-    "sentence that a manifest under the name it had before still loads",
+    "sentence on a manifest under the name it had before, which no longer loads: the page is "
+    "rewritten with the docs",
     (
         "docs/decisions/ADR-*.md",
         "Terminology updated 2026-11-23: what this record called a pack is an agent.",
@@ -156,15 +153,13 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("*", "`pack/`"): _ARCHIVE,
     ("docs/security/threat-model.md", "`pack//<absolute path>`"): _ARCHIVE,
     ("*", "`packs/<namespace>/<name>/<version>`"): "the folder the registry cache had until "
-    "2026-11, where a version pulled then is still read (`hub/client.py` `former_cache`): an "
-    "operator removes one by that path",
+    "2026-11, which nothing reads any more: the pages that still name it are rewritten with the "
+    "docs",
     (
         "docs/guides/connecting-an-ehr.md",
         "/smart/launch?pack=<agent id>",
     ): "the launch route's query parameter is `pack` (`server/smart_routes.py`): a name on the "
     "wire, which an EHR's registered launch address may hold, renamed with the wire names",
-    (".github/workflows/agents.yml", '"$dir/pack.yaml"'): _EITHER_NAME,
-    (".github/workflows/ci.yml", "community-agents/*/pack.yaml"): _EITHER_NAME,
 }
 
 

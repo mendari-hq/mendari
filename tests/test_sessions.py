@@ -173,11 +173,12 @@ def test_the_old_cookie_name_is_ignored(server: TestClient, db_target: str) -> N
 def test_a_row_without_an_absolute_limit_keeps_its_own(
     server: TestClient, db_target: str, clock: Callable[[int], None]
 ) -> None:
-    """A row with no `absolute_at` and no claims, eight hours from sign-in (as Phase 4b found
-    them): its stored roles hold, its expiry is its absolute limit, and the idle limit starts at
-    its first request."""
+    """A row with no `absolute_at`, eight hours from sign-in (as Phase 4b found them): its
+    roles hold, its expiry is its absolute limit, and the idle limit starts at its first
+    request."""
     now = int(time.time())
-    old = {"iss": IDP, "sub": "u1", "name": "Nurse Kim", "roles": ["reviewer"], "org": "default"}
+    old: dict[str, Any] = {"iss": IDP, "sub": "u1", "name": "Nurse Kim", "org": "default"}
+    old["claims"] = {"roles": ["reviewer"]}
     with AuditStore(db_target) as store:
         store.smart_put("old-sid", "user", old, now + 7 * HOUR)
     cookie = {"cookie": "__Host-mendari_session=old-sid"}
@@ -195,7 +196,7 @@ def test_an_idle_old_row_ends_too(
     server: TestClient, db_target: str, clock: Callable[[int], None]
 ) -> None:
     with AuditStore(db_target) as store:
-        old = {"sub": "u1", "name": "x", "roles": ["viewer"], "org": "default"}
+        old = {"sub": "u1", "name": "x", "claims": {"roles": ["viewer"]}, "org": "default"}
         store.smart_put("old-sid", "user", old, int(time.time()) + 7 * HOUR)
     cookie = {"cookie": "__Host-mendari_session=old-sid"}
     assert server.get("/api/audit", headers=cookie).status_code == 200

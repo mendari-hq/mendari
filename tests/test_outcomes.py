@@ -7,8 +7,6 @@ caller chooses freely may end up there as text."""
 from __future__ import annotations
 
 import json
-import sqlite3
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +37,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 
 def decided(client: TestClient, pack: Pack, body: Any) -> str:
-    return str(client.post(f"/api/packs/{pack.id}/decide", json=body).json()["id"])
+    return str(client.post(f"/api/agents/{pack.id}/decide", json=body).json()["id"])
 
 
 @pytest.mark.parametrize(
@@ -107,12 +105,12 @@ def test_a_refused_input_is_checked_against_the_served_packs_labels(
     assert client.post(url, json={"final_label": "nurse", "source": "ehr"}).status_code == 200
 
 
-def test_decisions_of_old_or_unserved_packs_still_take_a_label(
+def test_decisions_of_unserved_packs_still_take_a_label(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inbox_pack: Pack
 ) -> None:
-    """A decision with no answer takes its labels from the installed pack, also when its record
-    carries the id from before the rename (`openhealth/…`) and when this instance serves another
-    pack (a per-pack image sharing the database). Else its review would stay pending for good."""
+    """A decision with no answer takes its labels from the installed pack, also when this
+    instance serves another pack (a per-pack image sharing the database). Else its review would
+    stay pending for good."""
 
     def unreachable(*_: object) -> None:
         raise ProviderError("timeout")
@@ -129,12 +127,7 @@ def test_decisions_of_old_or_unserved_packs_still_take_a_label(
     record = deciding.get(f"/api/audit/{abstained}").json()
     assert (record["outcome"], record["review_status"]) == ("ABSTAIN", "pending")
     assert inbox_pack.manifest.policy.primary not in record["record"]["answers"]
-    with closing(sqlite3.connect(db)) as connection, connection:
-        connection.execute(
-            "UPDATE decisions SET pack_id = ? WHERE id IN (?, ?)",
-            ("openhealth/patient-inbox-router", abstained, refused),
-        )
-    monkeypatch.setenv("MENDARI_PACKS", "mendari/ai-guard")
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari/ai-guard")
     client = TestClient(create_app(db_path=db))
     for label, status in (("pharmacist", 409), ("nurse", 200)):
         review = {"final_label": label, "reviewer": "rn-1"}

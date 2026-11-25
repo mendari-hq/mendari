@@ -32,7 +32,7 @@ from tests.conftest import message, run_async, without_request_id
 from tests.test_auth import IDP, FakeIdp, key_for, sign_in, signing_in_with
 
 FIXTURE = Path(__file__).parent / "fixtures" / "us-core" / "inbox.json"
-INBOX = "/api/packs/mendari/patient-inbox-router"
+INBOX = "/api/agents/mendari/patient-inbox-router"
 PUBLIC_HEALTH = {"status", "version", "sign_in"}
 SMALL = 64 * 1024  # the smallest cap a deployment may set
 
@@ -200,7 +200,7 @@ def test_the_sign_in_check_runs_off_the_event_loop(
         return check(self, request)
 
     monkeypatch.setattr(Auth, "check", spy)
-    assert TestClient(create_app(db_path=tmp_path / "a.db")).get("/api/packs").status_code == 200
+    assert TestClient(create_app(db_path=tmp_path / "a.db")).get("/api/agents").status_code == 200
     assert on_the_loop == [False]
 
 
@@ -239,7 +239,7 @@ def test_a_session_from_before_the_issuer_was_stored_is_of_the_configured_issuer
 ) -> None:
     settings = AuthSettings(IDP, "c", None, "roles", {}, None, None)
     with AuditStore(tmp_path / "a.db") as store:
-        old = {"sub": "u1", "name": "Nurse Kim", "roles": ["viewer"], "org": "default"}
+        old = {"sub": "u1", "name": "Nurse Kim", "claims": {"roles": ["viewer"]}, "org": "default"}
         store.smart_put("sid", "user", old, int(time.time()) + 60)
         scope = {
             "type": "http",

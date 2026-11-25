@@ -28,7 +28,6 @@ from typing import Any
 from starlette.routing import Route as Served
 
 from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS
-from mendari.server import paths
 from mendari.server.scopes import DECIDE, OUTCOME
 
 Route = tuple[str, str]  # (method, path template as mounted)
@@ -164,14 +163,12 @@ PRESETS: dict[str, Preset] = {preset.id: preset for preset in _ALL}
 
 def served(routes: Iterable[Any]) -> list[Route]:
     """Every route an app serves, by method (HEAD aside): what a preset's reach is computed
-    over, the same for the API and the tests. A renamed route is listed once, at its current
-    path: a key reaches the path it had before exactly as it reaches this one
-    (`server/paths.py`)."""
+    over, the same for the API and the tests."""
     return sorted(
         {
             (method, route.path)
             for route in routes
-            if isinstance(route, Served) and not paths.is_former(route.path)
+            if isinstance(route, Served)
             for method in route.methods or ()
             if method != "HEAD"
         }

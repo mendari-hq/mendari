@@ -27,7 +27,7 @@ REFILL = {"message": {"body": "Can you send a refill of my metformin to the phar
 @pytest.fixture
 def server(monkeypatch: pytest.MonkeyPatch) -> Iterator[McpServer]:
     """The bundled demo agent on the search path (the tests' bundled agents are fixtures)."""
-    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT / "agents"))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(ROOT / "agents"))
     with AuditStore(":memory:") as store:
         yield McpServer(store)
 
@@ -173,7 +173,7 @@ def test_mendari_mcp_runs_as_a_command(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
         check=True,
-        env={"PATH": "", "MENDARI_PACKS_PATH": str(ROOT / "agents"), "HOME": str(tmp_path)},
+        env={"PATH": "", "MENDARI_AGENTS_PATH": str(ROOT / "agents"), "HOME": str(tmp_path)},
     )
     answers = [json.loads(line) for line in done.stdout.splitlines()]
     assert [a["id"] for a in answers] == [1, 2]

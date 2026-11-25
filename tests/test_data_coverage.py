@@ -200,7 +200,7 @@ def test_every_fhir_decision_carries_its_data_coverage(
         },
     )
     assert package.status_code == 200 and "packagebundle" in package.text  # DTR: from it
-    answered = app.post(f"/api/packs/{REFERRAL}/fhir/decide", json=fixture("referral")).json()
+    answered = app.post(f"/api/agents/{REFERRAL}/fhir/decide", json=fixture("referral")).json()
     assert answered["decision"]["data_coverage"]["format"] == FORMAT
     ids.append(answered["decision"]["id"])
     operation = app.post(
@@ -252,7 +252,7 @@ def create_app_for(tmp_path: Path) -> Any:
 def test_a_json_decision_carries_none(tmp_path: Path) -> None:
     app = TestClient(create_app_for(tmp_path))
     body = {"message": {"body": "Can you send a refill for metformin to my pharmacy?"}}
-    decision = app.post("/api/packs/mendari/patient-inbox-router/decide", json=body).json()
+    decision = app.post("/api/agents/mendari/patient-inbox-router/decide", json=body).json()
     assert "data_coverage" in decision and decision["data_coverage"] is None
     record = app.get(f"/api/audit/{decision['id']}").json()["record"]
     assert record["data_coverage"] is None

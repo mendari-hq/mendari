@@ -40,7 +40,7 @@ COMMANDS = {
     "evalset show": ["evalset", "show", "6b1c4f0e-2d6a-4c41-9a8e-3f1d2c5b7a90"],
     "audit export": ["audit", "export"],
     "feedback export": ["feedback", "export", "mendari/patient-inbox-router", "--out", "{out}"],
-    "monitor": ["monitor", "--pack", "mendari/patient-inbox-router"],
+    "monitor": ["monitor", "--agent", "mendari/patient-inbox-router"],
 }
 # Commands that read a pack's files and nothing else: no --db, nothing written anywhere.
 PACK_ONLY = {

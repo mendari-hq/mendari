@@ -29,11 +29,6 @@ dependencies = [
     "google-re2>=1.1.20251105", # community agents' patterns: RE2 never backtracks (core/patterns.py)
 ]
 
-[project.optional-dependencies]
-# Empty since uvicorn became a dependency: the plain install serves. The name stays, so the
-# instructions, images and release checks that ask for `mendari[server]` keep working.
-server = []
-
 [project.scripts]
 mendari = "mendari.cli:main"
 

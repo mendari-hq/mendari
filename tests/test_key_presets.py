@@ -172,8 +172,8 @@ def test_the_documented_calls_answer_with_the_presets_keys(served: tuple[TestCli
         for name in presets.PRESETS
     }
     rest = keys["rest"]
-    assert INBOX in {p["id"] for p in client.get("/api/packs", headers=rest).json()}
-    decided = client.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE), headers=rest)
+    assert INBOX in {p["id"] for p in client.get("/api/agents", headers=rest).json()}
+    decided = client.post(f"/api/agents/{INBOX}/decide", json=message(ROUTINE), headers=rest)
     assert decided.status_code == 200
     decision = decided.json()["id"]
     assert client.get(f"/api/audit/{decision}", headers=rest).status_code == 200
@@ -219,7 +219,7 @@ def test_the_documented_calls_answer_with_the_presets_keys(served: tuple[TestCli
     dtr = client.post("/fhir/Questionnaire/$questionnaire-package", json=package, headers=davinci)
     assert dtr.status_code == 200, dtr.text
     built = client.post(
-        f"/api/packs/{PA}/pas",
+        f"/api/agents/{PA}/pas",
         json={
             "decision_id": signed.json()["cards"][0]["extension"]["mendari.decision_id"],
             "patient": PATIENT,
@@ -237,7 +237,9 @@ def test_the_documented_calls_answer_with_the_presets_keys(served: tuple[TestCli
     reader = keys["fhir-reader"]
     assert client.get("/fhir/Task", headers=reader).status_code == 200
     assert (
-        client.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE), headers=reader).status_code
+        client.post(
+            f"/api/agents/{INBOX}/decide", json=message(ROUTINE), headers=reader
+        ).status_code
         == 403
     )
 

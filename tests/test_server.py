@@ -36,7 +36,7 @@ from tests.test_community_caps import sorter
 from tests.test_fhir import BUNDLE
 from tests.test_pack_isolation import PACKS, TRIAL_DIR, _cql_default, _cql_extra_key, _outsider
 
-PACK = "/api/packs/mendari/patient-inbox-router"
+PACK = "/api/agents/mendari/patient-inbox-router"
 INBOX = "mendari/patient-inbox-router"
 
 
@@ -46,7 +46,7 @@ def client(db_target: str) -> TestClient:
 
 
 def test_packs_and_card(client: TestClient) -> None:
-    packs = client.get("/api/packs").json()
+    packs = client.get("/api/agents").json()
     assert [p["id"] for p in packs] == [
         "mendari/ai-guard",
         "mendari/clinical-trial-prescreener",
@@ -59,7 +59,7 @@ def test_packs_and_card(client: TestClient) -> None:
     assert detail["without_model"] == ["safety_screen", "router"]  # no model set up here
     assert "local-site-example" in detail["datasets"]
     assert detail["benchmark"]["dataset"]["name"] == "test"
-    assert client.get("/api/packs/mendari/missing").status_code == 404
+    assert client.get("/api/agents/mendari/missing").status_code == 404
 
 
 def test_decide_review_and_audit_flow(client: TestClient) -> None:
@@ -92,7 +92,7 @@ def test_datasets_are_listed_with_their_size(client: TestClient) -> None:
     assert list(datasets) == detail["datasets"]  # the same names, in the same order
     assert datasets["local-site-example"] == len(LOCAL_DATASET.read_text().splitlines())
     assert all(n > 0 for n in datasets.values())
-    assert client.get("/api/packs/mendari/missing/datasets").status_code == 404
+    assert client.get("/api/agents/mendari/missing/datasets").status_code == 404
 
 
 def test_invalid_input_is_a_recorded_block_not_an_http_error(client: TestClient) -> None:
@@ -185,7 +185,7 @@ def test_a_stored_report_figures_cannot_be_read_from_is_served_with_none(
 
 
 def test_examples_are_the_packs_behaviour_tests(client: TestClient) -> None:
-    trial = "/api/packs/mendari/clinical-trial-prescreener"
+    trial = "/api/agents/mendari/clinical-trial-prescreener"
     examples = client.get(f"{trial}/examples").json()
     assert len(examples) == 28
     pregnancy = next(e for e in examples if e["name"].startswith("a pregnancy in the notes"))
@@ -195,7 +195,7 @@ def test_examples_are_the_packs_behaviour_tests(client: TestClient) -> None:
     assert decision["recommendation"] == "not_eligible"
     assert "not_eligible: note_pregnancy is yes" in decision["reasons"]
     assert client.get(f"{PACK}/examples").json()[0]["input"]["message"]["body"]
-    assert client.get("/api/packs/mendari/missing/examples").status_code == 404
+    assert client.get("/api/agents/mendari/missing/examples").status_code == 404
 
 
 def test_dashboard_is_served(client: TestClient) -> None:
@@ -322,7 +322,7 @@ def test_the_api_reference_describes_every_operation(client: TestClient) -> None
     assert list(examples) == sorted(examples)
     for example in examples.values():
         pack_id = example["summary"].split(":")[0]
-        decided = client.post(f"/api/packs/{pack_id}/decide", json=example["value"]).json()
+        decided = client.post(f"/api/agents/{pack_id}/decide", json=example["value"]).json()
         assert decided["outcome"] != "BLOCK", (pack_id, decided["reasons"])
 
     def offered(path: str) -> list[str]:
@@ -350,13 +350,13 @@ def test_a_release_offers_the_demo_agent_first(
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
     assert list(examples) == ["portal-message-agent"]
     for example in examples.values():
-        decided = client.post(f"/api/packs/{DEMO_AGENT}/decide", json=example["value"]).json()
+        decided = client.post(f"/api/agents/{DEMO_AGENT}/decide", json=example["value"]).json()
         assert decided["outcome"] != "BLOCK", decided["reasons"]
     fhir = schema["paths"]["/api/agents/{namespace}/{name}/fhir/decide"]["post"]
     name = next(p for p in fhir["parameters"] if p["name"] == "name")
     assert list(name["examples"]) == ["portal-message-agent"]
     bundle = fhir["requestBody"]["content"]["application/json"]["examples"]["message"]["value"]
-    decided = client.post(f"/api/packs/{DEMO_AGENT}/fhir/decide", json=bundle).json()
+    decided = client.post(f"/api/agents/{DEMO_AGENT}/fhir/decide", json=bundle).json()
     assert decided["task"]["resourceType"] == "Task"
     assert decided["decision"]["input_issues"] == []  # the example conforms to US Core
     assert decided["decision"]["recommendation"] == "refill"
@@ -558,7 +558,7 @@ def test_health_answers_within_its_bound_while_a_registry_packs_decision_runs(
 
     def decide() -> None:
         answer["decision"] = client.post(
-            "/api/packs/someone/visit-sorter/decide", json={"message": EMOJI}
+            "/api/agents/someone/visit-sorter/decide", json={"message": EMOJI}
         )
 
     worker = threading.Thread(target=decide)
@@ -606,7 +606,7 @@ def test_an_unbuildable_pack_is_built_once(tmp_path: Path, monkeypatch: pytest.M
         assert list(invalid) == [pack_id]
         assert "Extra inputs are not permitted" in invalid[pack_id]
     case = yaml.safe_load((TRIAL_DIR / "tests" / "cases.yaml").read_text())[0]
-    refused = [client.post(f"/api/packs/{pack_id}/decide", json=case["input"]) for _ in range(2)]
+    refused = [client.post(f"/api/agents/{pack_id}/decide", json=case["input"]) for _ in range(2)]
     assert [answer.status_code for answer in refused] == [422, 422]
     reasons = [(answer.json()["error"], answer.json()["detail"]) for answer in refused]
     assert reasons == [("PackValidationError", invalid[pack_id])] * 2

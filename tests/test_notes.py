@@ -161,7 +161,7 @@ def test_the_api_answers_a_note_under_hash_with_422(
     monkeypatch.setenv("MENDARI_PHI_MODE", "hash")
     monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    decided = client.post(f"/api/packs/{INBOX}/decide", json=message(URGENT)).json()
+    decided = client.post(f"/api/agents/{INBOX}/decide", json=message(URGENT)).json()
     review = {"final_label": "nurse", "reviewer": "rn-1", "note": SECRET}
     refused = client.post(f"/api/review/{decided['id']}", json=review)
     assert refused.status_code == 422 and "keeps no free text" in refused.text
@@ -437,7 +437,7 @@ def test_viewers_never_see_a_note_and_reviewers_do(
     viewer = store.create_api_key(name="viewer", role="viewer", org="default", created_by="t")
     machine = {"authorization": f"Bearer {viewer['key']}"}
     reviewer, admin = (signed_in(store, role=role) for role in ("reviewer", "admin"))
-    decided = client.post(f"/api/packs/{INBOX}/decide", json=message(URGENT), headers=reviewer)
+    decided = client.post(f"/api/agents/{INBOX}/decide", json=message(URGENT), headers=reviewer)
     decision_id = decided.json()["id"]
     review = {"final_label": "nurse", "reviewer": "ignored", "note": SECRET}
     resolved = client.post(f"/api/review/{decision_id}", json=review, headers=reviewer).json()
@@ -449,7 +449,7 @@ def test_viewers_never_see_a_note_and_reviewers_do(
         assert SECRET not in client.get(url, headers=machine).text, url
     assert SECRET in client.get(f"/api/audit/{decision_id}", headers=reviewer).text
     assert SECRET in client.get("/api/feedback", headers=reviewer).text
-    export = client.get(f"/api/packs/{INBOX}/feedback/export", headers=admin)
+    export = client.get(f"/api/agents/{INBOX}/feedback/export", headers=admin)
     [line] = [json.loads(row) for row in export.text.splitlines()]
     assert [f["note"] for f in line["feedback"]] == [SECRET]
     fhir = client.get("/api/audit/export/fhir", headers=admin)
@@ -518,7 +518,7 @@ def submit_prior_authorization(
     # The decision went to a person (no model in the notes screen): one confirms it first.
     review = {"final_label": "submit_ready", "reviewer": "pa-nurse"}
     assert client.post(f"/api/review/{decision_id}", json=review).status_code == 200
-    answered = client.post(f"/api/packs/{PA}/pas", json=body).json()
+    answered = client.post(f"/api/agents/{PA}/pas", json=body).json()
     assert answered["submitted"]["authorization"] == "AUTH-4821937"  # the caller gets it
     return decision_id
 

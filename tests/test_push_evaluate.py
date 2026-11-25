@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption,
 
 from mendari.cli import _linkable, _publish_run, main
 from mendari.core.pack import load_pack
-from mendari.errors import HubError, MendariError
+from mendari.errors import MendariError
 from mendari.evals.harness import Evaluation
 from mendari.evals.ledger import Ledger
 from mendari.evals.result import ERROR
@@ -150,27 +150,6 @@ def test_a_run_in_which_a_provider_failed_says_on_how_many_cases(
     assert dataset["configurations"][0]["claimed"]["failed_cases"] == 3
     _publish_run(Sent(published), demo(), run("rules"), published.key, None)
     assert "note:" not in capsys.readouterr().err  # a run with no failure says nothing
-
-
-def test_a_registry_from_before_the_second_format_is_said_to_be_one(published: Registry) -> None:
-    said_before = "not a mendari.publisher-evaluation/1 record: format"
-
-    class Earlier:
-        def publish_evaluation(self, record: dict[str, Any]) -> dict[str, Any]:
-            raise HubError(f"the registry answered HTTP 422: {said_before}")
-
-    with pytest.raises(HubError) as earlier:
-        _publish_run(Earlier(), demo(), run("rules"), published.key, None)
-    assert said_before in str(earlier.value)
-    assert "a release before mendari.publisher-evaluation/2" in str(earlier.value)
-
-    class Refusing:
-        def publish_evaluation(self, record: dict[str, Any]) -> dict[str, Any]:
-            raise HubError("the registry answered HTTP 409: version: it is recalled", 409)
-
-    with pytest.raises(HubError) as refused:  # any other refusal, as it is
-        _publish_run(Refusing(), demo(), run("rules"), published.key, None)
-    assert str(refused.value).endswith("it is recalled") and refused.value.status == 409
 
 
 def test_the_command_line_prints_the_hub_s_page_when_the_registry_names_one(

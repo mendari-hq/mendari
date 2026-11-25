@@ -205,8 +205,8 @@ def test_pas_input_errors_are_said_before_anything_is_sent(page: Page) -> None:
 def test_a_pas_request_after_fhir_input_takes_its_resources(page: Page, live_server: str) -> None:
     """Only the dashboard's part: the prefill from what the FHIR input held (the decision is a
     real complete request's, answered here so the FHIR input need not make one)."""
-    example = httpx.get(f"{live_server}/api/packs/{PA}/examples").json()[0]["input"]
-    decided = httpx.post(f"{live_server}/api/packs/{PA}/decide", json=example).json()
+    example = httpx.get(f"{live_server}/api/agents/{PA}/examples").json()[0]["input"]
+    decided = httpx.post(f"{live_server}/api/agents/{PA}/decide", json=example).json()
     assert decided["recommendation"] == pas.READY
     open_pack(page, PA, "try")
     mode(page, "FHIR")

@@ -96,7 +96,7 @@ def test_a_rated_decision_says_it_was_exported(inbox_pack: Pack, store: AuditSto
 def test_feedback_api_and_export(db_target: str, screened: dict[str, str]) -> None:
     app = create_app(db_path=db_target, providers=screened, datasets_dir=LOCAL_DATASET.parent)
     client = TestClient(app)
-    pack = "/api/packs/mendari/patient-inbox-router"
+    pack = "/api/agents/mendari/patient-inbox-router"
     decision = client.post(f"{pack}/decide", json=message(AUTO_REFILL)).json()
 
     missing = client.post(f"/api/audit/{decision['id']}/feedback", json={"rating": "sideways"})

@@ -738,7 +738,7 @@ def test_without_a_server_a_link_is_not_fetched_and_says_so(
     request = hook(record[0], server=None, coverage=[record[1]], medications=[record[2]])
     decided = audited(app, app.post(SERVICE, json=request))
     assert decided["reasons"] == expected
-    answered = app.post(f"/api/packs/{PACK}/fhir/decide", json=bundle(*record))
+    answered = app.post(f"/api/agents/{PACK}/fhir/decide", json=bundle(*record))
     assert answered.status_code == 200, answered.text
     assert answered.json()["decision"]["reasons"] == expected
     operation = app.post(

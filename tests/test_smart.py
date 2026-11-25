@@ -235,7 +235,7 @@ def test_each_launch_names_itself_and_the_window_it_opens(app: TestClient, ehr: 
     one = app.get("/api/smart/session").json()
     assert first.headers["location"].endswith(f"#patient/{one['launch_id']}")
     assert re.fullmatch(r"[0-9a-f]{16}", one["launch_id"])
-    listed = {pack["id"]: pack for pack in app.get("/api/packs").json()}
+    listed = {pack["id"]: pack for pack in app.get("/api/agents").json()}
     # With the label the patient view shows (a community pack says so where a person decides).
     assert one["packs"] == [
         {
@@ -628,7 +628,7 @@ def test_decision_created_names_who_asked(
     and `audit verify` still passes. Both backends."""
     a, b = tenants
     opened = signed_site(db_target, monkeypatch, None, a)  # open mode, before sign-in was on
-    before = opened.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE))
+    before = opened.post(f"/api/agents/{INBOX}/decide", json=message(ROUTINE))
     assert before.status_code == 200, before.text
     with AuditStore(db_target) as store:
         earlier = store.events()
@@ -637,7 +637,7 @@ def test_decision_created_names_who_asked(
     asked: dict[str, str] = {}
 
     def decide(headers: dict[str, str]) -> str:
-        made = app.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE), headers=headers)
+        made = app.post(f"/api/agents/{INBOX}/decide", json=message(ROUTINE), headers=headers)
         assert made.status_code == 200, made.text
         return str(made.json()["id"])
 
@@ -928,7 +928,7 @@ def test_a_launch_opens_the_dashboard_page_and_nothing_else(
     }
     assert referral in session["packs"]
     assert app.get("/", follow_redirects=False).status_code == 200
-    for path in ("/api/audit", "/api/packs", "/api/review", "/openapi.json"):
+    for path in ("/api/audit", "/api/agents", "/api/review", "/openapi.json"):
         assert app.get(path).status_code == 401, path
     assert app.get("/docs/reference", follow_redirects=False).status_code == 302
     assert app.get("/api/auth/me").json() == {"mode": "sign-in", "signed_in": False}

@@ -27,7 +27,7 @@ PACKS = {
     "prior-auth.json": "mendari/prior-auth-preflight",
     "trial.json": "mendari/clinical-trial-prescreener",
 }
-INBOX = "/api/packs/mendari/patient-inbox-router"
+INBOX = "/api/agents/mendari/patient-inbox-router"
 SECRET = "Synthetic secret: chest pain since noon"  # must never come back in an error
 WRONG_TYPES: list[Any] = ["x", 7, {"x": 1}, ["x"]]
 
@@ -151,7 +151,7 @@ def test_structure_is_checked_even_with_validation_off(tmp_path: Path) -> None:
 def test_fhir_route_errors_are_operation_outcomes(client: TestClient) -> None:
     missing = client.post(f"{INBOX}/fhir/decide", json={"resourceType": "Patient", "id": "p"})
     assert outcome_of(missing, 422)[0]["code"] == "processing"
-    unknown_pack = client.post("/api/packs/mendari/nope/fhir/decide", json=inbox_bundle())
+    unknown_pack = client.post("/api/agents/mendari/nope/fhir/decide", json=inbox_bundle())
     assert outcome_of(unknown_pack, 404)[0]["code"] == "not-found"
     no_route = client.get("/fhir/Patient/p1")  # Mendari serves no clinical resources
     assert outcome_of(no_route, 404)[0]["code"] == "not-found"
@@ -188,7 +188,7 @@ def test_validation_errors_do_not_echo_the_request(client: TestClient) -> None:
 
 
 def test_mendari_api_errors_keep_their_shape(client: TestClient) -> None:
-    response = client.post("/api/packs/mendari/nope/decide", json={})
+    response = client.post("/api/agents/mendari/nope/decide", json={})
     assert response.status_code == 404
     assert response.headers["content-type"] == "application/json"
     assert response.json()["error"] == "PackNotFoundError"

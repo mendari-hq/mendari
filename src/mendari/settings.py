@@ -9,7 +9,6 @@ from typing import Literal, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from mendari.errors import MendariError
-from mendari.legacy import current_pack_id, setting
 
 DEFAULT_JEV_DAILY_LIMIT = 500
 DEFAULT_LLM_DAILY_LIMIT = 500
@@ -295,21 +294,18 @@ def database_target() -> str:
 
 def enabled_packs() -> frozenset[str]:
     """$MENDARI_AGENTS: the agents this server serves (comma-separated ids); empty: every agent
-    found. An image built for one agent sets it to that agent. Read as `MENDARI_PACKS` while
-    unset, the name it had before (`legacy.setting`)."""
-    raw = setting("MENDARI_AGENTS")[1]
-    return frozenset(current_pack_id(item.strip()) for item in raw.split(",") if item.strip())
+    found. An image built for one agent sets it to that agent."""
+    raw = os.environ.get("MENDARI_AGENTS", "")
+    return frozenset(item.strip() for item in raw.split(",") if item.strip())
 
 
 def community_packs_enabled() -> bool:
     """$MENDARI_COMMUNITY_AGENTS: `on` serves the agents in `community-agents/` (contributed by
     pull request; they never automate); `off` or unset (the default) serves none of them, even
-    where `MENDARI_AGENTS_PATH` names that folder. Read as `MENDARI_COMMUNITY_PACKS` while
-    unset, the name it had before (`legacy.setting`)."""
-    name, value = setting("MENDARI_COMMUNITY_AGENTS")
-    raw = value.strip().lower()
+    where `MENDARI_AGENTS_PATH` names that folder."""
+    raw = os.environ.get("MENDARI_COMMUNITY_AGENTS", "").strip().lower()
     if raw not in ("", "on", "off"):
-        raise MendariError(f"{name} must be on or off")
+        raise MendariError("MENDARI_COMMUNITY_AGENTS must be on or off")
     return raw == "on"
 
 
@@ -334,7 +330,7 @@ def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
                 f"provider override {item!r} must look like slot=variant or "
                 "namespace/name:slot=variant"
             )
-        key = f"{current_pack_id(pack.strip())}:{name.strip()}" if scoped else name.strip()
+        key = f"{pack.strip()}:{name.strip()}" if scoped else name.strip()
         overrides[key] = variant.strip()
     return overrides
 
@@ -447,15 +443,13 @@ def store_max_archive_bytes() -> int:
 
 def pack_store_on() -> bool:
     """Whether organizations' agent stores are served ($MENDARI_AGENT_STORE: `on`; unset or
-    `off`: no store route is mounted, LP-20f). Anything else fails at startup. Read as
-    `MENDARI_PACK_STORE` while unset, the name it had before (`legacy.setting`)."""
-    name, value = setting("MENDARI_AGENT_STORE")
-    raw = value.strip().lower()
+    `off`: no store route is mounted, LP-20f). Anything else fails at startup."""
+    raw = os.environ.get("MENDARI_AGENT_STORE", "").strip().lower()
     if raw in ("", "off"):
         return False
     if raw == "on":
         return True
-    raise MendariError(f"{name} is on or off")
+    raise MendariError("MENDARI_AGENT_STORE is on or off")
 
 
 def principal_daily_limit() -> int | None:

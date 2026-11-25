@@ -23,7 +23,7 @@ from mendari.cli import main
 from mendari.core.decision import Decision
 from mendari.core.origin import pulled_record
 from mendari.core.pack import Pack, PatternsRefused, load_pack
-from mendari.core.registry import discover, origin_of, resolve_pack, search_paths
+from mendari.core.registry import discover, resolve_pack
 from mendari.errors import HubError, PackNotFoundError, PackValidationError
 from mendari.evals.share import SiteReportV2
 from mendari.hub import archive, client
@@ -119,37 +119,16 @@ def test_push_then_pull_verifies_and_caches(hub: Hub, tmp_path: Path) -> None:
     assert resolve_pack("site-a/inbox").digest == pack.digest  # the cache is on the search path
 
 
-def _as_pulled_before_the_rename(pulled: Pack) -> Path:
-    """A pulled agent moved to where a release before 2026-11 cached it, the cache's former
-    folder (`client.former_cache`), with nothing left in the folder the cache has now."""
-    former = client.former_cache() / pulled.root.relative_to(client.packs_cache())
-    former.parent.mkdir(parents=True)
-    shutil.move(pulled.root, former)
-    shutil.rmtree(client.packs_cache())
-    return former
-
-
-def test_a_version_pulled_before_the_cache_was_renamed_is_still_read(
+def test_a_cached_copy_is_used_as_it_is_and_fetched_again_once_it_is_not_the_registrys(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The registry cache's folder is `agents/`; it was `packs/` until 2026-11. A version an
-    earlier release cached is read where it was left: it is on the search path as an agent from
-    a registry, and the next pull uses it as it is, fetching nothing and writing what the
-    registry says of it now beside it. A version pulled now goes to `agents/`, and the two are
-    one agent's versions."""
-    assert (client.packs_cache().name, client.former_cache().name) == ("agents", "packs")
-    assert client.caches() == (client.packs_cache(), client.former_cache())
+    """A version in the cache is used as it is: the next pull fetches nothing and writes what the
+    registry says of it now beside it. One whose marker records another archive than the
+    registry's is fetched again, in its place, so the version has one copy."""
     token, key = hub.namespace("site-a")
-    publisher = hub.client(token)
     pack = copy_pack(tmp_path, "site-a/inbox")
-    publisher.push(pack, key)
-    former = _as_pulled_before_the_rename(pull("site-a/inbox", hub.client()))
-
-    found = resolve_pack("site-a/inbox")
-    assert (found.root, found.origin, found.digest) == (former.resolve(), "hub", pack.digest)
-    assert origin_of(former) == "hub" and Decision.from_path(former).pack.origin == "hub"
-    assert [path for path, origin in search_paths() if origin == "hub"] == [client.former_cache()]
-
+    hub.client(token).push(pack, key)
+    cached = pull("site-a/inbox", hub.client()).root
     fetched: list[tuple[Any, ...]] = []
     served = RegistryClient.archive
 
@@ -158,65 +137,30 @@ def test_a_version_pulled_before_the_cache_was_renamed_is_still_read(
         return served(self, *version)
 
     monkeypatch.setattr(RegistryClient, "archive", archive_of)
-    long_ago = {**pulled_record(former), "pulled_at": "2026-01-01T00:00:00+00:00"}
-    (former / ".mendari-verified").write_text(json.dumps(long_ago) + "\n")
+    marker = cached / ".mendari-verified"
+    long_ago = {**pulled_record(cached), "pulled_at": "2026-01-01T00:00:00+00:00"}
+    marker.write_text(json.dumps(long_ago) + "\n")
     again = pull("site-a/inbox", hub.client())
-    assert again.root == former.resolve() and fetched == []
-    assert pulled_record(former)["pulled_at"] != long_ago["pulled_at"]  # written again, there
-    assert not client.packs_cache().exists()
-
-    publisher.push(copy_pack(tmp_path, "site-a/inbox", "9.0.0"), key)
-    newer = pull("site-a/inbox", hub.client())
-    assert newer.root == (client.packs_cache() / "site-a" / "inbox" / "9.0.0").resolve()
-    assert len(fetched) == 1 and former.is_dir()
-    assert [path for path, origin in search_paths() if origin == "hub"] == list(client.caches())
-    assert resolve_pack("site-a/inbox").version == "9.0.0"
-    assert resolve_pack(f"site-a/inbox@{SHIPPED}").root == former.resolve()
-
-
-def test_a_copy_in_the_caches_former_folder_is_replaced_and_deleted_as_any_other(
-    hub: Hub, tmp_path: Path
-) -> None:
-    """A copy the cache's former folder holds is the copy in use until its version is fetched
-    again. One that no longer is what the registry recorded is fetched again into the folder
-    the cache has now, and removed where it was, so the version has one copy; and a version
-    the registry deleted is removed from both folders and never served."""
-    token, key = hub.namespace("site-a")
-    pack = copy_pack(tmp_path, "site-a/inbox")
-    hub.client(token).push(pack, key)
-    former = _as_pulled_before_the_rename(pull("site-a/inbox", hub.client()))
-    current = client.packs_cache() / "site-a" / "inbox" / SHIPPED
-
-    marker = former / ".mendari-verified"
-    marker.write_text(json.dumps({**pulled_record(former), "archive_sha256": "0" * 64}) + "\n")
+    assert again.root == cached and fetched == []
+    assert pulled_record(cached)["pulled_at"] != long_ago["pulled_at"]  # written again, there
+    marker.write_text(json.dumps({**pulled_record(cached), "archive_sha256": "0" * 64}) + "\n")
     again = pull("site-a/inbox", hub.client())
-    assert again.root == current.resolve() and again.digest == pack.digest
-    assert not former.exists()  # the copy it replaces
-    assert [p.root for p in discover().packs if p.id == "site-a/inbox"] == [current.resolve()]
-
-    shutil.copytree(current, former)  # a release from before pulled it again, into its folder
-    with hub.operator() as store:
-        store.delete("site-a", "inbox", SHIPPED, reason="carried a file", by="operator")
-    with pytest.raises(HubError, match="was deleted from the registry: carried a file"):
-        pull(f"site-a/inbox@{SHIPPED}", hub.client())
-    assert not current.exists() and not former.exists()
-    with pytest.raises(PackNotFoundError):
-        resolve_pack("site-a/inbox")
+    assert again.root == cached and again.digest == pack.digest and len(fetched) == 1
+    assert pulled_record(cached)["archive_sha256"] != "0" * 64
+    assert [p.root for p in discover().packs if p.id == "site-a/inbox"] == [cached.resolve()]
 
 
-def test_the_cache_refuses_a_version_that_leaves_its_folder_in_either_place(
-    tmp_path: Path,
-) -> None:
+def test_the_cache_refuses_a_version_that_leaves_its_folder(tmp_path: Path) -> None:
     """A registry's answer never chooses where a copy is read, replaced or removed: a version
-    is a version before any path is built, and its place stays inside the agent's own folder,
-    in the cache's folder and in the one it had before."""
-    for cache in client.caches():
-        inside = client._cached_at(cache, "site-a/inbox", "0.1.0")
-        assert inside == cache.resolve() / "site-a" / "inbox" / "0.1.0"
-        (cache / "site-a" / "inbox").mkdir(parents=True)
-        (cache / "site-a" / "inbox" / "0.2.0").symlink_to(tmp_path, target_is_directory=True)
-        with pytest.raises(HubError, match="a version that is not one of site-a/inbox"):
-            client._cached_at(cache, "site-a/inbox", "0.2.0")
+    is a version before any path is built, and its place stays inside the agent's own folder
+    in the cache."""
+    cache = client.packs_cache()
+    inside = client._cached_at(cache, "site-a/inbox", "0.1.0")
+    assert inside == cache.resolve() / "site-a" / "inbox" / "0.1.0"
+    (cache / "site-a" / "inbox").mkdir(parents=True)
+    (cache / "site-a" / "inbox" / "0.2.0").symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(HubError, match="a version that is not one of site-a/inbox"):
+        client._cached_at(cache, "site-a/inbox", "0.2.0")
 
 
 def test_a_pulled_packs_uploaded_figures_are_not_shown_where_it_is_served(
@@ -239,7 +183,7 @@ def test_a_pulled_packs_uploaded_figures_are_not_shown_where_it_is_served(
     assert "The registry shows no figure it did not compute itself" in card
     assert "## Provider comparison" not in card and "## Provider comparison" in card_of(pack)
     with TestClient(create_app(db_path=tmp_path / "a.db")) as engine:
-        detail = engine.get("/api/packs/site-a/inbox").json()
+        detail = engine.get("/api/agents/site-a/inbox").json()
     assert detail["origin"] == "hub"
     assert detail["benchmark"] is None and detail["leaderboard"] is None
     assert detail["card_markdown"] == card
@@ -266,7 +210,7 @@ def test_a_pulled_packs_uploaded_benchmark_is_never_compared_or_monitored_agains
     assert pulled.origin == "hub" and benchmark(pulled) is not None  # it carries one
     run = {"dataset": "red_flags", "limit": 20}
     with TestClient(create_app(db_path=tmp_path / "a.db")) as engine:
-        answer = engine.post("/api/packs/site-a/inbox/evals", json=run).json()
+        answer = engine.post("/api/agents/site-a/inbox/evals", json=run).json()
         monitored = engine.get("/api/monitoring", params={"pack_id": "site-a/inbox"}).json()
     capsys.readouterr()  # the server's security log
     assert answer["comparison"] == not_compared(FROM_REGISTRY)
@@ -623,7 +567,7 @@ def _hub_site(hub: Hub, capsys: pytest.CaptureFixture[str]) -> str:
 
 def _reports(hub: Hub) -> list[dict[str, object]]:
     with httpx.Client() as http:
-        answer = http.get(f"{hub.url}/v1/packs/mendari/referral-router/reports").json()
+        answer = http.get(f"{hub.url}/v1/agents/mendari/referral-router/reports").json()
     return list(answer["reports"])
 
 
@@ -651,7 +595,7 @@ def test_eval_share_out_writes_exactly_what_is_sent_and_sends_nothing(
     (served,) = _reports(hub)
     with httpx.Client() as http:
         record = http.get(
-            f"{hub.url}/v1/packs/mendari/referral-router/reports/{served['id']}"
+            f"{hub.url}/v1/agents/mendari/referral-router/reports/{served['id']}"
         ).json()["record"]
     assert record == written  # exactly the bytes it wrote
     assert served["site"] == site and served["verified"] is True

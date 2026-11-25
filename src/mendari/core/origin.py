@@ -66,10 +66,7 @@ COMMUNITY_NAMESPACE = "community"
 # names the folder reads it here.
 COMMUNITY_FOLDER = "community-agents"
 # The namespaces of the packs Mendari maintains, which a community pack never claims.
-RESERVED_NAMESPACES: Mapping[str, Origin] = {
-    "mendari": "maintained",
-    "openhealth": "maintained",  # the bundled agents' namespace before the rename (`legacy.py`)
-}
+RESERVED_NAMESPACES: Mapping[str, Origin] = {"mendari": "maintained"}
 # Where a community pack's FHIR terminology lives: its own url, never one of Mendari's.
 COMMUNITY_URL = "https://mendari.co/packs/community/"
 # The longest text the patterns of a pack on the community engine (`bounded`) run on (on RE2,

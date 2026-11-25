@@ -338,10 +338,7 @@ def add_hub_routes(
                 shown = None  # every version is recalled: nothing to show but the recalls
             evaluations: Any = None
             if shown is not None and is_version(shown.get("version")):
-                try:
-                    evaluations = client.evaluations(namespace, name, str(shown["version"]))
-                except (HubError, httpx.HTTPError):
-                    evaluations = None  # a registry from before them, or one that did not say
+                evaluations = client.evaluations(namespace, name, str(shown["version"]))
             return {"listed": listed, "shown": shown, "evaluations": evaluations}
 
         found = asked(read)

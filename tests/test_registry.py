@@ -52,14 +52,14 @@ def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> No
     assert "benchmark" not in body and "leaderboard" not in body
     again = registry.publish()
     assert again.status_code == 409 and "immutable" in again.text
-    pack = registry.client.get("/v1/packs/mendari/referral-router").json()
+    pack = registry.client.get("/v1/agents/mendari/referral-router").json()
     assert pack["versions"] == [REFERRAL.version] and pack["latest"]["digest"] == REFERRAL.digest
 
 
 def test_the_archive_downloads_byte_for_byte(registry: Registry) -> None:
     data = archive.build(REFERRAL, registry.key)
     registry.publish()
-    response = registry.client.get(f"/v1/packs/mendari/referral-router/{REFERRAL.version}/archive")
+    response = registry.client.get(f"/v1/agents/mendari/referral-router/{REFERRAL.version}/archive")
     assert response.content == data
     assert response.headers["x-archive-sha256"] == hashlib.sha256(data).hexdigest()
 
@@ -108,7 +108,7 @@ def test_verification_sets_the_publisher_type(registry: Registry) -> None:
     registry.publish()
     patched = registry.operator.set_publisher_type("mendari", "verified", by="operator")
     assert patched["publisher_type"] == "verified"
-    pack = registry.client.get("/v1/packs/mendari/referral-router").json()
+    pack = registry.client.get("/v1/agents/mendari/referral-router").json()
     assert pack["latest"]["publisher_type"] == "verified"
     namespace = registry.client.get("/v1/namespaces/mendari").json()
     assert namespace["packs"] == ["mendari/referral-router"]
@@ -133,8 +133,8 @@ def test_search_by_words_risk_and_standard(registry: Registry) -> None:
 
 
 def test_unknown_things_are_404(registry: Registry) -> None:
-    assert registry.client.get("/v1/packs/mendari/none").status_code == 404
-    assert registry.client.get("/v1/packs/mendari/referral-router/0.0.1").status_code == 404
+    assert registry.client.get("/v1/agents/mendari/none").status_code == 404
+    assert registry.client.get("/v1/agents/mendari/referral-router/0.0.1").status_code == 404
     assert registry.client.get("/v1/namespaces/nobody").status_code == 404
 
 
@@ -152,7 +152,7 @@ def test_sites_share_signed_counts_and_publisher_tokens_no_longer_do(
 ) -> None:
     registry.publish()
     report = shared_benchmark()
-    path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
+    path = f"/v1/agents/mendari/referral-router/{REFERRAL.version}/reports"
     publisher = {"authorization": f"Bearer {registry.token}"}
     refused = registry.client.post(path, json={"report": report}, headers=publisher)
     assert refused.status_code == 401 and "mendari site init" in refused.text
@@ -160,7 +160,7 @@ def test_sites_share_signed_counts_and_publisher_tokens_no_longer_do(
     site = verified_site(registry, tmp_path)
     shared = share_signed(registry, site, report)
     assert shared.status_code == 201, shared.text
-    listed = registry.client.get("/v1/packs/mendari/referral-router/reports").json()
+    listed = registry.client.get("/v1/agents/mendari/referral-router/reports").json()
     assert set(listed) == {"id", "reports", "superseded"}  # no uploaded benchmark (ADR-0012)
     (served,) = listed["reports"]
     assert (served["site"], served["verified"], served["key_id"]) == (site.id, True, site.key_id)
@@ -184,7 +184,7 @@ def test_the_registry_computes_every_rate_it_shows(registry: Registry, tmp_path:
     registry.publish()
     report = shared_benchmark()
     assert share_signed(registry, verified_site(registry, tmp_path), report).status_code == 201
-    (served,) = registry.client.get("/v1/packs/mendari/referral-router/reports").json()["reports"]
+    (served,) = registry.client.get("/v1/agents/mendari/referral-router/reports").json()["reports"]
     figures = served["figures"]
     assert _rates(figures) == []
     assert figures == json.loads(json.dumps(figures_module.site(report)))
@@ -207,7 +207,7 @@ def test_a_site_report_of_the_old_format_is_refused_and_names_the_new_one(
     issued = site_ticket(registry, site, shared_benchmark())
     old = {**shared_benchmark(), "format": "mendari.site-report/1"}
     answer = registry.client.post(
-        f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports",
+        f"/v1/agents/mendari/referral-router/{REFERRAL.version}/reports",
         json={"ticket": issued["ticket"]["id"], "report": old},
         headers={"authorization": f"Bearer {issued['submit_secret']}"},
     )
@@ -323,7 +323,7 @@ def test_a_deeply_nested_attestation_is_shown_as_none_and_search_keeps_working(
     assert "benchmark" not in answer.json() and "leaderboard" not in answer.json()
     assert registry.client.get("/v1/search").status_code == 200
     for path in ("", f"/{REFERRAL.version}"):
-        assert registry.client.get(f"/v1/packs/{REFERRAL.id}{path}").status_code == 200
+        assert registry.client.get(f"/v1/agents/{REFERRAL.id}{path}").status_code == 200
 
 
 def test_metadata_that_cannot_be_served_is_refused_before_it_is_stored(
@@ -461,8 +461,8 @@ def test_a_forged_card_benchmark_and_leaderboard_show_only_what_the_registry_ren
 
     assert registry.publish(forged).status_code == 201
     shown = [
-        registry.client.get(f"/v1/packs/{GUARD.id}/{GUARD.version}").json(),
-        registry.client.get(f"/v1/packs/{GUARD.id}").json()["latest"],
+        registry.client.get(f"/v1/agents/{GUARD.id}/{GUARD.version}").json(),
+        registry.client.get(f"/v1/agents/{GUARD.id}").json()["latest"],
     ]
     card = _registry_card(root)
     assert "| Risk level | **2**, clinical support (declared by the publisher) |" in card
@@ -480,7 +480,7 @@ def test_a_forged_card_benchmark_and_leaderboard_show_only_what_the_registry_ren
         assert version["figures"]["benchmark"] is None
         assert version["figures"]["leaderboard"] is None
     (found,) = registry.client.get("/v1/search").json()
-    reports = registry.client.get(f"/v1/packs/{GUARD.id}/reports").text
+    reports = registry.client.get(f"/v1/agents/{GUARD.id}/reports").text
     for text in (json.dumps(shown), json.dumps(found), reports):
         assert "0.999" not in text and "99.9%" not in text and "administrative |" not in text
 
@@ -594,8 +594,8 @@ def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_
     assert published.status_code == 201
     archive_sha256 = published.json()["archive_sha256"]
     for version in (
-        registry.client.get(f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}").json(),
-        registry.client.get(f"/v1/packs/{REFERRAL.id}").json()["latest"],
+        registry.client.get(f"/v1/agents/{REFERRAL.id}/{REFERRAL.version}").json(),
+        registry.client.get(f"/v1/agents/{REFERRAL.id}").json()["latest"],
         registry.client.get("/v1/search").json()[0],
     ):
         assert version["checked"] == {
@@ -631,7 +631,7 @@ def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_
         }
     inbox = registry.publish(_at_version(tmp_path, INBOX, "9.9.9"))
     assert inbox.status_code == 201
-    shown = registry.client.get(f"/v1/packs/{INBOX.id}/9.9.9").json()
+    shown = registry.client.get(f"/v1/agents/{INBOX.id}/9.9.9").json()
     assert shown["checked"]["engine"] == "bounded"
 
 
@@ -651,8 +651,8 @@ def test_a_version_published_before_the_registry_rendered_cards_serves_nothing_u
         stored["leaderboard"] = {"rows": [{"accuracy": 0.999}]}
         db.all("UPDATE hub_versions SET metadata = ?", (json.dumps(stored),))
     for version in (
-        registry.client.get(f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}").json(),
-        registry.client.get(f"/v1/packs/{REFERRAL.id}").json()["latest"],
+        registry.client.get(f"/v1/agents/{REFERRAL.id}/{REFERRAL.version}").json(),
+        registry.client.get(f"/v1/agents/{REFERRAL.id}").json()["latest"],
         registry.client.get("/v1/search").json()[0],
     ):
         assert version.get("card_markdown") is None

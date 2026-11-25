@@ -153,7 +153,7 @@ from mendari.errors import (
     OrganizationChanged,
     ScopeError,
 )
-from mendari.server import paths, presets, scopes, security_log, sessions
+from mendari.server import presets, scopes, security_log, sessions
 from mendari.server.scopes import Grant
 from mendari.standards import oidc, smart
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers, origin_of
@@ -279,10 +279,7 @@ REGISTRY_PEOPLE = r"^/api/registry/(namespaces|tokens|sites)(/|$)"  # sites: LP-
 # Its reviewers' routes (LP-19e): the queue, and the acts on any namespace a reviewer makes.
 REGISTRY_REVIEW = r"^/api/registry/review(/|$)"
 _REGISTRY_ONLY = frozenset({REGISTRY_MOUNT, REGISTRY_PEOPLE, REGISTRY_REVIEW})
-# (method, path pattern) -> permission, first match wins; unlisted routes need "admin". Each
-# pattern names a route's current path: a renamed route's former path (`/api/packs/...`) is read
-# as its current one before any rule is tried (`permission_for`, `server/paths.py`), so no rule
-# here names it and the two spellings never differ.
+# (method, path pattern) -> permission, first match wins; unlisted routes need "admin".
 _RULES: list[tuple[str, re.Pattern[str], str]] = [
     (method, re.compile(pattern), permission)
     for method, pattern, permission in [
@@ -792,11 +789,8 @@ async def read_body(request: Request, limit: int) -> bytes | None:
 def permission_for(method: str, path: str, *, registry: bool = True) -> str:
     """The permission a route needs. HEAD needs what GET needs: the static files (and any route
     that serves both) answer it as GET, and the rules name GET. `registry=False` (the registry
-    is not mounted here): without the registry's rules. A renamed route's former path needs
-    what its current one does: the path is read as it is called now (`paths.current`) before
-    any rule is tried."""
+    is not mounted here): without the registry's rules."""
     method = "GET" if method == "HEAD" else method
-    path = paths.current(path)
     for rule_method, pattern, permission in _RULES:
         if not registry and pattern.pattern in _REGISTRY_ONLY:
             continue
@@ -1180,12 +1174,9 @@ class Auth:
         issuer = str(session.get("iss") or self.settings.issuer)
         person = person_id(issuer, str(session["sub"]))
         claims = session.get("claims")
-        # The roles as the settings give them now; a session from before claims were kept has
-        # the roles of its sign-in, and ends within 8 hours of the deploy.
-        if isinstance(claims, dict):
-            roles = roles_from(claims, self.settings)
-        else:
-            roles = frozenset(session["roles"])
+        # The roles as the settings give them now, from the claims kept at sign-in: a session
+        # that keeps none has no role.
+        roles = roles_from(claims, self.settings) if isinstance(claims, dict) else frozenset()
         if not roles:  # taken out of the role map since signing in: access ends at once
             security_log.event(
                 "auth.credential.refused", outcome="refused", reason="no_role", actor=person
@@ -1653,7 +1644,6 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
                 "name": name,
                 "actor": chain_name(options.issuer, claims),
                 "claims": kept_claims(claims, options),
-                "roles": sorted(roles),  # what the release before this one reads
                 "org": org,
             },
             int(time.time()),

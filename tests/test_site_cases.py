@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """A pack that holds a site's cases is never made into an archive (`hub/archive.py` `build`):
-`mendari pack build` and `mendari push` both stop there, before anything is signed or sent, and
+`mendari archive build` and `mendari push` both stop there, before anything is signed or sent, and
 a registry refuses one a client sent without looking. A site's cases say what they are: a case
 `mendari feedback export` (or its route) writes says it was exported
 (`attributes.exported_by`), a case `mendari improve` adds to a pack says a run added it
@@ -321,7 +321,7 @@ def test_pack_build_refuses_it_and_writes_no_archive(
     improved: Improved, key_file: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "dist"
-    argv = ["pack", "build", str(improved.root), "--key", str(key_file), "--out", str(out)]
+    argv = ["archive", "build", str(improved.root), "--key", str(key_file), "--out", str(out)]
     assert main(argv) == 1
     printed = capsys.readouterr()
     assert printed.out == ""
@@ -533,7 +533,7 @@ def test_every_record_an_export_writes_says_it_was_exported(
     said = capsys.readouterr().out
     assert "a site's cases" in said and "outside the agent's folder" in said
     served = TestClient(create_app(db_path=db)).get(
-        "/api/packs/mendari/patient-inbox-router/feedback/export", params={"source": source}
+        "/api/agents/mendari/patient-inbox-router/feedback/export", params={"source": source}
     )
     assert served.status_code == 200
     for written in (out.read_bytes(), served.content):
@@ -547,7 +547,7 @@ def test_a_pack_with_an_export_saved_in_its_folder_is_not_built_or_pushed(
     tmp_path: Path, key_file: Path, sent: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`--out` in the pack's own folder: an archive holds every file there, and this one is a
-    site's cases. The command says so when it writes the file, and neither `mendari pack build`
+    site's cases. The command says so when it writes the file, and neither `mendari archive build`
     nor `mendari push` makes an archive until the file is out of the folder."""
     root = copy_of_the_inbox(tmp_path / "patient-inbox-router")
     db = a_sites_database(tmp_path / "audit.db")
@@ -560,7 +560,7 @@ def test_a_pack_with_an_export_saved_in_its_folder_is_not_built_or_pushed(
     assert len(cases) == 2
 
     dist = tmp_path / "dist"
-    build = ["pack", "build", str(root), "--key", str(key_file), "--out", str(dist)]
+    build = ["archive", "build", str(root), "--key", str(key_file), "--out", str(dist)]
     push = ["push", "--key", str(key_file), "--registry", "http://127.0.0.1:9", str(root)]
     for argv in (build, push):
         assert main(argv) == 1
@@ -714,7 +714,7 @@ def test_a_registry_refuses_one_a_client_sent_without_looking(
         without_the_check.setattr(archive, "refuse_site_cases", lambda files: None)
         data = archive.build(pack, registry.key)
         by_a_stranger = archive.build(pack, stranger)
-    path = f"/v1/packs/mendari/patient-inbox-router/{VERSION}"
+    path = f"/v1/agents/mendari/patient-inbox-router/{VERSION}"
     publisher = {"authorization": f"Bearer {registry.token}"}
 
     answer = registry.client.put(path, content=data, headers=publisher)

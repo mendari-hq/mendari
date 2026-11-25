@@ -30,7 +30,7 @@ from tests.test_registry_review import REVIEW_ORG, review_org
 pytestmark = pytest.mark.browser
 
 TOKEN = re.compile(r"ohr_[A-Za-z0-9_-]{43}")
-VERSION = f"/registry/v1/packs/acme/inbox/{SHIPPED}"
+VERSION = f"/registry/v1/agents/acme/inbox/{SHIPPED}"
 
 
 @pytest.fixture

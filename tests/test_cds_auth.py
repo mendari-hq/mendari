@@ -339,10 +339,10 @@ def test_a_long_jwt_elsewhere_is_still_malformed(
     and the registry is on."""
     served.registry_is_on()
     capsys.readouterr()
-    long, short = token(path="/api/packs"), token(EC_EHR, "/api/packs")
+    long, short = token(path="/api/agents"), token(EC_EHR, "/api/agents")
     assert len(long) > 512 >= len(short)
     for sent in (long, short):
-        assert served.http.get("/api/packs", headers=bearer(sent)).status_code == 401
+        assert served.http.get("/api/agents", headers=bearer(sent)).status_code == 401
     huge = token(pad="x" * 9000)
     assert served.http.get(DISCOVERY, headers=bearer(huge)).status_code == 401
     lines = security_lines(capsys.readouterr().out)

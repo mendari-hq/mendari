@@ -242,13 +242,13 @@ def test_a_revoked_key_and_ended_sessions_are_refused_by_the_running_server(
     with signing_in_with(idp, tmp_path, monkeypatch) as site:
         secret = key_for(site, idp)
         bearer = {"authorization": f"Bearer {secret}"}
-        assert site.get("/api/packs", headers=bearer).is_success
+        assert site.get("/api/agents", headers=bearer).is_success
         sign_in(site, idp, roles=["admin"])
         assert site.get("/api/auth/me").json()["signed_in"] is True
         db = str(tmp_path / "a.db")
         [key] = AuditStore(db).api_keys()
         assert main(["access", "revoke", "key", key["id"], "--reason", REASON, "--db", db]) == 0
-        assert site.get("/api/packs", headers=bearer).status_code == 401
+        assert site.get("/api/agents", headers=bearer).status_code == 401
         assert main(["access", "end-sessions", "--kind", "people", "--reason", REASON,
                      "--db", db]) == 0  # fmt: skip
         assert site.get("/api/auth/me").json()["signed_in"] is False

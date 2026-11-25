@@ -567,7 +567,7 @@ def test_each_rejection_names_its_own_profile() -> None:
 
 def test_an_issue_keeps_its_code_in_the_operation_outcome(tmp_path: Path) -> None:
     client = TestClient(create_app(db_path=tmp_path / "s.db"), raise_server_exceptions=False)
-    url = f"/api/packs/{REFERRAL_PACK}/fhir/decide"
+    url = f"/api/agents/{REFERRAL_PACK}/fhir/decide"
     response = client.post(url, json=referral(birthDate="May 1st", nickname="Al"))
     assert response.status_code == 400
     assert [(i["code"], i["expression"]) for i in response.json()["issue"]] == [

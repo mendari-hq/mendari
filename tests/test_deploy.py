@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Per-pack images (MENDARI_PACKS) and the templates in deploy/: the one-machine install
+"""Per-pack images (MENDARI_AGENTS) and the templates in deploy/: the one-machine install
 (`deploy/site`: its compose file, its front, its daily jobs and the script that drives them),
 the on-prem template and Kubernetes."""
 
@@ -50,16 +50,16 @@ def templates() -> list[Path]:
 def test_a_per_pack_server_serves_only_its_pack(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MENDARI_PACKS", "mendari/referral-router")
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari/referral-router")
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    assert [p["id"] for p in client.get("/api/packs").json()] == ["mendari/referral-router"]
-    assert client.get("/api/packs/mendari/patient-inbox-router").status_code == 404
+    assert [p["id"] for p in client.get("/api/agents").json()] == ["mendari/referral-router"]
+    assert client.get("/api/agents/mendari/patient-inbox-router").status_code == 404
 
 
 def test_a_pack_that_is_not_installed_fails_at_startup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MENDARI_PACKS", "mendari/referal-router")  # a typo
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari/referal-router")  # a typo
     with pytest.raises(MendariError, match="referal-router"):
         create_app(db_path=tmp_path / "a.db")
 

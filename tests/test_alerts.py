@@ -39,7 +39,7 @@ from tests.conftest import SCREENED, message
 ROOT = Path(__file__).parents[1]
 SECRET = "s3cret-" + "x" * 40
 HOOK = "https://hooks.example.org/services/T000/B000/WebhookSecretToken"
-DECIDE = "/api/packs/mendari/patient-inbox-router/decide"
+DECIDE = "/api/agents/mendari/patient-inbox-router/decide"
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 
 
@@ -290,7 +290,7 @@ def test_monitor_exit_codes_tell_alerts_from_a_failed_delivery(
     no_waiting: list[float],
 ) -> None:
     db = tmp_path / "a.db"
-    args = ["monitor", "--db", str(db), "--pack", inbox_pack.id, "--webhook", HOOK]
+    args = ["monitor", "--db", str(db), "--agent", inbox_pack.id, "--webhook", HOOK]
     with AuditStore(db) as store:
         assert main(args) == 0  # nothing to say
         decided = Decision(inbox_pack, providers=SCREENED, store=store)(message(ROUTINE))
@@ -345,7 +345,7 @@ def test_the_format_setting_reaches_what_is_posted(
     hook = Webhook(204)
     monkeypatch.setattr(alerts_module.httpx, "post", hook)
     monkeypatch.setenv("MENDARI_ALERT_FORMAT", "slack")
-    args = ["monitor", "--db", str(db), "--pack", inbox_pack.id, "--webhook", HOOK]
+    args = ["monitor", "--db", str(db), "--agent", inbox_pack.id, "--webhook", HOOK]
     assert main(args) == 1
     posted = json.loads(hook.sent[0]["content"])
     assert set(posted) == {"text"} and "automated_wrong" in posted["text"]

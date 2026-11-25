@@ -517,7 +517,7 @@ def test_the_scripted_harness_reaches_only_its_own_services() -> None:
 
 def test_the_image_installs_exactly_the_lock() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text()
-    assert "uv sync --frozen --no-dev --extra server --no-editable" in dockerfile
+    assert "uv sync --frozen --no-dev --no-editable" in dockerfile
     assert "pip install" not in dockerfile
 
 

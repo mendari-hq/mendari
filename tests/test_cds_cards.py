@@ -368,7 +368,7 @@ def test_the_engine_trace_is_behind_the_audit_link_only_when_one_can_be_made(
     whose figures have no interval; with it, the detail is the status, the notice and one plain
     sentence, the reasons are behind an absolute link to the decision in the audit view, and
     `source.url` is the pack's card. Both links name the agent as the console's address does
-    (`?agent=`; the console still reads `?pack=`, as a card an EHR kept wrote it)."""
+    (`?agent=`)."""
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "ftp://mendari.test")
     for public in (None, "ftp://mendari.test"):
         if public is None:

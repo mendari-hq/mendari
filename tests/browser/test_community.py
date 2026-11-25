@@ -31,7 +31,7 @@ FIRST_MAINTAINED = "mendari/ai-guard"  # by id; every community/ id sorts before
 @pytest.fixture(scope="module")
 def community_site(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     """The shipped packs and two community packs (the test fixture, and the scaffold as the
-    guide makes it), as a deployment with MENDARI_COMMUNITY_PACKS=on serves them."""
+    guide makes it), as a deployment with MENDARI_COMMUNITY_AGENTS=on serves them."""
     tmp = Path(tmp_path_factory.mktemp("community"))
     base = tmp / "community-agents"
     fixture = ROOT / "tests" / "fixtures" / "community-agents" / "visit-sorter"
@@ -123,7 +123,7 @@ def test_the_labels_fit_a_phone(site: Page) -> None:
 def test_the_review_queue_audit_and_monitoring_label_a_community_pack(site: Page) -> None:
     """Where a person confirms a recommendation, the queue says the pack is not clinically
     reviewed: before, only the overview, card and Try it did."""
-    response = site.request.post(f"/api/packs/{SORTER}/decide", data={"message": "My bill?"})
+    response = site.request.post(f"/api/agents/{SORTER}/decide", data={"message": "My bill?"})
     assert response.ok, response.text()
     _open(site, SORTER, "review")
     expect(site.locator("main .community-notice")).to_contain_text(LABEL)

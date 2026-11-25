@@ -51,7 +51,7 @@ from mendari.hub.registry import (
     RegistryStore,
     ReviewRequest,
 )
-from mendari.server import paths, security_log
+from mendari.server import security_log
 from mendari.server.auth import Auth, Principal, org_of
 
 TAG = "Registry accounts"
@@ -469,16 +469,14 @@ def add_registry_review_routes(
             )
         return {"pending": items, "more": max(0, len(pending) - MAX_QUEUE)}
 
-    @paths.route(
-        app.get,
+    @app.get(
         "/api/registry/review/agents/{namespace}/{name}/{version}",
         tags=[REVIEW_TAG],
         summary="One version, with its card",
     )
     def one_version(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         """One version of any namespace, listed or not, as the queue shows it, with the card
-        the registry rendered from its archive (`card_markdown`; null for a version from before
-        the registry rendered its own)."""
+        the registry rendered from its archive (`card_markdown`)."""
         reviewer(request)
         _a_version(namespace, name, version)
         found = _asked(lambda: registry.version(namespace, name, version, REVIEWER))
@@ -583,8 +581,7 @@ def add_registry_review_routes(
         logged("admin.registry_namespace.publisher_type_set", principal, namespace)
         return {"namespace": namespace, "publisher_type": changed["publisher_type"]}
 
-    @paths.route(
-        app.post,
+    @app.post(
         "/api/registry/review/agents/{namespace}/{name}/{version}",
         status_code=201,
         tags=[REVIEW_TAG],
@@ -612,8 +609,7 @@ def add_registry_review_routes(
         logged("admin.registry_pack.reviewed", principal, f"{namespace}/{name}@{version}")
         return shown(reviewed)
 
-    @paths.route(
-        app.post,
+    @app.post(
         "/api/registry/review/agents/{namespace}/{name}/{version}/recall",
         status_code=201,
         tags=[REVIEW_TAG],
@@ -642,8 +638,7 @@ def add_registry_review_routes(
         logged("admin.registry_pack.recalled", principal, f"{namespace}/{name}@{version}")
         return shown(recalled)
 
-    @paths.route(
-        app.post,
+    @app.post(
         "/api/registry/review/agents/{namespace}/{name}/{version}/delete",
         tags=[REVIEW_TAG],
         summary="Delete a version",

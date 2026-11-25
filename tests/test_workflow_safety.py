@@ -677,26 +677,24 @@ def test_pack_check_runs_on_every_pull_request() -> None:
 def test_ci_runs_every_community_packs_tests() -> None:
     ci = _workflow(ROOT / ".github" / "workflows" / "ci.yml")
     scripts = [step.get("run", "") for step in ci["jobs"]["test"]["steps"]]
-    # By either name of the manifest (`core/pack.py` `MANIFEST_NAMES`).
-    names = "community-agents/*/agent.yaml community-agents/*/pack.yaml"
-    (loop,) = [run for run in scripts if names in run]
+    (loop,) = [run for run in scripts if "community-agents/*/agent.yaml; do" in run]
     assert 'uv run mendari test "$(dirname "$manifest")"' in loop and "exit $failed" in loop
 
 
-def test_the_pack_workflow_finds_a_manifest_by_either_name() -> None:
+def test_the_pack_workflow_finds_a_manifest_by_its_name() -> None:
     """A folder with no manifest is "removed", and nothing of it is checked: so the workflow
-    looks for both names, `agent.yaml` and `pack.yaml`. Looking for `pack.yaml` alone, it took
-    the bundled agent for a removed one and skipped its validation, tests and evaluation gate."""
+    looks for the manifest by its name, `agent.yaml`. Looking for another name, it took the
+    bundled agent for a removed one and skipped its validation, tests and evaluation gate."""
     workflow = _workflow(ROOT / ".github" / "workflows" / "agents.yml")
     steps = workflow["jobs"]["agent-check"]["steps"]
     maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
-    removed = 'if [ ! -f "$dir/agent.yaml" ] && [ ! -f "$dir/pack.yaml" ]; then'
+    removed = 'if [ ! -f "$dir/agent.yaml" ]; then'
     assert removed in maintained["run"] and "was removed" in maintained["run"]
     (data,) = [step for step in steps if step.get("name", "").endswith("dataset checks")]
-    assert '[ -f "$dir/agent.yaml" ] || [ -f "$dir/pack.yaml" ] || continue' in data["run"]
-    for step in steps:  # no step that asks for one name alone
+    assert '[ -f "$dir/agent.yaml" ] || continue' in data["run"]
+    for step in steps:  # no step that asks for a manifest by another name
         for line in step.get("run", "").splitlines():
-            if ".yaml" in line and ("agent.yaml" in line) != ("pack.yaml" in line):
+            if "pack.yaml" in line:
                 raise AssertionError(line)
 
 
@@ -708,24 +706,24 @@ def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
         "agents/a/b/c",
     ):
         (tmp_path / pack).mkdir(parents=True)
-        (tmp_path / pack / "pack.yaml").write_text("id: x/y\n")
-    for agent in ("agents/renamed", "agents/group/renamed/deeper"):  # the manifest's new name
+        (tmp_path / pack / "agent.yaml").write_text("id: x/y\n")
+    for agent in ("agents/renamed", "agents/group/renamed/deeper"):
         (tmp_path / agent).mkdir(parents=True)
         (tmp_path / agent / "agent.yaml").write_text("id: x/y\n")
     changed = [
         "agents/renamed/logic/rules.yaml",
         "agents/group/renamed/deeper/data/test.jsonl",
         "agents/inbox/rules/red_flags.yaml",
-        "agents/inbox/pack.yaml",
+        "agents/inbox/agent.yaml",
         "agents/my pack; $(touch x)/tests/cases.yaml",
         "agents/group/nested/data/test.jsonl",
-        "agents/a/b/c/d/e/deep.yaml",  # deeper than a pack.yaml can be: belongs to agents/a/b/c
-        "agents/removed/pack.yaml",  # gone from the tree: reported as its top folder
+        "agents/a/b/c/d/e/deep.yaml",  # deeper than a manifest can be: belongs to agents/a/b/c
+        "agents/removed/agent.yaml",  # gone from the tree: reported as its top folder
         "agents/README.md",  # directly in agents/: no pack
         "src/mendari/cli.py",
         "community-agents/visit-sorter/logic/rules.yaml",
-        "community-agents/visit-sorter/nested/pack.yaml",  # one folder is one community pack
-        "community-agents/gone; $(touch x)/pack.yaml",
+        "community-agents/visit-sorter/nested/agent.yaml",  # one folder is one community pack
+        "community-agents/gone; $(touch x)/agent.yaml",
         "community-agents/MAINTAINERS.yaml",  # directly in community-agents/: no pack
     ]
     assert _changed_packs().pack_dirs(changed, tmp_path) == [

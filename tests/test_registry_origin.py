@@ -122,7 +122,7 @@ def _served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient
     (target / MARKER).write_text(
         json.dumps({"format": ORIGIN_FORMAT, "registry": "https://hub.example.org"})
     )
-    monkeypatch.setenv("MENDARI_PACKS", "someone/visit-sorter")
+    monkeypatch.setenv("MENDARI_AGENTS", "someone/visit-sorter")
     return TestClient(create_app(db_path=tmp_path / "engine.db")), pack.digest, BILL
 
 
@@ -136,7 +136,7 @@ def test_an_organization_approves_a_pulled_digest_and_can_revoke_it(
     client, digest, automated = _served(tmp_path, monkeypatch)
     with client:
         client.app.state.recall_watch.refresh("https://hub.example.org")  # type: ignore[attr-defined]
-        decide = "/api/packs/someone/visit-sorter/decide"
+        decide = "/api/agents/someone/visit-sorter/decide"
         assert client.post(decide, json=automated).json()["outcome"] == "HUMAN_REVIEW"
         state = client.get(
             "/api/registry-approvals", params={"pack_id": "someone/visit-sorter"}

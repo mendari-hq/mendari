@@ -64,7 +64,7 @@ RESOURCES = ("patient", "coverage", "insurer", "requester", "order")
 SET_ID = "00000000-0000-4000-8000-000000000000"  # an evaluation set's id, of no set
 # command -> (argv after the command, extra environment). Paths are `places` keys in braces.
 BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
-    "list": ([], {"MENDARI_COMMUNITY_PACKS": "maybe"}),
+    "list": ([], {"MENDARI_COMMUNITY_AGENTS": "maybe"}),
     "usage": (["--db", "{missing_db}"], {}),
     "validate": (["no/such-agent"], {}),
     "test": (["mendari/patient-inbox-router", "--provider", "routr=llm"], {}),
@@ -267,7 +267,7 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "store recheck": (["--db", "{not_db}"], {}),
     "new": (["{file}"], {}),
     "community-check": (["{missing}"], {}),
-    "demo": ([], {"MENDARI_COMMUNITY_PACKS": "maybe"}),
+    "demo": ([], {"MENDARI_COMMUNITY_AGENTS": "maybe"}),
     "mcp": (["--db", "{not_db}"], {}),
     "help": (["no-such-command"], {}),
 }

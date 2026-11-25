@@ -89,7 +89,7 @@ def test_every_link_on_the_landing_goes_somewhere(client: TestClient) -> None:
 
 def test_open_mode_links_every_packs_decision_card(client: TestClient) -> None:
     text = client.get("/docs").text
-    packs = client.get("/api/packs").json()
+    packs = client.get("/api/agents").json()
     assert packs
     for pack in packs:
         assert f'href="/?agent={pack["id"]}#card"' in text, pack["id"]
@@ -107,7 +107,7 @@ def test_with_sign_in_on_the_landing_is_public_and_tells_nothing_of_the_deployme
     calm_jev(monkeypatch)
     app = create_app(db_path=tmp_path / "c.db", default_providers=default_providers())
     with_jev = TestClient(app).get("/docs", follow_redirects=False)
-    monkeypatch.setenv("MENDARI_PACKS", "mendari/ai-guard")
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari/ai-guard")
     one = TestClient(create_app(db_path=tmp_path / "b.db")).get("/docs", follow_redirects=False)
     assert every.status_code == one.status_code == with_jev.status_code == 200
     assert every.text == one.text == with_jev.text

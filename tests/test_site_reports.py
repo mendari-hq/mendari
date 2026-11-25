@@ -23,8 +23,8 @@ from mendari.hub.site_signing import Site, init_site
 from tests.conftest import Registry, share_signed, shared_benchmark, site_ticket, verified_site
 
 REFERRAL = resolve_pack("mendari/referral-router")
-PATH = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
-LISTED = "/v1/packs/mendari/referral-router/reports"
+PATH = f"/v1/agents/mendari/referral-router/{REFERRAL.version}/reports"
+LISTED = "/v1/agents/mendari/referral-router/reports"
 
 
 @pytest.fixture

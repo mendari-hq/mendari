@@ -538,7 +538,7 @@ def test_admins_rotate_keys_through_the_api(
     ]
     for _ in range(2):  # the old key, in its overlap: works, and is logged once
         assert (
-            client.get("/api/packs", headers={"authorization": f"Bearer {old['key']}"}).status_code
+            client.get("/api/agents", headers={"authorization": f"Bearer {old['key']}"}).status_code
             == 200
         )
     used = [

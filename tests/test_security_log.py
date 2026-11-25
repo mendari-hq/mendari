@@ -54,7 +54,7 @@ from tests.test_smart import APP, EHR, REFERRAL, FakeEhr, full_launch, launch
 
 INBOX = "mendari/patient-inbox-router"
 TRIAL = "mendari/clinical-trial-prescreener"  # risk level 2: approvable
-DECIDE = f"/api/packs/{INBOX}/decide"
+DECIDE = f"/api/agents/{INBOX}/decide"
 CASE_TEXT = "Synthetic: Rosalind Q. Example has crushing chest pain since noon"
 QUERY_VALUE = "QueryValueNeverLogged"
 
@@ -113,7 +113,7 @@ def test_every_line_is_json_with_allowed_keys_and_never_a_secret(
         assert never not in text, never
     access = [(e["method"], e.get("route"), e["status"]) for e in lines if e["event"] == "request"]
     assert access == [  # one per API request: none for health, readiness, static files, the page
-        ("POST", "/api/packs/{namespace}/{name}/decide", 200),
+        ("POST", "/api/agents/{namespace}/{name}/decide", 200),
         ("GET", "/api/audit", 200),
         ("GET", "/api/audit/{decision_id}", 200),
         ("GET", "/fhir/Task", 200),
@@ -130,22 +130,24 @@ def test_every_response_carries_a_request_id_and_errors_repeat_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    made = client.get("/api/packs")
+    made = client.get("/api/agents")
     uuid.UUID(made.headers["x-request-id"])  # a new uuid4
     assert client.get("/static/style.css").headers["x-request-id"]
-    own = client.get("/api/packs", headers={"x-request-id": "ehr-1234:abc.def_9"})
+    own = client.get("/api/agents", headers={"x-request-id": "ehr-1234:abc.def_9"})
     assert own.headers["x-request-id"] == "ehr-1234:abc.def_9"
     for forged in ("short", "has a space in it", 'x{"event":"forged"}', "a" * 129):
-        answer = client.get("/api/packs", headers={"x-request-id": forged})
+        answer = client.get("/api/agents", headers={"x-request-id": forged})
         uuid.UUID(answer.headers["x-request-id"])  # not taken: replaced
     vercel = {
         "x-vercel-id": "iad1::iad1::abcde-1727900000000-0123456789ab",
         "x-request-id": "x" * 9,
     }
-    assert client.get("/api/packs", headers=vercel).headers["x-request-id"] == "x" * 9
+    assert client.get("/api/agents", headers=vercel).headers["x-request-id"] == "x" * 9
     hosted(monkeypatch)  # only Vercel's own header is trusted, and only there
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    assert client.get("/api/packs", headers=vercel).headers["x-request-id"] == vercel["x-vercel-id"]
+    assert (
+        client.get("/api/agents", headers=vercel).headers["x-request-id"] == vercel["x-vercel-id"]
+    )
     capsys.readouterr()
     missing = client.get("/api/audit/nope")
     assert missing.status_code == 404
@@ -307,7 +309,7 @@ def test_changes_exports_evaluations_and_input_reads_are_logged_with_ids(
     approval = client.post("/api/governance", json=body, headers=governance).json()
     assert client.delete(f"/api/governance/{approval['id']}", headers=governance).status_code == 204
     run = {"dataset": "test", "limit": 3}
-    assert client.post(f"/api/packs/{INBOX}/evals", json=run, headers=admin).status_code == 200
+    assert client.post(f"/api/agents/{INBOX}/evals", json=run, headers=admin).status_code == 200
     client.get("/api/audit/export/fhir", params={"pack_id": QUERY_VALUE}, headers=admin)
     administrative = client.get(
         "/api/audit/administrative/export/fhir",
@@ -315,7 +317,7 @@ def test_changes_exports_evaluations_and_input_reads_are_logged_with_ids(
         headers=admin,
     )
     assert administrative.status_code == 200, administrative.text
-    client.get(f"/api/packs/{INBOX}/feedback/export", headers=admin)
+    client.get(f"/api/agents/{INBOX}/feedback/export", headers=admin)
     for url in (f"/api/audit/{decided['id']}", "/api/review", "/api/feedback"):
         assert CASE_TEXT in client.get(url, headers=admin).text
     lines = logged(capsys)

@@ -23,8 +23,6 @@ from mendari.hub.registry import create_registry_app
 from mendari.sandbox.payer import create_payer_app
 from mendari.server.app import create_app
 from tests.conftest import (
-    ENGINE_FORMER_ROUTES,
-    REGISTRY_FORMER_ROUTES,
     encrypt_mode,
     encrypted_store,
     evalset_on,
@@ -281,7 +279,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     # A grading run (LP-11l): each read of the set chained before its run receives the cases,
     # and a frozen set's first activates it. The run itself stores nothing.
     (ENGINE, "POST", "/api/evalsets/{set_id}/runs"): ("evalset.graded", "evalset.activated"),
-    # An organization's pack store (LP-20f; MENDARI_PACK_STORE=on, memberships mode): each new
+    # An organization's pack store (LP-20f; MENDARI_AGENT_STORE=on, memberships mode): each new
     # version, and held at once when it holds a hidden case; a draft withdrawn; authors' keys.
     (ENGINE, "POST", "/api/store/versions"): ("pack_version.created", "pack_version.held"),
     (ENGINE, "POST", "/api/store/uploads/{upload_id}/complete"): (
@@ -416,19 +414,12 @@ def _routes(app: FastAPI, name: str, mounted: set[Route] | None = None) -> set[R
     """Every route by its methods (an APIRoute is a starlette Route). Anything else, a mount, a
     websocket or a host, would hide its routes here: only the dashboard's /static is allowed,
     and the registry under the engine (LP-19d), whose routes must be the registry's own
-    (`mounted`), which are listed as the registry's. A renamed route is one route: the path it
-    had before is the same handler (`server/paths.py`; tests/test_legacy_routes.py holds the
-    two to that), so it is listed once, at its current path."""
-    former = {**ENGINE_FORMER_ROUTES, **REGISTRY_FORMER_ROUTES}
+    (`mounted`), which are listed as the registry's."""
     found: set[Route] = set()
     for route in app.routes:
         if isinstance(route, ServedRoute):
             methods = route.methods if route.methods is not None else UNSAFE | {"GET"}
-            found |= {
-                (name, method, route.path)
-                for method in methods
-                if (method, route.path) not in former
-            }
+            found |= {(name, method, route.path) for method in methods}
         elif isinstance(route, Mount) and route.path == "/registry" and mounted is not None:
             assert isinstance(route.app, FastAPI), route
             within = {(method, path) for _, method, path in _routes(route.app, name)}
@@ -452,7 +443,7 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_REGISTRY", "on")  # the registry mounted, with its people's routes
     monkeypatch.setenv("MENDARI_REGISTRY_REVIEW_ORG", "registry-review")  # and its reviewers'
-    monkeypatch.setenv("MENDARI_PACK_STORE", "on")  # organizations' pack stores (LP-20f)
+    monkeypatch.setenv("MENDARI_AGENT_STORE", "on")  # organizations' pack stores (LP-20f)
     # A registry to add agents from (never reached here: no route is called).
     monkeypatch.setenv("MENDARI_REGISTRY_URL", "https://hub.example.org")
     with encrypted_store(tmp_path / "engine.db") as before:

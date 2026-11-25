@@ -154,7 +154,7 @@ def test_operations_name_their_definitions(client: TestClient) -> None:
 def test_dtr_is_advertised_only_with_a_pack_that_offers_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MENDARI_PACKS", "mendari/patient-inbox-router")
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari/patient-inbox-router")
     client = TestClient(create_app(db_path=tmp_path / "one.db"))
     rest = statement(client)["rest"][0]
     assert "Questionnaire" not in {r["type"] for r in rest["resource"]}
@@ -169,7 +169,7 @@ def test_date_and_etag_are_stable_and_the_version_follows_the_packs(
     again = TestClient(create_app(db_path=tmp_path / "s.db")).get("/fhir/metadata")
     assert first.json()["date"] == again.json()["date"]
     assert first.headers["etag"] == again.headers["etag"]
-    monkeypatch.setenv("MENDARI_PACKS", "mendari/patient-inbox-router")
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari/patient-inbox-router")
     fewer = TestClient(create_app(db_path=tmp_path / "s.db")).get("/fhir/metadata").json()
     assert fewer["version"] != first.json()["version"]
 
@@ -198,13 +198,15 @@ def test_with_sign_in_on_the_statement_names_no_pack(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """It needs no credential, so with sign-in on it does not say which packs run here (that is
-    for signed-in callers, as /api/packs and /api/health are): two servers with other packs but
+    for signed-in callers, as /api/agents and /api/health are): two servers with other packs but
     the same operations give the same statement, apart from when its version went live here."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     every = statement(TestClient(create_app(db_path=tmp_path / "a.db")))
-    monkeypatch.setenv("MENDARI_PACKS", "mendari/patient-inbox-router,mendari/prior-auth-preflight")
+    monkeypatch.setenv(
+        "MENDARI_AGENTS", "mendari/patient-inbox-router,mendari/prior-auth-preflight"
+    )
     fewer = statement(TestClient(create_app(db_path=tmp_path / "b.db")))
     assert {**every, "date": ""} == {**fewer, "date": ""}
     shown = str(every)
@@ -225,7 +227,7 @@ def test_the_date_moves_with_the_version_and_never_back(
     here, so it gets a new date, not the old one."""
     seen = []
     for packs in ("", "mendari/patient-inbox-router", ""):
-        monkeypatch.setenv("MENDARI_PACKS", packs)
+        monkeypatch.setenv("MENDARI_AGENTS", packs)
         body = statement(TestClient(create_app(db_path=tmp_path / "v.db")))
         seen.append((body["version"], body["date"]))
     (first, d1), (second, d2), (third, d3) = seen
@@ -248,7 +250,7 @@ def test_decide_lists_only_packs_that_take_fhir(
     decide = next(o for o in statement(client)["rest"][0]["operation"] if o["name"] == "decide")
     assert "mendari/referral-router@" in decide["documentation"]
     assert "mendari/ai-guard" not in decide["documentation"]  # the guard takes no FHIR
-    monkeypatch.setenv("MENDARI_PACKS", "mendari/ai-guard")
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari/ai-guard")
     rest = statement(TestClient(create_app(db_path=tmp_path / "g.db")))["rest"][0]
     assert "operation" not in rest  # no pack here takes FHIR, so no $decide is advertised
 

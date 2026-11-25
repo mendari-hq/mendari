@@ -26,7 +26,7 @@ def client(tmp_path: Path) -> TestClient:
 
 
 def test_every_response_carries_the_headers(client: TestClient) -> None:
-    for path in ("/", "/api/health", "/api/packs", "/api/audit/nope"):
+    for path in ("/", "/api/health", "/api/agents", "/api/audit/nope"):
         response = client.get(path)
         for name, value in SECURITY_HEADERS.items():
             assert response.headers[name] == value, (path, name)

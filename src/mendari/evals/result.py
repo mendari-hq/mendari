@@ -28,7 +28,6 @@ from mendari.evals import metrics, stats
 from mendari.evals.ledger import Ledger, canonical
 
 FORMAT = "mendari.eval/2"
-FORMATS_READ = ("mendari.eval/1", "openhealth.eval/1", FORMAT)
 SEED = 0
 # A critical label's evidence floor: fewer positives than this, and its figure says "insufficient
 # evidence" and ranks nothing (LP-10).
