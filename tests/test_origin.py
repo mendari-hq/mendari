@@ -445,9 +445,7 @@ def test_an_ehr_launch_works_and_its_session_ends_only_from_this_site(
     smart: tuple[TestClient, SmartEhr],
 ) -> None:
     client, ehr = smart
-    done = full_smart_launch(
-        client, ehr
-    )  # the EHR's redirects: no Fetch Metadata in the test client
+    done = full_smart_launch(client, ehr)  # its redirects: no Fetch Metadata in the test client
     assert done.status_code == 302
     cross = {"sec-fetch-site": "cross-site"}
     assert client.get("/smart/launch", headers=cross, follow_redirects=False).status_code != 403
