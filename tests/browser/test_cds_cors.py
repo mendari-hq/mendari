@@ -21,8 +21,8 @@ from mendari.server.app import create_app
 from mendari.server.cds_clients import SANDBOX_ENV
 from tests.browser.conftest import free_port, serving
 from tests.jwt_signers import cds_token
+from tests.support.cds_messages import message_hook
 from tests.test_cds_clients import DISCOVERY, EHR, HOOK, RSA_EHR, entry, register
-from tests.test_limits import order_sign
 
 pytestmark = pytest.mark.browser
 
@@ -81,7 +81,7 @@ def test_a_page_on_a_registered_origin_reads_a_hook_answer(
         context = browser.new_context()
         page = context.new_page()
         page.goto(f"{origin}/")
-        sent = [f"{here}{HOOK}", cds_token(RSA_EHR, EHR, f"{here}{HOOK}"), order_sign(1)]
+        sent = [f"{here}{HOOK}", cds_token(RSA_EHR, EHR, f"{here}{HOOK}"), message_hook()]
         read = page.evaluate(CALL, sent)
         assert read == {"status": 200, "cards": 1}, read
         # Every answer said `Cross-Origin-Resource-Policy: same-origin`, and the read worked.
@@ -89,7 +89,7 @@ def test_a_page_on_a_registered_origin_reads_a_hook_answer(
         assert corp == "same-origin"
 
         page.goto(f"http://127.0.0.1:{page_port}/")  # another origin, registered for no one
-        again = [f"{here}{HOOK}", cds_token(RSA_EHR, EHR, f"{here}{HOOK}"), order_sign(1)]
+        again = [f"{here}{HOOK}", cds_token(RSA_EHR, EHR, f"{here}{HOOK}"), message_hook()]
         assert "error" in page.evaluate(CALL, again)
         assert "error" in page.evaluate(LIST, f"{here}{DISCOVERY}")
         context.close()
