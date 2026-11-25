@@ -89,8 +89,8 @@ IDP = "https://idp.example.org"
 # with sign-in on, where canned answers never automate, and with no agent service set: what
 # an organization connects here is the demo agent's service (ADR-0021), never called. A refill
 # is automated; a message with chest pain waits for a nurse.
-INBOX = "mendari-test/triage-automated"
-SERVICE = f"/cds-services/{INBOX.replace('/', '.')}"  # its CDS service
+AGENT = "mendari-test/triage-automated"
+SERVICE = f"/cds-services/{AGENT.replace('/', '.')}"  # its CDS service
 REFILL = "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks"
 APPROVABLE = "mendari-test/clinical-review"  # risk level 2: automated under an approval
 # An EHR launch decides about its patient's chart, read from the EHR (the chart fixture).
@@ -492,12 +492,12 @@ def no_call() -> Any:
 
 
 def automated(base: Path) -> Path:
-    """`base` holding the triage fixture as `INBOX`: a copy without its policy's
+    """`base` holding the triage fixture as `AGENT`: a copy without its policy's
     `automation_requires`, so its keyword rules alone automate a confident team."""
     root = base / "triage-automated"
     shutil.copytree(TRIAGE_DIR, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
-    manifest["id"] = INBOX
+    manifest["id"] = AGENT
     del manifest["policy"]["automation_requires"]
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     return base
@@ -691,7 +691,7 @@ def seed(world: World, org: Org) -> None:
             org,
             service,
             ("POST", "/api/agents/{namespace}/{name}/decide"),
-            f"/api/agents/{INBOX}/decide",
+            f"/api/agents/{AGENT}/decide",
             json=message(words),
             expect=200,
         ).json()
@@ -700,7 +700,7 @@ def seed(world: World, org: Org) -> None:
     parameters = {
         "resourceType": "Parameters",
         "parameter": [
-            {"name": "pack", "valueString": INBOX},
+            {"name": "pack", "valueString": AGENT},
             {"name": "data", "resource": FHIR_EXAMPLE},
         ],
     }
@@ -712,7 +712,7 @@ def seed(world: World, org: Org) -> None:
         org,
         org.people["reviewer"],
         ("POST", "/api/agents/{namespace}/{name}/fhir/decide"),
-        f"/api/agents/{INBOX}/fhir/decide",
+        f"/api/agents/{AGENT}/fhir/decide",
         json=FHIR_EXAMPLE,
         expect=200,
     ).json()
@@ -798,7 +798,7 @@ def seed(world: World, org: Org) -> None:
         org,
         admin,
         ("POST", "/api/agents/{namespace}/{name}/evals"),
-        f"/api/agents/{INBOX}/evals",
+        f"/api/agents/{AGENT}/evals",
         json={"dataset": "test", "limit": 2},
         expect=200,
     ).json()
@@ -1185,7 +1185,7 @@ def refusals(world: World, x: Org, o: Org) -> None:
     refused(
         service,
         ("POST", "/api/agents/{namespace}/{name}/actions"),
-        f"/api/agents/{INBOX}/actions",
+        f"/api/agents/{AGENT}/actions",
         o.one("hooked"),
         404,
         json={"decision_id": o.one("hooked"), "name": "send_reply", "arguments": {}},
@@ -1426,7 +1426,7 @@ def reads(world: World, x: Org) -> dict[str, str]:
     shapes the dashboard sends, every page of each: what the other's work must not change (the
     differential). The answers by URL, steadied (`steady`)."""
     viewer, admin = x.people["viewer"], x.people["admin"]
-    pack = {"pack_id": INBOX}
+    pack = {"pack_id": AGENT}
     total = {"_total": "accurate", "_count": 3}
     asked: list[tuple[TestClient, Route, str, dict[str, Any]]] = [
         (viewer, ("GET", "/api/audit"), "/api/audit", pack),
@@ -1439,7 +1439,7 @@ def reads(world: World, x: Org) -> dict[str, str]:
         (
             viewer,
             ("GET", "/api/agents/{namespace}/{name}/validation-brief"),
-            f"/api/agents/{INBOX}/validation-brief",
+            f"/api/agents/{AGENT}/validation-brief",
             {},
         ),
         # The committee packet: every aggregate read about an agent in one answer, so the
@@ -1447,7 +1447,7 @@ def reads(world: World, x: Org) -> dict[str, str]:
         (
             viewer,
             ("GET", "/api/agents/{namespace}/{name}/committee-packet"),
-            f"/api/agents/{INBOX}/committee-packet",
+            f"/api/agents/{AGENT}/committee-packet",
             {},
         ),
         (viewer, ("GET", "/api/feedback"), "/api/feedback", {}),
@@ -1620,7 +1620,7 @@ def served(world: World, x: Org) -> None:
         x,
         admin,
         ("GET", "/api/agents/{namespace}/{name}/feedback/export"),
-        f"/api/agents/{INBOX}/feedback/export",
+        f"/api/agents/{AGENT}/feedback/export",
         expect=200,
     )
     for who in (viewer, admin):
@@ -1683,7 +1683,7 @@ def served(world: World, x: Org) -> None:
         x,
         service,
         ("POST", "/api/agents/{namespace}/{name}/actions"),
-        f"/api/agents/{INBOX}/actions",
+        f"/api/agents/{AGENT}/actions",
         json={"decision_id": x.one("hooked"), "name": "send_reply", "arguments": {}},
         expect=200,
     ).json()
@@ -1868,7 +1868,7 @@ def _store_archive(org: str, key: Any, note: str) -> bytes:
 
     with tempfile.TemporaryDirectory() as scratch:
         root = Path(scratch) / "pack"
-        shutil.copytree(resolve_pack(INBOX).root, root)
+        shutil.copytree(resolve_pack(AGENT).root, root)
         manifest = yaml.safe_load((root / "agent.yaml").read_text())
         manifest["id"] = f"{org}/triage-upload"
         (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
@@ -1956,11 +1956,11 @@ def served_store(world: World, x: Org) -> None:
         author,
         ("POST", "/api/store/copies"),
         "/api/store/copies",
-        json={"pack": INBOX, "name": "triage-copy"},
+        json={"pack": AGENT, "name": "triage-copy"},
         expect=201,
     ).json()
     x.made("store version", copy["digest"])
-    rules = resolve_pack(INBOX).read_bytes("logic/router_rules.yaml").decode()
+    rules = resolve_pack(AGENT).read_bytes("logic/router_rules.yaml").decode()
     rules += f"\n# {x.marker}\n"
     world.call(
         x,
@@ -2091,7 +2091,7 @@ def served_store_jobs(world: World, x: Org, author: TestClient, digest: str) -> 
             params={"draft": others[0], "current": others[1]},
             expect=404,
         )
-    lines = resolve_pack(INBOX).read_bytes("data/test.jsonl").decode().splitlines()[:4]
+    lines = resolve_pack(AGENT).read_bytes("data/test.jsonl").decode().splitlines()[:4]
     dataset = world.call(
         x,
         author,
@@ -2110,7 +2110,7 @@ def served_store_jobs(world: World, x: Org, author: TestClient, digest: str) -> 
         expect=200,
     )
     made = []
-    for target in ({"version": digest}, {"pack": INBOX}):
+    for target in ({"version": digest}, {"pack": AGENT}):
         job = world.call(
             x,
             author,
@@ -2304,17 +2304,17 @@ def deployment_wide(world: World, x: Org) -> None:
         (viewer, ("GET", "/favicon.ico"), "/favicon.ico", {}),
         (viewer, ("GET", "/openapi.json"), "/openapi.json", {}),
         (viewer, ("GET", "/api/agents"), "/api/agents", {}),
-        (viewer, ("GET", "/api/agents/{namespace}/{name}"), f"/api/agents/{INBOX}", {}),
+        (viewer, ("GET", "/api/agents/{namespace}/{name}"), f"/api/agents/{AGENT}", {}),
         (
             viewer,
             ("GET", "/api/agents/{namespace}/{name}/datasets"),
-            f"/api/agents/{INBOX}/datasets",
+            f"/api/agents/{AGENT}/datasets",
             {},
         ),
         (
             viewer,
             ("GET", "/api/agents/{namespace}/{name}/examples"),
-            f"/api/agents/{INBOX}/examples",
+            f"/api/agents/{AGENT}/examples",
             {},
         ),
         (viewer, ("GET", "/cds-services"), "/cds-services", {}),
@@ -2386,7 +2386,7 @@ def again(world: World, x: Org) -> None:
     decision, then a hold of the triage fixture and a decision it holds (citing it, while the
     other's automation runs on); a review, an outcome and a rating; an approval, an evaluation, a
     key and a client; in memberships mode an invitation and a request to join."""
-    decide, url = ("POST", "/api/agents/{namespace}/{name}/decide"), f"/api/agents/{INBOX}/decide"
+    decide, url = ("POST", "/api/agents/{namespace}/{name}/decide"), f"/api/agents/{AGENT}/decide"
     service, reviewer = x.keys["service"], x.people["reviewer"]
     free = world.call(x, service, decide, url, json=message(f"{REFILL} {x.marker}"), expect=200)
     assert free.json()["outcome"] == "AUTO", free.json()["reasons"]  # no one else's hold here
@@ -2396,7 +2396,7 @@ def again(world: World, x: Org) -> None:
         x.people["governance"],
         ("POST", "/api/holds"),
         "/api/holds",
-        json={"pack_id": INBOX, "reason": f"again {x.marker}"},
+        json={"pack_id": AGENT, "reason": f"again {x.marker}"},
         expect=201,
     ).json()
     x.made("hold", hold["id"])
@@ -2442,7 +2442,7 @@ def again(world: World, x: Org) -> None:
         x,
         x.people["admin"],
         ("POST", "/api/agents/{namespace}/{name}/evals"),
-        f"/api/agents/{INBOX}/evals",
+        f"/api/agents/{AGENT}/evals",
         json={"dataset": "test", "limit": 1},
         expect=200,
     ).json()
@@ -2632,7 +2632,7 @@ def both(world: World, a: Org, b: Org) -> None:
     assert (shown["principal"]["org"], shown["principal"]["roles"]) == (a.name, ["viewer"])
     assert sorted(m["org"] for m in shown["memberships"]) == sorted((a.name, b.name))
     world.call(a, who, ("GET", "/api/auth/keys"), "/api/auth/keys", expect=403)  # a's roles
-    for url, params in (("/api/audit", {"pack_id": INBOX}), ("/api/holds", {}),
+    for url, params in (("/api/audit", {"pack_id": AGENT}), ("/api/holds", {}),
                         ("/api/feedback", {}), ("/api/evals", {})):  # fmt: skip
         world.call(a, who, ("GET", url), url, params=params, expect=200)
     before = written(world.store)
