@@ -246,7 +246,7 @@ def _limits(rates: Mapping[str, str] | None) -> str:
         "\n\n**Rate limits.** Costly operations are limited per caller (an API key, a client, a "
         "person), counted across every instance of this deployment: decisions "
         f"{rates['decide']} (at every entry point; each draft order a CDS Hooks order hook "
-        f"decides is one, at most 50 a request), guard checks {rates['guard']}, evaluations "
+        f"decides is one, at most 50 a request), evaluations "
         f"{rates['evaluate']} (a grading run is one), exports {rates['export']} and a labeller's "
         f"calls {rates['label']}; signing in {rates['signin']} and the token endpoint "
         f"{rates['token']} per address. Reads are not limited here, but for a labeller's. Over a "
@@ -461,10 +461,8 @@ _SCOPE_TEXT = {
 
 
 def _fits(pack: Pack, path: str) -> bool:
-    """Whether "Try it out" should offer this pack on this path: the guard route needs a pack
-    with a guard, the FHIR route one with a FHIR mapping."""
-    if path.endswith("/guard"):
-        return pack.manifest.guard is not None
+    """Whether "Try it out" should offer this pack on this path: the FHIR route needs a pack
+    with a FHIR mapping."""
     if path.endswith("/fhir/decide"):
         return pack.manifest.inputs.fhir is not None
     return True
@@ -517,16 +515,12 @@ def _body_examples(
                 "value": value,
             }
         }
-    if path not in (
-        "/api/agents/{namespace}/{name}/decide",
-        "/api/agents/{namespace}/{name}/guard",
-    ):
+    if path != "/api/agents/{namespace}/{name}/decide":
         return {}
-    guards = path.endswith("/guard")
     return {
         pack_id.split("/")[1]: {"summary": f"{pack_id}: {name}", "value": value}
         for pack_id, example in inputs.items()
-        if example is not None and (packs[pack_id].manifest.guard is not None or not guards)
+        if example is not None
         for name, value in [example]
     }
 

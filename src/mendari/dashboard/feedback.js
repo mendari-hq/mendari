@@ -2,7 +2,7 @@
 // Feedback: the page, and the right / wrong controls with the optional right answer.
 
 import { ratingCell } from "./audit.js";
-import { criteriaTable, derivedPrimary, inputView } from "./pack.js";
+import { inputView } from "./pack.js";
 import { render, views } from "./router.js";
 import { TABLES } from "./table.js";
 import { $, api, download, emptyState, esc, icon, outcomeBadge, packPath, priorityBadge, signedIn, stat, state, storageGet, storageSet, time, toastError, whileBusy } from "./ui.js";
@@ -71,7 +71,6 @@ function feedbackCard(item) {
       <span class="muted">(it said ${esc(r.answers[item.expected.question]?.label ?? "nothing")})</span></p>` : ""}
     ${noteText(item)}
     ${inputView(r.input, { restricted: item.input_restricted })}
-    ${criteriaTable(r.answers, { evidence: false })}
     <a class="action-link" href="#audit/${encodeURIComponent(item.decision_id)}">Open the decision <span class="mono">${esc(item.decision_id.slice(0, 8))}</span> ${icon("arrow-right")}</a>
   </article>`;
 }
@@ -89,11 +88,10 @@ export function myRating(events) {
   return last ? { rating: last.payload.rating, expected: last.payload.expected ?? null } : null;
 }
 
-// The questions a thumbs-down can correct: the decision itself first, then (for a derived decision)
-// each check. The choices are the labels the decision could have given, except the one it gave.
+// The question a thumbs-down can correct: the decision itself. The choices are the labels the
+// decision could have given, except the one it gave.
 function correctable(record) {
-  const derive = derivedPrimary();
-  const questions = [record.primary, ...(derive ? derive.from : [])].filter((q) => record.answers[q]);
+  const questions = [record.primary].filter((q) => record.answers[q]);
   return questions.map((q) => ({
     question: q,
     answer: record.answers[q].label,

@@ -156,7 +156,7 @@ def denials(manifest: PackManifest) -> list[tuple[str, str, str]]:
     found = []
     for question, label in critical(manifest):
         labels = manifest.labels(question)
-        if len(labels) == 2 and manifest.questions[question].derive is None:
+        if len(labels) == 2:
             found.append((question, label, next(other for other in labels if other != label)))
     return found
 
@@ -188,16 +188,14 @@ def offline(case: Case, name: str, index: int, seed: int, manifest: PackManifest
 def asks(manifest: PackManifest, labels: Mapping[str, str]) -> dict[str, str]:
     """The answers an injected instruction asks the model for, the ones that would do most
     harm if it obeyed: for each critical label, another label of its question; for the primary
-    question, a label the policy may automate that is not the case's own. Only questions a
-    provider answers are named: a derived one is not asked of any model."""
+    question, a label the policy may automate that is not the case's own."""
     asked: dict[str, str] = {}
-    answered = [key for key, question in manifest.questions.items() if question.derive is None]
     for question, label in critical(manifest):
         others = [other for other in manifest.labels(question) if other != label]
-        if question in answered and others:
+        if others:
             asked.setdefault(question, others[0])
     primary = manifest.policy.primary
-    if primary in answered and primary not in asked:
+    if primary not in asked:
         others = [label for label in manifest.labels(primary) if label != labels.get(primary)]
         automated = [
             label for label in others if manifest.policy.labels.get(label, LabelPolicy()).allow_auto

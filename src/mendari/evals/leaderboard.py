@@ -97,7 +97,7 @@ def row(report: Mapping[str, Any]) -> dict[str, Any]:
         "cost_per_decision_usd": report["cost"]["per_decision_usd"],
         "errors": sum(report.get("errors", {}).values()),
         "error_codes": dict(report.get("errors", {})),
-        # The other questions, e.g. a safety screen or the criteria behind a derived primary.
+        # The other questions, e.g. a safety screen.
         "questions": {
             key: {"n": q["n"], "accuracy": q["accuracy"], "ece": q["calibration"]["ece"]}
             for key, q in report["questions"].items()

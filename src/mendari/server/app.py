@@ -46,7 +46,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware import Middleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from mendari import __version__, guard, notices, settings
+from mendari import __version__, notices, settings
 from mendari.alerts import AlertSettings, alert_settings, check_webhook, deliver, retry_due
 from mendari.core import accounts, actions, checkpoint, clock, packet, tenancy, validation_brief
 from mendari.core.audit import (
@@ -2111,18 +2111,6 @@ def create_app(
         )
         written = {"outputs": dict(decided.outputs)} if decided.outputs else {}
         return {**decided.to_dict(), **written, **NOTICE}
-
-    @app.post(
-        "/api/agents/{namespace}/{name}/guard",
-        tags=["Decisions"],
-        summary="Check an LLM's draft reply",
-    )
-    def guard_draft(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:
-        """Check an LLM's draft reply: `released` (send `reply`), `held_for_review` or
-        `blocked` (send nothing; follow `fallback`). Audited like any decision; `decision` is the
-        whole decision, as `…/decide` answers it."""
-        result = guard.check(decision_for(f"{namespace}/{name}"), payload)
-        return {**result.to_dict(), "decision": result.decision.to_dict(), **NOTICE}
 
     @app.post(
         "/api/agents/{namespace}/{name}/fhir/decide",

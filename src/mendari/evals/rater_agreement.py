@@ -4,9 +4,7 @@
 alpha across the pool, since the pairs vary from case to case. Pure: no input text, no I/O.
 
 `cases` holds one mapping per case, of rater id to that rater's first-pass labels
-({question: label}). Raters label the pack's member questions only; a derived question's label for
-a rater comes from the pack's decision table over that rater's member labels (`derive_answer`),
-when the rater labelled every member. An adjudicator's label is not a first pass and is not here.
+({question: label}). An adjudicator's label is not a first pass and is not here.
 
 - Percent agreement: of the cases two or more raters labelled, those whose labels all agree: k of
   n with its exact interval (Clopper-Pearson), as every share in Mendari is shown.
@@ -36,15 +34,12 @@ from itertools import combinations
 from math import lcm
 from typing import Any
 
-from mendari.core.derive import derive_answer
 from mendari.core.spec import PackManifest
 from mendari.errors import MendariError
 from mendari.evals import stats
-from mendari.providers.base import Answer, ProviderInfo
 
 FORMAT = "mendari.agreement/1"
 SEED = 0
-RATER = ProviderInfo(slot="rater", variant="first_pass", type="rater")
 
 Ratings = Mapping[str, str]  # one case, one question: rater id -> label
 
@@ -150,9 +145,8 @@ def agreement(
 def _labelled(
     manifest: PackManifest, cases: Sequence[Mapping[str, Mapping[str, str]]]
 ) -> list[dict[str, dict[str, str]]]:
-    """Each case's ratings, checked, with each rater's derived labels added. A problem names the
-    case's position and the rater, never a label or a text it was not given by the pack."""
-    derived = manifest.derived
+    """Each case's ratings, checked. A problem names the case's position and the rater, never a
+    label or a text it was not given by the pack."""
     out = []
     for position, case in enumerate(cases):
         rated: dict[str, dict[str, str]] = {}
@@ -161,38 +155,11 @@ def _labelled(
             for question, label in labels.items():
                 if question not in manifest.questions:
                     raise MendariError(f"{where}: labels a question the agent does not have")
-                if question in derived:
-                    raise MendariError(
-                        f"{where}: labels {question}, a derived question: raters label its members"
-                    )
                 if label not in manifest.labels(question):
                     raise MendariError(f"{where}: {question}'s label is not one of its labels")
-            rated[rater] = with_derived(manifest, labels)
+            rated[rater] = dict(labels)
         out.append(rated)
     return out
-
-
-def with_derived(manifest: PackManifest, labels: Mapping[str, str]) -> dict[str, str]:
-    """`labels` (a rater's, or a case's settled labels, of the pack's member questions) with the
-    label of each derived question whose members it all labels, from the pack's decision
-    table (`derive_answer`)."""
-    own = dict(labels)
-    for key, table in manifest.derived.items():
-        spec = table.derive
-        if spec is not None and all(member in labels for member in spec.members):
-            answers = {member: _certain(member, labels[member]) for member in spec.members}
-            own[key] = derive_answer(key, table, answers).label
-    return own
-
-
-def _certain(question: str, label: str) -> Answer:
-    return Answer(
-        question=question,
-        label=label,
-        confidence=1.0,
-        probabilities={label: 1.0},
-        provider=RATER,
-    )
 
 
 def _question(ratings: list[Ratings], seed: int, resamples: int) -> dict[str, Any]:

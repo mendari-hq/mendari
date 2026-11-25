@@ -323,9 +323,8 @@ provider's confidence in it. Providers MUST either answer every question in the 
 a provider error with one of these stable, audit-safe codes: `budget_exhausted`,
 `credential_unavailable`, `insufficient_credit`, `invalid_endpoint`, `invalid_input`,
 `invalid_response`, `not_configured`, `provider_unavailable`, `quota_exhausted`,
-`rate_limited`, `time_budget`, `timeout` or `unavailable`. A derived question whose inputs
-failed is recorded as `derived_input_unavailable`. No other code is recorded. Error codes MUST
-NOT carry credentials or remote error bodies.
+`rate_limited`, `time_budget`, `timeout` or `unavailable`. No other code is recorded. Error
+codes MUST NOT carry credentials or remote error bodies.
 
 A decision's remote calls share a wall-clock deadline the deployment sets
 (`MENDARI_DECISION_DEADLINE_S`, default 120 s): a call that would start after it is not made,
