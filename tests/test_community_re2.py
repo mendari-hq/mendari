@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-"""A community pack's patterns run on RE2, which never backtracks (plan B11; core/patterns.py,
-core/re2_syntax.py): its rules and its input schema's `pattern`, `patternProperties` and
-`additionalProperties` (and so `propertyNames`). Every other pack's run on `re`, exactly as
-before. A pattern RE2 cannot run makes a community pack invalid at load, saying what to write
-instead."""
+"""The patterns of an agent the deployment does not own run on RE2, which never backtracks (plan
+B11; core/patterns.py, core/re2_syntax.py): its rules and its input schema's `pattern`,
+`patternProperties` and `additionalProperties` (and so `propertyNames`). Such an agent is here one
+pulled from a registry whose digest is no bundled agent's (`tests/support/engine.py`). Every
+agent the deployment owns runs on `re`, exactly as before. A pattern RE2 cannot run makes such
+an agent invalid at load, saying what to write instead."""
 
 from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -18,22 +18,17 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-import yaml
 from jsonschema import Draft202012Validator
 
 from mendari import Decision, load_pack
 from mendari.core import input_schema, patterns
 from mendari.core.pack import authored_patterns
-from mendari.core.re2_syntax import boundary_problem, translate
+from mendari.core.re2_syntax import translate
 from mendari.core.registry import SearchPath, discover
 from mendari.errors import PackValidationError
 from mendari.providers.rules import RulesProvider
-from tests.conftest import ROOT
-from tests.test_lookaround_rewrites import ORIGINALS
-
-SORTER = ROOT / "tests" / "fixtures" / "community-agents" / "visit-sorter"
-RULES = "logic/rules.yaml"
-SCHEMA = "schemas/input.schema.json"
+from tests.conftest import DEMO_AGENT_DIR, FIXTURE_AGENTS, FIXTURE_NAMESPACE, ROOT
+from tests.support.engine import RULES, SCHEMA, SORTER_ID, pulled, sorter
 
 # Patterns that backtrack on `re` (seconds to hours on these texts), with a text that makes
 # them: the classic shapes, the probe's own slow pattern, and the last check's findings.
@@ -74,27 +69,23 @@ def community_pack(
     *,
     rules: Sequence[str] = (),
     schema: dict[str, Any] | None = None,
-    pack_id: str = "community/visit-sorter",
+    pack_id: str = SORTER_ID,
 ) -> Path:
-    """A copy of the community fixture under `base/community-agents/`, with `rules` as its
-    billing patterns, its message up to 10,000 characters, and `schema` merged into the
-    message's schema."""
-    root = base / "community-agents" / pack_id.partition("/")[2]
-    shutil.copytree(SORTER, root)
-    manifest = yaml.safe_load((root / "agent.yaml").read_text())
-    manifest["id"] = pack_id
-    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    if rules:
-        config = yaml.safe_load((root / RULES).read_text())
-        config["questions"]["topic"]["labels"]["billing"] = [
-            {"name": f"p{i}", "pattern": text, "weight": 8} for i, text in enumerate(rules)
-        ]
-        (root / RULES).write_text(yaml.safe_dump(config, sort_keys=False, allow_unicode=True))
-    document = json.loads((root / SCHEMA).read_text())
-    document["properties"]["message"]["maxLength"] = 10_000
-    document["properties"]["message"].update(schema or {})
-    (root / SCHEMA).write_text(json.dumps(document, ensure_ascii=False))
-    return root
+    """The synthetic sorter under `base`, with `rules` as its billing patterns, its message up to
+    10,000 characters, and `schema` merged into the message's schema. Loaded with `pulled`, it
+    runs on the bounded engine; with `load_pack`, it is the deployment's own."""
+
+    def billing(config: dict[str, Any]) -> None:
+        if rules:
+            config["questions"]["topic"]["labels"]["billing"] = [
+                {"name": f"p{i}", "pattern": text, "weight": 8} for i, text in enumerate(rules)
+            ]
+
+    def message(document: dict[str, Any]) -> None:
+        document["properties"]["message"]["maxLength"] = 10_000
+        document["properties"]["message"].update(schema or {})
+
+    return sorter(base, rules=billing, schema=message, pack_id=pack_id)
 
 
 def billing_patterns(decision: Decision) -> list[Any]:
@@ -117,7 +108,7 @@ def timed(decision: Decision, inputs: dict[str, Any]) -> tuple[float, Any]:
 def test_a_community_packs_rules_decide_slow_patterns_fast(
     tmp_path: Path, pattern: str, text: str
 ) -> None:
-    pack = load_pack(community_pack(tmp_path, rules=[pattern]), origin="community")
+    pack = pulled(community_pack(tmp_path, rules=[pattern]))
     decision = Decision(pack)
     timed(decision, {"message": "warm"})  # translation tables, compiled once a process
     seconds, result = timed(decision, {"message": text[:9_990]})  # with the key: 9,997
@@ -135,7 +126,7 @@ def test_a_community_packs_schema_patterns_decide_slow_patterns_fast(
     document["properties"]["extra"] = {"type": "object", "patternProperties": {pattern: {}}}
     document["properties"]["names"] = {"type": "object", "propertyNames": {"pattern": pattern}}
     (root / SCHEMA).write_text(json.dumps(document, ensure_ascii=False))
-    decision = Decision(load_pack(root, origin="community"))
+    decision = Decision(pulled(root))
     timed(decision, {"message": "warm"})
     part = text[:3_300]  # the message and two keys: 9,900 characters, with the keys' names
     inputs = {"message": part, "extra": {part + "1": 1}, "names": {part + "2": 1}}
@@ -145,10 +136,10 @@ def test_a_community_packs_schema_patterns_decide_slow_patterns_fast(
 
 
 def test_the_same_patterns_stay_on_re_in_any_other_pack(tmp_path: Path) -> None:
-    """Never run on the slow texts: `re` would take minutes."""
+    """The deployment's own agent. Never run on the slow texts: `re` would take minutes."""
     root = community_pack(tmp_path, rules=[p for p, _ in SLOW], pack_id="local/visit-sorter")
     pack = load_pack(root)
-    assert not pack.community
+    assert not pack.bounded
     for text, _ in SLOW:
         assert type(patterns.compile(text, patterns.RULES_FLAGS)) is re.Pattern
     decision = Decision(pack)
@@ -161,7 +152,7 @@ def test_the_same_patterns_stay_on_re_in_any_other_pack(tmp_path: Path) -> None:
 
 
 def test_a_community_packs_rules_run_on_re2(tmp_path: Path) -> None:
-    pack = load_pack(community_pack(tmp_path, rules=[r"\bbill(?:ing)?\b"]), origin="community")
+    pack = pulled(community_pack(tmp_path, rules=[r"\bbill(?:ing)?\b"]))
     decision = Decision(pack)
     assert all(type(regex) is not re.Pattern for regex in billing_patterns(decision))
     assert decision.decide({"message": "A BILLING question"}).answers["topic"].label == "billing"
@@ -187,7 +178,7 @@ def test_a_pattern_re2_cannot_run_makes_a_community_pack_invalid(
 ) -> None:
     root = community_pack(tmp_path, rules=[pattern])
     with pytest.raises(PackValidationError) as raised:
-        load_pack(root, origin="community")
+        pulled(root)
     (problem,) = raised.value.problems
     assert problem.startswith(f"{RULES}: questions.topic.labels.billing[0] (p0): uses {says}")
     assert (
@@ -196,10 +187,10 @@ def test_a_pattern_re2_cannot_run_makes_a_community_pack_invalid(
     )
     root = community_pack(tmp_path / "schema", schema={"pattern": pattern})
     with pytest.raises(PackValidationError) as raised:
-        load_pack(root, origin="community")
+        pulled(root)
     (problem,) = raised.value.problems
     assert problem.startswith(f"input schema: properties/message/pattern: uses {says}")
-    # The same pattern, outside a community pack, loads as before.
+    # The same pattern, in an agent the deployment owns, loads as before.
     load_pack(community_pack(tmp_path / "local", rules=[pattern], pack_id="local/sorter"))
 
 
@@ -212,7 +203,7 @@ def test_a_pattern_re2_cannot_run_makes_a_community_pack_invalid(
 )
 def test_a_pattern_re2_cannot_compile_is_named(tmp_path: Path, pattern: str, says: str) -> None:
     with pytest.raises(PackValidationError) as raised:
-        load_pack(community_pack(tmp_path, rules=[pattern]), origin="community")
+        pulled(community_pack(tmp_path, rules=[pattern]))
     (problem,) = raised.value.problems
     assert says in problem
 
@@ -227,18 +218,14 @@ def test_a_community_schema_may_not_hold_unevaluated_and_pattern_properties(
     document["properties"]["extra"] = schema
     (root / SCHEMA).write_text(json.dumps(document))
     with pytest.raises(PackValidationError) as raised:
-        load_pack(root, origin="community")
+        pulled(root)
     (problem,) = raised.value.problems
     assert problem.startswith("input schema: properties/extra/unevaluatedProperties: ")
-    with pytest.raises(PackValidationError):  # its id is in community/, wherever it is
-        load_pack(root, origin="local")
-    root = community_pack(tmp_path / "local", schema={}, pack_id="local/sorter")
-    (root / SCHEMA).write_text(json.dumps(document))
-    load_pack(root)  # any other pack: as before
-    # Written down where a contributor reads the limits.
-    for doc in ("docs/guides/contributing-an-agent.md", "docs/spec/agent-manifest-0.2.md"):
-        text = " ".join((ROOT / doc).read_text().split())
-        assert "`unevaluatedProperties`" in text and "`unevaluatedItems`" in text, doc
+    load_pack(root)  # the same agent as the deployment's own: as before
+    # Written down in the spec.
+    pages = sorted((ROOT / "docs" / "spec").glob("agent-manifest*.md"))
+    text = " ".join(" ".join(page.read_text().split()) for page in pages)
+    assert "`unevaluatedProperties`" in text and "`unevaluatedItems`" in text
 
 
 @pytest.mark.parametrize(
@@ -262,8 +249,8 @@ def test_a_refused_pattern_says_what_to_write_instead(pattern: str, says: str, n
 
 
 def test_a_deployment_without_community_packs_never_imports_re2(tmp_path: Path) -> None:
-    """RE2, the rewriting and the caps are imported only for a community pack: the Vercel
-    function (and every deployment, community packs being off by default) loads none of them."""
+    """RE2, the rewriting and the caps are imported only for an agent the deployment does not
+    own: the Vercel function (and every deployment until it runs one) loads none of them."""
     code = (
         "import sys, mendari.server.vercel, mendari.cli; "
         "print(sorted(m for m in ('re2', 'mendari.core.re2_syntax', 'mendari.core.caps') "
@@ -285,7 +272,7 @@ def test_a_community_packs_validator_checks_keys_and_texts_on_re2(tmp_path: Path
         "additionalProperties": False,
     }
     (root / SCHEMA).write_text(json.dumps(document))
-    pack = load_pack(root, origin="community")
+    pack = pulled(root)
     validator = input_schema.validator(pack.input_schema, community=True)
     assert type(validator) is not Draft202012Validator
     decision = Decision(pack)
@@ -307,7 +294,7 @@ def test_a_community_packs_validator_checks_keys_and_texts_on_re2(tmp_path: Path
 
 
 def test_a_lone_surrogate_in_a_text_is_read_as_a_replacement_character(tmp_path: Path) -> None:
-    pack = load_pack(community_pack(tmp_path, rules=[r"bill.?\?"]), origin="community")
+    pack = pulled(community_pack(tmp_path, rules=[r"bill.?\?"]))
     decision = Decision(pack)
     result = decision.decide({"message": "bill\ud800?"})
     assert result.answers["topic"].label == "billing"
@@ -400,25 +387,6 @@ def test_the_differences_left_are_the_ones_written_down(
     written = " ".join((ROOT / "src" / "mendari" / "core" / "re2_syntax.py").read_text().split())
     assert '`\\bpie` also matches in "épie", `\\bma\\b` inside "mañana"' in written
     assert '`\\bрак\\b` inside "практика"' in written  # noqa: RUF001
-    guide = " ".join((ROOT / "docs" / "guides" / "contributing-an-agent.md").read_text().split())
-    assert '`\\bpie` also matches in "épie"' in guide
-    assert '`\\bрак\\b` (cancer) also matches inside "практика"' in guide  # noqa: RUF001
-    assert "work as in `re`" not in guide  # the claim the last check disproved
-    # community-check warns on each next to a letter the pattern names outside ASCII
-    assert boundary_problem(pattern, flags) is not pattern.isascii()
-
-
-def test_community_check_warns_on_a_boundary_next_to_a_letter_outside_ascii(
-    tmp_path: Path,
-) -> None:
-    from mendari.community.check import check
-
-    root = community_pack(tmp_path, rules=[r"\bрак\b", r"\bpain\b", r"(?:^|\W)боль(?:\W|$)"])  # noqa: RUF001
-    warned = [f.message for f in check(root).warnings if f.rule == "patterns"]
-    assert len(warned) == 1 and warned[0].startswith(
-        f"{RULES}: questions.topic.labels.billing[0] (p0): a word boundary"
-    )
-    assert '\\bрак\\b also matches inside "практика"' in warned[0]  # noqa: RUF001
 
 
 def test_ignoring_case_matches_what_re_matches_for_every_class() -> None:
@@ -457,11 +425,17 @@ def test_ignoring_case_matches_what_re_matches_for_every_class() -> None:
             assert {m.start() for m in found.finditer(every)} == expected, (pattern, flags)
 
 
+def maintained_agents() -> list[Any]:
+    """The agents the deployment owns that the engine's tests read: the bundled demo agent and
+    the test fixtures' agents (by their namespace, whatever else their folder holds)."""
+    found = discover([SearchPath(FIXTURE_AGENTS, "maintained")]).packs
+    fixtures = [pack for pack in found if pack.id.startswith(f"{FIXTURE_NAMESPACE}/")]
+    return [*fixtures, load_pack(DEMO_AGENT_DIR)]
+
+
 def maintained_cases() -> list[tuple[str, str, int, list[str]]]:
-    """Every maintained pattern, with the texts of its pack's datasets and examples."""
-    packs = discover(
-        [SearchPath(ROOT / "tests" / "fixtures" / "reference-agents", "maintained")]
-    ).packs
+    """Every maintained pattern, with the texts of its agent's datasets and examples."""
+    packs = maintained_agents()
     cases = []
     for pack in packs:
         texts: list[str] = []
@@ -488,19 +462,13 @@ def strings(value: Any) -> list[str]:
 
 
 def test_every_maintained_pattern_means_the_same_on_re2() -> None:
-    """The maintained packs stay on `re`; their patterns, rewritten for RE2, find the same
-    first match in every text of their datasets (and match themselves where they did). Every
-    one runs on RE2 but the lookarounds not rewritten yet (an original of
-    tests/test_lookaround_rewrites.py still in its rule), and those are exactly the three that
-    16c-2 holds for the owner: a new lookaround in a reference pack fails here."""
-    lookarounds = {(key[0], text): key for key, text in ORIGINALS.items()}
+    """The agents the deployment owns stay on `re`; their patterns, rewritten for RE2, find the
+    same first match in every text of their datasets (and match themselves where they did).
+    Every one runs on RE2: a lookaround (or anything else RE2 cannot run) in the demo agent or
+    a test fixture's agent fails here."""
     cases = maintained_cases()
-    differ, refused, skipped, compared = [], [], set(), 0
+    differ, refused, compared = [], [], 0
     for pack_id, where, flags, (pattern, *texts) in cases:
-        original = lookarounds.get((pack_id, pattern))
-        if original and where.startswith(f"{original[1]}: ") and where.endswith(f"({original[2]})"):
-            skipped.add(original)
-            continue
         problem = patterns.problem(pattern, flags, community=True)
         if problem:
             refused.append((pack_id, where, problem))
@@ -513,9 +481,6 @@ def test_every_maintained_pattern_means_the_same_on_re2() -> None:
             if (a and a.start()) != (b and b.start()):
                 differ.append((pack_id, where, text[:60]))
     assert refused == [] and differ == []
-    assert skipped == {
-        ("mendari/clinical-trial-prescreener", "logic/note_rules.yaml", "pregnant"),
-        ("mendari/clinical-trial-prescreener", "logic/note_rules.yaml", "pancreatitis"),
-        ("mendari/referral-router", "logic/triage_rules.yaml", "new-lung-mass"),
-    }
-    assert compared == len(cases) - len(skipped) > 100
+    assert compared == len(cases) > 40
+    # Each agent's patterns are among them.
+    assert {pack_id for pack_id, *_ in cases} == {pack.id for pack in maintained_agents()}
