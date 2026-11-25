@@ -2132,7 +2132,6 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
     pack = resolve_pack(args.pack)
     # With --org, one organization's decisions: what an agent learns from is one site's.
     with _read_store(args.db) as store, contextlib.ExitStack() as acting:
-        store.require_current("feedback export")
         if args.org is not None:
             acting.enter_context(tenancy.acting_for(args.org))
         if reviews:
@@ -3544,7 +3543,6 @@ def cmd_monitor(args: argparse.Namespace) -> int:
         packs = [newest[pack_id] for pack_id in sorted(newest)]
     found_alerts = undelivered = failed = False
     with _read_store(args.db) as store:
-        store.require_current("monitor")
         orgs = organizations(store, days=args.days, skip=skip) if args.each_org else [args.org]
         for org in orgs:
             try:
@@ -3656,30 +3654,28 @@ def _deployment_packet(args: argparse.Namespace, pack: Pack) -> dict[str, Any]:
     alerts = alert_settings()
     signer = checkpoint_key()
     kept_days = retention_days()
-    with _read_store(args.db) as store:
-        store.require_current("packet")
-        with tenancy.acting_for(args.org):
-            deployment = packet.Deployment(
-                phi_mode=phi.mode,
-                input_hash=phi.hash_kind,
-                retention_days=kept_days,
-                checkpoint_key=None if signer is None else key_id(signer.public_key()),
-                alert_destination=alerts is not None,
-                alerts_signed=alerts is not None and bool(alerts.secret),
-                provider_allowed_origins=provider_allow_list(),
-                agent_endpoint=bool(os.environ.get(ENDPOINT_ENV, "").strip()),
-                providers=recorded_providers(store, pack),
-                seen_from="command line",
-            )
-            return packet.build(
-                store,
-                pack,
-                deployment=deployment,
-                days=packet.DEFAULT_DAYS if args.days is None else args.days,
-                organization=args.org,
-                holds=store.holds(args.org),
-                records=store.deployments(pack.id, limit=20),
-            )
+    with _read_store(args.db) as store, tenancy.acting_for(args.org):
+        deployment = packet.Deployment(
+            phi_mode=phi.mode,
+            input_hash=phi.hash_kind,
+            retention_days=kept_days,
+            checkpoint_key=None if signer is None else key_id(signer.public_key()),
+            alert_destination=alerts is not None,
+            alerts_signed=alerts is not None and bool(alerts.secret),
+            provider_allowed_origins=provider_allow_list(),
+            agent_endpoint=bool(os.environ.get(ENDPOINT_ENV, "").strip()),
+            providers=recorded_providers(store, pack),
+            seen_from="command line",
+        )
+        return packet.build(
+            store,
+            pack,
+            deployment=deployment,
+            days=packet.DEFAULT_DAYS if args.days is None else args.days,
+            organization=args.org,
+            holds=store.holds(args.org),
+            records=store.deployments(pack.id, limit=20),
+        )
 
 
 def cmd_alerts_test(args: argparse.Namespace) -> int:

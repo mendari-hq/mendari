@@ -1054,10 +1054,8 @@ def create_app(
     checkpoint_signer = checkpoint_key()  # likewise: a malformed MENDARI_CHECKPOINT_KEY stops it
     if org_limits and alerts is not None:
         check_webhook(alerts.webhook)  # likewise: a quota's alert must be able to leave
-    # Memberships mode marks the database: from then on each event names its organization,
-    # whichever mode or command opens it (LP-12g, ADR-0008).
-    bind_org = sign_in is not None and sign_in.accounts == "memberships"
-    store = AuditStore(db_path, migrate_url=migrate_url, phi=phi, bind_org=bind_org)
+    memberships = sign_in is not None and sign_in.accounts == "memberships"
+    store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
     store.ready_to_keep()  # never `off` on a protected database, nor a retired PHI key
     if store_on:
         # The store needs memberships mode, and what it rests on, checked by running it: a
@@ -1079,7 +1077,7 @@ def create_app(
             "MENDARI_REGISTRY is not on"
             if not registry_on
             else "reviewers are memberships (MENDARI_ACCOUNTS=memberships with sign-in on)"
-            if not bind_org
+            if not memberships
             else f"no organization {review_org!r} has a record (mendari access org create)"
             if store.organization(review_org) is None
             else None

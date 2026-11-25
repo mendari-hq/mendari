@@ -1222,7 +1222,6 @@ class AuditStore(RateBuckets):
         phi: PhiPolicy | None = None,
         marks: bool = True,
         read_only: bool = False,
-        bind_org: bool = False,
     ):
         """`target` is a SQLite path (or ":memory:") or a postgres:// / postgresql:// URL.
 
@@ -1232,10 +1231,8 @@ class AuditStore(RateBuckets):
         a read-only tool passes False and only reads the marks. `read_only` opens an existing
         Mendari database and writes nothing to it, not even a mark (`core/db.py`). Every open
         checks the schema's baseline first (`ENGINE_SCHEMA`): a database a pre-release or a
-        newer Mendari made is refused before anything is read.
-
-        `bind_org` is ignored: every event names its organization, whoever opens the database
-        (`_bound`). It stays only while `server/app.py` passes it.
+        newer Mendari made is refused before anything is read. Every event names its
+        organization, whoever opens the database (`_bound`).
         """
         self.phi = phi or PhiPolicy()
         self.read_only = read_only
@@ -1258,10 +1255,6 @@ class AuditStore(RateBuckets):
         self._capability_since: dict[str, tuple[str, str]] = {}
         self._hash_epoch: str | None = None  # the hash key id this process last recorded under
         self.protected = self._protected(marks)
-
-    def require_current(self, command: str) -> None:
-        """Nothing to refuse: a database that opened holds this release's schema (`core/db.py`
-        refuses any other as it opens). It stays only while `cli.py` calls it."""
 
     def _protected_on(self, db: _Session, marks: bool = True) -> str | None:
         if marks and self.phi.mode != "off":
