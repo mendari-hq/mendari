@@ -53,8 +53,8 @@ EXPECTED = {
 
 def _example(path: str) -> str:
     return (
-        path.replace("{namespace}", "mendari")
-        .replace("{name}", "referral-router")
+        path.replace("{namespace}", "mendari-test")
+        .replace("{name}", "triage")
         .replace("{version}", "0.0.1")
     )
 
