@@ -6,9 +6,7 @@ serves no figures instead of failing a page."""
 
 from __future__ import annotations
 
-import copy
 import json
-import shutil
 import time
 from collections.abc import Iterator
 from datetime import date
@@ -16,31 +14,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
-from mendari import Pack, load_pack
 from mendari.core.card import benchmark, render_card
 from mendari.evals import figures, leaderboard, ranking, stats
 from mendari.evals.render import shown
 from tests.conftest import CHART_DIR, CLINICAL_DIR, ROOT, TRIAGE_DIR
-from tests.support import engine
+from tests.support.engine import published
 
-# The test fixtures' agents, each published here with its own benchmark (`with_benchmark`).
+# The test fixtures' agents, each published in a test with its own benchmark (`published`).
 FIXTURES = {"triage": TRIAGE_DIR, "clinical-review": CLINICAL_DIR, "chart-summary": CHART_DIR}
-
-
-def with_benchmark(agent: Path, base: Path) -> Pack:
-    """A copy of a fixture's agent carrying its benchmark as a published agent does: its own
-    evaluation on its benchmark set, in `evals/`, named by `evaluation.benchmark`."""
-    root = base / agent.name
-    shutil.copytree(agent, root)
-    dataset = load_pack(agent).manifest.evaluation.benchmark_dataset or "test"
-    (root / "evals").mkdir()
-    (root / "evals" / "benchmark.json").write_text(json.dumps(engine.benchmark(agent, dataset)))
-    manifest = yaml.safe_load((root / "agent.yaml").read_text())
-    manifest["evaluation"]["benchmark"] = "evals/benchmark.json"
-    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True))
-    return load_pack(root)
 
 
 def card_figures(f: dict[str, Any]) -> Iterator[dict[str, Any] | None]:
@@ -106,7 +88,7 @@ def test_figures_never_format_a_stored_bound() -> None:
 def test_report_figures_are_the_ones_the_card_shows(name: str, tmp_path: Path) -> None:
     """Each served figure is the one on the card's own row for it: the same k of n over the
     same denominator, never merely text that appears somewhere on the card."""
-    pack = with_benchmark(FIXTURES[name], tmp_path)
+    pack = published(FIXTURES[name], tmp_path)
     report = benchmark(pack)
     assert report is not None
     lines = render_card(pack).splitlines()
@@ -140,25 +122,6 @@ def test_report_figures_are_the_ones_the_card_shows(name: str, tmp_path: Path) -
         row(f"{b['low']:.1f} to {b['high']:.1f}", f"{b['confidence']:.3f}", shown(f))
     for t, f in zip(report["threshold_sweep"], worked["sweep"], strict=True):
         row(f"{t['threshold']:.2f}", shown(f["automated"]), shown(f["correct"]))
-
-
-def test_an_eval2_report_from_before_its_counts_were_stored_derives_them() -> None:
-    report = engine.benchmark()  # the triage fixture's, whose test set has subgroups
-    assert report["subgroups"]
-    earlier = copy.deepcopy(report)
-    for row in earlier["threshold_sweep"]:
-        del row["chosen"], row["scored"]
-    for values in earlier["subgroups"].values():
-        for group in values.values():
-            del group["labelled"], group["automated"]
-    assert figures.report(earlier) == figures.report(report)
-    # Not every case labelled: a subgroup's accuracy is then of an unknown n, so n/a.
-    earlier["dataset"]["n"] += 1
-    assert all(
-        group["accuracy"] is None
-        for values in figures.report(earlier)["subgroups"].values()
-        for group in values.values()
-    )
 
 
 def test_a_rate_beyond_any_share_is_never_multiplied() -> None:

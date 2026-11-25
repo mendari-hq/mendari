@@ -15,13 +15,15 @@ from __future__ import annotations
 import copy
 import functools
 import json
-from collections.abc import Callable
+import shutil
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from mendari import Decision, Pack, load_pack
+from mendari.evals import leaderboard
 from mendari.evals.harness import evaluate, resolve_dataset
 from tests.conftest import TRIAGE_DIR
 
@@ -173,6 +175,30 @@ def benchmark(agent: Path = TRIAGE_DIR, dataset: str = "test") -> dict[str, Any]
 def _evaluated(agent: str, dataset: str) -> dict[str, Any]:
     pack = load_pack(agent)
     return evaluate(Decision(pack), resolve_dataset(pack, dataset))
+
+
+def published(agent: Path, base: Path, *, runs: Sequence[Mapping[str, str]] = ()) -> Pack:
+    """A copy under `base` of the agent in folder `agent` (a fixture's, which commits none)
+    carrying in `evals/` what a published agent carries: its own evaluation on its benchmark
+    set, named by `evaluation.benchmark`, and with `runs` (provider choices) a leaderboard of
+    that set evaluated on its default providers and on each of them. Every figure is the copy's
+    own: `evals/` is outside its digest, which is the one recorded."""
+    root = base / agent.name
+    shutil.copytree(agent, root)
+    path = root / "agent.yaml"
+    manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
+    manifest["evaluation"]["benchmark"] = "evals/benchmark.json"
+    path.write_text(_yaml(manifest), encoding="utf-8")
+    pack = load_pack(root)
+    dataset = resolve_dataset(pack, pack.manifest.evaluation.benchmark_dataset or "test")
+    report = evaluate(Decision(pack), dataset)
+    (root / "evals").mkdir()
+    (root / "evals" / "benchmark.json").write_text(json.dumps(report), encoding="utf-8")
+    if runs:
+        reports = [report, *(evaluate(Decision(pack, providers=dict(r)), dataset) for r in runs)]
+        board = leaderboard.build(pack, reports)
+        (root / leaderboard.PATH).write_text(json.dumps(board), encoding="utf-8")
+    return load_pack(root)
 
 
 def _yaml(data: Any) -> str:
