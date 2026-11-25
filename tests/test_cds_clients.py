@@ -53,7 +53,7 @@ EHR = "https://ehr.example.org"
 BASE = f"{EHR}/fhir"
 JWKS_URI = f"{EHR}/.well-known/jwks.json"
 DISCOVERY = "/cds-services"
-HOOK = "/cds-services/mendari.referral-router"
+HOOK = "/cds-services/mendari-test.triage"  # the triage fixture's service (its message hook)
 INVALID = 'Bearer realm="mendari", error="invalid_token"'
 # The EHR's keys, made for this run: RSA and EC, and another party's with the same kid.
 RSA_EHR = Signer("RS384", "ehr-rsa", rsa.generate_private_key(public_exponent=65537, key_size=2048))
