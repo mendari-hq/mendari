@@ -27,7 +27,6 @@ from starlette.routing import Route
 
 from mendari import AuditStore, Decision, Pack
 from mendari.core import accounts, tenancy
-from mendari.core.evalsets import EvalsetStore
 from mendari.errors import AuthError, MendariError, NoOrganization
 from mendari.server import auth as auth_module
 from mendari.server import sessions
@@ -49,8 +48,6 @@ from tests.conftest import (
     ROOT,
     encrypt_mode,
     encrypted_store,
-    evalset_on,
-    evalsets_are_on,
     launched,
     member,
     message,
@@ -73,23 +70,12 @@ PUBLIC_HEALTH = {"status", "version", "sign_in"}
 ACCEPT = "/api/auth/invitations/accept"
 # A person's own routes, with an organization or none (`person`).
 OWN_ROUTES = ("/api/auth/organization", "/api/auth/access-requests", ACCEPT)
-# A labeller's routes (`label`, LP-11j): memberships mode with the evaluation-set keys only.
+# A labeller's routes (`label`): a grader's over written output (ADR-0025), memberships mode
+# only.
 LABELLING_ROUTES = {
-    ("GET", "/api/labelling"),
-    ("GET", "/api/labelling/next"),
-    ("POST", "/api/labelling/{assignment_id}"),
-    # A grader's, over written output (ADR-0025).
     ("GET", "/api/written/labelling"),
     ("GET", "/api/written/labelling/next"),
     ("POST", "/api/written/labelling/{assignment_id}"),
-}
-# An organization's curators' (`curate`, LP-11k): likewise.
-CURATING_ROUTES = {
-    ("GET", "/api/evalsets"),
-    ("GET", "/api/evalsets/{set_id}"),
-    ("POST", "/api/evalsets/{set_id}/sample"),
-    ("POST", "/api/evalsets/{set_id}/assignments"),
-    ("POST", "/api/evalsets/{set_id}/adjudication"),
 }
 # The deployment's operators' (`operate`: its readiness checks and their actions), in every mode.
 OPERATING_ROUTES = {
@@ -232,10 +218,10 @@ def test_use_another_account_asks_the_identity_provider_which(
 
 
 def test_the_owners_bootstrap_binds_at_sign_in_and_reads_earlier_decisions(
-    members: TestClient, store: AuditStore, idp: FakeIdp, inbox_pack: Pack, db_target: str
+    members: TestClient, store: AuditStore, idp: FakeIdp, triage_agent: Pack, db_target: str
 ) -> None:
     inputs = message("Can I get a refill?")
-    encrypted_store(db_target).record(Decision(inbox_pack)(inputs), inputs)
+    encrypted_store(db_target).record(Decision(triage_agent)(inputs), inputs)
     store.bootstrap(email="owner@example.org", created_by="cli")
     signed = sign_in(members, idp, sub="owner", email="Owner@Example.org", email_verified=True)
     assert signed.status_code == 302
@@ -279,10 +265,10 @@ def test_a_non_ascii_address_signs_in_with_no_organization(
 
 
 def test_a_sign_in_without_a_membership_acts_for_no_organization_never_default(
-    members: TestClient, store: AuditStore, idp: FakeIdp, inbox_pack: Pack, db_target: str
+    members: TestClient, store: AuditStore, idp: FakeIdp, triage_agent: Pack, db_target: str
 ) -> None:
     inputs = message("Can I get a refill?")
-    encrypted_store(db_target).record(Decision(inbox_pack)(inputs), inputs)
+    encrypted_store(db_target).record(Decision(triage_agent)(inputs), inputs)
     signed = sign_in(
         members, idp, sub="stranger", email="x@example.org", email_verified=True, roles=["admin"]
     )
@@ -473,8 +459,8 @@ def test_pack_author_grants_author_only(members: TestClient, store: AuditStore) 
 
 
 def test_labeller_grants_label_only(members: TestClient, store: AuditStore) -> None:
-    """LP-11: `labeller` grants `label` (labelling hidden evaluation sets) and nothing else: no
-    read, no packs, no review queue; with another role, both roles' permissions."""
+    """`labeller` grants `label` (grading written output, ADR-0025) and nothing else: no read,
+    no packs, no review queue; with another role, both roles' permissions."""
     headers = member(store, org="clinic-a", roles=["labeller"], sub="ada")
     principal = me(members, headers)["principal"]
     assert (principal["roles"], principal["permissions"]) == (["labeller"], ["label"])
@@ -556,20 +542,16 @@ NOBODY = Principal(
 
 @pytest.fixture
 def as_nobody(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """Memberships mode with Backend Services and hidden evaluation sets on (the most routes,
-    LP-11g), every request from a person of no organization who holds every role."""
+    """Memberships mode with Backend Services on (the most routes), every request from a person
+    of no organization who holds every role."""
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
-    evalset_on(monkeypatch)
     app = create_app(db_path=db_target)
     with TestClient(app, base_url=HTTPS) as client:
-        with encrypted_store(db_target) as served:
-            reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
-        evalsets_are_on(client, reader)
         monkeypatch.setattr(Auth, "authenticate", lambda self, request: NOBODY)
         yield client
 
@@ -601,18 +583,6 @@ ORG_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("DELETE", "/api/auth/members/m1", None),
     ("GET", "/api/auth/access-requests", None),
     ("POST", "/api/auth/access-requests/r1", {"outcome": "refused"}),
-    # A labeller's (LP-11j): their own counts, next case and label, in their organization.
-    ("GET", "/api/labelling", None),
-    ("GET", "/api/labelling/next", None),
-    ("POST", "/api/labelling/a1", {"labels": {"urgency": "routine"}}),
-    # Its curators' (LP-11k): its sets, one set, its cases drawn, assigned and adjudicated.
-    ("GET", "/api/evalsets", None),
-    ("GET", "/api/evalsets/s1", None),
-    ("POST", "/api/evalsets/s1/sample", {"cases": 1}),
-    ("POST", "/api/evalsets/s1/assignments", {"labellers": ["user:0123456789abcdef"]}),
-    ("POST", "/api/evalsets/s1/adjudication", {"labellers": ["user:0123456789abcdef"]}),
-    # Its grading key's (LP-11l): a run over one of its sets.
-    ("POST", "/api/evalsets/s1/runs", {"pack": "mendari/patient-inbox-router"}),
 ]
 
 
@@ -636,11 +606,6 @@ def test_a_principal_of_no_organization_is_refused_before_every_route_that_takes
         "replace_client_keys", "usage_ledger",
     ):  # fmt: skip
         monkeypatch.setattr(AuditStore, name, reached)
-    for name in (
-        "labelling", "next_case", "record_label", "assignment_set", "named_sets", "summary",
-        "show", "progress", "sample", "assign", "adjudicate", "grading_header", "grade_read",
-    ):  # fmt: skip
-        monkeypatch.setattr(EvalsetStore, name, reached)
     capsys.readouterr()
     for method, path, body in ORG_ROUTES:
         answer = as_nobody.request(method, path, json=body)
@@ -844,23 +809,16 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
     holding a role in `default` gets the guard's answer a person signed in by claims with that
     role gets. Only a person's own three routes differ: any person's in memberships mode (with
     an organization or none; never a key's, never anonymous), an administrator's in claims
-    mode; and a labeller's three (LP-11j), which only a labeller passes in memberships mode
-    (every role here is refused them, administrators included) and which read as an
-    administrator's in claims mode, where they are not mounted. An organization's curators'
-    five (LP-11k) are an administrator's in both modes, so they are answered alike, and a
-    labeller is refused them. Hidden evaluation sets are on, so the routes they mount are
-    compared too (LP-11g)."""
+    mode; and a grader's three over written output (ADR-0025), which only a labeller passes in
+    memberships mode (every role here is refused them, administrators included) and which read
+    as an administrator's in claims mode, where they are not mounted."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
-    evalset_on(monkeypatch)
     app = create_app(db_path=tmp_path / "routes.db")
-    with encrypted_store(tmp_path / "routes.db") as served:
-        reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
-    evalsets_are_on(TestClient(app, base_url=HTTPS), reader)
     routes = sorted(
         (method, route.path)
         for route in app.routes
@@ -875,8 +833,6 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
     assert own == {("POST", path) for path in OWN_ROUTES}
     labelling = {r for r in routes if permission_for(*r) == "label"}
     assert labelling == LABELLING_ROUTES
-    curating = {r for r in routes if permission_for(*r) == "curate"}
-    assert curating == CURATING_ROUTES
     # The deployment's operators' routes (`operate`): the one place the two modes answer an
     # administrator differently, until `MENDARI_OPERATOR_ORG` names their organization.
     operating = {r for r in routes if permission_for(*r) == "operate"}
@@ -908,11 +864,6 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
                 claims_answer = attempt(by_claims, method, path, as_person)[0]
                 assert claims_answer == (200 if role == "admin" else 403), (role, path)
                 continue
-            if (method, path) in curating:
-                assert attempt(by_records, method, path, labeller)[0] == 403, path
-                assert attempt(by_records, method, path, as_member)[0] == (
-                    200 if role == "admin" else 403
-                ), (role, path)
             if (method, path) in operating:
                 # In claims mode every administrator operates the deployment, as its own views
                 # always answered them. In memberships mode nobody does through the web (as
