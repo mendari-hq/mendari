@@ -445,7 +445,7 @@ def test_a_response_proposes_actions_only_where_they_are_read() -> None:
     assert validate_response(answers(), questions, actions=True)["actions"] == []
 
 
-def test_a_0_4_agent_that_declares_nothing_is_as_it_was_until_its_agent_proposes(
+def test_an_agent_that_declares_no_actions_holds_what_its_service_proposes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def undeclaring(raw: dict[str, Any]) -> None:

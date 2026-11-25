@@ -609,7 +609,7 @@ def test_authorizing_needs_a_store_and_a_well_formed_question() -> None:
         assert len(of(store, result.id, "action.proposed")) == 2  # only the answer's own
 
 
-def test_an_agent_older_than_0_4_authorizes_nothing(store: AuditStore) -> None:
+def test_an_agent_that_declares_no_actions_authorizes_nothing(store: AuditStore) -> None:
     """An agent that declares no actions (the triage fixture):
     whatever is asked of it is blocked, as undeclared."""
     triaged = Decision(load_agent(TRIAGE_DIR), store=store)

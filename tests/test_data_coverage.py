@@ -431,7 +431,7 @@ MARK = "ID7f3"  # in every id and text of the 0.3 record below: none may reach i
 OUT_OF_SET = "J06.9"  # a patient's ICD-10-CM code the test's code set does not list
 
 
-def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Path) -> None:
+def test_a_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Path) -> None:
     """A mapping (LP-23g) is counted against `FhirAdapter.looked_for`: a field's paths
     in the order it tries them, the systems it selects on and its code set's codes; what the
     paths it read found (in order, until one gave the field its value); a `follow`'s references

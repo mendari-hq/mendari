@@ -114,5 +114,6 @@ nav:
       - "ADR-0023: An agent proposes actions, the runtime releases them": decisions/ADR-0023-an-agent-proposes-actions.md
       - "ADR-0024: A checked confidence, and a second signal that only lowers automation": decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md
       - "ADR-0025: A judge of written output is trusted by its measured agreement": decisions/ADR-0025-a-judge-is-trusted-by-measured-agreement.md
+      - "ADR-0026: The first release is the one baseline, and it governs agents only": decisions/ADR-0026-one-release-baseline-agents-only.md
   - Project:
       - Roadmap: roadmap.md

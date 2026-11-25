@@ -504,7 +504,7 @@ class Policy(_Strict):
     rules: list[PolicyRule] = []
     labels: dict[str, LabelPolicy] = {}
     # AUTO only while these slots run one of these variants, e.g. a safety screen that includes
-    # a model: {triage_screen: [rules_and_jev, rules_and_llm]}. Other variants still decide,
+    # a model: {screen: [agent, rules_and_llm]}. Other variants still decide,
     # but every decision goes to a person.
     automation_requires: dict[str, list[str]] = {}
     fallback: str

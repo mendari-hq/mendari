@@ -504,7 +504,7 @@ def _card_of(manifest: dict[str, Any]) -> dict[str, Any]:
     return card
 
 
-def test_the_spec_0_3_card_keys_are_checked_with_the_manifest(
+def test_the_card_keys_are_checked_with_the_manifest(
     agent_copy: Callable[..., Path],
 ) -> None:
     """`also_show` names policy rules, needs a `show` list and has summaries held to what

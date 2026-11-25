@@ -921,7 +921,7 @@ def test_an_outside_agents_new_keys_are_bounded_at_load(tmp_path: Path) -> None:
     assert refused.value.problems == problems
 
 
-def test_a_0_3_mappings_paths_and_systems_are_checked_at_load(tmp_path: Path) -> None:
+def test_a_mappings_paths_and_systems_are_checked_at_load(tmp_path: Path) -> None:
     """An agent's paths are of the subset, each `[system=…]` and code set names a system its
     `code_systems` declares, a list's types are resource types and `medication_period` is a
     MedicationRequest's: for every agent, wherever it comes from."""

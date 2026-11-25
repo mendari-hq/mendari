@@ -343,7 +343,9 @@ def test_an_unknown_decision_another_agents_and_an_unknown_agent_are_404s(
     assert [e["event"] for e in events(client, decided["id"])].count("action.proposed") == 2
 
 
-def test_an_agent_older_than_0_4_authorizes_nothing_over_http(client: TestClient) -> None:
+def test_an_agent_that_declares_no_actions_authorizes_nothing_over_http(
+    client: TestClient,
+) -> None:
     """An agent that declares no actions (the triage fixture):
     whatever is asked of it is blocked, as undeclared."""
     plain = client.post(f"/api/agents/{PLAIN}/decide", json=message("Crushing chest pain")).json()
