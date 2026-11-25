@@ -508,11 +508,12 @@ can also hold a site's own file, `--dataset PATH`, and nothing on it is graded e
 
 - The Decision Card's "Provider comparison" opens with "Public set: regression check, not a
   ranking", and says that nothing there is graded and the order its rows are listed in. Its
-  tables have no Rank column. A row measured on
-  an earlier version of the agent says so beside its configuration.
+  tables have no Rank column. A row measured on an earlier version of the agent says so beside
+  its configuration.
 - `mendari leaderboard` prints the same opening and the same tables.
-- The dashboard's Provider comparison says the same. It has no rank column, and its cost chart names the deployed configuration and every configuration no other
-  beats on both cost and accuracy.
+- The dashboard's Provider comparison says the same. It has no rank column, and its cost chart
+  names the deployed configuration and every configuration no other beats on both cost and
+  accuracy.
 
 The rows are listed in `ranking.grouped`'s order, a listing order: those that rank as data
 (measured on this version of the agent, on records where a critical label has at least 100

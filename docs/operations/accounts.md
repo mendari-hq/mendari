@@ -30,7 +30,8 @@ claims mode too (for an administrator who signed in). Claims mode never reads or
   grants `label` alone: grading what an agent wrote against its rubric (memberships mode under
   PHI mode `encrypt`: a grader's routes under `/api/written/labelling`, [written
   output](../guides/written-output.md)). A member who only grades sees the grading screen once a
-  round holds work of theirs (before that, a page saying so), and no agents or review queue. It may also hold `registry_reviewer`, which
+  round holds work of theirs (before that, a page saying so), and no agents or review queue. It
+  may also hold `registry_reviewer`, which
   grants `registry_review` alone, and only in the one organization
   `MENDARI_REGISTRY_REVIEW_ORG` names: reviewing the agent registry served under the engine (its
   routes under `/api/registry/review`, [Running an agent
