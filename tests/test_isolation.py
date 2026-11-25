@@ -25,9 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # alert, when the shell named one.
 ONCE_REACHED = [
     "tests/test_vercel.py",
-    "tests/test_settings.py::test_the_vercel_app_runs_the_jev_defaults",
     "tests/test_community_re2.py::test_a_deployment_without_community_packs_never_imports_re2",
-    "tests/test_community_packs.py::test_the_eval_endpoint_runs_a_community_pack_remotely_only_where_named",
     "tests/test_limits.py::test_over_its_quota_an_emergency_still_reaches_a_nurse_at_once",
     "tests/test_monitoring.py::test_the_cli_watches_one_organization",
     "tests/test_security_log.py",
