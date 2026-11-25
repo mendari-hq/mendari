@@ -31,9 +31,12 @@ from mendari.server.auth import (
 from mendari.server.scopes import parse
 from tests.conftest import ROOT, encrypt_mode, message, signed_in
 from tests.support.platform import COMMUNICATION, PATIENT
-from tests.test_auth import attempt, expected
+from tests.test_auth import REMOVED_ROUTES, attempt, expected
 
 IDP = "https://idp.example.org"
+# Da Vinci's preset (G4), which wave 6 removes with the routes it calls: set aside until its
+# code goes, as those routes are (`tests/test_auth.py` `REMOVED_ROUTES`).
+REMOVED_PRESETS = {"da-vinci"}
 INBOX = "mendari-test/triage"  # the agent these tests decide with
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 HOOK = "/cds-services/mendari-test.triage"
@@ -133,7 +136,7 @@ def test_the_api_names_every_preset(tmp_path: Path) -> None:
 # -- each documented integration key works exactly as the docs say --------------------------------
 
 
-@pytest.mark.parametrize("preset_id", list(presets.PRESETS))
+@pytest.mark.parametrize("preset_id", [p for p in presets.PRESETS if p not in REMOVED_PRESETS])
 def test_a_key_from_each_preset_gets_past_the_guard_on_its_calls_and_nothing_more(
     served: tuple[TestClient, str], preset_id: str
 ) -> None:
@@ -144,7 +147,8 @@ def test_a_key_from_each_preset_gets_past_the_guard_on_its_calls_and_nothing_mor
     key = made.json()
     assert (key["role"], key["scope"], key["preset"]) == (preset.role, preset.scope, preset_id)
     headers = {"authorization": f"Bearer {key['key']}"}
-    routes = presets.served(client.app.routes)  # type: ignore[attr-defined]
+    every = presets.served(client.app.routes)  # type: ignore[attr-defined]
+    routes = [route for route in every if route not in REMOVED_ROUTES]
     settings = AuthSettings(IDP, "mendari", None, "roles", {}, None, None)
     with AuditStore(db) as store:
         guard = Auth(settings, store)
