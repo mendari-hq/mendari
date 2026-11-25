@@ -286,8 +286,6 @@ event. `mendari audit verify --notes` checks each kept set against the commitmen
 chained. The audit view of the console lists a decision's actions above its events, and the
 FHIR export carries both event kinds, as codes only.
 
-No table or column was added for any of this: a database from before verifies as it did.
-
 ## 8. On the Decision Card
 
 An agent that declares actions has an **Actions** section on its Decision Card: each action,

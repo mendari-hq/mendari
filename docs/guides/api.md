@@ -7,18 +7,14 @@ with "Try it out", is `/docs/reference`.
 
 Every example below is one of the scripts in `src/mendari/dashboard/snippets/`, included here as
 it is. CI runs them against a local server, once in open mode and once with a `service` key
-(`scripts/check_doc_snippets.py`), so they work as written. They need `curl` and `jq`, and every body is synthetic.
-
-A few names in requests and answers still call an agent by the word Mendari used before
-(`pack`, `pack_id`, `pack_version`, `pack_digest`): stored, hashed and signed records hold them,
-so they keep their names until a versioned change of format.
+(`scripts/check_doc_snippets.py`), so they work as written. They need `curl` and `jq`, and
+every body is synthetic.
 
 ## Before you start
 
 In a clone, `uv sync` installs Mendari, and the server with it (without uv: `pip install .`; no
-extra is needed, and the `server` extra older instructions name is still accepted and adds
-nothing). The server serves the bundled
-demo agent (`mendari/portal-message-agent`); to serve your own too, set `MENDARI_AGENTS_PATH` to their folders (`:`-separated, searched
+extra is needed). The server serves the bundled demo agent (`mendari/portal-message-agent`); to
+serve your own too, set `MENDARI_AGENTS_PATH` to their folders (`:`-separated, searched
 first). `MENDARI_AGENTS` (comma-separated ids) then narrows what is served to those agents, which
 must be on the path.
 
@@ -80,11 +76,11 @@ OperationOutcome, a value that is not a resource, a resource or search page that
 JSON), or a note is only a link or does not decode, the decision is `ABSTAIN` with reasons such
 as `could not read labs: timeout`, it is recorded, and its card is an `info` card that says so.
 Reasons never repeat a URL, a query or what a server answered. A request fault (the wrong hook, a
-malformed field, a required resource you sent something else for) is still a `4xx`. An agent on
-spec 0.3 may also read what a link in the record points to (a note's Binary, a Coverage's payer, a
+malformed field, a required resource you sent something else for) is still a `4xx`. An agent
+may also read what a link in the record points to (a note's Binary, a Coverage's payer, a
 MedicationRequest's drug) from your `fhirServer`, at most 50 notes and 50 followed references a
-decision and 100 reads a request; a link it does not read is a reason too, and `fhir/decide` and `$decide` never read one
-([linked data](connecting-an-ehr.md#linked-data)). Such an agent reads a note as text only when it
+decision and 100 reads a request; a link it does not read is a reason too, and `fhir/decide` and
+`$decide` never read one ([linked data](connecting-an-ehr.md#linked-data)). An agent reads a note as text only when it
 is text/plain or text/html: an RTF, PDF or CDA note abstains with `could not read <field>:
 unsupported_type`.
 A decision that read a value through the deployment's site code map is never automated: its
@@ -224,7 +220,7 @@ organization the person acts for; no key or client reaches them.
 | `GET /api/store/versions/{digest}/file?path=…` | One text file of a version (UTF-8, at most 1 MiB), for its editor |
 | `POST /api/store/versions` | A signed archive (`mendari archive build`) under the body limit |
 | `POST /api/store/uploads`, `PUT …/parts/{n}`, `POST …/complete` | A larger archive in parts |
-| `POST /api/store/copies` | `pack` (the id of an agent served here) and `name`: a draft copy of that agent, renamed `<organization>/<name>` |
+| `POST /api/store/copies` | `agent` (the id of an agent served here) and `name`: a draft copy of that agent, renamed `<organization>/<name>` |
 | `POST /api/store/versions/{digest}/edits` | `{files: [{path, content}]}`: a new draft with those text files replaced |
 | `POST /api/store/versions/{digest}/tests` | Run the version's behaviour tests |
 | `DELETE /api/store/versions/{digest}` | Withdraw a draft |

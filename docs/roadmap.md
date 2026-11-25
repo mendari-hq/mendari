@@ -10,8 +10,11 @@ external HTTP agents and combinations of them, with healthcare standards, human 
 local validation built in.
 
 The product bundles one demo agent, `mendari/portal-message-agent`. The milestones below are
-kept as they shipped: the five agents of v0.1 to v0.3 are no longer bundled, and are now test
-fixtures.
+kept as they shipped. Wave 6 (2026-11-24) took out the five agents of v0.1 to v0.3 and what only
+they used: every provider but `rules`, `llm`, `agent` and `check`, derived questions and the
+guard, `mendari train`, Da Vinci CRD, DTR and PAS, OMOP, hidden evaluation sets and the
+scoreboard, the community contribution path, and every spec version but 0.4. The tests use
+synthetic fixture agents of their own.
 
 v0.1 is done and running in production on Vercel. Decisions for what follows: **agents
 first** (the Hub only matters once it has strong agents), **LLMs through Vercel AI Gateway**
@@ -47,8 +50,8 @@ first** (the Hub only matters once it has strong agents), **LLMs through Vercel 
   - a release workflow, and the README quickstart timed in CI (it finishes well under 10
     minutes).
 
-Now: **the launch itself**, which waits for your go-ahead: the public repository, the PyPI
-release, the live Hub and the hosted docs site. The overnight log lists what's needed.
+Now: **the launch itself**, which waits for your go-ahead: the PyPI release, the live Hub and
+the hosted docs site. The repository is public. The overnight log lists what's needed.
 
 ## Where we are against the goal
 
@@ -66,7 +69,7 @@ release, the live Hub and the hosted docs site. The overnight log lists what's n
 | Hub: publish / pull / search, publisher types, signed archives, the site evaluation network (verified sites, tickets, signed counts, pooled site evidence apart from every rank), website | ✅ v0.5 (not public yet; the site network built, LP-22) | Going public (a public registry and site); datasets and eval suites as first-class entries |
 | Developer experience (`pip install`, `from_hub`, `pull`, container per agent) | Partial | The PyPI release and the first published images (both at a release tag) |
 | Org readiness (auth, tenancy, PHI handling, monitoring) | ✅ v0.6 (off until configured) | A security review before real PHI (v1.0) |
-| Community (verification, public repo) | ✅ built (v1.0) | The repo going public (your decision) |
+| Community (verification, public repo) | ✅ built (v1.0); the repository is public | none |
 
 ## Milestones
 
@@ -193,8 +196,7 @@ the Hub and the docs site._
 ## How every milestone is built
 - **PR flow:** branch → PR → required CI checks → preview on its own Neon branch → verification
   → merge → production smoke tests, as we do today.
-- **Eval gates:** no merge that regresses an agent's critical metrics, and every critical label
-  has a held-out set that is never tuned on.
+- **Eval gates:** no merge that regresses an agent's critical metrics (`scripts/agent_gate.py`).
 - **Feedback loop:** 👎 feedback and reported misses become behaviour tests, then a new agent
   version.
 - **Record keeping:** `tasks/todo.md` tracks the plan; `tasks/lessons.md` records every
@@ -203,13 +205,13 @@ the Hub and the docs site._
 ## Risks
 - **Synthetic data flatters models**, as we saw with the red-flag screen. Mitigation: held-out
   sets, paraphrase sets, clinician review.
-- **Clinical correctness of agent content.** Clinician reviewers are needed for eligibility criteria,
-  draft-reply checks and red flags.
-- **LLM calibration and cost.** These are measured per agent; cascades and budgets control them.
+- **Clinical correctness of agent content.** Clinician reviewers are needed for an agent's
+  criteria, rubrics and red flags.
+- **LLM calibration and cost.** These are measured per agent; budgets control them.
 - **Regulatory positioning** (FDA CDS guidance) for L2+ agents. Mitigation: clinician-facing,
   human review by default, and documented intended use.
-- **PHI and security** once real organizations pilot. That is v0.6, and the repo stays private
-  and synthetic-only until then.
+- **PHI and security** once real organizations pilot. v0.6 built the controls; Mendari runs on
+  synthetic data only until a deployment follows the PHI guide and the owner approves.
 
 ## Open needs (not blocking v0.2's first PRs)
 - Enable Vercel AI Gateway on the team, for the LLM provider.
@@ -217,8 +219,8 @@ the Hub and the docs site._
 - Later: a Hub domain name and a publisher-verification policy.
 
 ## Next step
-Publish the v1.0 open-source release (public repository, PyPI package, container images, and
-hosted docs/Hub) and focus on real-world adoption of Mendari as an open-source healthcare AI
+Publish the v1.0 open-source release (PyPI package, container images, and hosted docs/Hub; the
+repository is public) and focus on real-world adoption of Mendari as an open-source healthcare AI
 governance and evaluation platform — clinician-reviewed evaluation sets, transparent provider
 benchmarking, and auditable human-in-the-loop policies.
 

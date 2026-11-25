@@ -47,8 +47,9 @@ error, Brier scores, latency and cost, and your keys and secrets.
 
 A new key, later: `mendari site key --new`, give the new `site-key.json` to the registry, and
 revoke the old key there. The old private key is kept beside the new one
-(`site_key.<hex>.pem`, the command says where); delete it once the old key is revoked. If a key may have been copied, revoke it as compromised: every
-report it signed then leaves the pooled figures.
+(`site_key.<hex>.pem`, the command says where); delete it once the old key is revoked. If a
+key may have been copied, revoke it as compromised: every report it signed then leaves the
+pooled figures.
 
 ## Each evaluation: a ticket, the run, the signed report
 
@@ -73,8 +74,8 @@ mendari eval acme/intake-agent@1.2.0 --dataset reviewed-cases.jsonl --share
 
 The configuration is the deterministic arm (every provider decides on your machines) unless
 you name variants with `--provider SLOT=VARIANT`. A configuration that calls a provider off
-your machines (an LLM, an agent's service) is shared only with `--consent-remote`, recorded in the ticket and
-the report; it is never pooled with a local one.
+your machines (an LLM, an agent's service) is shared only with `--consent-remote`, recorded in
+the ticket and the report; it is never pooled with a local one.
 
 ## Read before sending
 

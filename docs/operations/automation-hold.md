@@ -18,9 +18,6 @@ out: a missed emergency, a provider behaving oddly, an agent version you are uns
 | Every agent | every decision in your organization | the API, the command line (lifted in the dashboard too) |
 | Every organization (`--all-orgs`) | every decision on the deployment | the command line only |
 
-`pack_id` and `pack_digest` name the agent and its version: the keys keep the word Mendari used
-before, as stored records hold them.
-
 Holds are rows in the deployment's database, read by each decision (and reused on a server for
 at most five seconds), so a hold set anywhere reaches every instance within seconds. Setting and
 lifting each append a chained event (`automation.held`, `automation.lifted`) with who and when;
@@ -57,4 +54,5 @@ mendari automation lift <id> --db "$DATABASE_URL"
 
 A decision over its organization's daily decisions quota is held the same way: its remote calls
 (language models, an agent's service) fail with the quota, its local providers (the keyword
-rules) still answer, and any decision that would have been automated goes to a person. An emergency rule still raises its message to `stat`.
+rules) still answer, and any decision that would have been automated goes to a person. An
+emergency rule still raises its message to `stat`.

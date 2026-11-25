@@ -40,7 +40,7 @@ governed agent is a folder of plain text:
 ## In one minute
 
 In a clone of the [repository](https://github.com/mendari-hq/mendari) (Mendari is not on PyPI
-until its first release), with [uv](https://docs.astral.sh/uv/):
+yet), with [uv](https://docs.astral.sh/uv/):
 
 <!-- check: run quickstart -->
 ```bash

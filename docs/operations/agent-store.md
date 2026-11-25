@@ -11,12 +11,11 @@ its own organization's requests (LP-20h). Its tables are created empty in every 
 
 ## Who does what
 
-- **Authors** hold the reserved role `pack_author` (`author`, people only; the role keeps the
-  name it had before, which memberships record). An administrator
+- **Authors** hold the reserved role `agent_author` (`author`, people only). An administrator
   gives it, themself included: `admin` does not hold it. Authors upload signed archives (the
-  `.mendari` file `mendari archive build` writes; one named `.ohpack`, as it was before
-  2026-11, is the same file), copy an agent this deployment serves, edit text files into new drafts, run a draft's tests and
-  withdraw a draft (`docs/guides/api.md`, "An organization's agent store").
+  `.mendari` file `mendari archive build` writes), copy an agent this deployment serves, edit
+  text files into new drafts, run a draft's tests and withdraw a draft (`docs/guides/api.md`,
+  "An organization's agent store").
 - **Administrators** (`keys`) register and revoke the authors' Ed25519 public keys: an upload
   must be signed by one of the organization's keys that is not revoked.
 - **The operator** checks, withdraws and frees versions with the commands below.
@@ -39,8 +38,8 @@ each declared dataset (kept with the version).
   keys the version by the digest that load hashed, never one it is told. Two versions with the
   same digest are the same agent.
 - **Never changed.** Its files, id, version, parent and source are written once, and the hash of
-  that row is in its `store_version.created` event. Only its state moves (draft, withdrawn;
-  promotion comes later), each move one chained event that names the organization, the digest
+  that row is in its `store_version.created` event. Only its state moves (draft, promoted,
+  retired, withdrawn), each move one chained event that names the organization, the digest
   and who acted. `mendari audit verify` fails on a row changed past the store, a state no event
   moved it to, or a version with no event. An edit is a new version whose parent is the old one.
 - **Without anything uploaded about it.** `evals/`, a `DECISION_CARD.md` and hidden entries are

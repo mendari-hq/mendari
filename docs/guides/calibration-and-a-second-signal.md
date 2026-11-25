@@ -14,8 +14,8 @@ what it says, and about two checks that send an unstable answer to a person:
 The first changes the number. The other two never do: they can only turn an automated decision
 into one a person reviews. The reasons behind each rule are in
 [ADR-0024](../decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md), and the manifest
-keys in [the spec](../spec/agent-manifest.md#14-a-calibrated-confidence-and-a-second-signal), section 14. All three need
-`spec_version: "0.4"`.
+keys in [the spec](../spec/agent-manifest.md#14-a-calibrated-confidence-and-a-second-signal),
+section 14.
 
 This page is for the author of an agent and for the hospital deciding whether to trust its
 automation.
@@ -213,8 +213,8 @@ nothing: no confidence is raised and no cap is lifted. Disagreement sends the de
 person.
 
 A disagreement counts on a question the decision turns on: the primary question, a critical
-question (`evaluation.critical`), a question a policy rule reads, and the questions any of
-those is derived from. On any other question it is noted in the answer's evidence.
+question (`evaluation.critical`) and a question a policy rule reads. On any other question it is
+noted in the answer's evidence.
 
 ### Repeated runs
 
@@ -286,7 +286,7 @@ the decision to a person.
 
 ### When the agent also proposes actions
 
-An agent on spec 0.4 may ask to have something done with its answer
+An agent may ask to have something done with its answer
 ([Governing actions](governing-actions.md)). A second signal holds those proposals to the same
 rule as the answers: what the runs do not agree on is not automated.
 
