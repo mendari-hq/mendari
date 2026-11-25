@@ -3,7 +3,7 @@
 ## Status
 Accepted (2026-11-06, LP-17m). Proposed 2026-10-17, and built in steps (LP-17, `tasks/todo.md`,
 planned in `notes/lp17-plan.md`). What landed, in the order it was built:
-- 17a (#257), the [grading method 1.0](../grading/method-1.0.md) (`mendari.grading/1.0`, a draft
+- 17a (#257), the grading method 1.0 (`mendari.grading/1.0`, a draft
   not in effect) and its pinned constants (`mendari.evals.method`: the version, the SHA-256 of
   the document's bytes, the effective date left empty for the owner, and the parameters);
 - 17b (#258), the statistics the scoreboard adds (`mendari.evals.stats`: the stratified
@@ -26,7 +26,7 @@ planned in `notes/lp17-plan.md`). What landed, in the order it was built:
   (`mendari.hidden_scoreboard/1`), stored as answered;
 - 17m (#279), the close-out: the launch gates' probes (`a9-scoreboard`, `grading-method`),
   the threat model's residual risks, this status, the owner's runbook
-  ([Running the scoreboard](../operations/scoreboard.md)) and the end-to-end
+  (Running the scoreboard) and the end-to-end
   test.
 
 Two steps stay open. 17i is the owner's run: the remote arms' replicates on the public `test`

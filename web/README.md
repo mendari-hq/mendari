@@ -27,10 +27,6 @@ their SIL Open Font License texts (listed in `NOTICE`); `vercel.json`'s CSP allo
 for them and nothing else from outside. `og.png` is the 1200 × 630 link preview; `favicon.svg`
 is the mark below 32 px, the same diamond the dashboard uses.
 
-The page shows no scoreboard: Mendari publishes none of its own, and the bundled demo agent is
-not scored. A deployment that keeps a results store renders its own page from it
-([Running the scoreboard](../docs/operations/scoreboard.md)).
-
 The example decision at the top and the demo agent's figure further down (12 of 12 on its bundled
 examples) are typed in: they are what `mendari/portal-message-agent` (`agents/portal-message-agent/`)
 decides on that message and what `mendari eval agents/portal-message-agent --dataset examples`

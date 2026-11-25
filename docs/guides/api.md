@@ -250,8 +250,7 @@ organization the person acts for; no key or client reaches them.
 | `GET`, `POST /api/store/promotions`, `POST …/{promotion_id}/retire` | Promote a version to be served to your organization (`governance`, `admin`; never its author), or stop serving it |
 
 An upload whose files read as a person's details is refused (`422`) with the detector's report:
-kinds, files and lines, never the text. A version that holds a case of a hidden evaluation set
-is kept `held for the operator's review`, and the answer says nothing more.
+kinds, files and lines, never the text.
 
 The dashboard's Agent store view (LP-20j) does all of this for a person who signs in: copy,
 upload, edit, test, run jobs, compare, and, for `governance` and `admin`, promote.
