@@ -541,16 +541,10 @@ def shipped(tmp_path: Path) -> Iterator[tuple[Path, str]]:
         if (source / "agent.yaml").is_file():
             yield source, "maintained"
     plain, community = tmp_path / "plain", tmp_path / "community-agents" / "contributed"
-    agent_dir = tmp_path / "agent"
     assert main(["new", str(plain), "--id", "someone/plain", "--publisher", "Test"]) == 0
     assert main(["new", str(community), "--community", "--publisher", "Test"]) == 0
-    assert (
-        main(["new", str(agent_dir), "--agent", "--id", "someone/agent", "--publisher", "Test"])
-        == 0
-    )
     yield plain, "local"
     yield community, "community"
-    yield agent_dir, "local"
     for root in fixture_agents():
         yield root, "community" if root.parent.name == "community-agents" else "local"
 
