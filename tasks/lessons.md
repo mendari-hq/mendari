@@ -911,8 +911,8 @@ held them, like the facts about the code.
 Whenever a root file is edited, check each sentence it states about something outside the code
 at its source: the repository's visibility (`gh repo view --json visibility`), the package index
 (`https://pypi.org/pypi/mendari/json`), a hosted site (its address), the remote's tags
-(`git ls-remote --tags`), a time or a count (run it and measure). A number no test pins says
-how it was measured, or is left out.
+(`git ls-remote --tags`), a time or a count (run it and measure). A number no test pins is
+measured before it is written, and the commit says how; one that was not measured is left out.
 
 ### Verification
 The commit that edits a root file names each such fact and the check behind it, as the wave 6
