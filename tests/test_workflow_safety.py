@@ -621,34 +621,10 @@ def test_pack_check_runs_on_every_pull_request() -> None:
     find = next(step for step in steps if step.get("name") == "Find the changed agents")
     assert "no agent changes" in find["run"]
     maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
-    assert 'case "$dir" in agents/*)' in maintained["run"]  # community packs go the other way
-    (community,) = [step for step in steps if "community_check.py" in step.get("run", "")]
-    # Who made the change reaches the script through `env` only. The author is the pull
-    # request's, never `github.actor` (whoever caused the run: the owner updating a fork's branch
-    # would be it); the branch must be in this repository and the pull request into the default
-    # branch. Who owns the repository is the person the base's CODEOWNERS names (the script
-    # reads it), never `github.repository_owner`: since the move to mendari-hq, an organization,
-    # which no pull request's author is.
-    assert community["env"] == {
-        "BASE": "${{ github.event.pull_request.base.sha }}",
-        "BASE_REF": "${{ github.event.pull_request.base.ref }}",
-        "DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
-        "AUTHOR": "${{ github.event.pull_request.user.login }}",
-        "HEAD_REPO": "${{ github.event.pull_request.head.repo.full_name }}",
-        "REPO": "${{ github.repository }}",
-    }
-    for argument in (
-        '--base "$BASE"',
-        '--actor "$AUTHOR"',
-        '--head-repo "$HEAD_REPO"',
-        '--repo "$REPO"',
-        '--base-ref "$BASE_REF"',
-        '--default-branch "$DEFAULT_BRANCH"',
-    ):
-        assert argument in community["run"]
-    step = json.dumps(community)
-    for unwanted in ("github.actor", "repository_owner", "--owner"):
-        assert unwanted not in step, unwanted
+    assert 'case "$dir" in agents/*)' in maintained["run"]  # only the bundled agents' folders
+    # No step reads who made the change or owns the repository: nothing is decided by person.
+    for unwanted in ("github.actor", "repository_owner", "user.login"):
+        assert unwanted not in json.dumps(steps), unwanted
 
 
 def test_the_pack_workflow_finds_a_manifest_by_its_name() -> None:
@@ -660,8 +636,8 @@ def test_the_pack_workflow_finds_a_manifest_by_its_name() -> None:
     maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
     removed = 'if [ ! -f "$dir/agent.yaml" ]; then'
     assert removed in maintained["run"] and "was removed" in maintained["run"]
-    (data,) = [step for step in steps if step.get("name", "").endswith("dataset checks")]
-    assert '[ -f "$dir/agent.yaml" ] || continue' in data["run"]
+    # Its dataset checks run after that, on a folder that has the manifest.
+    assert maintained["run"].index(removed) < maintained["run"].index("mendari data check")
     for step in steps:  # no step that asks for a manifest by another name
         for line in step.get("run", "").splitlines():
             if "pack.yaml" in line:
