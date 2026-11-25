@@ -61,19 +61,14 @@ VALIDATOR_ROOTS = (
     "hl7.terminology#7.4.0",
     "hl7.fhir.uv.extensions#5.3.0",
 )
-# The guides it is told to load: US Core (`ARGS` in scripts/fhir_validate.py) and the Da Vinci
-# guides (ci.yml). While it validates, it also loads by canonical: a resource that cites a
-# canonical of a package it has not loaded (`...|2.2.0` or not) makes it load the newest version
-# of that package in its cache, with everything that package needs, for every file after that
-# one. So each run gets a cache of its own, with only what that run loads
-# (`scripts/fhir_validate.py --offline`): the US Core run's holds US Core 6.1.0 and what it needs,
-# no other US Core and no Da Vinci guide, and a profile it cites resolves to US Core 6.1.0's.
-GUIDES = (
-    "hl7.fhir.us.core#6.1.0",
-    "hl7.fhir.us.davinci-crd#2.2.1",
-    "hl7.fhir.us.davinci-dtr#2.2.0",
-    "hl7.fhir.us.davinci-pas#2.2.1",
-)
+# The guides it is told to load: US Core (`ARGS` in scripts/fhir_validate.py). While it
+# validates, it also loads by canonical: a resource that cites a canonical of a package it has not
+# loaded (`...|2.2.0` or not) makes it load the newest version of that package in its cache, with
+# everything that package needs, for every file after that one. So each run gets a cache of its
+# own, with only what that run loads (`scripts/fhir_validate.py --offline`): the US Core run's
+# holds US Core 6.1.0 and what it needs, no other US Core and no other guide, and a profile it
+# cites resolves to US Core 6.1.0's.
+GUIDES = ("hl7.fhir.us.core#6.1.0",)
 ROOTS = (*VALIDATOR_ROOTS, *GUIDES)
 # The validator never loads a core package as a dependency (VersionUtilities.isCorePackage): it
 # loads hl7.fhir.r4.core itself, as the definitions, and no other.

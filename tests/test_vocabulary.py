@@ -157,13 +157,7 @@ class Surface:
 
 # Texts that say the old word on purpose: (surface, the whole text) -> why. An entry that no
 # surface holds any more fails the test, so the list never outlives its reasons.
-ALLOWED: dict[tuple[str, str], str] = {
-    (
-        "the scripts' messages",
-        "^The questionnaire 'https://mendari\\.co/packs/[^']+' could not be resolved",
-    ): "a pattern, not a message: it matches what the HL7 validator says of a questionnaire's "
-    "canonical URL (a kept name, `mendari.co/packs`, with its dot escaped as a pattern must)",
-}
+ALLOWED: dict[tuple[str, str], str] = {}
 
 
 # The API descriptions --------------------------------------------------------------------------
