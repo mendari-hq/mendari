@@ -732,6 +732,33 @@ def test_a_model_is_named_whole_unless_a_composite_joins_its_members(page: Page)
     ]
 
 
+def test_the_picker_groups_every_origin_and_leaves_no_agent_out(page: Page) -> None:
+    """With agents from several origins, the picker groups them by origin: one from an
+    organization's store has its group, and one of an origin the console does not know is in a
+    group of its own, never dropped."""
+    open_pack(page, TRIAGE)
+    grouped = page.evaluate(
+        """async () => {
+          const pack = await import(new URL("/static/pack.js", location).href);
+          const agent = (id, origin) => ({ id, name: id, version: "1.0.0", origin });
+          const box = document.createElement("select");
+          box.innerHTML = pack.packOptions([
+            agent("a/maintained", "maintained"), agent("a/pulled", "hub"),
+            agent("a/stored", "store"), agent("a/local", "local"), agent("a/new", "elsewhere"),
+          ]);
+          return [...box.querySelectorAll("optgroup")].map((group) =>
+            [group.label, [...group.querySelectorAll("option")].map((o) => o.value)]);
+        }"""
+    )
+    assert grouped == [
+        ["Maintained", ["a/maintained"]],
+        ["From a registry", ["a/pulled"]],
+        ["From this organization's store", ["a/stored"]],
+        ["Local agents", ["a/local"]],
+        ["elsewhere", ["a/new"]],
+    ]
+
+
 def test_the_leaderboard_remembers_the_dataset(page: Page) -> None:
     open_pack(page, TRIAGE, "evals")
     page.get_by_role("button", name=re.compile(r"^critical n=")).click()

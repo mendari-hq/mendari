@@ -105,16 +105,22 @@ export const holdNotice = (holds, pack) => (holdsFor(holds, pack).length
       have automated, with the same recommendation and priority. See the Decision Card.</p>`
   : "");
 
-// The picker's groups, in this order; one group only, and the picker is a plain list.
+// The picker's groups, in this order; one group only, and the picker is a plain list. An agent of
+// an origin not listed here is in a group of its own at the end, so none is ever left out.
 const ORIGIN_GROUPS = [
   ["maintained", "Maintained"],
   ["hub", "From a registry"],
+  ["store", "From this organization's store"],
   ["local", "Local agents"],
 ];
 
 export function packOptions(packs) {
   const option = (p) => `<option value="${esc(p.id)}">${esc([p.name, p.version].filter(Boolean).join(" "))}</option>`;
-  const groups = ORIGIN_GROUPS.map(([origin, label]) => [label, packs.filter((p) => (p.origin ?? "maintained") === origin)])
+  const originOf = (p) => p.origin ?? "maintained";
+  const listed = new Set(ORIGIN_GROUPS.map(([origin]) => origin));
+  const others = [...new Set(packs.map(originOf).filter((origin) => !listed.has(origin)))];
+  const groups = [...ORIGIN_GROUPS, ...others.map((origin) => [origin, origin])]
+    .map(([origin, label]) => [label, packs.filter((p) => originOf(p) === origin)])
     .filter(([, members]) => members.length);
   if (groups.length < 2) return packs.map(option).join("");
   return groups.map(([label, members]) => `<optgroup label="${esc(label)}">${members.map(option).join("")}</optgroup>`).join("");
