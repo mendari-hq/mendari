@@ -239,7 +239,7 @@ def refused(root: Path) -> list[str]:
 
 def test_a_nested_ref_schema_is_refused_at_load(triage_copy: Path) -> None:
     """LP-16's nested-`$ref` test, for a pack the deployment owns (one it does not own keeps the
-    caps and the time budget, `tests/test_community_budget.py`): 28 levels of allOf over two
+    caps and the time budget, `tests/test_bounded_budget.py`): 28 levels of allOf over two
     `$ref`s apply the last schema 2**28 times to one value, and jsonschema would walk every one.
     The pack is refused at load, saying why."""
     assert refused(edit_schema(triage_copy, fanning(28, 2))) == [

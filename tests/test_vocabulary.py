@@ -110,7 +110,7 @@ def test_the_rule() -> None:
         "mendari-pack.json",
         "--pack",
         "the `packs` and a pack",
-        "community-packs/<name>/",
+        "agent-packs/<name>/",
         "tests/fixtures/reference-packs/",
     ):
         assert offences(said), said
@@ -125,10 +125,10 @@ def test_the_rule() -> None:
         "PackValidationError",
         "resolve_pack",
         "MENDARI_PACKS_PATH",
-        "community-agents/<name>/",
+        "agents/<name>/",
         "tests/fixtures/agents/",
         "https://mendari.co/fhir/CodeSystem/decision-pack|{namespace}/{name}@{version}",
-        "under its own url, https://mendari.co/packs/community/<name>/",
+        "under its own url, https://mendari.co/packs/<namespace>/<name>/CodeSystem/<question>",
         "Chained `pack.yanked` with your id",
     ):
         assert not offences(said), said
@@ -344,9 +344,8 @@ def _product_words(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
 
 
 def _script_words(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[str, str]]:
-    """What the repository's scripts say: a job's log and its summary on a pull request (the
-    community check's "No community agent changes."), the page a results store is rendered as,
-    an option's help."""
+    """What the repository's scripts say: a job's log and its summary on a pull request, the
+    page a results store is rendered as, an option's help."""
     scripts = sorted((ROOT / "scripts").glob("*.py"))
     assert len(scripts) > 30
     for path in scripts:
@@ -398,7 +397,6 @@ def _scaffolded(tmp_path: Path) -> Iterator[tuple[str, Path]]:
     """Each kind of agent `mendari new` scaffolds: the command as typed, and the folder made."""
     made = {
         "mendari new": (tmp_path / "plain" / "refills", ["--id", "my-clinic/refills"]),
-        "mendari new --community": (tmp_path / "community-agents" / "refills", ["--community"]),
     }
     for shown, (target, flags) in made.items():
         assert main(["new", str(target), *flags, "--publisher", "My Clinic"]) == 0, shown

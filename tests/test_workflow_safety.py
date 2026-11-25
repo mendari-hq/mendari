@@ -667,10 +667,6 @@ def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
         "agents/removed/agent.yaml",  # gone from the tree: reported as its top folder
         "agents/README.md",  # directly in agents/: no pack
         "src/mendari/cli.py",
-        "community-agents/visit-sorter/logic/rules.yaml",
-        "community-agents/visit-sorter/nested/agent.yaml",  # one folder is one community pack
-        "community-agents/gone; $(touch x)/agent.yaml",
-        "community-agents/MAINTAINERS.yaml",  # directly in community-agents/: no pack
     ]
     assert _changed_packs().pack_dirs(changed, tmp_path) == [
         "agents/a/b/c",
@@ -680,6 +676,4 @@ def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
         "agents/my pack; $(touch x)",
         "agents/removed",
         "agents/renamed",
-        "community-agents/gone; $(touch x)",
-        "community-agents/visit-sorter",
     ]

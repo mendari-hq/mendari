@@ -123,8 +123,8 @@ Two more rules:
 - **What the agent never declared is blocked**, and so are arguments that do not match the
   action's schema. Either one also sends the decision to a person: an agent that proposes what
   it never declared is not trusted to automate.
-- **An agent your deployment has not vouched for gets nothing released without a person**: a
-  community agent, or one from a registry before your organization approves its digest. Its
+- **An agent your deployment has not vouched for gets nothing released without a person**: one
+  from a registry before your organization approves its digest. Its
   declared effects are claims nobody here checked, so even its reads wait for a reviewer.
 - **An action the agent was not sure of is held, never released.** Where the agent is asked
   each case several times, or checked by a second agent

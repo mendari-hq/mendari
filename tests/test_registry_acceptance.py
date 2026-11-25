@@ -735,25 +735,6 @@ def test_one_registry_has_one_pin_however_its_address_is_typed(
     assert client_module._pin_url("http://[::1]:8100") == "http://[::1]:8100"
 
 
-def test_pins_filed_under_an_address_as_it_was_typed_are_still_read(
-    registry: Registry, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A pin file from before pins were filed by normalised address: its entries count."""
-    _keyed(monkeypatch)
-    assert registry.publish().status_code == 201
-    old = yank.registry_public(_key(OTHER_SEED))["key_id"]
-    pins = config_dir() / "trusted_keys.json"
-    pins.parent.mkdir(parents=True)
-    pins.write_text(
-        json.dumps({"https://Registry.Example:443": {"@registry": old, "acme": ["k1"]}})
-    )
-    with _client(registry) as client, pytest.raises(HubError, match="not the one this machine"):
-        pull(TRIAGE.id, client)
-    kept = json.loads(pins.read_text())
-    assert kept["https://Registry.Example:443"]["@registry"] == old  # nothing overwritten
-    assert client_module._pins_of(kept, URL) == {"@registry": old, "acme": ["k1"]}
-
-
 def test_a_machine_can_require_the_counter_signature(
     registry: Registry, db_target: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

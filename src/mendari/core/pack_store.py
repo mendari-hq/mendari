@@ -1738,7 +1738,7 @@ def _bounded_problems() -> list[str]:
     from mendari.core.patterns import OutOfTime, check_time, time_budget
 
     found = []
-    if "store" not in NOT_OWNED or not bounded("acme/x", "store", "sha256:" + "0" * 64):
+    if "store" not in NOT_OWNED or not bounded("store", "sha256:" + "0" * 64):
         found.append("LP-16: an agent from a store does not run on the bounded engine")
     try:
         with time_budget(0.0):

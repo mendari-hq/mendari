@@ -81,11 +81,8 @@ PAIRS = [
     # chips the outcome pairs: all above. New: a copy button that has copied turns success.
     ("color-success", "color-surface", TEXT),
     ("color-text-muted", "color-bg", UI),  # the diagram's arrows
-    # Community packs: where a pack comes from, as a badge on the surface and the page, and the
-    # notice that a community pack is not clinically reviewed (text on the soft colour).
-    ("origin-community", "origin-community-soft", TEXT),
+    # Where a pack comes from, as a badge on the surface and the page.
     ("origin-other", "origin-other-soft", TEXT),
-    ("color-text", "origin-community-soft", TEXT),
 ]
 
 

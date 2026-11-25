@@ -43,14 +43,6 @@ The demo agent Mendari maintains in `agents/` is the owner's demonstration of ho
 built: a synthetic example, not clinically reviewed and not for patient care, as its Decision
 Card says. An agent meant for use keeps the rule above.
 
-An agent contributed for others to use goes in `community-agents/<name>/` with the id
-`community/<name>`. [Contributing an agent](docs/guides/contributing-an-agent.md) is the whole
-path: propose it in an issue (the proposal form), start it with
-`uv run mendari new community-agents/<name> --community`, check it with
-`uv run mendari community-check community-agents/<name> --base origin/main` (the checks CI runs,
-each saying what to fix), and open the PR with the template for a community agent (the guide
-gives its address). The folder's own README lists what CI checks.
-
 ### What CI does with an agent PR
 
 A CI job runs on every PR (with no agent changed, it says so and passes). For every bundled
@@ -64,11 +56,6 @@ It fails if a critical label is found less often, if a critical case that was ne
 now is, or if the primary accuracy or the false-automation rate gets worse by more than the
 agent's tolerance. An agent that gets worse on purpose (say, a safer policy that automates less)
 explains why in the PR and updates its benchmark.
-
-For a community agent (`community-agents/`) it runs `mendari community-check` instead, and puts
-the metrics and the rendered Decision Card in the job summary. A PR that changes a community
-agent and anything outside its folder (its entry in `community-agents/MAINTAINERS.yaml` aside)
-fails.
 
 ## Code changes
 
@@ -170,8 +157,7 @@ Dependabot's are not checked. To sign off commits you already made:
 Agents carry clinical content, so where it comes from matters as much as the code:
 
 - **No real patient data**, anywhere: not in data, tests, issues or pull requests, not even
-  de-identified. Write synthetic cases yourself
-  ([how](docs/guides/contributing-an-agent.md#synthetic-data-without-python)).
+  de-identified. Write synthetic cases yourself.
 - **No proprietary criteria or copyrighted instruments.** Do not copy text from InterQual, MCG,
   payer medical policies, licensed questionnaires or scoring instruments. Write criteria in
   your own words from public sources (guidelines, published papers, regulations), and cite
@@ -185,8 +171,8 @@ Agents carry clinical content, so where it comes from matters as much as the cod
   do. Prefer
   free systems (ICD-10-CM, LOINC) or a fictional one named as such in place of CPT and
   SNOMED CT (no package carries either).
-- **Say what you used.** The pull request template for a community agent asks for the sources
-  of the criteria and of `card.evidence`, and who reviewed the clinical content.
+- **Say what you used.** The pull request names the sources of the criteria and of
+  `card.evidence`, and who reviewed the clinical content.
 
 ## Licence
 

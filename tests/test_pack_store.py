@@ -199,9 +199,9 @@ def test_a_store_pack_does_not_set_its_own_cost_batching_or_temperature(
     assert deployment_config(plain)["temperature"] == 1.5
     assert pack.named_settings_only and not hub.named_settings_only
     slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-    assert providers_for(pack.id, slots, {"router": "llm"}, community=True)[0] == {}
+    assert providers_for(pack.id, slots, {"router": "llm"}, named_only=True)[0] == {}
     named = {f"{pack.id}:router": "llm"}
-    assert providers_for(pack.id, slots, named, community=True)[0] == {"router": "llm"}
+    assert providers_for(pack.id, slots, named, named_only=True)[0] == {"router": "llm"}
 
 
 def test_a_version_of_one_organization_is_not_loaded_for_another(

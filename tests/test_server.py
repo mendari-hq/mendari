@@ -650,7 +650,7 @@ def test_health_answers_within_its_bound_while_a_registry_packs_decision_runs(
     took = [ended - started for started, ended in calls]
     assert statistics.median(took) < BUSY_HEALTH_BOUND_S, took
     held = max((later - earlier for earlier, later in itertools.pairwise(ticks)), default=0.0)
-    assert held < patterns.COMMUNITY_TIME_BUDGET_S, f"{held:.3f} s computed between two ticks"
+    assert held < patterns.BOUNDED_TIME_BUDGET_S, f"{held:.3f} s computed between two ticks"
     assert built == []
     decided = answer["decision"]
     assert decided.status_code == 200, decided.text

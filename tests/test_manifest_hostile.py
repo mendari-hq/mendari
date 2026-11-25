@@ -101,7 +101,7 @@ def test_a_question_whose_criteria_or_levels_are_not_a_mapping_is_named(
 @pytest.mark.parametrize(
     "pattern", ["a{4294967294}", "(?:(?:(?:a{99999}){99999}){99999}){99999}", "a{1000001}"]
 )
-def test_a_community_pattern_past_re2s_size_is_refused_before_it_is_written_out(
+def test_a_bounded_pattern_past_re2s_size_is_refused_before_it_is_written_out(
     monkeypatch: pytest.MonkeyPatch, pattern: str
 ) -> None:
     """A count over RE2's 1,000 is written out as counts one after another, so these few
@@ -113,12 +113,12 @@ def test_a_community_pattern_past_re2s_size_is_refused_before_it_is_written_out(
     monkeypatch.setattr(re2_syntax, "translate", never)
     patterns._re2.cache_clear()
     try:
-        problem = patterns.problem(pattern, community=True)
+        problem = patterns.problem(pattern, bounded=True)
     finally:
         patterns._re2.cache_clear()
     assert problem is not None and problem.startswith("too large for RE2")
 
 
-def test_a_community_pattern_within_re2s_size_still_compiles() -> None:
-    assert patterns.problem("a{500000}", community=True) is None
+def test_a_bounded_pattern_within_re2s_size_still_compiles() -> None:
+    assert patterns.problem("a{500000}", bounded=True) is None
     assert re2_syntax.size("a{500000}") <= patterns.MAX_RE2_SIZE

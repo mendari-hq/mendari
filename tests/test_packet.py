@@ -1009,23 +1009,18 @@ def test_the_page_made_without_a_deployment_shows_no_figure_of_one(store: AuditS
     assert "without a deployment" not in served
 
 
-@pytest.mark.parametrize("origin", ["community", "hub"])
-def test_a_packet_without_a_deployment_keeps_what_the_runtime_enforces(origin: str) -> None:
+def test_a_packet_without_a_deployment_keeps_what_the_runtime_enforces() -> None:
     """Where an agent came from still decides what the runtime enforces, with no deployment
-    read: a community agent never decides alone, and one from a registry needs approval."""
-    alone = packet.build_alone(demo(origin))
+    read: one from a registry needs approval."""
+    alone = packet.build_alone(demo("hub"))
     assert packet.problems(alone) == []
     enforced = " ".join(section(alone, "risk")["enforced"])
     needs = " ".join(section(alone, "approvals")["required"])
-    if origin == "community":
-        assert "A community agent never decides alone" in enforced
-        assert "A community agent never automates" in needs
-    else:
-        assert "It came from a registry" in enforced
-        assert "An agent from a registry needs the organization's approval" in needs
-        signed = section(alone, "change_control")["signed"]
-        assert signed["held_now"] is None and signed["recall_checked"] is False
-        assert "none standing" not in packet.render_html(alone)  # no registry was asked
+    assert "It came from a registry" in enforced
+    assert "An agent from a registry needs the organization's approval" in needs
+    signed = section(alone, "change_control")["signed"]
+    assert signed["held_now"] is None and signed["recall_checked"] is False
+    assert "none standing" not in packet.render_html(alone)  # no registry was asked
 
 
 # -- actions, a checked confidence and a second signal (spec 0.4) ----------------------------------
@@ -1065,9 +1060,6 @@ def test_the_packet_says_what_the_agent_may_ask_to_have_done_and_how_each_is_gat
         "by a second model.",
     ):
         assert words in said, words
-    # A community agent's proposals are never released without a person, a read's included.
-    community = section(packet.build_alone(demo("community")), "oversight")["actions"]
-    assert [a["gate"] for a in community] == ["auto", "person"]
 
 
 def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Path) -> None:

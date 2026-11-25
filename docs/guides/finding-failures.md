@@ -222,9 +222,8 @@ Not written: a `changed` finding, which has no right answer to hold the agent to
 failure on a case that `mendari feedback export` or `mendari improve` marked as a site's own,
 which may be a patient's words. Such a case is probed where it is and never copied.
 
-Only an agent of your own is written into. One the release bundles, a community agent of the
-repository or one pulled from a registry is refused before anything runs: copy it, and probe the
-copy.
+Only an agent of your own is written into. One the release bundles, a version in an agent store
+or one pulled from a registry is refused before anything runs: copy it, and probe the copy.
 
 ## What a probe costs
 

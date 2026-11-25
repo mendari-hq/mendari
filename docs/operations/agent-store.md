@@ -27,7 +27,7 @@ Before any row is written, in this order: the archive's own (size, signature, na
 expansion), the PHI detector over every text file (a refusal answers `422` with kinds, files,
 lines and counts, never a value), the load on the bounded engine, the namespace rule (the id is
 `<organization>/<name>`, or a namespace the organization holds by an approved registry claim;
-`mendari`, `openhealth` and `community` never), then the validation and the dataset checks of
+`mendari` and `openhealth` never), then the validation and the dataset checks of
 each declared dataset (kept with the version), then the hidden-set check.
 
 **The hidden-set check.** With the hidden evaluation sets' keys set, every case the version
@@ -71,7 +71,7 @@ bundled agent's at a tying version. Beyond what a pulled agent is held to, the d
 its Jev price (so the recorded cost is the deployment's), whether its model questions share a
 call, and an LLM's temperature: the agent's own values are dropped. Only a provider setting that
 names it chooses its variants: unscoped `MENDARI_PROVIDERS` settings and the Jev defaults do not
-reach it, as for a community agent.
+reach it.
 
 ## Evaluating a draft (LP-20g)
 

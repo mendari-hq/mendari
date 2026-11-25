@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption,
 
 from mendari.cli import main
 from mendari.core.decision import Decision
-from mendari.core.origin import pulled_record
+from mendari.core.origin import ORIGIN_FORMAT, pulled_record
 from mendari.core.pack import Pack, PatternsRefused, load_pack
 from mendari.core.registry import discover, resolve_pack
 from mendari.errors import HubError, PackNotFoundError, PackValidationError
@@ -374,7 +374,10 @@ def test_a_shadow_cached_before_this_release_is_refused_on_the_cache_hit_path(
     registry = HostileRegistry(tmp_path, changed_triage(tmp_path))
     cached = client.packs_cache() / TRIAGE.id / TRIAGE.version
     shutil.copytree(registry.pack.root, cached)
-    (cached / ".mendari-verified").write_text(hashlib.sha256(registry.data).hexdigest() + "\n")
+    sha256 = hashlib.sha256(registry.data).hexdigest()
+    (cached / ".mendari-verified").write_text(
+        json.dumps({"format": ORIGIN_FORMAT, "archive_sha256": sha256}) + "\n"
+    )
     with registry.client() as signed, pytest.raises(PackValidationError) as refused:
         pull(TRIAGE.id, signed)
     (problem,) = refused.value.problems

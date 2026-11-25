@@ -377,9 +377,9 @@ def test_the_patterns_of_an_agent_from_a_registry_are_asked_on_the_engine_it_run
     asked: list[bool] = []
     search = patterns.search
 
-    def seen(pattern: str, text: str, *, community: bool = False) -> bool:
-        asked.append(community)
-        return search(pattern, text, community=community)
+    def seen(pattern: str, text: str, *, bounded: bool = False) -> bool:
+        asked.append(bounded)
+        return search(pattern, text, bounded=bounded)
 
     monkeypatch.setattr(patterns, "search", seen)
     planned = probe.plan(Decision(pack), probe.source(pack), Options(transformations=("typos",)))

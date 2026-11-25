@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from mendari import Decision, load_pack
 from mendari.cli import main
 from mendari.core.audit import AuditStore
-from mendari.core.origin import MARKER, ORIGIN_FORMAT, UNAPPROVED, pulled_record
+from mendari.core.origin import MARKER, ORIGIN_FORMAT, UNAPPROVED
 from mendari.core.policy import GovernanceOverride
 from mendari.core.spec import Outcome
 from mendari.hub.client import packs_cache, pull
@@ -108,10 +108,6 @@ def test_the_marker_records_where_a_pull_came_from(
         pack.digest,
     )
     assert record["yank"] is None
-    # A marker from before LP-18d (the archive's SHA-256 alone) still reads.
-    (pulled.root / MARKER).write_text(published["archive_sha256"] + "\n")
-    assert pulled_record(pulled.root) == {"archive_sha256": published["archive_sha256"]}
-    assert pull("site-a/inbox", hub.client()).pulled["format"] == ORIGIN_FORMAT  # rewritten
 
 
 def _served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, str, Any]:

@@ -54,7 +54,7 @@ def test_the_tests_never_reach_a_database_the_shell_exports() -> None:
     env = {**os.environ, "DATABASE_URL": UNREACHABLE, "DATABASE_URL_UNPOOLED": UNREACHABLE}
     tests = [
         "tests/test_vercel.py",
-        "tests/test_community_re2.py::test_a_deployment_without_community_packs_never_imports_re2",
+        "tests/test_bounded_re2.py::test_a_deployment_without_bounded_packs_never_imports_re2",
     ]
     command = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", *tests]
     ran = subprocess.run(

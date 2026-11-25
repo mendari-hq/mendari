@@ -245,8 +245,8 @@ Each bullet is one control; the threat model names the row and the tests behind 
 The Jev adapter gets its key from a Vercel Connect connector (exchanged at runtime with the
 deployment's OIDC identity, cached in memory only) or, locally, from `JEV_API_KEY`. Remote
 providers:
-- send only an agent's declared `state_fields` (an agent the deployment does not own, a community
-  or registry agent, must declare them on every model variant, or it is refused at load; an owned
+- send only an agent's declared `state_fields` (an agent the deployment does not own, a registry
+  or store agent, must declare them on every model variant, or it is refused at load; an owned
   agent that omits them sends the whole input);
 - read their endpoint, model and key from fixed environment variables (`JEV_API_URL`,
   `JEV_MODEL`, `JEV_API_KEY`, `JEV_CONNECTOR`; `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`,
@@ -275,10 +275,11 @@ Python `re` with no time limit, so such an agent can slow or stall a worker; on 
 limits bound how often). Their input schemas are bounded in shape at load instead of in time: nested at most 32
 deep, at most 16 `$ref`s in a chain, at most 1,000 schema objects applied to one value, and no
 reference back to itself but a recursive list's or tree's. Agents the deployment does not own run
-on the community engine instead
+on the bounded engine instead
 ([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md)):
-community agents, and agents pulled from a registry unless one is a copy of an agent bundled with
-the installed release, chosen by the digest of its files, never by its manifest or the registry.
+agents pulled from a registry or kept in an organization's agent store, unless one is a copy of an
+agent bundled with the installed release, chosen by the digest of its files, never by its
+manifest or the registry.
 An agent from a registry never takes a bundled agent's place: one with a bundled agent's id and
 version but other files is refused at publish, pull and load. Their patterns run on RE2, which
 never backtracks, within caps, input limits and a CPU budget per decision (below), in the
@@ -361,7 +362,7 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   neither replaces nor shadows it. The declaration must be the library's first statement.
 - An agent's patterns are checked at load. Every rules pattern (of every variant and composite
   member) and every input-schema `pattern` and `patternProperties` key is compiled as it will
-  run (with `re`; a community agent's also for RE2, which must be able to run it), is at most
+  run (with `re`; a registry or store agent's also for RE2, which must be able to run it), is at most
   2,000 characters, and an agent holds at most 500, counted before any is compiled; one that
   fails makes the agent invalid, named by file and rule (`mendari validate` prints no
   traceback; a server lists the agent under `/api/health` `invalid`). This does not bound how
@@ -422,51 +423,27 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   string). The validator retrieves nothing, so checking an input never fetches a URL or reads a
   file.
 
-## Community agents
+## Agents the deployment does not own
 
-Outside developers contribute agents by pull request, into `community-agents/<name>/` with the id
-`community/<name>` ([ADR-0007](docs/decisions/ADR-0007-community-agents-by-pull-request.md); the
-contributor's guide is [`docs/guides/contributing-an-agent.md`](docs/guides/contributing-an-agent.md)).
-They are not clinically reviewed, so the runtime limits what they can do, whatever their
-manifest says (threat model S13, T5, I12, D8, E10). Two of these limits, the input limits and
-the patterns on RE2 with their caps and budget, also hold every agent pulled from a registry
-that is not a copy of an agent bundled with the installed release
+An agent pulled from a registry, or a version in an organization's agent store, that is not a
+copy of an agent bundled with the installed release runs on the bounded engine, whatever its
+manifest says
 ([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md),
-threat model D8 and S15): they are the limits of community and registry agents. The others are
-the community agents' alone: a pulled agent is labelled "From a registry", and it automates
-under its own policy only once its organization approves its digest (above).
+threat model D8 and S15). It is labelled by origin, never by manifest ("From a registry"), and it
+automates under its own policy only once its organization approves its digest (above).
 
-- **Served only where a deployment turns them on** (`MENDARI_COMMUNITY_AGENTS=on`, default off,
-  one switch for all of them), and never shipped in the Python package or the images.
-- **Labelled by origin, never by manifest.** Every surface says "Community · not clinically
-  reviewed" (the review queue and the SMART patient view, where a person confirms, included);
-  `publisher.type` is shown only as self-declared. A community agent's id is
-  `community/<name>`, never one of the namespaces Mendari maintains (`mendari/`,
-  `openhealth/`), and a second claim to its id is refused and reported, never served in place
-  of the first. Its FHIR systems live under its own url
-  (`https://mendari.co/packs/community/<name>/`), published by its publisher as experimental and
-  labelled, never in a CodeSystem of Mendari's. CI refuses a name, CDS title or publisher that
-  copies a maintained agent's name or CDS title, or uses the word Mendari (or OpenHealth) as
-  whole words; a look-alike of either, or a word mixing alphabets, is a warning for the owner's
-  review (the look-alike tables are not complete; the label by origin is the protection).
-- **Recommend only.** A community agent never automates: the policy caps AUTO to HUMAN_REVIEW,
-  and a policy rule that blocks is refused (a block is final at once, and no person sees it).
-- **No spending without the owner.** Its default providers are local; unscoped provider settings
-  never reach it, only `community/<name>:slot=variant` runs it on a remote variant (an
-  evaluation request through the API included), and its pinned model and `max_tokens` give way
-  to the deployment's.
-- **The deployment's model, caps and provider configs** (community and registry agents). The
+- **The deployment's model, caps and provider configs.** The
   model is the deployment's; `max_tokens` and `timeout_ms` are held to the provider defaults
   (LLM 4,096 tokens and 30 s, Jev 5 s; a lower value stands) and a `reasoning_effort` above
   `low` is dropped. Every variant and member is checked at load against its provider's closed
   config (`docs/spec/provider-configs.schema.json`): a key its provider does not read, or a value
   it refuses, refuses the agent. An owned agent loads with such problems as warnings (`mendari
   list`, the start-up log, `/api/health` `pack_warnings`), and `mendari validate` refuses both.
-- **At most 10,000 characters of text** (community and registry agents), alone or together
+- **At most 10,000 characters of text**, alone or together
   (keys too, where its input schema runs patterns on them: `patternProperties`,
   `propertyNames`), and at most 10,000 values
   nested at most 32 deep: a larger input is refused before any pattern or schema check runs.
-- **Patterns on RE2** (community and registry agents). Its patterns (rules and input schema)
+- **Patterns on RE2.** Its patterns (rules and input schema)
   run on RE2 (`google-re2`), which never backtracks, so no pattern can backtrack for seconds:
   their time grows with the text's
   length times the pattern's size, held to RE2's 8 MiB a pattern. A pattern RE2
@@ -482,28 +459,12 @@ under its own policy only once its organization approves its digest (above).
   the schema had already found wrong is refused), so one decision runs them for at most the
   budget plus one step under way (about 3.5 s of CPU on 10,000 characters at worst; the
   bundled agent's rules take under a millisecond). Its schema uses only keywords whose work stays
-  within the budget (the guide lists them; `$ref` only to its own `$defs`, whose names a `$ref`
-  names exactly; short `required` and `enum` lists of short texts); `unevaluatedProperties`,
-  `unevaluatedItems`, `contains`, `uniqueItems` and the others jsonschema works out on its own
-  are refused. Turning
-  community agents on for the hosted
-  platform is the owner's step (`tasks/todo.md`, B9).
-- **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load
-  otherwise.
-- **Checked before review.** A CI job on every pull request (`pull_request`, no secrets, a
-  read-only token, never `pull_request_target`) runs `mendari community-check`: scope (the agent's own folder
-  only, no git submodule, a removal by the owner only), identity, manifest policy, tests,
-  evaluation floors and regressions against the base branch's benchmark and tolerance (on the
-  base's benchmark dataset too), a benchmark, card and models CI builds again and compares,
-  every pattern compiled on RE2 (none is timed in CI: RE2 never backtracks, and at run time the time budget bounds a decision), size limits, and warnings for text that
-  looks like a real person's details. Then the owner reads it, including its clinical content
-  and where that content comes from.
-- **Removal.** Revert the merge and deploy for a safety problem or real patient data (and
-  follow GitHub's sensitive-data removal; a public history cannot be fully cleaned), or set
-  `MENDARI_COMMUNITY_AGENTS=off` to remove them all. `MENDARI_AGENTS` is no kill switch: naming an
-  agent that is not installed stops the server from starting.
+  within the budget (the authoring guide lists them; `$ref` only to its own `$defs`, whose names
+  a `$ref` names exactly; short `required` and `enum` lists of short texts);
+  `unevaluatedProperties`, `unevaluatedItems`, `contains`, `uniqueItems` and the others
+  jsonschema works out on its own are refused.
 
-Report a vulnerability in a community agent (a pattern that stalls, content that leaks or harms)
+Report a vulnerability in such an agent (a pattern that stalls, content that leaks or harms)
 privately, as above; report a wrong clinical answer in a normal issue, with the issue form for an
 agent's content.
 

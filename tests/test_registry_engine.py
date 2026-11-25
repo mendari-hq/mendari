@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Packs the deployment does not own run on the community engine (LP-16a, ADR-0009).
+"""Agents the deployment does not own run on the bounded engine (LP-16a, ADR-0009).
 
-A pack pulled from a registry runs as a community pack's patterns do (#133): RE2, the load-time
-caps, the schema keyword list, the input limits and a CPU budget per decision, then a person
-decides. Unless its digest, the one `load_pack` hashed, is a reference pack's of the installed
-release: a copy of a reference pack keeps the maintained engine. The engine is all it shares
-with a community pack: its label, its automation and its policy are a registry pack's.
-Maintained and local packs stay on `re`, unchanged.
+An agent pulled from a registry runs its patterns on RE2 (#133), with the load-time caps, the
+schema keyword list, the input limits and a CPU budget per decision, then a person decides.
+Unless its digest, the one `load_pack` hashed, is a reference pack's of the installed release: a
+copy of a reference pack keeps the maintained engine. The engine is all that sets it apart: its
+label, its automation and its policy are a registry agent's. Maintained and local packs stay on
+`re`, unchanged.
 
 In the suite the test fixtures' agents stand where a release's bundled agents do (`conftest.py`),
 so they are its reference packs: the triage fixture, whose patterns all run on RE2, and the
@@ -150,7 +150,7 @@ def lookahead(root: Path) -> None:
 # -- the engine ------------------------------------------------------------------------------------
 
 
-def test_a_pack_from_a_registry_runs_on_the_community_engine(tmp_path: Path) -> None:
+def test_a_pack_from_a_registry_runs_on_the_bounded_engine(tmp_path: Path) -> None:
     pack = load_pack(copied(tmp_path, TRIAGE_DIR.name, version="9.9.9"), origin="hub")
     assert pack.bounded
     assert pack.origin_label == "From a registry"
@@ -172,7 +172,7 @@ def test_a_pack_from_a_registry_runs_on_the_community_engine(tmp_path: Path) -> 
 def test_a_registry_copy_decides_the_shipped_inputs_as_the_reference_does(
     tmp_path: Path, name: str
 ) -> None:
-    """The community engine changes no decision of these packs: on every behaviour test and every
+    """The bounded engine changes no decision of these packs: on every behaviour test and every
     case of every dataset they ship, the hub copy (a new version, so not the reference) decides
     with the same outcome, recommendation, priority, answers, evidence and reasons."""
     reference = Decision(load_pack(PACKS / name, origin="maintained"))
@@ -209,9 +209,9 @@ def test_a_pulled_copy_of_a_reference_pack_keeps_the_maintained_engine(tmp_path:
         assert pack.digest == load_pack(directory).digest
 
 
-def test_one_changed_byte_puts_a_reference_copy_on_the_community_engine(tmp_path: Path) -> None:
+def test_one_changed_byte_puts_a_reference_copy_on_the_bounded_engine(tmp_path: Path) -> None:
     """One changed byte makes a copy of a reference pack not the reference pack: at another
-    version it runs on the community engine (where the lookahead the change added cannot run),
+    version it runs on the bounded engine (where the lookahead the change added cannot run),
     and at the reference pack's own version it does not load at all (F: it would take its
     place)."""
     root = copied(tmp_path, TRIAGE_DIR.name, version="9.9.9", edit=lookahead)
@@ -334,7 +334,7 @@ def test_a_version_that_ties_a_reference_packs_is_refused_too(tmp_path: Path, ti
 
 def test_a_pulled_copy_of_a_reference_pack_and_a_newer_version_still_load(tmp_path: Path) -> None:
     """What F leaves as it was: an identical copy is the reference pack (the maintained engine),
-    a changed copy at another version runs on the community engine, and an operator's local
+    a changed copy at another version runs on the bounded engine, and an operator's local
     copy at the reference pack's version is its own choice."""
     reference = TRIAGE
     identical = load_pack(copied(tmp_path / "same", TRIAGE_DIR.name), origin="hub")
@@ -559,7 +559,7 @@ def test_a_registry_packs_schema_uses_only_the_keywords_mendari_bounds(tmp_path:
     with pytest.raises(PackValidationError) as refused:
         load_pack(root, origin="hub")
     assert any(
-        "uniqueItems" in problem and "a community or registry agent's schema may not use" in problem
+        "uniqueItems" in problem and "a registry or store agent's schema may not use" in problem
         for problem in refused.value.problems
     )
     assert not load_pack(root, origin="local").bounded
@@ -571,22 +571,22 @@ def test_a_registry_packs_caps_are_checked_at_load(tmp_path: Path) -> None:
     with pytest.raises(PackValidationError) as refused:
         load_pack(root, origin="hub")
     assert refused.value.problems == [
-        f"{SCREEN_RULES}: negation_window is 300; a community or registry agent's is at most "
+        f"{SCREEN_RULES}: negation_window is 300; a registry or store agent's is at most "
         "200 characters (30 to 40 is usual)"
     ]
     assert not load_pack(root, origin="local").bounded
 
 
-def test_a_registry_pack_is_never_a_community_pack(
+def test_a_registry_pack_keeps_its_own_policy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """It runs on the community engine and nothing more: it automates under its own policy and
+    """It runs on the bounded engine and nothing more: it automates under its own policy and
     its own BLOCK rule blocks; it is labelled as from a registry. Like every pack the deployment
     does not own (LP-16e), its pinned model gives way to the deployment's. It automates only once
     its organization approves its digest (LP-18d): approved here."""
     monkeypatch.setenv("LLM_MODEL", "example/deployment-model")
     pack = outside_sorter(tmp_path / "plain")
-    assert pack.bounded and pack.shown_origin == "hub"
+    assert pack.bounded and pack.origin == "hub"
     assert Decision(pack, origin_approval=lambda _: True).decide(BILL).outcome is Outcome.AUTO
     assert build_provider(pack, "router", "llm").info.model == "example/deployment-model"
 
@@ -598,7 +598,7 @@ def test_a_registry_pack_is_never_a_community_pack(
 
 
 def test_discover_lists_a_refused_registry_pack_and_serves_the_others(tmp_path: Path) -> None:
-    """In the cache, a version on the community engine that cannot run (a lookahead) is listed
+    """In the cache, a version on the bounded engine that cannot run (a lookahead) is listed
     as refused, and the reference pack of its id is served; another pack's new version is."""
     refused = copied(tmp_path, TRIAGE_DIR.name, version="9.9.9", edit=lookahead)
     other = load_pack(copied(tmp_path, CLINICAL_DIR.name, version="9.9.9"))

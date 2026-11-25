@@ -25,7 +25,7 @@ from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore
 from tests.conftest import DEMO_AGENT_DIR, FIXTURE_AGENTS, TRIAGE_DIR, Registry, cpu_time
 from tests.support.engine import pulled, sorter
-from tests.test_community_budget import BOUND_S, fan_out
+from tests.test_bounded_budget import BOUND_S, fan_out
 
 SECRET = "PLANTED-CASE-TEXT-7731"  # in a planted case's input: never in any problem
 
@@ -51,7 +51,7 @@ def _case_number(pack: Pack, name: str) -> int:
     return next(number for number, case in enumerate(cases, start=1) if case["name"] == name)
 
 
-def test_the_command_the_community_check_and_the_registry_call_one_function(
+def test_the_command_and_the_registry_call_one_function(
     tmp_path: Path, registry: Registry, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Each caller is given an agent with one planted problem (a behaviour test's input the

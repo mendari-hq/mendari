@@ -97,7 +97,7 @@ def _a_terminal_80_wide(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.parametrize(
     "text",
-    ["a pack", "Packs", "Decision Pack", "--pack-dir", "PACK_DIR", "pack.yaml", "community-packs/"],
+    ["a pack", "Packs", "Decision Pack", "--pack-dir", "PACK_DIR", "pack.yaml", "agent-packs/"],
 )
 def test_the_old_word_is_found_however_it_is_joined(text: str) -> None:
     assert OLD_WORD.search(text)
@@ -226,13 +226,6 @@ def test_new_writes_an_agent(tmp_path: Path) -> None:
     assert reader.use == "agent" and reader.variants["agent"].type == "agent"
     assert "fixtures/mock_agent.json" in files(plain)  # it answers offline as written
 
-    # The other template is chosen as it was.
-    community = tmp_path / "community-agents" / "sorter"
-    assert main(["new", str(community), "--community"]) == 0
-    contributed = load_pack(community, origin="community")
-    assert contributed.id == "community/sorter"
-    assert contributed.manifest.providers["reader"].use == "rules"
-
 
 def test_the_flag_new_once_needed_is_shown_nowhere() -> None:
     """`mendari new NAME` writes an agent with no flag, and takes no `--agent`: it is shown
@@ -244,7 +237,7 @@ def test_the_flag_new_once_needed_is_shown_nowhere() -> None:
     assert flagged.search("uv run mendari new --agent my-agent --id my-clinic/my-agent")
     assert flagged.search("with `mendari new my-agent --agent`")
     assert not flagged.search("mendari new my-agent --id my-clinic/my-agent")
-    assert not flagged.search("`mendari new x --community`, then `mendari sandbox seed --agent x`")
+    assert not flagged.search("`mendari new x --id a/x`, then `mendari sandbox seed --agent x`")
     read = [root / "README.md", root / "CONTRIBUTING.md"]
     for folder, patterns in {
         "src/mendari": ("*.py", "*.js", "*.html", "*.md", "*.yaml"),
