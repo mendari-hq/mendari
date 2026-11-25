@@ -27,6 +27,7 @@ from mendari.core.pack import Pack
 from mendari.core.spec import CoverageInformation
 from mendari.errors import FhirError, FhirRequestError, FhirSourceNotFound
 from mendari.standards.fhir import display
+from mendari.standards.terminology import PACKS, question_system
 
 CRD = "http://hl7.org/fhir/us/davinci-crd"
 COVERAGE_INFORMATION = f"{CRD}/StructureDefinition/ext-coverage-information"
@@ -131,7 +132,6 @@ def system_action(order: Mapping[str, Any], extension: Mapping[str, Any]) -> dic
 # and payer, and a QuestionnaireResponse pre-answered from what the pack found in the record.
 
 DTR = "http://hl7.org/fhir/us/davinci-dtr"
-PACKS = "https://mendari.co/packs"
 
 
 def requirements(pack: Pack, context: Mapping[str, str]) -> list[str]:
@@ -319,11 +319,6 @@ def assertion_id(order: Mapping[str, Any]) -> str | None:
                 if part.get("url") == "coverage-assertion-id":
                     return str(part.get("valueString"))
     return None
-
-
-def question_system(pack_id: str, question: str) -> str:
-    """The CodeSystem of a question's labels (`terminology.py` generates it)."""
-    return f"{PACKS}/{pack_id}/CodeSystem/{question}"
 
 
 def _coding(pack: Pack, question: str, label: str) -> dict[str, str]:

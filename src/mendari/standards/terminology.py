@@ -11,7 +11,7 @@ what Mendari emits. The server serves them and CI loads them into the HL7 valida
 | `…/fhir/CodeSystem/decision-pack` | `id@version` of the packs served | Task.meta.tag |
 | `…/fhir/CodeSystem/card-override-reasons` | why a card was overridden | `overrideReasons` |
 | a pack's `task.performer_system` | what `FhirAdapter.to_task` routes to | Task.performerType |
-| `…/packs/{pack}/CodeSystem/{question}` | labels, defined by their criteria | Da Vinci DTR |
+| `…/packs/{pack}/CodeSystem/{question}` | labels, by their criteria | Task.output, `$decide` |
 
 The decision-pack system is a `fragment`: decisions made by packs no longer served keep their
 codes. Packs that share a performer system share one CodeSystem, with the union of their codes;
@@ -54,7 +54,7 @@ from mendari.sandbox.code_systems import (
     SITE_ORDER_TYPE_SYSTEM,
     SITE_ORDER_TYPES,
 )
-from mendari.standards import audit_fhir, davinci
+from mendari.standards import audit_fhir
 from mendari.standards.fhir import (
     DECISION_ID_SYSTEM,
     MANUAL_TRIAGE,
@@ -70,6 +70,8 @@ PUBLISHER = "Mendari"
 NAMING_SYSTEMS_DATE = "2026-10-02"  # when their definitions last changed (pinned by a test)
 _OWN = "https://mendari.co/fhir/CodeSystem/"
 _ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}\Z")
+# Where a pack's own CodeSystems live, one per question (`question_system`).
+PACKS = "https://mendari.co/packs"
 
 OUTCOMES: dict[Outcome, tuple[str, str]] = {
     Outcome.AUTO: (
@@ -297,6 +299,12 @@ def sandbox_resources() -> list[dict[str, Any]]:
     ]
 
 
+def question_system(pack_id: str, question: str) -> str:
+    """The CodeSystem of a question's labels (`_questions` generates it): what a Task's outputs
+    (`task_fhir.py`) and `$decide`'s answers (`decide_op.py`) code a label in."""
+    return f"{PACKS}/{pack_id}/CodeSystem/{question}"
+
+
 def resource_id(text: str) -> str:
     """A valid FHIR id from any text: a slug, cut to 64 characters with a hash suffix."""
     slug = re.sub(r"[^a-z0-9.]+", "-", text.lower()).strip("-.")
@@ -452,7 +460,7 @@ def _questions(pack: Pack) -> Iterator[dict[str, Any]]:
     version = f"{pack.version}+{pack.digest.removeprefix('sha256:')[:8]}"
     for key, question in pack.manifest.questions.items():
         yield _code_system(
-            davinci.question_system(pack.id, key),
+            question_system(pack.id, key),
             resource_id(f"{pack.id}-{key}"),
             f"{pack.manifest.name}: {key}",
             question.instructions,
