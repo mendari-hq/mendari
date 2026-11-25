@@ -103,6 +103,7 @@ that is never wrong gives nothing to measure its confidence against. It is left 
 Then name the file in the manifest:
 
 ```yaml
+spec_version: "0.4"
 providers:
   reader:
     variants:

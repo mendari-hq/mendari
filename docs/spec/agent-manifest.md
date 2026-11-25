@@ -128,8 +128,8 @@ All MUST hold:
 - `version` is a semantic version (`MAJOR.MINOR.PATCH`, optionally followed by `-` and a
   pre-release) of at most 64 characters.
 - `license` is an SPDX license expression of at most 200 characters: identifiers (or
-  `LicenseRef-…`, optionally after `DocumentRef-…:`) joined by `AND` and `OR`, an exception after
-  `WITH`, and parentheses. Its syntax is checked, not each identifier against SPDX's list.
+  `LicenseRef-…`, optionally after `DocumentRef-…:`) joined by `AND` and `OR`, an exception
+  after `WITH`, and parentheses. Its syntax is checked, not each identifier against SPDX's list.
 - `code_systems` lists each system once: a `url` (`http(s)://…` or any `urn:…`) and a `name`. A
   code system whose codes are licensed rather than free to redistribute everywhere (CPT,
   SNOMED CT, MedDRA, X12's code lists and CDT) MUST have a `licence_note` saying the terms the
@@ -268,9 +268,10 @@ no decision.
 
 **Status line.** Every surface that shows an agent (its Decision Card's first line, the
 console, its Try it and its review queue, CDS Hooks discovery and cards, the registry and the
-Agent Hub) shows a line derived from `card.provenance`, never written by the agent: with `synthetic`, "Synthetic example. Not clinically reviewed. Not for
-patient care."; otherwise "Not clinically reviewed." There is not yet a way to record a
-clinician's review of an agent's digest, so no agent can claim one.
+Agent Hub) shows a line derived from `card.provenance`, never written by the agent: with
+`synthetic`, "Synthetic example. Not clinically reviewed. Not for patient care."; otherwise
+"Not clinically reviewed." There is not yet a way to record a clinician's review of an agent's
+digest, so no agent can claim one.
 
 ## 5. Providers
 
@@ -315,14 +316,14 @@ The `agent` type's request and response are the agent's HTTP contract
 ([Authoring an agent](../guides/authoring-an-agent.md#6-the-agents-http-contract)): a request
 carries the agent's id, the slot, the variant's `service_id`, the slot's questions (each with
 its key, type, instructions, labels and criteria), the input, or only its `state_fields`, and
-the variant's `system_prompt` and `instructions` when it sets them; a response carries an answer for every question asked, and MAY carry the `model` and
-`service_version` that answered, the `tool_calls` the agent made to reach its answers (kept as
-evidence), its usage, the actions it proposes (§13.6) and the texts it wrote (§15.2). A
-response that is not one the contract allows is the provider error `invalid_response`, and the
-slot's questions fail.
+the variant's `system_prompt` and `instructions` when it sets them; a response carries an
+answer for every question asked, and MAY carry the `model` and `service_version` that answered,
+the `tool_calls` the agent made to reach its answers (kept as evidence), its usage, the actions
+it proposes (§13.6) and the texts it wrote (§15.2). A response that is not one the contract
+allows is the provider error `invalid_response`, and the slot's questions fail.
 
-A failed member of a `check` is recorded as a failure of the slot's questions
-(`<member>:<code>`), which caps `AUTO` (§6).
+A `check`'s second member that fails is recorded as a failure of the slot's questions
+(`<member>:<code>`), which caps `AUTO` (§6); a first member that fails fails the slot (§14.4).
 
 ### 5.3 The plain form
 
@@ -474,10 +475,10 @@ Evaluation order (MUST):
    `allow_auto: false`; any provider failure in the decision; a slot named in
    `automation_requires` running another variant; the risk level (§7); and what the deployment
    adds (§7): an automation hold, an agent from a registry its organization has not approved or
-   that its registry recalls, a value read through a site's translation of its own code (§9.6), a list read without a source
-   the site declared its EHR does not offer (§9.7), and, on a server with sign-in, answers read
-   from an `agent` variant's `mock_file`. Then the caps the providers found (§14), and last the
-   actions' cap (§13.7), in the order §14.5 gives.
+   that its registry recalls, a value read through a site's translation of its own code (§9.6),
+   a list read without a source the site declared its EHR does not offer (§9.7), and, on a
+   server with sign-in, answers read from an `agent` variant's `mock_file`. Then the caps the
+   providers found (§14), and last the actions' cap (§13.7), in the order §14.5 gives.
 6. `ABSTAIN` carries no recommendation. `ABSTAIN` and `BLOCK` carry the policy `fallback`.
 
 `automation_requires: {<slot>: [<variant>...]}` allows `AUTO` only while each named slot runs
@@ -1049,7 +1050,7 @@ tests with is one the digest hashes, compared as a file on disk, and is used onl
 content the digest hashed (§3.2), so the digest covers everything the agent decides with;
 `evaluation.benchmark`, an attestation, is in `evals/`. Every decision and evaluation report
 records the digest, so an audit record identifies the exact behaviour that produced it. A
-change to any file the digest covers makes another version: a governance approval of the old
+change to any file the digest covers changes the digest: a governance approval of the old
 digest no longer applies.
 
 ## 12. Audit records
