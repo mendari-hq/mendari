@@ -20,17 +20,17 @@ from mendari import Decision, load_pack
 from mendari.core import input_schema
 from mendari.core.schema_graph import _graph
 from mendari.errors import PackValidationError
-from tests.conftest import INBOX_DIR, message
+from tests.conftest import FIXTURE_AGENTS, ROOT, TRIAGE_DIR, message
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
 BODY = ("properties", "message", "properties", "body")
 
 
 @pytest.fixture
-def inbox(tmp_path: Path) -> Path:
-    """A copy of the inbox pack to edit."""
+def triage_copy(tmp_path: Path) -> Path:
+    """A copy of the triage fixture to edit."""
     root = tmp_path / "pack"
-    shutil.copytree(INBOX_DIR, root)
+    shutil.copytree(TRIAGE_DIR, root)
     return root
 
 
@@ -78,7 +78,7 @@ def listener() -> Iterator[tuple[str, list[str]]]:
 
 @pytest.mark.parametrize("kind", ["http", "file"])
 def test_a_reference_outside_the_schema_fails_to_load_and_fetches_nothing(
-    inbox: Path, tmp_path: Path, listener: tuple[str, list[str]], kind: str
+    triage_copy: Path, tmp_path: Path, listener: tuple[str, list[str]], kind: str
 ) -> None:
     # jsonschema fetched any `$ref` URL (or read a local file) on every input check, with no
     # timeout: a request from the server to a host the pack chose, and validation rules outside
@@ -87,7 +87,7 @@ def test_a_reference_outside_the_schema_fails_to_load_and_fetches_nothing(
     secret = tmp_path / "secret.json"
     secret.write_text('{"type": "integer"}')
     reference = url if kind == "http" else secret.as_uri()
-    root = edit_schema(inbox, lambda schema: _body(schema).update({"$ref": reference}))
+    root = edit_schema(triage_copy, lambda schema: _body(schema).update({"$ref": reference}))
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
     assert raised.value.problems == [
@@ -157,14 +157,14 @@ def test_a_reference_outside_the_schema_fails_to_load_and_fetches_nothing(
     ],
 )
 def test_a_schema_that_is_not_self_contained_fails_to_load(
-    inbox: Path, edit: Callable[[dict[str, Any]], None], problem: str
+    triage_copy: Path, edit: Callable[[dict[str, Any]], None], problem: str
 ) -> None:
     with pytest.raises(PackValidationError) as raised:
-        load_pack(edit_schema(inbox, edit))
+        load_pack(edit_schema(triage_copy, edit))
     assert raised.value.problems == [f"input schema: {problem}"]
 
 
-def test_format_regex_is_refused_because_it_compiles_the_input(inbox: Path) -> None:
+def test_format_regex_is_refused_because_it_compiles_the_input(triage_copy: Path) -> None:
     # T5: jsonschema checks `format: regex` with `re.compile` on the caller's string: about 4 ms
     # per case-insensitive class, so one large input held a worker for minutes, and a string too
     # deep or with a huge repeat count raised past jsonschema (a 500 with no decision record).
@@ -174,29 +174,28 @@ def test_format_regex_is_refused_because_it_compiles_the_input(inbox: Path) -> N
     assert input_schema.problems({"type": "string", "format": "date"}) == []
 
 
-def test_local_references_and_the_root_dialect_still_work(inbox: Path) -> None:
+def test_local_references_and_the_root_dialect_still_work(triage_copy: Path) -> None:
     def edit(schema: dict[str, Any]) -> None:
         schema["$schema"] = DIALECT
-        schema["$id"] = "https://example.org/inbox.schema.json"
+        schema["$id"] = "https://example.org/triage.schema.json"
         schema["$defs"] = {"text": {"type": "string", "maxLength": 5}}
         schema["properties"]["note"] = {"$ref": "#/$defs/text"}
         schema["properties"]["reply"] = {"$ref": "#"}
 
-    decision = Decision(load_pack(edit_schema(inbox, edit)))
+    decision = Decision(load_pack(edit_schema(triage_copy, edit)))
     assert decision.validate({**message("hi"), "note": "short"}) == []
     assert decision.validate({**message("hi"), "note": "far too long"}) != []
     assert decision.validate({**message("hi"), "reply": message("inner")}) == []
 
 
 def test_every_shipped_input_schema_is_self_contained() -> None:
-    for root in sorted(INBOX_DIR.parent.iterdir()):
+    for root in sorted(FIXTURE_AGENTS.iterdir()):
         if (root / "agent.yaml").is_file():
             assert input_schema.problems(load_pack(root).input_schema) == [], root.name
 
 
 # -- the expansion bounds on a schema the deployment owns (LP-16f) --------------------------------
 
-ROOT = INBOX_DIR.parents[3]
 APPLICATIONS = (
     "schemas (at most 1,000): a $ref, allOf, anyOf or oneOf that reaches the same schema more "
     "than once multiplies it"
@@ -225,9 +224,10 @@ def fanning(depth: int, width: int) -> Callable[[dict[str, Any]], None]:
     return edit
 
 
-def inbox_copy(base: Path, name: str) -> Path:
+def triage_at(base: Path, name: str) -> Path:
+    """A copy of the triage fixture in `base/name`."""
     root = base / name
-    shutil.copytree(INBOX_DIR, root)
+    shutil.copytree(TRIAGE_DIR, root)
     return root
 
 
@@ -237,25 +237,25 @@ def refused(root: Path) -> list[str]:
     return raised.value.problems
 
 
-def test_a_nested_ref_schema_is_refused_at_load(inbox: Path) -> None:
+def test_a_nested_ref_schema_is_refused_at_load(triage_copy: Path) -> None:
     """LP-16's nested-`$ref` test, for a pack the deployment owns (one it does not own keeps the
     caps and the time budget, `tests/test_community_budget.py`): 28 levels of allOf over two
     `$ref`s apply the last schema 2**28 times to one value, and jsonschema would walk every one.
     The pack is refused at load, saying why."""
-    assert refused(edit_schema(inbox, fanning(28, 2))) == [
+    assert refused(edit_schema(triage_copy, fanning(28, 2))) == [
         "input schema: #/properties/note: a chain of 29 $refs (at most 16)",
         f"input schema: one value can be checked against more than 1,000,000,000 {APPLICATIONS}",
     ]
 
 
-def test_a_wide_fan_out_is_refused_at_load(inbox: Path) -> None:
+def test_a_wide_fan_out_is_refused_at_load(triage_copy: Path) -> None:
     """Twenty `$ref`s at each of 4 levels: 160,000 applications of the last, with no long chain."""
-    assert refused(edit_schema(inbox, fanning(4, 20))) == [
+    assert refused(edit_schema(triage_copy, fanning(4, 20))) == [
         f"input schema: one value can be checked against 336,842 {APPLICATIONS}"
     ]
 
 
-def test_a_ref_cycle_in_place_is_refused_at_load(inbox: Path, tmp_path: Path) -> None:
+def test_a_ref_cycle_in_place_is_refused_at_load(triage_copy: Path, tmp_path: Path) -> None:
     """A schema that applies itself to the same value never ends (jsonschema recurses until
     Python stops it); a tree whose node applies its child twice doubles at each level."""
 
@@ -263,7 +263,7 @@ def test_a_ref_cycle_in_place_is_refused_at_load(inbox: Path, tmp_path: Path) ->
         schema["$defs"] = {"a": {"allOf": [{"$ref": "#/$defs/a"}]}}
         schema["properties"]["note"] = {"$ref": "#/$defs/a"}
 
-    assert refused(edit_schema(inbox, in_place)) == [f"input schema: #/$defs/a: {LEADS_BACK}"]
+    assert refused(edit_schema(triage_copy, in_place)) == [f"input schema: #/$defs/a: {LEADS_BACK}"]
 
     def doubling_tree(schema: dict[str, Any]) -> None:
         schema["$defs"] = {
@@ -273,11 +273,11 @@ def test_a_ref_cycle_in_place_is_refused_at_load(inbox: Path, tmp_path: Path) ->
         schema["properties"]["tree"] = {"$ref": "#/$defs/n"}
 
     other = tmp_path / "tree"
-    shutil.copytree(INBOX_DIR, other)
+    shutil.copytree(TRIAGE_DIR, other)
     assert refused(edit_schema(other, doubling_tree)) == [f"input schema: #/$defs/n: {LEADS_BACK}"]
 
 
-def test_a_binary_tree_recursion_is_refused_at_load(inbox: Path) -> None:
+def test_a_binary_tree_recursion_is_refused_at_load(triage_copy: Path) -> None:
     """A node whose `left` and `right` are both the node leads back into the loop twice: refused
     as conflict 22 chose (a loop leads back once), though one value meets the node once."""
 
@@ -286,7 +286,7 @@ def test_a_binary_tree_recursion_is_refused_at_load(inbox: Path) -> None:
         schema["$defs"] = {"n": node}
         schema["properties"]["tree"] = {"$ref": "#/$defs/n"}
 
-    assert refused(edit_schema(inbox, binary)) == [f"input schema: #/$defs/n: {LEADS_BACK}"]
+    assert refused(edit_schema(triage_copy, binary)) == [f"input schema: #/$defs/n: {LEADS_BACK}"]
 
 
 def nested_unevaluated(levels: int, last: dict[str, Any]) -> dict[str, Any]:
@@ -312,7 +312,7 @@ def test_nested_unevaluated_keywords_are_refused_at_load_and_quickly(tmp_path: P
         }
         schema["properties"]["note"] = {"$ref": "#/$defs/d0"}
 
-    root = edit_schema(inbox_copy(tmp_path, "review"), review)
+    root = edit_schema(triage_at(tmp_path, "review"), review)
     schema = json.loads((root / "schemas" / "input.schema.json").read_text())
     counted = input_schema._expansion(_graph(schema))
     assert not isinstance(counted, str)
@@ -327,7 +327,7 @@ def test_nested_unevaluated_keywords_are_refused_at_load_and_quickly(tmp_path: P
             inner = {"anyOf": [{"properties": {"a": inner}}], "unevaluatedProperties": False}
         schema["properties"]["note"] = inner
 
-    root = edit_schema(inbox_copy(tmp_path, "property"), through_a_property)
+    root = edit_schema(triage_at(tmp_path, "property"), through_a_property)
     assert refused(root) == [f"input schema: #/properties/note: {UNEVALUATED_AGAIN}"]
 
 
@@ -346,13 +346,13 @@ def test_one_unevaluated_keyword_on_a_path_still_loads(tmp_path: Path) -> None:
             "unevaluatedItems": False,
         }
 
-    decision = Decision(load_pack(edit_schema(inbox_copy(tmp_path, "once"), once)))
+    decision = Decision(load_pack(edit_schema(triage_at(tmp_path, "once"), once)))
     assert decision.validate({**message("hi"), "note": {"x": "a", "y": 1}, "codes": ["c"]}) == []
     assert decision.validate({**message("hi"), "note": {"x": "a", "z": 1}}) != []
     assert decision.validate({**message("hi"), "codes": ["c", "d"]}) != []
 
 
-def test_a_recursive_schema_that_reaches_another_is_refused_at_load(inbox: Path) -> None:
+def test_a_recursive_schema_that_reaches_another_is_refused_at_load(triage_copy: Path) -> None:
     """A tree whose every node holds a recursive list: one value deep down meets the list's
     schema once for each level above it, so the count grows with the input's depth."""
 
@@ -368,15 +368,15 @@ def test_a_recursive_schema_that_reaches_another_is_refused_at_load(inbox: Path)
         }
         schema["properties"]["tree"] = {"$ref": "#/$defs/node"}
 
-    assert refused(edit_schema(inbox, nested_loops)) == [
+    assert refused(edit_schema(triage_copy, nested_loops)) == [
         "input schema: #/$defs/node: a schema that refers back to itself leads to another that "
         "does: the deeper the input, the more schemas one value is checked against"
     ]
 
 
 def test_a_schema_nested_past_32_levels_is_refused_at_load(tmp_path: Path) -> None:
-    """The inbox schema with a property nested to 33 levels in all (`not` in `not`...); 32
-    loads."""
+    """The triage fixture's schema with a property nested to 33 levels in all (`not` in
+    `not`...); 32 loads."""
 
     def nested(levels: int) -> Callable[[dict[str, Any]], None]:
         def edit(schema: dict[str, Any]) -> None:
@@ -388,7 +388,7 @@ def test_a_schema_nested_past_32_levels_is_refused_at_load(tmp_path: Path) -> No
         return edit
 
     for levels in (32, 33):
-        shutil.copytree(INBOX_DIR, tmp_path / str(levels))
+        shutil.copytree(TRIAGE_DIR, tmp_path / str(levels))
     assert refused(edit_schema(tmp_path / "33", nested(33))) == [
         "input schema: nested 33 levels deep (at most 32)"
     ]
@@ -405,7 +405,7 @@ def test_a_long_ref_chain_is_refused_at_load(tmp_path: Path) -> None:
         return edit
 
     for refs in (16, 17):
-        shutil.copytree(INBOX_DIR, tmp_path / str(refs))
+        shutil.copytree(TRIAGE_DIR, tmp_path / str(refs))
     assert refused(edit_schema(tmp_path / "17", chain(17))) == [
         "input schema: #/properties/note: a chain of 17 $refs (at most 16)"
     ]
@@ -414,7 +414,7 @@ def test_a_long_ref_chain_is_refused_at_load(tmp_path: Path) -> None:
     assert decision.validate({**message("hi"), "note": 1}) != []
 
 
-def test_a_recursive_list_schema_still_loads_and_decides(inbox: Path) -> None:
+def test_a_recursive_list_schema_still_loads_and_decides(triage_copy: Path) -> None:
     """A tree whose nodes list their children (a simple loop through `items`) meets each of its
     schemas once on any value: it loads, checks a deep input, and decides as before."""
 
@@ -429,12 +429,12 @@ def test_a_recursive_list_schema_still_loads_and_decides(inbox: Path) -> None:
         schema["$defs"] = {"node": node}
         schema["properties"]["tree"] = {"$ref": "#/$defs/node"}
 
-    edited = Decision(load_pack(edit_schema(inbox, tree)))
+    edited = Decision(load_pack(edit_schema(triage_copy, tree)))
     deep: dict[str, Any] = {"name": "leaf"}
     for level in range(50):
         deep = {"name": f"level {level}", "children": [deep, {"name": "sibling"}]}
     given = message("Can I get a refill of my blood pressure medicine?")
-    shipped = Decision(load_pack(INBOX_DIR)).decide(given)
+    shipped = Decision(load_pack(TRIAGE_DIR)).decide(given)
     result = edited.decide({**given, "tree": deep})
     for field in ("outcome", "recommendation", "priority", "reasons", "labels"):
         assert getattr(result, field) == getattr(shipped, field), field
@@ -446,18 +446,19 @@ def test_a_recursive_list_schema_still_loads_and_decides(inbox: Path) -> None:
 
 
 def test_every_shipped_schema_is_within_the_expansion_bounds() -> None:
-    """The reference packs, the scaffolds (`mendari new`; `--community` lays its files over the
-    same schema) and the test fixtures, with their margins: at most 6 deep (32), 1 `$ref` in a
-    chain (16) and 2 schema objects on one value (1,000)."""
+    """The agents the tests bundle, the scaffolds (`mendari new`) and every other test fixture,
+    with their margins: at most 6 deep (32), 1 `$ref` in a chain (16) and 2 schema objects on one
+    value (1,000)."""
     found = sorted(
-        [
-            *ROOT.glob("tests/fixtures/reference-agents/*/schemas/*.json"),
+        {
+            *FIXTURE_AGENTS.glob("*/schemas/*.json"),
             *ROOT.glob("src/mendari/templates/*/schemas/*.json"),
             *ROOT.glob("tests/fixtures/**/schemas/*.json"),
-        ]
+        }
     )
-    assert len(found) >= 11
-    assert not (ROOT / "src" / "mendari" / "templates" / "community" / "schemas").exists()
+    bundled = [root for root in FIXTURE_AGENTS.iterdir() if (root / "agent.yaml").is_file()]
+    assert bundled and all(any(path.is_relative_to(root) for path in found) for root in bundled)
+    assert any(path.is_relative_to(ROOT / "src" / "mendari" / "templates") for path in found)
     for path in found:
         schema = json.loads(path.read_text())
         assert input_schema.expansion_problems(schema) == [], path
@@ -466,6 +467,6 @@ def test_every_shipped_schema_is_within_the_expansion_bounds() -> None:
         applications, chain, _ = counted
         assert input_schema._nesting(schema) <= 6 and chain <= 1 and applications <= 2, path
         assert not any(node.unevaluated for node in _graph(schema)), path  # none uses either
-    for root in sorted(INBOX_DIR.parent.iterdir()):
+    for root in sorted(FIXTURE_AGENTS.iterdir()):
         if (root / "agent.yaml").is_file():
             assert input_schema.expansion_problems(load_pack(root).input_schema) == [], root.name
