@@ -36,7 +36,6 @@ CLINICAL_NAME = "Synthetic Clinical Review (test fixture)"
 CHART_NAME = "Synthetic Chart Summary (test fixture)"
 VIEWS = ["overview", "agents", "review", "audit", "evals", "feedback", "card", "try"]
 PHONE: ViewportSize = {"width": 390, "height": 844}
-DOCS_SITE = "https://mendari-hq.github.io/mendari/"  # mkdocs.yml site_url
 
 # Form controls and buttons in the view with no accessible name.
 UNNAMED = """() => [...document.querySelectorAll(
@@ -201,9 +200,7 @@ def test_a_fhir_decision_shows_what_it_read_in_its_record(axe_page: Page, live_s
     assert axe_page.evaluate(BARE_PERCENT_IN, ".drawer section.coverage") == []
     assert not re.search(r"\d+\s+(?:of|out of|/)\s*\d+", panel.inner_text())  # no k of n
     assert violations(axe_page) == []
-    latest = httpx.get(
-        f"{live_server}/api/audit", params={"pack_id": CLINICAL, "limit": 1}
-    ).json()
+    latest = httpx.get(f"{live_server}/api/audit", params={"pack_id": CLINICAL, "limit": 1}).json()
     axe_page.goto(f"/?agent={CLINICAL}#audit/{latest[0]['id']}")
     expect(axe_page.get_by_role("dialog")).to_contain_text(latest[0]["id"])
     expect(axe_page.locator(".drawer section.coverage")).to_have_count(0)
@@ -235,9 +232,9 @@ def test_a_list_of_several_resource_types_shows_a_row_per_source(
 def test_a_shared_link_opens_the_pack_it_was_copied_from(page: Page, live_server: str) -> None:
     """The pack is in the address, so a link beats whatever pack the viewer chose last, a record
     link opens over that pack's list, and moving between views keeps it."""
-    latest = httpx.get(
-        f"{live_server}/api/audit", params={"pack_id": CLINICAL, "limit": 1}
-    ).json()[0]
+    latest = httpx.get(f"{live_server}/api/audit", params={"pack_id": CLINICAL, "limit": 1}).json()[
+        0
+    ]
     page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(TRIAGE)})")
     page.goto(f"/?agent={CLINICAL}#audit/{latest['id']}")
     expect(page.get_by_role("dialog")).to_contain_text(latest["id"])
@@ -937,7 +934,9 @@ def test_the_cost_chart_names_the_deployed_and_the_unbeaten_never_the_first(
     first = next(r for r in rows if r["rank"] == 1)
     cheaper = next(r for r in rows if r["rank"] == 3)
     deployed = next(r for r in rows if {p["variant"] for p in r["providers"].values()} == {"rules"})
-    beats_deployed = next(r for r in rows if r is not first and r is not cheaper and r is not deployed)
+    beats_deployed = next(
+        r for r in rows if r is not first and r is not cheaper and r is not deployed
+    )
     for number, row in enumerate(rows, start=1):
         row["cost_per_decision_usd"] = number / 10_000
     cheaper["cost_per_decision_usd"] = 1 / 100_000
@@ -974,26 +973,35 @@ def test_the_cost_chart_names_the_deployed_and_the_unbeaten_never_the_first(
     expect(chart.locator("svg .ring")).to_have_count(1)
 
 
-def engine_detail(page: Page, example: str) -> None:
-    """Decide a GUARD example in Try it, then open its record, where the engine's charts are."""
-    open_pack(page, GUARD, "try")
-    page.select_option("#example", label=example)
+# Messages of the triage fixture's: an abusive one (blocked by its rule `abusive-message`), and a
+# refill.
+ABUSIVE = "You people are useless. Can you send a refill of my metformin to the pharmacy?"
+REFILL = "Hi, I need a refill on my lisinopril. I have about three pills left."
+
+
+def engine_detail(page: Page, body: str) -> None:
+    """Decide the message `body` on the triage fixture in Try it, then open its record, where
+    the engine's charts are."""
+    open_pack(page, TRIAGE, "try")
+    page.locator("#body").fill(body)
     page.get_by_role("button", name="Decide").click()
     page.get_by_role("link", name=re.compile("^Engine detail")).click()
     expect(page.locator(".drawer")).to_be_visible()
 
 
 def test_probability_bars_are_coloured_by_what_the_label_does(page: Page) -> None:
-    verdict = '.drawer figure.chart[data-chart$="-verdict"] .chosen rect'
-    engine_detail(page, "a draft that misses an emergency is blocked")
-    expect(page.locator(f"{verdict}.f-block")).to_have_count(1)  # a block is danger, not green
-    expect(page.locator('.drawer figure.chart[data-chart$="-verdict"] svg')).to_have_attribute(
+    abusive = '.drawer figure.chart[data-chart$="-abusive"] .chosen rect'
+    engine_detail(page, ABUSIVE)
+    expect(page.locator(f"{abusive}.f-block")).to_have_count(1)  # a block is danger, not green
+    expect(page.locator('.drawer figure.chart[data-chart$="-abusive"] svg')).to_have_attribute(
         "aria-label",
-        re.compile(r"^May the draft be sent to the patient\? block \d.*Chosen: block\.$"),
+        re.compile(
+            r"^Is the message abusive towards the people who read it\? yes \d.*Chosen: yes\.$"
+        ),
     )
-    engine_detail(page, "a safe draft passes and waits for one-step approval")
-    expect(page.locator(f"{verdict}.f-c1")).to_have_count(1)
-    expect(page.locator(f"{verdict}.f-block")).to_have_count(0)
+    engine_detail(page, REFILL)
+    expect(page.locator(f"{abusive}.f-c1")).to_have_count(1)
+    expect(page.locator(f"{abusive}.f-block")).to_have_count(0)
 
 
 def test_the_confusion_matrix_shades_only_the_mistakes(page: Page) -> None:
@@ -1009,38 +1017,27 @@ def test_the_confusion_matrix_shades_only_the_mistakes(page: Page) -> None:
 
 
 def test_the_threshold_sweep_does_not_claim_automation_that_never_happens(page: Page) -> None:
-    """At risk level 2 the AI Guard automates nothing; the sweep is a what-if and says so."""
-    open_pack(page, GUARD, "evals")
+    """At risk level 2 the clinical review automates nothing; the sweep is a what-if and says
+    so."""
+    open_pack(page, CLINICAL, "evals")
     page.goto("/#evals/report")
     sweep = page.locator('figure.chart[data-chart^="sweep"]')
     expect(sweep).to_contain_text("Automation threshold 0.90")
     expect(sweep).to_contain_text("Nothing was automated in this run")
     expect(sweep).not_to_contain_text("automates at")
 
-    def automating(route: Route) -> None:  # the inbox's benchmark with a model in the screen
+    def automating(route: Route) -> None:  # the triage benchmark with an agent in the screen
         body = route.fetch().json()
         body["benchmark"]["decisions"]["outcome_rates"]["AUTO"] = 0.91
         route.fulfill(json=body)
 
     page.route(f"**/api/agents/{TRIAGE}", automating)
     page.select_option("#pack-select", TRIAGE)
-    expect(page.locator("#evals-body")).to_contain_text("Destination accuracy")
+    expect(page.locator("#evals-body")).to_contain_text("Team accuracy")
     expect(page.locator('figure.chart[data-chart^="sweep"]')).not_to_contain_text("Nothing was")
 
 
-def test_criterion_bars_take_the_colour_of_their_effect(page: Page) -> None:
-    """unsafe_advice = yes blocks the draft through the decision table, so its bar is danger too,
-    matching the criteria table's Effect column. The charts are the engine's detail, in the
-    decision record's drawer, drawn when it opens."""
-    engine_detail(page, "a draft that misses an emergency is blocked")
-    unsafe = page.locator('.drawer figure.chart[data-chart$="-unsafe_advice"]')
-    expect(unsafe.locator(".chosen rect.f-block")).to_have_count(1)
-    expect(unsafe.locator(".chosen .bar-label")).to_have_text("yes")
-
-
 # -- screens (Phase 4) ----------------------------------------------------------------------------
-
-REFILL = "Hi, I need a refill on my lisinopril. I have about three pills left."
 
 
 def decide_triage(base: str, body: str) -> dict[str, Any]:
@@ -1053,9 +1050,9 @@ def decide_triage(base: str, body: str) -> dict[str, Any]:
 def test_the_overview_leads_with_what_people_act_on(page: Page) -> None:
     open_pack(page, TRIAGE)
     deployed = page.locator(".pack-header .deployed")
-    expect(deployed).to_contain_text("Safety screen: Rules")  # words first...
-    expect(deployed).to_contain_text("Router: Naive Bayes")
-    expect(page.locator(".pack-header .mono")).to_contain_text("router=naive_bayes")  # codes below
+    expect(deployed).to_contain_text("Screen: Rules")  # words first...
+    expect(deployed).to_contain_text("Router: Rules")
+    expect(page.locator(".pack-header .mono")).to_contain_text("router=rules")  # codes below
     primary = page.locator(".stats-primary .stat")
     expect(primary).to_have_count(4)
     waiting = primary.nth(1)
@@ -1086,8 +1083,8 @@ def test_only_administrators_are_offered_the_chain_verification(page: Page) -> N
 def test_the_audit_trail_exports_as_fhir_and_says_the_checkpoint_is_not_set_up(
     page: Page,
 ) -> None:
-    """Open mode, no MENDARI_CHECKPOINT_KEY: the checkpoint is one quiet line, and the pack's
-    trail downloads as FHIR NDJSON named for the pack and the deployment's day."""
+    """Open mode, no MENDARI_CHECKPOINT_KEY: the checkpoint is one quiet line, and the agent's
+    trail downloads as FHIR NDJSON named for the agent and the deployment's day."""
     open_pack(page, TRIAGE, "audit")
     expect(page.locator("#checkpoint")).to_have_text(
         "Signed daily checkpoint: not set up on this deployment."
@@ -1095,7 +1092,7 @@ def test_the_audit_trail_exports_as_fhir_and_says_the_checkpoint_is_not_set_up(
     with page.expect_download() as saved:
         page.get_by_role("button", name="Export as FHIR").click()
     day = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
-    assert saved.value.suggested_filename == f"audit-mendari-patient-inbox-router-{day}.ndjson"
+    assert saved.value.suggested_filename == f"audit-mendari-test-triage-{day}.ndjson"
     exported = [json.loads(line) for line in saved.value.path().read_text().splitlines()]
     assert {"AuditEvent", "Provenance"} >= {r["resourceType"] for r in exported}
     assert any(r["resourceType"] == "AuditEvent" for r in exported)
@@ -1122,7 +1119,7 @@ def test_stat_reviews_come_first_and_focus_moves_to_the_next_card(
     expect(page.locator(".review-group h2").first).to_contain_text("Stat")
     cards = page.locator(".review-card")
     first, second = cards.nth(0), cards.nth(1)
-    expect(first.locator(".stat-banner")).to_contain_text("Possible emergency")
+    expect(first.locator(".stat-banner")).to_contain_text("Possible same-day symptoms")
     first_id, second_id = first.get_attribute("data-id"), second.get_attribute("data-id")
     confirm = first.get_by_role("button", name=re.compile("^Confirm Nurse"))
     confirm.focus()
@@ -1132,27 +1129,25 @@ def test_stat_reviews_come_first_and_focus_moves_to_the_next_card(
 
 
 def test_the_result_leads_with_the_outcome_and_takes_focus(page: Page) -> None:
-    open_pack(page, GUARD, "try")
-    page.select_option("#example", label="a draft that misses an emergency is blocked")
+    open_pack(page, TRIAGE, "try")
+    page.locator("#body").fill(ABUSIVE)
     page.get_by_role("button", name="Decide").click()
     title = page.locator("#result-title")
-    expect(title).to_have_text(re.compile(r"Blocked · urgent"))
+    expect(title).to_have_text(re.compile(r"^Blocked"))
     expect(title).to_be_focused()
-    expect(page.locator("#result .callout.danger")).to_contain_text("Do not send the draft")
-    # Criteria that block are danger-coloured, not the review amber.
-    expect(page.locator("#result .criteria tr.hit-block")).not_to_have_count(0)
-    expect(page.locator("#result .criteria tr.hit-review")).to_have_count(0)
-    # Criteria read as the pack's names; each code is one click away ("Show codes").
-    criterion = page.locator("#result .criteria td.criterion").first
-    expect(criterion).to_contain_text("Possible emergency in the message")
-    code = criterion.locator(".code-ref code")
-    expect(code).to_have_text("question_emergency")
+    expect(page.locator("#result .callout.danger")).to_contain_text(
+        "The front desk reads the message."
+    )
+    # Answers read as the agent's names; each code is one click away ("Show codes").
+    answer = page.locator("#result .answers dt", has_text="Abusive")
+    code = answer.locator(".code-ref code")
+    expect(code).to_have_text("abusive")
     expect(code).to_be_hidden()
     toggle = page.get_by_role("button", name="Show codes")
     toggle.click()
     expect(code).to_be_visible()
     expect(toggle).to_have_attribute("aria-pressed", "true")  # a toggle keeps its name
-    expect(criterion).to_contain_text("Possible emergency in the message question_emergency")
+    expect(answer).to_contain_text("Abusive abusive")
 
 
 def test_a_wrong_rating_takes_the_right_answer_and_can_be_changed(
@@ -1270,7 +1265,7 @@ def test_the_decision_card_is_a_document_with_linked_sections(page: Page) -> Non
     heading = page.get_by_role("heading", name="Policy", exact=True)
     expect(heading).to_be_focused()
     expect(page.locator("#card-policy")).to_contain_text(
-        "When the chance that urgency is urgent is at least 0.35."
+        "When the chance that urgency is yes is at least 0.35."
     )
     page.reload()  # a link to a section lands there
     expect(heading).to_be_focused()
@@ -1280,15 +1275,16 @@ def test_the_decision_card_is_a_document_with_linked_sections(page: Page) -> Non
 @pytest.mark.parametrize(
     ("pack_id", "automates"),
     [
-        (TRIAGE, "Not with the deployed providers: automation needs safety_screen"),
-        (GUARD, "Not without an approval: at risk level 2 a person reviews every decision"),
-        ("mendari/referral-router", "Not with the deployed providers: automation needs"),
+        (TRIAGE, "Not with the deployed providers: automation needs screen"),
+        (CLINICAL, "Not without an approval: at risk level 2 a person reviews every decision"),
+        (CHART, "At confidence 0.90 or more"),
     ],
 )
 def test_the_card_says_whether_this_deployment_automates(
     page: Page, pack_id: str, automates: str
 ) -> None:
-    """The thresholds alone would say "automates at 0.90" for packs that never automate here."""
+    """The thresholds alone would say "automates at 0.90" for agents that never automate here;
+    one whose canned answers automate in open mode says so."""
     open_pack(page, pack_id, "card")
     expect(page.locator("dl.facts")).to_contain_text(automates)
 
@@ -1296,8 +1292,8 @@ def test_the_card_says_whether_this_deployment_automates(
 def test_with_a_model_in_the_screen_the_card_says_the_inbox_automates(page: Page) -> None:
     def screened(route: Route) -> None:
         body = route.fetch().json()
-        jev = "rules:rules@661449489daf + jev:jev-1.13.0"
-        body["active_providers"]["safety_screen"] = {"variant": "rules_and_jev", "model": jev}
+        agent = {"variant": "agent", "type": "agent", "model": "triage-screen"}
+        body["active_providers"]["screen"] = agent
         route.fulfill(json=body)
 
     page.route(f"**/api/agents/{TRIAGE}", screened)
@@ -1310,10 +1306,10 @@ def test_with_a_model_in_the_screen_the_card_says_the_inbox_automates(page: Page
 def test_the_overview_names_the_slots_running_without_a_model(page: Page) -> None:
     open_pack(page, TRIAGE)
     note = page.get_by_role("note").filter(has_text="Running without a model")
-    expect(note).to_contain_text("Running without a model: Safety screen, Router.")
-    open_pack(page, "mendari/prior-auth-preflight")
+    expect(note).to_contain_text("Running without a model: Router, Screen.")
+    open_pack(page, CLINICAL)
     note = page.get_by_role("note").filter(has_text="Running without a model")
-    expect(note).to_contain_text("Running without a model: Notes.")
+    expect(note).to_contain_text("Running without a model: Reader.")
 
 
 def test_the_digest_copies(page: Page) -> None:
@@ -1339,8 +1335,8 @@ def test_a_digest_that_cannot_be_copied_says_what_to_select(page: Page) -> None:
 def test_an_evaluation_that_calls_remote_models_asks_first(page: Page) -> None:
     def remote(route: Route) -> None:
         body = route.fetch().json()
-        jev = {"variant": "jev", "type": "jev", "model": "jev-1.13.0"}
-        body["active_providers"]["router"] = jev
+        llm = {"variant": "llm", "type": "llm", "model": "vendor/model-2"}
+        body["active_providers"]["router"] = llm
         route.fulfill(json=body)
 
     runs: list[str] = []
@@ -1352,7 +1348,7 @@ def test_an_evaluation_that_calls_remote_models_asks_first(page: Page) -> None:
     run.click()
     dialog = page.get_by_role("dialog", name="Run this evaluation?")
     expect(dialog).to_contain_text(re.compile(r"all \d+ records of local-site-example"))
-    expect(dialog).to_contain_text("Router: Jev")
+    expect(dialog).to_contain_text("Router: model-2")
     dialog.get_by_role("button", name="Cancel").click()
     expect(dialog).to_have_count(0)
     expect(run).to_be_focused()
@@ -1402,7 +1398,7 @@ def test_keyboard_users_can_skip_to_the_content(page: Page) -> None:
     expect(page.locator("main h1")).to_be_focused()
 
 
-@pytest.mark.parametrize("pack_id", [TRIAGE, GUARD])
+@pytest.mark.parametrize("pack_id", [TRIAGE, CLINICAL])
 def test_headings_are_in_order_and_tables_have_headers(page: Page, pack_id: str) -> None:
     """What a screen reader navigates by: one h1 per view, no skipped heading level, and every
     table says what its columns are."""
@@ -1419,8 +1415,8 @@ def test_headings_are_in_order_and_tables_have_headers(page: Page, pack_id: str)
 def test_after_a_blocked_result_tab_reaches_its_controls_with_a_ring(page: Page) -> None:
     """The solid red header holds the headline only; the first Tab after it reaches the result's
     own controls (the codes, then the record), each with a visible focus ring."""
-    open_pack(page, GUARD, "try")
-    page.select_option("#example", label="a draft that misses an emergency is blocked")
+    open_pack(page, TRIAGE, "try")
+    page.locator("#body").fill(ABUSIVE)
     page.get_by_role("button", name="Decide").click()
     expect(page.locator("#result-title")).to_be_focused()
     expect(page.locator("#result .result-head :is(a, button)")).to_have_count(0)
@@ -1468,26 +1464,9 @@ def test_the_phone_section_list_shows_where_you_are(page: Page) -> None:
     expect(nav).to_have_class(re.compile("scrolled"))  # an edge shadow: more to the left
 
 
-def test_the_follow_up_shows_one_questions_choices_at_a_time(page: Page) -> None:
-    """A derived decision can be corrected on any of its checks; only the chosen one's labels show,
-    so a tap can't land in a group that Save ignores."""
-    open_pack(page, GUARD, "try")
-    page.select_option("#example", label="a draft that misses an emergency is blocked")
-    page.get_by_role("button", name="Decide").click()
-    page.locator("#result").get_by_role("button", name="Wrong", exact=True).click()
-    groups = page.locator("#result .fb-labels")
-    assert groups.count() > 1
-    expect(page.locator("#result .fb-labels:visible")).to_have_count(1)
-    page.select_option("#result .fb-question", "unsafe_advice")
-    visible = page.locator("#result .fb-labels:visible")
-    expect(visible).to_have_count(1)
-    expect(visible).to_have_attribute("data-question", "unsafe_advice")
+# -- Try it forms for record agents ---------------------------------------------------------------
 
-
-# -- Try it forms for record packs ----------------------------------------------------------------
-
-TRIAL = "mendari/clinical-trial-prescreener"
-RECORD_PACKS = [GUARD, TRIAL, "mendari/prior-auth-preflight", "mendari/referral-router"]
+RECORD_PACKS = [CHART, CLINICAL]  # the served agents whose input is a record, not a message
 
 
 def view_button(page: Page, name: str) -> Locator:
@@ -1511,40 +1490,49 @@ def test_the_form_carries_every_example_unchanged(
 
 
 def test_editing_a_form_field_changes_the_decision(page: Page) -> None:
-    open_pack(page, GUARD, "try")
-    page.select_option("#example", label="a safe draft passes and waits for one-step approval")
-    question = page.get_by_label("Question")
-    question.fill("I have heavy pressure in my chest and I'm short of breath right now.")
+    open_pack(page, CLINICAL, "try")
+    page.select_option(
+        "#example",
+        label="mild pain of two days is care at home, which a person confirms at risk level 2",
+    )
     page.get_by_role("button", name="Decide").click()
-    expect(page.locator("#result-title")).to_have_text(re.compile("^Blocked"))
+    expect(page.locator("#result-title")).to_have_text("Sent to review")
+    page.get_by_label("Text").fill("Patient reports severe head pain since this morning.")
+    page.get_by_role("button", name="Decide").click()
+    expect(page.locator("#result-title")).to_have_text("Sent to review · urgent")
 
 
 def test_rows_are_added_and_removed_from_the_keyboard(page: Page) -> None:
-    open_pack(page, TRIAL, "try")
-    rows = page.locator('#record-form [data-array*="observations"] tbody tr')
+    open_pack(page, CHART, "try")
+    rows = page.locator('#record-form [data-array*="conditions"] tbody tr')
     before = rows.count()
-    page.get_by_role("button", name="Add to observations").focus()
+    assert before > 0
+    page.get_by_role("button", name="Add to conditions").focus()
     page.keyboard.press("Enter")
     new = before + 1
-    expect(page.get_by_label(f"Observations {new}: Code")).to_be_focused()  # typing can start
-    page.keyboard.type("2345-7")
+    expect(page.get_by_label(f"Conditions {new}: Code")).to_be_focused()  # typing can start
+    page.keyboard.type("I10")
     page.keyboard.press("Tab")
-    page.keyboard.type("Glucose")
+    page.keyboard.type("flag-routine")
     page.keyboard.press("Tab")
-    page.keyboard.type("110")
+    page.keyboard.type("Essential (primary) hypertension")
     view_button(page, "JSON").click()
-    added = json.loads(page.input_value("#record"))["observations"][-1]
-    assert added == {"code": "2345-7", "name": "Glucose", "value": 110}
+    added = json.loads(page.input_value("#record"))["conditions"][-1]
+    assert added == {
+        "code": "I10",
+        "flag": "flag-routine",
+        "text": "Essential (primary) hypertension",
+    }
     view_button(page, "Form").click()
-    page.get_by_role("button", name=f"Remove observations {new}").click()
+    page.get_by_role("button", name=f"Remove conditions {new}").click()
     expect(rows).to_have_count(before)
-    expect(page.get_by_label(f"Observations {before}: Code")).to_be_focused()
+    expect(page.get_by_label(f"Conditions {before}: Code")).to_be_focused()
 
 
 def test_invalid_json_stays_in_the_json_view(page: Page) -> None:
-    open_pack(page, GUARD, "try")
+    open_pack(page, CLINICAL, "try")
     view_button(page, "JSON").click()
-    page.fill("#record", '{"question": ')
+    page.fill("#record", '{"note": ')
     view_button(page, "Form").click()
     expect(page.locator("#announce-alert")).to_contain_text("Not valid JSON")
     expect(page.locator("#record")).to_be_visible()
@@ -1552,17 +1540,17 @@ def test_invalid_json_stays_in_the_json_view(page: Page) -> None:
 
 
 def test_a_required_field_is_asked_for_before_deciding(page: Page) -> None:
-    open_pack(page, GUARD, "try")
+    open_pack(page, CLINICAL, "try")
     decided: list[str] = []
     page.on("request", lambda r: decided.append(r.url) if r.url.endswith("/decide") else None)
-    page.get_by_label("Draft").fill("")
+    page.get_by_label("Text").fill("")
     page.get_by_role("button", name="Decide").click()
     expect(page.locator("#record-form textarea:invalid")).to_have_count(1)
     assert decided == []  # nothing was sent
 
 
 def test_the_input_view_is_remembered(page: Page) -> None:
-    open_pack(page, GUARD, "try")
+    open_pack(page, CLINICAL, "try")
     view_button(page, "JSON").click()
     page.reload()
     expect(view_button(page, "JSON")).to_have_attribute("aria-pressed", "true")
@@ -1607,7 +1595,7 @@ def test_a_zoomed_rate_axis_says_where_it_starts(page: Page) -> None:
     sweep = page.locator('figure.chart[data-chart^="sweep"]')
     expect(sweep.locator(".chart-axis-note")).to_have_text("The vertical axis starts at 90%.")
     expect(sweep.locator("path.axis-break")).to_have_count(1)
-    page.select_option("#pack-select", GUARD)  # its coverage spans 8-100 %: the axis starts at 0
+    page.select_option("#pack-select", CLINICAL)  # it automates nothing: the axis starts at 0
     expect(page.locator('figure.chart[data-chart^="sweep"] .chart-axis-note')).to_be_hidden()
 
 
@@ -1635,13 +1623,20 @@ def test_touch_screens_get_44_px_targets(browser: Browser, base_url: str) -> Non
         context.close()
 
 
-def test_configurations_are_named_once(page: Page) -> None:
-    """A remote part of a configuration is named by its model: "Rules + Jev 1.13.0", not "Rules +
-    Jev" beside a "Jev 1.13.0" chip."""
-    open_pack(page, GUARD, "evals")
+def test_configurations_are_named_once(page: Page, served_agents: Path) -> None:
+    """A remote part of a configuration is named by its model: "Rules + model-2", not "Rules +
+    LLM" beside a "model-2" chip. The fixtures' configurations run here, so one row is given the
+    router of a deployment that calls a model."""
+    board = counted_board(served(served_agents, TRIAGE))
+    row = next(r for r in board["rows"] if r["group"] == board_group(board, "test"))
+    model = "rules:rules@1a2b + llm:vendor/model-2"
+    row["providers"]["router"] = {"variant": "rules_and_llm", "type": "check", "model": model}
+    serve_board(page, TRIAGE, board)
+    open_pack(page, TRIAGE, "evals")
     configs = page.locator("#board table").first.locator("tbody .config").all_inner_texts()
-    assert any("Jev 1.13.0" in c for c in configs)
-    assert not any("Jev Jev" in " ".join(c.split()) for c in configs)
+    assert any("Rules + model-2" in c for c in configs)
+    assert not any("model-2 model-2" in " ".join(c.split()) for c in configs)
+    assert not any("LLM" in c for c in configs)
 
 
 def test_a_record_drawer_is_titled_in_words(page: Page, live_server: str) -> None:
@@ -1691,9 +1686,9 @@ def test_phones_get_a_56_px_top_bar_with_settings_in_a_sheet(page: Page) -> None
     expect(page.locator("#pack-select")).to_be_hidden()
     expect(settings).to_be_focused()
     settings.click()
-    page.select_option("#pack-select", GUARD)
-    expect(settings).to_have_attribute("aria-expanded", "false")  # choosing a pack closes it
-    expect(page.locator("main h1")).to_contain_text("AI Guard")
+    page.select_option("#pack-select", CLINICAL)
+    expect(settings).to_have_attribute("aria-expanded", "false")  # choosing an agent closes it
+    expect(page.locator("main h1")).to_contain_text(CLINICAL_NAME)
 
 
 def test_a_view_keeps_its_shape_while_it_loads(page: Page) -> None:
@@ -1752,22 +1747,22 @@ def test_an_override_waits_five_seconds_and_can_be_undone(page: Page, live_serve
     page.clock.install()
     open_pack(page, TRIAGE, "review")
     card = page.locator(f'.review-card[data-id="{decision["id"]}"]')
-    physician = card.get_by_role("button", name="Physician", exact=True)
-    physician.click()
+    pharmacy = card.get_by_role("button", name="Pharmacy", exact=True)
+    pharmacy.click()
     undo = card.get_by_role("button", name="Undo")
     expect(undo).to_be_focused()
-    expect(card.locator(".undo-bar")).to_contain_text("Override to Physician in 5 s")
+    expect(card.locator(".undo-bar")).to_contain_text("Override to Pharmacy in 5 s")
     page.clock.run_for(3000)
     expect(card.locator(".undo-seconds")).to_have_text("2")
     undo.click()
     expect(card.locator(".undo-bar")).to_have_count(0)
-    expect(physician).to_be_focused()
+    expect(pharmacy).to_be_focused()
     page.clock.run_for(10_000)
     assert sent == []  # undone in time: nothing reached the audit chain
-    physician.click()
+    pharmacy.click()
     page.clock.run_for(5000)
     expect(card).to_have_count(0)
-    assert [s["final_label"] for s in sent] == ["physician"]
+    assert [s["final_label"] for s in sent] == ["pharmacy"]
 
 
 def test_g_then_c_goes_to_the_card_without_confirming_a_review(
@@ -1791,7 +1786,9 @@ def test_g_then_c_goes_to_the_card_without_confirming_a_review(
     expect(page.locator('.nav a[data-view="card"]')).to_have_class(re.compile("active"))
     page.wait_for_timeout(500)
     assert resolved == []
-    pending = httpx.get(f"{live_server}/api/review", params={"pack_id": TRIAGE, "limit": 500}).json()
+    pending = httpx.get(
+        f"{live_server}/api/review", params={"pack_id": TRIAGE, "limit": 500}
+    ).json()
     assert decision["id"] in [item["id"] for item in pending]
 
 
@@ -1894,12 +1891,14 @@ def test_the_outcome_mix_names_segments_that_have_room(page: Page) -> None:
 
 
 def test_configurations_at_the_same_point_share_one_labelled_mark(page: Page) -> None:
-    serve_board(page, GUARD, counted_board(GUARD))
-    open_pack(page, GUARD, "evals")
-    page.get_by_role("button", name=re.compile("^unsafe_drafts_holdout")).click()
+    """On the triage fixture's critical set, the four screens with the keyword router are as
+    accurate, and all run at no cost: one mark for the four, named once, and the deployed one
+    among them labelled."""
+    open_pack(page, TRIAGE, "evals")
+    page.get_by_role("button", name=re.compile(r"^critical n=")).click()
     chart = page.locator('figure.chart[data-chart^="cost"]').last
-    expect(chart.locator(".mark")).to_have_count(8)  # nine configurations, two in one place
-    expect(chart.locator(".mark[aria-label^='Jev 1.13.0 and Rules + Jev 1.13.0']")).to_have_count(1)
+    expect(chart.locator(".mark")).to_have_count(1)  # four configurations, all in one place
+    expect(chart.locator(".mark[aria-label*=' and ']")).to_have_count(1)
     expect(chart.locator(".direct-label", has_text="Rules")).not_to_have_count(0)  # deployed
 
 
@@ -1992,7 +1991,7 @@ UNDER_24 = """() => [...document.querySelectorAll('main a[href], main button, ma
   .map((el) => el.outerHTML.slice(0, 80))"""
 
 
-@pytest.mark.parametrize("pack_id", [TRIAGE, GUARD])
+@pytest.mark.parametrize("pack_id", [TRIAGE, CLINICAL])
 def test_every_control_is_at_least_24_px(page: Page, pack_id: str) -> None:
     page.set_viewport_size(PHONE)
     open_pack(page, pack_id)
@@ -2006,30 +2005,31 @@ def test_every_control_is_at_least_24_px(page: Page, pack_id: str) -> None:
 
 # -- SMART on FHIR: this patient ------------------------------------------------------------------
 
+# A launch of the chart fixture (`mendari-test/chart-summary`, whose focus is the Patient): the
+# patient's record is its one work item, as the server lists it (server/smart_routes.py).
 SMART_SESSION = {
     "active": True,
     "iss": "https://ehr.example.org/fhir",
-    "patient": "ref-p1",
+    "patient": "chart-us-core-1",
     "encounter": "enc-1",
     "fhir_user": "Practitioner/pr-1",
     "scope": "launch openid fhirUser patient/*.rs",
     "expires_at": 4102444800,
-    "pack": "mendari/referral-router",
+    "pack": CHART,
 }
 SMART_PATIENT = {
-    "id": "ref-p1",
+    "id": "chart-us-core-1",
     "name": "Case 1 Synthetic",
     "gender": "female",
-    "birthDate": "1956-06-15",
+    "birthDate": "1959-06-15",
 }
 SMART_ITEMS = [
     {
-        "ref": "ServiceRequest/ref-sr1",
-        "status": "active",
-        "title": "Patient referral",
-        "priority": "urgent",
-        "text": "Atrial fibrillation on the ECG. Please advise on anticoagulation.",
-        "date": "2026-09-30",
+        "ref": "Patient/chart-us-core-1",
+        "status": None,
+        "title": "This patient's record",
+        "text": "",
+        "date": None,
     }
 ]
 
@@ -2047,7 +2047,7 @@ def smart_launched(page: Page, decided: list[Any]) -> None:
                 "decision": {
                     "id": "d-1",
                     "outcome": "HUMAN_REVIEW",
-                    "recommendation": "urgent_review",
+                    "recommendation": "soon",
                 },
                 "task": {},
             }
@@ -2067,26 +2067,26 @@ def test_without_a_launch_the_patient_view_stays_out_of_the_way(page: Page) -> N
 def test_an_ehr_launch_shows_the_patient_and_decides_their_work_items(page: Page) -> None:
     decided: list[Any] = []
     smart_launched(page, decided)
-    page.goto("/?agent=mendari/referral-router#patient")
+    page.goto(f"/?agent={CHART}#patient")
     expect(page.locator('.nav a[data-view="patient"]')).to_be_visible()
     expect(page.locator("main h1")).to_have_text("This patient")
     expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
     expect(page.locator(".patient-banner")).to_contain_text("female")
     item = page.locator(".work-item")
     expect(item).to_have_count(1)
-    expect(item).to_contain_text("Atrial fibrillation")
-    expect(item.locator(".badge")).to_have_text("Urgent")
+    expect(item).to_contain_text("This patient's record")
+    expect(item.locator(".badge")).to_have_count(0)  # no priority to show
     item.get_by_role("button", name="Decide").click()
-    expect(item.locator(".work-result")).to_contain_text("urgent_review")
+    expect(item.locator(".work-result")).to_contain_text("soon")
     expect(item.get_by_role("link", name=re.compile("Open the decision"))).to_have_attribute(
         "href", "#audit/d-1"
     )
-    assert decided == [{"pack_id": "mendari/referral-router", "focus": "ServiceRequest/ref-sr1"}]
+    assert decided == [{"pack_id": CHART, "focus": "Patient/chart-us-core-1"}]
 
 
 def test_ending_the_ehr_session_hides_the_patient_view(page: Page) -> None:
     smart_launched(page, [])
-    page.goto("/?agent=mendari/referral-router#patient")
+    page.goto(f"/?agent={CHART}#patient")
     page.get_by_role("button", name="End session").click()
     expect(page).to_have_url(re.compile("#overview$"))
     expect(page.locator('.nav a[data-view="patient"]')).to_be_hidden()
@@ -2095,24 +2095,20 @@ def test_ending_the_ehr_session_hides_the_patient_view(page: Page) -> None:
 def test_the_patient_view_fits_a_phone(page: Page) -> None:
     page.set_viewport_size(PHONE)
     smart_launched(page, [])
-    page.goto("/?agent=mendari/referral-router#patient")
+    page.goto(f"/?agent={CHART}#patient")
     expect(page.locator(".work-item")).to_have_count(1)
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
 
 # -- SMART on FHIR: a browser that only launched (sign-in on, no one signed in) --------------------
 
-REFERRAL = "mendari/referral-router"
-LAUNCH_PACKS = [
-    {"id": "mendari/patient-inbox-router", "name": "Patient Inbox Router"},
-    {"id": REFERRAL, "name": "Referral Router"},
-]
+LAUNCH_PACKS = [{"id": CHART, "name": CHART_NAME}, {"id": TRIAGE, "name": TRIAGE_NAME}]
 DECIDED = {
     "decision": {
         "id": "d-1",
         "outcome": "HUMAN_REVIEW",
-        "recommendation": "urgent_review",
-        "reasons": ["Anticoagulation question on a new atrial fibrillation finding."],
+        "recommendation": "soon",
+        "reasons": ["A condition on the chart may call for a visit soon."],
     },
     "task": {},
 }
@@ -2158,7 +2154,7 @@ def test_a_launch_alone_opens_the_patient_view_only(page: Page) -> None:
     view is the only section, the packs are the launch's, the decision is shown in place with
     no link into the audit trail, and nothing outside the launch's routes is asked for."""
     asked = launch_only(page, launched_as("L1"))
-    page.goto(f"/?agent={REFERRAL}#patient/L1")
+    page.goto(f"/?agent={CHART}#patient/L1")
     expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
     expect(page.locator(".nav a:visible")).to_have_count(1)
     expect(page.locator(".nav a:visible")).to_have_text("This patient")
@@ -2168,12 +2164,12 @@ def test_a_launch_alone_opens_the_patient_view_only(page: Page) -> None:
     item = page.locator(".work-item")
     item.get_by_role("button", name="Decide").click()
     result = item.locator(".work-result")
-    expect(result).to_contain_text("urgent_review")
+    expect(result).to_contain_text("soon")
     expect(result.locator(".badge")).to_have_text("Human review")
-    expect(result).to_contain_text("Anticoagulation question")
+    expect(result).to_contain_text("A condition on the chart may call for a visit soon")
     expect(result).to_contain_text("Recorded in your organization's audit trail as d-1.")
     expect(result.get_by_role("link")).to_have_count(0)
-    page.goto(f"/?agent={REFERRAL}#overview")  # no other section, whatever the address says
+    page.goto(f"/?agent={CHART}#overview")  # no other section, whatever the address says
     expect(page.locator("main h1")).to_have_text("This patient")
     expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
     outside = {path for path in asked if not path.startswith("/api/smart/")}
@@ -2186,11 +2182,11 @@ def test_a_signed_in_person_keeps_the_link_to_the_decision(page: Page) -> None:
     page.route("**/api/smart/patient", lambda route: route.fulfill(json=SMART_PATIENT))
     page.route("**/api/smart/focus?*", lambda route: route.fulfill(json=SMART_ITEMS))
     page.route("**/api/smart/decide", lambda route: route.fulfill(json=DECIDED))
-    page.goto(f"/?agent={REFERRAL}#patient/L1")
+    page.goto(f"/?agent={CHART}#patient/L1")
     expect(page.locator('.nav a[data-view="overview"]')).to_be_visible()
     item = page.locator(".work-item")
     item.get_by_role("button", name="Decide").click()
-    expect(item.locator(".work-result")).to_contain_text("Anticoagulation question")
+    expect(item.locator(".work-result")).to_contain_text("may call for a visit soon")
     expect(item.get_by_role("link", name=re.compile("Open the decision"))).to_have_attribute(
         "href", "#audit/d-1"
     )
@@ -2211,7 +2207,7 @@ def test_an_ended_launch_says_to_open_mendari_again_from_the_ehr(
     else:
         launch_only(page, launched_as("L1"))
     page.route("**/api/smart/patient", lambda route: route.fulfill(status=401, json=ended))
-    page.goto(f"/?agent={REFERRAL}#patient/L1")
+    page.goto(f"/?agent={CHART}#patient/L1")
     banner = page.locator("#launch-ended")
     expect(banner).to_be_visible()
     expect(banner).to_have_text("This EHR launch ended. Open Mendari again from the EHR.")
@@ -2229,7 +2225,7 @@ def test_a_window_whose_launch_was_replaced_says_so(page: Page) -> None:
     nothing and never shows the other launch's patient."""
     session = launched_as("L1")
     asked = launch_only(page, session)
-    page.goto(f"/?agent={REFERRAL}#patient")  # opened without a pin: it takes the one it shows
+    page.goto(f"/?agent={CHART}#patient")  # opened without a pin: it takes the one it shows
     expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
     expect(page).to_have_url(re.compile("#patient/L1$"))
     expect(page.locator('.nav a[data-view="patient"]')).to_have_attribute("href", "#patient/L1")
@@ -2263,7 +2259,7 @@ def test_the_launch_alone_fits_a_phone_in_both_themes(page: Page, scheme: str) -
         lambda route: route.fulfill(status=401, json={"detail": "ended"}),
         times=1,
     )
-    page.goto(f"/?agent={REFERRAL}#patient/L1")
+    page.goto(f"/?agent={CHART}#patient/L1")
     expect(page.locator("#launch-ended")).to_be_visible()
     pairs = page.evaluate(CONTRAST, "#launch-ended")
     page.reload()
@@ -2400,8 +2396,8 @@ def test_open_mode_never_says_a_session_ended(page: Page) -> None:
 
 
 def test_a_level_2_pack_can_be_approved_to_automate_from_its_card(page: Page) -> None:
-    open_pack(page, "mendari/clinical-trial-prescreener", "card")
-    page.goto("/?agent=mendari/clinical-trial-prescreener#card/approval")
+    open_pack(page, CLINICAL, "card")
+    page.goto(f"/?agent={CLINICAL}#card/approval")
     section = page.locator("#card-approval")
     expect(section).to_contain_text(
         "a person reviews every decision unless your organization approves"
@@ -2423,7 +2419,7 @@ def test_the_card_lists_where_the_pack_runs(page: Page) -> None:
     rows = page.locator("#card-deployments tbody tr")
     expect(rows).to_have_count(1)
     expect(rows.first).to_contain_text("local")
-    expect(rows.first).to_contain_text("naive_bayes")
+    expect(rows.first).to_contain_text("router=rules")
 
 
 def test_a_level_1_pack_needs_no_approval(page: Page) -> None:
