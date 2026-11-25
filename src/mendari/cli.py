@@ -13,7 +13,6 @@ import shutil
 import sys
 import textwrap
 from collections.abc import Callable, Mapping, Sequence
-from datetime import date
 from pathlib import Path
 from typing import Any, NamedTuple, NoReturn
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
@@ -2346,171 +2345,6 @@ def cmd_bulk_dataset(args: argparse.Namespace) -> int:
     return 0
 
 
-def _omop_records(args: argparse.Namespace) -> list[dict[str, Any]]:
-    from mendari.standards import omop
-    from mendari.standards.bulk import load_labels
-
-    as_of = date.fromisoformat(args.as_of) if args.as_of else None
-    db = omop.open_database(args.db, schema=args.schema)
-    try:
-        people = list(omop.read(db, schema=args.schema, as_of=as_of, limit=args.limit))
-    finally:
-        db.close()
-    labels = load_labels(Path(args.labels)) if getattr(args, "labels", None) else {}
-    records = []
-    for person, record in people:
-        item: dict[str, Any] = {"id": person, "input": record}
-        if person in labels:
-            item["labels"] = labels[person]
-        records.append(item)
-    if not records:
-        raise MendariError(f"no people in {_shown(args.db)}")
-    return records
-
-
-def cmd_omop_dataset(args: argparse.Namespace) -> int:
-    pack = resolve_pack(args.pack)
-    records = _omop_records(args)
-    decision = Decision(pack)
-    invalid = [r["id"] for r in records if decision.validate(r["input"])]
-    if invalid:
-        raise MendariError(
-            f"{len(invalid)} record(s) don't fit {pack.id}'s input, e.g. {invalid[0]}: "
-            "OMOP gives agents that read a record (conditions, labs, medications) their input"
-        )
-    _write_jsonl(Path(args.out), records)
-    labelled = sum("labels" in r for r in records)
-    print(f"{len(records)} people written to {args.out} ({labelled} labelled)")
-    return 0
-
-
-def cmd_omop_run(args: argparse.Namespace) -> int:
-    from mendari.standards import omop
-
-    pack = resolve_pack(args.pack)
-    records = _omop_records(args)
-    providers = _providers(pack, parse_providers(args.provider), typed=bool(args.provider))
-    decision = Decision(pack, providers=providers)
-    decided = [decision.decide(r["input"]).to_dict() for r in records]
-    report = {
-        "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
-        **omop.population(decided, list(pack.manifest.questions), min_cell=args.min_cell),
-    }
-    if args.json:
-        _print_json(report)
-        return 0
-    print(f"{pack.id}: {report['people']} people (cells under {args.min_cell} suppressed)")
-    for outcome, count in report["outcomes"].items():
-        print(f"  {outcome}: {'<' + str(args.min_cell) if count is None else count}")
-    primary = pack.manifest.policy.primary
-    for label, count in report["answers"][primary].items():
-        print(f"  {primary} = {label}: {'<' + str(args.min_cell) if count is None else count}")
-    return 0
-
-
-def cmd_sandbox_omop(args: argparse.Namespace) -> int:
-    from mendari.evals.harness import load_dataset
-    from mendari.standards import omop
-
-    source = load_dataset(args.dataset)
-    db = omop.open_database(args.db, schema=args.schema, create=True)
-    try:
-        written = omop.write(
-            db, [(r["id"], r["input"]) for r in source.records], schema=args.schema
-        )
-    finally:
-        db.close()
-    print(f"{written} synthetic people written to {_shown(args.db)}")
-    return 0
-
-
-def cmd_sandbox_omop_check(args: argparse.Namespace) -> int:
-    from mendari.sandbox import omop_check
-
-    if args.pack is None:
-        raise MendariError(
-            "omop-check needs --agent: an agent that reads a patient's record (conditions, "
-            "labs, medications), by id or directory. The bundled demo agent reads a portal "
-            "message, which an OMOP database does not hold"
-        )
-    result = omop_check.run(Path(args.dataset), args.pack)
-    _print_json(result)
-    if not result["identical"]:
-        differences = ", ".join(result["differences"])
-        print(
-            f"omop-check: the OMOP round trip evaluates differently ({differences})",
-            file=sys.stderr,
-        )
-    return 0 if result["identical"] else 1
-
-
-def cmd_sandbox_payer(args: argparse.Namespace) -> int:
-    try:
-        import uvicorn  # noqa: F401 - there before any work (_run_server runs it)
-    except ImportError:
-        raise MendariError(
-            "the payer needs uvicorn, which installs with Mendari and is missing here: "
-            "install Mendari again (pip install mendari; in a clone: uv sync)"
-        ) from None
-    from mendari.sandbox.payer import create_payer_app
-    from mendari.settings import sandbox_payer_review_action
-
-    review_action = sandbox_payer_review_action()
-    if review_action is None:
-        print(
-            "sandbox payer: answering with no review action code; set "
-            "MENDARI_SANDBOX_PAYER_REVIEW_ACTION to an X12 306 code to send one",
-            file=sys.stderr,
-        )
-    _run_server(create_payer_app(review_action), args.host, args.port)
-    return 0
-
-
-def cmd_pas_build(args: argparse.Namespace) -> int:
-    from mendari.settings import pas_codes
-    from mendari.standards import pas
-
-    site_codes = pas_codes()  # a setting that is not an X12 code stops before any work
-    with _read_store(args.db) as store:
-        record = store.get(args.decision)
-    if record is None:
-        raise MendariError(f"no decision {args.decision} in {_shown(args.db)}")
-
-    def resource(path: str) -> dict[str, Any]:
-        loaded = _read_json(path, "a FHIR resource", shape=dict)
-        if "resourceType" not in loaded:
-            raise MendariError(f"{path} is not a FHIR resource")
-        return loaded
-
-    response, questionnaire = None, None
-    if args.questionnaire_response:
-        from mendari.standards import davinci
-
-        response = resource(args.questionnaire_response)
-        pack = resolve_pack(record["pack_id"])
-        questionnaire = davinci.decision_questionnaire(pack, davinci.record_answers(record))
-    bundle = pas.request_bundle(
-        decision={"id": record["id"], "recommendation": record["recommendation"]},
-        order=resource(args.order),
-        patient=resource(args.patient),
-        coverage=resource(args.coverage),
-        insurer=resource(args.insurer),
-        requester=resource(args.requester),
-        service_type=args.service_type,
-        place_of_service=args.place_of_service,
-        diagnoses=args.diagnosis,
-        request_type=args.request_type,
-        certification_type=args.certification_type,
-        site_codes=site_codes,
-        questionnaire_response=response,
-        questionnaire=questionnaire,
-        report_type=args.report_type,
-    )
-    Path(args.out).write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
-    print(f"PAS request for decision {record['id']} written to {args.out}")
-    return 0
-
-
 def cmd_sandbox_bulk_check(args: argparse.Namespace) -> int:
     from mendari.sandbox import bulk_check
 
@@ -4430,15 +4264,6 @@ def _whole(text: str) -> int:
     return int(text)
 
 
-def _x12_code(text: str) -> str:
-    """An X12 code value's shape, checked before any work starts (argparse names the flag)."""
-    from mendari.standards.pas import X12_CODE
-
-    if not X12_CODE.fullmatch(text):
-        raise argparse.ArgumentTypeError("not an X12 code: 1 to 3 capital letters or digits")
-    return text
-
-
 def _monitored_days(text: str) -> int:
     """The days `mendari monitor` covers: two whole weeks to 180 days (argparse names the flag),
     so the week before the last always exists."""
@@ -4460,15 +4285,6 @@ def _case_limit(text: str) -> int | None:
     if not text.isdigit() or int(text) < 1:
         raise argparse.ArgumentTypeError("1 case or more, or `all`")
     return int(text)
-
-
-def _iso_date(text: str) -> str:
-    """A date as YYYY-MM-DD, checked before any work starts (argparse names the flag)."""
-    try:
-        date.fromisoformat(text)
-    except ValueError:
-        raise argparse.ArgumentTypeError("not a date: give YYYY-MM-DD") from None
-    return text
 
 
 class UsageError(MendariError):
@@ -4544,7 +4360,7 @@ GROUPS = (
             *("phi", "notes", "store", "registry", "packet"),
         ),
     ),
-    Group("Standards", (), ("smart", "bulk", "omop", "pas", "sandbox")),
+    Group("Standards", (), ("smart", "bulk", "sandbox")),
 )
 EVERY_COMMAND = "`mendari help all` (also `mendari --help-all`) lists every command."
 ONE_COMMAND = "`mendari help <command>` (also `mendari <command> --help`) shows its options."
@@ -5527,28 +5343,6 @@ def build_parser() -> argparse.ArgumentParser:
         "is level 0 and needs none, so without this the approval is left out, and reported so",
     )
     pilot.set_defaults(handler=cmd_sandbox_pilot_check)
-    payer = sandbox.add_parser("payer", help="a mock payer answering Da Vinci PAS requests")
-    payer.add_argument("--host", default="127.0.0.1")
-    payer.add_argument("--port", type=_port, default=8200)
-    payer.set_defaults(handler=cmd_sandbox_payer)
-    omop_write = sandbox.add_parser(
-        "omop", help="write a dataset's records into an OMOP CDM database (synthetic data)"
-    )
-    omop_write.add_argument("--dataset", required=True, help="a JSONL dataset of record inputs")
-    omop_write.add_argument("--db", required=True, help="SQLite path or postgresql:// URL")
-    omop_write.add_argument("--schema", default="", help="database schema (e.g. cdm)")
-    omop_write.set_defaults(handler=cmd_sandbox_omop)
-    omop_check = sandbox.add_parser(
-        "omop-check", help="round-trip a dataset through OMOP and compare the evaluations"
-    )
-    omop_check.add_argument("--dataset", required=True, help="a labelled JSONL dataset")
-    _agent_option(
-        omop_check,
-        help="required: an agent that reads a patient's record (conditions, labs, medications), "
-        "by id or directory. The bundled demo agent reads a portal message, which OMOP does "
-        "not hold",
-    )
-    omop_check.set_defaults(handler=cmd_sandbox_omop_check)
     bulk_check = sandbox.add_parser(
         "bulk-check", help="Bulk export the sandbox, evaluate it, and compare with the dataset file"
     )
@@ -5561,73 +5355,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bulk_check.add_argument("--dataset", help=f"the labelled cases it was seeded from: {its_cases}")
     bulk_check.set_defaults(handler=cmd_sandbox_bulk_check)
-
-    pas_cmd = sub.add_parser(
-        "pas", help="Da Vinci PAS prior-authorization requests"
-    ).add_subparsers(dest="pas_command", required=True)
-    pas_build = pas_cmd.add_parser(
-        "build",
-        help="the PAS request Bundle for a complete request, or one that needs attention",
-    )
-    pas_build.add_argument("--db", default="var/mendari.db", help="the audit database")
-    pas_build.add_argument(
-        "--decision", required=True, help="a submit_ready or needs_attention decision id"
-    )
-    for name in ("patient", "coverage", "insurer", "requester", "order"):
-        pas_build.add_argument(f"--{name}", required=True, help=f"the {name} (FHIR JSON file)")
-    # X12 codes: the site's own (Mendari ships no X12 code value), else its settings.
-    pas_build.add_argument(
-        "--service-type",
-        help="X12 service type (1365); else the order's, else $MENDARI_PAS_SERVICE_TYPE",
-    )
-    pas_build.add_argument(
-        "--request-type",
-        type=_x12_code,
-        help="X12 request type (1525); else $MENDARI_PAS_REQUEST_TYPE",
-    )
-    pas_build.add_argument(
-        "--certification-type",
-        type=_x12_code,
-        help="X12 certification type (1322); else $MENDARI_PAS_CERTIFICATION_TYPE",
-    )
-    pas_build.add_argument("--place-of-service", help="CMS place of service, e.g. 22")
-    pas_build.add_argument("--diagnosis", action="append", default=[], help="ICD-10-CM (repeat)")
-    pas_build.add_argument(
-        "--questionnaire-response",
-        help="for a needs_attention decision: the DTR QuestionnaireResponse a clinician "
-        "completed (FHIR JSON file), attached in Claim.supportingInfo",
-    )
-    pas_build.add_argument(
-        "--report-type",
-        type=_x12_code,
-        help="X12 report type (755) of the attached response; else $MENDARI_PAS_REPORT_TYPE",
-    )
-    pas_build.add_argument("--out", required=True, help="where to write the Bundle")
-    pas_build.set_defaults(handler=cmd_pas_build)
-
-    omop_cmd = sub.add_parser(
-        "omop", help="OMOP CDM databases as an agent's input (population-level evaluation)"
-    ).add_subparsers(dest="omop_command", required=True)
-    for name, handler, text in (
-        ("dataset", cmd_omop_dataset, "write each person's record as a local dataset"),
-        ("run", cmd_omop_run, "decide every person and report the population (metrics only)"),
-    ):
-        command = omop_cmd.add_parser(name, help=text)
-        command.add_argument("--db", required=True, help="SQLite path or postgresql:// URL")
-        command.add_argument("--schema", default="", help="the CDM's schema (e.g. cdm)")
-        _agent_option(command, required=True, help="an agent that reads a patient's record")
-        command.add_argument(
-            "--as-of", type=_iso_date, help="screening date (default: each person's last day)"
-        )
-        command.add_argument("--limit", type=int, help="only the first N people")
-        command.set_defaults(handler=handler)
-        if name == "dataset":
-            command.add_argument("--out", required=True, help="JSONL file to write")
-            command.add_argument("--labels", help="JSONL of {id, labels} by person_source_value")
-        else:
-            command.add_argument("--provider", action="append", metavar="SLOT=VARIANT")
-            command.add_argument("--min-cell", type=int, default=10, help="smallest cell shown")
-            command.add_argument("--json", action="store_true")
 
     bulk = sub.add_parser("bulk", help="Bulk FHIR export into local datasets").add_subparsers(
         dest="bulk_command", required=True
@@ -6145,7 +5872,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     phi_erase.set_defaults(handler=cmd_phi_erase)
 
-    notes_cmd = sub.add_parser("notes", help="review, feedback and payer notes").add_subparsers(
+    notes_cmd = sub.add_parser("notes", help="review and feedback notes").add_subparsers(
         dest="notes_command", required=True
     )
     erase = notes_cmd.add_parser(

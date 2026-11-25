@@ -28,9 +28,9 @@ TAGS = [
         "name": "FHIR and CDS Hooks",
         "description": "FHIR R4 in and out: the $decide operation and the CapabilityStatement "
         "(/fhir/metadata), deciding from a Bundle, CDS Hooks services, decisions as Tasks and "
-        "the audit trail as AuditEvent and Provenance (read and search), Mendari's CodeSystems, "
-        "Da Vinci DTR and PAS. Mendari is not a FHIR data server: it stores and serves no "
-        "clinical resources.",
+        "the audit trail as AuditEvent and Provenance (read and search) and Mendari's "
+        "CodeSystems. Mendari is not a FHIR data server: it stores and serves no clinical "
+        "resources.",
     },
     {
         "name": "Agents",

@@ -11,12 +11,12 @@
   record never holds them, a retention policy can delete them (`mendari phi purge`) without
   breaking the chain.
 
-Notes (a reviewer's or a rater's free text, the payer's answer to a prior authorization) follow
-inputs: sealed under the same key in `encrypt`, kept in the clear in `off`, refused in `hash`
-(`core/audit.py`, "notes"). So does an answer's evidence, which can quote the input (a lab value
-and its date): kept in the record only when the input is, sealed beside a kept input in
-`encrypt`, dropped otherwise. Each kind of sealed data has its own associated data (its kind,
-then its ids), so a ciphertext never opens as another kind, nor for another decision or note.
+Notes (a reviewer's or a rater's free text) follow inputs: sealed under the same key in
+`encrypt`, kept in the clear in `off`, refused in `hash` (`core/audit.py`, "notes"). So does an
+answer's evidence, which can quote the input (a lab value and its date): kept in the record only
+when the input is, sealed beside a kept input in `encrypt`, dropped otherwise. Each kind of
+sealed data has its own associated data (its kind, then its ids), so a ciphertext never opens as
+another kind, nor for another decision or note.
 
 Key rotation (LP-09). `$MENDARI_PHI_KEY` is the current key, the only one that seals.
 `$MENDARI_PHI_READ_KEYS` lists other keys this deployment opens but never seals with: the previous

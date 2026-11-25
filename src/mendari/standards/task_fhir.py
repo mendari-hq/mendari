@@ -27,7 +27,7 @@ before the Phase 2 privacy fix can quote the input in those. Reviewer names appe
 they do in the audit export.
 
 **The same in every configuration.** Label codings are in the pack's question CodeSystem
-(`davinci.question_system`) whether or not this deployment still serves the pack, so a version
+(`terminology.question_system`) whether or not this deployment still serves the pack, so a version
 renders the same wherever and whenever it is read. They carry no display: a label's display is
 its criteria (`fhir.display`), which only the pack holds.
 
@@ -41,8 +41,9 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
-from mendari.standards import audit_fhir, davinci
+from mendari.standards import audit_fhir
 from mendari.standards.fhir import DECISION_ID_SYSTEM, OUTCOME_SYSTEM, PACK_TAG_SYSTEM, narrative
+from mendari.standards.terminology import question_system
 
 
 def task_status(review_status: str, refused: int | bool) -> str:
@@ -149,7 +150,7 @@ def _outputs(
     """Recommendation and fallback from the record; the reviewer's label and whether it
     overrode the recommendation from the review; the latest observed label."""
     record = item["record"]
-    system = davinci.question_system(item["pack_id"], record["primary"])
+    system = question_system(item["pack_id"], record["primary"])
     if record.get("recommendation") is not None:
         yield _output("recommendation", {"valueCoding": _label(system, record["recommendation"])})
     if record.get("fallback"):

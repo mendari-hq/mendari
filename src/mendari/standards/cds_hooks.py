@@ -19,10 +19,7 @@ whatever the pack's `show` says. Card wording comes from the pack's `cds_hooks.c
 the card describes a routing decision. Two of its keys (spec 0.3 §5): `refused`, for a decision
 that refused its input, whose card lists why whatever the links (a template that does not name it
 words such a decision as `none`), and `also_show`, the policy rules whose match shows a card for
-a recommendation `show` leaves out, in the rule's own words. A pack that declares
-`coverage_information` also returns, for each decided order, a Da Vinci CRD system action
-(`standards/davinci.py`): `indeterminate` for a technical reason when the order abstained over
-unreadable data and the Coverage was read.
+a recommendation `show` leaves out, in the rule's own words.
 
 **Linked data** (LP-23h): what a pack's mapping reaches by a link the record does not hold (a
 note's Binary, the payer behind a Coverage, the drug behind a MedicationRequest) is read from
@@ -45,10 +42,6 @@ confidence thresholds' (`policy.threshold_reason`), whose figures carry no inter
 without a source the EHR does not offer (`DecisionResult.limitations`) is in the detail either
 way, on every card: an unreadable ABSTAIN's and a refused input's say it apart from what was not
 read or why the input was refused (`ALSO_NOTED`), since it is neither.
-A Da Vinci CRD service (a pack with `coverage_information`) declares the CRD version and its one
-configuration option, `coverage-info`, in discovery, and sets every card's `source.topic`; a
-request that sets `coverage-info` to false gets neither its cards nor its system actions, and is
-still decided.
 
 **Feedback** (`CardFeedback`): what the clinician did with each card, accepted with the
 suggestion taken or overridden with one of the reasons offered, checked against what the card
@@ -70,7 +63,6 @@ from urllib.parse import quote
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from mendari import notices
-from mendari.core import clock
 from mendari.core.decision import REJECTED, Decision, DecisionResult
 from mendari.core.pack import Pack
 from mendari.core.policy import threshold_reason
@@ -83,7 +75,7 @@ from mendari.errors import (
     PrefetchRequired,
     ReadReason,
 )
-from mendari.standards import davinci, fhir_structure
+from mendari.standards import fhir_structure
 from mendari.standards.data_coverage import source_type
 from mendari.standards.ehr_declarations import EhrDeclaration
 from mendari.standards.fhir import FhirAdapter
@@ -139,27 +131,6 @@ OUTCOME_SENTENCES = {
 SELECTION_BEHAVIOR = "at-most-one"
 AUDIT_LINK = "Reasons and engine detail (Mendari audit trail)"
 LAUNCH_LINK = "Open in Mendari"
-# Da Vinci CRD (2.2.1): the versions a CRD service declares in discovery (its first two
-# numbers), its one configuration option, which the request's `davinci-crd.configuration` may
-# turn off, and the type every card of a CRD service says it is (`source.topic`).
-CRD_VERSIONS = ("2.2",)
-CRD_VERSION = "davinci-crd.version"
-CRD_OPTIONS = "davinci-crd.configuration-options"
-CRD_CONFIGURATION = "davinci-crd.configuration"
-COVERAGE_INFO = "coverage-info"
-CARD_TYPE = {
-    "system": "http://terminology.hl7.org/CodeSystem/cdshooks-card-type",
-    "code": COVERAGE_INFO,
-    "display": "Coverage Information",
-}
-COVERAGE_INFO_OPTION = {
-    "code": COVERAGE_INFO,
-    "type": "boolean",
-    "name": "Coverage Information",
-    "description": "Whether each order comes back with its coverage information and its card. "
-    "Off, the service sends neither, and still decides and records each order.",
-    "default": True,
-}
 
 
 @dataclass(frozen=True)
@@ -209,11 +180,6 @@ def discovery(packs: Iterable[Pack]) -> dict[str, Any]:
             "prefetch": hooks.prefetch,
             "usageRequirements": usage,
         }
-        if hooks.coverage_information:  # a Da Vinci CRD service
-            service["extension"] = {
-                CRD_VERSION: list(CRD_VERSIONS),
-                CRD_OPTIONS: [dict(COVERAGE_INFO_OPTION)],
-            }
         services.append(service)
     return {"services": services}
 
@@ -227,10 +193,10 @@ def invoke(
     links: CardLinks = NO_LINKS,
     declared: EhrDeclaration | None = None,
 ) -> dict[str, Any]:
-    """The cards (and Da Vinci system actions) for one hook request. An order hook decides each
-    draft order the pack is about, at most `most` of them; `charge` is given the number of
-    decisions about to be made, before anything is fetched or decided (the rate limit), and
-    refuses by raising. `links` says where the cards may link.
+    """The cards for one hook request. An order hook decides each draft order the pack is about,
+    at most `most` of them; `charge` is given the number of decisions about to be made, before
+    anything is fetched or decided (the rate limit), and refuses by raising. `links` says where
+    the cards may link.
 
     `declared` is what the request's `fhirServer` does not offer, as the site declared it for
     the caller's organization (`standards/ehr_declarations.py`): a prefetch key of such a type,
@@ -337,49 +303,12 @@ def invoke(
                 )
             ]
     template = hooks.card
-    # A CRD service the request turned `coverage-info` off for: decided and recorded, and
-    # nothing of that type sent back, neither cards nor system actions (CRD 2.2.1).
-    silenced = bool(hooks.coverage_information) and not coverage_info_wanted(request)
     cards = []
     for result, task in decided:
-        if silenced or not shows_card(template, result):
+        if not shows_card(template, result):
             continue  # decided and audited, but nothing worth interrupting the user for
         cards.append(card(decision.pack, result, task, links))
-    response: dict[str, Any] = {"cards": cards}
-    crd = bool(hooks.coverage_information) and not silenced
-    coverage = davinci.coverage_reference(prefetch) if crd else None
-    if coverage is not None:
-        actions = []
-        for order, (result, _) in zip(orders, decided, strict=True):
-            if result.abstained_unreadable:  # the requirements were not checked: CRD's way
-                extension = davinci.indeterminate(result, coverage, clock.today())
-                actions.append(davinci.system_action(order, extension))
-                continue
-            info = hooks.coverage_information.get(result.recommendation or "")
-            if info is not None:
-                form = None
-                dtr = hooks.questionnaire
-                if dtr is not None and result.recommendation == dtr.missing:
-                    labels = {key: answer.label for key, answer in result.answers.items()}
-                    context = davinci.context_of(decision.pack, labels)
-                    url = davinci.questionnaire_url(decision.pack, context)
-                    form = f"{url}|{decision.pack.version}"
-                extension = davinci.coverage_information(
-                    info, result, coverage, clock.today(), questionnaire=form
-                )
-                actions.append(davinci.system_action(order, extension))
-        if actions:
-            response["systemActions"] = actions
-    return response
-
-
-def coverage_info_wanted(request: Mapping[str, Any]) -> bool:
-    """Whether a CRD request wants coverage information: unless its
-    `extension.davinci-crd.configuration` sets `coverage-info` to false. Configuration Mendari
-    does not support, or of another shape, is ignored, as CRD says."""
-    extension = request.get("extension")
-    configuration = extension.get(CRD_CONFIGURATION) if isinstance(extension, Mapping) else None
-    return not (isinstance(configuration, Mapping) and configuration.get(COVERAGE_INFO) is False)
+    return {"cards": cards}
 
 
 def fetch(
@@ -745,8 +674,6 @@ def _card(
     public = links.public_url.rstrip("/") if links.public_url else None
     if public is not None:
         source["url"] = f"{public}/?agent={shown_pack}#card"
-    if pack.manifest.cds_hooks is not None and pack.manifest.cds_hooks.coverage_information:
-        source["topic"] = dict(CARD_TYPE)  # CRD 2.2.1: every card of a CRD service says its type
     found: dict[str, Any] = {
         "uuid": result.id,
         "summary": summary[:SUMMARY_CHARS],

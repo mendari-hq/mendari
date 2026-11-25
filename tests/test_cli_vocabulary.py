@@ -37,10 +37,7 @@ AGENT_OPTIONS = {
     "sandbox cds-client": ["--fhir", "http://fhir.test", "--engine", "http://engine.test"],
     "sandbox smart-launch": ["--engine", "http://engine.test"],
     "sandbox pilot-check": ["--engine", "http://engine.test"],
-    "sandbox omop-check": ["--dataset", "cases.jsonl"],
     "sandbox bulk-check": ["--fhir", "http://fhir.test"],
-    "omop dataset": ["--db", "cdm.db", "--out", "cases.jsonl"],
-    "omop run": ["--db", "cdm.db"],
     "bulk dataset": ["--ndjson", "export", "--labels", "labels.jsonl", "--out", "cases.jsonl"],
     "monitor": [],
     "store versions": ["--org", "clinic-a"],
@@ -149,7 +146,10 @@ def test_an_error_names_what_is_typed_now(capsys: pytest.CaptureFixture[str]) ->
     for argv, named in (
         (["validate"], "the following arguments are required: agent"),
         (["monitor", "--agent"], "argument --agent: expected one argument"),
-        (["omop", "run", "--db", "cdm.db"], "the following arguments are required: --agent"),
+        (
+            ["bulk", "dataset", "--ndjson", "e", "--labels", "l.jsonl", "--out", "o.jsonl"],
+            "the following arguments are required: --agent",
+        ),
         (["archive"], "the following arguments are required: archive_command"),
         (["no-such-command"], "invalid choice: 'no-such-command'"),
     ):
@@ -187,26 +187,18 @@ def test_every_option_that_names_an_agent_is_still_read_as_pack() -> None:
         assert root.parse_args([*argv, f"--agent={AGENT}"]).pack == AGENT, command
 
 
-def test_a_sandbox_command_names_the_demo_agent_or_asks_for_one(
+def test_a_sandbox_command_names_the_demo_agent(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The sandbox runs on the agent a release bundles: a command that takes a message agent
-    names it by default and says so; the one that needs another kind of agent asks for it, and
-    says which kind."""
+    """The sandbox runs on the agent a release bundles: each of its commands names it by default
+    and says so."""
     parse = build_parser().parse_args
     for command, rest in AGENT_OPTIONS.items():
-        if not command.startswith("sandbox ") or command == "sandbox omop-check":
+        if not command.startswith("sandbox "):
             continue
         assert parse([*command.split(), *rest]).pack == DEMO_AGENT, command
         said = " ".join(helped(capsys, *command.split(), "--help").split())
         assert "(default: the bundled demo agent)" in said, command
-    assert parse(["sandbox", "omop-check", "--dataset", "cases.jsonl"]).pack is None
-    asked = " ".join(helped(capsys, "sandbox", "omop-check", "--help").split())
-    assert "required: an agent that reads a patient's record" in asked
-    assert main(["sandbox", "omop-check", "--dataset", "cases.jsonl"]) == 1
-    assert capsys.readouterr().err.startswith(
-        "error: omop-check needs --agent: an agent that reads a patient's record"
-    )
     # No command of the sandbox, or any other, names an agent the product does not bundle.
     former = re.compile(
         r"inbox-router|ai-guard|trial-prescreener|prior-auth-preflight|referral-router"

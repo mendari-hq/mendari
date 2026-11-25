@@ -23,9 +23,9 @@ recorder (`recorded_by`), so its agent is "not recorded", and its source is show
 is an identifier.
 
 Like evaluation reports, the export carries identifiers and codes, never case text: notes
-(review, feedback, the payer's words) stay in the store, and inputs are referred to by hash. A
-note's erasure (`note.erased`) is exported with its reason, a code. Narratives are
-built from the same codes, ids and times.
+(review, feedback) stay in the store, and inputs are referred to by hash. A note's erasure
+(`note.erased`) is exported with its reason, a code. Narratives are built from the same codes,
+ids and times.
 
 Both are immutable entries with deterministic ids, so each is version `1`, last updated when it
 was recorded. The subtype stays a Mendari code (`terminology.py` publishes the CodeSystem): a
@@ -82,7 +82,6 @@ _EVENTS = {
     "input.read": ("R", "Encrypted input or notes read"),  # PHI mode: access logging
     "input.purged": ("D", "Encrypted input deleted by the retention policy"),
     "input.erased": ("D", "Encrypted input deleted on request"),
-    "pas.submitted": ("E", "Prior authorization requested (Da Vinci PAS)"),
     "note.erased": ("D", "Note erased, on request or by the retention policy"),
     "card.feedback": ("C", "Card feedback recorded (CDS Hooks)"),
     # An action an agent proposed or a caller asked about, and its release or denial by the
@@ -100,9 +99,6 @@ _DETAILS = {
     "review.resolved": ("final_label", "human_override"),
     "outcome.recorded": ("final_label",),
     "feedback.recorded": ("rating", "expected"),
-    # The payer's authorization number is a note now (it names one patient's request); events
-    # that chained it before keep it in the store, not in an export.
-    "pas.submitted": ("outcome",),
     "note.erased": ("reason",),
     "input.erased": ("reason",),
     # What a clinician did with a CDS Hooks card (LP-23f): codes and ids, never a comment.

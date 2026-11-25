@@ -26,10 +26,9 @@ too.
 
 The marks are the only sign. A case that looks like one of these (by its id, by where it came
 from, by an attribute of that name that says something else) is not counted. Neither is what no
-mark is on, or what no longer reads as JSON in UTF-8: the datasets `mendari omop dataset` and
-`mendari bulk dataset` build from a site's records, cases a site labelled in a file of its own,
-a case retyped into a pack or copied without its `attributes`, a copy compressed or in another
-encoding.
+mark is on, or what no longer reads as JSON in UTF-8: the datasets `mendari bulk dataset` builds
+from a site's records, cases a site labelled in a file of its own, a case retyped into a pack or
+copied without its `attributes`, a copy compressed or in another encoding.
 """
 
 from __future__ import annotations

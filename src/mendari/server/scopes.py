@@ -208,11 +208,10 @@ _ROUTE_SCOPES: list[tuple[str, re.Pattern[str], str]] = [
         ("GET", r"^/fhir/(?P<type>[A-Za-z]+)/[^/_$][^/]*(/_history/[^/]+)?$", "r"),
         ("GET", r"^/fhir/(?P<type>[A-Za-z]+)$", "s"),
         ("POST", r"^/fhir/(?P<type>[A-Za-z]+)/_search$", "s"),
-        ("POST", r"^/api/agents/[^/]+/[^/]+/(decide|guard|fhir/decide|pas|actions)$", DECIDE),
+        ("POST", r"^/api/agents/[^/]+/[^/]+/(decide|guard|fhir/decide|actions)$", DECIDE),
         ("POST", r"^/cds-services/[^/]+$", DECIDE),
         ("POST", r"^/cds-services/[^/]+/feedback$", DECIDE),  # a card's feedback (LP-23f)
         ("POST", r"^/fhir/\$decide$", DECIDE),
-        ("POST", r"^/fhir/Questionnaire/\$questionnaire-package$", DECIDE),  # Da Vinci DTR
         ("POST", r"^/api/audit/[^/]+/outcome$", OUTCOME),
         # The lists of agents a credential may decide with, which deciding needs (`DISCOVER`).
         ("GET", r"^/api/agents$", DECIDE),

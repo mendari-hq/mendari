@@ -52,7 +52,7 @@ services:
       # and the signed CDS client's JWK Set is fetched from `cds-client` (below). If you set your
       # own list, keep http://fhir:8080 and http://cds-client:8300 on it, or set
       # MENDARI_CDS_CLIENTS empty (below).
-      MENDARI_FHIR_ALLOWED_SERVERS: ${MENDARI_FHIR_ALLOWED_SERVERS:-http://fhir:8080,http://launcher,http://payer:8200,http://cds-client:8300}
+      MENDARI_FHIR_ALLOWED_SERVERS: ${MENDARI_FHIR_ALLOWED_SERVERS:-http://fhir:8080,http://launcher,http://cds-client:8300}
       # The sandbox's signed CDS client (service `cds-client`, LP-23e), registered as an EHR is
       # (docs/guides/connecting-an-ehr.md): its tokens' iss, the FHIR base it sends, and the one
       # URL its keys come from. With sign-in off its organization is `default`. With a client
@@ -75,15 +75,6 @@ services:
       MENDARI_PUBLIC_URL: ${MENDARI_PUBLIC_URL:-http://engine:8000}
       # The CQL engine for `cql` provider variants (HAPI's Clinical Reasoning module).
       MENDARI_CQL_URL: ${MENDARI_CQL_URL:-http://fhir:8080/fhir}
-      # Da Vinci PAS submissions go to the sandbox's mock payer.
-      MENDARI_PAS_PAYER_URL: ${MENDARI_PAS_PAYER_URL:-http://payer:8200}
-      # The X12 codes a PAS request carries are a site's settings: Mendari ships none (LP-14).
-      # These are this sandbox's, for its synthetic requests (NOTICE: in the repository only).
-      MENDARI_PAS_REQUEST_TYPE: ${MENDARI_PAS_REQUEST_TYPE:-HS}
-      MENDARI_PAS_CERTIFICATION_TYPE: ${MENDARI_PAS_CERTIFICATION_TYPE:-I}
-      MENDARI_PAS_SELF_RELATIONSHIP: ${MENDARI_PAS_SELF_RELATIONSHIP:-18}
-      MENDARI_PAS_PAYER_ENTITY: ${MENDARI_PAS_PAYER_ENTITY:-PR}
-      MENDARI_PAS_REQUESTER_ENTITY: ${MENDARI_PAS_REQUESTER_ENTITY:-1P}
     volumes:
       - mendari-data:/data
 
@@ -127,23 +118,6 @@ services:
       MENDARI_SMART_EHRS: http://launcher/v/r4/fhir=pilot:decide
     volumes:
       - mendari-signin-data:/data
-
-  payer:
-    # A mock payer for Da Vinci PAS: approves every well-formed prior-authorization request.
-    image: mendari-engine:0.1.0
-    depends_on:
-      engine:
-        condition: service_healthy
-    command: mendari sandbox payer --host 0.0.0.0 --port 8200
-    environment:
-      # Its X12 review action code, this sandbox's. Set it empty in your shell
-      # (`MENDARI_SANDBOX_PAYER_REVIEW_ACTION= docker compose up`) and it answers with none, as
-      # PAS allows: `-` and not `:-`, so only an unset variable takes this default.
-      MENDARI_SANDBOX_PAYER_REVIEW_ACTION: ${MENDARI_SANDBOX_PAYER_REVIEW_ACTION-A1}
-    ports:
-      - "127.0.0.1:8200:8200"
-    healthcheck:
-      disable: true  # the image's healthcheck is for the engine's HTTP server
 
   registry:
     # The agent registry (mendari.hub): push and pull signed agents locally. There is no shared

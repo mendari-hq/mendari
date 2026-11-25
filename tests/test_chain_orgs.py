@@ -40,10 +40,9 @@ PROPOSING = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 HELD = "Please renew my prescription."
 TRIAGE = "mendari-test/triage"  # the agent these tests decide with (`triage_agent`)
 CLINIC = "clinic-a"
-# What the store still lists of the features wave 6 removes, which nothing kept writes: a
-# payer's answer to a prior authorization (G4) and the hidden evaluation sets' table (G13). They
-# leave the store's classes with their code, and these then remove nothing.
-REMOVED_KINDS = frozenset({"pas.submitted"})
+# What the store still lists of the features wave 6 removes, which nothing kept writes: the
+# hidden evaluation sets' table (G13). It leaves the store's classes with its code, and this then
+# removes nothing.
 REMOVED_TABLES = frozenset({"evalset_sets"})
 
 
@@ -181,7 +180,7 @@ def test_every_event_names_its_row_s_organization(
         assert store.verify() == {"ok": True, "events": len(events), "head": events[-1]["hash"]}
     kinds = {event["event"] for event in events}
     revoking = {"governance.revoked", "automation.lifted", "key.rotated", "key.revoked"}
-    each = (DECISION_KINDS - REMOVED_KINDS) | revoking | {"client.revoked"}
+    each = DECISION_KINDS | revoking | {"client.revoked"}
     assert kinds >= each  # each was written here
     for event in events:
         kind, payload = event["event"], event["payload"]
@@ -456,7 +455,7 @@ def test_a_decision_from_before_tenancy_is_bound_as_default(
         events = chained(store)
         assert store.verify()["ok"]
     bound = [e for e in events if e["event"] in DECISION_KINDS - {"decision.created"}]
-    assert {e["event"] for e in bound} == DECISION_KINDS - {"decision.created"} - REMOVED_KINDS
+    assert {e["event"] for e in bound} == DECISION_KINDS - {"decision.created"}
     assert {e["payload"]["org"] for e in bound} == {tenancy.DEFAULT_ORG}
 
 
@@ -538,15 +537,6 @@ def test_a_kind_from_a_later_release_is_left_unchecked(db_target: str) -> None:
 
 
 # -- writers ------------------------------------------------------------------------------------
-
-
-def test_record_event_refuses_a_payload_naming_an_organization(
-    db_target: str, triage_agent: Pack
-) -> None:
-    with keeping(db_target) as store:
-        decision_id = Decision(triage_agent, store=store)(message(URGENT)).id
-        with pytest.raises(ValueError, match="organization"):
-            store.record_event(decision_id, "outcome.recorded", {"org": "clinic-z"})
 
 
 def test_a_writer_that_leaves_out_the_organization_is_refused(db_target: str) -> None:

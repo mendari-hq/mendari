@@ -80,14 +80,8 @@ NO_STORE = "no-store"
 SCREENED = {"screen": "agent"}
 AUTOMATING = {"router": "llm", "screen": "agent"}
 CHECKED = {"screen": "checked"}  # its agent (`calm_agent`, a live service) checked by its rules
-# What the server still mounts of features wave 6 removes, until their code goes: Da Vinci's
-# PAS request and DTR package (G4). Set aside, so these tests hold what stays.
-REMOVED_ROUTES = frozenset(
-    {
-        ("POST", "/api/agents/{namespace}/{name}/pas"),
-        ("POST", "/fhir/Questionnaire/$questionnaire-package"),
-    }
-)
+# What the server still mounts of features wave 6 removes, until their code goes: none left.
+REMOVED_ROUTES: frozenset[tuple[str, str]] = frozenset()
 
 
 def sign_in_on(monkeypatch: pytest.MonkeyPatch, limits: str) -> None:

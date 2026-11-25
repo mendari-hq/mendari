@@ -192,7 +192,7 @@ class SqliteBackend(Backend):
         *,
         schema: str,
         migrate: Migrate,
-        baseline: Baseline | None = None,
+        baseline: Baseline,
         read_only: bool = False,
     ):
         self.path = path
@@ -205,15 +205,14 @@ class SqliteBackend(Backend):
                     "or a postgresql:// URL)"
                 )
             self._memory = None
-            if baseline is not None:
-                with self._connect() as connection:
-                    connection.execute("BEGIN")  # one snapshot: the mark and the anchor together
-                    try:
-                        found = check_baseline(SqliteSession(connection), baseline)
-                    finally:
-                        connection.execute("ROLLBACK")
-                if found is None:
-                    raise MendariError(baseline.missing)
+            with self._connect() as connection:
+                connection.execute("BEGIN")  # one snapshot: the mark and the anchor together
+                try:
+                    found = check_baseline(SqliteSession(connection), baseline)
+                finally:
+                    connection.execute("ROLLBACK")
+            if found is None:
+                raise MendariError(baseline.missing)
             return
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -226,10 +225,10 @@ class SqliteBackend(Backend):
         # IMMEDIATE, the schema lock: one process makes, marks or migrates the schema at a time,
         # and a schema is made and marked in one transaction or not at all.
         with self.session(exclusive=True) as db:
-            found = None if baseline is None else check_baseline(db, baseline)
+            found = check_baseline(db, baseline)
             for statement in _statements(ddl):
                 db.all(statement)
-            if baseline is not None and found is None:
+            if found is None:
                 _mark(db, baseline)
             migrate(db)
 
@@ -388,7 +387,7 @@ class PostgresBackend(Backend):
         schema: str,
         migrate: Migrate,
         lock_key: int,
-        baseline: Baseline | None = None,
+        baseline: Baseline,
         read_only: bool = False,
     ):
         self.lock_key = lock_key
@@ -408,12 +407,8 @@ class PostgresBackend(Backend):
                 connection.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
                 connection.read_only = True
                 with connection.transaction():
-                    found = (
-                        None
-                        if baseline is None
-                        else check_baseline(PostgresSession(connection), baseline)
-                    )
-            if baseline is not None and found is None:
+                    found = check_baseline(PostgresSession(connection), baseline)
+            if found is None:
                 raise MendariError(baseline.missing)
         else:
             # Schema setup goes over the direct (unpooled) connection when one is given, as Neon
@@ -431,10 +426,10 @@ class PostgresBackend(Backend):
                 with connection.transaction():
                     connection.execute("SELECT pg_advisory_xact_lock(%s)", (lock_key,))
                     db = PostgresSession(connection, exclusive=True)
-                    found = None if baseline is None else check_baseline(db, baseline)
+                    found = check_baseline(db, baseline)
                     if ddl.strip():
                         connection.execute(ddl)
-                    if baseline is not None and found is None:
+                    if found is None:
                         _mark(db, baseline)
                     migrate(db)
 
@@ -486,15 +481,14 @@ def connect(
     schema: str,
     migrate: Migrate,
     lock_key: int,
-    baseline: Baseline | None = None,
+    baseline: Baseline,
     migrate_url: str | None = None,
     read_only: bool = False,
 ) -> Backend:
     """A SQLite path (or ":memory:") or a postgres:// / postgresql:// URL, with `schema` created
     (a DDL template with `{real}`, `{serial}` and `{blob}`) and `migrate` run under the lock.
     `lock_key` is the Postgres advisory lock that serialises schema setup and exclusive sessions.
-    `baseline` is how a store's schema is marked and checked at every open (above); None for a
-    database that is no Mendari store (an OMOP source), which is neither marked nor checked.
+    `baseline` is how the store's schema is marked and checked at every open (above).
     `read_only` opens an existing database without writing anything (above). A URL of another
     scheme is refused, never taken for a file name (or printed: it can hold a password)."""
     if target.startswith(("postgres://", "postgresql://")):

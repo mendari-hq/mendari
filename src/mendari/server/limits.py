@@ -252,7 +252,7 @@ class DailyCapReached(RateLimited):
 
 # The entry points that make decisions: each request one, but a CDS Hooks order hook one per
 # draft order (counted in its route, `DailyCap.charge`). Not what only needs the permission
-# (acknowledging the notice, a PAS submission or a DTR package, built from decisions made).
+# (acknowledging the notice, or asking about an action of a decision made).
 _DECIDES = re.compile(
     r"^/(api/agents/[^/]+/[^/]+/(decide|fhir/decide)|fhir/\$decide|api/smart/decide)$"
 )

@@ -61,7 +61,7 @@ if TYPE_CHECKING:
 GENESIS = "0" * 64
 # The events that create or change a decision's result. Each makes a new version of the
 # decision's FHIR Task and gets a Provenance (standards/task_fhir.py, audit_fhir.py); the others
-# (feedback, input reads and purges, PAS submissions) change neither.
+# (feedback, input reads and purges) change neither.
 RESULT_EVENTS = ("decision.created", "review.resolved", "outcome.recorded")
 _REVIEWABLE = (Outcome.HUMAN_REVIEW.value, Outcome.ABSTAIN.value)
 # Arbitrary constant key for the Postgres advisory lock that serialises hash-chain appends.
@@ -73,8 +73,8 @@ NOTICE_EVENT = "notice.acknowledged"
 SYSTEM_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,99}$")
 # A served pack's labels for one of its questions, by (pack id, question); None when unknown.
 QuestionLabels = Callable[[str, str], Sequence[str] | None]
-# Notes (Phase 4b, ADR-0005: commit, don't copy). Free text a person or a payer writes about a
-# decision is kept in `notes`, apart from the chain, which keeps `note: null` and a `note_ref`:
+# Notes (Phase 4b, ADR-0005: commit, don't copy). Free text a person writes about a decision
+# is kept in `notes`, apart from the chain, which keeps `note: null` and a `note_ref`:
 # the note's id and sha256(prefix || salt || text). The 32-byte salt is only in the note's row,
 # so the commitment says nothing about the text, and once the row is erased it is noise.
 # Why a person erases a note (chained, so a code): it should not have been written, or was wrong.
@@ -143,7 +143,6 @@ DECISION_KINDS = frozenset(
         "review.resolved",
         "outcome.recorded",
         "feedback.recorded",
-        "pas.submitted",
         "input.read",
         "input.purged",
         "input.erased",
@@ -1769,30 +1768,6 @@ class AuditStore(RateBuckets):
             payload = {"final_label": final_label, "source": source, "recorded_by": recorded_by}
             chained = self._bound("outcome.recorded", payload, _org_of(row["org"]))
             self._append(db, decision_id, "outcome.recorded", chained)
-
-    def record_event(
-        self,
-        decision_id: str,
-        event: str,
-        payload: Mapping[str, Any],
-        *,
-        note: str | None = None,
-    ) -> None:
-        """A follow-up on a decision (e.g. `pas.submitted`), chained after its other events, with
-        its free text (the payer's words) kept as a note (`note_ref`). The store names the
-        decision's organization itself (`_bound`), so a payload naming one is refused."""
-        if "org" in payload:
-            raise ValueError("an event's organization is its decision's: the store names it")
-        note = self._may_keep(note)
-        with self._db.session(exclusive=True) as db:
-            scope, scoped = _scope()
-            row = db.one(
-                f"SELECT id, org FROM decisions d WHERE id = ? AND {scope}", (decision_id, *scoped)
-            )
-            if row is None:
-                raise ReviewError(f"unknown decision {decision_id}")
-            chained = {**payload, "note_ref": self._keep_note(db, decision_id, event, note)}
-            self._append(db, decision_id, event, self._bound(event, chained, _org_of(row["org"])))
 
     def record_card_feedback(
         self, pack_id: str, service: str, items: Sequence[Mapping[str, Any]]

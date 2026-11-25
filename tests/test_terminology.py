@@ -49,25 +49,13 @@ PINNED = {
         # Moved in wave 1 (one vocabulary), before 0.1.0's release: its definitions say "agent".
         "CodeSystem/decision-outcome": "7688b8fb74597a15",
         # Moved in LP-23f, before 0.1.0's release: `card.feedback`; and again with actions
-        # (spec 0.4, ADR-0023), before it too: `action.proposed` and `action.resolved`.
-        "CodeSystem/audit-event": "539448b80fcddc93",
+        # (spec 0.4, ADR-0023), before it too: `action.proposed` and `action.resolved`; and in
+        # wave 6, before it too: Da Vinci PAS's `pas.submitted` goes (G4).
+        "CodeSystem/audit-event": "1b2bfd9b49980fe6",
         # Added in LP-23f, a new url (no earlier content): why a card was overridden.
         "CodeSystem/card-override-reasons": "289761ea34d8c87a",
         "CodeSystem/sandbox": "8a63d292423bdf66",
         "CodeSystem/message-channel": "0c3b329c01cfcc58",
-        # Added in LP-14, a new url (no earlier content): the fictional procedure codes of the
-        # synthetic prior-authorization data.
-        # Moved in wave 1 (the trim), before 0.1.0's release, with the two below: each
-        # description says what its codes are for, and names no agent the product shipped.
-        "CodeSystem/fictional-procedures": "e7e87798938500ce",
-        # Added in LP-14's SNOMED CT swap, new urls too: the fictional condition codes of a
-        # synthetic local site's records, and the fictional referral code.
-        "CodeSystem/fictional-conditions": "0de390a631fd2d78",
-        "CodeSystem/fictional-referrals": "2deb518897c0c86e",
-        # Added in LP-23e, new urls (no earlier content): the vendor-shaped EHR profile's site
-        # diagnoses and order types.
-        "CodeSystem/fictional-site-diagnoses": "9049440f2ca39e04",
-        "CodeSystem/fictional-site-order-types": "21f35b7faf771d51",
         "NamingSystem/decision-id": "a3ac1c38e9476b4f",
         "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
         # Moved in wave 1, before 0.1.0's release: its title and description say "agent" (its
@@ -370,15 +358,7 @@ def test_fixed_resources_are_pinned_to_the_mendari_version(served: Terminology) 
     found = {f"{r['resourceType']}/{r['id']}": content(r)[:16] for r in fixed}
     # A new version (a pre-release too: the resources carry it) pins these, as PINNED's entry.
     assert __version__ in PINNED, f"a new Mendari version: pin its fixed resources: {found}"
-    pinned = {name: pin for name, pin in PINNED[__version__].items() if not fictional(name)}
-    found = {name: pin for name, pin in found.items() if not fictional(name)}
-    assert found == pinned, "changed a fixed resource: it needs a new version"
-
-
-def fictional(name: str) -> bool:
-    """One of the sandbox's fictional code systems, which leave the product (wave 6): their
-    content is not held to the version any more, only Mendari's own resources are."""
-    return name.startswith("CodeSystem/fictional-")
+    assert found == PINNED[__version__], "changed a fixed resource: it needs a new version"
 
 
 def test_every_resource_is_well_formed(served: Terminology) -> None:
@@ -393,14 +373,7 @@ def test_every_resource_is_well_formed(served: Terminology) -> None:
         assert resource["text"]["div"].startswith('<div xmlns="http://www.w3.org/1999/xhtml">')
         if resource["resourceType"] == "CodeSystem":
             assert resource["caseSensitive"] is True
-            fictional = (
-                "fictional-procedures",
-                "fictional-conditions",
-                "fictional-referrals",
-                "fictional-site-diagnoses",
-                "fictional-site-order-types",
-            )
-            sandbox = ("sandbox", "message-channel", *fictional)
+            sandbox = ("sandbox", "message-channel")
             assert resource["experimental"] is (resource["id"] in sandbox)
             for concept in resource["concept"]:
                 assert f"<td>{concept['code']}</td>" in resource["text"]["div"]

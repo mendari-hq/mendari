@@ -167,10 +167,8 @@ def test_a_token_gets_what_it_asked_within_what_its_client_registered() -> None:
         ("GET", "/fhir/Task/_search", None),
         ("POST", "/fhir/$decide", DECIDE),
         ("GET", "/fhir/$decide", None),
-        ("POST", "/fhir/Questionnaire/$questionnaire-package", DECIDE),
         ("POST", "/api/agents/a/b/decide", DECIDE),
         ("POST", "/api/agents/a/b/fhir/decide", DECIDE),
-        ("POST", "/api/agents/a/b/pas", DECIDE),
         ("POST", "/api/agents/a/b/evals", None),
         ("POST", "/cds-services/triage", DECIDE),
         ("GET", "/cds-services", DECIDE),  # the lists to decide from (ADR-0004 as amended)

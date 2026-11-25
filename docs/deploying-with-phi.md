@@ -211,7 +211,6 @@ Give each key the least it needs:
 | `rest` | REST API | `service` | none: the role's own | `GET /api/agents`<br>`POST /api/agents/{namespace}/{name}/decide`<br>`GET /api/audit/{decision_id}` |
 | `fhir` | FHIR in, FHIR out | `service` | `https://mendari.co/fhir/scope/decide system/AuditEvent.rs system/Provenance.rs system/Task.rs` | `POST /fhir/$decide`<br>`GET /fhir/Task`<br>`GET /fhir/Task/{resource_id}`<br>`GET /fhir/Task/{resource_id}/_history/{version_id}`<br>`GET /fhir/AuditEvent`<br>`GET /fhir/Provenance` |
 | `cds-hooks` | CDS Hooks | `service` | `https://mendari.co/fhir/scope/decide` | `GET /cds-services`<br>`POST /cds-services/{service_id}`<br>`POST /cds-services/{service_id}/feedback` |
-| `da-vinci` | Da Vinci CRD, DTR and PAS | `service` | `https://mendari.co/fhir/scope/decide` | `POST /cds-services/{service_id}`<br>`POST /fhir/Questionnaire/$questionnaire-package`<br>`POST /api/agents/{namespace}/{name}/pas` |
 | `outcomes` | Outcomes | `service` | `https://mendari.co/fhir/scope/outcome` | `POST /api/audit/{decision_id}/outcome` |
 | `fhir-reader` | FHIR reader | `viewer` | `system/AuditEvent.rs system/Provenance.rs system/Task.rs` | `GET /fhir/Task`<br>`GET /fhir/Task/{resource_id}`<br>`GET /fhir/AuditEvent`<br>`GET /fhir/Provenance` |
 <!-- presets:end -->
@@ -370,9 +369,8 @@ MENDARI_SMART_EHRS=https://ehr.example.org/fhir/r4=default:decide   # <FHIR base
 - Signed in, `/api/health` lists your organization's registrations (`smart_ehrs`): an empty
   list there means the EHR is registered to another organization than yours.
 
-**SMART Backend Services (optional, off by default).** For an EHR, an integration engine or a
-Da Vinci client that expects SMART Backend Services instead of an API key, turn on Mendari's
-own token endpoint. It needs sign-in (above) and the public URL, or the server refuses to start:
+**SMART Backend Services (optional, off by default).** For an EHR or an integration engine that
+expects SMART Backend Services instead of an API key, turn on Mendari's own token endpoint. It needs sign-in (above) and the public URL, or the server refuses to start:
 
 ```bash
 MENDARI_BACKEND_SERVICES=on
@@ -684,19 +682,15 @@ new one; the chain has each step (`client.keys_replaced`, with the keys before a
 thumbprint and how many tokens were dropped). A leaked private key: replace with the new key
 alone at once, or revoke the client.
 
-**Notes.** A reviewer's or a rater's note, and a payer's answer to a prior authorization (its
-authorization number and disposition), are free text. They are kept in a `notes` table, never in
-the audit chain:
+**Notes.** A reviewer's or a rater's note is free text. Notes are kept in a `notes` table, never
+in the audit chain:
 - the chain keeps `note: null` and a `note_ref`: the note's id and a salted SHA-256 commitment.
   The salt is only in the note's row, so the commitment says nothing about the text;
 - under `encrypt` a note is sealed with the same key as inputs (AES-256-GCM, bound to the note
   and its decision). Like inputs, it opens only for **reviewers** and **admins**, and each read
   is chained (`input.read` names the notes read);
 - under `hash`, a review or rating with a note is refused (`422`): `hash` keeps no free text.
-  The dashboard offers no note field there, and a payer's words are not kept;
-- in every mode, the chain keeps a payer's outcome and review actions only as codes (R4's
-  `queued`, `complete`, `error` or `partial`; the payer's X12 306 code, 1 to 3 capital letters
-  or digits): text in their place is dropped;
+  The dashboard offers no note field there;
 - under `off`, notes are kept in the clear for whoever may read the decision;
 - notes written into the chain by earlier releases stay there (the chain is never rewritten),
   but are shown only to those who may read inputs.
@@ -828,31 +822,6 @@ By default, nothing. Each of these is off until you configure it:
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Agent ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
 | Shared evaluation reports | `mendari eval --share` (manual) | Whole counts only (`mendari.site-report/2`, checked by the registry): no cases, ids, dataset name, approver, subgroups or rates; cells of 1 to 9 suppressed with their complements, critical counts exact, nothing under 100 cases; `--share-out FILE` writes it to read first |
-| Da Vinci PAS submissions (`submit` on `POST /api/agents/{id}/pas`) | `MENDARI_PAS_PAYER_URL`, also on `MENDARI_FHIR_ALLOWED_SERVERS` | The PAS request Bundle: the patient, Coverage, payer, requesting organization and order the request gives, with its codes; for a request that needs attention, also the completed DTR QuestionnaireResponse it gives (the clinician's answers) |
-
-**Da Vinci PAS codes.** A PAS request carries X12 codes, and Mendari ships none of their values
-(X12's code lists are under X12's terms; the owner's decision of 2026-10-07). Set your own, from
-the X12 implementation guide you are licensed for and as your payer expects them. A request (or
-`mendari pas build`'s flags) may give its own, and a service type in the order wins over the
-setting:
-
-| Setting | X12 element | In PAS |
-|---|---|---|
-| `MENDARI_PAS_REQUEST_TYPE` | 1525, each item's request type | Required: without it (or `request_type`), building the request is refused (`422`) naming the setting |
-| `MENDARI_PAS_CERTIFICATION_TYPE` | 1322, each item's certification type | Required, as above (`certification_type`) |
-| `MENDARI_PAS_SERVICE_TYPE` | 1365, the service type, when neither the request nor the order's category gives one | Required, as above (`service_type`) |
-| `MENDARI_PAS_REPORT_TYPE` | 755, the report type of the completed DTR QuestionnaireResponse a request that needs attention attaches | Required once a response is attached, as above (`report_type`); not asked for otherwise |
-| `MENDARI_PAS_SELF_RELATIONSHIP` | 1069, the Coverage's code for self, beside FHIR's `self` | Optional: unset, it is left out, and the Coverage names the patient as its subscriber (PAS's rule `self-beneficiary`) |
-| `MENDARI_PAS_PAYER_ENTITY`, `MENDARI_PAS_REQUESTER_ENTITY` | 98, the payer's and the requesting organization's entity codes | Optional: unset, the organizations go untyped |
-
-Each is 1 to 3 capital letters or digits; anything else is refused naming the setting. The
-sandbox's mock payer answers with `MENDARI_SANDBOX_PAYER_REVIEW_ACTION` (an X12 306 code), or
-with no review action code when it is unset or empty. The compose sandbox sets all of these for
-synthetic requests except the service type: synthetic orders are not all one kind of service, so
-each request there gives its own (`service_type`). Nor does it set the report type: a request
-there that attaches a QuestionnaireResponse gives its own (`report_type`). The product bundles
-no prior-authorization agent, so a request there is for one you serve beside the demo agent
-(`docker-compose.yml` says how to mount it).
 
 To hold remote models to the places your agreements cover, set
 `MENDARI_PROVIDER_ALLOWED_ORIGINS` to the origins they may be called at, comma-separated as for
@@ -1188,14 +1157,13 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       so on an EHR that sends notes as links, or as RTF, an agent that reads notes may abstain for
       most patients with one, each decision going to a person with an `info` card
       ([threat model](security/threat-model.md#residual-risks-and-assumptions)).
-- [ ] Only if an EHR calls with its own tokens, or launches Mendari, or you export with Bulk
-      FHIR: know what Mendari's own conformance runs prove and what they leave to you. Weekly,
-      on synthetic data, Inferno's test kits play the other side against Mendari's engines
+- [ ] Only if an EHR launches Mendari, or you export with Bulk FHIR: know what Mendari's own
+      conformance runs prove and what they leave to you. Weekly, on synthetic data, Inferno's
+      test kits play the other side against Mendari's engines
       ([`sandbox/inferno/README.md`](https://github.com/mendari-hq/mendari/tree/main/sandbox/inferno),
-      `conformance.yml`): the Da Vinci CRD kit as a signed CDS client, the SMART App Launch
-      client suite as the EHR of a launch, the Bulk Data client suite as the export's server,
-      and the DTR kit as a DTR client. Each test's result is pinned, every known gap with its
-      reason and requirement id. They run over plain HTTP inside Docker, so TLS (CRD 1.01, SMART
+      `conformance.yml`): the SMART App Launch client suite as the EHR of a launch, and the Bulk
+      Data client suite as the export's server. Each test's result is pinned, every known gap
+      with its reason and requirement id. They run over plain HTTP inside Docker, so TLS (SMART
       3.01's https registration) is your deployment's to show, as are your EHR's keys, its
       requests and its own conformance; the sign-in SMART profile (`openid fhirUser`) is not
       run against Inferno (the README says why), so check a launch from your EHR as above.

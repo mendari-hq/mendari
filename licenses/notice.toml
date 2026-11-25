@@ -67,18 +67,9 @@ distributed = true
 
 [[material]]
 name = "ICD-10-PCS"
-where = "three procedure codes and their titles in the sandbox's payer crosswalk (src/mendari/sandbox/synthetic_prior_auth.py), sent with the synthetic prior-authorization orders"
+where = "procedure codes and their titles in tests: the orders of the chart-summary test fixture's synthetic records (tests/support/fixture_records.py, tests/fixtures/us-core/chart.json)"
 licence = "public domain (U.S. Centers for Medicare & Medicaid Services)"
-distributed = true
-
-[[material]]
-name = "X12 code system names"
-# The owner's decision (2026-10-07, LP-14): no X12 code value ships; a site supplies its own as
-# settings (MENDARI_PAS_*). tests/test_x12_values.py checks every shipped file.
-where = "the urls naming the X12 code systems Da Vinci PAS uses (https://codesystem.x12.org/005010/...), in src/mendari/standards/pas.py, src/mendari/sandbox/payer.py and the licensed-code-system check (src/mendari/core/spec.py); no X12 code value: a site supplies its own, as settings or with each request"
-licence = "the names as HL7's Da Vinci PAS guide gives them (CC0 1.0); X12's code values, which a site supplies, are under X12's terms"
-distributed = true
-notice = "X12 is a registered trademark of X12."
+distributed = false
 
 # No package carries SNOMED CT (LP-14): the sandbox and its synthetic data use
 # fictional codes instead, and tests/test_code_systems.py and scripts/check_snomed.py keep it so.
@@ -98,15 +89,6 @@ licence = "Mozilla Public License 2.0"
 distributed = false
 notice = "Copyright (c) Deque Systems, Inc."
 also = "Its third-party notices: LICENSE-3RD-PARTY.txt beside it."
-
-[[material]]
-name = "X12 code values"
-# Which values, and the question to X12, are in tasks/todo.md (LP-14); naming them here would
-# ship them, since NOTICE is in every package.
-where = "a few X12 code values as test and sandbox configuration, the settings a site would give: tests/test_pas.py, tests/test_notes.py, tests/test_x12_values.py and tests/test_key_presets.py, scripts/davinci_sample.py (the samples the HL7 validator checks) and docker-compose.yml (the sandbox's settings); listed, for X12's answer, in tasks/todo.md (LP-14); and quoted in an earlier review in notes/"
-licence = "X12's terms; X12's written answer on this use is asked for (tasks/todo.md, LP-14)"
-distributed = false
-notice = "X12 is a registered trademark of X12."
 
 # The mendari.co page's typefaces, served from web/fonts/ beside their licences (not in any package).
 [[material]]

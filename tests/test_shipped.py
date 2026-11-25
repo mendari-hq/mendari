@@ -20,7 +20,6 @@ from starlette.routing import Route as ServedRoute
 
 import mendari
 from mendari.hub.registry import create_registry_app
-from mendari.sandbox.payer import create_payer_app
 from mendari.server.app import create_app
 from tests.conftest import (
     encrypt_mode,
@@ -166,7 +165,6 @@ def test_no_vendor_or_model_name_in_product_code_outside_the_providers() -> None
 
 ENGINE = "engine"
 REGISTRY = "registry"
-PAYER = "payer"
 Route = tuple[str, str, str]  # (app, method, path)
 
 CHAINED: dict[Route, tuple[str, ...]] = {
@@ -177,7 +175,6 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/cds-services/{service_id}"): ("decision.created",),
     (ENGINE, "POST", "/cds-services/{service_id}/feedback"): ("card.feedback",),
     (ENGINE, "POST", "/api/smart/decide"): ("decision.created",),
-    (ENGINE, "POST", "/api/agents/{namespace}/{name}/pas"): ("pas.submitted",),  # on submit
     # A caller's question about one action for a recorded decision (spec 0.4): chained the
     # first time it is asked; asking again answers how it stands and chains nothing.
     (ENGINE, "POST", "/api/agents/{namespace}/{name}/actions"): ("action.proposed",),
@@ -359,16 +356,10 @@ NOT_CHAINED: dict[Route, str] = {
         "a five-minute access token for a registered client, like a session; the client's "
         "registration and revocation are chained (security log: auth.token.issued)"
     ),
-    (
-        ENGINE,
-        "POST",
-        "/fhir/Questionnaire/$questionnaire-package",
-    ): "a read: builds, stores nothing",
     (ENGINE, "POST", "/fhir/Task/_search"): "a read: FHIR search by POST carries the query",
     (ENGINE, "POST", "/fhir/AuditEvent/_search"): "a read: FHIR search by POST",
     (ENGINE, "POST", "/fhir/Provenance/_search"): "a read: FHIR search by POST",
     (ENGINE, "POST", "/fhir/CodeSystem/_search"): "a read: FHIR search by POST",
-    (PAYER, "POST", "/Claim/$submit"): "the sandbox's synthetic payer: no store, writes nothing",
     (ENGINE, "POST", "/api/store/uploads"): (
         "an archive begun in parts, kept until it is joined or a day old; the version it makes "
         "is chained (LP-20f)"
@@ -452,7 +443,6 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     apps = {
         ENGINE: create_app(db_path=tmp_path / "engine.db"),
         REGISTRY: create_registry_app(tmp_path / "registry.db"),
-        PAYER: create_payer_app(),
     }
     with encrypted_store(tmp_path / "engine.db") as served:
         reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")

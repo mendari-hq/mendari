@@ -21,7 +21,6 @@ const EVENT_TEXT = {
   "input.read": "Input or notes read (PHI mode)",
   "input.purged": "Input deleted (retention)",
   "input.erased": "Input erased",
-  "pas.submitted": "Sent for prior authorization",
   "note.erased": "Note erased",
   "card.feedback": "Card feedback from the EHR",
   "action.proposed": "Action proposed",

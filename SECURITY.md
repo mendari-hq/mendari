@@ -220,13 +220,12 @@ Each bullet is one control; the threat model names the row and the tests behind 
   the input hash is an HMAC-SHA256 under `MENDARI_INPUT_HASH_KEY` (`hmac-sha256:<key id>:<hex>`),
   without which the engine (and `mendari decide --db`) refuses to start: a plain SHA-256 of a short input can be found by
   guessing. The two keys must differ.
-- **Notes.** Review and rating notes and a payer's words are kept apart from the audit chain,
-  which keeps only a salted commitment to each: sealed with inputs under `encrypt`, refused
-  under `hash`, and readable as inputs are. Retention and `mendari notes erase` erase them, and
-  the chain still verifies (`mendari audit verify --notes` checks the commitments). Notes chained
-  by earlier releases are shown only to those who may read inputs. A payer's outcome and review
-  actions are chained only as codes; text in their place is dropped. A governance approval's
-  `reference` (a pointer to minutes) stays chained.
+- **Notes.** Review and rating notes are kept apart from the audit chain, which keeps only a
+  salted commitment to each: sealed with inputs under `encrypt`, refused under `hash`, and
+  readable as inputs are. Retention and `mendari notes erase` erase them, and the chain still
+  verifies (`mendari audit verify --notes` checks the commitments). Notes chained by earlier
+  releases are shown only to those who may read inputs. A governance approval's `reference` (a
+  pointer to minutes) stays chained.
 - **Headers and the API reference.** Every response has a strict CSP, pages and the API
   reference included: each page's own inline scripts by hash only, nothing from another origin.
   Every response also gets no framing, nosniff, no referrer and cross-origin isolation, and HSTS
@@ -262,8 +261,7 @@ providers:
 
 Credentials and provider error bodies never reach audit records or error messages. The same
 outbound guard (allow-listed origins, no redirects, timeouts, size caps) covers every other
-call the engine makes: FHIR servers, the CQL engine, the identity provider, the payer and alert
-webhooks.
+call the engine makes: FHIR servers, the CQL engine, the identity provider and alert webhooks.
 
 ## Agent supply chain
 
@@ -497,10 +495,9 @@ change that loosens it:
 - every image (CI services, `docker run`, the Dockerfile's bases, both compose files) is pinned
   by digest;
 - every file a workflow downloads is checked against a pinned sha256;
-- the HL7 validator loads only the FHIR packages `scripts/fhir_packages.lock` pins (US Core, the
-  Da Vinci guides and every package they need, each with its sha256), and runs with no HTTP
-  access, so it fetches nothing by version alone (`tests/test_fhir_packages.py`,
-  `tests/test_workflow_safety.py`);
+- the HL7 validator loads only the FHIR packages `scripts/fhir_packages.lock` pins (US Core and
+  every package it needs, each with its sha256), and runs with no HTTP access, so it fetches
+  nothing by version alone (`tests/test_fhir_packages.py`, `tests/test_workflow_safety.py`);
 - the Docker image installs exactly `uv.lock` (`uv sync --frozen`), and the build backend
   (hatchling) is pinned;
 - the vendored Swagger UI matches its pin: the npm integrity value in its lockfile, and each

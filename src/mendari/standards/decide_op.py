@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING, Any
 from mendari import __version__
 from mendari.core.pack import Pack
 from mendari.errors import FhirError, FhirRequestError, FhirStructureError
-from mendari.standards import davinci, fhir_structure
+from mendari.standards import fhir_structure
 from mendari.standards.capability import DECIDE_URL
 from mendari.standards.fhir import (
     DECISION_ID_SYSTEM,
@@ -52,6 +52,7 @@ from mendari.standards.fhir import (
     iter_resources,
     narrative,
 )
+from mendari.standards.terminology import question_system
 
 if TYPE_CHECKING:
     from mendari.core.decision import DecisionResult
@@ -389,7 +390,7 @@ def _output(result: DecisionResult, pack: Pack) -> dict[str, Any]:
 def _label(pack: Pack, question: str, label: str) -> dict[str, str]:
     """A label in its question's CodeSystem, with the display that CodeSystem gives it."""
     criteria = pack.manifest.questions[question].criteria
-    coding = {"system": davinci.question_system(pack.id, question), "code": label}
+    coding = {"system": question_system(pack.id, question), "code": label}
     if criteria.get(label):
         coding["display"] = display(criteria[label])
     return coding

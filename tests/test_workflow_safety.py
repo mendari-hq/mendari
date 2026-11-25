@@ -504,22 +504,22 @@ def test_no_workflow_loads_a_fhir_package_the_lock_does_not_pin(path: Path) -> N
 
 
 def test_the_package_check_catches_a_package_by_name() -> None:
-    locked = {"var/fhir-packages/hl7.fhir.us.davinci-crd-2.2.1.tgz"}
-    assert _unpinned_igs("x --ig hl7.fhir.us.davinci-crd#2.2.1 --ig var/a", locked) == [
-        "hl7.fhir.us.davinci-crd#2.2.1"
+    locked = {"var/fhir-packages/example.fhir.guide-1.0.0.tgz"}
+    assert _unpinned_igs("x --ig example.fhir.guide#1.0.0 --ig var/a", locked) == [
+        "example.fhir.guide#1.0.0"
     ]
     assert _unpinned_igs("java -jar v.jar -ig hl7.fhir.us.core#6.1.0", locked)
     assert _unpinned_igs("x --ig=hl7.fhir.us.core#6.1.0", locked)
     assert _unpinned_igs('x --ig "$PACKAGE"', locked)
     assert _unpinned_igs("x --ig var/fhir-packages/hl7.fhir.us.core-6.1.0.tgz", locked)
     assert not _unpinned_igs(
-        "x --ig var/fhir-terminology --ig var/fhir-packages/hl7.fhir.us.davinci-crd-2.2.1.tgz",
+        "x --ig var/fhir-terminology --ig var/fhir-packages/example.fhir.guide-1.0.0.tgz",
         locked,
     )
     # The value on the next line, after a backslash, and a quoted flag.
     continued = "uv run python scripts/fhir_validate.py --offline \\\n  --ig \\\n  {}\n"
-    assert _unpinned_igs(continued.format("hl7.fhir.us.davinci-crd#2.2.1"), locked) == [
-        "hl7.fhir.us.davinci-crd#2.2.1"
+    assert _unpinned_igs(continued.format("example.fhir.guide#1.0.0"), locked) == [
+        "example.fhir.guide#1.0.0"
     ]
     assert _unpinned_igs("x --ig \\\r\n hl7.fhir.us.core#6.1.0", locked)
     assert not _unpinned_igs(continued.format(next(iter(locked))), locked)

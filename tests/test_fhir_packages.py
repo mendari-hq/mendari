@@ -122,7 +122,7 @@ def test_the_lock_is_well_formed_and_as_its_writer_writes_it() -> None:
     text = packages.LOCK.read_text(encoding="utf-8")
     locked = packages.parse_lock(text)
     assert packages.format_lock(locked) == text  # sorted, aligned, the header: never by hand
-    assert len(locked) == 55
+    assert len(locked) == 18
 
 
 def test_what_the_validator_is_told_to_load_is_a_root_of_the_lock() -> None:
@@ -174,22 +174,17 @@ def _validator_runs() -> list[tuple[list[str], list[str]]]:
 
 @pytest.mark.slow
 @needs_the_locked_tarballs
-def test_ci_s_us_core_run_holds_us_core_6_1_0_alone_and_no_da_vinci_guide() -> None:
-    """Each run's package cache is what it loads and what that needs, read from the real lock.
-    The US Core run's has one US Core, 6.1.0, and no Da Vinci package, so a profile a file
-    cites without a version is US Core 6.1.0's, whatever the files before it cite; DTR 2.2.0's
-    tree (US Core 7.0.0 and 3.1.1 among it) is only in the Da Vinci run's."""
-    caches = []
-    for igs, _ in _validator_runs():
-        tarballs = [str(ROOT / ig) for ig in igs if ig.endswith(".tgz")]  # a folder is none
-        caches.append(packages.closure(_locked_manifests(), validate.loads(tarballs)))
-    us_core, davinci = caches
-    assert {ref for ref in us_core if ref.startswith("hl7.fhir.us.core#")} == {
+def test_ci_s_us_core_run_holds_us_core_6_1_0_alone() -> None:
+    """The run's package cache is what it loads and what that needs, read from the real lock:
+    one US Core, 6.1.0, so a profile a file cites without a version is US Core 6.1.0's,
+    whatever the files before it cite. That is the whole lock: what the lock is for."""
+    ((igs, _),) = _validator_runs()
+    tarballs = [str(ROOT / ig) for ig in igs if ig.endswith(".tgz")]  # a folder is none
+    cache = packages.closure(_locked_manifests(), validate.loads(tarballs))
+    assert {ref for ref in cache if ref.startswith("hl7.fhir.us.core#")} == {
         "hl7.fhir.us.core#6.1.0"
     }
-    assert not [ref for ref in us_core if "davinci" in ref]
-    assert {"hl7.fhir.us.core#7.0.0", "hl7.fhir.us.core#3.1.1"} <= davinci
-    assert davinci == set(_locked_manifests())  # what the lock is for
+    assert cache == set(_locked_manifests())
 
 
 def _line(name: str = "a.b", version: str = "1.0.0", digest: str = "0" * 64, url: str = "") -> str:
@@ -436,7 +431,7 @@ def test_resolve_refuses_a_registry_answer_that_is_another_package() -> None:
 
 OWN = "hl7.fhir.r4.core#4.0.1"  # what the validator loads by itself, here one package
 US_CORE = "hl7.fhir.us.core#6.1.0"  # ARGS
-DTR = "hl7.fhir.us.davinci-dtr#2.2.0"
+OTHER_GUIDE = "example.fhir.other-guide#2.0.0"
 US_CORE_7 = "hl7.fhir.us.core#7.0.0"
 HOME = "-Duser.home="
 
@@ -444,13 +439,13 @@ HOME = "-Duser.home="
 @pytest.fixture
 def locked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """The validator script's lock, small: the validator's own package, US Core 6.1.0 (with a
-    terminology package it needs) and DTR 2.2.0, which needs US Core 7.0.0, as the real one
-    does. Returns where its tarballs were downloaded."""
+    terminology package it needs) and another guide, which needs another US Core, 7.0.0.
+    Returns where its tarballs were downloaded."""
     tarballs = {
         OWN: _tarball("hl7.fhir.r4.core", "4.0.1"),
         US_CORE: _tarball("hl7.fhir.us.core", "6.1.0", {"example.fhir.terminology": "2.0.0"}),
         TERMINOLOGY: _tarball("example.fhir.terminology", "2.0.0"),
-        DTR: _tarball("hl7.fhir.us.davinci-dtr", "2.2.0", {"hl7.fhir.us.core": "7.0.0"}),
+        OTHER_GUIDE: _tarball("example.fhir.other-guide", "2.0.0", {"hl7.fhir.us.core": "7.0.0"}),
         US_CORE_7: _tarball("hl7.fhir.us.core", "7.0.0"),
     }
     downloads = tmp_path / "downloads"
@@ -458,7 +453,7 @@ def locked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(validate.fhir_packages, "DOWNLOADS", downloads)
     monkeypatch.setattr(validate.fhir_packages, "LOCK", lock)
     monkeypatch.setattr(validate.fhir_packages, "VALIDATOR_ROOTS", (OWN,))
-    monkeypatch.setattr(validate.fhir_packages, "ROOTS", (OWN, US_CORE, DTR))
+    monkeypatch.setattr(validate.fhir_packages, "ROOTS", (OWN, US_CORE, OTHER_GUIDE))
     return downloads
 
 
@@ -528,26 +523,28 @@ def test_each_run_has_a_package_cache_of_its_own_with_only_what_it_loads(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """With one cache for every run, a resource in the US Core run that cites DTR's operation
-    made the validator load DTR (the newest in its cache) and DTR's tree, US Core 7.0.0 among
-    it, so the files after it were checked against US Core 7.0.0. The US Core run's cache holds
-    US Core 6.1.0 and what it needs, and nothing else; the Da Vinci run's holds the guides it
-    is given and their trees too."""
+    """With one cache for every run, a resource in the US Core run that cites another guide's
+    canonical made the validator load that guide (the newest in its cache) and its tree, another
+    US Core among it, so the files after it were checked against that US Core. The US Core run's
+    cache holds US Core 6.1.0 and what it needs, and nothing else; a run given another guide
+    holds that guide and its tree too."""
     fake = _fake(monkeypatch)
     validate.run_validator([resource], docker=False, offline=True)
     assert fake.cached[0] == sorted([OWN, US_CORE, TERMINOLOGY])
     assert "package cache (3 locked packages)" in capsys.readouterr().out
     folder = tmp_path / "terminology"  # a folder of resources is no package
     folder.mkdir()
-    dtr = str(locked / "hl7.fhir.us.davinci-dtr-2.2.0.tgz")
-    validate.run_validator([resource], docker=False, igs=[str(folder), dtr], offline=True)
-    assert fake.cached[1] == sorted([OWN, US_CORE, TERMINOLOGY, DTR, US_CORE_7])
+    other = str(locked / "example.fhir.other-guide-2.0.0.tgz")
+    validate.run_validator([resource], docker=False, igs=[str(folder), other], offline=True)
+    assert fake.cached[1] == sorted([OWN, US_CORE, TERMINOLOGY, OTHER_GUIDE, US_CORE_7])
     homes = [arg.removeprefix(HOME) for c in fake.commands for arg in c if arg.startswith(HOME)]
     assert len(set(homes)) == 2 and str(Path.home()) not in homes
     assert not any(Path(home).exists() for home in homes)  # removed with the run
 
 
-@pytest.mark.parametrize("fetches", ["hl7.terminology#9.9.9", DTR], ids=["unpinned", "not-run"])
+@pytest.mark.parametrize(
+    "fetches", ["hl7.terminology#9.9.9", OTHER_GUIDE], ids=["unpinned", "not-run"]
+)
 @pytest.mark.usefixtures("locked")
 def test_offline_fails_when_the_validator_put_a_package_the_run_lacks_in_its_cache(
     monkeypatch: pytest.MonkeyPatch, resource: Path, fetches: str
@@ -569,7 +566,7 @@ def test_offline_refuses_a_package_the_lock_does_not_pin_before_the_validator_ru
     monkeypatch: pytest.MonkeyPatch, locked: Path, resource: Path, tmp_path: Path
 ) -> None:
     fake = _fake(monkeypatch)
-    stray = tmp_path / "hl7.fhir.us.davinci-dtr-2.2.0.tgz"  # the same name, not the download
+    stray = tmp_path / "example.fhir.other-guide-2.0.0.tgz"  # the same name, not the download
     stray.write_bytes((locked / stray.name).read_bytes())
     with pytest.raises(SystemExit, match=re.escape("not a tarball scripts/fhir_packages.lock")):
         validate.run_validator([resource], docker=False, igs=[str(stray)], offline=True)
@@ -640,7 +637,9 @@ def test_offline_is_the_default_and_tx_is_opt_in(
     assert len(fake.commands) == 3
 
 
-@pytest.mark.parametrize("fetches", ["hl7.terminology#9.9.9", DTR], ids=["unpinned", "not-run"])
+@pytest.mark.parametrize(
+    "fetches", ["hl7.terminology#9.9.9", OTHER_GUIDE], ids=["unpinned", "not-run"]
+)
 @pytest.mark.usefixtures("locked")
 def test_tx_fails_when_the_validator_put_a_package_the_run_lacks_in_its_cache(
     monkeypatch: pytest.MonkeyPatch, resource: Path, fetches: str
@@ -714,7 +713,7 @@ def test_a_missing_package_tarball_is_refused_before_the_validator_runs(
     monkeypatch: pytest.MonkeyPatch, resource: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     fake = _fake(monkeypatch)
-    missing = "var/fhir-packages/hl7.fhir.us.davinci-crd-0.0.0.tgz"
+    missing = "var/fhir-packages/example.fhir.other-guide-0.0.0.tgz"
     argv = ["fhir_validate.py", "--offline", "--ig", missing, "--valid", str(resource)]
     monkeypatch.setattr(sys, "argv", argv)
     with pytest.raises(SystemExit):

@@ -149,7 +149,7 @@ class DecisionResult:
     @property
     def abstained_unreadable(self) -> bool:
         """An ABSTAIN because part of the record could not be read (a CDS card always shows
-        it, and CRD says `indeterminate`)."""
+        it)."""
         return self.outcome is Outcome.ABSTAIN and bool(self.unreadable)
 
     @property
@@ -598,7 +598,7 @@ class Decision:
 
         The check of an agent on the bounded engine (`Pack.bounded`: one from a registry or a
         store) holds to its input limits (`origin.shape_problem`) and to a time
-        budget: the decision's, or one of its own when called alone (`mendari omop`). It checks
+        budget: the decision's, or one of its own when called alone. It checks
         the budget after each error and stops at `MAX_SCHEMA_ERRORS`. Inside a decision, a
         budget spent before any error is found raises `OutOfTime` (the decision abstains);
         alone, it is a reason."""
