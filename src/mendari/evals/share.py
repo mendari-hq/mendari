@@ -1,23 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """What of an evaluation a site can share: counts, never cases.
 
-`mendari.site-report/1` (LP-07) was a closed schema, the same on both sides. It held the
-agent, the providers and policy, the metrics per question, the outcome counts and rates, the
-critical counts, the threshold sweep, latency, cost, error counts and the dataset's size. It
-never holds a case id, case text, the dataset's name or hash, who approved a governance
+A site shares `mendari.site-report/1` (LP-22c, ADR-0017), built by `site_report` (`shareable`,
+as sent): a closed schema, the same on both sides, of whole counts, names and booleans counted
+from the run's ledger. It holds no rate and no fraction: the registry computes every figure it
+shows from the counts. Small cells (1 to 9 cases, under `MIN_GROUP`) are suppressed by one
+function (`suppress`) that both sides run, and a run on fewer than `MIN_DATASET` cases is not
+shared at all.
+
+It never holds a case id, case text, the dataset's name or hash, who approved a governance
 override (only that one applied), or subgroup cells: a subgroup's values come from a site's
 data (a clinic, a clinician, a date), and nothing can tell a category from a name until an agent
 declares each subgroup's values. Every string is a name the agent or Mendari defines (a
-question, label, slot, variant, composite member, provider type or model), short and ASCII, or
-one of Mendari's error codes (a closed set, `FAILURE_CODES`); every number is bounded and
-rounded. A composite provider (`check`) is shared as it is recorded: its model lists each
-member's as `member:model`, joined as the composite joins them (" + "), and a failed member's
-error is `member:code`. Calibration bins with fewer than `MIN_GROUP` cases are dropped.
-
-Of it, only the names a shared record holds are kept (`SharedAgent`, `SharedProvider`, `Name`);
-a registry takes none, and nothing here builds one. A site shares `mendari.site-report/1`
-(LP-22c, ADR-0017), built by `site_report` (`shareable`, as sent): whole counts only, counted
-from the run's ledger, small cells suppressed by one function (`suppress`) that both sides run.
+question, label, slot, variant, composite member, provider type or model), short and ASCII. A
+composite provider (`check`) is shared as it is recorded: its model lists each member's as
+`member:model`, joined as the composite joins them (" + ").
 """
 
 from __future__ import annotations
@@ -68,10 +65,6 @@ class _Closed(BaseModel):
 
 class SharedAgent(_Closed):
     """The agent a shared record is about (its `agent` key): its id, version and digest."""
-
-    # What a JSON schema made from it calls it; the class and the `agent` key it types keep their
-    # names, as the signed records that hold them do.
-    model_config = ConfigDict(title="SharedAgent")
 
     id: Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}/[a-z0-9][a-z0-9-]{0,62}$")]
     version: Annotated[str, Field(pattern=r"^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$")]

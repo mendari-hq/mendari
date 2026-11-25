@@ -114,8 +114,8 @@ function boardTables(board, group) {
     ...constantSlots.map((slot) => `all rows: ${esc(slot)} = ${esc(variantText(rows[0].providers[slot].variant))}`),
     ...constantMetrics.map((m) => `${esc(m.label)} ${esc(m.words(rows[0]))} in every configuration`),
   ];
-  const withoutCounts = rows.some((r) => r.figures.accuracy === null)
-    ? `<p class="table-note">Accuracy and false automation are n/a on a row recorded before leaderboards kept the counts they are of.</p>` : "";
+  const unlabelled = rows.some((r) => r.figures.accuracy === null)
+    ? `<p class="table-note">Accuracy is n/a on a row with no case labelled for the primary question.</p>` : "";
   return (notes.length ? `<p class="table-note">${notes.join(" · ")}</p>` : "") + tableHtml({
     id: `board-${group.index}`,
     caption: `<b>${esc(group.dataset)}</b> · ${esc(group.about.join("; "))}`,
@@ -123,7 +123,7 @@ function boardTables(board, group) {
     stickyFirst: true,
     rowClass: (r) => (isDeployed(r) ? "deployed" : ""),
     columns,
-  }) + withoutCounts + costChart(rows, varying, group) + otherQuestions(rows, varying, group);
+  }) + unlabelled + costChart(rows, varying, group) + otherQuestions(rows, varying, group);
 }
 
 // A configuration in plain words ("Rules + model-2"), for the slots that differ.

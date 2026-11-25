@@ -312,7 +312,7 @@ def tally(cases: Sequence[Case], outcomes: Sequence[Decided], labels: int) -> Ta
 
 def tally_of(report: Mapping[str, Any]) -> Tally | None:
     """The counts a report states at the threshold it ran with, or None when it does not hold
-    them all (a `mendari.eval/1` report without its counts)."""
+    them all (`result.false_automation` finds no count)."""
     decisions = report["decisions"]
     counts = decisions["outcome_counts"]
     wrong = false_automation(report)
