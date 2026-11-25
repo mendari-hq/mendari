@@ -3,7 +3,8 @@
 ## Status
 Accepted (Phase 4b, 2026-10-02)
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 Phase 4 gave Mendari sign-in, scoped machine access and SMART Backend Services. Before the owner

@@ -1,6 +1,11 @@
 # ADR-0013: A scoreboard and scoped grades
 
 ## Status
+Superseded by [ADR-0026](ADR-0026-one-release-baseline-agents-only.md) (2026-11-25): the
+scoreboard is removed, with the grading method, the signed results and their store, and the
+hidden sets it graded on. Leaderboards stay (`mendari leaderboard`, `mendari.leaderboard/1`,
+ranked by `mendari.rank/1`).
+
 Accepted (2026-11-06, LP-17m). Proposed 2026-10-17, and built in steps (LP-17, `tasks/todo.md`,
 planned in `notes/lp17-plan.md`). What landed, in the order it was built:
 - 17a (#257), the grading method 1.0 (`mendari.grading/1.0`, a draft
@@ -38,7 +43,8 @@ confirmed that 17l waits for LP-19 and LP-20, decision 10). Gate G3-4's
 effective date (gate `grading-method`). The defaults below hold unless the owner chooses
 otherwise: the owner's decisions still open are listed in `tasks/todo.md`.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 Mendari compares an agent's configurations today with leaderboards (`mendari.leaderboard/1`), ranked

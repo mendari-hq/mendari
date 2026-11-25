@@ -36,7 +36,8 @@ what it built here, in the order they landed:
 The defaults below hold unless the owner chooses otherwise; the step that changes the hosted
 firewall (21o) waits for the owner.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 The hosted platform is to take strangers without the owner watching it (LP-21, amending A13 of

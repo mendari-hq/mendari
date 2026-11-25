@@ -7,7 +7,12 @@ the machine roles exists, an organization's grading key, which only the operator
 command line (`mendari access grader-key`); it holds `grade` and nothing else, no HTTP route
 makes one, and an administrator may list and revoke it, never rotate it.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Amended by [ADR-0026](ADR-0026-one-release-baseline-agents-only.md) (2026-11-25): the grading key
+ADR-0011 added is gone with the hidden evaluation sets, so every key is of a machine role
+(`viewer` or `service`).
+
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 People sign in with the organization's identity provider (OIDC). Machines used API keys that

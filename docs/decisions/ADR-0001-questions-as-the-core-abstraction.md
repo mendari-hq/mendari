@@ -3,7 +3,8 @@
 ## Status
 Accepted (v0.1)
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 Mendari must let the same healthcare decision run on deterministic rules, Jev, local ML

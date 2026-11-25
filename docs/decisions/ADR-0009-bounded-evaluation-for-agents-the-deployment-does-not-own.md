@@ -7,7 +7,14 @@ wall-clock deadline per decision; 16c, the rewrites of the bundled agents' looka
 Amends [ADR-0007](ADR-0007-community-agents-by-pull-request.md), which planned an isolated
 process for agents from others.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Amended by [ADR-0026](ADR-0026-one-release-baseline-agents-only.md) (2026-11-25): community
+agents are gone ([ADR-0007](ADR-0007-community-agents-by-pull-request.md) is superseded). The
+bounded engine runs an agent of an origin the deployment does not own (`hub`, `store`) whose
+digest is not a bundled agent's, and its limits are named for it (`MAX_BOUNDED_TEXT_CHARS` and
+the others in `core/origin.py`).
+
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 Community agents run on the B11 community engine since #133: their patterns on RE2, which never

@@ -1,6 +1,11 @@
 # ADR-0011: Hidden evaluation sets, blind labelling and agreement
 
 ## Status
+Superseded by [ADR-0026](ADR-0026-one-release-baseline-agents-only.md) (2026-11-25): hidden
+evaluation sets are removed, with their keys, tables, routes, commands and screens, the grading
+key and the `grading` role. The `labeller` role stays, and so does the blind grading screen,
+which written output uses ([ADR-0025](ADR-0025-a-judge-is-trusted-by-measured-agreement.md)).
+
 Proposed (2026-10-09). Built (LP-11, 11a to 11p, 2026-10-09 to 2026-10-18) by the defaults of
 the plan's conflicts 1 to 57 (`notes/lp11-plan.md`), as `tasks/todo.md` records them, each
 confirmed by the owner on 2026-11-07; decisions 4 to 6 were confirmed then too, and 1 to 3
@@ -149,7 +154,8 @@ in the order they landed:
   not cover, naming the set; `mendari audit verify --evalsets` and `rotate --check` check all
   of it, and count the rows from before these commitments (`predating`), read as before.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in agent manifests and inside

@@ -14,7 +14,8 @@ recorded with the registry's administrator token (ADR-0012's defaults 3 and 5 ar
 Gate G3-4's `a10-registry-hub` names its tests; the registry turned on and the Hub deployed are
 the owner's, and stay pending there.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 The registry ([ADR-0012](ADR-0012-a-registry-that-shows-only-what-it-checked.md)) shows only

@@ -17,7 +17,13 @@ role); `agent_author` still grants nothing. Amended by
 `author`, a people-only permission over the organization's agent store, mounted only with
 `MENDARI_AGENT_STORE=on` in memberships mode.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Amended by [ADR-0026](ADR-0026-one-release-baseline-agents-only.md) (2026-11-25): the `grading`
+role is gone with the hidden evaluation sets. `labeller` grants `label`, with which a person
+grades written output blind ([ADR-0025](ADR-0025-a-judge-is-trusted-by-measured-agreement.md)),
+and `agent_author` grants `author`.
+
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 A request acts for one organization, taken from the identity provider's claim at sign-in
