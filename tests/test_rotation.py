@@ -2,9 +2,9 @@
 """Key rotation (LP-09): the PHI key, the input hash key and API keys each change without losing
 data or breaking the audit chain.
 
-- The PHI key: a ring (`MENDARI_PHI_KEY` seals, `MENDARI_PHI_READ_KEYS` only opens); from the
-  first rotation on each token names its key (`v2:<key id>:`); `mendari phi rotate` re-seals in
-  batches, each chained, and an interrupted run resumes; `--check` proves everything opens with
+- The PHI key: a ring (`MENDARI_PHI_KEY` seals, `MENDARI_PHI_READ_KEYS` only opens); each token
+  names its key (`v2:<key id>:`); `mendari phi rotate` re-seals in batches, each chained, and an
+  interrupted run resumes; `--check` proves everything opens with
   the current key alone before the read keys are dropped; a key a rotation moved values off
   seals nothing more.
 - The input hash key: a new key starts an epoch (chained); old hashes stay as they were.
@@ -29,7 +29,7 @@ from fastapi.testclient import TestClient
 from mendari import AuditStore, Decision, Pack
 from mendari.cli import main
 from mendari.core import audit as audit_module
-from mendari.core.phi import LEGACY, PhiPolicy, key_id, phi_policy, token_key
+from mendari.core.phi import PhiPolicy, key_id, phi_policy, token_key
 from mendari.errors import AuthError, MendariError
 from mendari.server.app import create_app, mounted_routes
 from mendari.server.auth import permission_for
@@ -100,22 +100,22 @@ def chained(store: AuditStore, event: str) -> list[dict[str, Any]]:
 # -- the token and the ring --------------------------------------------------------------------
 
 
-def test_tokens_name_their_key_only_from_the_first_rotation(tmp_path: Path) -> None:
+def test_every_token_names_its_key(tmp_path: Path) -> None:
     store = AuditStore(tmp_path / "a.db", phi=ring(OLD))
-    before = store.phi.encrypt("d-1", {"x": 1})
-    assert token_key(before) == LEGACY and ":" not in before  # what a release before reads
+    sealed = store.phi.encrypt("d-1", {"x": 1})
+    assert sealed.startswith(f"v2:{key_id(OLD)}:") and token_key(sealed) == key_id(OLD)
     rotating = AuditStore(tmp_path / "a.db", phi=ring(NEW, OLD))  # a rotation is under way
-    tagged = rotating.phi.encrypt("d-2", {"x": 2})
-    assert tagged.startswith(f"v2:{key_id(NEW)}:")
-    assert AuditStore(tmp_path / "a.db", phi=ring(NEW)).phi.tag_tokens  # it stays so
+    assert rotating.phi.encrypt("d-2", {"x": 2}).startswith(f"v2:{key_id(NEW)}:")
 
 
 def test_a_token_opens_only_with_its_key_as_its_kind_for_its_decision() -> None:
-    old, both = ring(OLD), ring(NEW, OLD)
-    legacy = old.encrypt("d-1", {"x": 1})
-    assert both.decrypt("d-1", legacy) == {"x": 1}  # sealed before key ids: the ring is tried
-    tagged = PhiPolicy("encrypt", NEW, INPUT_HASH_KEY, (), tag_tokens=True).encrypt("d-1", {"x": 1})
+    both = ring(NEW, OLD)
+    tagged = ring(NEW).encrypt("d-1", {"x": 1})
     assert both.open("input", tagged, "d-1") == ({"x": 1}, key_id(NEW))
+    unnamed = tagged.split(":", 2)[2]  # the same sealed bytes, naming no key: no key opens them
+    with pytest.raises(MendariError, match="does not name its key"):
+        both.decrypt("d-1", unnamed)
+    assert token_key(unnamed) == "invalid"
     for wrong in (
         lambda: both.decrypt("d-2", tagged),  # another decision
         lambda: both.open_details("d-1", tagged),  # another kind
@@ -275,10 +275,10 @@ def test_a_value_no_key_opens_is_listed_and_the_rest_rotates(
         connection.commit()
     assert main(["phi", "rotate", "--db", str(other), "--check"]) == 1
     assert "is not a Mendari database" in capsys.readouterr().err
-    assert out["unopenable"] == [{"kind": "input", "id": "d-00010", "key": LEGACY}]
+    assert out["unopenable"] == [{"kind": "input", "id": "d-00010", "key": key_id(OTHER)}]
     assert main(["phi", "rotate", "--db", str(db), "--check"]) == 1  # not ready: one fails
     checked = json.loads(capsys.readouterr().out)
-    assert checked["failed"] == [{"kind": "input", "id": "d-00010", "key": LEGACY}]
+    assert checked["failed"] == [{"kind": "input", "id": "d-00010", "key": key_id(OTHER)}]
     with AuditStore(db, phi=ring(NEW, OLD))._db.session(exclusive=True) as conn:  # erased
         conn.all("DELETE FROM decision_inputs WHERE decision_id = 'd-00010'")
     assert main(["phi", "rotate", "--db", str(db), "--check"]) == 0
@@ -336,7 +336,7 @@ def test_the_check_writes_nothing(tmp_path: Path, inbox_pack: Pack) -> None:
     before = written()
     store = AuditStore(db, phi=ring(NEW, OLD), marks=False)  # as `--check` opens it
     store.phi_check()
-    assert written() == before and not store.phi.tag_tokens
+    assert written() == before
 
 
 def test_a_retired_key_seals_nothing_more(tmp_path: Path, inbox_pack: Pack) -> None:
@@ -370,17 +370,18 @@ def test_the_check_catches_a_value_that_does_not_match_its_hash(
 
 
 def test_an_altered_note_still_breaks_verification(tmp_path: Path, inbox_pack: Pack) -> None:
-    """Never rotated (one key, legacy tokens): an altered note breaks verification, as before.
-    A forged key id, one no deployment of this database held, is an alteration too."""
+    """Never rotated (one key): an altered note breaks verification. A forged key id, one no
+    deployment of this database held, is an alteration too."""
     db = tmp_path / "a.db"
     store = AuditStore(db, phi=ring(OLD))
     reviewed(store, inbox_pack, 1)
     with store._db.session(exclusive=True) as conn:
         sealed = conn.one("SELECT id, sealed FROM notes")
         assert sealed is not None
-        flipped = base64.b64decode(sealed["sealed"])
+        named, _, body = str(sealed["sealed"]).rpartition(":")
+        flipped = base64.b64decode(body)
         flipped = flipped[:-1] + bytes([flipped[-1] ^ 1])
-        conn.all("UPDATE notes SET sealed = ?", (base64.b64encode(flipped).decode(),))
+        conn.all("UPDATE notes SET sealed = ?", (f"{named}:{base64.b64encode(flipped).decode()}",))
     assert "broken_at" in store.verify(notes=True)
     forged = f"v2:{'0' * 16}:{base64.b64encode(flipped).decode()}"
     with store._db.session(exclusive=True) as conn:
@@ -396,7 +397,7 @@ def test_verify_says_which_notes_no_key_here_opens(tmp_path: Path, inbox_pack: P
     verified = alone.verify(notes=True)
     assert verified["ok"] is False and "broken_at" not in verified
     assert verified["unopenable"] == {key_id(OTHER): 2}
-    named = PhiPolicy("encrypt", OTHER, INPUT_HASH_KEY, (), tag_tokens=True)
+    named = ring(OTHER)
     with alone._db.session(exclusive=True) as conn:  # altered: it names a key the ring has
         conn.all("UPDATE notes SET sealed = ?", (named.seal_note("x", "y", {"text": "?"}),))
     assert "broken_at" in AuditStore(db, phi=ring(OTHER)).verify(notes=True)

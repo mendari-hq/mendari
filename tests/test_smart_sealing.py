@@ -2,8 +2,8 @@
 """An EHR launch's rows sealed at rest (core/session_seal.py, ADR-0006, threat I11): the session
 row (the EHR's access token, the patient) under the session cookie, the pending launch (the PKCE
 verifier, the nonce) under the launch's binding cookie. A database reader opens neither; a row
-that does not open (another row's data, a changed byte, plaintext from before sealing) ends the
-launch; an EHR that refuses the token ends it too. People's sign-in rows are left as they were.
+that does not open (another row's data, a changed byte, a row that is not sealed) ends the
+launch; an EHR that refuses the token ends it too. People's sign-in rows are not sealed.
 Both backends (`db_target` runs on SQLite and Postgres)."""
 
 from __future__ import annotations
@@ -176,7 +176,7 @@ def test_a_tampered_or_plaintext_launch_row_ends_the_launch(
     assert app.get("/api/smart/patient").status_code == 401
     assert app.get("/api/smart/session").json() == {"active": False}
     assert raw_rows(db_target, "session") == []  # deleted, not left to expire
-    # A plaintext row, as a release before sealing wrote it, or as a database writer would.
+    # A plaintext row, as a database writer would write it.
     full_launch(app, ehr)
     [row] = raw_rows(db_target, "session")
     sid = app.cookies.get(SMART_COOKIE)
@@ -189,7 +189,7 @@ def test_a_tampered_or_plaintext_launch_row_ends_the_launch(
     assert app.get("/api/smart/patient").status_code == 401
     assert ehr.requests == []  # the EHR was never asked for the other patient
     assert raw_rows(db_target, "session") == []
-    # A pending launch in plaintext (in flight at the upgrade): the browser launches again.
+    # A pending launch in plaintext, written past the store: the browser launches again.
     started = launch(app)
     state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
     code = ehr.authorize(started.headers["location"])
@@ -322,8 +322,7 @@ def test_offline_access_is_refused_at_launch(
 
 
 def test_sign_in_sessions_are_untouched(db_target: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`user` and `oidc-pending` rows hold no token and stay as they were (sealing them would
-    sign everyone out): plaintext, read by the releases on either side of this one."""
+    """`user` and `oidc-pending` rows hold no token and are not sealed (ADR-0006)."""
     idp = FakeIdp()
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
@@ -348,11 +347,14 @@ def test_sign_in_sessions_are_untouched(db_target: str, monkeypatch: pytest.Monk
         assert json.loads(person["data"])["name"] == "Nurse Kim"
         assert client.get("/api/auth/me").json()["signed_in"] is True
         assert sign_in(client, idp, roles=["clinicians"]).status_code == 302
-        # The CI ZAP job writes a person's row straight into the store, and it still works.
+        # The CI ZAP job writes a person's row straight into the store, with the absolute limit
+        # every session row keeps (`sessions.begin`), and it still works.
         with AuditStore(db_target) as store:
             sid = "zap-session-id"
+            until = int(time.time()) + 7200
             row = {"sub": "zap", "name": "zap", "roles": ["admin"], "org": "default"}
-            store.smart_put(sid, "user", row, int(time.time()) + 7200)
+            row["absolute_at"] = until
+            store.smart_put(sid, "user", row, until)
             assert store.smart_get(sid, "user") == row
             viewer = signed_in(store, role="viewer")
         client.cookies.clear()

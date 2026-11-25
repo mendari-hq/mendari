@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from mendari.cli import main
 from mendari.core.registry import resolve_pack
-from mendari.errors import HubError, MendariError
+from mendari.errors import HubError
 from mendari.hub.registry import RegistryStore, ReviewRequest, token_id
 from tests.conftest import Registry, share_signed, shared_benchmark, verified_site
 
@@ -115,13 +115,6 @@ PLANTED = "2026-01-01T00:00:00+00:00"
         ),
         (
             (
-                "INSERT INTO hub_tokens (token_sha256, namespace, created_at) VALUES (?, ?, ?)",
-                ("f" * 64, "mendari", PLANTED),
-            ),
-            "1 of the tokens have no chained event",
-        ),
-        (
-            (
                 "INSERT INTO hub_namespaces (name, publisher_type, display_name, created_at) "
                 "VALUES (?, ?, ?, ?)",
                 ("planted", "verified", "Planted", PLANTED),
@@ -188,7 +181,6 @@ PLANTED = "2026-01-01T00:00:00+00:00"
     ],
     ids=[
         "event-deleted",
-        "token-planted",
         "namespace-planted",
         "publisher-type-changed",
         "token-moved",
@@ -237,34 +229,6 @@ def test_a_key_whose_id_is_not_its_key_does_not_verify(registry: Registry, db_ta
     assert _verify(db_target)["problem"] == "1 of the keys changed since their chained event"
 
 
-def test_a_registry_from_before_the_chain_records_what_it_held_once(
-    registry: Registry, db_target: str
-) -> None:
-    """A registry that held rows before it had a chain (no chain tables) hashes them once, the
-    first time it opens with one (`registry.chain_started`), and verifies. A chain emptied
-    later is never started again: it is reported, so emptying it cannot whitelist a planted
-    row (the adversarial review of LP-18b)."""
-    assert registry.publish().status_code == 201
-    _write(db_target, "DROP TABLE hub_events")
-    _write(db_target, "DROP TABLE hub_meta")
-    events = _events(db_target)  # opening the store again creates the tables and migrates
-    assert [e["event"] for e in events] == ["registry.chain_started"]
-    held = json.loads(events[0]["payload"])["rows"]
-    assert list(held["namespaces"]) == ["mendari"] and len(held["versions"]) == 1
-    assert _verify(db_target)["ok"]
-    assert [e["event"] for e in _events(db_target)] == ["registry.chain_started"]  # once
-
-    _write(
-        db_target,
-        "INSERT INTO hub_namespaces (name, publisher_type, display_name, created_at) "
-        "VALUES (?, ?, ?, ?)",
-        ("planted", "verified", "Planted", PLANTED),
-    )
-    _write(db_target, "DELETE FROM hub_events")
-    assert _events(db_target) == []  # opened again: not started anew
-    assert _verify(db_target)["problem"] == "the chain was emptied"
-
-
 # -- the chain's unique links: no two events follow the same one ------------------------------
 
 LINKS = "hub_events_prev_hash"
@@ -278,12 +242,9 @@ def _refused_by_the_database() -> tuple[type[BaseException], ...]:
     return (sqlite3.IntegrityError, psycopg.IntegrityError)
 
 
-def _fork(db_target: str, *, unindexed: bool = False) -> None:
-    """A second event chained after the event the head follows, written past the store; with
-    `unindexed`, after dropping the index in the same session (opening a store creates it)."""
+def _fork(db_target: str) -> None:
+    """A second event chained after the event the head follows, written past the store."""
     with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
-        if unindexed:
-            db.all(f"DROP INDEX {LINKS}")
         db.all(
             "INSERT INTO hub_events (subject, event, payload, created_at, prev_hash, hash) "
             "SELECT subject, event, payload, created_at, prev_hash, ? FROM hub_events "
@@ -315,44 +276,6 @@ def test_the_registry_refuses_a_second_event_after_the_same_head(
             "VALUES ('x', 'namespace.created', '{}', '2026-01-01', ?, ?)",
             ("0" * 64, "e" * 64),
         )
-
-
-def test_a_registry_that_already_forks_refuses_the_migration(
-    registry: Registry, db_target: str
-) -> None:
-    """A registry from before the index that holds a fork: the start stops, says to run
-    `registry verify`, names no event or hash, and migrates nothing (the index is still absent,
-    so a fixed database takes it on the next start)."""
-    assert registry.publish().status_code == 201
-    _fork(db_target, unindexed=True)
-    with (
-        RegistryStore(db_target, read_only=True) as reader,
-        reader._db.session(exclusive=False) as db,
-    ):
-        hashes = [str(row["hash"]) for row in db.all("SELECT hash FROM hub_events")]
-    with pytest.raises(MendariError, match="mendari registry verify") as refused:
-        RegistryStore(db_target)
-    said = str(refused.value)
-    assert "forks" in said and "nothing was migrated" in said
-    assert not any(digest in said for digest in hashes)
-    with RegistryStore(db_target, read_only=True) as reader:
-        assert not _links_indexed(reader)
-        assert reader.verify()["ok"] is False  # what the operator is told to run finds it
-
-
-def test_a_clean_registry_from_before_the_index_migrates(
-    registry: Registry, db_target: str
-) -> None:
-    assert registry.publish().status_code == 201
-    _write(db_target, f"DROP INDEX {LINKS}")
-    with RegistryStore(db_target, read_only=True) as reader:
-        assert not _links_indexed(reader)
-    with RegistryStore(db_target) as store:
-        assert _links_indexed(store)
-        assert store.verify()["ok"] is True
-    with pytest.raises(_refused_by_the_database()):
-        _fork(db_target)
-    assert _verify(db_target)["ok"] is True
 
 
 def test_a_review_confirms_or_corrects_the_declared_risk_level(registry: Registry) -> None:

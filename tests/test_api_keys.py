@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""API keys in the store (core/audit.py, ADR-0004): machine roles, scopes, expiry, legacy keys
-and the chain, on SQLite and Postgres."""
+"""API keys in the store (core/audit.py, ADR-0004): machine roles, scopes, expiry and the chain,
+on SQLite and Postgres."""
 
 from __future__ import annotations
 
@@ -94,8 +94,7 @@ def test_a_revoked_or_expired_key_is_refused(store: AuditStore) -> None:
     assert store.api_key(expired["key"]) is None
     assert store.api_key(current["key"]) is not None
     assert store.api_key("ohk_unknown") is None
-    # A row without an expiry (written by an older instance during a rollout) is refused until
-    # the next start gives it one.
+    # A row without an expiry (written past the store) is refused.
     set_column(store, current["id"], "expires_at", None)
     assert store.api_key(current["key"]) is None
 
@@ -164,7 +163,7 @@ def test_a_listing_says_each_keys_status(
     later = (datetime.now(UTC) + timedelta(hours=3)).isoformat(timespec="milliseconds")
     monkeypatch.setattr(audit_module, "_now", lambda: later)  # its overlap has passed
     assert {k["id"]: k["status"] for k in store.api_keys()}[made["rotated"]["id"]] == "expired"
-    set_column(store, made["active"]["id"], "expires_at", None)  # refused until the next start
+    set_column(store, made["active"]["id"], "expires_at", None)  # refused: no expiry
     assert {k["id"]: k["status"] for k in store.api_keys()}[made["active"]["id"]] == "expired"
 
 
@@ -234,28 +233,3 @@ def test_history_keeps_the_newest_events(
     monkeypatch.setattr(audit_module, "HISTORY_LIMIT", 3)
     whole = store.subject_history("key", made["id"], "clinic-a")
     assert whole is not None and whole["truncated"] is False and len(whole["events"]) == 3
-
-
-def test_keys_from_before_expiry_get_30_days_once(db_target: str) -> None:
-    """A database from before Phase 4: api_keys without the new columns, and a key without an
-    expiry. The first start adds the columns and gives the key 30 days; later starts leave it."""
-    with AuditStore(db_target) as store, store._db.session(exclusive=True) as db:
-        for column in ("scopes", "expires_at", "revoked_by"):
-            db.all(f"ALTER TABLE api_keys DROP COLUMN {column}")
-        db.all(
-            "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at) "
-            "VALUES ('old1', ?, 'old admin', 'admin', 'default', 'p', '2026-01-01')",
-            (hashlib.sha256(b"ohk_old").hexdigest(),),
-        )
-    with AuditStore(db_target) as store:
-        first = store.api_key("ohk_old")
-        assert first is not None and first["role"] == "admin" and first["scope"] is None
-        assert 29.9 < days_from_now(first["expires_at"]) <= 30
-    with AuditStore(db_target) as store:
-        again = store.api_key("ohk_old")
-        assert again is not None and again["expires_at"] == first["expires_at"]  # idempotent
-        new = store.create_api_key(name="n", role="viewer", org="default", created_by="p")
-        assert 89.9 < days_from_now(new["expires_at"]) <= 90
-        past = (datetime.now(UTC) - timedelta(seconds=1)).isoformat(timespec="milliseconds")
-        set_column(store, "old1", "expires_at", past)
-        assert store.api_key("ohk_old") is None

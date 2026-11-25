@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from mendari import AuditStore, Decision, DecisionResult, Outcome, Pack, load_pack
+from mendari import AuditStore, Decision, DecisionResult, Pack
 from mendari.core.phi import PhiPolicy
 from mendari.standards import audit_fhir, davinci, task_fhir
 from mendari.standards.fhir import PACK_ID_SYSTEM
@@ -56,8 +56,8 @@ def chain_item() -> dict[str, Any]:
         "priority": "routine",
         "confidence": 0.58,
         "review_status": "resolved",
-        # A row from before `observed_label`, where an outcome overwrote the reviewer's label:
-        # the Task reads the chain, never this column.
+        "refused": 0,
+        # Not the reviewer's label in the chain: the Task reads the chain, never this column.
         "final_label": "front_desk",
         "human_override": True,
         "reviewer": "rn-1",
@@ -172,37 +172,16 @@ def test_a_decision_without_its_creation_event_is_an_error() -> None:
 
 
 @pytest.mark.parametrize(
-    ("outcome", "confidence", "review_status", "status"),
+    ("review_status", "refused", "status"),
     [
-        ("AUTO", 0.97, "not_required", "completed"),
-        ("HUMAN_REVIEW", 0.6, "pending", "requested"),
-        ("HUMAN_REVIEW", 0.6, "resolved", "completed"),
-        ("ABSTAIN", None, "pending", "requested"),  # a provider failed: no confidence
-        ("ABSTAIN", 0.2, "resolved", "completed"),
-        ("BLOCK", 0.8, "not_required", "completed"),  # a policy rule blocked it
-        ("BLOCK", None, "not_required", "failed"),  # the input was refused
+        ("not_required", 0, "completed"),  # automated, or a policy rule blocked it
+        ("pending", 0, "requested"),
+        ("resolved", 0, "completed"),
+        ("not_required", 1, "failed"),  # the input was refused before any provider ran
     ],
 )
-def test_status_is_a_function_of_three_columns(
-    outcome: str, confidence: float | None, review_status: str, status: str
-) -> None:
-    assert task_fhir.task_status(outcome, confidence, review_status) == status
-
-
-def test_every_shipped_block_rule_targets_the_primary_question() -> None:
-    """`failed` is `BLOCK` without a primary confidence. A BLOCK rule on another question could
-    match while the primary went unanswered: that policy BLOCK would render and search as a
-    refused input. No shipped pack has one; a pack that adds one needs a `rejected` column."""
-    blocks = 0
-    for manifest_path in sorted(
-        (ROOT / "tests" / "fixtures" / "reference-agents").glob("*/agent.yaml")
-    ):
-        policy = load_pack(manifest_path.parent).manifest.policy
-        for rule in policy.rules:
-            if rule.outcome is Outcome.BLOCK:
-                blocks += 1
-                assert rule.when.question == policy.primary, f"{manifest_path}: {rule.name}"
-    assert blocks  # ai-guard's possible-block
+def test_status_is_a_function_of_two_columns(review_status: str, refused: int, status: str) -> None:
+    assert task_fhir.task_status(review_status, refused) == status
 
 
 # -- from a real store ---------------------------------------------------------------------
@@ -264,7 +243,7 @@ def test_the_latest_version_agrees_with_the_columns_search_reads(
     for decision_id in ids:
         item = store.item(decision_id)
         assert item is not None
-        columns = (item["outcome"], item["confidence"], item["review_status"])
+        columns = (item["review_status"], item["refused"])
         assert task_fhir.current_task(item)["status"] == task_fhir.task_status(*columns)
 
 

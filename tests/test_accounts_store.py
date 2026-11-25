@@ -502,28 +502,6 @@ def test_the_membership_roles_are_the_servers_and_the_reserved_ones() -> None:
     }
 
 
-def test_an_older_database_reads_as_having_no_records_every_row_defaults(
-    db_target: str, inbox_pack: Pack
-) -> None:
-    """Read-only, a database from before these records, or before tenancy's `org` column, is
-    read as it is (SQLite and Postgres): no memberships, no requests, every decision
-    `default`'s."""
-    store = AuditStore(db_target)
-    inputs = message("Can I get a refill?")
-    store.record(Decision(inbox_pack)(inputs), inputs)
-    with store._db.session(exclusive=True) as db:
-        for table in ("access_requests", "invitations", "memberships", "organizations"):
-            db.all(f"DROP TABLE {table}")
-        db.all("ALTER TABLE decisions DROP COLUMN org")
-    store.close()
-    older = AuditStore(db_target, read_only=True)
-    assert older.memberships() == [] and older.access_requests() == []
-    assert older.organizations() == []
-    assert older.organizations_in_use() == [
-        {"org": "default", "decisions": 1, "recorded": False, "recordable": True}
-    ]
-
-
 def test_a_persons_memberships_are_read_as_they_are_now(store: AuditStore) -> None:
     store.create_organization(org="clinic-a", name="Clinic A", created_by="cli")
     ada = person(store, "ada", "ada@example.org")

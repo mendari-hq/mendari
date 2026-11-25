@@ -170,37 +170,17 @@ def test_the_old_cookie_name_is_ignored(server: TestClient, db_target: str) -> N
     assert server.get("/api/audit", headers=person).status_code == 200
 
 
-def test_a_row_without_an_absolute_limit_keeps_its_own(
-    server: TestClient, db_target: str, clock: Callable[[int], None]
-) -> None:
-    """A row with no `absolute_at` and no claims, eight hours from sign-in (as Phase 4b found
-    them): its stored roles hold, its expiry is its absolute limit, and the idle limit starts at
-    its first request."""
+def test_a_row_without_an_absolute_limit_has_ended(server: TestClient, db_target: str) -> None:
+    """Every session row keeps its absolute limit (`sessions.begin`): one without it, written
+    past the store, is a session that has ended. It is left as it is, to expire."""
     now = int(time.time())
-    old = {"iss": IDP, "sub": "u1", "name": "Nurse Kim", "roles": ["reviewer"], "org": "default"}
+    row = {"iss": IDP, "sub": "u1", "name": "Nurse Kim", "roles": ["reviewer"], "org": "default"}
     with AuditStore(db_target) as store:
-        store.smart_put("old-sid", "user", old, now + 7 * HOUR)
-    cookie = {"cookie": "__Host-mendari_session=old-sid"}
-    me = server.get("/api/auth/me", headers=cookie).json()["principal"]
-    assert me["roles"] == ["reviewer"] and me["actor"] == f"{IDP}|u1"
-    assert expiry(db_target, "old-sid") == now + 30 * MINUTE  # idle from now on
-    for _ in range(6 * 7 - 1):
-        clock(10 * MINUTE)
-        assert server.get("/api/audit", headers=cookie).status_code == 200
-    clock(10 * MINUTE)
-    assert server.get("/api/audit", headers=cookie).status_code == 401  # its own 8 hours
-
-
-def test_an_idle_old_row_ends_too(
-    server: TestClient, db_target: str, clock: Callable[[int], None]
-) -> None:
-    with AuditStore(db_target) as store:
-        old = {"sub": "u1", "name": "x", "roles": ["viewer"], "org": "default"}
-        store.smart_put("old-sid", "user", old, int(time.time()) + 7 * HOUR)
-    cookie = {"cookie": "__Host-mendari_session=old-sid"}
-    assert server.get("/api/audit", headers=cookie).status_code == 200
-    clock(31 * MINUTE)
+        store.smart_put("no-limit", "user", row, now + 7 * HOUR)
+    cookie = {"cookie": "__Host-mendari_session=no-limit"}
+    assert server.get("/api/auth/me", headers=cookie).json()["signed_in"] is False
     assert server.get("/api/audit", headers=cookie).status_code == 401
+    assert expiry(db_target, "no-limit") == now + 7 * HOUR  # not moved, never resumed
 
 
 def test_the_limits_are_settings_bounded_at_startup(
