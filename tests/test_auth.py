@@ -54,6 +54,8 @@ from tests.conftest import (
     without_request_id,
 )
 from tests.jwt_signers import cds_token, forged
+from tests.support.fixture_records import SHOWCASE
+from tests.support.platform import CHART
 from tests.test_cds_clients import BASE, EHR, RSA_EHR
 
 IDP = "https://idp.example.org"
@@ -1109,13 +1111,13 @@ def test_a_bearer_header_never_falls_back_to_the_launch_cookie(
     cookie = launched(store, iss=ehr)
     assert app.get("/api/smart/session", headers=cookie).json()["active"] is True
     key = store.create_api_key(name="worker", role="service", org="default", created_by="t")
-    body = {"pack_id": "mendari/referral-router", "focus": "ServiceRequest/ref-sr1"}
+    body = {"pack_id": CHART, "focus": f"Patient/{SHOWCASE.id}"}
     for header, status in (("Bearer ohk_not-a-key", 401), (f"Bearer {key['key']}", 403)):
         sent = {**cookie, "authorization": header}
         for method, path in (
             ("POST", "/api/smart/decide"),
             ("GET", "/api/smart/patient"),
-            ("GET", "/api/smart/focus?pack_id=mendari/referral-router"),
+            ("GET", f"/api/smart/focus?pack_id={CHART}"),
         ):
             refused = app.request(method, path, json=body, headers=sent)
             assert refused.status_code == status, (header, path, refused.text)
