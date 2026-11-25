@@ -28,20 +28,14 @@ COMPOSE_FILES = [
     ROOT / "docker-compose.yml",
     ROOT / "deploy" / "onprem" / "docker-compose.yml",
     ROOT / "deploy" / "site" / "docker-compose.yml",
-    INFERNO / "docker-compose.yml",
     SCRIPTED / "docker-compose.yml",
 ]
 # Each Dockerfile, with the least number of FROM lines it has (the engine's is multi-stage).
-DOCKERFILES = {ROOT / "Dockerfile": 2, INFERNO / "Dockerfile": 1, SCRIPTED / "Dockerfile": 1}
+DOCKERFILES = {ROOT / "Dockerfile": 2, SCRIPTED / "Dockerfile": 1}
 # Each Inferno image: its folder, the kit it builds from source (the one gem of its lock
 # without a checksum: it is fetched by commit), and the Linux platforms its lock lists (the
 # images CI builds, amd64, and a local run on Apple silicon, arm64).
 INFERNO_IMAGES = {
-    "dtr": (
-        INFERNO,
-        "davinci_dtr_test_kit (0.18.0)",
-        ["aarch64-linux", "aarch64-linux-gnu", "x86_64-linux-gnu"],
-    ),
     "scripted": (
         SCRIPTED,
         "davinci_crd_test_kit (0.15.0)",
@@ -396,8 +390,8 @@ def test_the_inferno_kit_validates_without_a_terminology_server(image: str) -> N
     (sandbox/inferno/README.md, "What leaves the machine"): each image puts
     offline_terminology.rb last in the kit's lib/, where Inferno loads it at boot, after the
     kits, and the override takes the terminology server from every validator of every suite,
-    group and test. DTR's requires its kit by name; the scripted image's every other file in
-    lib/, whichever kits it carries."""
+    group and test. It requires every other file in lib/ first, whichever kits the image
+    carries."""
     folder = INFERNO_IMAGES[image][0]
     copies = [
         line.split()[1:]
@@ -409,13 +403,10 @@ def test_the_inferno_kit_validates_without_a_terminology_server(image: str) -> N
     loaded = [words[-1] for words in copies if words[-1].startswith("lib/")]
     assert max(loaded) == target
     override = (folder / "offline_terminology.rb").read_text()
-    if image == "dtr":
-        assert "require_relative 'davinci_dtr_test_kit'" in override  # the kit's validators first
-    else:
-        assert "Dir.glob(File.join(__dir__, '*.rb')).sort.each do |path|" in override
-        assert "require_relative path unless File.realpath(path) == File.realpath(__FILE__)" in (
-            override
-        )
+    assert "Dir.glob(File.join(__dir__, '*.rb')).sort.each do |path|" in override
+    assert "require_relative path unless File.realpath(path) == File.realpath(__FILE__)" in (
+        override
+    )
     kinds = re.search(r"^\[(.+)\]\.each do \|kind\|$", override, re.M)
     assert kinds is not None
     entities = {f"Inferno::Entities::{kind}" for kind in ("TestSuite", "TestGroup", "Test")}
@@ -444,34 +435,6 @@ def _inferno_urls(services: dict[str, Any], name: str) -> dict[str, Any]:
         assert url.hostname in set(services) | loopback, (name, key, url.geturl())
     assert urls["INFERNO_HOST"].geturl() == "http://nginx"
     return urls
-
-
-def test_the_inferno_harness_reaches_only_its_own_services() -> None:
-    """Inferno is given only the compose file's own addresses (sandbox/inferno/README.md): each
-    URL it is configured with names one of the file's services, INFERNO_HOST is the internal
-    nginx, and the ONC reference server, which the payer suite does not use, is a dead loopback
-    URL. What is published binds this machine only, and the engine runs open on synthetic data,
-    PHI mode off, with no credential of any kind."""
-    services = yaml.safe_load((INFERNO / "docker-compose.yml").read_text())["services"]
-    _no_way_out(services)
-    for name in ("inferno", "worker"):
-        reference = _inferno_urls(services, name)["FHIR_REFERENCE_SERVER"]
-        assert reference.hostname == "127.0.0.1" and reference.port == 9  # discard: no listener
-    engine = services["engine"]
-    assert engine["build"] == {"context": "../.."}  # the repository's own Dockerfile
-    # Open mode, PHI mode off: nothing that turns sign-in on or carries a key, token or secret.
-    environment = engine["environment"]
-    assert set(environment) == {
-        "MENDARI_PHI_MODE",
-        "MENDARI_CDS_SANDBOX",  # Inferno calls it from another machine (LP-23c)
-        "MENDARI_AGENTS",
-        "MENDARI_PUBLIC_URL",
-        "MENDARI_AGENTS_PATH",  # the example agents, mounted read-only from the test fixtures
-        "MENDARI_DATASETS_PATH",
-    }
-    assert environment["MENDARI_CDS_SANDBOX"] == "1"
-    assert environment["MENDARI_PHI_MODE"] == "off"
-    assert urlsplit(environment["MENDARI_PUBLIC_URL"]).hostname == "engine"
 
 
 def test_the_scripted_harness_reaches_only_its_own_services() -> None:

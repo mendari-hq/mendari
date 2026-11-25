@@ -3,23 +3,23 @@
 
 The expected results (`sandbox/inferno/<suite>_expected.json`) list every test the run executes,
 by its Inferno id, with the result it gives today: `pass`, `fail`, `skip` or `omit` (Inferno's
-result for a test that does not apply, such as the `$next-question` tests when no form is
-adaptive). Each result that is not a pass names the requirement ids the kit says the test
-verifies and the reason Mendari gives that result. Any difference fails: a test that newly
-fails, a known gap that now passes (update the expected results in the same pull request, so
-the list only ever shrinks by a decision), a test the run did not execute, and a test the
-expected results do not list. A run that ended in an error (Inferno's `error`, or no results at
-all) fails too.
+result for a test that does not apply). Each result that is not a pass names the requirement
+ids the kit says the test verifies and the reason Mendari gives that result. Any difference
+fails: a test that newly fails, a known gap that now passes (update the expected results in the
+same pull request, so the list only ever shrinks by a decision), a test the run did not
+execute, and a test the expected results do not list. A run that ended in an error (Inferno's
+`error`, or no results at all) fails too.
 
-The run's raw output (`inferno execute --outputter json`, whose log lines come first) stays out
-of the repository: it can quote request and response bodies.
+The run's raw output (in the form `inferno execute --outputter json` prints, whose log lines
+come first; scripts/inferno_session.py writes it so) stays out of the repository: it can quote
+request and response bodies.
 
-    uv run python scripts/inferno_check.py var/inferno/dtr_payer_server_v220_results.json \\
-      --expected sandbox/inferno/dtr_payer_server_v220_expected.json \\
-      --tests var/inferno/dtr_payer_server_v220_tests.json
+    uv run python scripts/inferno_check.py var/inferno/smart_client_stu2_2_results.json \\
+      --expected sandbox/inferno/smart_client_stu2_2_expected.json \\
+      --tests var/inferno/smart_client_stu2_2_tests.json
 
-`--tests` is the run's list of tests (sandbox/inferno/list_tests.rb): it adds short ids and
-titles to what is printed. With `--write`, the expected results are written from the run
+`--tests` is the run's list of tests (scripts/inferno_session.py writes it): it adds short ids
+and titles to what is printed. With `--write`, the expected results are written from the run
 instead, keeping each reason whose result did not change; a result without a reason must get
 one before the check passes.
 """
@@ -176,7 +176,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("results", type=Path, help="the output of `inferno execute -o json`")
     parser.add_argument("--expected", type=Path, required=True, help="the expected results")
-    parser.add_argument("--tests", type=Path, help="the run's tests (list_tests.rb)")
+    parser.add_argument("--tests", type=Path, help="the run's tests (inferno_session.py)")
     parser.add_argument(
         "--write", action="store_true", help="write the expected results from this run"
     )

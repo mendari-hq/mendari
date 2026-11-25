@@ -62,8 +62,8 @@ def test_the_scripted_project_and_its_dockerfile_are_pinned() -> None:
     would merge): no service extends another file's, nothing is included, and every image is
     pinned by digest or built here (the engine from the repository's Dockerfile, the kits from
     sandbox/inferno/scripted/Dockerfile). The image takes the CRD kit by the commit its expected
-    results name, on the pinned Ruby the DTR image uses, and the SMART and Bulk kits by the
-    versions theirs name, each with its sha256 in the lock."""
+    results name, on a Ruby pinned by digest, and the SMART and Bulk kits by the versions
+    theirs name, each with its sha256 in the lock."""
     compose = _compose()
     assert compose["name"] == "mendari-inferno-scripted"
     assert "include" not in compose
@@ -84,7 +84,7 @@ def test_the_scripted_project_and_its_dockerfile_are_pinned() -> None:
     assert "inferno" in worker["depends_on"]  # the web app fills the new volume first
     dockerfile = (SCRIPTED / "Dockerfile").read_text()
     base = next(line for line in dockerfile.splitlines() if line.startswith("FROM "))
-    assert base in (INFERNO / "Dockerfile").read_text().splitlines()  # DTR's pinned Ruby
+    assert re.fullmatch(r"FROM ruby:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}", base), base
     assert "ARG KIT_REPOSITORY=https://github.com/inferno-framework/davinci-crd-test-kit.git\n" in (
         dockerfile
     )

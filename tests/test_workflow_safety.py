@@ -395,11 +395,10 @@ def test_every_ref_is_scanned_weekly_with_a_positive_control() -> None:
     assert runs.index(SCAN["run"]) < runs.index("uv build")
 
 
-# Each conformance job, the compose file it runs, and the command that runs its suite: DTR's
-# headless `inferno execute`, the scripted suites' driver (scripts/inferno_session.py).
+# Each conformance job, the compose file it runs, and the command that runs its suite: the
+# scripted suites' driver (scripts/inferno_session.py).
 SCRIPTED_COMPOSE = "sandbox/inferno/scripted/docker-compose.yml"
 CONFORMANCE_JOBS = {
-    "dtr-payer": ("sandbox/inferno/docker-compose.yml", "inferno execute", "dtr_payer_server_v220"),
     "crd-server": (SCRIPTED_COMPOSE, "inferno_session.py", "crd_server_v221"),
     "smart-client": (SCRIPTED_COMPOSE, "inferno_session.py", "smart_client_stu2_2"),
     "bulk-client": (SCRIPTED_COMPOSE, "inferno_session.py", "bulk_data_v200_client"),
@@ -409,10 +408,9 @@ CONFORMANCE_JOBS = {
 def test_conformance_runs_weekly_or_by_hand_with_no_secret_and_commits_nothing() -> None:
     """conformance.yml (sandbox/inferno/README.md): Inferno against the engines on synthetic
     data, never on a pull request, with a read-only token and no secret. Each suite is a job of
-    its own, so each has its own verdict, the checker's: only Inferno's own exit status (3 when a
-    test does not pass) is set aside, and the raw output, which can quote payloads, is an
-    artifact for 7 days, never committed; each job ends by removing its containers and
-    volumes."""
+    its own, so each has its own verdict, the checker's, and the driver's status counts too
+    (nothing is set aside); the raw output, which can quote payloads, is an artifact for 7
+    days, never committed; each job ends by removing its containers and volumes."""
     path = ROOT / ".github" / "workflows" / "conformance.yml"
     workflow = _workflow(path)
     assert set(_triggers(workflow)) == {"schedule", "workflow_dispatch"}
@@ -444,10 +442,6 @@ def test_conformance_runs_weekly_or_by_hand_with_no_secret_and_commits_nothing()
             command = step.get("run", "")
             if "docker compose" in command:
                 assert f"docker compose -f {compose}" in command, (name, command)
-    dtr = workflow["jobs"]["dtr-payer"]["steps"]
-    (execute,) = [s for s in dtr if "inferno execute" in s.get("run", "")]
-    assert "--groups 1 3 4" in execute["run"]  # group 2, Backend Services, waits for LP-23
-    assert execute["run"].rstrip().endswith('|| echo "inferno execute exited $?"')
     for name in ("crd-server", "smart-client", "bulk-client"):  # the driver's status counts
         (execute,) = [
             s for s in workflow["jobs"][name]["steps"] if "inferno_session.py" in s.get("run", "")
