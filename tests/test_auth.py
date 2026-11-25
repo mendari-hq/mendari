@@ -45,12 +45,9 @@ from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
 from tests.conftest import (
     DASHBOARD,
+    calm_agent,
     encrypt_mode,
-    encrypted_store,
-    evalset_on,
-    evalsets_are_on,
     launched,
-    member,
     message,
     run_async,
     signed_in,
@@ -64,8 +61,22 @@ REALM = 'Bearer realm="mendari"'
 INVALID = f'{REALM}, error="invalid_token"'
 SEARCHED = ("Task", "AuditEvent", "Provenance", "CodeSystem")
 CLIENT = "mendari-org"
-INBOX = "mendari/patient-inbox-router"
+INBOX = "mendari-test/triage"  # the agent these tests decide with
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
+# Its providers that automate with sign-in on: its router and its screen's agent are a live
+# service (`calm_agent`), the screen's checked by its keyword rules. A refill is automated; a
+# message with chest pain waits for a person.
+CHECKED = {"router": "agent", "screen": "checked"}
+# What the server still holds of features wave 6 removes, until their code goes: the routes of
+# Da Vinci's PAS request and DTR package (G4) and of the guard (G12), and hidden evaluation sets'
+# permissions and role (G13). Set aside, so these tables hold what stays.
+REMOVED_ROUTES = {
+    ("POST", "/api/agents/{namespace}/{name}/pas"),
+    ("POST", "/fhir/Questionnaire/$questionnaire-package"),
+    ("POST", "/api/agents/{namespace}/{name}/guard"),
+}
+REMOVED_PERMISSIONS = {"curate", "grade"}
+REMOVED_ROLES = {"grading"}
 
 
 class FakeIdp:
@@ -128,12 +139,12 @@ def idp() -> FakeIdp:
 
 
 @pytest.fixture
-def app(
-    tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch, screened: dict[str, str]
-) -> Iterator[TestClient]:
-    """Routine messages are automated: the urgency screen runs with a fake Jev."""
+def app(tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """Routine messages are automated: the triage fixture's screen asks a live agent service,
+    checked by its rules (`CHECKED`)."""
     monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=reviewer")
-    with signing_in_with(idp, tmp_path, monkeypatch, providers=screened) as client:
+    calm_agent(monkeypatch)
+    with signing_in_with(idp, tmp_path, monkeypatch, providers=CHECKED) as client:
         yield client
 
 
@@ -265,7 +276,7 @@ def test_open_mode_names_are_identifiers(tmp_path: Path, monkeypatch: pytest.Mon
         assert refused.status_code == 422 and "reviewer must be an identifier" in refused.text
         refused = client.post(rate, json={"rating": "up", "reporter": name})
         assert refused.status_code == 422 and "reporter must be an identifier" in refused.text
-        approval = {"pack_id": "mendari/clinical-trial-prescreener", "reference": "minutes 1"}
+        approval = {"pack_id": "mendari-test/clinical-review", "reference": "minutes 1"}
         refused = client.post("/api/governance", json={**approval, "approver": name})
         assert refused.status_code == 422 and "approver must be an identifier" in refused.text
     assert client.post(rate, json={"rating": "up", "reporter": "nurse.kim@clinic"}).is_success
@@ -483,119 +494,19 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
         ("POST", "/api/smart/decide"),
     }
     assert permission_for("POST", "/api/smart/decide") == "launch_decide"
-    # A labeller's routes (LP-11j: memberships mode with the evaluation-set keys, not mounted
-    # here): `label`, people only, for every method and path under theirs.
-    for (method, path), permission in EVALSET_ROUTES.items():
-        assert permission_for(method, re.sub(r"\{[^}]+\}", "x1", path)) == permission
-    for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"):
-        for path in ("/api/labelling", "/api/labelling/", "/api/labelling/a1/x"):
-            assert permission_for(method, path) == "label", (method, path)
-    assert permission_for("GET", "/api/labellings") == "read"  # another path: not theirs
-    # An organization's curators' (LP-11k, mounted likewise): `curate`, people only, for every
-    # method and path under theirs; the evaluations' list is another path.
-    for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"):
-        for path in ("/api/evalsets", "/api/evalsets/", "/api/evalsets/s1/x/y"):
-            assert permission_for(method, path) == "curate", (method, path)
-        # A grading run (LP-11l, mounted with the keys in both account modes): `grade`, an
-        # organization's grading key's only, before the curators' rule, for every method on
-        # its path; a path below it is the curators'.
-        assert permission_for(method, "/api/evalsets/s1/runs") == "grade", method
-        for path in ("/api/evalsets/s1/runs/", "/api/evalsets/s1/runs/x", "/api/evalsets/runs"):
-            assert permission_for(method, path) == "curate", (method, path)
+    # A grader's routes over written output (ADR-0025, memberships mode: not mounted here):
+    # `label`, people only, never `read` or `discover`, whatever the catch-all says.
+    for method, path in WRITTEN_GRADING:
+        assert permission_for(method, re.sub(r"\{[^}]+\}", "x1", path)) == "label", path
     assert permission_for("GET", "/api/evals") == "read"
-    assert permission_for("GET", "/api/evalsetsx") == "read"
 
 
-# Every route hidden evaluation sets mount (LP-11j and later), with the permission it needs, and
-# what names one: a permission of theirs, or a path about them (as tests/test_evalset_leaks.py).
-EVALSET_ROUTES = {
-    ("GET", "/api/labelling"): "label",
-    ("GET", "/api/labelling/next"): "label",
-    ("POST", "/api/labelling/{assignment_id}"): "label",
-    # A grader's routes over written output (ADR-0025) need `label` too, and are held to the
-    # same rule: never read or discover, whatever the catch-all says.
-    ("GET", "/api/written/labelling"): "label",
-    ("GET", "/api/written/labelling/next"): "label",
-    ("POST", "/api/written/labelling/{assignment_id}"): "label",
-    ("GET", "/api/evalsets"): "curate",
-    ("GET", "/api/evalsets/{set_id}"): "curate",
-    ("POST", "/api/evalsets/{set_id}/sample"): "curate",
-    ("POST", "/api/evalsets/{set_id}/assignments"): "curate",
-    ("POST", "/api/evalsets/{set_id}/adjudication"): "curate",
-    ("POST", "/api/evalsets/{set_id}/runs"): "grade",
+# A grader's routes over written output (ADR-0025): the labeller's role, a person's.
+WRITTEN_GRADING = {
+    ("GET", "/api/written/labelling"),
+    ("GET", "/api/written/labelling/next"),
+    ("POST", "/api/written/labelling/{assignment_id}"),
 }
-# Of those, what claims mode mounts too (with the keys): the grading route (LP-11l).
-EVALSET_CLAIMS_ROUTES = {("POST", "/api/evalsets/{set_id}/runs")}
-EVALSET_PERMISSIONS = {"label", "curate", "grade"}
-EVALSET_PATH = re.compile(r"evalset|labell|grading|hidden")
-
-
-def test_no_evaluation_set_route_resolves_to_read_or_discover(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The catch-all (`GET ^/api/`, `read`) gives every viewer and key any GET route no rule
-    lists. Every route hidden evaluation sets mount (memberships mode, both keys and Backend
-    Services: the most) is pinned here with its permission, named by a rule of its own before
-    the catch-all, and needs one of theirs (`label`, `curate` or `grade`), never `read` or
-    `discover`; so does every other method and path under a labeller's and under a curator's
-    (plan risk 1, conflict 50). Claims mode mounts the grading route alone (LP-11l), which
-    needs `grade` there too; every other of their paths reads there as any route no rule lists,
-    `admin`."""
-    monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
-    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
-    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
-    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
-    monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
-    monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
-    evalset_on(monkeypatch)
-    app = create_app(db_path=tmp_path / "routes.db")
-    with encrypted_store(tmp_path / "routes.db") as served:
-        reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
-    evalsets_are_on(TestClient(app, base_url="https://mendari.test"), reader)
-    routes = {
-        (method, route.path)
-        for route in app.routes
-        if isinstance(route, APIRoute)
-        for method in route.methods or ()
-    }
-    hidden = {
-        (method, path)
-        for method, path in routes
-        if permission_for(method, path) in EVALSET_PERMISSIONS or EVALSET_PATH.search(path)
-    }
-    assert {route: permission_for(*route) for route in hidden} == EVALSET_ROUTES
-    rules = auth_module._RULES
-    catch_all = next(n for n, (m, p, _) in enumerate(rules) if (m, p.pattern) == ("GET", "^/api/"))
-    probes = {(m, re.sub(r"\{[^}]+\}", "x1", p)) for m, p in hidden}
-    probes |= {
-        (method, path)
-        for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
-        for path in (
-            "/api/labelling",
-            "/api/labelling/next",
-            "/api/labelling/x1/y",
-            "/api/evalsets",
-            "/api/evalsets/x1",
-            "/api/evalsets/x1/y/z",
-            "/api/evalsets/x1/runs",
-            "/api/evalsets/x1/runs/y",
-        )
-    }
-    for method, path in probes:
-        first = next(n for n, (m, p, _) in enumerate(rules) if m in ("*", method) and p.match(path))
-        assert first < catch_all, (method, path)
-        assert permission_for(method, path) in EVALSET_PERMISSIONS, (method, path)
-    settings = AuthSettings(IDP, CLIENT, None, "roles", {}, None, None)
-    with AuditStore(tmp_path / "modes.db") as store:
-        claims = Auth(settings, store)
-        members = Auth(
-            AuthSettings(IDP, CLIENT, None, "roles", {}, None, None, accounts="memberships"), store
-        )
-        grading = {re.sub(r"\{[^}]+\}", "x1", p) for _, p in EVALSET_CLAIMS_ROUTES}
-        for method, path in probes:
-            in_claims = "grade" if path in grading else "admin"  # every method on its path
-            assert claims.permission(method, path) == in_claims, (method, path)
-            assert members.permission(method, path) in EVALSET_PERMISSIONS, (method, path)
 
 
 # -- the matrix: route x principal kind x role x scope (ADR-0004) -------------------------------
@@ -617,22 +528,19 @@ ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as
         "evaluate",
         "admin",
         "keys",
-        "curate",
         "promote",
         # The deployment's readiness and its operator's actions: here every administrator's
         # (claims mode, no operator organization named; tests/test_operators.py has the rest).
         "operate",
     },
-    # Hidden evaluation sets (LP-11): a labeller labels (a person, memberships mode only); a
-    # grading key grades (the operator's, never a person's).
+    # A labeller grades written output (ADR-0025): a person, memberships mode only.
     "labeller": {"label"},
-    "grading": {"grade"},
     # The pack registry's reviewers (LP-19e): in its one review organization only.
     "registry_reviewer": {"registry_review"},
     # An organization's pack store (LP-20f): its authors, people only.
     "pack_author": {"author"},
 }
-PEOPLE_ONLY = {"keys", "curate", "label", "registry_review", "author", "promote", "operate"}
+PEOPLE_ONLY = {"keys", "label", "registry_review", "author", "promote", "operate"}
 # Every route a scoped key (or token) may reach, and the one scope that reaches it. Everything
 # else that is not public is a 403 for a scoped principal, whatever its role.
 ROUTE_SCOPE = {
@@ -645,14 +553,11 @@ ROUTE_SCOPE = {
     **{("GET", f"/fhir/{kind}"): f"system/{kind}.s" for kind in SEARCHED},
     **{("POST", f"/fhir/{kind}/_search"): f"system/{kind}.s" for kind in SEARCHED},
     ("POST", "/api/agents/{namespace}/{name}/decide"): DECIDE,
-    ("POST", "/api/agents/{namespace}/{name}/guard"): DECIDE,
     ("POST", "/api/agents/{namespace}/{name}/fhir/decide"): DECIDE,
-    ("POST", "/api/agents/{namespace}/{name}/pas"): DECIDE,
     ("POST", "/api/agents/{namespace}/{name}/actions"): DECIDE,  # authorizing an action
     ("POST", "/cds-services/{service_id}"): DECIDE,
     ("POST", "/cds-services/{service_id}/feedback"): DECIDE,  # a card's feedback (LP-23f)
     ("POST", "/fhir/$decide"): DECIDE,
-    ("POST", "/fhir/Questionnaire/$questionnaire-package"): DECIDE,
     ("POST", "/api/audit/{decision_id}/outcome"): OUTCOME,
     # Deciding implies listing the agents to decide with (`discover`, ADR-0004 as amended).
     ("GET", "/api/agents"): DECIDE,
@@ -735,12 +640,7 @@ def expected(kind: str, role: str, scope: str | None, method: str, path: str) ->
         # Claims mode: a reserved role never comes from a claim, and a person whose claims map
         # to no role is not signed in (`roles_from`).
         return expected("anonymous", "", None, method, path)
-    if kind == "user":
-        allowed = ROLE_PERMISSIONS[role] - {"grade"}
-    elif role == "grading":
-        allowed = {"grade"} if scope is None else set()  # only an unscoped grading key grades
-    else:
-        allowed = ROLE_PERMISSIONS[role] - PEOPLE_ONLY - {"grade"}
+    allowed = ROLE_PERMISSIONS[role] - (set() if kind == "user" else PEOPLE_ONLY)
     if permission != "page" and permission not in allowed:
         return 403, f'{REALM}, error="insufficient_scope"'
     if scope is not None:
@@ -789,22 +689,19 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
     registry, is refused there. Open mode without the sandbox flag answers the CDS services on
     this machine only (LP-23c): from elsewhere (the guard's requests come from no machine) each
     is a `403`, a valid token's too, which claims nothing, while every other route answers as
-    before. Hidden evaluation sets are on, so the routes they mount are in the matrix (LP-11g)."""
+    before."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
-    evalset_on(monkeypatch)
     app = create_app(db_path=tmp_path / "routes.db")
-    with encrypted_store(tmp_path / "routes.db") as served:
-        reader = signed_in(served, role="viewer")
-    evalsets_are_on(TestClient(app, base_url="https://mendari.test"), reader)
     routes = sorted(
         (method, route.path)
         for route in app.routes
         if isinstance(route, Route)
         for method in route.methods or ()
+        if (method, route.path) not in REMOVED_ROUTES
     )
     assert {r for r in routes if permission_for(*r) == "public"} == PUBLIC | BACKEND_PUBLIC
     assert {r for r in routes if r[1].startswith("/api/auth/clients")} == {
@@ -822,7 +719,11 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
             "discover" if route in lists else next(iter(parse(scope).permissions - {"discover"}))
         )
         assert permission_for(*route) == implied, route
-    assert {role: set(p) for role, p in auth_module.PERMISSIONS.items()} == ROLE_PERMISSIONS
+    assert {
+        role: set(p) - REMOVED_PERMISSIONS
+        for role, p in auth_module.PERMISSIONS.items()
+        if role not in REMOVED_ROLES
+    } == ROLE_PERMISSIONS
 
     settings = AuthSettings(
         issuer=IDP,
@@ -843,8 +744,6 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         if role in MACHINE_ROLES:
             made = store.create_api_key(name=role, role=role, org="default", created_by="t")
             secret = made["key"]
-        elif role == "grading":  # the operator's, from the command line (LP-11)
-            secret = store.create_grading_key(org="default", created_by="t", reason="matrix")["key"]
         else:
             secret = legacy_key(tmp_path / "matrix.db", role)
         principals.append(("key", role, None, {"authorization": f"Bearer {secret}"}))
@@ -1531,7 +1430,7 @@ def test_the_api_reference_says_keys_are_managed_by_people(app: TestClient, idp:
 def test_new_keys_are_for_machines_only(app: TestClient, idp: FakeIdp) -> None:
     """Review and approval are a person's: a key is a viewer or a service."""
     sign_in(app, idp, roles=["admin"])
-    for role in ("reviewer", "governance", "admin", "grading", "labeller"):
+    for role in ("reviewer", "governance", "admin", "labeller"):
         refused = app.post("/api/auth/keys", json={"name": "x", "role": role})
         assert refused.status_code == 422, role
         assert refused.json()["detail"][0]["loc"] == ["body", "role"]
