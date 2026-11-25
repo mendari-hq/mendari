@@ -40,7 +40,8 @@ order's code to procedure codes, and SNOMED CT and CPT are in no fixture). No SN
 It writes the agent's datasets (`data/examples.jsonl`, `data/test.jsonl`) and, for
 `scripts/fhir_validate.py`, `tests/fixtures/us-core/chart.json` (one record, valid) and
 `tests/fixtures/us-core/invalid/chart.json` (resources made invalid on purpose, each breaking
-one rule the in-process checks hold).
+one rule the in-process checks hold); then the agent's `DECISION_CARD.md`, as `mendari card
+--write` renders it, since the agent's digest (which its datasets are part of) is on it.
 """
 
 from __future__ import annotations
@@ -58,11 +59,14 @@ from functools import cache
 from pathlib import Path
 from typing import Any, Literal
 
+from mendari.core.card import card_of
+from mendari.core.pack import load_pack
 from mendari.sandbox.code_systems import SANDBOX_TAG
 from mendari.sandbox.fhir_records import meta, patient
 
 ROOT = Path(__file__).resolve().parents[2]
 AGENT = ROOT / "tests" / "fixtures" / "reference-agents" / "chart-summary"
+CARD = AGENT / "DECISION_CARD.md"
 US_CORE_DIR = ROOT / "tests" / "fixtures" / "us-core"
 AGENT_ID = "mendari-test/chart-summary"
 SEED = "mendari-test/chart-summary"
@@ -1001,7 +1005,7 @@ def _json(value: Any) -> str:
 
 
 def written() -> dict[Path, str]:
-    """Every file this module writes, by path, with its content."""
+    """Every file this module writes from its cases, by path, with its content."""
     return {
         AGENT / "data" / "examples.jsonl": _jsonl([case.record() for case in cases("examples")]),
         AGENT / "data" / "test.jsonl": _jsonl([case.record() for case in cases("test")]),
@@ -1010,13 +1014,24 @@ def written() -> dict[Path, str]:
     }
 
 
+def decision_card() -> str:
+    """The agent's `DECISION_CARD.md` as `mendari card --write` writes it where the agent is
+    served (as a maintained agent, the tests' bundled folder), from the agent's files as they
+    are on disk: so after its datasets, which its digest covers."""
+    return card_of(load_pack(AGENT, origin="maintained"))
+
+
 def differing() -> list[Path]:
-    """The written files whose committed content is not what this module writes."""
-    return [
+    """The files whose committed content is not what this module writes: the written ones, and
+    the Decision Card when they are current."""
+    stale = [
         path
         for path, text in written().items()
         if not path.is_file() or path.read_text(encoding="utf-8") != text
     ]
+    if not stale and (not CARD.is_file() or CARD.read_text(encoding="utf-8") != decision_card()):
+        stale.append(CARD)
+    return stale
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1037,6 +1052,7 @@ def main(argv: list[str] | None = None) -> int:
     for path, text in written().items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
+    CARD.write_text(decision_card(), encoding="utf-8")  # last: the agent's digest is on it
     return 0
 
 
