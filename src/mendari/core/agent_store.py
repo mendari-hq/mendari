@@ -759,6 +759,9 @@ class AgentStore:
         `hub` that carries where it came from (`Agent.origin_record`, the database's): built and
         kept for its organization alone, since that record is its own."""
         row = self.version(org, digest)  # `org` holds it, whoever else does
+        # From here on the digest is the one the store holds (`agent_digest` computed it), never
+        # the caller's text: the scratch folder below is named by it.
+        digest = str(row["digest"])
         pulled = row["pulled"] if row["source"] == HUB else None
         key = digest if pulled is None else f"{digest}@{org}"
         with self._lock:
