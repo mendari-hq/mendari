@@ -127,6 +127,12 @@ EXPECTED_WARNINGS = (
         "",
         NO_TERMINOLOGY_SERVER,
     ),
+    Expected(
+        r"^UCUM Codes that contain human readable annotations like \{INR\} can be misleading",
+        r"/\*Observation/[^*]*\*/\.value\.ofType\(Quantity\)$",
+        "an INR is unitless, and UCUM writes it `{INR}`, as LOINC's examples do: the annotation "
+        "is the unit",
+    ),
 )
 
 

@@ -67,7 +67,7 @@ from typing import Any, Literal
 
 from mendari.core.agent import load_agent
 from mendari.core.card import card_of
-from mendari.sandbox.code_systems import SANDBOX_TAG
+from mendari.sandbox.code_systems import CASE_SYSTEM, SANDBOX_TAG
 from mendari.sandbox.fhir_records import meta, patient
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -427,12 +427,16 @@ def _patient(case: Case, today: date) -> dict[str, Any]:
 
 
 def _practitioner() -> dict[str, Any]:
+    """The one prescriber, a US Core Practitioner: US Core asks for an identifier, so it has one
+    in the sandbox's own system (never a number that could be a real NPI)."""
     return tagged(
         {
             "resourceType": "Practitioner",
             "id": PRESCRIBER,
+            "identifier": [{"system": CASE_SYSTEM, "value": PRESCRIBER}],
             "name": [{"family": "Prescriber", "given": ["Synthetic"]}],
-        }
+        },
+        "us-core-practitioner",
     )
 
 
