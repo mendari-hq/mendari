@@ -114,11 +114,15 @@ def _write(path: Path, data: Any) -> None:
 
 def merged(mapping: dict[str, Any], changes: Mapping[str, Any]) -> dict[str, Any]:
     """`mapping` with `changes`: a mapping value merged into a mapping key's (one level deep: a
-    field or list given replaces the one of that name), any other value put in its place."""
+    field, list or resource type given replaces the one of that name, and one given as None is
+    taken out), any other value put in its place, and a key given as None taken out."""
     result = copy.deepcopy(mapping)
     for key, value in changes.items():
-        if isinstance(value, Mapping) and isinstance(result.get(key), dict):
-            result[key] = {**result[key], **copy.deepcopy(dict(value))}
+        if value is None:
+            result.pop(key, None)
+        elif isinstance(value, Mapping) and isinstance(result.get(key), dict):
+            combined = {**result[key], **copy.deepcopy(dict(value))}
+            result[key] = {name: item for name, item in combined.items() if item is not None}
         else:
             result[key] = copy.deepcopy(value)
     return result
