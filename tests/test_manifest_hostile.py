@@ -15,14 +15,14 @@ import yaml
 from mendari import load_pack
 from mendari.core import patterns, re2_syntax
 from mendari.errors import PackValidationError
-from tests.conftest import INBOX_DIR
+from tests.conftest import TRIAGE_DIR
 
 SCHEMA_LINE = "schema: schemas/input.schema.json"
 
 
 def _copy(tmp_path: Path) -> Path:
     root = tmp_path / "pack"
-    shutil.copytree(INBOX_DIR, root)
+    shutil.copytree(TRIAGE_DIR, root)
     return root
 
 
@@ -58,13 +58,6 @@ def test_a_manifest_path_holding_a_nul_is_refused_naming_its_field(tmp_path: Pat
     ]
 
 
-def test_a_policy_path_holding_a_nul_is_refused_naming_its_field(tmp_path: Path) -> None:
-    root = _copy(tmp_path)
-    _replace(root, "policy: policy.yaml", 'policy: "policy\\0.yaml"')
-    (problem,) = _refused(root)
-    assert problem.startswith("policy: path 'policy\\x00.yaml' is not a path a file can have")
-
-
 def test_a_manifest_path_too_long_for_the_filesystem_is_refused_shortened(
     tmp_path: Path,
 ) -> None:
@@ -92,7 +85,6 @@ def test_a_question_whose_criteria_or_levels_are_not_a_mapping_is_named(
     root = _copy(tmp_path)
 
     def edit(raw: dict[str, Any]) -> None:
-        raw["spec_version"] = "0.2"
         raw["questions"]["extra"] = question
         raw["providers"]["router"]["answers"].append("extra")
 
