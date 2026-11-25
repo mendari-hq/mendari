@@ -26,7 +26,7 @@ from playwright.sync_api import Browser, Locator, Page, expect
 from mendari.providers import reach
 from mendari.server.app import create_app
 from tests.browser.access_site import Site, dialog, memberships, person, running
-from tests.browser.conftest import serving
+from tests.browser.conftest import TRIAGE, serving
 from tests.browser.test_accessibility import violations
 from tests.browser.test_dashboard import PHONE
 from tests.conftest import DEMO_AGENT_DIR
@@ -37,7 +37,6 @@ pytestmark = pytest.mark.browser
 
 CLINIC_A = "clinic-a"
 PORTAL = "mendari/portal-message-agent"
-INBOX = "mendari/patient-inbox-router"
 TOKEN = "zqTOKEN-browser-9d2e7a41-never-shown"
 OWN = {"x-mendari-request": "1"}
 AT = f"/api/connections/{PORTAL}"
@@ -215,8 +214,8 @@ def test_a_reader_sees_where_it_leads_and_no_control(
     expect(served).to_contain_text(f"to {service.origin}, set")
     expect(served).to_contain_text("by lead@example.org")
     # An agent that decides on this server has nothing to connect, and says so.
-    viewer.evaluate(f"localStorage.setItem('oh.pack', '{INBOX}')")
-    viewer.add_init_script(f"localStorage.setItem('oh.pack', '{INBOX}')")
+    viewer.evaluate(f"localStorage.setItem('oh.pack', '{TRIAGE}')")
+    viewer.add_init_script(f"localStorage.setItem('oh.pack', '{TRIAGE}')")
     local = card(viewer)
     expect(local).to_contain_text("This agent decides on this server")
     expect(local.locator("form, button")).to_have_count(0)
