@@ -781,10 +781,7 @@ def _calibrate_agent(args: argparse.Namespace, pack: Pack, provider: Any) -> int
     )
     print(f"-> {relative}")
     if provider.settings.calibration is None:
-        print(
-            f"add `calibration: {relative}` to the {where} variant to use it "
-            "(it needs spec_version: '0.4')"
-        )
+        print(f"add `calibration: {relative}` to the {where} variant to use it")
     return 0
 
 
@@ -4258,13 +4255,11 @@ def cmd_evalset_show(args: argparse.Namespace) -> int:
     return 0
 
 
-# What every new agent starts with (examples, rules, the input schema, tests); its manifest
-# comes from one of the two laid over it.
+# What `mendari new` writes: an AI agent on spec 0.4 with an offline mock fixture, and its
+# examples, rules, input schema and tests.
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "base"
 # Laid over TEMPLATE by `mendari new --community`: the community defaults.
 COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community"
-# Laid over TEMPLATE by `mendari new` otherwise: an AI agent with an offline mock fixture.
-AGENT_TEMPLATE = Path(__file__).resolve().parent / "templates" / "agent"
 # A URL, not a path: `mendari new` runs anywhere, mostly outside a checkout of the repository.
 AUTHORING_GUIDE = (
     "https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md"
@@ -4322,7 +4317,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     def fill(text: str, values: dict[str, str]) -> str:
         return placeholder_re.sub(lambda match: values[match.group(0)], text)
 
-    templates = [TEMPLATE, COMMUNITY_TEMPLATE if args.community else AGENT_TEMPLATE]
+    templates = [TEMPLATE, COMMUNITY_TEMPLATE] if args.community else [TEMPLATE]
     for template in templates:
         for source in sorted(template.rglob("*")):
             if not source.is_file():

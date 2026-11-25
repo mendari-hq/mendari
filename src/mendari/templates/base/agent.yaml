@@ -3,10 +3,10 @@
 # external HTTP agent service when `MENDARI_AGENT_URL` is set.
 # The authoring guide walks through every section:
 # https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md
-# Spec 0.2 is all this agent uses, so every engine that reads 0.2 runs it. Set "0.4" for what
-# 0.4 adds: actions (the commented section at the end of this file), a calibrated confidence
-# (`mendari calibrate`) and a second signal (`repeat`, or a `check` by a second model).
-spec_version: "0.2"
+# Spec 0.4, the one version Mendari reads. It also offers actions (the commented section at the
+# end of this file), a calibrated confidence (`mendari calibrate`) and a second signal (`repeat`,
+# or a `check` by a second model).
+spec_version: "0.4"
 id: {{id}}
 version: 0.1.0
 name: {{name}}
@@ -108,12 +108,11 @@ evaluation:
 
 tests: tests/cases.yaml
 
-# Actions (spec 0.4): what the agent may ask to have done besides answer. To use them, set
-# `spec_version: "0.4"` above, uncomment the lines below, and have your agent propose them with
-# its answers (`actions` in its response). Mendari answers each with `released`, `held` or
-# `blocked`, and runs none: your caller runs an action only when it was released. An effect is
-# one of read, draft, write, contact or order; what each needs is the runtime's rule, and an
-# action here may only tighten it. The guide:
+# Actions: what the agent may ask to have done besides answer. To use them, uncomment the lines
+# below, and have your agent propose them with its answers (`actions` in its response). Mendari
+# answers each with `released`, `held` or `blocked`, and runs none: your caller runs an action
+# only when it was released. An effect is one of read, draft, write, contact or order; what each
+# needs is the runtime's rule, and an action here may only tighten it. The guide:
 # https://github.com/mendari-hq/mendari/blob/main/docs/guides/governing-actions.md
 # actions:
 #   assign_queue:
