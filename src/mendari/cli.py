@@ -167,8 +167,8 @@ def cmd_probe(args: argparse.Namespace) -> int:
     (`evals/probe.py`): ids, names and counts, never a case's text. `--write` keeps each
     failure as a behaviour test in the agent (`evals/probe_tests.py`), and `--confirm` keeps
     one that waited for a person. The exit code is 0 unless `--fail-on` names what was found."""
+    from mendari.core.registry import is_within
     from mendari.evals import probe, probe_report, probe_tests
-    from mendari.evals.improve import kept_in_the_pack
     from mendari.evals.probe_model import Writer
     from mendari.evals.probe_variants import by_a_model, translation
 
@@ -182,7 +182,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
         return 0
     if args.write and (problem := probe_tests.not_writable(agent)) is not None:
         raise MendariError(f"--write: {problem}")  # before the run, not after it
-    if args.variants_out and kept_in_the_pack(agent, args.variants_out):
+    if args.variants_out and is_within(args.variants_out, agent.root):
         raise MendariError(
             "--variants-out: that file would be in the agent's own folder, where every file is "
             "part of the agent: keep the variants outside it"
