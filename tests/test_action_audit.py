@@ -25,7 +25,7 @@ from mendari.core.audit import DECISION_KINDS
 from mendari.core.phi import PhiPolicy
 from mendari.errors import MendariError, PackNotFoundError, ReviewError
 from mendari.standards import audit_fhir
-from tests.conftest import INBOX_DIR, INPUT_HASH_KEY, PHI_KEY, ROOT, message
+from tests.conftest import INPUT_HASH_KEY, PHI_KEY, ROOT, TRIAGE_DIR, message
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 REFILL = "Could you refill my lisinopril?"  # AUTO: a draft and a contact released
@@ -131,10 +131,10 @@ def test_each_proposal_is_chained_after_its_decision_in_order(store: AuditStore)
 def test_a_decision_without_proposals_chains_only_itself(store: AuditStore) -> None:
     quiet = agent(store)(message("Hello there."))
     assert [e["event"] for e in of(store, quiet.id)] == ["decision.created"]
-    inbox = Decision(load_pack(INBOX_DIR), store=store)(message("Crushing chest pain"))
-    assert [e["event"] for e in of(store, inbox.id)] == ["decision.created"]
-    found = store.get(inbox.id)
-    assert found is not None and "actions" not in found  # an older agent's record is as it was
+    triaged = Decision(load_pack(TRIAGE_DIR), store=store)(message("Crushing chest pain"))
+    assert [e["event"] for e in of(store, triaged.id)] == ["decision.created"]
+    found = store.get(triaged.id)
+    assert found is not None and "actions" not in found  # an agent that declares none: none
     assert all("actions" not in item for item in store.pending_reviews())
 
 
@@ -419,8 +419,8 @@ def test_a_review_with_nothing_held_answers_as_it_always_did(store: AuditStore) 
     answer = store.resolve_review(abstained.id, final_label="other", reviewer="rn-1")
     assert "actions" not in answer and answer["human_override"] is None
     assert of(store, abstained.id, "action.resolved") == []
-    inbox = Decision(load_pack(INBOX_DIR), store=store)(message("Crushing chest pain"))
-    plain = store.resolve_review(inbox.id, final_label="nurse", reviewer="rn-1", note="a note")
+    triaged = Decision(load_pack(TRIAGE_DIR), store=store)(message("Crushing chest pain"))
+    plain = store.resolve_review(triaged.id, final_label="nurse", reviewer="rn-1", note="a note")
     assert set(plain) == {
         "id", "resolved_at", "final_label", "human_override", "reviewer", "note", "note_ref",
     }  # fmt: skip
@@ -584,10 +584,10 @@ def test_a_decision_that_is_unknown_anothers_or_another_agents_is_one_answer(
     decision = agent(store)
     with tenancy.acting_for("clinic-a"):
         theirs = decision(message(REFILL)).id
-    inbox = Decision(load_pack(INBOX_DIR), store=store)(message("Crushing chest pain")).id
+    triaged = Decision(load_pack(TRIAGE_DIR), store=store)(message("Crushing chest pain")).id
     before = chained(store)
     with tenancy.acting_for("clinic-b"):
-        for unknown in ("no-such-decision", theirs, inbox):
+        for unknown in ("no-such-decision", theirs, triaged):
             with pytest.raises(PackNotFoundError) as refused:
                 decision.authorize_action(unknown, "look_up_medications", {})
             assert str(refused.value) == f"no decision {unknown} of mendari-test/actions-mini"
@@ -610,9 +610,11 @@ def test_authorizing_needs_a_store_and_a_well_formed_question() -> None:
 
 
 def test_an_agent_older_than_0_4_authorizes_nothing(store: AuditStore) -> None:
-    inbox = Decision(load_pack(INBOX_DIR), store=store)
-    result = inbox(message("Can you send a refill for metformin to my pharmacy?"))
-    found = inbox.authorize_action(result.id, "send_reply", {})
+    """An agent that declares no actions, as none did before spec 0.4 (the triage fixture):
+    whatever is asked of it is blocked, as undeclared."""
+    triaged = Decision(load_pack(TRIAGE_DIR), store=store)
+    result = triaged(message("Can you send a refill for metformin to my pharmacy?"))
+    found = triaged.authorize_action(result.id, "send_reply", {})
     assert (found["disposition"], found["reason"], found["name"]) == ("blocked", "undeclared", None)
 
 

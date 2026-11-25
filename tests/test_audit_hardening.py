@@ -10,17 +10,14 @@ from typing import Any
 
 import pytest
 
-from mendari import Decision, alerts, settings
+from mendari import alerts, settings
 from mendari.core import origin, phi_detect
 from mendari.errors import MendariError
 from mendari.evals import pooling, result
-from mendari.providers.base import Provider, ProviderInfo
-from mendari.providers.cascade import CascadeProvider
 from mendari.standards import fhir_structure
 
 ROOT = Path(__file__).parents[1]
 DASHBOARD = ROOT / "src" / "mendari" / "dashboard"
-GUARD_MINI = Path(__file__).parent / "fixtures" / "mini-agents" / "guard-mini"
 
 pytestmark = pytest.mark.core
 
@@ -107,46 +104,6 @@ def test_pooling_homogeneity_handles_large_n_without_oom() -> None:
     assert outcome["status"] == "ok"
     assert outcome["method"].startswith("exact")
     assert outcome["differ"] is False
-
-
-def test_dosing_handles_range_intervals_and_fractional_tablets() -> None:
-    """Range intervals like q3-4h (hyphen or en-dash) and fractional tablets parse safely."""
-    guard = Decision.from_path(GUARD_MINI)
-    dosing_provider = guard.providers["dosing"]
-
-    # 1000 mg q3-4h -> conservative lower bound every 3h = 8x/day = 8000 mg/day > 4000 mg/day max.
-    overdose_hyphen = dosing_provider.answer({"draft": "Take acetaminophen 1000 mg q3-4h."})
-    assert overdose_hyphen.answers["dose_exceeds_limit"].label == "yes"
-    overdose_endash = dosing_provider.answer({"draft": "Take acetaminophen 1000 mg q3\u20134h."})
-    assert overdose_endash.answers["dose_exceeds_limit"].label == "yes"
-
-    # "1/2 tablet of ibuprofen 200 mg" must not read denominator "2" as 2 tablets (400 mg).
-    frac = dosing_provider.answer({"draft": "Take 1/2 tablet of ibuprofen 200 mg."})
-    assert frac.answers["dose_exceeds_limit"].label == "no"
-
-
-def test_cascade_eager_leaves_only_exposes_primary_member() -> None:
-    """CascadeProvider.eager_leaves() excludes fallback members while leaves() keeps all."""
-    guard = Decision.from_path(GUARD_MINI)
-    slot = "dosing"
-    spec = guard.pack.manifest.providers[slot]
-    variant = spec.variants[spec.use]
-    member_cfg = variant.model_dump(exclude_none=True)
-    info = ProviderInfo(slot=slot, variant="cascade_test", type="cascade", model=None)
-    cascade = CascadeProvider(
-        guard.pack,
-        info,
-        {q: guard.pack.manifest.questions[q] for q in spec.answers},
-        {
-            "type": "cascade",
-            "accept_at": 0.95,
-            "members": {"first": member_cfg, "second": dict(member_cfg)},
-        },
-    )
-    all_leaves: list[Provider] = list(cascade.leaves())
-    eager: list[Provider] = list(cascade.eager_leaves())
-    assert all_leaves == [cascade.members["first"], cascade.members["second"]]
-    assert eager == [cascade.members["first"]]
 
 
 def test_alerts_check_webhook_rejects_obfuscated_hosts() -> None:

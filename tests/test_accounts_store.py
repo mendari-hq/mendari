@@ -43,10 +43,10 @@ def test_the_tables_are_made_empty_and_read_so(db_target: str) -> None:
 
 
 def test_the_bootstrap_adds_the_owner_once_and_rewrites_nothing(
-    store: AuditStore, inbox_pack: Pack
+    store: AuditStore, triage_agent: Pack
 ) -> None:
     inputs = message("Can I get a refill?")
-    store.record(Decision(inbox_pack)(inputs), inputs)
+    store.record(Decision(triage_agent)(inputs), inputs)
     store.create_api_key(name="k", role="viewer", org="default", created_by="Ada")
     others = ("decisions", "api_keys", "automation_holds", "governance_approvals")
     before = dump(store, *others)

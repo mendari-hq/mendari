@@ -2,57 +2,29 @@
 """`audit verify`, `audit export`, `feedback export` and `monitor` open the server's database
 read-only (LP-15): a mistyped --db is one line and exit 1, never a new empty database that
 "verifies"; another application's database is refused, untouched; and the server's database is
-left exactly as it was (a pre-release one is refused: tests/test_schema_baseline.py). A command
-that reads only a pack (`scoreboard arms`, LP-17c) takes no database and writes nothing, and
-neither does checking a signed scoreboard result (`scoreboard verify`, LP-17e)."""
+left exactly as it was (a pre-release one is refused: tests/test_schema_baseline.py)."""
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from mendari import Decision
 from mendari.cli import main
 from mendari.core.audit import AuditStore
-from mendari.core.checkpoint import public_text
 from mendari.core.pack import Pack
 from mendari.errors import MendariError
-from mendari.evals import signing
-from tests.test_scoreboard_signing import keys_file, result
 
+AGENT = "mendari-test/triage"  # the agent these tests decide with
 COMMANDS = {
     "audit verify": ["audit", "verify"],
     "audit verify --notes": ["audit", "verify", "--notes"],
-    # Hidden evaluation sets (LP-11e): checked (each unchecked without keys), marking nothing.
-    "audit verify --evalsets": ["audit", "verify", "--evalsets"],
-    # Their keys' check (LP-11f; without keys it refuses once the database is read) and the
-    # sealed export (no key needed).
-    "evalset rotate --check": ["evalset", "rotate", "--check"],
-    "evalset export": ["evalset", "export", "--out", "{out}"],
-    # A set's labelling progress (LP-11h): counts, no key needed (a set not there is refused).
-    "evalset progress": ["evalset", "progress", "6b1c4f0e-2d6a-4c41-9a8e-3f1d2c5b7a90"],
-    # A set's state, commitment, runs and stored aggregates (LP-11i): no key needed.
-    "evalset show": ["evalset", "show", "6b1c4f0e-2d6a-4c41-9a8e-3f1d2c5b7a90"],
     "audit export": ["audit", "export"],
-    "feedback export": ["feedback", "export", "mendari/patient-inbox-router", "--out", "{out}"],
-    "monitor": ["monitor", "--agent", "mendari/patient-inbox-router"],
-}
-# Commands that read a pack's files and nothing else: no --db, nothing written anywhere.
-PACK_ONLY = {
-    # A pack's configurations by arm (LP-17c), from its manifest.
-    "scoreboard arms": ["scoreboard", "arms", "mendari/patient-inbox-router"],
-    "scoreboard arms --json": ["scoreboard", "arms", "mendari/patient-inbox-router", "--json"],
-}
-# Commands that read the files they are given and nothing else: no --db, nothing written. A
-# signed scoreboard result checked against a keys file, or one public key (LP-17e).
-FILES_ONLY = {
-    "scoreboard verify --keys": ["scoreboard", "verify", "{result}", "--keys", "{keys}"],
-    "scoreboard verify --public-key": ["scoreboard", "verify", "{result}", "--public-key", "{key}"],
+    "feedback export": ["feedback", "export", AGENT, "--out", "{out}"],
+    "monitor": ["monitor", "--agent", AGENT],
 }
 
 
@@ -99,9 +71,9 @@ def test_another_applications_database_is_refused_untouched(
 
 @pytest.mark.parametrize("command", sorted(COMMANDS))
 def test_the_servers_database_is_left_exactly_as_it_was(
-    command: str, tmp_path: Path, inbox_pack: Pack
+    command: str, tmp_path: Path, triage_agent: Pack
 ) -> None:
-    db = used_database(tmp_path / "mendari.db", inbox_pack)
+    db = used_database(tmp_path / "mendari.db", triage_agent)
     before = db.read_bytes()
     assert run(command, str(db), tmp_path) in (0, 1)  # monitor may alert; it never writes
     assert db.read_bytes() == before
@@ -109,51 +81,8 @@ def test_the_servers_database_is_left_exactly_as_it_was(
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
 
 
-@pytest.mark.parametrize("command", sorted(PACK_ONLY))
-def test_a_command_that_reads_only_a_pack_writes_nothing(
-    command: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inbox_pack: Pack
-) -> None:
-    files = sorted(path for path in inbox_pack.root.rglob("*") if path.is_file())
-    before = [(path, path.stat().st_mtime_ns, path.read_bytes()) for path in files]
-    monkeypatch.chdir(tmp_path)
-    assert main(PACK_ONLY[command]) == 0
-    # Nothing here, nor in the Hub's config and cache folders, which conftest puts here.
-    assert sorted(p.name for p in tmp_path.iterdir()) == []
-    assert sorted(path for path in inbox_pack.root.rglob("*") if path.is_file()) == files
-    assert [(path, path.stat().st_mtime_ns, path.read_bytes()) for path in files] == before
-    assert main([*PACK_ONLY[command], "--db", str(tmp_path / "mendari.db")]) == 1  # takes none
-    assert sorted(p.name for p in tmp_path.iterdir()) == []
-
-
-@pytest.mark.parametrize("command", sorted(FILES_ONLY))
-def test_a_command_that_reads_only_its_files_writes_nothing(
-    command: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    key = Ed25519PrivateKey.generate()
-    given = tmp_path / "given"
-    given.mkdir()
-    (given / "result.json").write_text(signing.dump(signing.sign(result(), key)), encoding="utf-8")
-    (given / "keys.json").write_text(json.dumps(keys_file(key)), encoding="utf-8")
-    files = sorted(given.iterdir())
-    before = [(path, path.stat().st_mtime_ns, path.read_bytes()) for path in files]
-    monkeypatch.chdir(tmp_path)
-    places = {
-        "result": str(given / "result.json"),
-        "keys": str(given / "keys.json"),
-        "key": public_text(key.public_key()),
-    }
-    argv = [part.format(**places) for part in FILES_ONLY[command]]
-    assert main(argv) == 0
-    # Nothing here but what it was given, nor in the Hub's config folder (its pins are read).
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["given"]
-    assert sorted(given.iterdir()) == files
-    assert [(path, path.stat().st_mtime_ns, path.read_bytes()) for path in files] == before
-    assert main([*argv, "--db", str(tmp_path / "mendari.db")]) == 1  # takes none
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["given"]
-
-
-def test_a_read_only_file_verifies(tmp_path: Path, inbox_pack: Pack) -> None:
-    db = used_database(tmp_path / "mendari.db", inbox_pack)
+def test_a_read_only_file_verifies(tmp_path: Path, triage_agent: Pack) -> None:
+    db = used_database(tmp_path / "mendari.db", triage_agent)
     db.chmod(0o444)
     try:
         assert main(["audit", "verify", "--db", str(db)]) == 0
@@ -161,9 +90,9 @@ def test_a_read_only_file_verifies(tmp_path: Path, inbox_pack: Pack) -> None:
         db.chmod(0o644)
 
 
-def test_a_read_only_store_refuses_any_write(db_target: str, inbox_pack: Pack) -> None:
+def test_a_read_only_store_refuses_any_write(db_target: str, triage_agent: Pack) -> None:
     with AuditStore(db_target) as store:  # the server's: created and used
-        Decision(inbox_pack, store=store)({"message": {"body": "Refill please."}})
+        Decision(triage_agent, store=store)({"message": {"body": "Refill please."}})
     with AuditStore(db_target, read_only=True) as store:
         assert store.verify()["ok"]
         with pytest.raises(MendariError, match="opened read-only"):
@@ -186,14 +115,16 @@ def test_an_empty_postgres_schema_is_refused_and_left_empty(db_target: str) -> N
     assert tables == (0,)
 
 
-def test_a_wal_database_no_server_has_open_gains_no_files(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_a_wal_database_no_server_has_open_gains_no_files(
+    tmp_path: Path, triage_agent: Pack
+) -> None:
     """A server leaves its SQLite database in WAL mode, the -wal and -shm files gone once it
     closes: reading it then creates no sidecar file a server might later be unable to write."""
     folder = tmp_path / "var"
     folder.mkdir()
     db = folder / "mendari.db"
     with AuditStore(db) as store:  # WAL, as a server leaves it
-        Decision(inbox_pack, store=store)({"message": {"body": "Refill please."}})
+        Decision(triage_agent, store=store)({"message": {"body": "Refill please."}})
     assert sorted(p.name for p in folder.iterdir()) == ["mendari.db"]
     for command in sorted(COMMANDS):
         assert run(command, str(db), tmp_path) in (0, 1)

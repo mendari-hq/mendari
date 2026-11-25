@@ -24,28 +24,17 @@ from mendari import AuditStore, Decision, Pack
 from mendari.cli import main
 from mendari.core import tenancy
 from mendari.core.audit import ADMINISTRATIVE_KINDS, OFF_DECISION_KINDS
-from mendari.core.evalsets import EvalsetStore
-from mendari.core.pack import load_pack
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir, fhir_structure
 from mendari.standards.terminology import Terminology
-from tests.conftest import (
-    INBOX_DIR,
-    encrypt_mode,
-    evalset_keys_for_test,
-    hand_written,
-    member,
-    message,
-    signed_in,
-)
+from tests.conftest import encrypt_mode, member, message, signed_in
 from tests.test_chain_orgs import jwks
 
 IDP = "https://idp.example.org"
 BASE = "https://mendari.test"
-INBOX = "mendari/patient-inbox-router"
+AGENT = "mendari-test/clinical-review"  # risk level 2: automated under an approval
 ORGS = ("clinic-zqalpha", "clinic-zqbravo")
 REPORT = {"created_at": "2026-10-01T00:00:00+00:00", "dataset": {"name": "local"}}
-EVALSETS = evalset_keys_for_test()  # hidden evaluation sets' throwaway keys (LP-11e)
 
 
 def serving(db: str, monkeypatch: pytest.MonkeyPatch, accounts: str) -> TestClient:
@@ -84,21 +73,16 @@ def seed(store: AuditStore, org: str) -> dict[str, str]:
     store.lift_hold(hold["id"], lifted_by="ops", org=org)
     with tenancy.acting_for(org):
         approval = store.approve_automation(
-            pack_id=INBOX, pack_digest="d" * 64, risk_level=2, approver="cmo",
+            pack_id=AGENT, pack_digest="d" * 64, risk_level=2, approver="cmo",
             reference=f"minutes {marker}", expires_at="2999-01-01T00:00:00+00:00",
         )  # fmt: skip
         store.revoke_approval(approval["id"], revoked_by="cmo")
-        store.save_report({**REPORT, "id": f"r-{org}", "pack": {"id": INBOX}})
+        store.save_report({**REPORT, "id": f"r-{org}", "pack": {"id": AGENT}})
     invitation = store.create_invitation(
         org=org, email=f"lee@{marker}.example.org", roles=["viewer"], created_by="ops"
     )
     store.revoke_invitation(invitation["id"], org=org, revoked_by="ops")
-    # A hidden evaluation set (LP-11e): its name and its case are sealed, never in an event.
-    hidden = EvalsetStore(store, EVALSETS)
-    made_set = hidden.create_set(org, load_pack(INBOX_DIR), f"set {marker}", created_by="ops")
-    hidden.add_cases(made_set["set"], [hand_written(f"A hidden case {marker}", author=marker)])
     return {
-        "evalset": f"evalset:{made_set['set']}",
         "org": f"org:{org}",
         "key": f"key:{key['id']}",
         "client": f"client:{client['client_id']}",
@@ -155,7 +139,7 @@ def test_an_organization_reads_only_its_own_administrative_events(two: dict[str,
     assert set(made[alpha].values()) <= subjects
     assert {subject.split(":")[0] for subject in subjects} <= {
         "org", "key", "client", "hold", "governance", "eval", "invitation", "membership",
-        "access", "evalset",
+        "access",
     }  # fmt: skip
     text = json.dumps(items)
     assert "zqbravo" not in text and "operator drill" not in text
@@ -427,14 +411,14 @@ def test_memberships_mode_leaves_the_deployment_wide_views_to_the_operator(
     assert (mine["reason"], mine["set_by"]) == ("clinic drill", "lead")  # its own, in full
     if two["accounts"] == "claims":
         assert verified.status_code == 200 and verified.json()["ok"]
-        assert "calls_today" in health["jev"] and "calls_today" in health["llm"]
+        assert "calls_today" in health["llm"]
         assert {"inputs", "notes"} <= set(health["last_purge"])
         assert everyone["reason"] == "operator drill" and everyone["set_by"] == "ops"
         assert deployments.status_code == 200
         return
     assert verified.status_code == 404
     assert "mendari audit verify" in verified.json()["detail"]
-    assert "calls_today" not in health["jev"] and "calls_today" not in health["llm"]
+    assert "calls_today" not in health["llm"]
     assert set(health["last_purge"]) == {"at", "retention_days", "source"}
     assert set(everyone) == {"id", "org", "pack_id", "pack_digest", "set_at"}
     assert "operator drill" not in json.dumps(holds)
@@ -462,7 +446,7 @@ def test_every_kind_on_no_decision_has_an_administrative_code() -> None:
 
 
 def test_the_operator_exports_one_organization_or_every_event_on_no_decision(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], inbox_pack: Pack
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], triage_agent: Pack
 ) -> None:
     db = str(tmp_path / "cli.db")
     with AuditStore(db) as store:
@@ -471,7 +455,7 @@ def test_the_operator_exports_one_organization_or_every_event_on_no_decision(
         decided = {}
         for org in ORGS:
             with tenancy.acting_for(org):
-                decided[org] = Decision(inbox_pack, store=store)(message("Refill please.")).id
+                decided[org] = Decision(triage_agent, store=store)(message("Refill please.")).id
 
     def exported(*options: str) -> list[dict[str, Any]]:
         assert main(["audit", "export", "--db", db, *options]) == 0
@@ -483,12 +467,12 @@ def test_the_operator_exports_one_organization_or_every_event_on_no_decision(
     every = exported("--administrative")
     codes = {r["subtype"][0]["code"] for r in every}
     assert "retention.purged" in codes and len(every) > len(alpha)
-    assert main(["audit", "export", "--db", db, "--administrative", "--agent", INBOX]) == 2
+    assert main(["audit", "export", "--db", db, "--administrative", "--agent", AGENT]) == 2
     capsys.readouterr()
     trail = exported("--org", ORGS[0])  # a decision trail: that organization's only
     events = [r for r in trail if r["resourceType"] == "AuditEvent"]
     assert {r["entity"][0]["what"]["identifier"]["value"] for r in events} == {decided[ORGS[0]]}
     assert main(["usage", "--db", db]) == 0
     usage = json.loads(capsys.readouterr().out)
-    assert usage["jev"] == {"calls_today": 0, "daily_limit": usage["jev"]["daily_limit"]}
-    assert {"inputs", "notes"} <= set(usage["last_purge"]) and "llm" in usage
+    assert usage["llm"] == {"calls_today": 0, "daily_limit": usage["llm"]["daily_limit"]}
+    assert {"inputs", "notes"} <= set(usage["last_purge"])

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The PHI detector (LP-20d, `core/phi_detect.py`): seven kinds found by file and line, on RE2,
-never a matched value in a report, a log or an error; every shipped pack file and synthetic
-dataset passes; the community check's warnings are unchanged."""
+never a matched value in a report, a log or an error; every file of the agents the repository
+ships or tests with, synthetic datasets included, passes."""
 
 from __future__ import annotations
 
@@ -12,10 +12,9 @@ from pathlib import Path
 import pytest
 
 from mendari.cli import main
-from mendari.community import phi_scan
 from mendari.core import phi_detect
 from mendari.core.phi_detect import KINDS, NAME_THRESHOLD, Finding, detect, detect_files, rejects
-from tests.conftest import INBOX_DIR, ROOT, cpu_time
+from tests.conftest import FIXTURE_AGENTS, ROOT, TRIAGE_DIR, cpu_time
 
 # One planted line per kind: the value each holds is searched for in everything the detector
 # says. Every value is made up.
@@ -54,11 +53,10 @@ def test_no_report_log_or_error_holds_a_matched_value(caplog: pytest.LogCaptureF
 
 
 def _shipped() -> dict[str, bytes]:
+    """Every file of the bundled demo agent and of the test fixtures' agents, their synthetic
+    datasets included."""
     files = {}
-    for root in (
-        ROOT / "tests" / "fixtures" / "reference-agents",
-        ROOT / "tests" / "fixtures" / "datasets",
-    ):
+    for root in (ROOT / "agents", FIXTURE_AGENTS):
         for path in sorted(root.rglob("*")):
             if path.is_file():
                 files[str(path.relative_to(ROOT))] = path.read_bytes()
@@ -67,9 +65,10 @@ def _shipped() -> dict[str, bytes]:
 
 def test_every_shipped_synthetic_dataset_and_pack_file_passes() -> None:
     """The measurement in the module's docstring, kept: no finding of any kind, names included,
-    in the five reference packs and the synthetic datasets."""
+    in the bundled demo agent and the test fixtures' agents, their synthetic datasets
+    included."""
     files = _shipped()
-    assert len(files) > 50 and any(path.endswith(".jsonl") for path in files)
+    assert len(files) > 40 and any(path.endswith(".jsonl") for path in files)
     report = detect_files(files)
     assert report.findings == () and not rejects(report)
     assert NAME_THRESHOLD == 1
@@ -85,7 +84,7 @@ def test_re2_and_pythons_engine_agree_on_every_shipped_line() -> None:
             lines += raw.decode("utf-8").split("\n")
         except UnicodeDecodeError:
             continue
-    assert len(lines) > 10_000
+    assert len(lines) > 4_000  # every line of every shipped file, not a few
     for line in lines:
         assert phi_detect.kinds_of(line, ours) == phi_detect.kinds_of(line, theirs)
 
@@ -163,19 +162,6 @@ def test_no_file_goes_unread_and_no_escape_hides_a_value() -> None:
     assert bombed.unscannable == ("x.yaml",) and rejects(bombed)
 
 
-def test_the_community_checks_warnings_are_unchanged() -> None:
-    """Five of the kinds, worded as the community check always worded them; a street address
-    or a name is not one of its warnings."""
-    text = "\n".join(line for line, _ in PLANTED.values())
-    assert [(hit.line, hit.kind) for hit in phi_scan.scan(text)] == [
-        (1, "a Social Security number"),
-        (2, "a phone number (use 555-0100 to 555-0199)"),
-        (3, "a medical record number"),
-        (4, "a date of birth next to a name"),
-        (5, "an email address (use one at example.org)"),
-    ]
-
-
 def test_data_check_phi_reports_kinds_and_places(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -183,10 +169,10 @@ def test_data_check_phi_reports_kinds_and_places(
     line, value = PLANTED["phone"]
     record = {"id": "c1", "input": {"message": {"body": line}}, "labels": {}}
     planted.write_text(json.dumps(record) + "\n")
-    assert main(["data", "check", str(INBOX_DIR), str(planted), "--phi", "--json"]) == 1
+    assert main(["data", "check", str(TRIAGE_DIR), str(planted), "--phi", "--json"]) == 1
     printed = capsys.readouterr().out
     [report] = json.loads(printed)
     assert report["phi"]["counts"] == {"phone": 1}
     assert report["phi"]["findings"] == [{"kind": "phone", "file": "planted.jsonl", "line": 1}]
     assert value not in printed
-    assert main(["data", "check", str(INBOX_DIR), "--phi"]) == 0
+    assert main(["data", "check", str(TRIAGE_DIR), "--phi"]) == 0

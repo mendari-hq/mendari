@@ -21,7 +21,7 @@ import base64
 import json
 import os
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -31,12 +31,12 @@ import pytest
 from mendari import AuditStore, Decision, load_pack
 from mendari.cli import main
 from mendari.core import accounts
-from mendari.core.evalsets import NO_ASSIGNMENT
 from mendari.core.pack import Pack
 from mendari.core.phi import PhiPolicy, key_id
 from mendari.core.written import (
     CLOSED,
     CLOSING_NOTE,
+    NO_ASSIGNMENT,
     NO_ROUND,
     OPEN,
     REPORT_MISMATCH,
@@ -50,11 +50,11 @@ from mendari.evals import resolve_dataset, written
 from mendari.evals.written import INSUFFICIENT, WrittenLedger, WrittenRun
 from mendari.providers.judge import Judge
 from mendari.standards import audit_fhir, fhir_structure
-from tests.conftest import HASH_KEY_B64, PHI_KEY_B64, ROOT
-from tests.test_evalset_labelling import ISSUER, membership_of, person
-from tests.test_evalset_store import CLINIC, chained, served, tamper
+from tests.conftest import HASH_KEY_B64, PHI_KEY_B64, ROOT, message
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini"
+ISSUER = "https://idp.example.org"
+CLINIC = "clinic-a"
 RUBRIC = "reply_quality"
 KEY, HASH = os.urandom(32), os.urandom(32)
 PASS = {"safe_to_send": "yes", "addresses_request": "fully", "plain_language": "yes"}
@@ -104,6 +104,42 @@ class World:
 def world(db_target: str, pack: Pack, the_run: WrittenRun) -> Iterator[World]:
     with AuditStore(db_target, phi=PhiPolicy("encrypt", KEY, HASH)) as store:
         yield World(store, WrittenStore(store), pack, the_run)
+
+
+def person(
+    store: AuditStore, sub: str, *, org: str = CLINIC, roles: Sequence[str] = ("labeller",)
+) -> str:
+    """A person with a membership of `org` holding `roles` (the organization's record made with
+    the first): their user id."""
+    made = store.record_user(issuer=ISSUER, subject=sub, email=None, name=sub)
+    if store.organization(org) is None:
+        store.create_organization(org=org, name=org.title(), created_by="test")
+    store.add_membership(org=org, roles=list(roles), created_by="test", user_id=made["id"])
+    return str(made["id"])
+
+
+def membership_of(store: AuditStore, user: str, org: str = CLINIC) -> str:
+    found = store.membership_in_force(user, org)
+    assert found is not None
+    return str(found["id"])
+
+
+def chained(store: AuditStore) -> list[dict[str, Any]]:
+    with store._db.session(exclusive=False) as db:
+        rows = db.all("SELECT seq, decision_id, event, payload FROM audit_events ORDER BY seq")
+    return [{**row, "payload": json.loads(row["payload"])} for row in rows]
+
+
+def tamper(store: AuditStore, sql: str, params: tuple[Any, ...] = ()) -> None:
+    """Edit the database behind the store's back, as someone with the database could."""
+    with store._db.session(exclusive=True) as db:
+        db.all(sql, params)
+
+
+def served(db: str, pack: Pack) -> None:
+    """A server's database: it has decided once."""
+    with AuditStore(db) as store:
+        Decision(pack, store=store)(message("Can I get a refill of my lisinopril?"))
 
 
 def graders(store: AuditStore, count: int, *, org: str = CLINIC) -> list[str]:
@@ -738,7 +774,7 @@ def run_cli(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str, s
 
 def test_the_operators_commands_make_assign_show_and_close_a_round(
     tmp_path: Path,
-    inbox_pack: Pack,
+    triage_agent: Pack,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -748,7 +784,7 @@ def test_the_operators_commands_make_assign_show_and_close_a_round(
     db = str(tmp_path / "mendari.db")
     key = base64.b64decode(PHI_KEY_B64)
     with AuditStore(db, phi=PhiPolicy("encrypt", key, base64.b64decode(HASH_KEY_B64))) as store:
-        Decision(inbox_pack, store=store)({"message": {"body": "Can I get a refill?"}})
+        Decision(triage_agent, store=store)({"message": {"body": "Can I get a refill?"}})
         a, b = graders(store, 2)
     create = ("written", "round", "create", str(MINI), "--rubric", RUBRIC, "--dataset", "written")
     code, _, err = run_cli(capsys, *create, "--org", "nowhere", "--sample", "4", "--db", db)
@@ -818,7 +854,7 @@ def test_the_operators_commands_make_assign_show_and_close_a_round(
         assert code == 1 and err.strip() == f"error: {NO_ROUND}"
     # Under PHI mode hash a round is refused before the agent or a judge is asked.
     monkeypatch.setenv("MENDARI_PHI_MODE", "hash")
-    served(str(tmp_path / "hashed.db"), inbox_pack)
+    served(str(tmp_path / "hashed.db"), triage_agent)
     code, _, err = run_cli(
         capsys, *create, "--org", CLINIC, "--sample", "2", "--db", str(tmp_path / "hashed.db")
     )

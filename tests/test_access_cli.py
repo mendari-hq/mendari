@@ -150,7 +150,7 @@ def test_a_protected_database_takes_only_keyed_address_digests(
 
 
 def test_the_read_commands_leave_the_database_as_it_was(
-    tmp_path: Path, inbox_pack: Pack, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, triage_agent: Pack, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`org list`, `members`, `requests`, `keys`, `clients` and `check` open the database
     read-only: no sidecar file, nothing written; another application's database is refused."""
@@ -158,7 +158,7 @@ def test_the_read_commands_leave_the_database_as_it_was(
     folder.mkdir()
     db = folder / "mendari.db"
     with AuditStore(db) as store:
-        Decision(inbox_pack, store=store)({"message": {"body": "Refill please."}})
+        Decision(triage_agent, store=store)({"message": {"body": "Refill please."}})
     with closing(sqlite3.connect(db)) as connection, connection:
         connection.execute("PRAGMA journal_mode=DELETE")  # so any write shows in its bytes
     before = db.read_bytes()

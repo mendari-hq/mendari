@@ -34,7 +34,7 @@ from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import encrypt_mode, message, security_lines, signed_in
 from tests.jwt_signers import DROP, PUBLIC_URL, TOKEN_URL, Signer, assertion, forged
 
-INBOX = "mendari/patient-inbox-router"
+INBOX = "mendari-test/triage"  # the agent these tests decide with
 INVALID_CLIENT = {"error": "invalid_client", "error_description": "client authentication failed"}
 
 

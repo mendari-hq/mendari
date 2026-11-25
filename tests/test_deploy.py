@@ -50,17 +50,17 @@ def templates() -> list[Path]:
 def test_a_per_pack_server_serves_only_its_pack(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MENDARI_AGENTS", "mendari/referral-router")
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari-test/clinical-review")
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    assert [p["id"] for p in client.get("/api/agents").json()] == ["mendari/referral-router"]
-    assert client.get("/api/agents/mendari/patient-inbox-router").status_code == 404
+    assert [p["id"] for p in client.get("/api/agents").json()] == ["mendari-test/clinical-review"]
+    assert client.get("/api/agents/mendari-test/triage").status_code == 404
 
 
 def test_a_pack_that_is_not_installed_fails_at_startup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MENDARI_AGENTS", "mendari/referal-router")  # a typo
-    with pytest.raises(MendariError, match="referal-router"):
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari-test/clinical-reveiw")  # a typo
+    with pytest.raises(MendariError, match="clinical-reveiw"):
         create_app(db_path=tmp_path / "a.db")
 
 

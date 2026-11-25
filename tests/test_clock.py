@@ -48,10 +48,10 @@ def test_stored_utc_timestamps_fall_on_eastern_days(
 
 
 def test_a_9_pm_decision_counts_on_that_eastern_day(
-    inbox_pack: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("MENDARI_TIMEZONE", raising=False)
-    result = Decision(inbox_pack)(message("Can you send a refill for metformin?"))
+    result = Decision(triage_agent)(message("Can you send a refill for metformin?"))
     at_9_pm = dataclasses.replace(result, created_at="2026-09-30T01:00:00.000+00:00")
     store.record(at_9_pm, message("Can you send a refill for metformin?"))
     assert [day["date"] for day in store.stats()["daily"]] == ["2026-09-29"]
@@ -68,11 +68,11 @@ def test_daily_call_counters_use_the_local_day(
     store: AuditStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("mendari.core.clock.today", lambda: date(2026, 9, 29))
-    store.consume("jev", daily_limit=None)
-    store.consume("jev", daily_limit=None)
-    assert store.usage("jev") == 2
+    store.consume("llm", daily_limit=None)
+    store.consume("llm", daily_limit=None)
+    assert store.usage("llm") == 2
     monkeypatch.setattr("mendari.core.clock.today", lambda: date(2026, 9, 30))
-    assert store.usage("jev") == 0  # a new local day starts at local midnight
+    assert store.usage("llm") == 0  # a new local day starts at local midnight
 
 
 def test_ages_use_the_local_day(monkeypatch: pytest.MonkeyPatch) -> None:

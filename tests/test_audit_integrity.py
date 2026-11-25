@@ -18,6 +18,9 @@ from tests.conftest import message
 
 Decide = Callable[[str], DecisionResult]
 
+# The triage fixture's messages, decided with its screen's canned agent, without which its policy
+# automates nothing (`automation_requires`).
+SCREENED = {"screen": "agent"}
 REVIEW = "hello?"  # abstains: no recommendation, HUMAN_REVIEW queue
 EMERGENCY = "Crushing chest pain and my left arm is numb"  # stat HUMAN_REVIEW -> nurse
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO
@@ -30,8 +33,8 @@ def tamper(store: AuditStore, sql: str, params: tuple[Any, ...] = ()) -> None:
 
 
 @pytest.fixture
-def decide(inbox_pack: Pack, store: AuditStore, screened: dict[str, str]) -> Decide:
-    decision = Decision(inbox_pack, providers=screened, store=store)
+def decide(triage_agent: Pack, store: AuditStore) -> Decide:
+    decision = Decision(triage_agent, providers=SCREENED, store=store)
     return lambda body: decision(message(body))
 
 
@@ -128,7 +131,7 @@ def _with_isolation(target: str, level: str) -> str:
 
 
 def test_concurrent_writers_never_fork_whatever_the_servers_isolation(
-    db_target: str, inbox_pack: Pack
+    db_target: str, triage_agent: Pack
 ) -> None:
     """A Postgres role or database may default to REPEATABLE READ. An exclusive session's
     snapshot would then be taken as it waits for the chain's lock, so it would read the head as
@@ -143,7 +146,7 @@ def test_concurrent_writers_never_fork_whatever_the_servers_isolation(
         with stores[0]._db.session(exclusive=False) as db:
             level = db.one("SELECT current_setting('default_transaction_isolation') AS level")
         assert level is not None and level["level"] == "repeatable read"  # the option holds
-        results = [Decision(inbox_pack)(message(ROUTINE)) for _ in range(30)]
+        results = [Decision(triage_agent)(message(ROUTINE)) for _ in range(30)]
         failures: list[BaseException] = []
 
         def write(store: AuditStore, mine: list[DecisionResult]) -> None:

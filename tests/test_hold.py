@@ -17,14 +17,34 @@ from mendari.cli import main
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Outcome
 from mendari.core.policy import apply_policy
+from mendari.providers import Answer, ProviderInfo
 from mendari.server import app as app_module
 from mendari.server.app import create_app
 from tests.conftest import message
+from tests.support.platform import COMMUNICATION, PATIENT
 
-INBOX = "mendari/patient-inbox-router"
+INBOX = "mendari-test/triage"  # the agent these tests decide with
 DECIDE = f"/api/agents/{INBOX}/decide"
 REFILL = "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks"
 CHEST = "Crushing chest pain for 30 minutes, going down my left arm."
+# The triage fixture's providers that automate (its policy's `automation_requires`): its screen's
+# canned agent, which automates without sign-in, as a live one does.
+SCREENED = {"screen": "agent"}
+INFO = ProviderInfo(slot="test", variant="test", type="test")
+
+
+def answered(team: str, confidence: float) -> dict[str, Answer]:
+    """The triage fixture's answers: `team` at `confidence`, nothing urgent and nothing
+    abusive, each surely."""
+
+    def one(question: str, label: str, sure: float) -> Answer:
+        return Answer(question, label, sure, {label: sure}, INFO)
+
+    return {
+        "destination": one("destination", team, confidence),
+        "urgency": one("urgency", "no", 0.95),
+        "abusive": one("abusive", "no", 0.95),
+    }
 
 
 def _id(hold: dict[str, Any] | None) -> str | None:
@@ -38,7 +58,7 @@ def test_a_hold_covers_what_it_names_and_nothing_else(db_target: str) -> None:
         )
         assert _id(store.hold_for(INBOX, "sha256:x", "a")) == pack["id"]
         assert store.hold_for(INBOX, "sha256:x", "b") is None  # another organization
-        assert store.hold_for("mendari/referral-router", "sha256:x", "a") is None
+        assert store.hold_for("mendari-test/clinical-review", "sha256:x", "a") is None
         digest = store.hold_automation(
             org="b", pack_id=INBOX, pack_digest="sha256:" + "1" * 64, reason="v", set_by="ops"
         )
@@ -75,13 +95,11 @@ def test_a_hold_needs_a_reason_and_a_digest_its_pack(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("confidence", [0.99, 0.7, 0.3])
-def test_a_hold_only_ever_lowers_automation(inbox_pack: Pack, confidence: float) -> None:
-    from tests.test_policy import routine
-
-    answers = routine("medical_assistant", confidence)
-    running = {"safety_screen": "rules_and_jev", "router": "naive_bayes"}
-    free = apply_policy(inbox_pack.manifest, answers, {}, None, running)
-    held = apply_policy(inbox_pack.manifest, answers, {}, None, running, hold="hold abc")
+def test_a_hold_only_ever_lowers_automation(triage_agent: Pack, confidence: float) -> None:
+    answers = answered("pharmacy", confidence)
+    running = {"screen": "agent", "router": "rules"}
+    free = apply_policy(triage_agent.manifest, answers, {}, None, running)
+    held = apply_policy(triage_agent.manifest, answers, {}, None, running, hold="hold abc")
     expected = Outcome.HUMAN_REVIEW if free.outcome is Outcome.AUTO else free.outcome
     assert held.outcome is expected
     assert (held.recommendation, held.priority) == (free.recommendation, free.priority)
@@ -89,21 +107,19 @@ def test_a_hold_only_ever_lowers_automation(inbox_pack: Pack, confidence: float)
         assert "automation is on hold: hold abc" in held.reasons
 
 
-def test_holding_and_lifting_over_http_takes_effect_at_once(
-    tmp_path: Path, screened: dict[str, str]
-) -> None:
-    client = TestClient(create_app(db_path=tmp_path / "h.db", providers=screened))
+def test_holding_and_lifting_over_http_takes_effect_at_once(tmp_path: Path) -> None:
+    client = TestClient(create_app(db_path=tmp_path / "h.db", providers=SCREENED))
     assert client.post(DECIDE, json=message(REFILL)).json()["outcome"] == "AUTO"
     hold = client.post("/api/holds", json={"pack_id": INBOX, "reason": "a missed emergency"})
     assert hold.status_code == 201, hold.text
     held = client.post(DECIDE, json=message(REFILL)).json()
-    assert held["outcome"] == "HUMAN_REVIEW" and held["recommendation"] == "medical_assistant"
+    assert held["outcome"] == "HUMAN_REVIEW" and held["recommendation"] == "pharmacy"
     assert f"automation is on hold: hold {hold.json()['id']}" in held["reasons"]
     emergency = client.post(DECIDE, json=message(CHEST)).json()  # rules still decide priority
     assert (emergency["outcome"], emergency["priority"]) == ("HUMAN_REVIEW", "stat")
     assert client.get("/api/holds").json()[0]["reason"] == "a missed emergency"
     assert client.get("/api/health").json()["holds"] == 1
-    other = client.post("/api/agents/mendari/referral-router/examples")  # unrelated pack: unheld
+    other = client.post("/api/agents/mendari-test/clinical-review/examples")  # unrelated: unheld
     assert other.status_code in (200, 405)
     assert client.delete(f"/api/holds/{hold.json()['id']}").status_code == 204
     assert client.post(DECIDE, json=message(REFILL)).json()["outcome"] == "AUTO"
@@ -118,13 +134,12 @@ def test_a_hold_on_an_unknown_pack_is_refused(tmp_path: Path) -> None:
 
 def test_the_command_line_holds_every_organization_with_the_server_running(
     tmp_path: Path,
-    screened: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(app_module, "HOLD_SECONDS", 0.0)
     db = str(tmp_path / "cli.db")
-    client = TestClient(create_app(db_path=db, providers=screened))
+    client = TestClient(create_app(db_path=db, providers=SCREENED))
     assert client.post(DECIDE, json=message(REFILL)).json()["outcome"] == "AUTO"
     assert main(["automation", "hold", "--all-orgs", "--reason", "incident 7", "--db", db]) == 0
     with AuditStore(db) as store:
@@ -141,18 +156,15 @@ def test_the_command_line_holds_every_organization_with_the_server_running(
     assert main(["automation", "lift", hold["id"], "--db", db]) == 1
 
 
-def test_fhir_and_cds_hooks_decisions_are_held_too(
-    tmp_path: Path, screened: dict[str, str]
-) -> None:
-    from tests.test_fhir import COMMUNICATION, PATIENT
-
-    client = TestClient(create_app(db_path=tmp_path / "f.db", providers=screened))
+def test_fhir_and_cds_hooks_decisions_are_held_too(tmp_path: Path) -> None:
+    client = TestClient(create_app(db_path=tmp_path / "f.db", providers=SCREENED))
     client.post("/api/holds", json={"reason": "every pack"})
-    bundle = {"communication": COMMUNICATION, "patient": PATIENT}
+    refill = {**COMMUNICATION, "payload": [{"contentString": REFILL}]}  # AUTO, but for the hold
+    bundle = {"communication": refill, "patient": PATIENT}
     fhir = client.post(f"/api/agents/{INBOX}/fhir/decide", json=bundle).json()
     assert fhir["decision"]["outcome"] != "AUTO"
     cards = client.post(
-        "/cds-services/mendari.patient-inbox-router",
+        "/cds-services/mendari-test.triage",
         json={
             "hook": "mendari-message-received",
             "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
@@ -164,14 +176,14 @@ def test_fhir_and_cds_hooks_decisions_are_held_too(
     assert "AUTO" not in cards.json()["cards"][0]["detail"].splitlines()[2]
 
 
-def test_a_held_decision_keeps_the_other_reasons_it_went_to_a_person(inbox_pack: Pack) -> None:
-    from tests.test_policy import routine
-
-    answers = routine("medical_assistant", 0.99)
-    rules_only = {"safety_screen": "rules", "router": "naive_bayes"}
-    held = apply_policy(inbox_pack.manifest, answers, {}, None, rules_only, hold="hold x")
+def test_a_held_decision_keeps_the_other_reasons_it_went_to_a_person(
+    triage_agent: Pack,
+) -> None:
+    answers = answered("pharmacy", 0.99)
+    rules_only = {"screen": "rules", "router": "rules"}
+    held = apply_policy(triage_agent.manifest, answers, {}, None, rules_only, hold="hold x")
     assert held.outcome is Outcome.HUMAN_REVIEW
-    assert any(reason.startswith("automation requires safety_screen") for reason in held.reasons)
+    assert any(reason.startswith("automation requires screen") for reason in held.reasons)
     assert "automation is on hold: hold x" in held.reasons
 
 
@@ -188,7 +200,6 @@ def test_the_api_refuses_a_digest_it_does_not_serve(tmp_path: Path) -> None:
 
 def test_the_break_glass_refuses_a_database_that_is_not_the_servers(
     tmp_path: Path,
-    screened: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -220,8 +231,8 @@ def test_the_break_glass_refuses_a_database_that_is_not_the_servers(
     assert main(["automation", "list", "--db", str(empty)]) == 0  # reading it is fine
 
     db = str(tmp_path / "server.db")
-    TestClient(create_app(db_path=db, providers=screened)).post(DECIDE, json=message(REFILL))
-    assert main([*args, "--agent", "mendari/referal-router", "--db", db]) == 1  # a typo
+    TestClient(create_app(db_path=db, providers=SCREENED)).post(DECIDE, json=message(REFILL))
+    assert main([*args, "--agent", "mendari-test/triag", "--db", db]) == 1  # a typo
     assert main([*args, "--agent", INBOX, "--digest", "nonsense", "--db", db]) == 1
     unserved = "sha256:" + "0" * 64
     assert main([*args, "--agent", INBOX, "--digest", unserved, "--db", db]) == 1
@@ -265,14 +276,12 @@ def test_a_database_used_only_by_the_command_line_can_be_held(tmp_path: Path) ->
     assert main(["automation", "hold", "--all-orgs", "--reason", "r", "--db", db]) == 0
 
 
-def test_mendari_decide_with_a_database_honours_its_holds(
-    tmp_path: Path, screened: dict[str, str]
-) -> None:
+def test_mendari_decide_with_a_database_honours_its_holds(tmp_path: Path) -> None:
     db = str(tmp_path / "server.db")
-    TestClient(create_app(db_path=db, providers=screened)).post(DECIDE, json=message(REFILL))
+    TestClient(create_app(db_path=db, providers=SCREENED)).post(DECIDE, json=message(REFILL))
     with AuditStore(db) as store:
         store.hold_automation(org=None, pack_id=None, pack_digest=None, reason="r", set_by="t")
-    chosen = [f"--provider={slot}={variant}" for slot, variant in screened.items()]
+    chosen = [f"--provider={slot}={variant}" for slot, variant in SCREENED.items()]
     assert main(["decide", INBOX, "--text", REFILL, "--db", db, *chosen]) == 0
     with AuditStore(db) as store, store._db.session(exclusive=False) as session:
         rows = session.all("SELECT outcome FROM decisions ORDER BY created_at")

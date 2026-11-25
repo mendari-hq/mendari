@@ -43,17 +43,14 @@ from tests.conftest import (
     HASH_KEY_B64,
     INPUT_HASH_KEY,
     encrypt_mode,
-    encrypted_store,
-    evalset_on,
-    evalsets_are_on,
-    member,
     message,
     security_lines,
     signed_in,
     without_request_id,
 )
+from tests.support.platform import SMART_CLIENT, SmartEhr, full_smart_launch
+from tests.support.platform import SMART_EHR as EHR
 from tests.test_auth import FakeIdp, sign_in, signing_in_with
-from tests.test_smart import EHR, FakeEhr, full_launch
 
 HOST = "mendari.test"
 SITE = f"https://{HOST}"
@@ -167,19 +164,15 @@ def passes(check: OriginCheck, method: str, path: str, headers: dict[str, str]) 
 
 @pytest.fixture
 def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
-    """Every route, with sign-in, SMART Backend Services, memberships mode and hidden
-    evaluation sets on (the most routes mounted)."""
+    """Every route, with sign-in, SMART Backend Services and memberships mode on (the most
+    routes mounted)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", SITE)
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
-    evalset_on(monkeypatch)
     app = create_app(db_path=tmp_path / "routes.db")
-    with encrypted_store(tmp_path / "routes.db") as served:
-        reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
-    evalsets_are_on(TestClient(app, base_url=SITE), reader)
     return sorted(mounted_routes(app))
 
 
@@ -345,7 +338,7 @@ def test_a_refusal_is_logged_with_its_reason_and_answered_with_a_request_id(
 
 
 def test_a_link_to_the_review_queue_from_another_site_is_refused_and_nothing_is_chained(
-    tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Under PHI `encrypt`, opening the queue chains an `input.read` per input in the reader's
     name. A link on another site must not make a reviewer's browser do that."""
@@ -361,7 +354,7 @@ def test_a_link_to_the_review_queue_from_another_site_is_refused_and_nothing_is_
     )
     reviewer = signed_in(chain, role="reviewer")
     decided = client.post(
-        f"/api/agents/{inbox_pack.id}/decide",
+        f"/api/agents/{triage_agent.id}/decide",
         json=message("Crushing chest pain since this morning"),
         headers=reviewer,
     )
@@ -431,10 +424,10 @@ def idp() -> FakeIdp:
 
 
 @pytest.fixture
-def smart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, FakeEhr]]:
+def smart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, SmartEhr]]:
     """An EHR launch in open mode, as in tests/test_smart.py."""
-    ehr = FakeEhr()
-    monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari-app")
+    ehr = SmartEhr()
+    monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", SMART_CLIENT)
     monkeypatch.setenv("MENDARI_PUBLIC_URL", SITE)
     monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", EHR)
     transport = httpx.MockTransport(ehr)
@@ -449,10 +442,10 @@ def smart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Tes
 
 
 def test_an_ehr_launch_works_and_its_session_ends_only_from_this_site(
-    smart: tuple[TestClient, FakeEhr],
+    smart: tuple[TestClient, SmartEhr],
 ) -> None:
     client, ehr = smart
-    done = full_launch(client, ehr)  # the EHR's redirects: no Fetch Metadata in the test client
+    done = full_smart_launch(client, ehr)  # its redirects: no Fetch Metadata in the test client
     assert done.status_code == 302
     cross = {"sec-fetch-site": "cross-site"}
     assert client.get("/smart/launch", headers=cross, follow_redirects=False).status_code != 403
@@ -467,12 +460,12 @@ def test_an_ehr_launch_works_and_its_session_ends_only_from_this_site(
 
 
 def test_the_ehr_launchs_cookies_say_samesite_lax_explicitly(
-    smart: tuple[TestClient, FakeEhr],
+    smart: tuple[TestClient, SmartEhr],
 ) -> None:
     """Chrome lets a cross-site POST carry a cookie with no SameSite attribute for two minutes
     ("Lax by default"); one that says Lax gets no such exception. Setting and clearing."""
     launched, ehr = smart
-    cookies = [full_launch(launched, ehr).headers["set-cookie"]]
+    cookies = [full_smart_launch(launched, ehr).headers["set-cookie"]]
     cookies.append(launched.post("/api/smart/logout").headers["set-cookie"])
     for cookie in cookies:
         assert "samesite=lax" in cookie.lower(), cookie

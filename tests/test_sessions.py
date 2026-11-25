@@ -459,7 +459,7 @@ def test_a_pending_sign_in_without_a_digest_is_refused(
         ("/\n/evil.example", "/"),
         ("//evil.example", "/"),
         ("https://evil.example", "/"),
-        ("/?pack=mendari/referral-router#review", "/?pack=mendari/referral-router#review"),
+        ("/?agent=mendari-test/triage#review", "/?agent=mendari-test/triage#review"),
     ],
 )
 def test_the_return_address_with_a_backslash_or_a_tab_stays_on_this_site(
