@@ -12,10 +12,11 @@ import pytest
 from mendari.cli import main
 from mendari.errors import MendariError
 from mendari.sandbox import DEMO_AGENT, pilot_check
-from tests.conftest import DEMO_AGENT_DIR, INBOX_DIR
+from tests.conftest import CLINICAL_DIR, DEMO_AGENT_DIR, TRIAGE_DIR
 
 ENGINE = "http://engine.test"
-TRIAL = "mendari/clinical-trial-prescreener"  # a risk level 2 agent of the test fixtures
+# A risk level 2 agent of the test fixtures, named by its folder as CI names it.
+CLINICAL = str(CLINICAL_DIR)
 
 
 @pytest.fixture(autouse=True)
@@ -102,9 +103,14 @@ def test_the_cli_reports_the_steps_or_the_failure(
     assert '"decided": 1' in capsys.readouterr().out
     # The bundled demo agent, and no approval, unless the command names them.
     assert asked == [{"engine": ENGINE, "messages": 12, "agent": DEMO_AGENT, "approve": None}]
-    named = ["--agent", str(INBOX_DIR), "--approve", TRIAL, "--messages", "3"]
+    named = ["--agent", str(TRIAGE_DIR), "--approve", CLINICAL, "--messages", "3"]
     assert main(["sandbox", "pilot-check", "--engine", ENGINE, *named]) == 0
-    assert asked[1] == {"engine": ENGINE, "messages": 3, "agent": str(INBOX_DIR), "approve": TRIAL}
+    assert asked[1] == {
+        "engine": ENGINE,
+        "messages": 3,
+        "agent": str(TRIAGE_DIR),
+        "approve": CLINICAL,
+    }
     capsys.readouterr()
 
     def fail(**kwargs: Any) -> dict[str, Any]:
