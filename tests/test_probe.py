@@ -990,11 +990,13 @@ def test_an_agent_that_is_not_the_authors_own_is_not_written_into(tmp_path: Path
 
 
 def test_a_sites_own_case_is_reported_and_never_written(tmp_path: Path) -> None:
-    """A case `mendari improve` or `mendari feedback export` wrote is a site's own, and may be
-    a patient's words: its variant is probed here, and never copied into the agent's tests,
-    where nothing would mark it."""
+    """A case `mendari feedback export` wrote is a site's own, and may be a patient's words:
+    its variant is probed here, and never copied into the agent's tests, where nothing would
+    mark it."""
     marked = [
-        {**case, "attributes": {"added_by": "mendari improve"}} if case["id"] == "symptom" else case
+        {**case, "attributes": {"exported_by": "mendari feedback export"}}
+        if case["id"] == "symptom"
+        else case
         for case in CASES
     ]
     root = build_agent(tmp_path / "agent", cases=marked)

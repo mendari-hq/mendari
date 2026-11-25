@@ -36,7 +36,6 @@ from mendari.settings import (
 )
 
 EXIT_DEGRADED = 2
-EXIT_NOT_KEPT = 3  # `mendari improve`: no candidate was better and no less safe
 # `mendari probe`: what `--fail-on` exits with, and how many cases it probes unless told
 # (`evals/probe_report.py` EXIT_FOUND and `evals/probe.py` DEFAULT_LIMIT, which a test holds to
 # these: the parser is built without importing either).
@@ -606,108 +605,6 @@ def _where_it_shows(registry: Any, pack_id: str) -> list[str]:
     return lines
 
 
-def _character_ngrams(given: str | None) -> Any:
-    """`--character-ngrams`: `none` (words alone), `LOW-HIGH` (also the runs of that many
-    characters inside each word), or not given: each model as its file says it was built."""
-    from mendari.evals.training import AS_BUILT
-    from mendari.providers.naive_bayes import MAX_NGRAM, MIN_NGRAM, ngrams_problem
-
-    if given is None:
-        return AS_BUILT
-    if given == "none":
-        return None
-    low, dash, high = given.partition("-")
-    sizes = [int(part) for part in (low, high) if part.isascii() and part.isdigit()]
-    if not dash or len(sizes) != 2 or ngrams_problem(sizes):
-        raise MendariError(
-            f"--character-ngrams is LOW-HIGH, the shortest and longest run ({MIN_NGRAM} to "
-            f"{MAX_NGRAM}, as in 3-5), or none"
-        )
-    return (sizes[0], sizes[1])
-
-
-def _features(model: Mapping[str, Any]) -> str:
-    """What a trained model counts beside its words, for the line that reports it."""
-    runs = model.get("character_ngrams")
-    return f"words and runs of {runs[0]} to {runs[1]} characters, " if runs else ""
-
-
-def cmd_train(args: argparse.Namespace) -> int:
-    from mendari.evals.training import train_naive_bayes
-
-    features = _character_ngrams(args.character_ngrams)
-    pack = resolve_pack(args.pack, missing_models_ok=True)
-    trained = train_naive_bayes(
-        pack,
-        train=args.train,
-        calibration=args.calibration,
-        slot=args.slot,
-        character_ngrams=features,
-    )
-    for item in trained:
-        training = item.model["training"]
-        calibration = training["calibration"]
-        print(
-            f"{item.slot}/{item.variant}: {training['examples']} examples, "
-            f"{_features(item.model)}"
-            f"vocabulary {training['vocabulary']}, temperature {item.model['temperature']} "
-            f"(calibration NLL {calibration['nll_before']} -> {calibration['nll_after']}) "
-            f"-> {item.path.relative_to(pack.root)}"
-        )
-    if not trained:
-        raise MendariError("no naive_bayes variants to train")
-    return 0
-
-
-def cmd_improve(args: argparse.Namespace) -> int:
-    from mendari.evals.harness import load_dataset
-    from mendari.evals.improve import (
-        BETTER,
-        apply,
-        improve,
-        kept_in_the_pack,
-        not_writable,
-        text,
-    )
-
-    pack = resolve_pack(args.pack)
-    if args.write and (problem := not_writable(pack)) is not None:
-        raise MendariError(f"--write: {problem}")  # before the run, not after it
-    given = []
-    for path in args.cases:
-        if not Path(path).is_file():
-            raise MendariError(f"--with {Path(path).name}: no such file")
-        if kept_in_the_pack(pack, path):
-            raise MendariError(
-                f"--with {Path(path).name}: this file is in the agent's own folder, and every "
-                "file there goes into the agent's archive: keep the cases a run is given outside "
-                "it (move the file out, do not copy it)"
-            )
-        given.append(load_dataset(path))
-    found = improve(pack, given, slot=args.slot, train=args.train, calibration=args.calibration)
-    if args.out:
-        Path(args.out).write_text(json.dumps(found.report, indent=2) + "\n", encoding="utf-8")
-    # With --json the report alone is on stdout; what was done is said on stderr.
-    said = sys.stderr if args.json else sys.stdout
-    print(json.dumps(found.report, indent=2) if args.json else text(found.report))
-    if found.verdict != BETTER:
-        return EXIT_NOT_KEPT
-    if not args.write:
-        print("Nothing was written: run it again with --write to keep it.", file=said)
-        return 0
-    for path in apply(pack, found):
-        print(f"wrote {path.relative_to(pack.root)}", file=said)
-    print(
-        "The agent now holds the cases it learned from, each marked as added by this command, "
-        "and `mendari train` rebuilds this model from them. Keep it where those cases may be: "
-        "`mendari archive build` and `mendari push` refuse an agent that holds a site's cases.\n"
-        "It is a changed agent: bump its version, run `mendari test` and "
-        "`mendari eval`, and have it approved wherever a digest is approved.",
-        file=said,
-    )
-    return 0
-
-
 def _calibration_set_note(pack: Pack, name: str) -> None:
     """Say, for an `llm` variant and an `agent` variant alike, that a calibration is being
     fitted on one of the agent's own evaluation sets: `mendari eval` on it then reports on the
@@ -829,23 +726,6 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     if provider.settings.calibration is None:
         print(f"add `calibration: {relative}` to the {args.slot}/{args.variant} variant to use it")
     return 0
-
-
-def cmd_agreement(args: argparse.Namespace) -> int:
-    from mendari.evals.agreement import agreement, pack_cases
-
-    pack = resolve_pack(args.pack)
-    left, right = args.variants
-    cases = pack_cases(pack, args.dataset or None)
-    report = agreement(pack, args.slot, left, right, cases)
-    if args.json:
-        _print_json(report)
-    else:
-        verdict = "agree" if report["agree"] else f"differ {len(report['differences'])} time(s)"
-        print(f"{pack.id} {args.slot}: {left} and {right} {verdict} on {report['cases']} cases")
-        for item in report["differences"][:20]:
-            print(f"  {item['case']}  {item['question']}: {item[left]} vs {item[right]}")
-    return 0 if report["agree"] else 1
 
 
 def _write_ledger(out: Path, ledger: bytes, name: str) -> None:
@@ -2155,8 +2035,7 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
             print(f"These are the newest {args.limit:,}: raise --limit for more.")
         if records:
             print(
-                "Each carries the label a person chose. Use the file with `mendari eval "
-                "--dataset`, or learn from it with `mendari improve --with`."
+                "Each carries the label a person chose. Use the file with `mendari eval --dataset`."
             )
             print(EXPORTED_CASES)
         return 0
@@ -4605,7 +4484,7 @@ GROUPS = (
         "Evaluation",
         (),
         (
-            *("data", "leaderboard", "agreement", "calibrate", "train", "improve"),
+            *("data", "leaderboard", "calibrate"),
             *("feedback", "evalset", "scoreboard", "written"),
         ),
     ),
@@ -5029,43 +4908,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     data_check.set_defaults(handler=cmd_data_check)
 
-    train = pack_command("train", cmd_train, "train the agent's naive_bayes variants")
-    train.add_argument("--slot", help="only this provider slot")
-    train.add_argument("--train", default="train", help="training dataset (default: train)")
-    train.add_argument("--calibration", default="calibration", help="calibration dataset")
-    train.add_argument(
-        "--character-ngrams",
-        metavar="LOW-HIGH",
-        help="also count the runs of LOW to HIGH characters inside each word (as in 3-5), or "
-        "`none` for words alone (default: each model as its file says it was built)",
-    )
-
-    better = pack_command(
-        "improve",
-        cmd_improve,
-        "learn from new labelled cases, and keep it only if it is better and no less safe",
-    )
-    better.add_argument(
-        "--with",
-        dest="cases",
-        action="append",
-        required=True,
-        metavar="CASES",
-        help="a JSONL file of labelled cases, such as `feedback export --source reviews` "
-        "writes, kept outside the agent's folder (repeatable)",
-    )
-    better.add_argument("--slot", help="the classifier's slot, when several slots have one")
-    better.add_argument("--train", default="train", help="training dataset (default: train)")
-    better.add_argument("--calibration", default="calibration", help="calibration dataset")
-    better.add_argument(
-        "--write",
-        action="store_true",
-        help="keep a better candidate: write its model, and the cases it learned from into "
-        "the agent's training and calibration datasets (default: report only)",
-    )
-    better.add_argument("--out", help="write the JSON report here")
-    better.add_argument("--json", action="store_true", help="print the JSON report")
-
     calibrate = pack_command(
         "calibrate",
         cmd_calibrate,
@@ -5076,19 +4918,6 @@ def build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--dataset", default="calibration", help="labelled dataset")
     calibrate.add_argument("--limit", type=int, default=200, help="records to use (default 200)")
     calibrate.add_argument("--workers", type=int, default=8, help="parallel calls (default 8)")
-
-    agree = pack_command(
-        "agreement", cmd_agreement, "check that two variants of a slot give the same answers"
-    )
-    agree.add_argument("--slot", required=True, help="provider slot")
-    agree.add_argument("--variants", nargs=2, required=True, metavar="VARIANT")
-    agree.add_argument(
-        "--dataset",
-        action="append",
-        default=[],
-        help="dataset name or file (repeat; default: the agent's tests and every dataset)",
-    )
-    agree.add_argument("--json", action="store_true", help="the full report")
 
     paired_runs = sub.add_parser(
         "compare", help="compare two evaluation runs case by case (from their ledgers)"

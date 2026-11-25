@@ -263,8 +263,8 @@ def test_without_labels_a_denial_is_asked_for_what_the_agent_itself_flags(
 def test_a_sites_own_case_is_never_sent_to_a_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A case marked as a site's own (`mendari feedback export`, `mendari improve`) may be a
-    patient's words: no model is sent it. The offline transformations still probe it here."""
+    """A case marked as a site's own (`mendari feedback export`) may be a patient's words: no
+    model is sent it. The offline transformations still probe it here."""
     marked = [
         {**case, "attributes": {"exported_by": "mendari feedback export"}}
         if case["id"] == "symptom"

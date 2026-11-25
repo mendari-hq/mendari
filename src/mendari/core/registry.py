@@ -222,17 +222,11 @@ def _one_pack_per_id(found: list[tuple[int, Pack]], problems: dict[str, str]) ->
     return [pack for _, pack in found if pack.root not in refused]
 
 
-def resolve_pack(
-    ref: str,
-    paths: Sequence[Path | SearchPath] | None = None,
-    *,
-    missing_models_ok: bool = False,
-) -> Pack:
-    """Resolve a directory, `namespace/name` (latest version) or `namespace/name@version`.
-    `missing_models_ok` applies to a directory: a pack about to be trained."""
+def resolve_pack(ref: str, paths: Sequence[Path | SearchPath] | None = None) -> Pack:
+    """Resolve a directory, `namespace/name` (latest version) or `namespace/name@version`."""
     as_path = Path(ref)
     if has_manifest(as_path):
-        return load_pack(as_path, missing_models_ok=missing_models_ok, origin=origin_of(as_path))
+        return load_pack(as_path, origin=origin_of(as_path))
     pack_id, _, version = ref.partition("@")
     matches = [
         pack
