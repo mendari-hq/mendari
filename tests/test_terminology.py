@@ -20,7 +20,7 @@ from mendari.core.registry import discover
 from mendari.core.spec import Priority
 from mendari.errors import MendariError
 from mendari.sandbox.code_systems import CHANNELS
-from mendari.standards import audit_fhir, davinci, terminology
+from mendari.standards import audit_fhir, terminology
 from mendari.standards.fhir import (
     DISPLAY_LIMIT,
     OUTCOME_SYSTEM,
@@ -30,8 +30,12 @@ from mendari.standards.fhir import (
     display,
 )
 from mendari.standards.terminology import Terminology, resource_id
-from tests.conftest import INBOX_DIR, ROOT
+from tests.conftest import FIXTURE_AGENTS, FIXTURE_NAMESPACE, ROOT, TRIAGE_DIR
 from tests.test_fhir import BUNDLE
+
+TRIAGE = "mendari-test/triage"  # a message in, a Task to the team it names
+CHART = "mendari-test/chart-summary"  # a patient's record in, a Task to one literal performer
+CLINICAL = "mendari-test/clinical-review"  # no FHIR mapping: no performer system
 
 ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}$")
 NAME = re.compile(r"^[A-Z][A-Za-z0-9_]{0,254}$")
@@ -95,8 +99,11 @@ PINNED = {
 
 @pytest.fixture(scope="module")
 def packs() -> dict[str, Pack]:
+    """The test fixtures' agents (whatever other agents sit in their folder)."""
     return {
-        pack.id: pack for pack in discover([ROOT / "tests" / "fixtures" / "reference-agents"]).packs
+        pack.id: pack
+        for pack in discover([FIXTURE_AGENTS]).packs
+        if pack.id.split("/")[0] == FIXTURE_NAMESPACE
     }
 
 
@@ -105,10 +112,15 @@ def served(packs: dict[str, Pack]) -> Terminology:
     return Terminology.for_packs(packs.values())
 
 
-def inbox_variant(tmp_path: Path, pack_id: str, edit: Callable[[dict[str, Any]], None]) -> Pack:
-    """The inbox pack under another id, with its FHIR mapping edited."""
+def question_system(agent_id: str, question: str) -> str:
+    """The canonical CodeSystem of a question's labels, which `terminology.py` generates."""
+    return f"https://mendari.co/packs/{agent_id}/CodeSystem/{question}"
+
+
+def triage_variant(tmp_path: Path, pack_id: str, edit: Callable[[dict[str, Any]], None]) -> Pack:
+    """The triage fixture under another id, with its FHIR mapping's Task edited."""
     root = tmp_path / pack_id.replace("/", "-")
-    shutil.copytree(INBOX_DIR, root)
+    shutil.copytree(TRIAGE_DIR, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"] = pack_id
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
@@ -177,22 +189,28 @@ def test_packs_served_are_a_fragment(packs: dict[str, Pack], served: Terminology
 
 
 def test_performer_codes_follow_the_task_template(
-    packs: dict[str, Pack], served: Terminology
+    tmp_path: Path, packs: dict[str, Pack], served: Terminology
 ) -> None:
-    inbox = packs["mendari/patient-inbox-router"]
-    destinations = code_system(served, FhirAdapter.for_pack(inbox).mapping.task.performer_system)
-    assert codes(destinations) == [*inbox.manifest.labels("destination"), "manual-triage"]
-    referral = packs["mendari/referral-router"]
-    queues = code_system(served, FhirAdapter.for_pack(referral).mapping.task.performer_system)
-    assert codes(queues) == [*referral.manifest.labels("specialty"), "unknown"]  # "{specialty}"
-    assert queues["concept"][0]["definition"] == " ".join(
-        referral.manifest.questions["specialty"].criteria["cardiology"].split()
+    triage = packs[TRIAGE]
+    destinations = code_system(served, FhirAdapter.for_pack(triage).mapping.task.performer_system)
+    assert codes(destinations) == [*triage.manifest.labels("destination"), "manual-triage"]
+    system = "https://mendari.co/fhir/CodeSystem/fixture-urgency-team"
+    urgent = triage_variant(
+        tmp_path,
+        "test/triage-urgency",
+        lambda task: task.update(performer="{urgency}", performer_system=system),
     )
-    prior_auth = FhirAdapter.for_pack(packs["mendari/prior-auth-preflight"])
-    assert codes(code_system(served, prior_auth.mapping.task.performer_system)) == [
-        "prior-auth-team"  # a literal
+    queues = code_system(Terminology.for_packs([urgent]), system)
+    assert codes(queues) == [*urgent.manifest.labels("urgency"), "unknown"]  # "{urgency}"
+    assert queues["concept"][0]["definition"] == " ".join(
+        urgent.manifest.questions["urgency"].criteria["yes"].split()
+    )
+    chart = FhirAdapter.for_pack(packs[CHART])
+    assert codes(code_system(served, chart.mapping.task.performer_system)) == [
+        "care-team"  # a literal
     ]
-    assert not any(r["url"].endswith("ai-guard") for r in served.resources if "url" in r)
+    assert packs[CLINICAL].manifest.inputs.fhir is None
+    assert not any(r["url"].endswith("clinical-review") for r in served.resources if "url" in r)
 
 
 def test_a_performer_template_that_expands_past_the_cap_is_refused_at_load(
@@ -210,16 +228,16 @@ def test_a_performer_template_that_expands_past_the_cap_is_refused_at_load(
 
     monkeypatch.setattr(fhir, "expansions", expand)
     monkeypatch.setattr(fhir, "MAX_PERFORMER_CODES", 5)
-    wide = inbox_variant(
+    wide = triage_variant(
         tmp_path,
-        "test/inbox-wide",
+        "test/triage-wide",
         lambda task: task.update(performer="{recommendation}-{priority}"),
     )
     with pytest.raises(PackValidationError):
         Terminology.for_packs([wide])
     with pytest.raises(PackValidationError) as refused:
         FhirAdapter.for_pack(wide)
-    destinations = len(load_pack(INBOX_DIR).manifest.labels("destination")) + 1
+    destinations = len(load_pack(TRIAGE_DIR).manifest.labels("destination")) + 1
     count = destinations * len(Priority)
     assert refused.value.problems == [
         f"fhir/mapping.yaml: task.performer can give {count:,} codes (every combination of its "
@@ -245,8 +263,8 @@ def test_every_shipped_performer_template_is_under_the_cap(packs: dict[str, Pack
     assert counted and max(counted) <= MAX_PERFORMER_CODES
 
 
-def test_a_task_performer_is_a_code_of_its_system(router: Decision, served: Terminology) -> None:
-    _, task = router.decide_fhir(BUNDLE)
+def test_a_task_performer_is_a_code_of_its_system(triage: Decision, served: Terminology) -> None:
+    _, task = triage.decide_fhir(BUNDLE)
     coding = task["performerType"][0]["coding"][0]
     assert coding["code"] in codes(code_system(served, coding["system"]))
     outcome = task["businessStatus"]["coding"][0]
@@ -256,15 +274,15 @@ def test_a_task_performer_is_a_code_of_its_system(router: Decision, served: Term
 
 
 def test_packs_sharing_a_performer_system_share_one_code_system(
-    tmp_path: Path, inbox_pack: Pack
+    tmp_path: Path, triage_agent: Pack
 ) -> None:
-    twin = inbox_variant(tmp_path, "test/inbox-twin", lambda task: task.update(performer="desk"))
-    system = FhirAdapter.for_pack(inbox_pack).mapping.task.performer_system
+    twin = triage_variant(tmp_path, "test/triage-twin", lambda task: task.update(performer="desk"))
+    system = FhirAdapter.for_pack(triage_agent).mapping.task.performer_system
 
-    alone = code_system(Terminology.for_packs([inbox_pack]), system)
-    shared = code_system(Terminology.for_packs([inbox_pack, twin]), system)
+    alone = code_system(Terminology.for_packs([triage_agent]), system)
+    shared = code_system(Terminology.for_packs([triage_agent, twin]), system)
     assert codes(shared) == [*codes(alone), "desk"]
-    assert "`test/inbox-twin@" in shared["description"]
+    assert "`test/triage-twin@" in shared["description"]
     assert shared["version"] != alone["version"]
 
 
@@ -274,25 +292,11 @@ def test_question_systems_define_labels_by_their_criteria(
     for pack in packs.values():
         version = f"{pack.version}+{pack.digest.removeprefix('sha256:')[:8]}"
         for key, question in pack.manifest.questions.items():
-            system = code_system(served, davinci.question_system(pack.id, key))
+            system = code_system(served, question_system(pack.id, key))
             assert system["version"] == version
             assert codes(system) == question.labels
             for concept in system["concept"]:
                 assert concept["display"] == display(question.criteria[concept["code"]])
-
-
-def test_da_vinci_answers_display_what_their_code_system_says(
-    packs: dict[str, Pack], served: Terminology
-) -> None:
-    pack = packs["mendari/prior-auth-preflight"]
-    form = davinci.questionnaire(pack, {"service": "lumbar_mri", "payer": "acme"})
-    assert form is not None
-    for item in form["item"]:
-        for option in item["answerOption"]:
-            coding = option["valueCoding"]
-            defined = code_system(served, coding["system"])
-            shown = {c["code"]: c["display"] for c in defined["concept"]}
-            assert coding["display"] == shown[coding["code"]]
 
 
 def test_naming_systems(served: Terminology) -> None:
@@ -320,18 +324,16 @@ def test_lookup_by_id_and_url(served: Terminology) -> None:
 
 
 def test_versions_change_with_the_packs_served(packs: dict[str, Pack]) -> None:
-    inbox, referral, guard = (
-        packs[f"mendari/{name}"] for name in ("patient-inbox-router", "referral-router", "ai-guard")
-    )
-    one = Terminology.for_packs([inbox])
-    two = Terminology.for_packs([inbox, referral])
-    three = Terminology.for_packs([inbox, referral, guard])
+    triage, chart, clinical = (packs[agent_id] for agent_id in (TRIAGE, CHART, CLINICAL))
+    one = Terminology.for_packs([triage])
+    two = Terminology.for_packs([triage, chart])
+    three = Terminology.for_packs([triage, chart, clinical])
     version = lambda found, url: code_system(found, url)["version"]  # noqa: E731
     assert version(one, PACK_TAG_SYSTEM) != version(two, PACK_TAG_SYSTEM)
     assert version(one, PACK_TAG_SYSTEM).startswith(f"{__version__}+")
     assert version(one, OUTCOME_SYSTEM) == version(three, OUTCOME_SYSTEM) == __version__
     # A performer system's version follows only the packs that route to it.
-    destinations = FhirAdapter.for_pack(inbox).mapping.task.performer_system
+    destinations = FhirAdapter.for_pack(triage).mapping.task.performer_system
     assert version(one, destinations) == version(three, destinations)
 
 
@@ -368,7 +370,15 @@ def test_fixed_resources_are_pinned_to_the_mendari_version(served: Terminology) 
     found = {f"{r['resourceType']}/{r['id']}": content(r)[:16] for r in fixed}
     # A new version (a pre-release too: the resources carry it) pins these, as PINNED's entry.
     assert __version__ in PINNED, f"a new Mendari version: pin its fixed resources: {found}"
-    assert found == PINNED[__version__], "changed a fixed resource: it needs a new version"
+    pinned = {name: pin for name, pin in PINNED[__version__].items() if not fictional(name)}
+    found = {name: pin for name, pin in found.items() if not fictional(name)}
+    assert found == pinned, "changed a fixed resource: it needs a new version"
+
+
+def fictional(name: str) -> bool:
+    """One of the sandbox's fictional code systems, which leave the product (wave 6): their
+    content is not held to the version any more, only Mendari's own resources are."""
+    return name.startswith("CodeSystem/fictional-")
 
 
 def test_every_resource_is_well_formed(served: Terminology) -> None:
@@ -400,23 +410,19 @@ def test_sandbox_systems_are_experimental_and_never_served(served: Terminology) 
     sandbox = terminology.sandbox_resources()
     assert all(r["experimental"] for r in sandbox)
     assert not any(served.by_url(r["url"]) for r in sandbox)
-    schema = json.loads(
-        (
-            ROOT / "tests/fixtures/reference-agents/patient-inbox-router/schemas/input.schema.json"
-        ).read_text()
-    )
+    schema = json.loads((TRIAGE_DIR / "schemas" / "input.schema.json").read_text())
     channels = schema["properties"]["message"]["properties"]["channel"]["enum"]
     assert codes(sandbox[1]) == list(CHANNELS) == channels
 
 
 def test_one_version_of_each_pack(packs: dict[str, Pack]) -> None:
-    inbox = packs["mendari/patient-inbox-router"]
+    triage = packs[TRIAGE]
     with pytest.raises(MendariError, match="one version of each agent"):
-        terminology.resources([inbox, inbox])
+        terminology.resources([triage, triage])
 
 
 def test_a_pack_cannot_redefine_a_fixed_system(tmp_path: Path) -> None:
-    rogue = inbox_variant(
+    rogue = triage_variant(
         tmp_path, "test/rogue", lambda task: task.update(performer_system=OUTCOME_SYSTEM)
     )
     with pytest.raises(MendariError, match="two terminology resources share"):
@@ -424,9 +430,7 @@ def test_a_pack_cannot_redefine_a_fixed_system(tmp_path: Path) -> None:
 
 
 def test_resource_ids_are_valid_fhir_ids() -> None:
-    assert resource_id("mendari/patient-inbox-router-destination") == (
-        "mendari-patient-inbox-router-destination"
-    )
+    assert resource_id("mendari-test/triage-destination") == "mendari-test-triage-destination"
     long_a, long_b = "x/" + "a" * 80, "x/" + "a" * 79 + "b"
     for text in (long_a, long_b, "Ünïcode ünd spaces", "///"):
         assert ID.match(resource_id(text)), text

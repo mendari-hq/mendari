@@ -21,27 +21,32 @@ from mendari.core.phi import PhiPolicy
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir
 from mendari.standards.fhir import DECISION_ID_SYSTEM, PACK_ID_SYSTEM
-from tests.conftest import ROOT, SCREENED, message
+from tests.conftest import ROOT, message
 
 EMERGENCY = "Crushing chest pain and my left arm is numb"  # stat HUMAN_REVIEW -> nurse
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO (`trail`)
 SECRET = "SECRET-NOTE-TEXT"
 
-# The automated decisions here run the urgency screen with a fake Jev (`screened`).
-pytestmark = pytest.mark.usefixtures("screened")
+# The automated decisions here run the triage fixture's screen on its canned agent.
+SCREEN_AGENT = {"screen": "agent"}
 
 
 def trail(store: AuditStore, pack: Pack) -> tuple[DecisionResult, DecisionResult, DecisionResult]:
     """Three decisions: one confirmed in review, one overridden, one automated with a downstream
     outcome and a thumbs-down that carries a note."""
-    decide = Decision(pack, providers=SCREENED, store=store)
+    decide = Decision(pack, providers=SCREEN_AGENT, store=store)
     confirmed, overridden, automated = (
         decide(message(EMERGENCY)),
         decide(message(EMERGENCY)),
         decide(message(ROUTINE)),
     )
+    assert [r.outcome.value for r in (confirmed, overridden, automated)] == [
+        "HUMAN_REVIEW",
+        "HUMAN_REVIEW",
+        "AUTO",
+    ]
     store.resolve_review(confirmed.id, final_label="nurse", reviewer="rn-1", note=SECRET)
-    store.resolve_review(overridden.id, final_label="physician", reviewer="rn-2")
+    store.resolve_review(overridden.id, final_label="billing", reviewer="rn-2")
     store.record_outcome(
         automated.id, final_label="front_desk", source="staff-reroute", recorded_by="rn-9"
     )
@@ -63,8 +68,8 @@ def detail(event: dict[str, Any], key: str) -> str | None:
     return values[0] if values else None
 
 
-def test_every_chained_event_becomes_an_audit_event(store: AuditStore, inbox_pack: Pack) -> None:
-    trail(store, inbox_pack)
+def test_every_chained_event_becomes_an_audit_event(store: AuditStore, triage_agent: Pack) -> None:
+    trail(store, triage_agent)
     exported = list(audit_fhir.resources(store.iter_events()))
     events = by_type(exported, "AuditEvent")
     subtypes = [e["subtype"][0]["code"] for e in events]
@@ -81,8 +86,8 @@ def test_every_chained_event_becomes_an_audit_event(store: AuditStore, inbox_pac
     assert len({r["id"] for r in exported}) == len(exported)
 
 
-def test_the_export_keeps_the_hash_chain(store: AuditStore, inbox_pack: Pack) -> None:
-    trail(store, inbox_pack)
+def test_the_export_keeps_the_hash_chain(store: AuditStore, triage_agent: Pack) -> None:
+    trail(store, triage_agent)
     events = by_type(list(audit_fhir.resources(store.iter_events())), "AuditEvent")
     for previous, current in itertools.pairwise(events):
         assert detail(current, "prev_hash") == detail(previous, "hash")
@@ -92,9 +97,9 @@ def test_the_export_keeps_the_hash_chain(store: AuditStore, inbox_pack: Pack) ->
 
 
 def test_provenance_says_who_created_verified_or_changed_the_result(
-    store: AuditStore, inbox_pack: Pack
+    store: AuditStore, triage_agent: Pack
 ) -> None:
-    confirmed, overridden, automated = trail(store, inbox_pack)
+    confirmed, overridden, automated = trail(store, triage_agent)
     provenance = by_type(list(audit_fhir.resources(store.iter_events())), "Provenance")
     code = lambda concept: concept["coding"][0]["code"]  # noqa: E731
     roles = {
@@ -112,15 +117,16 @@ def test_provenance_says_who_created_verified_or_changed_the_result(
     created = next(p for p in provenance if p["activity"]["coding"][0]["code"] == "CREATE")
     assert created["entity"][0]["what"]["identifier"]["value"].startswith("sha256:")
     assert (
-        created["agent"][0]["who"]["identifier"]["value"] == f"{inbox_pack.id}@{inbox_pack.version}"
+        created["agent"][0]["who"]["identifier"]["value"]
+        == f"{triage_agent.id}@{triage_agent.version}"
     )
     assert (
         created["target"][0]["identifier"]["system"] == DECISION_ID_SYSTEM
     )  # the Task's identifier
 
 
-def test_the_export_carries_codes_never_case_text(store: AuditStore, inbox_pack: Pack) -> None:
-    trail(store, inbox_pack)
+def test_the_export_carries_codes_never_case_text(store: AuditStore, triage_agent: Pack) -> None:
+    trail(store, triage_agent)
     text = json.dumps(list(audit_fhir.resources(store.iter_events())))
     assert SECRET not in text
     assert "chest pain" not in text.lower()
@@ -132,12 +138,12 @@ def test_the_export_carries_codes_never_case_text(store: AuditStore, inbox_pack:
     assert review["agent"][0] == {"who": {"display": "rn-1"}, "requestor": True}
 
 
-def test_a_decision_names_who_asked_for_it(store: AuditStore, inbox_pack: Pack) -> None:
+def test_a_decision_names_who_asked_for_it(store: AuditStore, triage_agent: Pack) -> None:
     """With sign-in on, `decision.created` names who asked (`requested_by`): the AuditEvent has
     them as a second agent, the requestor (the engine is not), and the CREATE Provenance as a
     second agent of role "requester", after the engine that authored it. A decision made with
     nobody named (open mode, the command line, or before this) has the engine alone."""
-    decide = Decision(inbox_pack, store=store)
+    decide = Decision(triage_agent, store=store)
     unnamed = decide(message(ROUTINE))
     with tenancy.acting_for("clinic-a", "kim@clinic-a.example.org"):
         named = decide(message(ROUTINE))
@@ -146,7 +152,7 @@ def test_a_decision_names_who_asked_for_it(store: AuditStore, inbox_pack: Pack) 
         e["entity"][0]["what"]["identifier"]["value"]: e for e in by_type(exported, "AuditEvent")
     }
     made = {p["target"][0]["identifier"]["value"]: p for p in by_type(exported, "Provenance")}
-    engine = audit_fhir.engine({"pack_id": inbox_pack.id, "pack_version": inbox_pack.version})
+    engine = audit_fhir.engine({"pack_id": triage_agent.id, "pack_version": triage_agent.version})
     assert event[named.id]["agent"] == [
         {"who": engine, "requestor": False},
         {"who": {"display": "kim@clinic-a.example.org"}, "requestor": True},
@@ -160,8 +166,8 @@ def test_a_decision_names_who_asked_for_it(store: AuditStore, inbox_pack: Pack) 
     assert [a["who"] for a in made[unnamed.id]["agent"]] == [engine]
 
 
-def test_events_page_in_chain_order(store: AuditStore, inbox_pack: Pack) -> None:
-    trail(store, inbox_pack)
+def test_events_page_in_chain_order(store: AuditStore, triage_agent: Pack) -> None:
+    trail(store, triage_agent)
     first = store.events(limit=3)
     rest = store.events(after_seq=first[-1]["seq"])
     assert [e["seq"] for e in first + rest] == [e["seq"] for e in store.events()]
@@ -170,8 +176,8 @@ def test_events_page_in_chain_order(store: AuditStore, inbox_pack: Pack) -> None
     assert store.events(since="2999-01-01") == []
 
 
-def test_one_decision_as_a_bundle(store: AuditStore, inbox_pack: Pack) -> None:
-    _, overridden, _ = trail(store, inbox_pack)
+def test_one_decision_as_a_bundle(store: AuditStore, triage_agent: Pack) -> None:
+    _, overridden, _ = trail(store, triage_agent)
     item = store.get(overridden.id)
     assert item is not None
     bundle = audit_fhir.decision_bundle(item)
@@ -181,15 +187,15 @@ def test_one_decision_as_a_bundle(store: AuditStore, inbox_pack: Pack) -> None:
     assert len({e["fullUrl"] for e in bundle["entry"]}) == 4
 
 
-def test_the_api_serves_a_bundle_and_ndjson(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_the_api_serves_a_bundle_and_ndjson(tmp_path: Path, triage_agent: Pack) -> None:
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    decided = client.post(f"/api/agents/{inbox_pack.id}/decide", json=message(EMERGENCY)).json()
+    decided = client.post(f"/api/agents/{triage_agent.id}/decide", json=message(EMERGENCY)).json()
     client.post(f"/api/review/{decided['id']}", json={"final_label": "nurse", "reviewer": "rn-1"})
     one = client.get(f"/api/audit/{decided['id']}/fhir")
     assert one.headers["content-type"].startswith("application/fhir+json")
     assert one.json()["resourceType"] == "Bundle"
     assert client.get("/api/audit/nope/fhir").status_code == 404
-    export = client.get("/api/audit/export/fhir", params={"pack_id": inbox_pack.id})
+    export = client.get("/api/audit/export/fhir", params={"pack_id": triage_agent.id})
     assert export.headers["content-type"].startswith("application/fhir+ndjson")
     lines = [json.loads(line) for line in export.text.splitlines()]
     assert [r["resourceType"] for r in lines] == [
@@ -201,11 +207,11 @@ def test_the_api_serves_a_bundle_and_ndjson(tmp_path: Path, inbox_pack: Pack) ->
     assert client.get("/api/audit/export/fhir", params={"until": "2000-01-01"}).text == ""
 
 
-def test_the_exports_bounds_are_read_as_times_not_text(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_the_exports_bounds_are_read_as_times_not_text(tmp_path: Path, triage_agent: Pack) -> None:
     """`since` with another offset was compared as text with the stored UTC times, so an hour
     after the decision, written at -05:00, still exported it; `zzz` exported nothing, silently."""
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    client.post(f"/api/agents/{inbox_pack.id}/decide", json=message(EMERGENCY))
+    client.post(f"/api/agents/{triage_agent.id}/decide", json=message(EMERGENCY))
     export = client.get("/api/audit/export/fhir").text.splitlines()
     recorded = datetime.fromisoformat(json.loads(export[0])["recorded"])
     later = (recorded + timedelta(hours=1)).astimezone(timezone(timedelta(hours=-5)))
@@ -220,10 +226,10 @@ def test_the_exports_bounds_are_read_as_times_not_text(tmp_path: Path, inbox_pac
 
 
 def test_the_cli_writes_ndjson(
-    tmp_path: Path, inbox_pack: Pack, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, triage_agent: Pack, capsys: pytest.CaptureFixture[str]
 ) -> None:
     db = tmp_path / "a.db"
-    trail(AuditStore(db), inbox_pack)
+    trail(AuditStore(db), triage_agent)
     out = tmp_path / "audit.ndjson"
     assert main(["audit", "export", "--db", str(db), "--out", str(out)]) == 0
     assert "13 resources written" in capsys.readouterr().err
@@ -231,12 +237,12 @@ def test_the_cli_writes_ndjson(
 
 
 def test_reads_and_purges_of_encrypted_inputs_are_exported(
-    tmp_path: Path, inbox_pack: Pack
+    tmp_path: Path, triage_agent: Pack
 ) -> None:
     """PHI mode's access log in FHIR: a read is action R by the reader, and a purge is action D
     by the engine."""
     store = AuditStore(tmp_path / "phi.db", phi=PhiPolicy(mode="encrypt", key=os.urandom(32)))
-    result = Decision(inbox_pack, store=store)(message(SECRET))
+    result = Decision(triage_agent, store=store)(message(SECRET))
     store.get(result.id, reader="rn-7")
     store.purge_inputs(0)
     events = by_type(list(audit_fhir.resources(store.iter_events())), "AuditEvent")
@@ -367,9 +373,9 @@ def test_every_event_the_code_records_has_an_audit_event_code() -> None:
 
 
 def test_audit_entries_are_immutable_versions_narrated_from_codes(
-    store: AuditStore, inbox_pack: Pack
+    store: AuditStore, triage_agent: Pack
 ) -> None:
-    trail(store, inbox_pack)
+    trail(store, triage_agent)
     exported = list(audit_fhir.resources(store.iter_events()))
     for resource in exported:
         assert resource["meta"] == {"versionId": "1", "lastUpdated": resource["recorded"]}
@@ -384,16 +390,16 @@ def test_audit_entries_are_immutable_versions_narrated_from_codes(
         assert [c["system"] for c in event["subtype"]] == [audit_fhir.EVENT_SYSTEM]
     created = next(e for e in by_type(exported, "AuditEvent") if e["action"] == "C")
     engine = created["agent"][0]["who"]["identifier"]
-    assert engine == {"system": PACK_ID_SYSTEM, "value": inbox_pack.ref}
+    assert engine == {"system": PACK_ID_SYSTEM, "value": triage_agent.ref}
 
 
 BASE = "https://mendari.example/fhir"
 
 
-def test_reviewing_an_abstention_authors_the_label(store: AuditStore, inbox_pack: Pack) -> None:
+def test_reviewing_an_abstention_authors_the_label(store: AuditStore, triage_agent: Pack) -> None:
     """An abstention made no recommendation, so its reviewer verifies nothing: they author the
     label (`human_override` is None, not False)."""
-    result = Decision(inbox_pack, store=store)(message("hello?"))
+    result = Decision(triage_agent, store=store)(message("hello?"))
     assert result.outcome.value == "ABSTAIN"
     store.resolve_review(result.id, final_label="front_desk", reviewer="fd-1")
     item = store.get(result.id)
@@ -407,10 +413,10 @@ def test_reviewing_an_abstention_authors_the_label(store: AuditStore, inbox_pack
     assert review["agent"][0]["who"] == {"display": "fd-1"}
 
 
-def test_served_resources_refer_to_the_task_by_url(store: AuditStore, inbox_pack: Pack) -> None:
+def test_served_resources_refer_to_the_task_by_url(store: AuditStore, triage_agent: Pack) -> None:
     """Under /fhir an AuditEvent points at the Task, a Provenance at the Task version its event
     made; the identifier stays next to the reference."""
-    confirmed, _, automated = trail(store, inbox_pack)
+    confirmed, _, automated = trail(store, triage_agent)
     for decision in (confirmed, automated):
         item = store.get(decision.id)
         assert item is not None
@@ -432,15 +438,15 @@ def test_served_resources_refer_to_the_task_by_url(store: AuditStore, inbox_pack
     ]
 
 
-def test_the_exports_keep_identifiers_only(store: AuditStore, inbox_pack: Pack) -> None:
+def test_the_exports_keep_identifiers_only(store: AuditStore, triage_agent: Pack) -> None:
     """The /api/audit collection Bundles have urn:uuid full URLs: a reference there would
     resolve against nothing."""
-    trail(store, inbox_pack)
+    trail(store, triage_agent)
     assert '"reference"' not in json.dumps(list(audit_fhir.resources(store.iter_events())))
 
 
-def test_a_served_provenance_needs_its_task_version(store: AuditStore, inbox_pack: Pack) -> None:
-    trail(store, inbox_pack)
+def test_a_served_provenance_needs_its_task_version(store: AuditStore, triage_agent: Pack) -> None:
+    trail(store, triage_agent)
     created = store.events()[0]
     with pytest.raises(ValueError, match="Task version"):
         audit_fhir.provenance(created, base=BASE)

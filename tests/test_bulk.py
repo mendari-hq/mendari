@@ -5,8 +5,10 @@ export runs against HAPI in the CI job `sandbox-e2e`."""
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
+from unittest import mock
 from urllib.parse import parse_qs
 
 import httpx
@@ -16,20 +18,23 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 from mendari.cli import main
+from mendari.core import clock
 from mendari.core.pack import load_pack
 from mendari.core.registry import resolve_pack
 from mendari.errors import FhirError, MendariError
-from mendari.sandbox import DEMO_AGENT, example_datasets_dir, fhir_workflow
+from mendari.sandbox import DEMO_AGENT, fhir_workflow
 from mendari.sandbox.code_systems import CASE_SYSTEM
 from mendari.standards import bulk
 from mendari.standards.bulk import BulkError
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import DEMO_AGENT_DIR
-from tests.support.fhir_records import referral_entries
+from tests.conftest import CHART_DIR, CLINICAL_DIR, DEMO_AGENT_DIR
+from tests.support import fixture_records as records
+from tests.support.fixture_records import Case
 
 FHIR = "https://ehr.example.org/fhir"
-LABELS = (example_datasets_dir() or Path("datasets")) / "referral-local-site-example.jsonl"
+CHART = "mendari-test/chart-summary"  # a patient's record in: a patient-level export reads as it
+LABELS = CHART_DIR / "data" / "test.jsonl"  # its test set: the site's labels of its patients
 STATUS = "https://ehr.example.org/fhir/$export-poll-status?_jobId=1"
 
 
@@ -477,10 +482,25 @@ def test_backend_services_signs_an_assertion_for_the_token_endpoint(
 # -- export -> dataset ------------------------------------------------------------------------
 
 
-def referral_export(tmp_path: Path, cases: list[dict[str, Any]]) -> Path:
-    """What a server exports for these referral cases: NDJSON per type, ids and references
-    resolved as a server stores them."""
-    return exported(tmp_path, [referral_entries(record) for record in cases])
+@pytest.fixture
+def on_the_day() -> Iterator[None]:
+    """Read the chart records on the day they were built for: an age read from a birth date is
+    the case's age, as its dataset line says."""
+    with mock.patch.object(clock, "today", lambda: records.TODAY):
+        yield
+
+
+def chart_export(folder: Path, cases: Sequence[Case]) -> Path:
+    """What a server exports for these chart fixture patients, as a patient-level export: each
+    one's record, NDJSON per type, its resources with the ids and references the server stores
+    (the datasets' cases keep their drugs and notes inside the resources that name them)."""
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for case in cases:
+        for resource in case.resources(records.TODAY):
+            by_type.setdefault(resource["resourceType"], []).append(resource)
+    for kind, rows in by_type.items():
+        (folder / f"{kind}.001.ndjson").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    return folder
 
 
 def exported(tmp_path: Path, cases: list[list[dict[str, Any]]]) -> Path:
@@ -503,32 +523,30 @@ def exported(tmp_path: Path, cases: list[list[dict[str, Any]]]) -> Path:
     return tmp_path
 
 
+@pytest.mark.usefixtures("on_the_day")
 def test_an_export_becomes_the_packs_dataset_with_the_sites_labels(tmp_path: Path) -> None:
-    lines = LABELS.read_text().splitlines()
-    cases = [json.loads(line) for line in lines[:6]]
-    export_dir = referral_export(tmp_path, cases)
-    labels = {c["id"]: c["labels"] for c in cases[:4]}  # the site labelled four of six
-    adapter = FhirAdapter.for_pack(resolve_pack("mendari/referral-router"))
-    records, skipped = bulk.dataset(
+    cases = records.cases("test")[:6]
+    export_dir = chart_export(tmp_path, cases)
+    labels = {case.id: case.labels for case in cases[:4]}  # the site labelled four of six
+    adapter = FhirAdapter.for_pack(resolve_pack(CHART))
+    made, skipped = bulk.dataset(
         adapter, list(bulk.read_ndjson(export_dir)), labels, key_system=CASE_SYSTEM
     )
-    assert [r["id"] for r in records] == [c["id"] for c in cases[:4]]
+    assert [r["id"] for r in made] == [case.id for case in cases[:4]]
     assert skipped == {"unlabelled": 2, "no_key": 0}
-    first = records[0]["input"]
-    assert first["referral"] == cases[0]["input"]["referral"]
-    assert len(first["documents"]) == len(
-        cases[0]["input"]["documents"]
-    )  # the patient's record came along
-    assert records[0]["labels"] == cases[0]["labels"]
+    first = made[0]["input"]
+    assert first == cases[0].input()  # the patient's record came along, read as the dataset's
+    assert first["conditions"] and first["medications"]
+    assert made[0]["labels"] == cases[0].labels
 
 
+@pytest.mark.usefixtures("on_the_day")
 def test_the_cli_builds_a_dataset_that_mendari_eval_reads(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     labels = LABELS
-    cases = [json.loads(line) for line in labels.read_text().splitlines()[:5]]
     (tmp_path / "export").mkdir()
-    export_dir = referral_export(tmp_path / "export", cases)
+    export_dir = chart_export(tmp_path / "export", records.cases("test")[:5])
     out = tmp_path / "bulk.jsonl"
     assert (
         main(
@@ -536,7 +554,7 @@ def test_the_cli_builds_a_dataset_that_mendari_eval_reads(
                 "bulk",
                 "dataset",
                 "--agent",
-                "mendari/referral-router",
+                CHART,
                 "--ndjson",
                 str(export_dir),
                 "--labels",
@@ -548,38 +566,45 @@ def test_the_cli_builds_a_dataset_that_mendari_eval_reads(
         == 0
     )
     assert "5 cases written" in capsys.readouterr().out
-    assert (
-        main(["eval", "mendari/referral-router", "--dataset", str(out), "--baseline", "none"]) == 0
-    )
+    assert main(["eval", CHART, "--dataset", str(out), "--baseline", "none"]) == 0
 
 
+@pytest.mark.usefixtures("on_the_day")
 def test_the_sandbox_bulk_check_compares_the_export_with_the_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The exit check's comparison (its export runs against HAPI in `sandbox-e2e`)."""
     from mendari.sandbox import bulk_check
 
-    cases = [json.loads(line) for line in LABELS.read_text().splitlines()[:8]]
+    cases = records.cases("test")[:8]
     asked: list[list[str]] = []
 
     def fake_export(fhir: str, out: Path, **kwargs: Any) -> dict[str, Any]:
         asked.append(kwargs["types"])
         out.mkdir(parents=True)
-        referral_export(out, cases)
+        chart_export(out, cases)
         return {
             "output": [{"type": p.name.split(".")[0], "count": 1} for p in out.glob("*.ndjson")]
         }
 
     monkeypatch.setattr(bulk_check.bulk, "export", fake_export)
-    referrals = resolve_pack("mendari/referral-router")
-    result = bulk_check.run("http://fhir:8080/fhir", referrals, str(LABELS))
+    result = bulk_check.run("http://fhir:8080/fhir", resolve_pack(CHART), str(LABELS))
     assert result["cases"] == 8 and result["identical"] and result["differences"] == []
-    # The export asks for what the agent's mapping reads, and no more.
+    # The export asks for what the agent's mapping reads, and no more: its focus, the types it
+    # names (a note's, a request's drug's) and its lists' (one of them read from two types).
     assert asked == [
-        ["Patient", "ServiceRequest", "DocumentReference", "DiagnosticReport", "Observation"]
+        [
+            "Patient",
+            "DocumentReference",
+            "Medication",
+            "Condition",
+            "MedicationStatement",
+            "MedicationRequest",
+        ]
     ]
-    with pytest.raises(MendariError, match="mendari/ai-guard has no FHIR mapping"):
-        bulk_check.run("http://fhir:8080/fhir", resolve_pack("mendari/ai-guard"))
+    clinical = load_pack(CLINICAL_DIR)  # a note as JSON: no FHIR mapping
+    with pytest.raises(MendariError, match=f"{clinical.id} has no FHIR mapping"):
+        bulk_check.run("http://fhir:8080/fhir", clinical)
 
 
 def test_the_sandbox_bulk_check_runs_on_the_demo_agent_by_default(
