@@ -64,12 +64,12 @@ dev = [
 ]
 docs = [
     "mkdocs==1.6.1",
-    "mkdocs-material==9.8.0",
+    "mkdocs-material==9.8.1",
 ]
 
 [build-system]
 # Pinned, so wheels and images always build with the same backend; bump it deliberately.
-requires = ["hatchling==1.32.4"]
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 # The source distribution holds what a wheel is built from (the package, with its vendored
