@@ -205,7 +205,7 @@ class DecisionResult:
         resource. The audit store also leaves out evidence it may not keep (`AuditStore.record`).
         Proposed actions are no part of it: their arguments are the agent's text, and the record's
         digest is chained for good, so each is an event of its own (`action.proposed`) and the
-        record has the shape it always had."""
+        record's shape does not depend on them."""
         record = self.to_dict()
         record.pop("actions", None)
         labels = {

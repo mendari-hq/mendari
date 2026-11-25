@@ -2,7 +2,7 @@
 // An evaluation's operating point (mendari.operating-point/1), as its run worked it out: what the
 // agent's automation threshold lets through, each risk with its exact bound, and the threshold
 // the cases support when the run was given targets. The sentences are the engine's, shown as
-// they are (the command line prints the same ones); a report from before it shows nothing.
+// they are (the command line prints the same ones); a report without one shows nothing.
 
 import { esc } from "./ui.js";
 

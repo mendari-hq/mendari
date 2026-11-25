@@ -1990,8 +1990,8 @@ def test_configurations_at_the_same_point_share_one_labelled_mark(
     page: Page, served_agents: Path
 ) -> None:
     """On the triage fixture's critical set the four screens, all with the keyword router, are
-    as accurate; the agent and the agent checked by the rules each call the service once, so
-    they cost the same too: one mark for the two, naming both."""
+    as accurate; the `agent` screen and the `checked` one (its service checked by the rules) each
+    call the service once, so they cost the same too: one mark for the two, naming both."""
     serve_board(page, TRIAGE, counted_board(served(served_agents, TRIAGE), priced=True))
     open_agent(page, TRIAGE, "evals")
     page.get_by_role("button", name=re.compile(r"^critical n=")).click()

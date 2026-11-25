@@ -19,10 +19,9 @@ from mendari.errors import AgentValidationError
 CASE_KEYS = ("name", "input", "expect")
 EXPECT_KEYS = ("outcome", "outcome_in", "not_outcome", "recommendation", "priority", "answers")
 # Where `mendari probe --write` keeps the failures it found, as behaviour tests
-# (`evals/probe_tests.py`). The file has this one place in every agent and no manifest names it:
-# an agent that holds it is still an agent to an engine from before the probe, which runs the
-# agent's own tests and leaves this file unread. Each of its cases is a behaviour test with one
-# more key, `probe`: where the case came from, its `id` at least.
+# (`evals/probe_tests.py`). The file has this one place in every agent and no manifest names it.
+# Each of its cases is a behaviour test with one more key, `probe`: where the case came from, its
+# `id` at least.
 PROBE_TESTS = "tests/probe.yaml"
 PROBE_KEY = "probe"
 # And where it keeps the tests whose expected answer a model changed, until a person confirms

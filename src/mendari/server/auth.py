@@ -1131,7 +1131,7 @@ class Auth:
             if sent:  # ended, expired or never made: a dashboard left open, or a guess
                 security_log.event("auth.credential.refused", outcome="refused", reason="session")
             return None
-        # Sessions from before the issuer was stored are of the issuer configured now.
+        # A session that holds no issuer is of the issuer configured now.
         issuer = str(session.get("iss") or self.settings.issuer)
         person = person_id(issuer, str(session["sub"]))
         claims = session.get("claims")

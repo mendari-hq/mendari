@@ -97,7 +97,7 @@ def equal_mass(question: Mapping[str, Any]) -> str:
 def confidence_rows(report: Mapping[str, Any]) -> list[tuple[str, str]]:
     """Each model variant of a run and whether its confidence is calibrated, in one clause
     (`evals/confidence.py`: "not calibrated", or what it was calibrated on); none for a run
-    without a model variant, and for a report from before the block."""
+    without a model variant or without the block."""
     run = report.get("run")
     block = run.get("calibration") if isinstance(run, Mapping) else None
     summary = block.get("summary") if isinstance(block, Mapping) else None

@@ -6125,7 +6125,7 @@ def store_version_sha256(row: Mapping[str, Any]) -> str:
     hashed = {column: row[column] for column in STORE_VERSION_COLUMNS}
     if row.get("pulled") is not None:
         # A version pulled from a registry: where it came from is part of what never changes.
-        # Every other version's hash is as it was before there was such a column.
+        # Every other version's hash is of those columns alone.
         hashed["pulled"] = row["pulled"]
     return _sha(hashed)
 

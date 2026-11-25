@@ -510,8 +510,8 @@ def test_the_cli_logs_in_pushes_searches_and_pulls(
 def test_search_shows_no_figure_a_registry_sends(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A registry before LP-18 served the publisher's own benchmark beside each entry: the
-    listing never shows an uploaded number (ADR-0012), and says the risk level is declared."""
+    """A registry may send the publisher's own benchmark beside each entry: the listing never
+    shows an uploaded number (ADR-0012), and says the risk level is declared."""
     import contextlib
 
     from mendari import cli

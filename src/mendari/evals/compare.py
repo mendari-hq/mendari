@@ -75,7 +75,7 @@ def _baseline_problem(baseline: Any, primary: str) -> str | None:
 
 def _labelled(members: dict[str, Any]) -> int:
     """How many of a subgroup's members its accuracy is over, for the smallest group worth
-    flagging: its labelled members where the report says (since LP-10b), else its size."""
+    flagging: its labelled members where the report says, else its size."""
     return int(members.get("labelled", members["n"]))
 
 

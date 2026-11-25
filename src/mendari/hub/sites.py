@@ -107,7 +107,7 @@ def key_proof_holds(public: Ed25519PublicKey, site_id: str, proof: str) -> bool:
 
 
 def _site_row(db: Session, site_id: str) -> dict[str, Any] | None:
-    if not _SITE_ID.match(site_id) or not db.columns("hub_sites"):  # one from before sites
+    if not _SITE_ID.match(site_id) or not db.columns("hub_sites"):  # no such table: no site
         return None
     return db.one(f"SELECT {_SITE_FIELDS} FROM hub_sites WHERE id = ?", (site_id,))
 
@@ -556,8 +556,9 @@ class SiteStore:
 
     def own_site(self, site_id: str, namespace: str) -> bool:
         """Whether a site is the publisher's own for a namespace: its organization holds the
-        namespace's claim (LP-19c), in whatever status. A namespace from before claims names
-        no organization, so no site is its own: its publisher is the operator's to name."""
+        namespace's claim (LP-19c), in whatever status. A namespace with no claim (one the
+        operator made) names no organization, so no site is its own: its publisher is the
+        operator's to name."""
         with self._db.session(exclusive=False) as db:
             site = _site_row(db, site_id)
             if site is None or not db.columns("hub_claims"):
