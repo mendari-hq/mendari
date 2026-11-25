@@ -27,29 +27,24 @@ from mendari.core.audit import (
     PERSON_KINDS,
     SUBJECT_TABLES,
 )
-from mendari.core.evalset_keys import EvalsetKeys
-from mendari.core.evalsets import EvalsetStore
-from mendari.core.phi import PhiPolicy, key_id
+from mendari.core.phi import PhiPolicy
 from mendari.standards import audit_fhir
-from tests.conftest import (
-    INBOX_DIR,
-    ROOT,
-    evalset_keys_for_test,
-    hand_written,
-    message,
-)
+from tests.conftest import ROOT, TRIAGE_DIR, message
 from tests.test_audit_fhir import NOT_ON_A_DECISION, recorded_kinds
 
 KEY = os.urandom(32)
-EVALSETS = evalset_keys_for_test()  # hidden evaluation sets' throwaway keys (LP-11e)
-NEXT_EVALSET_KEY = evalset_keys_for_test().key  # what they rotate to (LP-11f)
 URGENT = "Crushing chest pain and my left arm is numb"  # HUMAN_REVIEW: waits for a reviewer
 # An agent that proposes actions (spec 0.4): this message's decision waits for a reviewer with an
 # action held (`action.proposed`), which its review resolves (`action.resolved`).
 PROPOSING = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 HELD = "Please renew my prescription."
-INBOX = "mendari/patient-inbox-router"
+TRIAGE = "mendari-test/triage"  # the agent these tests decide with (`triage_agent`)
 CLINIC = "clinic-a"
+# What the store still lists of the features wave 6 removes, which nothing kept writes: a
+# payer's answer to a prior authorization (G4) and the hidden evaluation sets' table (G13). They
+# leave the store's classes with their code, and these then remove nothing.
+REMOVED_KINDS = frozenset({"pas.submitted"})
+REMOVED_TABLES = frozenset({"evalset_sets"})
 
 
 def keeping(target: str, **options: Any) -> AuditStore:
@@ -119,14 +114,13 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
         store.resolve_review(first, final_label="nurse", reviewer="rn-1", note="a note")
         rating = store.record_feedback(first, rating="down", reporter="rn-2", note="a note")
         store.record_outcome(first, final_label="nurse", source="ehr", recorded_by="ehr-feed")
-        store.record_event(first, "pas.submitted", {"outcome": "queued"}, note="the payer's")
         store.record_card_feedback(pack.id, "s", [card_feedback(first)])  # `card.feedback`
         store.get(first, reader="rn-7")  # `input.read`
         second = Decision(pack, store=store)(message(URGENT)).id
         third = Decision(pack, store=store)(message(URGENT)).id
         store.resolve_review(third, final_label="nurse", reviewer="rn-1", note="a note")
         approval = store.approve_automation(
-            pack_id=INBOX,
+            pack_id=TRIAGE,
             pack_digest="d" * 64,
             risk_level=2,
             approver="cmo",
@@ -135,7 +129,7 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
         )
         store.revoke_approval(approval["id"], revoked_by="cmo")
         report = {"id": f"r-{org}", "created_at": "2026-10-01T00:00:00+00:00"}
-        store.save_report({**report, "pack": {"id": INBOX}, "dataset": {"name": "local"}})
+        store.save_report({**report, "pack": {"id": TRIAGE}, "dataset": {"name": "local"}})
         store.acknowledge_notice(f"notice:v1:person-{org}", version="v1", actor="rn-1")
     home = org or tenancy.DEFAULT_ORG
     # The command line's and the operator's writes: each names the row's organization.
@@ -170,55 +164,16 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
         org=home, email="lee@example.org", roles=["viewer"], created_by="ops"
     )
     store.revoke_invitation(invitation["id"], org=home, revoked_by="ops")
-    # A hidden evaluation set (LP-11e): made, a case added (the index key's epoch) and removed;
-    # then its keys' lifecycle (LP-11f), the deployment's: the index rebuilt, the next key read
-    # first and swapped in, and the set re-sealed under it.
-    hidden = EvalsetStore(store, EVALSETS)
-    made_set = hidden.create_set(home, pack, "a hidden set", created_by="ops")["set"]
-    added = hidden.add_cases(made_set, [hand_written(f"A hidden case of {home}")])
-    hidden.remove_case(made_set, added["cases"][0]["case"])
-    hidden.reindex()
-    store.evalset_ready(EvalsetKeys(EVALSETS.key, EVALSETS.index_key, (NEXT_EVALSET_KEY,)))
-    swapped = EvalsetStore(
-        store, EvalsetKeys(NEXT_EVALSET_KEY, EVALSETS.index_key, (EVALSETS.key,))
-    )
-    swapped.rotate(to=key_id(NEXT_EVALSET_KEY))
-    # Its blind labelling (LP-11h), each event the set's organization's: cases drawn, two
-    # labellers of `home` assigned, each reading and labelling (they disagree), a third
-    # adjudicating, and the set measured.
-    people = []
-    for n in range(3):
-        person = store.record_user(
-            issuer="https://idp.example.org", subject=f"labeller-{home}-{n}", email=None, name=None
-        )
-        store.add_membership(org=home, roles=["labeller"], created_by="ops", user_id=person["id"])
-        people.append(str(person["id"]))
-    swapped.add_cases(made_set, [hand_written(f"A labelled case {n} of {home}") for n in range(2)])
-    swapped.sample(made_set, cases=2)
-    swapped.assign(made_set, people[:2])
-    for labeller, destination in zip(people, ("nurse", "physician", "nurse"), strict=True):
-        if labeller == people[2]:
-            swapped.adjudicate(made_set, [labeller])
-        while (served := swapped.next_case(labeller, org=home)) is not None:
-            labels = {"destination": destination, "urgency": "routine"}
-            swapped.record_label(served["assignment"], labeller, labels, org=home)
-    swapped.measure(made_set, resamples=50)
-    # Its lifecycle (LP-11i), each event the set's organization's: frozen, read to grade with
-    # the organization's grading key (the first read activates it), and retired.
-    swapped.freeze(made_set, max_runs=2, max_age_days=30, pack=pack, resamples=50)
-    grading = store.create_grading_key(org=home, created_by="ops", reason="a grading run")
-    swapped.grade_read(made_set, f"key:{grading['id']}", "sha256:" + "d" * 64, lambda _: None)
-    swapped.retire(made_set)
     made.update(decisions=[first, second, third], home=home)
     return made
 
 
 @pytest.mark.parametrize("org", [CLINIC, None], ids=["as-a-server", "as-the-command-line"])
 def test_every_event_names_its_row_s_organization(
-    db_target: str, inbox_pack: Pack, org: str | None
+    db_target: str, triage_agent: Pack, org: str | None
 ) -> None:
     with keeping(db_target) as store:
-        made = every_writer(store, inbox_pack, org)
+        made = every_writer(store, triage_agent, org)
         events = chained(store)
         with store._db.session(exclusive=False) as db:
             owners = {row["id"]: row["org"] for row in db.all("SELECT id, org FROM decisions")}
@@ -226,7 +181,8 @@ def test_every_event_names_its_row_s_organization(
         assert store.verify() == {"ok": True, "events": len(events), "head": events[-1]["hash"]}
     kinds = {event["event"] for event in events}
     revoking = {"governance.revoked", "automation.lifted", "key.rotated", "key.revoked"}
-    assert kinds >= DECISION_KINDS | revoking | {"client.revoked"}  # each was written here
+    each = (DECISION_KINDS - REMOVED_KINDS) | revoking | {"client.revoked"}
+    assert kinds >= each  # each was written here
     for event in events:
         kind, payload = event["event"], event["payload"]
         if kind in DEPLOYMENT_KINDS:
@@ -241,11 +197,13 @@ def test_every_event_names_its_row_s_organization(
     assert [e["payload"]["org"] for e in held] == [made["home"], None]  # NULL: every one's
 
 
-def test_an_answer_is_the_same_whether_its_event_is_bound(db_target: str, inbox_pack: Pack) -> None:
+def test_an_answer_is_the_same_whether_its_event_is_bound(
+    db_target: str, triage_agent: Pack
+) -> None:
     """The review and rating answers repeat what was chained; binding adds `org` to the chained
     copy only."""
     with keeping(db_target) as store, acting(CLINIC):
-        decision_id = Decision(inbox_pack, store=store)(message(URGENT)).id
+        decision_id = Decision(triage_agent, store=store)(message(URGENT)).id
         resolved = store.resolve_review(decision_id, final_label="nurse", reviewer="rn-1")
         rated = store.record_feedback(decision_id, rating="up")
         events = chained(store)
@@ -275,7 +233,7 @@ def _client(store: AuditStore, _: Pack) -> str:
 
 def _approval(store: AuditStore, _: Pack) -> str:
     made = store.approve_automation(
-        pack_id=INBOX,
+        pack_id=TRIAGE,
         pack_digest="d" * 64,
         risk_level=2,
         approver="cmo",
@@ -301,7 +259,7 @@ def _hold(store: AuditStore, _: Pack) -> str:
 
 def _report(store: AuditStore, _: Pack) -> str:
     report = {"id": "r1", "created_at": "2026-10-01T00:00:00+00:00"}
-    store.save_report({**report, "pack": {"id": INBOX}, "dataset": {"name": "local"}})
+    store.save_report({**report, "pack": {"id": TRIAGE}, "dataset": {"name": "local"}})
     return "eval:r1"
 
 
@@ -331,18 +289,13 @@ def _request(store: AuditStore, _: Pack) -> str:
     return "access:" + store.request_access(user_id=person["id"], org=CLINIC)["id"]
 
 
-def _evalset(store: AuditStore, pack: Pack) -> str:
-    made = EvalsetStore(store, EVALSETS).create_set(CLINIC, pack, "a hidden set", created_by="t")
-    return f"evalset:{made['set']}"
-
-
 def _store_files() -> dict[str, bytes]:
-    """The inbox pack's files under clinic-a's namespace, as a pack store keeps a version."""
+    """The triage fixture's files under clinic-a's namespace, as a pack store keeps a version."""
     from mendari.hub.archive import pack_files
 
-    root = INBOX_DIR
+    root = TRIAGE_DIR
     files = {p.relative_to(root).as_posix(): p.read_bytes() for p in pack_files(root)}
-    manifest = files["agent.yaml"].decode().replace(f"id: {INBOX}", f"id: {CLINIC}/inbox", 1)
+    manifest = files["agent.yaml"].decode().replace(f"id: {TRIAGE}", f"id: {CLINIC}/triage", 1)
     files["agent.yaml"] = manifest.encode()
     return files
 
@@ -368,7 +321,7 @@ def _store_dataset(store: AuditStore, _: Pack) -> str:
 
     packs = PackStore(store)
     made = packs.put(CLINIC, _store_files(), by="t", source="upload")
-    raw = (INBOX_DIR / "data" / "test.jsonl").read_bytes().split(b"\n")[0] + b"\n"
+    raw = (TRIAGE_DIR / "data" / "test.jsonl").read_bytes().split(b"\n")[0] + b"\n"
     added = packs.add_dataset(CLINIC, raw, by="t", name="s", digest=made.digest)
     return f"store_dataset:{added['id']}"
 
@@ -392,7 +345,7 @@ def _connection(store: AuditStore, _: Pack) -> str:
     from mendari.core.connections import ConnectionStore
 
     # An address by its number: nothing is looked up, and nothing is called.
-    ConnectionStore(store).set(CLINIC, INBOX, endpoint="https://1.1.1.1/decide", by="ops")
+    ConnectionStore(store).set(CLINIC, TRIAGE, endpoint="https://1.1.1.1/decide", by="ops")
     with store._db.session(exclusive=False) as db:
         return f"agent_connection:{db.one('SELECT id FROM agent_connections')['id']}"
 
@@ -430,7 +383,6 @@ SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what mak
     "memberships": ("memberships", "id", _membership),
     "invitations": ("invitations", "id", _invitation),
     "access_requests": ("access_requests", "id", _request),
-    "evalset_sets": ("evalset_sets", "id", _evalset),
     "store_versions": ("store_versions", "id", _store_version),
     "store_keys": ("store_keys", "id", _store_key),
     "store_datasets": ("store_datasets", "id", _store_dataset),
@@ -441,19 +393,20 @@ SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what mak
 
 
 def test_every_subject_table_is_checked() -> None:
-    assert {table for table, _, _ in SUBJECT_TABLES.values()} | {"decisions"} == set(SUBJECTS)
+    tables = {table for table, _, _ in SUBJECT_TABLES.values()} - REMOVED_TABLES
+    assert tables | {"decisions"} == set(SUBJECTS)
 
 
 @pytest.mark.parametrize("change", ["moved", "removed"])
 @pytest.mark.parametrize("subject", sorted(SUBJECTS))
 def test_verify_finds_a_row_moved_to_another_organization_or_removed(
-    db_target: str, inbox_pack: Pack, subject: str, change: str
+    db_target: str, triage_agent: Pack, subject: str, change: str
 ) -> None:
     table, column, make = SUBJECTS[subject]
     with keeping(db_target) as store:
         with tenancy.acting_for(CLINIC):
             store.create_organization(org=CLINIC, name="Clinic A", created_by="t")
-            chain_id = make(store, inbox_pack)
+            chain_id = make(store, triage_agent)
         row_id = chain_id.split(":", 1)[1] if ":" in chain_id else chain_id
         assert store.verify()["ok"]
         first = next(e["seq"] for e in chained(store) if e["decision_id"] == chain_id)
@@ -479,13 +432,13 @@ def test_verify_finds_a_row_moved_to_another_organization_or_removed(
 
 
 def test_a_decision_from_before_tenancy_is_bound_as_default(
-    db_target: str, inbox_pack: Pack
+    db_target: str, triage_agent: Pack
 ) -> None:
     """decisions.org is NULL on rows from before v0.6: every writer binds it as `verify` reads
     it, `default` (`_org_of`), never None."""
     with keeping(db_target) as store:
-        first = Decision(inbox_pack, store=store)(message(URGENT)).id
-        Decision(inbox_pack, store=store)(message(URGENT))
+        first = Decision(triage_agent, store=store)(message(URGENT)).id
+        Decision(triage_agent, store=store)(message(URGENT))
         held = Decision.from_path(PROPOSING, store=store)(message(HELD)).id
         tamper(store, "UPDATE decisions SET org = NULL")
     with keeping(db_target) as store, acting(tenancy.DEFAULT_ORG):
@@ -495,8 +448,7 @@ def test_a_decision_from_before_tenancy_is_bound_as_default(
         store.resolve_review(first, final_label="nurse", reviewer="rn-1", note="a note")
         rating = store.record_feedback(first, rating="down", reporter="rn-2", note="a note")
         store.record_outcome(first, final_label="nurse", source="ehr", recorded_by="ehr-feed")
-        store.record_event(first, "pas.submitted", {"outcome": "queued"})
-        store.record_card_feedback(inbox_pack.id, "s", [card_feedback(first)])
+        store.record_card_feedback(triage_agent.id, "s", [card_feedback(first)])
         store.get(first, reader="rn-7")  # `input.read`
         store.erase_note(rating["id"], erased_by="dpo", reason="request")
         store.erase_input(first, erased_by="dpo", reason="request")
@@ -504,7 +456,7 @@ def test_a_decision_from_before_tenancy_is_bound_as_default(
         events = chained(store)
         assert store.verify()["ok"]
     bound = [e for e in events if e["event"] in DECISION_KINDS - {"decision.created"}]
-    assert {e["event"] for e in bound} == DECISION_KINDS - {"decision.created"}
+    assert {e["event"] for e in bound} == DECISION_KINDS - {"decision.created"} - REMOVED_KINDS
     assert {e["payload"]["org"] for e in bound} == {tenancy.DEFAULT_ORG}
 
 
@@ -520,7 +472,7 @@ def test_the_empty_organization_is_bound_as_itself(db_target: str) -> None:
 
 
 def test_a_batch_over_several_organizations_names_each_row_s_own(
-    db_target: str, inbox_pack: Pack
+    db_target: str, triage_agent: Pack
 ) -> None:
     """The scheduled purge acts for no organization, so one batch spans them all: each
     `input.purged` and `note.erased` names its own decision's organization, as does each
@@ -529,7 +481,7 @@ def test_a_batch_over_several_organizations_names_each_row_s_own(
         owners: dict[str, str] = {}
         for org in (CLINIC, "clinic-b"):
             with tenancy.acting_for(org):
-                owners[Decision(inbox_pack, store=store)(message(URGENT)).id] = org
+                owners[Decision(triage_agent, store=store)(message(URGENT)).id] = org
         store.pending_reviews(reader="rn-7")  # `input.read`, both in one batch
         for decision_id, org in owners.items():
             with tenancy.acting_for(org):
@@ -568,11 +520,11 @@ def previous_verify(store: AuditStore) -> bool:
     return True
 
 
-def test_the_previous_verify_passes_a_bound_chain(db_target: str, inbox_pack: Pack) -> None:
+def test_the_previous_verify_passes_a_bound_chain(db_target: str, triage_agent: Pack) -> None:
     """The chain's hashing is fixed: a verify written apart from the store's passes a chain of
     every kind of event, each naming its organization in its hashed payload."""
     with keeping(db_target) as store:
-        every_writer(store, inbox_pack, CLINIC)
+        every_writer(store, triage_agent, CLINIC)
         assert previous_verify(store) and store.verify()["ok"]
 
 
@@ -589,12 +541,12 @@ def test_a_kind_from_a_later_release_is_left_unchecked(db_target: str) -> None:
 
 
 def test_record_event_refuses_a_payload_naming_an_organization(
-    db_target: str, inbox_pack: Pack
+    db_target: str, triage_agent: Pack
 ) -> None:
     with keeping(db_target) as store:
-        decision_id = Decision(inbox_pack, store=store)(message(URGENT)).id
+        decision_id = Decision(triage_agent, store=store)(message(URGENT)).id
         with pytest.raises(ValueError, match="organization"):
-            store.record_event(decision_id, "pas.submitted", {"org": "clinic-z"})
+            store.record_event(decision_id, "outcome.recorded", {"org": "clinic-z"})
 
 
 def test_a_writer_that_leaves_out_the_organization_is_refused(db_target: str) -> None:
