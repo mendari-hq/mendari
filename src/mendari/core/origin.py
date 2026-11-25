@@ -108,7 +108,7 @@ def pulled_record(root: Path) -> dict[str, Any]:
         return {}
     try:
         found = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):
         return {}
     return found if isinstance(found, dict) and found.get("format") == ORIGIN_FORMAT else {}
 
