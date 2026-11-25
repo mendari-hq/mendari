@@ -1,0 +1,107 @@
+{
+  "resourceType": "Bundle",
+  "id": "triage",
+  "meta": {
+    "tag": [
+      {
+        "system": "https://mendari.co/fhir/sandbox",
+        "code": "synthetic"
+      }
+    ]
+  },
+  "type": "collection",
+  "entry": [
+    {
+      "fullUrl": "http://example.org/fhir/Patient/tr-p1",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "tr-p1",
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"
+          ],
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        },
+        "identifier": [
+          {
+            "system": "https://mendari.co/fhir/synthetic-case",
+            "value": "triage-us-core-1"
+          }
+        ],
+        "name": [
+          {
+            "family": "Synthetic",
+            "given": [
+              "Case triage-us-core-1"
+            ]
+          }
+        ],
+        "gender": "unknown",
+        "birthDate": "1981-06-15",
+        "communication": [
+          {
+            "language": {
+              "coding": [
+                {
+                  "system": "urn:ietf:bcp:47",
+                  "code": "en"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "http://example.org/fhir/Communication/tr-c1",
+      "resource": {
+        "resourceType": "Communication",
+        "id": "tr-c1",
+        "meta": {
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        },
+        "status": "in-progress",
+        "category": [
+          {
+            "text": "patient-message"
+          }
+        ],
+        "medium": [
+          {
+            "coding": [
+              {
+                "system": "https://mendari.co/fhir/CodeSystem/message-channel",
+                "code": "portal"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/tr-p1"
+        },
+        "sender": {
+          "reference": "Patient/tr-p1"
+        },
+        "sent": "2026-09-29T13:00:00+00:00",
+        "payload": [
+          {
+            "contentString": "Can I get a refill of my blood pressure medicine?"
+          }
+        ],
+        "topic": {
+          "text": "Refill"
+        }
+      }
+    }
+  ]
+}
