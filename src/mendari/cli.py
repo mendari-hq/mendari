@@ -2452,73 +2452,6 @@ def cmd_sandbox_omop_check(args: argparse.Namespace) -> int:
     return 0 if result["identical"] else 1
 
 
-def cmd_sandbox_payer(args: argparse.Namespace) -> int:
-    try:
-        import uvicorn  # noqa: F401 - there before any work (_run_server runs it)
-    except ImportError:
-        raise MendariError(
-            "the payer needs uvicorn, which installs with Mendari and is missing here: "
-            "install Mendari again (pip install mendari; in a clone: uv sync)"
-        ) from None
-    from mendari.sandbox.payer import create_payer_app
-    from mendari.settings import sandbox_payer_review_action
-
-    review_action = sandbox_payer_review_action()
-    if review_action is None:
-        print(
-            "sandbox payer: answering with no review action code; set "
-            "MENDARI_SANDBOX_PAYER_REVIEW_ACTION to an X12 306 code to send one",
-            file=sys.stderr,
-        )
-    _run_server(create_payer_app(review_action), args.host, args.port)
-    return 0
-
-
-def cmd_pas_build(args: argparse.Namespace) -> int:
-    from mendari.settings import pas_codes
-    from mendari.standards import pas
-
-    site_codes = pas_codes()  # a setting that is not an X12 code stops before any work
-    with _read_store(args.db) as store:
-        record = store.get(args.decision)
-    if record is None:
-        raise MendariError(f"no decision {args.decision} in {_shown(args.db)}")
-
-    def resource(path: str) -> dict[str, Any]:
-        loaded = _read_json(path, "a FHIR resource", shape=dict)
-        if "resourceType" not in loaded:
-            raise MendariError(f"{path} is not a FHIR resource")
-        return loaded
-
-    response, questionnaire = None, None
-    if args.questionnaire_response:
-        from mendari.standards import davinci
-
-        response = resource(args.questionnaire_response)
-        pack = resolve_pack(record["pack_id"])
-        questionnaire = davinci.decision_questionnaire(pack, davinci.record_answers(record))
-    bundle = pas.request_bundle(
-        decision={"id": record["id"], "recommendation": record["recommendation"]},
-        order=resource(args.order),
-        patient=resource(args.patient),
-        coverage=resource(args.coverage),
-        insurer=resource(args.insurer),
-        requester=resource(args.requester),
-        service_type=args.service_type,
-        place_of_service=args.place_of_service,
-        diagnoses=args.diagnosis,
-        request_type=args.request_type,
-        certification_type=args.certification_type,
-        site_codes=site_codes,
-        questionnaire_response=response,
-        questionnaire=questionnaire,
-        report_type=args.report_type,
-    )
-    Path(args.out).write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
-    print(f"PAS request for decision {record['id']} written to {args.out}")
-    return 0
-
-
 def cmd_sandbox_bulk_check(args: argparse.Namespace) -> int:
     from mendari.sandbox import bulk_check
 
@@ -4503,15 +4436,6 @@ def _whole(text: str) -> int:
     return int(text)
 
 
-def _x12_code(text: str) -> str:
-    """An X12 code value's shape, checked before any work starts (argparse names the flag)."""
-    from mendari.standards.pas import X12_CODE
-
-    if not X12_CODE.fullmatch(text):
-        raise argparse.ArgumentTypeError("not an X12 code: 1 to 3 capital letters or digits")
-    return text
-
-
 def _monitored_days(text: str) -> int:
     """The days `mendari monitor` covers: two whole weeks to 180 days (argparse names the flag),
     so the week before the last always exists."""
@@ -4617,7 +4541,7 @@ GROUPS = (
             *("phi", "notes", "store", "registry", "packet"),
         ),
     ),
-    Group("Standards", (), ("smart", "bulk", "omop", "pas", "sandbox")),
+    Group("Standards", (), ("smart", "bulk", "omop", "sandbox")),
 )
 EVERY_COMMAND = "`mendari help all` (also `mendari --help-all`) lists every command."
 ONE_COMMAND = "`mendari help <command>` (also `mendari <command> --help`) shows its options."
@@ -5600,10 +5524,6 @@ def build_parser() -> argparse.ArgumentParser:
         "is level 0 and needs none, so without this the approval is left out, and reported so",
     )
     pilot.set_defaults(handler=cmd_sandbox_pilot_check)
-    payer = sandbox.add_parser("payer", help="a mock payer answering Da Vinci PAS requests")
-    payer.add_argument("--host", default="127.0.0.1")
-    payer.add_argument("--port", type=_port, default=8200)
-    payer.set_defaults(handler=cmd_sandbox_payer)
     omop_write = sandbox.add_parser(
         "omop", help="write a dataset's records into an OMOP CDM database (synthetic data)"
     )
@@ -5634,49 +5554,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bulk_check.add_argument("--dataset", help=f"the labelled cases it was seeded from: {its_cases}")
     bulk_check.set_defaults(handler=cmd_sandbox_bulk_check)
-
-    pas_cmd = sub.add_parser(
-        "pas", help="Da Vinci PAS prior-authorization requests"
-    ).add_subparsers(dest="pas_command", required=True)
-    pas_build = pas_cmd.add_parser(
-        "build",
-        help="the PAS request Bundle for a complete request, or one that needs attention",
-    )
-    pas_build.add_argument("--db", default="var/mendari.db", help="the audit database")
-    pas_build.add_argument(
-        "--decision", required=True, help="a submit_ready or needs_attention decision id"
-    )
-    for name in ("patient", "coverage", "insurer", "requester", "order"):
-        pas_build.add_argument(f"--{name}", required=True, help=f"the {name} (FHIR JSON file)")
-    # X12 codes: the site's own (Mendari ships no X12 code value), else its settings.
-    pas_build.add_argument(
-        "--service-type",
-        help="X12 service type (1365); else the order's, else $MENDARI_PAS_SERVICE_TYPE",
-    )
-    pas_build.add_argument(
-        "--request-type",
-        type=_x12_code,
-        help="X12 request type (1525); else $MENDARI_PAS_REQUEST_TYPE",
-    )
-    pas_build.add_argument(
-        "--certification-type",
-        type=_x12_code,
-        help="X12 certification type (1322); else $MENDARI_PAS_CERTIFICATION_TYPE",
-    )
-    pas_build.add_argument("--place-of-service", help="CMS place of service, e.g. 22")
-    pas_build.add_argument("--diagnosis", action="append", default=[], help="ICD-10-CM (repeat)")
-    pas_build.add_argument(
-        "--questionnaire-response",
-        help="for a needs_attention decision: the DTR QuestionnaireResponse a clinician "
-        "completed (FHIR JSON file), attached in Claim.supportingInfo",
-    )
-    pas_build.add_argument(
-        "--report-type",
-        type=_x12_code,
-        help="X12 report type (755) of the attached response; else $MENDARI_PAS_REPORT_TYPE",
-    )
-    pas_build.add_argument("--out", required=True, help="where to write the Bundle")
-    pas_build.set_defaults(handler=cmd_pas_build)
 
     omop_cmd = sub.add_parser(
         "omop", help="OMOP CDM databases as an agent's input (population-level evaluation)"
@@ -6218,7 +6095,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     phi_erase.set_defaults(handler=cmd_phi_erase)
 
-    notes_cmd = sub.add_parser("notes", help="review, feedback and payer notes").add_subparsers(
+    notes_cmd = sub.add_parser("notes", help="review and feedback notes").add_subparsers(
         dest="notes_command", required=True
     )
     erase = notes_cmd.add_parser(

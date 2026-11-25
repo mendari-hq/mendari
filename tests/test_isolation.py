@@ -75,7 +75,6 @@ def test_the_tests_reach_nothing_the_shell_names(
         "JEV_API_KEY": "shell-key",
         "MENDARI_ALERT_WEBHOOK": f"{url}/hook",
         "MENDARI_REGISTRY_URL": url,
-        "MENDARI_PAS_PAYER_URL": url,
     }
     command = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", *ONCE_REACHED]
     ran = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)

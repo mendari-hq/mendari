@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Try it: a message form or a record form generated from the input schema, or FHIR input where the
-// pack maps FHIR; an AI reply checked where the pack guards replies; the result, and under a
-// complete prior-authorization request, its Da Vinci PAS request Bundle.
+// pack maps FHIR; an AI reply checked where the pack guards replies; the result.
 
 import { feedbackControls } from "./feedback.js";
 import { schemaForm, wireSchemaForm } from "./form.js";
 import { codesToggle, communityNotice, criteriaTable, derivedPrimary, isMessagePack, labelName, named, plainReasons, questionName, statusNotice, wireCodes } from "./pack.js";
 import { refreshReviewCount, views, wire } from "./router.js";
 import { guardrailTrace } from "./trace.js";
-import { $, api, copyText, emptyState, esc, focusHeading, icon, may, packPath, pct, PRIORITY_TEXT, saveFile, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
+import { $, api, copyText, emptyState, esc, focusHeading, icon, may, packPath, pct, PRIORITY_TEXT, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
 
 const SAMPLES = [
   { label: "Refill", subject: "Refill request", body: "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks" },
@@ -90,7 +89,7 @@ function decideFhir(button) {
     try {
       const answer = await api(endpoint, { method: "POST", headers: shadowHeaders(shadow), body: JSON.stringify(input) });
       if (state.packId !== targetPack || !$("#result")) return;
-      showResult(answer.decision, { task: answer.task, fhir: input, request: { endpoint, body: input, shadow } });
+      showResult(answer.decision, { task: answer.task, request: { endpoint, body: input, shadow } });
     } catch (error) {
       if (state.packId === targetPack && $("#fhir-error")) fhirError(error.message);
     }
@@ -368,20 +367,17 @@ const GUARD_ICON = { released: "shield-check", held_for_review: "clock", blocked
 const resultHeadline = (r, guard) => `${guard ? GUARD_WORDS[guard.status] ?? guard.status : RESULT_WORDS[r.outcome] ?? r.outcome}${r.priority && r.priority !== "routine" ? ` · ${PRIORITY_TEXT[r.priority].toLowerCase()}` : ""}`;
 
 // Show a new result: scrolled into view, its headline focused (and so announced). `extra`: the
-// guard's answer (`guard`), the FHIR Task (`task`) and the FHIR input decided (`fhir`). Under a
-// decision the PAS route builds a request for (`pas_ready`), the form that builds it.
+// guard's answer (`guard`), the FHIR Task (`task`) and the request made (`request`).
 function showResult(result, extra = {}) {
   const box = $("#result");
   if (!box) return;
-  const pas = Boolean(state.detail.pas_ready) && result.recommendation === state.detail.pas_ready;
-  box.innerHTML = decisionView(result, extra) + (pas ? pasPanel(extra.fhir) : "");
+  box.innerHTML = decisionView(result, extra);
   wire(box);
   wireCodes(box.querySelector(".result"));
   if (extra.request) {
     box.querySelector("#copy-curl")?.addEventListener("click", () =>
       copyText(curlCommand(extra.request), "cURL copied"));
   }
-  if (pas) wirePas(result);
   focusHeading($("#result-title"));
   refreshReviewCount();
 }
@@ -435,146 +431,3 @@ function decisionView(r, { guard = null, task = null, request = null } = {}) {
 }
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-
-// ---- Da Vinci PAS: the request Bundle for a complete prior-authorization request ----------------
-// The resources are the EHR's, pasted as FHIR (after a FHIR decision, those its input held are
-// filled in). The codes the payer needs are a site's settings, or given here: the dashboard holds
-// no code value, and a refusal naming a setting opens the fields that give it with the request.
-const PAS_RESOURCES = [
-  { key: "patient", label: "Patient", type: "Patient" },
-  { key: "coverage", label: "Coverage", type: "Coverage" },
-  { key: "insurer", label: "Payer", type: "Organization" },
-  { key: "requester", label: "Requesting organization", type: "Organization" },
-  { key: "order", label: "Order", type: "ServiceRequest" },
-];
-
-const PAS_CODES = [
-  { key: "service_type", label: "Service type", hint: "Else the order's category, else the setting MENDARI_PAS_SERVICE_TYPE.", max: 5 },
-  { key: "request_type", label: "Request type", hint: "Else the setting MENDARI_PAS_REQUEST_TYPE." },
-  { key: "certification_type", label: "Certification type", hint: "Else the setting MENDARI_PAS_CERTIFICATION_TYPE." },
-];
-
-// Every resource in FHIR input: a Bundle's entries, a resource, or a prefetch object's values
-// (walked with a stack: pasted input can nest deeply).
-function resourcesIn(input) {
-  const found = [];
-  const stack = [input];
-  while (stack.length) {
-    const value = stack.pop();
-    if (Array.isArray(value)) stack.push(...[...value].reverse());
-    else if (isObject(value)) {
-      if (value.resourceType === "Bundle") stack.push(...(value.entry ?? []).map((e) => e?.resource).reverse());
-      else if (typeof value.resourceType === "string") found.push(value);
-      else stack.push(...Object.values(value).reverse());
-    }
-  }
-  return found;
-}
-
-// What FHIR input gives the request: its patient, coverage and order, and the payer its coverage
-// names. The requesting organization is the EHR's to give.
-function pasGiven(fhir) {
-  const all = fhir ? resourcesIn(fhir) : [];
-  const first = (type) => all.find((r) => r.resourceType === type);
-  const coverage = first("Coverage");
-  const payer = coverage?.payor?.[0]?.reference;
-  return {
-    patient: first("Patient"),
-    coverage,
-    order: first("ServiceRequest"),
-    insurer: all.find((r) => r.resourceType === "Organization" && `Organization/${r.id}` === payer),
-  };
-}
-
-function pasPanel(fhir) {
-  const given = pasGiven(fhir);
-  return `<section class="panel" aria-labelledby="pas-title">
-    <h2 id="pas-title">Prior-authorization request</h2>
-    <p class="muted">The request is complete: build the Da Vinci PAS request Bundle for the payer from the EHR's resources, each as FHIR R4 JSON${fhir ? " (those your FHIR input held are filled in)" : ""}. Nothing is made up: what is missing is named. Nothing is sent to a payer from here.</p>
-    <form id="pas-form" class="sf">
-      <div class="sf-grid">
-        ${PAS_RESOURCES.map((x) => `<div class="sf-field wide"><label for="pas-${x.key}">${esc(x.label)} <span class="muted">(${esc(x.type)})</span></label>
-          <textarea id="pas-${x.key}" class="code sf-json" rows="4" spellcheck="false" required>${given[x.key] ? esc(JSON.stringify(given[x.key], null, 2)) : ""}</textarea></div>`).join("")}
-        <div class="sf-field"><label for="pas-place">Place of service</label>
-          <input id="pas-place" maxlength="5" aria-describedby="pas-place-hint"><span class="sf-hint" id="pas-place-hint">A CMS place-of-service code, when the order has none.</span></div>
-        <div class="sf-field"><label for="pas-diagnoses">Diagnoses</label>
-          <input id="pas-diagnoses" aria-describedby="pas-diagnoses-hint"><span class="sf-hint" id="pas-diagnoses-hint">ICD-10-CM codes, separated by commas.</span></div>
-      </div>
-      <details id="pas-codes"><summary>X12 codes</summary>
-        <p class="sf-hint">Each is taken from here, else from the site's setting named. Mendari ships none.</p>
-        <div class="sf-grid">${PAS_CODES.map((c) => `<div class="sf-field"><label for="pas-${c.key}">${esc(c.label)}</label>
-          <input id="pas-${c.key}" maxlength="${c.max ?? 3}"${c.max ? "" : ` pattern="[A-Z0-9]{1,3}" title="1 to 3 capital letters or digits"`} autocapitalize="characters" aria-describedby="pas-${c.key}-hint">
-          <span class="sf-hint" id="pas-${c.key}-hint">${esc(c.hint)}</span></div>`).join("")}</div>
-      </details>
-    </form>
-    <p class="error" id="pas-error" role="alert" hidden></p>
-    <div class="row mt-3"><span class="grow"></span><button type="button" class="primary" id="pas-build">Build the request</button></div>
-    <div id="pas-bundle"></div>
-  </section>`;
-}
-
-function wirePas(decision) {
-  const button = $("#pas-build");
-  const say = (message) => {
-    $("#pas-error").textContent = message;
-    $("#pas-error").hidden = !message;
-  };
-  $("#pas-form").addEventListener("submit", (event) => event.preventDefault());
-  button.addEventListener("click", () => {
-    say("");
-    if (!$("#pas-form").reportValidity()) return; // the browser points at the field to fix
-    const body = { decision_id: decision.id };
-    for (const x of PAS_RESOURCES) {
-      const box = $(`#pas-${x.key}`);
-      let resource;
-      let problem = "one FHIR resource, as a JSON object";
-      try {
-        resource = JSON.parse(box.value);
-      } catch (error) {
-        problem = `not valid JSON: ${error.message}`;
-      }
-      if (!isObject(resource)) {
-        box.setAttribute("aria-invalid", "true");
-        box.focus();
-        return say(`${x.label}: ${problem}.`);
-      }
-      box.removeAttribute("aria-invalid");
-      body[x.key] = resource;
-    }
-    const place = $("#pas-place").value.trim();
-    if (place) body.place_of_service = place;
-    body.diagnoses = $("#pas-diagnoses").value.split(",").map((d) => d.trim()).filter(Boolean);
-    for (const c of PAS_CODES) {
-      const value = $(`#pas-${c.key}`).value.trim();
-      if (value) body[c.key] = value;
-    }
-    const targetPack = state.packId;
-    return whileBusy(button, "Building…", async () => {
-      try {
-        const answer = await api(`${packPath()}/pas`, { method: "POST", body: JSON.stringify(body) });
-        if (state.packId !== targetPack || !$("#pas-bundle")) return;
-        showBundle(answer.bundle, decision);
-      } catch (error) {
-        if (state.packId !== targetPack || !$("#pas-bundle")) return;
-        $("#pas-bundle").innerHTML = "";
-        const message = /[.!?]$/.test(error.message) ? error.message : `${error.message}.`;
-        if (!/MENDARI_PAS_/.test(message)) return say(message);
-        $("#pas-codes").open = true;
-        say(`${message} Give them under "X12 codes" above, or ask an administrator to set them.`);
-      }
-    });
-  });
-}
-
-// The Bundle as JSON, to copy or save; its heading takes focus (and so is announced).
-function showBundle(bundle, decision) {
-  const text = JSON.stringify(bundle, null, 2);
-  $("#pas-bundle").innerHTML = `<h3 id="pas-bundle-title">PAS request Bundle</h3>
-    <div class="row mb-3"><button type="button" id="pas-copy">${icon("copy")} Copy</button>
-      <button type="button" id="pas-download">${icon("download")} Download</button></div>
-    <pre class="json" tabindex="0" aria-labelledby="pas-bundle-title">${esc(text)}</pre>`;
-  $("#pas-copy").addEventListener("click", () => copyText(text, "Bundle copied", "Copying isn't available here: select the Bundle and copy it"));
-  $("#pas-download").addEventListener("click", () =>
-    saveFile(new Blob([text], { type: "application/fhir+json" }), `pas-request-${decision.id.slice(0, 8)}.json`));
-  focusHeading($("#pas-bundle-title"));
-}

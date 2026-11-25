@@ -160,11 +160,9 @@ from mendari.standards import (
     davinci,
     decide_op,
     fhir_search,
-    pas,
 )
 from mendari.standards.ehr_declarations import ehr_declarations
-from mendari.standards.fhir_client import GuardedHttp, allowed_servers
-from mendari.standards.pas import X12_CODE, PasError
+from mendari.standards.fhir_client import allowed_servers
 from mendari.standards.search import SPECS, SearchError, encode_cursor, handling, searchset
 from mendari.standards.search import parse as parse_search
 from mendari.standards.search import stored as stored_instant
@@ -189,7 +187,6 @@ _STATUS = {
     PrefetchRequired: 412,  # CDS Hooks 2.0: neither the prefetch nor a fhirServer to read it from
     FhirError: 422,
     PackValidationError: 422,
-    PasError: 422,
     ScopeError: 422,
     ClientError: 422,
     NoAssignment: 404,  # unknown, another's or closed: one answer (LP-11j)
@@ -321,53 +318,6 @@ class OutcomeRequest(BaseModel):
         "never free text: it is chained and exported",
         examples=["ehr"],
     )
-
-
-class PriorAuthorizationRequest(BaseModel):
-    """A PAS request for a decided order: the EHR's resources, and the X12 codes the payer needs.
-    Mendari ships no X12 code value: a code this request does not give comes from the site's
-    settings (`MENDARI_PAS_REQUEST_TYPE` and the others; the service type first from the order),
-    else the request is refused naming the setting. `submit` sends it to $MENDARI_PAS_PAYER_URL.
-    For a decision that needs attention, `questionnaire_response` is the DTR
-    QuestionnaireResponse a clinician completed, attached in `Claim.supportingInfo`."""
-
-    decision_id: str = Field(min_length=1, max_length=100)
-    patient: dict[str, Any]
-    coverage: dict[str, Any]
-    insurer: dict[str, Any]
-    requester: dict[str, Any]
-    order: dict[str, Any]
-    service_type: str | None = Field(
-        default=None,
-        max_length=5,
-        description="X12 1365; else the order's category, else MENDARI_PAS_SERVICE_TYPE",
-    )
-    request_type: str | None = Field(
-        default=None,
-        pattern=rf"^{X12_CODE.pattern}$",
-        description="X12 1525; else MENDARI_PAS_REQUEST_TYPE",
-    )
-    certification_type: str | None = Field(
-        default=None,
-        pattern=rf"^{X12_CODE.pattern}$",
-        description="X12 1322; else MENDARI_PAS_CERTIFICATION_TYPE",
-    )
-    place_of_service: str | None = Field(default=None, max_length=5, description="CMS POS code")
-    diagnoses: list[str] = Field(default=[], max_length=12, description="ICD-10-CM codes")
-    questionnaire_response: dict[str, Any] | None = Field(
-        default=None,
-        description="for a decision that needs attention (needs_attention): the DTR "
-        "QuestionnaireResponse a clinician completed (status completed or amended) for the "
-        "decision's questionnaire, from `$questionnaire-package`; attached in "
-        "Claim.supportingInfo. A complete request (submit_ready) is sent without it",
-    )
-    report_type: str | None = Field(
-        default=None,
-        pattern=rf"^{X12_CODE.pattern}$",
-        description="X12 755, the attached QuestionnaireResponse's report type; else "
-        "MENDARI_PAS_REPORT_TYPE",
-    )
-    submit: bool = False
 
 
 class ExpectedAnswer(BaseModel):
@@ -1966,17 +1916,13 @@ def create_app(
     )
     def pack_detail(namespace: str, name: str) -> dict[str, Any]:
         """An agent's manifest, input and output JSON Schemas, active providers, benchmark,
-        leaderboard and Decision Card (Markdown). `pas_ready`: the recommendation of a complete
-        request, for which the dashboard builds a decision of this agent into a Da Vinci PAS
-        request (`POST …/pas`, which also builds one that needs attention), or null when its
-        main question has none."""
+        leaderboard and Decision Card (Markdown)."""
         pack_id = f"{namespace}/{name}"
         pack = pack_or_404(pack_id)
         decision = decision_for(pack_id)
         summary = _summary(pack)
         return {
             **summary,
-            "pas_ready": pas.READY if pas.READY in summary["labels"] else None,
             "manifest": pack.manifest.model_dump(mode="json", by_alias=True),
             "active_providers": {
                 slot: {"variant": i.variant, "type": i.type, "model": i.model}
@@ -3423,77 +3369,6 @@ def create_app(
         items = [item.chained() for item in body.feedback]
         recorded = store.record_card_feedback(pack.id, service_id, items)
         return {"recorded": len(recorded)}
-
-    @app.post(
-        "/api/agents/{namespace}/{name}/pas",
-        tags=["FHIR and CDS Hooks"],
-        summary="Da Vinci PAS request",
-    )
-    def prior_authorization(
-        namespace: str, name: str, body: PriorAuthorizationRequest, http: Request
-    ) -> dict[str, Any]:
-        """Da Vinci PAS: the request Bundle for a complete request (`submit_ready`) or one that
-        needs attention (`needs_attention`), and with `submit` (a decision that was automated,
-        or that a reviewer resolved as `submit_ready`), the payer's answer, which is chained on
-        the decision (`pas.submitted`): its outcome and review actions; the authorization number
-        and disposition are kept as a note (PHI mode `hash` keeps neither). A request that needs
-        attention carries the DTR QuestionnaireResponse a clinician completed
-        (`questionnaire_response`, for the decision's own questionnaire) in
-        `Claim.supportingInfo`; without one, nothing is attached. The X12 codes come from the
-        request, else the order, else the site's settings (`MENDARI_PAS_REQUEST_TYPE`,
-        `MENDARI_PAS_CERTIFICATION_TYPE`, `MENDARI_PAS_SERVICE_TYPE`, and
-        `MENDARI_PAS_REPORT_TYPE` for an attached response; optional ones too): Mendari ships
-        none, and a required one nothing gives is a `422` naming its setting."""
-        pack = pack_or_404(f"{namespace}/{name}")
-        record = store.get(body.decision_id)
-        if record is None or record["pack_id"] != pack.id:
-            raise PackNotFoundError(f"no decision {body.decision_id} of {pack.id}")
-        questionnaire = None
-        if body.questionnaire_response is not None:
-            answers = davinci.record_answers(record)
-            questionnaire = davinci.decision_questionnaire(pack, answers)
-        bundle = pas.request_bundle(
-            decision={"id": record["id"], "recommendation": record["recommendation"]},
-            order=body.order,
-            patient=body.patient,
-            coverage=body.coverage,
-            insurer=body.insurer,
-            requester=body.requester,
-            service_type=body.service_type,
-            place_of_service=body.place_of_service,
-            diagnoses=body.diagnoses,
-            request_type=body.request_type,
-            certification_type=body.certification_type,
-            site_codes=settings.pas_codes(),
-            questionnaire_response=body.questionnaire_response,
-            questionnaire=questionnaire,
-            report_type=body.report_type,
-        )
-        submitted = None
-        if body.submit:
-            # The reviewer's own label, as the chain recorded it: an outcome reported later can
-            # change `final_label`, never what the reviewer resolved.
-            confirmed = any(
-                event["event"] == "review.resolved"
-                and event["payload"].get("final_label") == "submit_ready"
-                for event in record.get("events") or ()
-            )
-            if record["outcome"] != "AUTO" and not confirmed:
-                raise PasError(
-                    "this decision went to a person: it is sent to the payer once a reviewer "
-                    "confirms it as submit_ready (POST /api/review/{id})"
-                )
-            payer = settings.pas_payer_url()
-            with GuardedHttp() as client:
-                submitted = pas.submit(bundle, payer, client)
-            codes = {key: submitted[key] for key in ("outcome", "review_actions")}
-            store.record_event(
-                record["id"],
-                "pas.submitted",
-                {**codes, "requested_by": acting_as(http, None) or "open mode"},
-                note=None if phi.mode == "hash" else pas.payer_note(submitted),
-            )
-        return {"bundle": bundle, "submitted": submitted}
 
     @app.post(
         "/fhir/Questionnaire/$questionnaire-package",

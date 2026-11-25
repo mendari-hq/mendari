@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Key presets: one per documented integration path, in one table that drives the API
 (`POST /api/auth/keys` with `preset`, `GET /api/auth/keys/presets`), the docs (the deployment
-guide's table, which is the only documentation of the Da Vinci and outcomes paths' keys) and the
-doc-snippet checks (LP-12i, ADR-0008).
+guide's table, which is the only documentation of the outcomes path's keys) and the doc-snippet
+checks (LP-12i, ADR-0008).
 
 A preset is a label and a recipe: the role and scope a key for that path needs, and its default
 expiry. What a key may do is its role and scope as created, read on every request; the label is
@@ -117,20 +117,6 @@ _ALL = [
         ),
         doc="guides/api.md#fhir-in-fhir-out",
         examples=("cds/discover", "cds/hook"),
-    ),
-    Preset(
-        id="da-vinci",
-        title="Da Vinci CRD, DTR and PAS",
-        purpose="A payer-facing EHR integration: coverage requirements by CDS Hooks, the DTR "
-        "questionnaire package and the PAS request built from a decision.",
-        role="service",
-        scope=DECIDE,
-        calls=(
-            ("POST", "/cds-services/{service_id}"),
-            ("POST", "/fhir/Questionnaire/$questionnaire-package"),
-            ("POST", "/api/agents/{namespace}/{name}/pas"),
-        ),
-        doc="deploying-with-phi.md#2-sign-in-and-roles",
     ),
     Preset(
         id="outcomes",

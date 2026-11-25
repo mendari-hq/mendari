@@ -49,8 +49,9 @@ PINNED = {
         # Moved in wave 1 (one vocabulary), before 0.1.0's release: its definitions say "agent".
         "CodeSystem/decision-outcome": "7688b8fb74597a15",
         # Moved in LP-23f, before 0.1.0's release: `card.feedback`; and again with actions
-        # (spec 0.4, ADR-0023), before it too: `action.proposed` and `action.resolved`.
-        "CodeSystem/audit-event": "539448b80fcddc93",
+        # (spec 0.4, ADR-0023), before it too: `action.proposed` and `action.resolved`; and in
+        # wave 6, before it too: Da Vinci PAS's `pas.submitted` goes (G4).
+        "CodeSystem/audit-event": "1b2bfd9b49980fe6",
         # Added in LP-23f, a new url (no earlier content): why a card was overridden.
         "CodeSystem/card-override-reasons": "289761ea34d8c87a",
         "CodeSystem/sandbox": "8a63d292423bdf66",
