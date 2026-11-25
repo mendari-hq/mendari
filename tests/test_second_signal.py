@@ -36,7 +36,7 @@ from mendari.providers.composite import CompositeProvider
 from mendari.providers.repeat import CANNED_NOTE as REPEAT_CANNED
 from mendari.providers.repeat import agreed_reason
 from mendari.providers.signals import Cap, Checked, Signals, deciding_questions
-from tests.conftest import INBOX_DIR, ROOT
+from tests.conftest import ROOT, TRIAGE_DIR
 from tests.support.confidence_agents import (
     REFILL,
     VERSION,
@@ -293,39 +293,23 @@ def test_a_variant_repeats_two_to_five_times(tmp_path: Path, runs: Any) -> None:
         build_provider(load_pack(repeating(tmp_path, runs=runs)), "reader", "agent")
 
 
-def test_the_second_signals_need_spec_0_4(tmp_path: Path) -> None:
-    def earlier(manifest: dict[str, Any]) -> None:
-        manifest["spec_version"] = "0.3"
-
-    root = repeating(tmp_path)
-    edit_manifest(root, earlier)
-    with pytest.raises(PackValidationError, match=r"variants\.agent\.repeat'\] use spec 0\.4"):
-        load_pack(root)
-    checked = checking(tmp_path, "checked")
-    edit_manifest(checked, earlier)
-    with pytest.raises(PackValidationError) as refused:
-        load_pack(checked)
-    assert "['providers.reader.variants.checked (type check)'] use spec 0.4" in str(refused.value)
-
-
 # -- repeated runs of an `llm` variant -------------------------------------------------------------
 
 
-def inbox_with_a_repeated_llm(tmp_path: Path) -> Path:
-    root = tmp_path / "inbox"
-    shutil.copytree(INBOX_DIR, root)
+def triage_with_a_repeated_llm(tmp_path: Path) -> Path:
+    """The triage fixture with `llm` variants on both slots, the router's asked three times,
+    and no automation gate on its screen."""
+    root = tmp_path / "triage"
+    shutil.copytree(TRIAGE_DIR, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
-    manifest["spec_version"] = "0.4"
-    for slot in ("router", "safety_screen"):
+    for slot in ("router", "screen"):
         manifest["providers"][slot]["variants"]["llm"] = {
             "type": "llm",
             "state_fields": STATE_FIELDS,
             **({"repeat": 3} if slot == "router" else {}),
         }
+    del manifest["policy"]["automation_requires"]
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    policy = yaml.safe_load((root / "policy.yaml").read_text())
-    del policy["automation_requires"]
-    (root / "policy.yaml").write_text(yaml.safe_dump(policy, sort_keys=False))
     return root
 
 
@@ -337,26 +321,27 @@ def test_an_llm_variant_repeats_too_and_shares_no_call(
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "gw-test-key")
     monkeypatch.setenv("LLM_MODEL", MODEL)
     asked: list[list[str]] = []
-    tops = ["medical_assistant", "front_desk", "medical_assistant"]
+    tops = ["pharmacy", "front_desk", "pharmacy"]
 
     def handler(request: httpx.Request) -> httpx.Response:
         schema = json.loads(request.content)["response_format"]["json_schema"]["schema"]
         content = {}
         for question, spec in schema["properties"].items():
             labels = list(spec["properties"])
-            top = tops[len(asked) % 3] if question == "destination" else "routine"
-            content[question] = {label: 0.96 if label == top else 0.01 for label in labels}
-            if question == "urgency":
-                content[question] = {"urgent": 0.02, "routine": 0.98}
+            if question == "destination":
+                top = tops[len(asked) % 3]
+                content[question] = {label: 0.97 if label == top else 0.01 for label in labels}
+            else:  # the screen's: no same-day symptom, no insult
+                content[question] = {"yes": 0.02, "no": 0.98}
         asked.append(list(schema["properties"]))
         return httpx.Response(200, json=completion(content))
 
     install(monkeypatch, handler)
-    pack = load_pack(inbox_with_a_repeated_llm(tmp_path))
-    both = Decision(pack, providers={"router": "llm", "safety_screen": "llm"})
+    pack = load_pack(triage_with_a_repeated_llm(tmp_path))
+    both = Decision(pack, providers={"router": "llm", "screen": "llm"})
     result = both({"message": {"body": "A synthetic question about a refill."}})
-    assert asked.count(["destination"]) == 3 and asked.count(["urgency"]) == 1
-    assert result.recommendation == "medical_assistant"
+    assert asked.count(["destination"]) == 3 and asked.count(["urgency", "abusive"]) == 1
+    assert result.recommendation == "pharmacy"
     assert result.outcome is Outcome.HUMAN_REVIEW
     assert result.reasons[-1] == "2 of 3 runs agreed on destination; a person decides"
     assert result.usage["llm"].calls == 4
@@ -919,7 +904,9 @@ def test_the_record_the_spec_and_the_guide_say_what_the_engine_says() -> None:
     record = (
         docs / "decisions" / "ADR-0024-a-checked-confidence-and-a-second-signal.md"
     ).read_text(encoding="utf-8")
-    spec = (docs / "spec" / "agent-manifest-0.4.md").read_text(encoding="utf-8")
+    # The spec's pages (0.4's, or the one page they become).
+    pages = sorted((docs / "spec").glob("agent-manifest*.md"))
+    spec = "\n".join(page.read_text(encoding="utf-8") for page in pages)
     assert not (docs / "spec" / "agent-manifest-0.4-second-signal.md").exists()  # one 0.4 page
     guide = (docs / "guides" / "calibration-and-a-second-signal.md").read_text(encoding="utf-8")
     assert record.startswith(
