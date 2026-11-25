@@ -1,21 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Local hub: find agents on the search path.
 
-Search order: `MENDARI_AGENTS_PATH` (os.pathsep-separated; `MENDARI_PACKS_PATH`, the name it
-had before, is read while it is unset), then packs pulled from a registry (the verified cache,
-`mendari pull`), then the packs bundled with the installed distribution (or the repository's
-`agents/` directory in a source checkout), then, with `MENDARI_COMMUNITY_AGENTS=on`, the
-repository's `community-agents/`.
+Search order: `MENDARI_AGENTS_PATH` (os.pathsep-separated), then agents pulled from a registry
+(the verified cache, `mendari pull`), then the agents bundled with the installed distribution (or
+the repository's `agents/` directory in a source checkout).
 
-Each directory has an origin (`core/origin.py`): `maintained`, `community`, `hub` or `local`.
-A pack found under a `local` directory takes the origin of where it sits, so a path that holds
-`packs/` (a checkout) still finds the maintained packs as maintained, and `community-agents/` as
-community packs, served only when they are on.
+Each directory has an origin (`core/origin.py`): `maintained`, `hub` or `local`. An agent
+found under a `local` directory takes the origin of where it sits, so a path that holds
+`agents/` (a checkout) still finds the maintained agents as maintained.
 
-A community pack never shares its id: when one claims an id another pack also claims, the first
-claim holds it, whatever the versions, and both are reported. Packs from anywhere else are found
-as they were before community packs existed (several versions of one id may be found, and the
-newest is served).
+Several versions of one id may be found, and the newest is served.
 """
 
 from __future__ import annotations
@@ -26,23 +20,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
-from mendari.core.origin import (
-    COMMUNITY_FOLDER,
-    Origin,
-    community_problems,
-    namespace_problem,
-    performer_problem,
-)
-from mendari.core.pack import MANIFEST, Pack, has_manifest, load_pack, manifests_under
+from mendari.core.agent import Agent, has_manifest, load_agent, manifests_under
+from mendari.core.origin import Origin
 from mendari.core.reference import BUNDLED_DIRS, bundled_dir
 from mendari.core.spec import version_key  # also imported from here (the server, the hub)
-from mendari.errors import MendariError, PackNotFoundError
-from mendari.legacy import setting
-from mendari.settings import community_packs_enabled
+from mendari.errors import AgentNotFoundError, MendariError
 
-_PACKAGE_DIR = Path(__file__).resolve().parents[1]
-_BUNDLED_DIRS = BUNDLED_DIRS  # `core/reference.py`; `community/check.py` reads this name
-_COMMUNITY_DIR = _PACKAGE_DIR.parents[1] / COMMUNITY_FOLDER
+_BUNDLED_DIRS = BUNDLED_DIRS  # `core/reference.py`
 MAX_DEPTH = 4  # a manifest at most this many path parts below a search directory
 
 
@@ -53,43 +37,36 @@ class SearchPath(NamedTuple):
 
 @dataclass(frozen=True)
 class Discovery:
-    packs: list[Pack]
+    agents: list[Agent]
     problems: dict[str, str]
 
 
 def search_paths() -> list[SearchPath]:
-    community = community_packs_enabled()  # an invalid value fails here, at startup
     paths = [
         SearchPath(Path(p), origin_of(Path(p)))
-        for p in setting("MENDARI_AGENTS_PATH")[1].split(os.pathsep)
+        for p in os.environ.get("MENDARI_AGENTS_PATH", "").split(os.pathsep)
         if p
     ]
-    # Off means off: `MENDARI_AGENTS_PATH` naming community-agents/ does not serve them either.
-    paths = [entry for entry in paths if community or entry.origin != "community"]
-    from mendari.hub.client import caches  # packs pulled from a registry, verified
+    from mendari.hub.client import agents_cache  # agents pulled from a registry, verified
 
-    paths += [SearchPath(cache, "hub") for cache in caches() if cache.is_dir()]
+    if agents_cache().is_dir():
+        paths.append(SearchPath(agents_cache(), "hub"))
     bundled = bundled_dir()
     if bundled is not None:
         paths.append(SearchPath(bundled, "maintained"))
-    if community and _COMMUNITY_DIR.is_dir():
-        paths.append(SearchPath(_COMMUNITY_DIR, "community"))
     return paths
 
 
 def origin_of(path: str | Path) -> Origin:
-    """The origin of a directory (a search directory, or a pack's) given without one: in the
-    bundled packs, maintained; in the repository's community-agents/, community; in the
-    registry cache (either of its folders, `hub/client.py` `caches`), hub; anywhere else,
-    local."""
-    from mendari.hub.client import caches
+    """The origin of a directory (a search directory, or an agent's) given without one: in the
+    bundled agents, maintained; in the registry cache (`hub/client.py` `agents_cache`), hub;
+    anywhere else, local."""
+    from mendari.hub.client import agents_cache
 
     resolved = Path(path).resolve()
     if any(_inside(resolved, bundled) for bundled in _BUNDLED_DIRS):
         return "maintained"
-    if _inside(resolved, _COMMUNITY_DIR):
-        return "community"
-    if any(_inside(resolved, cache) for cache in caches()):
+    if _inside(resolved, agents_cache()):
         return "hub"
     return "local"
 
@@ -103,7 +80,7 @@ def is_within(path: str | Path, directory: str | Path) -> bool:
 def _inside(path: Path, directory: Path) -> bool:
     """Whether `path` (resolved) is `directory` or in it: by how it is spelt or, since one
     directory can be spelt two ways (on a volume that ignores case, or under a second name for
-    the same volume), by the file it is. So a pack is never taken for a local one by the
+    the same volume), by the file it is. So an agent is never taken for a local one by the
     spelling of its path."""
     resolved = directory.resolve()
     if path.is_relative_to(resolved):
@@ -114,26 +91,24 @@ def _inside(path: Path, directory: Path) -> bool:
         try:
             if parent.samefile(resolved):
                 return True
-        except OSError:  # not there (a pack about to be written), or it cannot be read
+        except OSError:  # not there (an agent about to be written), or it cannot be read
             continue
     return False
 
 
 def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
-    """Every pack on the search path (or `paths`; a plain path's origin is `origin_of` it),
-    and why each other manifest found (`agent.yaml`, or `pack.yaml`, the name it had before:
-    `core/pack.py` `manifest_name`) is not served, by directory. A pack never stops a
-    discovery: whatever its content raises, it is listed by its directory and the others are
-    found."""
+    """Every agent on the search path (or `paths`; a plain path's origin is `origin_of` it),
+    and why each other manifest found (`agent.yaml`) is not served, by directory. An agent never
+    stops a discovery: whatever its content raises, it is listed by its directory and the
+    others are found."""
     bases = [
         entry if isinstance(entry, SearchPath) else SearchPath(entry, origin_of(entry))
         for entry in (paths if paths is not None else search_paths())
     ]
-    found: list[tuple[int, Pack]] = []
+    found: list[Agent] = []
     problems: dict[str, str] = {}
     seen: set[Path] = set()
-    community_on: bool | None = None
-    for order, (base, base_origin) in zip(_search_order(bases), bases, strict=True):
+    for base, base_origin in bases:
         for manifest in manifests_under(Path(base)):
             root = manifest.parent.resolve()
             depth = len(manifest.relative_to(base).parts)
@@ -141,130 +116,37 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
                 continue
             origin = base_origin
             if base_origin == "local":
-                # A local path holding packs/ or community-agents/: each pack has the origin of
-                # where it sits. A community pack is skipped while they are off (off means off).
+                # A local path holding agents/ (a checkout): each agent has the origin of where
+                # it sits.
                 origin = origin_of(root)
-                if origin == "community":
-                    if community_on is None:
-                        community_on = community_packs_enabled()
-                    if not community_on:
-                        continue
-                    depth = len(root.relative_to(_COMMUNITY_DIR.resolve()).parts) + 1
             seen.add(root)
-            if origin == "community" and depth != 2:
-                problems[str(root)] = (
-                    "a community agent sits exactly one level deep: "
-                    f"{COMMUNITY_FOLDER}/<name>/{MANIFEST}"
-                )
-                continue
-            if origin == "community" and (root / ".git").exists():
-                problems[str(root)] = (
-                    "a community agent is a folder of this repository, never a git submodule"
-                )
-                continue
             try:
-                pack = load_pack(root, origin=origin)
-                refused = [namespace_problem(pack.id, origin)]
-                if origin == "community":
-                    refused += community_problems(pack.manifest, root.name)
-                    refused.append(performer_problem(pack.id, performer_system(pack)))
-                if any(refused):
-                    raise MendariError(
-                        f"{pack.id} is not served:\n"
-                        + "\n".join(f"  - {problem}" for problem in refused if problem)
-                    )
-                found.append((order, pack))
+                found.append(load_agent(root, origin=origin))
             except MendariError as error:
                 problems[str(root)] = str(error)
-            # Any other failure is the pack's content too (an outside pack's): it is listed by
-            # its type alone, and the other packs are still found, so a pack never stops a server.
+            # Any other failure is the agent's content too (an outside agent's): it is listed by
+            # its type alone, and the other agents are still found, so an agent never stops a
+            # server.
             except Exception as error:
                 problems[str(root)] = f"the agent could not be loaded ({type(error).__name__})"
-    return Discovery(packs=_one_pack_per_id(found, problems), problems=problems)
+    return Discovery(agents=found, problems=problems)
 
 
-def _search_order(bases: Sequence[SearchPath]) -> list[int]:
-    """Each search directory's place in the order ids are claimed in (`_one_pack_per_id`): its
-    position, but for the registry cache, which is one place in whichever of its two folders a
-    version sits (`hub/client.py` `caches`). Versions of one agent pulled before and after the
-    cache's folder was renamed are then one claim to its id, as in one folder."""
-    from mendari.hub.client import caches
-
-    cached = {cache.resolve() for cache in caches()}
-    orders: list[int] = []
-    cache_order: int | None = None
-    for position, (base, origin) in enumerate(bases):
-        if origin == "hub" and Path(base).resolve() in cached:
-            cache_order = position if cache_order is None else cache_order
-            orders.append(cache_order)
-        else:
-            orders.append(position)
-    return orders
-
-
-def performer_system(pack: Pack) -> str | None:
-    """The `task.performer_system` of a pack's FHIR mapping, if it has one."""
-    if pack.manifest.inputs.fhir is None:
-        return None
-    from mendari.standards.fhir import FhirAdapter
-
-    return FhirAdapter.for_pack(pack).mapping.task.performer_system
-
-
-def _one_pack_per_id(found: list[tuple[int, Pack]], problems: dict[str, str]) -> list[Pack]:
-    """The packs, without any second claim to an id a community pack takes part in: a
-    maintained pack holds its id first, then the earlier search directory does, whatever the
-    versions. Every pack refused, and the one kept, is reported in `problems`. Ids no community
-    pack claims are left as they were found (the newest version is served)."""
-    claims: dict[str, list[tuple[int, Pack]]] = {}
-    for order, pack in found:
-        claims.setdefault(pack.id, []).append((order, pack))
-    refused: set[Path] = set()
-    for pack_id, claimants in claims.items():
-        if not any(pack.origin == "community" for _, pack in claimants):
-            continue
-        claimants.sort(key=lambda claim: (claim[1].origin != "maintained", claim[0]))
-        first_order, first = claimants[0]
-        others = [
-            pack
-            for order, pack in claimants[1:]
-            if not (first.origin == pack.origin == "hub" and order == first_order)
-        ]
-        if not others:
-            continue
-        for pack in others:
-            refused.add(pack.root)
-            problems[str(pack.root)] = (
-                f"{pack_id} is not served: the id is already taken by the agent at {first.root} "
-                f"({first.origin}); an agent never replaces another, whatever its version"
-            )
-        problems[str(first.root)] = f"{pack_id} is served from here; also claimed by " + ", ".join(
-            f"{pack.root} ({pack.origin})" for pack in others
-        )
-    return [pack for _, pack in found if pack.root not in refused]
-
-
-def resolve_pack(
-    ref: str,
-    paths: Sequence[Path | SearchPath] | None = None,
-    *,
-    missing_models_ok: bool = False,
-) -> Pack:
-    """Resolve a directory, `namespace/name` (latest version) or `namespace/name@version`.
-    `missing_models_ok` applies to a directory: a pack about to be trained."""
+def resolve_agent(ref: str, paths: Sequence[Path | SearchPath] | None = None) -> Agent:
+    """Resolve a directory, `namespace/name` (latest version) or `namespace/name@version`."""
     as_path = Path(ref)
     if has_manifest(as_path):
-        return load_pack(as_path, missing_models_ok=missing_models_ok, origin=origin_of(as_path))
-    pack_id, _, version = ref.partition("@")
+        return load_agent(as_path, origin=origin_of(as_path))
+    agent_id, _, version = ref.partition("@")
     matches = [
-        pack
-        for pack in discover(paths).packs
-        if pack.id == pack_id and (not version or pack.version == version)
+        agent
+        for agent in discover(paths).agents
+        if agent.id == agent_id and (not version or agent.version == version)
     ]
     if not matches:
         searched = paths if paths is not None else search_paths()
         where = [str(p.path if isinstance(p, SearchPath) else p) for p in searched]
-        raise PackNotFoundError(
+        raise AgentNotFoundError(
             f"no agent {ref!r} on the search path ({', '.join(where) or 'empty'})"
         )
-    return max(matches, key=lambda pack: version_key(pack.version))
+    return max(matches, key=lambda agent: version_key(agent.version))

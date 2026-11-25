@@ -1,28 +1,27 @@
 # SPDX-License-Identifier: Apache-2.0
 """Turn what people said about decisions into datasets.
 
-Two sources, each exported as pack-dataset records (JSON Lines), one per decision:
+Two sources, each exported as agent-dataset records (JSON Lines), one per decision:
 
 - **Ratings** (`feedback_dataset`): thumbs-down feedback. Where the people who rated a decision
   gave the right answer (and agree), it is already in `labels`, so the record is a case ready
-  to evaluate the pack on; otherwise a clinician or engineer fills in `labels`.
+  to evaluate the agent on; otherwise a clinician or engineer fills in `labels`.
 - **Reviews** (`reviewed_dataset`): decisions a person resolved in the review queue, and
   decisions a downstream system recorded an outcome for. `labels` holds the primary question's
   label: what really happened when an outcome says, else what the reviewer chose
   (`core.audit.truth_label`, as observed accuracy counts it).
 
-A file then is evaluation data (`mendari eval --dataset`) or the cases `mendari improve` learns
-from, and a confirmed miss becomes a behaviour test a person writes for the pack. Nothing here
-changes a pack; improvements stay reviewed and versioned.
+A file then is evaluation data (`mendari eval --dataset`), and a confirmed miss becomes a
+behaviour test a person writes for the agent. Nothing here changes an agent; improvements stay
+reviewed and versioned.
 
 Every record says it was exported (`attributes.exported_by`, `core/site_cases.py`). It is a
-site's case wherever the file goes, and may be patient text: no archive is made of a pack that
-holds one, as the file an export wrote or as records copied into the pack's datasets, nor of a
-pack whose model was trained on one.
+site's case wherever the file goes, and may be patient text: no archive is made of an agent that
+holds one, as the file an export wrote or as records copied into the agent's datasets.
 
-Reviewed cases are not a sample of what a pack sees. They are the decisions it sent to a person
+Reviewed cases are not a sample of what an agent sees. They are the decisions it sent to a person
 (the ones it was unsure of, or a rule held), labelled by someone who saw its suggestion. They
-are cases to learn from and to compare two models on; a pack's accuracy on all its decisions is
+are cases to learn from and to compare two models on; an agent's accuracy on all its decisions is
 not theirs.
 """
 
@@ -37,7 +36,7 @@ from mendari.core.site_cases import EXPORT, EXPORTED_BY
 def feedback_dataset(
     store: AuditStore,
     *,
-    pack_id: str,
+    agent_id: str,
     rating: Rating = "down",
     limit: int = 1000,
     reader: str | None = None,
@@ -49,7 +48,7 @@ def feedback_dataset(
     record's `feedback` list for a person to settle."""
     by_decision: dict[str, dict[str, Any]] = {}
     skipped: set[str] = set()
-    for item in store.feedback(pack_id=pack_id, rating=rating, limit=limit, reader=reader):
+    for item in store.feedback(agent_id=agent_id, rating=rating, limit=limit, reader=reader):
         record = item["record"]
         if record.get("input") is None:
             skipped.add(item["decision_id"])
@@ -82,35 +81,33 @@ def feedback_dataset(
 def reviewed_dataset(
     store: AuditStore,
     *,
-    pack_id: str,
+    agent_id: str,
     limit: int = 1000,
     reader: str | None = None,
     only_overrides: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
-    """(records, skipped): one record per decision of the pack that a reviewer resolved or a
+    """(records, skipped): one record per decision of the agent that a reviewer resolved or a
     downstream system recorded an outcome for (`AuditStore.labelled`), the newest `limit`.
-    When `only_overrides` is true, keeps only cases where a clinician overrode the pack's
+    When `only_overrides` is true, keeps only cases where a clinician overrode the agent's
     recommendation (for closed-loop regression testing and recalibration).
     `labels` holds its primary question's label (`truth_label`: the outcome when there is one,
     else the reviewer's), `attributes.source` says which (`outcome` or `review`), and `review`
     and `outcome` what each said. A decision whose input was stored only as a hash is counted in
-    `skipped`, and so are an encrypted input without a `reader` and a record from before records
-    named their primary question. A record names no person: not the reviewer, not who recorded
-    the outcome, and no note."""
+    `skipped`, and so is an encrypted input without a `reader`. A record names no person: not
+    the reviewer, not who recorded the outcome, and no note."""
     records = []
     skipped = 0
-    for item in store.labelled(pack_id=pack_id, limit=limit, reader=reader):
+    for item in store.labelled(agent_id=agent_id, limit=limit, reader=reader):
         if only_overrides and not item.get("human_override"):
             continue
         record = item["record"]
-        primary = record.get("primary")
-        if record.get("input") is None or not isinstance(primary, str):
+        if record.get("input") is None:
             skipped += 1
             continue
         entry: dict[str, Any] = {
             "id": f"reviewed-{item['id']}",
             "input": record["input"],
-            "labels": {primary: truth_label(item)},
+            "labels": {record["primary"]: truth_label(item)},
             "system": _system(record),
         }
         if item["final_label"] is not None:
@@ -130,18 +127,18 @@ def reviewed_dataset(
 
 def _attributes(source: str, decision_id: str) -> dict[str, str]:
     """Where a record came from, the decision it was, and that an export wrote it: the mark
-    that keeps a site's cases out of a pack's archive (`core/site_cases.py`)."""
+    that keeps a site's cases out of an agent's archive (`core/site_cases.py`)."""
     return {"source": source, "decision_id": decision_id, EXPORTED_BY: EXPORT}
 
 
 def _system(record: dict[str, Any]) -> dict[str, Any]:
-    """What the pack decided, beside what people said of it."""
+    """What the agent decided, beside what people said of it."""
     return {
         "outcome": record["outcome"],
         "recommendation": record["recommendation"],
         "priority": record["priority"],
         "answers": {q: a["label"] for q, a in record["answers"].items()},
-        "pack_version": record["pack"]["version"],
+        "agent_version": record["agent"]["version"],
     }
 
 

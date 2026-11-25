@@ -17,11 +17,11 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 WORKDIR /src
 # Dependencies first, in their own layer: it is rebuilt only when the lock changes.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --extra server --no-editable --no-install-project
+RUN uv sync --frozen --no-dev --no-editable --no-install-project
 COPY README.md LICENSE NOTICE ./
 COPY src ./src
 COPY agents ./agents
-RUN uv sync --frozen --no-dev --extra server --no-editable
+RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS runtime
 

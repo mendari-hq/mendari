@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import functools
-import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -17,10 +16,20 @@ from mendari.errors import FhirError, MendariError
 from mendari.server.app import create_app
 from mendari.standards import cds_hooks, fhir_client
 from mendari.standards.fhir_client import FhirClient, allowed_servers
+from tests.support import chart_fixture
+from tests.support import fixture_records as records
+from tests.support.chart_ehr import ChartEhr
 
 EHR = "https://ehr.example.org/fhir"
 TOKEN = "secret-token-value"
-FIXTURES = Path(__file__).parent / "fixtures" / "us-core"
+# The chart fixture's patient-view service (`mendari-test/chart-summary`), and a chart it shows a
+# card for (a routine follow-up) with a drug and a note.
+SERVICE = chart_fixture.SERVICE
+CASE = next(
+    case
+    for case in records.cases("test")
+    if case.labels["follow_up"] == "routine" and case.medications and case.notes
+)
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -267,46 +276,13 @@ def test_a_network_error_says_what_failed() -> None:
 # -- CDS Hooks fetch ---------------------------------------------------------------------------
 
 
-def referral_ehr() -> tuple[dict[str, Any], dict[str, Any], Handler, list[httpx.Request]]:
-    """The referral fixture split into an order-sign request (the referral as a draft order, no
-    prefetch) and a FHIR server that answers the pack's prefetch queries from the fixture."""
-    bundle = json.loads((FIXTURES / "referral.json").read_text())
-    resources = [e["resource"] for e in bundle["entry"]]
-    order = next(r for r in resources if r["resourceType"] == "ServiceRequest")
-    seen: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        kind = (
-            request.url.path.rsplit("/", 2)[-1] if "Patient/" not in str(request.url) else "Patient"
-        )
-        if kind == "Patient":
-            return fhir_json(next(r for r in resources if r["resourceType"] == "Patient"))
-        matches = [r for r in resources if r["resourceType"] == kind]
-        return fhir_json(
-            {
-                "resourceType": "Bundle",
-                "type": "searchset",
-                "entry": [{"resource": r} for r in matches],
-            }
-        )
-
-    request = {
-        "hook": "order-sign",
-        "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
-        "fhirServer": EHR,
-        "fhirAuthorization": {
-            "access_token": TOKEN,
-            "token_type": "Bearer",
-            "scope": "patient/*.rs",
-        },
-        "context": {
-            "userId": "Practitioner/1",
-            "patientId": "ref-p1",
-            "draftOrders": {"resourceType": "Bundle", "entry": [{"resource": order}]},
-        },
-    }
-    return request, order, handler, seen
+def patient_view() -> tuple[dict[str, Any], ChartEhr]:
+    """A patient-view request for `CASE` with no prefetch, for the engine to read the chart from
+    `EHR` with `TOKEN`; and that EHR, a vendor-shaped server of the chart (its drug requested by
+    reference, its note a link to a Binary) that offers MedicationStatement, so it answers each
+    of the agent's prefetch queries. Nothing calls it until it is installed (`allow_ehr`)."""
+    ehr = ChartEhr.of(CASE, statements="offered", token=TOKEN)
+    return chart_fixture.hook(CASE, prefetched=False, fhir_server=EHR, token=TOKEN), ehr
 
 
 def allow_ehr(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:
@@ -318,64 +294,66 @@ def allow_ehr(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:
 def test_cds_hooks_fetches_missing_prefetch_from_an_allowed_server(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    request, _, handler, seen = referral_ehr()
-    allow_ehr(monkeypatch, handler)
+    """Each prefetch query, then what the record links to and does not hold (its note's Binary,
+    LP-23h), each with the hook's token."""
+    request, ehr = patient_view()
+    allow_ehr(monkeypatch, ehr)
     app = TestClient(create_app(db_path=tmp_path / "a.db"))
     assert app.get("/api/health").json()["fhir_allowed_servers"] == ["https://ehr.example.org"]
-    response = app.post("/cds-services/mendari.referral-router", json=request)
+    response = app.post(SERVICE, json=request)
     assert response.status_code == 200, response.text
     assert len(response.json()["cards"]) == 1
-    urls = sorted(str(r.url).removeprefix(EHR) for r in seen)
+    urls = sorted(str(r.url).removeprefix(EHR) for r in ehr.requests)
+    patient = CASE.id
+    binaries = [f"/Binary/{patient}-note-{n}-1" for n in range(1, len(CASE.notes) + 1)]
     assert urls == [
-        "/DiagnosticReport?patient=ref-p1",
-        "/DocumentReference?patient=ref-p1&category=clinical-note",
-        "/Observation?patient=ref-p1&category=laboratory",
-        "/Patient/ref-p1",
+        *binaries,  # each note's one rendition, read as the record is
+        f"/Condition?patient={patient}",
+        f"/DocumentReference?patient={patient}&category=clinical-note",
+        f"/MedicationRequest?patient={patient}&_include=MedicationRequest:medication",
+        f"/MedicationStatement?patient={patient}",
+        f"/Patient/{patient}",
     ]
-    assert {r.headers["authorization"] for r in seen} == {f"Bearer {TOKEN}"}
+    assert {r.headers["authorization"] for r in ehr.requests} == {f"Bearer {TOKEN}"}
 
 
 def test_prefetch_that_was_sent_is_not_fetched(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    request, _, handler, seen = referral_ehr()
-    allow_ehr(monkeypatch, handler)
-    patient = json.loads((FIXTURES / "referral.json").read_text())["entry"][0]["resource"]
-    request["prefetch"] = {"patient": patient}
-    TestClient(create_app(db_path=tmp_path / "a.db")).post(
-        "/cds-services/mendari.referral-router", json=request
-    )
-    assert all("/Patient/" not in str(r.url) for r in seen)
-    assert len(seen) == 3
+    request, ehr = patient_view()
+    allow_ehr(monkeypatch, ehr)
+    request["prefetch"] = {"patient": chart_fixture.prefetch(CASE)["patient"]}
+    TestClient(create_app(db_path=tmp_path / "a.db")).post(SERVICE, json=request)
+    assert all("/Patient/" not in str(r.url) for r in ehr.requests)
+    assert len(ehr.searches()) == 4  # each of the other prefetch keys
 
 
 def test_a_server_off_the_list_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    request, _, handler, seen = referral_ehr()
+    request, ehr = patient_view()
     monkeypatch.delenv("MENDARI_FHIR_ALLOWED_SERVERS", raising=False)
     monkeypatch.setattr(
         cds_hooks,
         "FhirClient",
-        functools.partial(FhirClient, transport=httpx.MockTransport(handler)),
+        functools.partial(FhirClient, transport=httpx.MockTransport(ehr)),
     )
-    response = TestClient(create_app(db_path=tmp_path / "a.db")).post(
-        "/cds-services/mendari.referral-router", json=request
-    )
+    response = TestClient(create_app(db_path=tmp_path / "a.db")).post(SERVICE, json=request)
     assert response.status_code == 422
     assert "allow-list" in response.text
     assert TOKEN not in response.text
-    assert seen == []
+    assert ehr.requests == []
 
 
 def test_without_a_fhir_server_prefetch_is_still_required(tmp_path: Path) -> None:
     """Neither the prefetch nor a server to read it from: a `412`, as CDS Hooks 2.0 says
     (LP-23d; it was a `422`), and nothing is decided or recorded."""
-    request, _, _, _ = referral_ehr()
+    request, _ = patient_view()
     del request["fhirServer"]
     app = TestClient(create_app(db_path=tmp_path / "a.db"))
-    response = app.post("/cds-services/mendari.referral-router", json=request)
+    response = app.post(SERVICE, json=request)
     assert response.status_code == 412
     assert response.json()["error"] == "PrefetchRequired"
-    assert "prefetch required for: patient, documents, reports, labs" in response.text
+    keys = "patient, conditions, medications, medication_requests, notes"
+    assert f"prefetch required for: {keys}" in response.text
     assert app.get("/api/audit").json() == []
 
 
@@ -397,8 +375,8 @@ def test_a_template_fills_every_token() -> None:
 
 
 def test_a_non_bearer_authorization_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    request, _, handler, _ = referral_ehr()
-    allow_ehr(monkeypatch, handler)
+    request, ehr = patient_view()
+    allow_ehr(monkeypatch, ehr)
     request["fhirAuthorization"]["token_type"] = "Basic"
     with pytest.raises(FhirError, match="Bearer"):
         cds_hooks.fetch({"patient": "Patient/{{context.patientId}}"}, ["patient"], request)
@@ -435,23 +413,21 @@ def test_a_malformed_cds_request_is_a_client_error(
 ) -> None:
     """The route takes any JSON object; a nested field of the wrong shape raised AttributeError
     or ValueError inside the service (a 500, after the rate limit was charged)."""
-    request, _, _, seen = referral_ehr()
+    request, ehr = patient_view()
     request[field] = value
-    response = TestClient(create_app(db_path=tmp_path / "a.db")).post(
-        "/cds-services/mendari.referral-router", json=request
-    )
+    response = TestClient(create_app(db_path=tmp_path / "a.db")).post(SERVICE, json=request)
     assert response.status_code == 422, response.text
     assert said in response.text
-    assert seen == []
+    assert ehr.requests == []
 
 
 def test_a_context_id_with_a_trailing_line_break_does_not_fill_a_template() -> None:
-    """`$` matches before a final newline: `ref-p1\\n` passed as a FHIR id and reached the
-    query as `ref-p1%0A`."""
+    """`$` matches before a final newline: `pat-1\\n` passed as a FHIR id and reached the
+    query as `pat-1%0A`."""
     template = "Patient/{{context.patientId}}"
-    assert cds_hooks.fill_template(template, {"patientId": "ref-p1"}) == "Patient/ref-p1"
+    assert cds_hooks.fill_template(template, {"patientId": "pat-1"}) == "Patient/pat-1"
     with pytest.raises(FhirError, match=r"context\.patientId"):
-        cds_hooks.fill_template(template, {"patientId": "ref-p1\n"})
+        cds_hooks.fill_template(template, {"patientId": "pat-1\n"})
 
 
 def test_a_value_that_is_not_text_is_off_the_allow_list() -> None:

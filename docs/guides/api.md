@@ -1,24 +1,20 @@
 # Using the API
 
 Mendari's REST and FHIR API by example: a quickstart in three calls, FHIR in and out, CDS
-Hooks, guarding a model's replies, and authentication. A running server shows the same examples on its own landing page, `/docs`, with
-its address filled in and a table of what every call needs; its full reference, with "Try it
-out", is `/docs/reference`.
+Hooks, and authentication. A running server shows the same examples on its own landing page,
+`/docs`, with its address filled in and a table of what every call needs; its full reference,
+with "Try it out", is `/docs/reference`.
 
 Every example below is one of the scripts in `src/mendari/dashboard/snippets/`, included here as
 it is. CI runs them against a local server, once in open mode and once with a `service` key
-(`scripts/check_doc_snippets.py`), so they work as written. They need `curl` and `jq`, and every body is synthetic.
-
-A few names in requests and answers still call an agent by the word Mendari used before
-(`pack`, `pack_id`, `pack_version`, `pack_digest`): stored, hashed and signed records hold them,
-so they keep their names until a versioned change of format.
+(`scripts/check_doc_snippets.py`), so they work as written. They need `curl` and `jq`, and
+every body is synthetic.
 
 ## Before you start
 
 In a clone, `uv sync` installs Mendari, and the server with it (without uv: `pip install .`; no
-extra is needed, and the `server` extra older instructions name is still accepted and adds
-nothing). The server serves the bundled
-demo agent (`mendari/portal-message-agent`); to serve your own too, set `MENDARI_AGENTS_PATH` to their folders (`:`-separated, searched
+extra is needed). The server serves the bundled demo agent (`mendari/portal-message-agent`); to
+serve your own too, set `MENDARI_AGENTS_PATH` to their folders (`:`-separated, searched
 first). `MENDARI_AGENTS` (comma-separated ids) then narrows what is served to those agents, which
 must be on the path.
 
@@ -56,7 +52,7 @@ recorded decision with `outcome: BLOCK`.
 ## FHIR in, FHIR out
 
 The FHIR base is `/fhir`, and `GET /fhir/metadata` is its CapabilityStatement. `POST
-/fhir/$decide` takes `Parameters` (`pack`, and `data` as a Bundle) and returns the decision as a
+/fhir/$decide` takes `Parameters` (`agent`, and `data` as a Bundle) and returns the decision as a
 FHIR Bundle, a `GuidanceResponse` first: act on its `outcome`, not its `status`. Decisions are read
 and searched as `Task`, and their audit trail as `AuditEvent` and `Provenance`, your
 organization's only. Mendari is a decision engine, not a FHIR data server: it stores and serves no
@@ -80,11 +76,11 @@ OperationOutcome, a value that is not a resource, a resource or search page that
 JSON), or a note is only a link or does not decode, the decision is `ABSTAIN` with reasons such
 as `could not read labs: timeout`, it is recorded, and its card is an `info` card that says so.
 Reasons never repeat a URL, a query or what a server answered. A request fault (the wrong hook, a
-malformed field, a required resource you sent something else for) is still a `4xx`. An agent on
-spec 0.3 may also read what a link in the record points to (a note's Binary, a Coverage's payer, a
+malformed field, a required resource you sent something else for) is still a `4xx`. An agent
+may also read what a link in the record points to (a note's Binary, a Coverage's payer, a
 MedicationRequest's drug) from your `fhirServer`, at most 50 notes and 50 followed references a
-decision and 100 reads a request; a link it does not read is a reason too, and `fhir/decide` and `$decide` never read one
-([linked data](connecting-an-ehr.md#linked-data)). Such an agent reads a note as text only when it
+decision and 100 reads a request; a link it does not read is a reason too, and `fhir/decide` and
+`$decide` never read one ([linked data](connecting-an-ehr.md#linked-data)). An agent reads a note as text only when it
 is text/plain or text/html: an RTF, PDF or CDA note abstains with `could not read <field>:
 unsupported_type`.
 A decision that read a value through the deployment's site code map is never automated: its
@@ -100,10 +96,7 @@ deployment sets `MENDARI_PUBLIC_URL`, the reasons are behind the card's link to 
 the audit trail (which needs a Mendari sign-in), `source.url` is the agent's card, and, when SMART
 is on and your `fhirServer` is registered for launches in your organization, a `smart` link
 opens the agent. Without it, the reasons are in the detail, but for the confidence thresholds',
-whose figures carry no interval. A service whose agent maps recommendations to coverage
-information (`cds_hooks.coverage_information`) is a Da Vinci CRD service: discovery declares `davinci-crd.version` and the `coverage-info` option,
-and a request whose `extension.davinci-crd.configuration` sets `coverage-info` to `false` gets no
-cards and no system actions, while each order is still decided and recorded.
+whose figures carry no interval.
 
 `POST /cds-services/{id}/feedback` takes CDS Hooks 2.0 feedback, 1 to 50 cards: each `accepted`
 with the suggestion taken (`acceptedSuggestions`), or `overridden` with one of the card's
@@ -150,15 +143,6 @@ or `null` without one ([Connecting an EHR](connecting-an-ehr.md#site-codes)).
 
 **SMART on FHIR.** When a deployment sets `MENDARI_SMART_CLIENT_ID`, an EHR launches Mendari at
 `/smart/launch`, and the dashboard opens on that patient's work.
-
-## Guarding a model's replies
-
-An agent with a `guard` section checks a model's draft before a patient reads it. `POST /api/agents/{id}/guard` answers `{status, reply, outcome, recommendation,
-reasons, fallback, decision_id}` and the whole `decision`: the draft is `released` only when the
-decision is automated with a release recommendation; otherwise it is `held_for_review` or
-`blocked`. Never send a blocked draft: act on `fallback`. The same check runs in Python without
-a server (`mendari.guard.check`). The bundled demo agent declares no `guard` section, so this
-guide has no example to run here: an agent of your own that declares one is checked this way.
 
 ## Authentication
 
@@ -225,7 +209,7 @@ in [Deploying with real patient data](../deploying-with-phi.md).
 ## An organization's agent store
 
 Where the operator turns it on (`MENDARI_AGENT_STORE=on`, memberships mode), a person who holds
-`pack_author` in an organization keeps that organization's own versions of agents under
+`agent_author` in an organization keeps that organization's own versions of agents under
 `/api/store` ([the agent store](../operations/agent-store.md)). Every route acts for the
 organization the person acts for; no key or client reaches them.
 
@@ -236,7 +220,7 @@ organization the person acts for; no key or client reaches them.
 | `GET /api/store/versions/{digest}/file?path=…` | One text file of a version (UTF-8, at most 1 MiB), for its editor |
 | `POST /api/store/versions` | A signed archive (`mendari archive build`) under the body limit |
 | `POST /api/store/uploads`, `PUT …/parts/{n}`, `POST …/complete` | A larger archive in parts |
-| `POST /api/store/copies` | `pack` (the id of an agent served here) and `name`: a draft copy of that agent, renamed `<organization>/<name>` |
+| `POST /api/store/copies` | `agent` (the id of an agent served here) and `name`: a draft copy of that agent, renamed `<organization>/<name>` |
 | `POST /api/store/versions/{digest}/edits` | `{files: [{path, content}]}`: a new draft with those text files replaced |
 | `POST /api/store/versions/{digest}/tests` | Run the version's behaviour tests |
 | `DELETE /api/store/versions/{digest}` | Withdraw a draft |
@@ -250,8 +234,7 @@ organization the person acts for; no key or client reaches them.
 | `GET`, `POST /api/store/promotions`, `POST …/{promotion_id}/retire` | Promote a version to be served to your organization (`governance`, `admin`; never its author), or stop serving it |
 
 An upload whose files read as a person's details is refused (`422`) with the detector's report:
-kinds, files and lines, never the text. A version that holds a case of a hidden evaluation set
-is kept `held for the operator's review`, and the answer says nothing more.
+kinds, files and lines, never the text.
 
 The dashboard's Agent store view (LP-20j) does all of this for a person who signs in: copy,
 upload, edit, test, run jobs, compare, and, for `governance` and `admin`, promote.

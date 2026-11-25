@@ -21,8 +21,8 @@ from typing import Any
 
 import httpx
 
-from mendari.core.pack import Pack
-from mendari.core.registry import resolve_pack
+from mendari.core.agent import Agent
+from mendari.core.registry import resolve_agent
 from mendari.errors import MendariError
 from mendari.evals.harness import Dataset, resolve_dataset
 from mendari.sandbox import DEMO_AGENT
@@ -48,7 +48,7 @@ def wait_for(fhir: str, seconds: int) -> None:
         time.sleep(3)
 
 
-def labelled_cases(agent: Pack, dataset: str | None = None) -> Dataset:
+def labelled_cases(agent: Agent, dataset: str | None = None) -> Dataset:
     """The agent's labelled cases the sandbox is seeded from, and its checks compare with: the
     dataset named (one of the agent's own, or a JSONL file), by default the agent's benchmark
     dataset."""
@@ -58,7 +58,7 @@ def labelled_cases(agent: Pack, dataset: str | None = None) -> Dataset:
     return resolve_dataset(agent, ref)
 
 
-def seed_bundle(agent: Pack, count: int, dataset: str | None = None) -> dict[str, Any]:
+def seed_bundle(agent: Agent, count: int, dataset: str | None = None) -> dict[str, Any]:
     """The transaction `seed` posts: `count` of the agent's cases, each a portal message, as
     FHIR resources. A reproducible mix that always includes some cases with a critical label
     (an urgent message, for the demo agent), so the sandbox's queue shows both."""
@@ -88,9 +88,9 @@ def seed(
 ) -> int:
     """Load `count` synthetic messages of the agent into the FHIR server, once (a server that
     already holds them is left alone). Returns how many Communications it sent."""
-    pack = resolve_pack(agent)
-    bundle = seed_bundle(pack, count, dataset)
-    if not post_once(fhir, bundle, wait_seconds=wait_seconds, named=pack.id):
+    loaded = resolve_agent(agent)
+    bundle = seed_bundle(loaded, count, dataset)
+    if not post_once(fhir, bundle, wait_seconds=wait_seconds, named=loaded.id):
         return 0
     return sum(e["resource"]["resourceType"] == "Communication" for e in bundle["entry"])
 
@@ -127,9 +127,9 @@ def post(fhir: str, bundle: dict[str, Any]) -> None:
         raise MendariError(f"seeding failed: HTTP {response.status_code} {response.text[:300]}")
 
 
-def run_worker(fhir: str, engine: str, *, pack_id: str, interval: float, once: bool) -> None:
+def run_worker(fhir: str, engine: str, *, agent_id: str, interval: float, once: bool) -> None:
     fhir, engine = fhir.rstrip("/"), engine.rstrip("/")
-    namespace, name = pack_id.split("/")
+    namespace, name = agent_id.split("/")
     with httpx.Client(timeout=30) as client:
         while True:
             processed = _process_batch(
@@ -141,7 +141,7 @@ def run_worker(fhir: str, engine: str, *, pack_id: str, interval: float, once: b
                 time.sleep(interval)
 
 
-def _sample(agent: Pack, records: list[dict[str, Any]], count: int) -> list[dict[str, Any]]:
+def _sample(agent: Agent, records: list[dict[str, Any]], count: int) -> list[dict[str, Any]]:
     """A reproducible mix of the cases that always includes some with a critical label: at
     least one, and one in ten of `count` when the cases hold that many."""
     critical = {(c.question, c.label) for c in agent.manifest.evaluation.critical}

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Review queue: grouped by priority, stat first; resolving moves focus to the next card.
 
-import { actionsList, communityNotice, criteriaTable, inputView, isCommunity, labelName, originBadge, statusNotice } from "./pack.js";
+import { actionsList, inputView, labelName, statusNotice } from "./manifest.js";
 import { refreshReviewCount, views } from "./router.js";
 import { $, announce, api, emptyState, esc, focusHeading, icon, may, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, reducedMotion, signedIn, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
 
@@ -20,8 +20,8 @@ const isTyping = (target) => Boolean(target?.closest?.("input, textarea, select,
 views.review = async (main) => {
   stopKeys();
   const [items, stats] = await Promise.all([
-    api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=100`),
-    api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
+    api(`/api/review?agent_id=${encodeURIComponent(state.agentId)}&limit=100`),
+    api(`/api/stats?agent_id=${encodeURIComponent(state.agentId)}`),
   ]);
   const known = new Set(PRIORITIES);
   const groups = PRIORITIES.map((p) => [p, items.filter((item) => item.priority === p)]).filter(([, g]) => g.length);
@@ -31,7 +31,6 @@ views.review = async (main) => {
   main.innerHTML = `
     <h1>Review queue</h1>
     <p class="muted">Decisions waiting for a person, most urgent first.</p>
-    ${communityNotice(state.detail)}
     ${statusNotice(state.detail)}
     <div class="row toolbar">
       <label for="reviewer">Reviewer</label>
@@ -198,7 +197,7 @@ function holdResolution(card, button, label, reviewer, onResolved) {
   announce(`${confirming ? "Confirm" : card.dataset.recommendation ? "Override" : "Label"} ${name} sends in ${UNDO_SECONDS} seconds. Press Undo to cancel.`);
 }
 
-// Leaving the queue (another view, another pack, another organization: that one waits for them)
+// Leaving the queue (another view, another agent, another organization: that one waits for them)
 // sends what is held; so does closing the page, with keepalive so the request outlives it.
 views.review.leave = () => {
   stopKeys();
@@ -288,14 +287,12 @@ function reviewCard(item) {
       <h3 class="card-title" id="card-${esc(item.id)}">${esc(title)}</h3>
       ${item.confidence !== null ? `<span class="muted">confidence ${pct(item.confidence)}</span>` : ""}
       <span class="grow"></span>
-      ${isCommunity(state.detail) ? originBadge(state.detail) : ""}
       ${item.priority === "stat" ? "" : priorityBadge(item.priority)} ${outcomeBadge(item.outcome)}
       <span class="muted"><time datetime="${esc(item.created_at)}">${esc(time(item.created_at))}</time></span>
       ${may("read") ? `<a class="action-link mono" href="#audit/${encodeURIComponent(item.id)}" title="Inspect decision ${esc(item.id)}">${esc(item.id.slice(0, 8))}</a>` : `<span class="mono muted">${esc(item.id.slice(0, 8))}</span>`}
     </div>
     ${inputView(record.input, { restricted: item.input_restricted })}
     <ul class="reasons">${record.reasons.filter((r) => item.priority !== "stat" || !r.startsWith("rule ")).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
-    ${criteriaTable(record.answers)}
     ${item.actions?.length ? `<h4>Proposed actions</h4>
       ${item.actions.some((a) => a.disposition === "held") ? `<p class="muted">Confirming the recommendation releases the held actions; another label denies them.</p>` : ""}
       ${actionsList(item.actions, { choose: may("review") && Boolean(recommendation) })}` : ""}

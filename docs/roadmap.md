@@ -5,13 +5,16 @@ _Approved 2026-09-28. Living document: update it as milestones land._
 ## Context
 
 The goal is an open infrastructure layer for healthcare AI agents: agents that are wrapped,
-evaluated, shared, versioned, governed and deployed across rules, Jev, ML, local models, LLMs,
+evaluated, shared, versioned, governed and deployed across rules, local models, LLMs,
 external HTTP agents and combinations of them, with healthcare standards, human deferral and
 local validation built in.
 
 The product bundles one demo agent, `mendari/portal-message-agent`. The milestones below are
-kept as they shipped: the five agents of v0.1 to v0.3 are no longer bundled, and are now test
-fixtures.
+kept as they shipped. Wave 6 (2026-11-24) took out the five agents of v0.1 to v0.3 and what only
+they used: every provider but `rules`, `llm`, `agent` and `check`, derived questions and the
+guard, `mendari train`, Da Vinci CRD, DTR and PAS, OMOP, hidden evaluation sets and the
+scoreboard, the community contribution path, and every spec version but 0.4. The tests use
+synthetic fixture agents of their own.
 
 v0.1 is done and running in production on Vercel. Decisions for what follows: **agents
 first** (the Hub only matters once it has strong agents), **LLMs through Vercel AI Gateway**
@@ -37,42 +40,36 @@ first** (the Hub only matters once it has strong agents), **LLMs through Vercel 
   Authentication.
 
 - **v0.7 Later standards ✅** ([plan][plan-v0.7], #90–#95):
-  - a CQL provider, with eligibility criteria in CQL agreeing with `criteria` on every case;
-  - OMOP CDM inputs with population reports;
-  - Da Vinci CRD, DTR and PAS around a prior-authorization agent, each profile-validated against
-    its guide in CI (HL7 validator, offline): CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1. That checks what Mendari
-    produces. How DTR's `$questionnaire-package` behaves is checked weekly by the Inferno DTR
-    payer suite v0.18.0, with the gaps it lists (`sandbox/inferno/`). Neither shows whether a
-    payer accepts what Mendari sends.
+  - a CQL provider, with eligibility criteria in CQL agreeing with `criteria` on every case.
 
 - **v1.0 Public open-source launch, built** ([plan][plan-v1.0], #96–#101):
   - a security review (threat model; dependency audit and an OWASP ZAP scan in CI; headers);
   - the clinician's authoring guide and `mendari new`;
   - the docs site;
-  - the contribution flow with its eval gate, and the community files;
+  - the community files;
   - a release workflow, and the README quickstart timed in CI (it finishes well under 10
     minutes).
 
-Now: **the launch itself**, which waits for your go-ahead: the public repository, the PyPI
-release, the live Hub and the hosted docs site. The overnight log lists what's needed.
+Now: **the launch itself**, which waits for your go-ahead: the PyPI release, the live Hub and
+the hosted docs site. The repository is public. The overnight log lists what's needed.
 
 ## Where we are against the goal
 
 | Goal area | Status | Main gap |
 |---|---|---|
-| Agent spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ 0.2 | `choice`, `boolean` and `score` questions; derived questions (decision tables) |
+| Agent spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ 0.4 | `choice`, `boolean` and `score` questions; actions; written output |
 | Runtime + AUTO / HUMAN_REVIEW / ABSTAIN / BLOCK + risk levels 0–4, governance approvals in the UI | ✅ | none |
-| Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway; OpenAI-compatible local models), criteria, CQL, dosing; `any_of`, `cascade`, `vote` | ✅ | none |
+| Providers: rules, LLMs (Vercel AI Gateway; OpenAI-compatible local models), external HTTP agents; `check` | ✅ | none |
 | Bundled agents | ✅ the demo agent | A harder, clinician-reviewed benchmark |
 | Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation + provider leaderboards for every agent; monitoring over time with drift and alerts | ✅ | A harder benchmark |
 | Audit trail (hash chain), review queue, feedback (right / wrong, with the right answer, changeable), FHIR AuditEvent/Provenance export | ✅ | none |
-| FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, CQL, OMOP CDM, Da Vinci CRD/DTR/PAS, synthetic sandbox (HAPI with Clinical Reasoning, SMART launcher, mock payer) | ✅ v0.7 | none |
+| FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, synthetic sandbox (HAPI, SMART launcher) | ✅ v0.7 | none |
 | Decision Cards | ✅ | Validation history, hub-hosted cards |
 | Dashboard (every agent; review, audit, evaluations, monitoring, feedback, card, Try it; roles; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check |
 | Hub: publish / pull / search, publisher types, signed archives, the site evaluation network (verified sites, tickets, signed counts, pooled site evidence apart from every rank), website | ✅ v0.5 (not public yet; the site network built, LP-22) | Going public (a public registry and site); datasets and eval suites as first-class entries |
 | Developer experience (`pip install`, `from_hub`, `pull`, container per agent) | Partial | The PyPI release and the first published images (both at a release tag) |
 | Org readiness (auth, tenancy, PHI handling, monitoring) | ✅ v0.6 (off until configured) | A security review before real PHI (v1.0) |
-| Community (contribution flow, verification, public repo) | ✅ built (v1.0) | The repo going public (your decision) |
+| Community (verification, public repo) | ✅ built (v1.0); the repository is public | none |
 
 ## Milestones
 
@@ -115,8 +112,7 @@ benchmark, a Decision Card, a FHIR mapping and a CDS Hook.
   Hook: `order-sign`.
 - **A prior-authorization agent** (L1): order + Coverage + attached documents, checked against
   synthetic payer requirement sets. Each element is present / missing / unclear. Complete →
-  submit-ready; otherwise review with the gaps listed. Hook: `order-sign`. This is the bridge to
-  Da Vinci later.
+  submit-ready; otherwise review with the gaps listed. Hook: `order-sign`.
 - **A clinical-trial prescreening agent** (L2, so human review by default): synthetic ResearchStudy
   criteria plus the patient record (Condition, Observation, MedicationStatement). Each
   criterion is yes / no / unknown; uncertain cases go to review with the criteria listed. Hook:
@@ -182,18 +178,8 @@ committee approves a level 2 agent, and monitoring and the chain check out._
 
 ### v0.7 Later standards ✅
 _Built and verified 2026-09-30 (#90–#95). The CQL port agrees with `criteria` on 750 cases in
-CI (job `cql`); OMOP round-trips identically; the seven Da Vinci samples are profile-validated
-against CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1 (HL7 validator, offline)._
+CI (job `cql`)._
 - A **CQL** provider (a CQL engine as an agent provider type).
-- **OMOP** CDM → agent inputs, for population-level evaluation.
-- **Da Vinci CRD / DTR / PAS** wired into the prior-authorization agent. Since 2026-10-17, DTR's
-  `$questionnaire-package` answers as DTR 2.2.0 asks: the union of the orders' packages and the
-  questionnaires asked for, a warning for a questionnaire not found (oper-9) or an order that
-  names no decision, and a `422` OperationOutcome for orders or a context that name no
-  decision, with nothing to return (spec-130). Since 2026-10-18 the Inferno DTR payer suite
-  v0.18.0 runs against the engine weekly and by hand (CI workflow `conformance`), with Inferno
-  as the DTR client: every test must give its expected result, and each known gap has its
-  requirement id and reason (`sandbox/inferno/`).
 
 ### v1.0 Public open-source launch (built; the launch is yours)
 _Built 2026-09-30 (#96–#101). The security scans, docs build, the eval gate on agent pull
@@ -202,7 +188,6 @@ repository public, the PyPI release (trusted publishing is set up in `release.ym
 the Hub and the docs site._
 - Security review (threat model, dependency audit, API penetration test).
 - A docs site, including a **YAML-first authoring guide for clinicians**.
-- A contribution flow: agent PRs are automatically validated, tested, evaluated and given a card.
 - CODE_OF_CONDUCT and community governance.
 - PyPI release, public GitHub repo, launch.
 - Exit: a new user goes from README to their own local validation in under 10 minutes; the
@@ -211,8 +196,7 @@ the Hub and the docs site._
 ## How every milestone is built
 - **PR flow:** branch → PR → required CI checks → preview on its own Neon branch → verification
   → merge → production smoke tests, as we do today.
-- **Eval gates:** no merge that regresses an agent's critical metrics, and every critical label
-  has a held-out set that is never tuned on.
+- **Eval gates:** no merge that regresses an agent's critical metrics (`scripts/agent_gate.py`).
 - **Feedback loop:** 👎 feedback and reported misses become behaviour tests, then a new agent
   version.
 - **Record keeping:** `tasks/todo.md` tracks the plan; `tasks/lessons.md` records every
@@ -221,13 +205,13 @@ the Hub and the docs site._
 ## Risks
 - **Synthetic data flatters models**, as we saw with the red-flag screen. Mitigation: held-out
   sets, paraphrase sets, clinician review.
-- **Clinical correctness of agent content.** Clinician reviewers are needed for eligibility criteria,
-  draft-reply checks and red flags.
-- **LLM calibration and cost.** These are measured per agent; cascades and budgets control them.
+- **Clinical correctness of agent content.** Clinician reviewers are needed for an agent's
+  criteria, rubrics and red flags.
+- **LLM calibration and cost.** These are measured per agent; budgets control them.
 - **Regulatory positioning** (FDA CDS guidance) for L2+ agents. Mitigation: clinician-facing,
   human review by default, and documented intended use.
-- **PHI and security** once real organizations pilot. That is v0.6, and the repo stays private
-  and synthetic-only until then.
+- **PHI and security** once real organizations pilot. v0.6 built the controls; Mendari runs on
+  synthetic data only until a deployment follows the PHI guide and the owner approves.
 
 ## Open needs (not blocking v0.2's first PRs)
 - Enable Vercel AI Gateway on the team, for the LLM provider.
@@ -235,10 +219,10 @@ the Hub and the docs site._
 - Later: a Hub domain name and a publisher-verification policy.
 
 ## Next step
-Publish the v1.0 open-source release (public repository, PyPI package, container images, and
-hosted docs/Hub) and focus on real-world adoption of Mendari as an open-source healthcare AI
+Publish the v1.0 open-source release (PyPI package, container images, and hosted docs/Hub; the
+repository is public) and focus on real-world adoption of Mendari as an open-source healthcare AI
 governance and evaluation platform — clinician-reviewed evaluation sets, transparent provider
-benchmarking, auditable human-in-the-loop policies, and community-contributed agents.
+benchmarking, and auditable human-in-the-loop policies.
 
 ## Verification of the roadmap itself
 Each milestone's exit criteria are testable (commands, datasets, metrics). The roadmap counts

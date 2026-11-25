@@ -14,8 +14,8 @@ what it says, and about two checks that send an unstable answer to a person:
 The first changes the number. The other two never do: they can only turn an automated decision
 into one a person reviews. The reasons behind each rule are in
 [ADR-0024](../decisions/ADR-0024-a-checked-confidence-and-a-second-signal.md), and the manifest
-keys in [spec 0.4](../spec/agent-manifest-0.4.md), sections 8 to 13. All three need
-`spec_version: "0.4"`.
+keys in [the spec](../spec/agent-manifest.md#14-a-calibrated-confidence-and-a-second-signal),
+section 14.
 
 This page is for the author of an agent and for the hospital deciding whether to trust its
 automation.
@@ -92,7 +92,7 @@ asking starter-portal-agent about 400 calibration cases...
 cost: $0.4
 fitted for starter-portal-agent version 2.1.0: when its service reports another version, nothing is rescaled and no decision is automated until it is calibrated again
 -> models/reader-agent-calibration.json
-add `calibration: models/reader-agent-calibration.json` to the reader/agent variant to use it (it needs spec_version: '0.4')
+add `calibration: models/reader-agent-calibration.json` to the reader/agent variant to use it
 ```
 
 T above 1 means the agent was over-confident. `--dataset` defaults to the agent's `calibration`
@@ -192,7 +192,7 @@ every decision that would have been automated goes to a person, with the reason 
 
 No key of the manifest turns this off and no governance approval lifts it. Calibrate the new
 version, ship the new file (a new version of the agent, approved where digests are approved),
-and automation returns. So an agent's service should change its `agent_version` whenever its
+and automation returns. So an agent's service should change its `service_version` whenever its
 model or its prompt changes, and plan a calibration into each release. A service that reports
 no version cannot be calibrated.
 
@@ -213,8 +213,8 @@ nothing: no confidence is raised and no cap is lifted. Disagreement sends the de
 person.
 
 A disagreement counts on a question the decision turns on: the primary question, a critical
-question (`evaluation.critical`), a question a policy rule reads, and the questions any of
-those is derived from. On any other question it is noted in the answer's evidence.
+question (`evaluation.critical`) and a question a policy rule reads. On any other question it is
+noted in the answer's evidence.
 
 ### Repeated runs
 
@@ -260,7 +260,7 @@ many more cases from automation.
       checked:
         type: check
         members:
-          agent: {type: agent, agent_id: portal-agent, state_fields: [message.body]}
+          agent: {type: agent, service_id: portal-agent, state_fields: [message.body]}
           second: {type: llm, state_fields: [message.body]}
 ```
 
@@ -281,14 +281,12 @@ A second member that fails is recorded as any composite member's failure is, and
 is not automated. A first member that fails fails the slot: the member that checks never
 answers in its place.
 
-`check` is not `vote`, `any_of` or `cascade`. `vote` averages the members' distributions,
-`any_of` lets the more alarming answer win, and `cascade` asks the second only when the first
-is unsure. Use those when you want the second member to change the answer; use `check` when
-you want it only to object.
+`check` never changes the answer: its second member can only object, and an objection sends
+the decision to a person.
 
 ### When the agent also proposes actions
 
-An agent on spec 0.4 may ask to have something done with its answer
+An agent may ask to have something done with its answer
 ([Governing actions](governing-actions.md)). A second signal holds those proposals to the same
 rule as the answers: what the runs do not agree on is not automated.
 

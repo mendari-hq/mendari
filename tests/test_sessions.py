@@ -170,37 +170,43 @@ def test_the_old_cookie_name_is_ignored(server: TestClient, db_target: str) -> N
     assert server.get("/api/audit", headers=person).status_code == 200
 
 
-def test_a_row_without_an_absolute_limit_keeps_its_own(
-    server: TestClient, db_target: str, clock: Callable[[int], None]
-) -> None:
-    """A row with no `absolute_at` and no claims, eight hours from sign-in (as Phase 4b found
-    them): its stored roles hold, its expiry is its absolute limit, and the idle limit starts at
-    its first request."""
+def test_a_row_without_an_absolute_limit_has_ended(server: TestClient, db_target: str) -> None:
+    """Every session row keeps its absolute limit (`sessions.begin`): one without it, written
+    past the store, is a session that has ended. It is left as it is, to expire."""
     now = int(time.time())
-    old = {"iss": IDP, "sub": "u1", "name": "Nurse Kim", "roles": ["reviewer"], "org": "default"}
+    row: dict[str, Any] = {"iss": IDP, "sub": "u1", "name": "Nurse Kim", "org": "default"}
+    row["claims"] = {"roles": ["reviewer"]}
     with AuditStore(db_target) as store:
-        store.smart_put("old-sid", "user", old, now + 7 * HOUR)
-    cookie = {"cookie": "__Host-mendari_session=old-sid"}
-    me = server.get("/api/auth/me", headers=cookie).json()["principal"]
-    assert me["roles"] == ["reviewer"] and me["actor"] == f"{IDP}|u1"
-    assert expiry(db_target, "old-sid") == now + 30 * MINUTE  # idle from now on
-    for _ in range(6 * 7 - 1):
-        clock(10 * MINUTE)
-        assert server.get("/api/audit", headers=cookie).status_code == 200
-    clock(10 * MINUTE)
-    assert server.get("/api/audit", headers=cookie).status_code == 401  # its own 8 hours
-
-
-def test_an_idle_old_row_ends_too(
-    server: TestClient, db_target: str, clock: Callable[[int], None]
-) -> None:
-    with AuditStore(db_target) as store:
-        old = {"sub": "u1", "name": "x", "roles": ["viewer"], "org": "default"}
-        store.smart_put("old-sid", "user", old, int(time.time()) + 7 * HOUR)
-    cookie = {"cookie": "__Host-mendari_session=old-sid"}
-    assert server.get("/api/audit", headers=cookie).status_code == 200
-    clock(31 * MINUTE)
+        store.smart_put("no-limit", "user", row, now + 7 * HOUR)
+    cookie = {"cookie": "__Host-mendari_session=no-limit"}
+    assert server.get("/api/auth/me", headers=cookie).json()["signed_in"] is False
     assert server.get("/api/audit", headers=cookie).status_code == 401
+    assert expiry(db_target, "no-limit") == now + 7 * HOUR  # not moved, never resumed
+
+
+@pytest.mark.parametrize("field", ["iss", "claims", "actor"])
+def test_a_session_without_what_sign_in_keeps_is_not_read_another_way(
+    db_target: str, monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    """A person's session keeps their issuer, the claims their roles come from and the name the
+    chain gives them, as `/auth/callback` writes them. A row without one, written past the
+    store, is not read as of the issuer configured now, as a person with no role or under a
+    name made up here: the server answers its error, and it signs nobody in."""
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
+    claims = {"roles": ["reviewer"], "email": "kim@example.org", "email_verified": True}
+    row: dict[str, Any] = {"iss": IDP, "sub": "u1", "name": "Nurse Kim", "actor": "kim@example.org"}
+    row |= {"claims": claims, "org": "default"}
+    del row[field]
+    session, expires_at = sessions.begin(row, int(time.time()), sessions.Lifetime())
+    with AuditStore(db_target) as store:
+        store.smart_put("partial", "user", session, expires_at)
+    cookie = {"cookie": "__Host-mendari_session=partial", **DASHBOARD}
+    app = create_app(db_path=db_target)
+    with TestClient(app, base_url=HTTPS, raise_server_exceptions=False) as client:
+        answer = client.get("/api/audit", headers=cookie)
+    assert (answer.status_code, answer.json()["error"]) == (500, "InternalError")
 
 
 def test_the_limits_are_settings_bounded_at_startup(
@@ -478,7 +484,7 @@ def test_a_pending_sign_in_without_a_digest_is_refused(
         ("/\n/evil.example", "/"),
         ("//evil.example", "/"),
         ("https://evil.example", "/"),
-        ("/?pack=mendari/referral-router#review", "/?pack=mendari/referral-router#review"),
+        ("/?agent=mendari-test/triage#review", "/?agent=mendari-test/triage#review"),
     ],
 )
 def test_the_return_address_with_a_backslash_or_a_tab_stays_on_this_site(

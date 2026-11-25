@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Check: answer with one variant, check with another, and never automate when they disagree
-(ADR-0024; spec 0.4).
+(ADR-0024; spec §14.4).
 
     checked:
       type: check
@@ -19,18 +19,14 @@ labels are read:
   `<first> and <second> disagree on <question> (<first>: <label>, <second>: <label>)`. On
   another question the disagreement is in the evidence only.
 
-A composite like the others (`providers/composite.py`), so budgets, batching, connections, the
-deadline, cost and usage reach both members as they do a vote's. It differs from them in what
-it does with a second answer: `vote` averages it in, `any_of` lets the more alarming answer
-win, `cascade` asks it only when the first is unsure; none of them keeps the first answer and
-holds the decision when the second differs. A second member that fails is recorded as the
-composites record a member's failure (`<member>:<code>` on each question), which the policy
-never automates over. A first member that fails fails the slot: the member that checks never
-answers in its place.
+A composite (`providers/composite.py`), so budgets, batching, connections, the deadline, cost
+and usage reach both members. A second member that fails is recorded as a composite records a
+member's failure (`<member>:<code>` on each question), which the policy never automates over.
+A first member that fails fails the slot: the member that checks never answers in its place.
 
-The actions the first member proposes (spec 0.4) are the slot's, as its answers are; the second
+The actions the first member proposes (spec §14.4) are the slot's, as its answers are; the second
 member's own are never taken, since it never answers in the first's place. Where the second
-member is one that proposes actions too (an `agent` variant of a 0.4 agent), the two are held
+member is one that proposes actions too (an `agent` variant), the two are held
 against each other (`_proposals`): a proposal of the first that the second did not make, with
 the same arguments, is carried `disputed`, so it is held for the decision's reviewer and never
 released without one, whatever its effect (`policy.gate_of`); and any difference between the two
@@ -92,7 +88,7 @@ class CheckProvider(CompositeProvider):
             failed[second] = error.code
         answered, checking = outputs[first], outputs.get(second)
         canned = any(output.canned is not None for output in outputs.values())
-        deciding = deciding_questions(self.pack.manifest)
+        deciding = deciding_questions(self.agent.manifest)
         caps: list[Cap] = []
         disagreed: list[str] = []
         answers = {}
@@ -143,7 +139,7 @@ class CheckProvider(CompositeProvider):
         mine = proposals.distinct(answered.actions)
         if not self.members[second].proposes:
             return tuple(mine), []  # the second member checks answers, not actions
-        manifest = self.pack.manifest
+        manifest = self.agent.manifest
         if checking is None:
             disputed = tuple(replace(proposal, disputed=True) for proposal in mine)
             said = f"{second} failed, so what {first} proposed to do was not checked"

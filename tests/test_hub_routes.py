@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Finding an agent in the deployment's registry and adding it to an organization from the
-console (`server/hub_routes.py`, `PackStore.admit_pulled`).
+console (`server/hub_routes.py`, `AgentStore.admit_pulled`).
 
 What the console is told of a registry is rebuilt field by field, so a registry's words reach a
 page as text of a known kind and length. A version that is added is verified as `mendari pull`
@@ -31,35 +31,35 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-from mendari.core.pack import Pack, load_pack
+from mendari.core.agent import Agent, load_agent
 from mendari.errors import HubError, MendariError
 from mendari.hub import archive
 from mendari.hub.client import RegistryClient
 from mendari.server import hub_routes
 from mendari.server.app import create_app
-from tests.conftest import DASHBOARD, DEMO_AGENT_DIR, member, security_lines
+from tests.conftest import DASHBOARD, DEMO_AGENT_DIR, TRIAGE_DIR, member, security_lines
+from tests.support.registry import HTTPS
 from tests.test_hub_client import Hub, free_port, hub  # noqa: F401 - the live registry fixture
-from tests.test_memberships import HTTPS
 from tests.test_store_uploads import ORG_A, ORG_B, Store, store_world
 
 ACME = "acme/portal-agent"
-INBOX = "mendari/patient-inbox-router"
+OWN = load_agent(TRIAGE_DIR).id  # an agent this deployment serves from its own files
 REFILL = {"message": {"body": "Could I get a refill of my lisinopril please?"}}
 # What the local agent service answers each of the bundled agent's questions with.
 ANSWERS = {"request": "refill", "urgent_symptoms": "no"}
 
 
-def as_published(base: Path, pack_id: str = ACME, version: str | None = None) -> Pack:
+def as_published(base: Path, agent_id: str = ACME, version: str | None = None) -> Agent:
     """The bundled agent under a publisher's own id (and version), as a publisher puts one in a
     registry: it asks a service of its own (an `agent` variant) and carries canned answers."""
-    target = base / "published" / pack_id.replace("/", "-") / (version or "as-shipped")
+    target = base / "published" / agent_id.replace("/", "-") / (version or "as-shipped")
     shutil.copytree(DEMO_AGENT_DIR, target)
     manifest = yaml.safe_load((target / "agent.yaml").read_text())
-    manifest["id"] = pack_id
+    manifest["id"] = agent_id
     if version is not None:
         manifest["version"] = version
     (target / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    return load_pack(target)
+    return load_agent(target)
 
 
 def answered(body: Any) -> dict[str, Any]:
@@ -68,7 +68,7 @@ def answered(body: Any) -> dict[str, Any]:
         question["key"]: {"value": ANSWERS[question["key"]], "confidence": 0.97}
         for question in body["questions"]
     }
-    return {"answers": answers, "model": "local-test-agent", "agent_version": "9.9.9"}
+    return {"answers": answers, "model": "local-test-agent", "service_version": "9.9.9"}
 
 
 class Service:
@@ -151,14 +151,16 @@ class Adopting:
             self.publishers[namespace] = self.hub.namespace(namespace)
         return self.publishers[namespace]
 
-    def publish(self, pack_id: str = ACME, version: str | None = None) -> Pack:
-        """The bundled agent published under `pack_id` by its namespace's publisher."""
-        token, key = self.publisher(pack_id.split("/")[0])
-        pack = as_published(self.tmp, pack_id, version)
-        self.hub.client(token).push(pack, key)
-        return pack
+    def publish(self, agent_id: str = ACME, version: str | None = None) -> Agent:
+        """The bundled agent published under `agent_id` by its namespace's publisher."""
+        token, key = self.publisher(agent_id.split("/")[0])
+        agent = as_published(self.tmp, agent_id, version)
+        self.hub.client(token).push(agent, key)
+        return agent
 
-    def pull(self, ref: str = ACME, org: str = ORG_A, who: str = "pack_author", **body: Any) -> Any:
+    def pull(
+        self, ref: str = ACME, org: str = ORG_A, who: str = "agent_author", **body: Any
+    ) -> Any:
         return self.client.post(
             "/api/store/pulls", json={"ref": ref, **body}, headers=self.as_(org, who)
         )
@@ -176,9 +178,9 @@ class Adopting:
         """No organization's store holds a version, none is listed, none is served, and no
         event says one was made."""
         assert self.versions() == []
-        assert "pack_version.created" not in self.kinds()
+        assert "store_version.created" not in self.kinds()
         for org in (ORG_A, ORG_B):
-            listed = self.client.get("/api/store/agents", headers=self.as_(org, "pack_author"))
+            listed = self.client.get("/api/store/agents", headers=self.as_(org, "agent_author"))
             assert listed.status_code == 200 and listed.json() == []
             served = self.client.get("/api/agents", headers=self.as_(org, "viewer")).json()
             assert ACME not in {agent["id"] for agent in served}
@@ -217,7 +219,7 @@ def lite(
 def evaluated(world: Adopting, digest: str, org: str = ORG_A) -> str:
     """An evaluation of a store version on the examples it carries, run as a store job by the
     organization's author: its report's id."""
-    author = world.as_(org, "pack_author")
+    author = world.as_(org, "agent_author")
     made = world.client.post(
         "/api/store/jobs", json={"version": digest, "dataset": {"name": "examples"}}, headers=author
     )
@@ -257,9 +259,9 @@ def counting(monkeypatch: pytest.MonkeyPatch, method: str) -> list[Any]:
     return asked
 
 
-def decide(world: Adopting, org: str = ORG_A, pack_id: str = ACME) -> Any:
+def decide(world: Adopting, org: str = ORG_A, agent_id: str = ACME) -> Any:
     return world.client.post(
-        f"/api/agents/{pack_id}/decide", json=REFILL, headers=world.as_(org, "reviewer")
+        f"/api/agents/{agent_id}/decide", json=REFILL, headers=world.as_(org, "reviewer")
     )
 
 
@@ -315,26 +317,26 @@ def test_a_registry_address_that_is_not_https_stops_the_server_and_is_never_show
 def test_a_search_and_a_listing_say_what_the_registry_checked_apart_from_what_is_claimed(
     lite: Adopting,
 ) -> None:
-    pack = lite.publish()
+    agent = lite.publish()
     viewer = lite.as_(ORG_A, "viewer")
     found = lite.client.get("/api/hub/search", params={"q": "portal"}, headers=viewer).json()
     assert found["registry"] == lite.hub.url and found["more"] is False
-    [agent] = found["agents"]
-    assert (agent["id"], agent["version"], agent["name"]) == (
+    [listed] = found["agents"]
+    assert (listed["id"], listed["version"], listed["name"]) == (
         ACME,
-        pack.version,
-        pack.manifest.name,
+        agent.version,
+        agent.manifest.name,
     )
-    assert agent["checked"]["signature"]["verified"] is True
-    assert agent["checked"]["digest"] == pack.digest
-    assert agent["checked"]["review"] == {
+    assert listed["checked"]["signature"]["verified"] is True
+    assert listed["checked"]["digest"] == agent.digest
+    assert listed["checked"]["review"] == {
         "status": "unreviewed",
         "risk_level": None,
         "matches_declared": None,
     }
-    assert agent["claimed"]["risk"] == {"level": 0, "category": "administrative"}
-    assert agent["claimed"]["publisher"] == {"name": "Mendari", "type": "community"}
-    assert agent["recall"] is None and agent["installed"] is None
+    assert listed["claimed"]["risk"] == {"level": 0, "category": "administrative"}
+    assert listed["claimed"]["publisher"] == {"name": "Mendari", "type": "community"}
+    assert listed["recall"] is None and listed["installed"] is None
     assert (
         lite.client.get("/api/hub/search", params={"q": "zq-nothing"}, headers=viewer).json()[
             "agents"
@@ -343,14 +345,14 @@ def test_a_search_and_a_listing_say_what_the_registry_checked_apart_from_what_is
     )
 
     shown = lite.client.get(f"/api/hub/agents/{ACME}", headers=viewer).json()
-    assert shown["versions"] == [pack.version] and shown["recalled"] == []
-    assert shown["agent"]["checked"] == agent["checked"]
+    assert shown["versions"] == [agent.version] and shown["recalled"] == []
+    assert shown["agent"]["checked"] == listed["checked"]
     assert shown["agent"]["card_markdown"].startswith("# Decision Card: Portal Message Agent")
     assert shown["agent"]["evaluations"] == {"published": 0, "listed": []}
     exact = lite.client.get(
-        f"/api/hub/agents/{ACME}", params={"version": pack.version}, headers=viewer
+        f"/api/hub/agents/{ACME}", params={"version": agent.version}, headers=viewer
     )
-    assert exact.json()["agent"]["version"] == pack.version
+    assert exact.json()["agent"]["version"] == agent.version
     for missing in (
         "/api/hub/agents/acme/no-such-agent",
         f"/api/hub/agents/{ACME}?version=9.9.9",
@@ -360,6 +362,33 @@ def test_a_search_and_a_listing_say_what_the_registry_checked_apart_from_what_is
         refused = lite.client.get(missing, headers=viewer)
         assert refused.status_code == 404, missing
         assert refused.json()["detail"] == hub_routes.NOT_LISTED
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.ReadTimeout("slow"),
+        HubError("the registry answered 503", 502),
+        HubError("too many requests", 429),
+    ],
+)
+def test_a_failed_read_of_the_evaluations_leaves_the_agent_shown(
+    lite: Adopting, monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    """The evaluations are a third read of the registry: one that times out, fails or is over the
+    registry's read limit shows the agent and its version as read, with no evaluations said,
+    never a refusal of the whole page."""
+    agent = lite.publish()
+    viewer = lite.as_(ORG_A, "viewer")
+
+    def failing(self: RegistryClient, *version: str) -> dict[str, Any]:
+        raise failure
+
+    monkeypatch.setattr(RegistryClient, "evaluations", failing)
+    shown = lite.client.get(f"/api/hub/agents/{ACME}", headers=viewer)
+    assert shown.status_code == 200, shown.text
+    assert shown.json()["agent"]["version"] == agent.version
+    assert shown.json()["agent"]["evaluations"] == {"published": 0, "listed": []}
 
 
 HOSTILE = '<img src=x onerror="alert(1)"><script>alert(2)</script>'
@@ -373,7 +402,7 @@ def test_what_a_registry_says_reaches_the_console_as_text_of_a_known_kind_and_le
     string cut to its length, a number in its range, a flag, or nothing."""
     listed = {
         "id": ACME,
-        "pack_name": HOSTILE * 100,
+        "agent_name": HOSTILE * 100,
         "version": "1.0.0",
         "published_at": {"$date": "now"},
         "summary": HOSTILE,
@@ -499,24 +528,28 @@ def test_an_added_version_is_verified_and_kept_in_its_organizations_store_across
     verified, kept as a draft of the organization that added it with the record of where it
     came from, chained; and there for a new instance on the same database, which was told
     nothing but the database."""
-    pack = world.publish()
+    agent = world.publish()
     key_id = archive.key_id(world.publisher("acme")[1].public_key())
     added = world.pull()
     assert added.status_code == 201, added.text
     made = added.json()
-    assert (made["pack_id"], made["version"], made["digest"]) == (ACME, pack.version, pack.digest)
+    assert (made["agent_id"], made["version"], made["digest"]) == (
+        ACME,
+        agent.version,
+        agent.digest,
+    )
     assert (made["state"], made["source"], made["valid"]) == ("draft", "hub", True)
     assert made["pulled"]["registry"] == world.hub.url
     assert (made["pulled"]["namespace"], made["pulled"]["key_id"]) == ("acme", key_id)
-    assert made["pulled"]["digest"] == pack.digest
+    assert made["pulled"]["digest"] == agent.digest
     [row] = world.versions()
     assert (row["org"], row["source"], row["state"]) == (ORG_A, "hub", "draft")
     assert json.loads(row["pulled"])["archive_sha256"] == made["pulled"]["archive_sha256"]
     with world.store.db._db.session(exclusive=False) as db:
-        [event] = db.all("SELECT payload FROM audit_events WHERE event = 'pack_version.created'")
+        [event] = db.all("SELECT payload FROM audit_events WHERE event = 'store_version.created'")
         [pin] = db.all("SELECT * FROM store_pins")
     payload = json.loads(event["payload"])
-    assert (payload["org"], payload["source"], payload["digest"]) == (ORG_A, "hub", pack.digest)
+    assert (payload["org"], payload["source"], payload["digest"]) == (ORG_A, "hub", agent.digest)
     assert payload["pulled"] == {
         "registry": world.hub.url,
         "namespace": "acme",
@@ -529,23 +562,25 @@ def test_an_added_version_is_verified_and_kept_in_its_organizations_store_across
     assert world.store.db.verify()["ok"]
     # A draft: it answers nobody, and the list of served agents does not name it.
     assert decide(world).status_code == 404
-    author, viewer = world.as_(ORG_A, "pack_author"), world.as_(ORG_A, "viewer")
+    author, viewer = world.as_(ORG_A, "agent_author"), world.as_(ORG_A, "viewer")
     assert ACME not in {a["id"] for a in world.client.get("/api/agents", headers=viewer).json()}
 
     with TestClient(create_app(db_path=world.target), base_url=HTTPS, headers=DASHBOARD) as another:
         [lineage] = another.get("/api/store/agents", headers=author).json()
-        assert lineage["pack_id"] == ACME
-        assert [v["digest"] for v in lineage["versions"]] == [pack.digest]
-        read = another.get(f"/api/store/versions/{pack.digest}", headers=author)
+        assert lineage["agent_id"] == ACME
+        assert [v["digest"] for v in lineage["versions"]] == [agent.digest]
+        read = another.get(f"/api/store/versions/{agent.digest}", headers=author)
         assert read.status_code == 200 and read.json()["pulled"]["key_id"] == key_id
         manifest = another.get(
-            f"/api/store/versions/{pack.digest}/file", params={"path": "agent.yaml"}, headers=author
+            f"/api/store/versions/{agent.digest}/file",
+            params={"path": "agent.yaml"},
+            headers=author,
         )
         assert manifest.status_code == 200 and f"id: {ACME}" in manifest.text
         [found] = another.get("/api/hub/search", headers=viewer).json()["agents"]
         assert found["installed"] == {
-            "version": pack.version,
-            "digest": pack.digest,
+            "version": agent.version,
+            "digest": agent.digest,
             "state": "draft",
         }
         again = another.post("/api/store/pulls", json={"ref": ACME}, headers=author)
@@ -553,56 +588,14 @@ def test_an_added_version_is_verified_and_kept_in_its_organizations_store_across
     assert len(world.versions()) == 1
 
 
-def test_a_database_from_before_this_change_starts_is_migrated_and_still_verifies(
-    db_target: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    hub: Hub,  # noqa: F811
-) -> None:
-    """On SQLite and Postgres: a database that holds an organization's store version and none
-    of what this change adds (where a version was pulled from, the pinned keys, the
-    connections) starts, gets them, and verifies as it did; a version is then added from the
-    registry beside the one made before, and a connection is set."""
-    for before in adopting(db_target, tmp_path, monkeypatch, hub):
-        copied = before.client.post(
-            "/api/store/copies",
-            json={"pack": INBOX, "name": "inbox-copy"},
-            headers=before.as_(ORG_A, "pack_author"),
-        )
-        assert copied.status_code == 201, copied.text
-        made = copied.json()["digest"]
-        with before.store.db._db.session(exclusive=True) as db:
-            db.all("ALTER TABLE store_versions DROP COLUMN pulled")
-            db.all("DROP TABLE store_pins")
-            db.all("DROP TABLE agent_connections")
-    for world in adopting(db_target, tmp_path, monkeypatch, hub):
-        assert world.store.db.verify()["ok"]
-        author = world.as_(ORG_A, "pack_author")
-        kept = world.client.get(f"/api/store/versions/{made}", headers=author)
-        assert kept.status_code == 200 and "pulled" not in kept.json()
-        pack = world.publish()
-        assert world.pull().status_code == 201
-        connected = world.client.put(
-            f"/api/connections/{ACME}",
-            json={"endpoint": "https://1.1.1.1/decide", "token": "tok-zq"},
-            headers=world.as_(ORG_A, "admin"),
-        )
-        assert connected.status_code == 200, connected.text
-        assert {row["digest"]: row["pulled"] is not None for row in world.versions()} == {
-            made: False,
-            pack.digest: True,
-        }
-        assert world.store.db.verify()["ok"]
-
-
 def test_one_organizations_added_agent_is_invisible_to_another_which_adds_its_own(
     lite: Adopting,
 ) -> None:
-    pack = lite.publish()
+    agent = lite.publish()
     assert lite.pull().status_code == 201
-    theirs = lite.as_(ORG_B, "pack_author")
+    theirs = lite.as_(ORG_B, "agent_author")
     assert lite.client.get("/api/store/agents", headers=theirs).json() == []
-    assert lite.client.get(f"/api/store/versions/{pack.digest}", headers=theirs).status_code == 404
+    assert lite.client.get(f"/api/store/versions/{agent.digest}", headers=theirs).status_code == 404
     [found] = lite.client.get("/api/hub/search", headers=lite.as_(ORG_B, "viewer")).json()["agents"]
     assert found["installed"] is None
     shown = lite.client.get(f"/api/hub/agents/{ACME}", headers=lite.as_(ORG_B, "viewer")).json()
@@ -616,7 +609,7 @@ def test_one_organizations_added_agent_is_invisible_to_another_which_adds_its_ow
     with lite.store.db._db.session(exclusive=False) as db:
         assert sorted(row["org"] for row in db.all("SELECT org FROM store_pins")) == [ORG_A, ORG_B]
     assert (
-        lite.client.delete(f"/api/store/versions/{pack.digest}", headers=theirs).status_code == 200
+        lite.client.delete(f"/api/store/versions/{agent.digest}", headers=theirs).status_code == 200
     )  # theirs is withdrawn; the other's stays
     assert {row["org"]: row["state"] for row in lite.versions()} == {
         ORG_A: "draft",
@@ -652,16 +645,16 @@ def test_adding_is_not_approving_a_pulled_agent_automates_only_once_every_requir
     decides until the organization approves that digest, which whoever added it cannot do; and
     a recall by its registry stops it again."""
     monkeypatch.setenv("MENDARI_PROVIDER_ALLOWED_ORIGINS", service.origin)
-    pack = world.publish()
+    agent = world.publish()
     both = member(
-        world.store.db, org=ORG_A, roles=["pack_author", "governance", "admin"], sub="both"
+        world.store.db, org=ORG_A, roles=["agent_author", "governance", "admin"], sub="both"
     )
     added = world.client.post("/api/store/pulls", json={"ref": ACME}, headers=both)
     assert added.status_code == 201, added.text
     assert decide(world).status_code == 404  # a draft
-    report = evaluated(world, pack.digest)
+    report = evaluated(world, agent.digest)
     promotion = {
-        "version": pack.digest,
+        "version": agent.digest,
         "reports": [report],
         "reference": "AI committee, item 2",
         "automate": True,
@@ -693,7 +686,7 @@ def test_adding_is_not_approving_a_pulled_agent_automates_only_once_every_requir
     assert any("not approved for automation" in reason for reason in unapproved["reasons"])
     assert service.authorizations() == ["Bearer tok-zq"]
 
-    approval = {"pack_id": ACME, "pack_digest": pack.digest, "reference": "minutes 9"}
+    approval = {"agent_id": ACME, "agent_digest": agent.digest, "reference": "minutes 9"}
     own_approval = world.client.post("/api/registry-approvals", json=approval, headers=both)
     assert own_approval.status_code == 403, own_approval.text
     assert decide(world).json()["outcome"] == "HUMAN_REVIEW"
@@ -703,7 +696,7 @@ def test_adding_is_not_approving_a_pulled_agent_automates_only_once_every_requir
     assert approved.status_code == 201, approved.text
     automated = decide(world).json()
     assert automated["outcome"] == "AUTO", automated["reasons"]
-    assert automated["pack"]["digest"] == pack.digest
+    assert automated["agent"]["digest"] == agent.digest
     assert automated["answers"]["request"]["provider"]["model"] == "local-test-agent"
 
     # Another organization is served nothing of it, whatever the first approved.
@@ -711,7 +704,7 @@ def test_adding_is_not_approving_a_pulled_agent_automates_only_once_every_requir
 
     token, key = world.publisher("acme")
     world.hub.client(token).yank(
-        "acme", "portal-agent", pack.version, reason="misroutes", severity="high", key=key
+        "acme", "portal-agent", agent.version, reason="misroutes", severity="high", key=key
     )
     watch.refresh(world.hub.url)
     recalled = decide(world).json()
@@ -723,7 +716,7 @@ def test_adding_is_not_approving_a_pulled_agent_automates_only_once_every_requir
 # -- what adds nothing ----------------------------------------------------------------------------
 
 
-def _tampered(world: Adopting, monkeypatch: pytest.MonkeyPatch, pack: Pack) -> str:
+def _tampered(world: Adopting, monkeypatch: pytest.MonkeyPatch, agent: Agent) -> str:
     """One byte of the archive changed on its way."""
     served = RegistryClient.archive
 
@@ -736,11 +729,11 @@ def _tampered(world: Adopting, monkeypatch: pytest.MonkeyPatch, pack: Pack) -> s
     return "the downloaded archive is not the one the registry recorded"
 
 
-def _signed_by_someone_else(world: Adopting, monkeypatch: pytest.MonkeyPatch, pack: Pack) -> str:
+def _signed_by_someone_else(world: Adopting, monkeypatch: pytest.MonkeyPatch, agent: Agent) -> str:
     """A registry that serves the same agent signed by a key that is not its namespace's, and
     records that archive as the version's own."""
     private, _ = archive.generate_key()
-    forged = archive.build(pack, archive.load_private_key(private))
+    forged = archive.build(agent, archive.load_private_key(private))
     record = RegistryClient.version
 
     def version(self: RegistryClient, *named: Any) -> dict[str, Any]:
@@ -751,7 +744,9 @@ def _signed_by_someone_else(world: Adopting, monkeypatch: pytest.MonkeyPatch, pa
     return "not added: "
 
 
-def _signed_with_a_revoked_key(world: Adopting, monkeypatch: pytest.MonkeyPatch, pack: Pack) -> str:
+def _signed_with_a_revoked_key(
+    world: Adopting, monkeypatch: pytest.MonkeyPatch, agent: Agent
+) -> str:
     """The publisher's key was revoked, and the registry says the version was signed after."""
     key_id = archive.key_id(world.publisher("acme")[1].public_key())
     with world.hub.operator() as store:
@@ -765,7 +760,7 @@ def _signed_with_a_revoked_key(world: Adopting, monkeypatch: pytest.MonkeyPatch,
     return "revoked"
 
 
-def _another_agents_archive(world: Adopting, monkeypatch: pytest.MonkeyPatch, pack: Pack) -> str:
+def _another_agents_archive(world: Adopting, monkeypatch: pytest.MonkeyPatch, agent: Agent) -> str:
     """The registry answers another agent's archive, signed by its own publisher, in its place."""
     other = world.publish("acme/another-agent")
     swapped = archive.build(other, world.publisher("acme")[1])
@@ -776,7 +771,7 @@ def _another_agents_archive(world: Adopting, monkeypatch: pytest.MonkeyPatch, pa
 
     monkeypatch.setattr(RegistryClient, "version", version)
     monkeypatch.setattr(RegistryClient, "archive", lambda self, *version: swapped)
-    return f"the archive is not {ACME}@{pack.version}, which the registry named"
+    return f"the archive is not {ACME}@{agent.version}, which the registry named"
 
 
 @pytest.mark.parametrize(
@@ -786,8 +781,8 @@ def _another_agents_archive(world: Adopting, monkeypatch: pytest.MonkeyPatch, pa
 def test_an_archive_or_a_signature_that_does_not_verify_adds_nothing(
     lite: Adopting, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], how: Any
 ) -> None:
-    pack = lite.publish()
-    words = how(lite, monkeypatch, pack)
+    agent = lite.publish()
+    words = how(lite, monkeypatch, agent)
     capsys.readouterr()
     refused = lite.pull()
     assert refused.status_code == 422, refused.text
@@ -799,12 +794,12 @@ def test_an_archive_or_a_signature_that_does_not_verify_adds_nothing(
 
 
 def test_a_recalled_or_deleted_version_is_not_added(lite: Adopting) -> None:
-    pack = lite.publish()
+    agent = lite.publish()
     token, key = lite.publisher("acme")
     lite.hub.client(token).yank(
-        "acme", "portal-agent", pack.version, reason="misroutes", severity="critical", key=key
+        "acme", "portal-agent", agent.version, reason="misroutes", severity="critical", key=key
     )
-    exact = lite.pull(f"{ACME}@{pack.version}")
+    exact = lite.pull(f"{ACME}@{agent.version}")
     assert exact.status_code == 409, exact.text
     assert "was recalled by its registry (severity: critical)" in exact.json()["detail"]
     newest = lite.pull()  # its newest version that is not recalled: there is none
@@ -813,7 +808,7 @@ def test_a_recalled_or_deleted_version_is_not_added(lite: Adopting) -> None:
     shown = lite.client.get(f"/api/hub/agents/{ACME}", headers=lite.as_(ORG_A, "viewer")).json()
     assert shown["agent"] is None and shown["versions"] == []  # none that is not recalled
     [recalled] = shown["recalled"]
-    assert (recalled["version"], recalled["severity"]) == (pack.version, "critical")
+    assert (recalled["version"], recalled["severity"]) == (agent.version, "critical")
     assert (recalled["reason"], recalled["signer"]) == ("misroutes", "publisher")
 
     later = lite.publish(version="9.0.0")
@@ -821,7 +816,7 @@ def test_a_recalled_or_deleted_version_is_not_added(lite: Adopting) -> None:
         store.delete("acme", "portal-agent", "9.0.0", reason="carried a file", by="operator")
     deleted = lite.pull(f"{ACME}@9.0.0")
     assert deleted.status_code == 404 and deleted.json()["detail"] == hub_routes.NOT_LISTED
-    assert later.digest != pack.digest
+    assert later.digest != agent.digest
     lite.nothing_was_added()
 
 
@@ -911,7 +906,7 @@ def test_what_the_deployment_serves_from_its_own_files_is_never_replaced(
     """An id this deployment serves from its files is refused before anything is asked of the
     registry."""
     asked = counting(monkeypatch, "version")
-    refused = lite.pull(INBOX)
+    refused = lite.pull(OWN)
     assert refused.status_code == 409 and "from its own files" in refused.json()["detail"]
     assert asked == []
     lite.nothing_was_added()
@@ -957,14 +952,14 @@ def test_the_security_log_names_the_version_and_who_added_it(
     lite: Adopting, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    pack = lite.publish()
+    agent = lite.publish()
     capsys.readouterr()
     assert lite.pull().status_code == 201
     lines = security_lines(capsys.readouterr().out)
     [added] = [line for line in lines if line["event"] == "store.pull.added"]
     assert (added["org"], added["ids"], added["route"]) == (
         ORG_A,
-        [pack.digest],
+        [agent.digest],
         "/api/store/pulls",
     )
     assert added["actor"].startswith("user:")

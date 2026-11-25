@@ -50,7 +50,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 AGENT_TOKEN=a-long-random-string .venv/bin/uvicorn api.index:app --port 8787
 ```
 
-`curl http://127.0.0.1:8787/health` answers `{"status":"ok","agent_version":"0.1.0"}`. Without
+`curl http://127.0.0.1:8787/health` answers `{"status":"ok","service_version":"0.1.0"}`. Without
 `AGENT_TOKEN`, `/decide` refuses every request unless `AGENT_ALLOW_OPEN=1` (local use only).
 
 ## Point Mendari at it

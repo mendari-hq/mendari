@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The test suite reaches nothing outside itself (tests/conftest.py, LIVE_SETTINGS): with every
-system a developer's shell can name (a deployment's database, the AI Gateway, an LLM or Jev
-endpoint, the alert webhook, the registry) pointed at a local server that records each request,
+system a developer's shell can name (a deployment's database, the AI Gateway, an LLM endpoint,
+the alert webhook, the registry) pointed at a local server that records each request,
 the tests that once reached them run and the server hears nothing."""
 
 from __future__ import annotations
@@ -25,9 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # alert, when the shell named one.
 ONCE_REACHED = [
     "tests/test_vercel.py",
-    "tests/test_settings.py::test_the_vercel_app_runs_the_jev_defaults",
-    "tests/test_community_re2.py::test_a_deployment_without_community_packs_never_imports_re2",
-    "tests/test_community_packs.py::test_the_eval_endpoint_runs_a_community_pack_remotely_only_where_named",
+    "tests/test_bounded_re2.py::test_a_deployment_without_bounded_agents_never_imports_re2",
     "tests/test_limits.py::test_over_its_quota_an_emergency_still_reaches_a_nurse_at_once",
     "tests/test_monitoring.py::test_the_cli_watches_one_organization",
     "tests/test_security_log.py",
@@ -73,12 +71,8 @@ def test_the_tests_reach_nothing_the_shell_names(
         "VERCEL_OIDC_TOKEN": "shell-token",
         "LLM_BASE_URL": f"{url}/v1",
         "LLM_API_KEY": "shell-key",
-        "JEV_API_URL": url,
-        "JEV_API_KEY": "shell-key",
         "MENDARI_ALERT_WEBHOOK": f"{url}/hook",
-        "OPENHEALTH_ALERT_WEBHOOK": f"{url}/old-hook",
         "MENDARI_REGISTRY_URL": url,
-        "MENDARI_PAS_PAYER_URL": url,
     }
     command = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", *ONCE_REACHED]
     ran = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
@@ -95,5 +89,3 @@ def test_no_test_mints_a_vercel_oidc_token() -> None:
     for module in (credentials, llm):
         with pytest.raises(ProviderError, match="credential_unavailable"):
             module.vercel_oidc_token()
-    with pytest.raises(ProviderError, match="credential_unavailable"):
-        credentials.ConnectorToken("jev/a-project").get()

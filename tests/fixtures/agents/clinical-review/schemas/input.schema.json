@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "A synthetic triage note (test fixture)",
+  "description": "One synthetic triage note, made up for tests. It carries no identifier.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["note"],
+  "properties": {
+    "note": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1, "maxLength": 5000, "pattern": "\\S"}
+      }
+    }
+  }
+}

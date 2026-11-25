@@ -2,9 +2,9 @@
 """Key rotation (LP-09): the PHI key, the input hash key and API keys each change without losing
 data or breaking the audit chain.
 
-- The PHI key: a ring (`MENDARI_PHI_KEY` seals, `MENDARI_PHI_READ_KEYS` only opens); from the
-  first rotation on each token names its key (`v2:<key id>:`); `mendari phi rotate` re-seals in
-  batches, each chained, and an interrupted run resumes; `--check` proves everything opens with
+- The PHI key: a ring (`MENDARI_PHI_KEY` seals, `MENDARI_PHI_READ_KEYS` only opens); each token
+  names its key (`v2:<key id>:`); `mendari phi rotate` re-seals in batches, each chained, and an
+  interrupted run resumes; `--check` proves everything opens with
   the current key alone before the read keys are dropped; a key a rotation moved values off
   seals nothing more.
 - The input hash key: a new key starts an epoch (chained); old hashes stay as they were.
@@ -26,10 +26,10 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.core import audit as audit_module
-from mendari.core.phi import LEGACY, PhiPolicy, key_id, phi_policy, token_key
+from mendari.core.phi import PhiPolicy, key_id, phi_policy, token_key
 from mendari.errors import AuthError, MendariError
 from mendari.server.app import create_app, mounted_routes
 from mendari.server.auth import permission_for
@@ -37,8 +37,6 @@ from tests.conftest import (
     HASH_KEY_B64,
     INPUT_HASH_KEY,
     encrypt_mode,
-    evalset_on,
-    evalsets_are_on,
     message,
     security_lines,
     signed_in,
@@ -80,9 +78,9 @@ def keep_inputs(store: AuditStore, n: int, *, start: int = 0) -> list[str]:
     return ids
 
 
-def reviewed(store: AuditStore, pack: Pack, n: int) -> list[str]:
+def reviewed(store: AuditStore, agent: Agent, n: int) -> list[str]:
     """`n` real decisions, each reviewed with a note (chained, with its commitment)."""
-    decide = Decision(pack, store=store)
+    decide = Decision(agent, store=store)
     ids = []
     for i in range(n):
         decided = decide(message(f"{URGENT} ({i})"))
@@ -100,22 +98,22 @@ def chained(store: AuditStore, event: str) -> list[dict[str, Any]]:
 # -- the token and the ring --------------------------------------------------------------------
 
 
-def test_tokens_name_their_key_only_from_the_first_rotation(tmp_path: Path) -> None:
+def test_every_token_names_its_key(tmp_path: Path) -> None:
     store = AuditStore(tmp_path / "a.db", phi=ring(OLD))
-    before = store.phi.encrypt("d-1", {"x": 1})
-    assert token_key(before) == LEGACY and ":" not in before  # what a release before reads
+    sealed = store.phi.encrypt("d-1", {"x": 1})
+    assert sealed.startswith(f"v2:{key_id(OLD)}:") and token_key(sealed) == key_id(OLD)
     rotating = AuditStore(tmp_path / "a.db", phi=ring(NEW, OLD))  # a rotation is under way
-    tagged = rotating.phi.encrypt("d-2", {"x": 2})
-    assert tagged.startswith(f"v2:{key_id(NEW)}:")
-    assert AuditStore(tmp_path / "a.db", phi=ring(NEW)).phi.tag_tokens  # it stays so
+    assert rotating.phi.encrypt("d-2", {"x": 2}).startswith(f"v2:{key_id(NEW)}:")
 
 
 def test_a_token_opens_only_with_its_key_as_its_kind_for_its_decision() -> None:
-    old, both = ring(OLD), ring(NEW, OLD)
-    legacy = old.encrypt("d-1", {"x": 1})
-    assert both.decrypt("d-1", legacy) == {"x": 1}  # sealed before key ids: the ring is tried
-    tagged = PhiPolicy("encrypt", NEW, INPUT_HASH_KEY, (), tag_tokens=True).encrypt("d-1", {"x": 1})
+    both = ring(NEW, OLD)
+    tagged = ring(NEW).encrypt("d-1", {"x": 1})
     assert both.open("input", tagged, "d-1") == ({"x": 1}, key_id(NEW))
+    unnamed = tagged.split(":", 2)[2]  # the same sealed bytes, naming no key: no key opens them
+    with pytest.raises(MendariError, match="does not name its key"):
+        both.decrypt("d-1", unnamed)
+    assert token_key(unnamed) == "invalid"
     for wrong in (
         lambda: both.decrypt("d-2", tagged),  # another decision
         lambda: both.open_details("d-1", tagged),  # another kind
@@ -176,11 +174,11 @@ def test_health_names_the_keys_by_id_under_encrypt_only(
 
 
 def test_a_thousand_values_rotate_in_batches_and_everything_still_opens(
-    db_target: str, inbox_pack: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     before = AuditStore(db_target, phi=ring(OLD))
     ids = keep_inputs(before, 1000)
-    noted = reviewed(before, inbox_pack, 5)
+    noted = reviewed(before, triage_agent, 5)
     before.close()
     store = AuditStore(db_target, phi=ring(NEW, OLD))  # the swap: new seals, old opens
     assert not store.phi_check()["ready"]  # sealed under the old key: not yet
@@ -253,13 +251,13 @@ def test_a_value_changed_while_it_was_re_sealed_is_left_alone(
 
 def test_a_value_no_key_opens_is_listed_and_the_rest_rotates(
     tmp_path: Path,
-    inbox_pack: Pack,
+    triage_agent: Agent,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db = tmp_path / "a.db"
     keep_inputs(AuditStore(db, phi=ring(OLD)), 3)
-    Decision(inbox_pack, store=AuditStore(db, phi=ring(OLD)))(message("refill please"))
+    Decision(triage_agent, store=AuditStore(db, phi=ring(OLD)))(message("refill please"))
     keep_inputs(AuditStore(db, phi=ring(OTHER)), 1, start=10)  # sealed under a key now lost
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
     monkeypatch.setenv("MENDARI_PHI_KEY", b64(NEW))
@@ -275,10 +273,10 @@ def test_a_value_no_key_opens_is_listed_and_the_rest_rotates(
         connection.commit()
     assert main(["phi", "rotate", "--db", str(other), "--check"]) == 1
     assert "is not a Mendari database" in capsys.readouterr().err
-    assert out["unopenable"] == [{"kind": "input", "id": "d-00010", "key": LEGACY}]
+    assert out["unopenable"] == [{"kind": "input", "id": "d-00010", "key": key_id(OTHER)}]
     assert main(["phi", "rotate", "--db", str(db), "--check"]) == 1  # not ready: one fails
     checked = json.loads(capsys.readouterr().out)
-    assert checked["failed"] == [{"kind": "input", "id": "d-00010", "key": LEGACY}]
+    assert checked["failed"] == [{"kind": "input", "id": "d-00010", "key": key_id(OTHER)}]
     with AuditStore(db, phi=ring(NEW, OLD))._db.session(exclusive=True) as conn:  # erased
         conn.all("DELETE FROM decision_inputs WHERE decision_id = 'd-00010'")
     assert main(["phi", "rotate", "--db", str(db), "--check"]) == 0
@@ -305,17 +303,17 @@ def test_a_rotation_refuses_the_wrong_key_and_a_retired_one(tmp_path: Path) -> N
 
 
 def test_rotations_follow_one_another_by_the_documented_steps(
-    tmp_path: Path, inbox_pack: Pack
+    tmp_path: Path, triage_agent: Agent
 ) -> None:
     """Old to new, then new to next: each step as docs/deploying-with-phi.md has it, decisions
     kept between the swap and the re-seal (under the key just swapped in) included."""
     db = tmp_path / "a.db"
     first, second, third = OLD, NEW, OTHER
-    Decision(inbox_pack, store=AuditStore(db, phi=ring(first)))(message("one"))
+    Decision(triage_agent, store=AuditStore(db, phi=ring(first)))(message("one"))
     for current, previous in ((second, first), (third, second)):
         AuditStore(db, phi=ring(previous, current))  # reader first
         swapped = AuditStore(db, phi=ring(current, previous))  # the swap
-        Decision(inbox_pack, store=swapped)(message("kept between swap and re-seal"))
+        Decision(triage_agent, store=swapped)(message("kept between swap and re-seal"))
         rotated = swapped.rotate_phi(to=key_id(current))
         assert rotated["unopenable"] == [] and key_id(current) not in rotated["from"]
         alone = AuditStore(db, phi=ring(current))
@@ -325,9 +323,9 @@ def test_rotations_follow_one_another_by_the_documented_steps(
     assert checked["by_key"]["inputs"] == {key_id(third): 3}
 
 
-def test_the_check_writes_nothing(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_the_check_writes_nothing(tmp_path: Path, triage_agent: Agent) -> None:
     db = tmp_path / "a.db"
-    Decision(inbox_pack, store=AuditStore(db, phi=ring(OLD)))(message("refill please"))
+    Decision(triage_agent, store=AuditStore(db, phi=ring(OLD)))(message("refill please"))
 
     def written() -> list[dict[str, Any]]:
         with AuditStore(db, phi=ring(OLD), marks=False)._db.session(exclusive=False) as conn:
@@ -336,28 +334,28 @@ def test_the_check_writes_nothing(tmp_path: Path, inbox_pack: Pack) -> None:
     before = written()
     store = AuditStore(db, phi=ring(NEW, OLD), marks=False)  # as `--check` opens it
     store.phi_check()
-    assert written() == before and not store.phi.tag_tokens
+    assert written() == before
 
 
-def test_a_retired_key_seals_nothing_more(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_a_retired_key_seals_nothing_more(tmp_path: Path, triage_agent: Agent) -> None:
     db = tmp_path / "a.db"
     stale = AuditStore(db, phi=ring(OLD))  # a deployment still on the previous key
-    Decision(inbox_pack, store=stale)(message("refill please"))
+    Decision(triage_agent, store=stale)(message("refill please"))
     AuditStore(db, phi=ring(NEW, OLD)).rotate_phi(to=key_id(NEW))
     with pytest.raises(MendariError, match=f"key {key_id(OLD)} was retired by a key rotation"):
-        Decision(inbox_pack, store=stale)(message(SECRET))  # refused before any provider
+        Decision(triage_agent, store=stale)(message(SECRET))  # refused before any provider
     with pytest.raises(MendariError, match="was retired"):
         stale.ready_to_keep()
     assert SECRET not in json.dumps(stale.query())
-    Decision(inbox_pack, store=AuditStore(db, phi=ring(NEW)))(message("new key: fine"))
+    Decision(triage_agent, store=AuditStore(db, phi=ring(NEW)))(message("new key: fine"))
 
 
 def test_the_check_catches_a_value_that_does_not_match_its_hash(
-    tmp_path: Path, inbox_pack: Pack
+    tmp_path: Path, triage_agent: Agent
 ) -> None:
     db = tmp_path / "a.db"
     store = AuditStore(db, phi=ring(NEW))
-    decided = Decision(inbox_pack, store=store)(message("refill please"))
+    decided = Decision(triage_agent, store=store)(message("refill please"))
     assert store.phi_check()["ready"]
     with store._db.session(exclusive=True) as conn:  # another input, sealed under the right key
         conn.all(
@@ -369,18 +367,19 @@ def test_the_check_catches_a_value_that_does_not_match_its_hash(
     assert checked["failed"] == [{"kind": "input", "id": decided.id, "key": "input_hash"}]
 
 
-def test_an_altered_note_still_breaks_verification(tmp_path: Path, inbox_pack: Pack) -> None:
-    """Never rotated (one key, legacy tokens): an altered note breaks verification, as before.
-    A forged key id, one no deployment of this database held, is an alteration too."""
+def test_an_altered_note_still_breaks_verification(tmp_path: Path, triage_agent: Agent) -> None:
+    """Never rotated (one key): an altered note breaks verification. A forged key id, one no
+    deployment of this database held, is an alteration too."""
     db = tmp_path / "a.db"
     store = AuditStore(db, phi=ring(OLD))
-    reviewed(store, inbox_pack, 1)
+    reviewed(store, triage_agent, 1)
     with store._db.session(exclusive=True) as conn:
         sealed = conn.one("SELECT id, sealed FROM notes")
         assert sealed is not None
-        flipped = base64.b64decode(sealed["sealed"])
+        named, _, body = str(sealed["sealed"]).rpartition(":")
+        flipped = base64.b64decode(body)
         flipped = flipped[:-1] + bytes([flipped[-1] ^ 1])
-        conn.all("UPDATE notes SET sealed = ?", (base64.b64encode(flipped).decode(),))
+        conn.all("UPDATE notes SET sealed = ?", (f"{named}:{base64.b64encode(flipped).decode()}",))
     assert "broken_at" in store.verify(notes=True)
     forged = f"v2:{'0' * 16}:{base64.b64encode(flipped).decode()}"
     with store._db.session(exclusive=True) as conn:
@@ -388,15 +387,15 @@ def test_an_altered_note_still_breaks_verification(tmp_path: Path, inbox_pack: P
     assert "broken_at" in store.verify(notes=True)
 
 
-def test_verify_says_which_notes_no_key_here_opens(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_verify_says_which_notes_no_key_here_opens(tmp_path: Path, triage_agent: Agent) -> None:
     db = tmp_path / "a.db"
     rotating = AuditStore(db, phi=ring(OTHER, OLD))
-    reviewed(rotating, inbox_pack, 2)  # sealed under OTHER, named (`v2:`)
+    reviewed(rotating, triage_agent, 2)  # sealed under OTHER, named (`v2:`)
     alone = AuditStore(db, phi=ring(NEW))
     verified = alone.verify(notes=True)
     assert verified["ok"] is False and "broken_at" not in verified
     assert verified["unopenable"] == {key_id(OTHER): 2}
-    named = PhiPolicy("encrypt", OTHER, INPUT_HASH_KEY, (), tag_tokens=True)
+    named = ring(OTHER)
     with alone._db.session(exclusive=True) as conn:  # altered: it names a key the ring has
         conn.all("UPDATE notes SET sealed = ?", (named.seal_note("x", "y", {"text": "?"}),))
     assert "broken_at" in AuditStore(db, phi=ring(OTHER)).verify(notes=True)
@@ -405,21 +404,21 @@ def test_verify_says_which_notes_no_key_here_opens(tmp_path: Path, inbox_pack: P
 # -- the input hash key ---------------------------------------------------------------------------
 
 
-def test_a_new_input_hash_key_starts_an_epoch(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_a_new_input_hash_key_starts_an_epoch(tmp_path: Path, triage_agent: Agent) -> None:
     db = tmp_path / "a.db"
     first, second = secrets.token_bytes(32), secrets.token_bytes(32)
     one = AuditStore(db, phi=PhiPolicy("hash", hash_key=first))
-    decide = Decision(inbox_pack, store=one)
+    decide = Decision(triage_agent, store=one)
     decide(message("refill please"))
     decide(message("refill again"))
     two = AuditStore(db, phi=PhiPolicy("hash", hash_key=second))
-    later = Decision(inbox_pack, store=two)(message("refill please"))
+    later = Decision(triage_agent, store=two)(message("refill please"))
     assert chained(one, "input_hash.epoch") == [
         {"key_id": key_id(first)},
         {"key_id": key_id(second)},
     ]
     for store in (one, two, one, two):  # two deployments on two keys, alternating
-        Decision(inbox_pack, store=AuditStore(db, phi=store.phi))(message("refill"))
+        Decision(triage_agent, store=AuditStore(db, phi=store.phi))(message("refill"))
     assert len(chained(one, "input_hash.epoch")) == 2
     assert later.input_hash.startswith(f"hmac-sha256:{key_id(second)}:")  # never re-keyed
     epochs = two.phi_check()["hash_epochs"]
@@ -538,7 +537,7 @@ def test_admins_rotate_keys_through_the_api(
     ]
     for _ in range(2):  # the old key, in its overlap: works, and is logged once
         assert (
-            client.get("/api/packs", headers={"authorization": f"Bearer {old['key']}"}).status_code
+            client.get("/api/agents", headers={"authorization": f"Bearer {old['key']}"}).status_code
             == 200
         )
     used = [
@@ -584,7 +583,6 @@ def test_every_post_that_mints_a_credential_waits_for_the_notice(
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")  # clients' routes too
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
-    evalset_on(monkeypatch)  # and the routes hidden evaluation sets mount (LP-11g, conflict 37)
     app = create_app(db_path=tmp_path / "a.db")
     minting = sorted(
         path
@@ -596,7 +594,6 @@ def test_every_post_that_mints_a_credential_waits_for_the_notice(
     client = TestClient(app, base_url="https://mendari.test")
     store = AuditStore(tmp_path / "a.db")
     admin = signed_in(store, role="admin")
-    evalsets_are_on(client, admin)
     key = store.create_api_key(name="k", role="viewer", org="default", created_by="a")
     registered = store.register_client(
         name="c", role="viewer", org="default", created_by="a", scopes="system/*.rs",
@@ -614,12 +611,12 @@ def test_every_post_that_mints_a_credential_waits_for_the_notice(
 
 
 def test_verifying_notes_marks_no_key(
-    tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`mendari audit verify --notes` run with a stray key records nothing: it would otherwise be
     'known', and weaken how later verifications tell an altered note from a missing key."""
     db = tmp_path / "a.db"
-    reviewed(AuditStore(db, phi=ring(OLD)), inbox_pack, 1)
+    reviewed(AuditStore(db, phi=ring(OLD)), triage_agent, 1)
 
     def settings() -> list[dict[str, Any]]:
         with AuditStore(db, marks=False)._db.session(exclusive=False) as conn:
@@ -635,17 +632,17 @@ def test_verifying_notes_marks_no_key(
 
 
 def test_an_epoch_is_chained_even_when_the_first_record_under_its_key_fails(
-    tmp_path: Path, inbox_pack: Pack
+    tmp_path: Path, triage_agent: Agent
 ) -> None:
     db = tmp_path / "a.db"
     first, second = secrets.token_bytes(32), secrets.token_bytes(32)
-    decided = Decision(inbox_pack, store=AuditStore(db, phi=PhiPolicy("hash", hash_key=first)))(
+    decided = Decision(triage_agent, store=AuditStore(db, phi=PhiPolicy("hash", hash_key=first)))(
         message("refill please")
     )
     two = AuditStore(db, phi=PhiPolicy("hash", hash_key=second))
     with pytest.raises(sqlite3.IntegrityError):  # the same decision again: all rolls back
         two.record(decided, message("refill please"))
-    Decision(inbox_pack, store=two)(message("refill again"))
+    Decision(triage_agent, store=two)(message("refill again"))
     assert [e["key_id"] for e in chained(two, "input_hash.epoch")] == [
         key_id(first),
         key_id(second),
@@ -654,13 +651,13 @@ def test_an_epoch_is_chained_even_when_the_first_record_under_its_key_fails(
 
 def test_the_database_check_reads_the_file_it_names(
     tmp_path: Path,
-    inbox_pack: Pack,
+    triage_agent: Agent,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A path with "#" or "?" names that file, not a shorter one: a Mendari database at `prod`
     never vouches for another application's `prod#2.db`, which is left as it was."""
-    Decision(inbox_pack, store=AuditStore(tmp_path / "prod", phi=ring(OLD)))(message("refill"))
+    Decision(triage_agent, store=AuditStore(tmp_path / "prod", phi=ring(OLD)))(message("refill"))
     other = tmp_path / "prod#2.db"
     with closing(sqlite3.connect(other)) as connection:
         connection.execute("CREATE TABLE app_things (id INTEGER)")

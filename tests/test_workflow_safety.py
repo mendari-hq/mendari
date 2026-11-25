@@ -3,7 +3,7 @@
 trigger runs a fork's code with secrets or a write token, every token is read-only unless a job
 publishes from its environment in a workflow only a person starts (the release jobs, whose
 environments must have reviewers, and the docs deploy), no
-expression is pasted into a shell script, and a pack directory a pull request names is data,
+expression is pasted into a shell script, and an agent directory a pull request names is data,
 never code. Nothing is published on a tag push. Also: every file has a code owner, the history
 is scanned for secrets, and every commit of a pull request is signed off."""
 
@@ -325,7 +325,7 @@ def test_the_secret_guard_catches_an_unguarded_use() -> None:
 
 
 def test_every_file_has_a_code_owner() -> None:
-    # One person on the `*` rule: the pack check takes that person for the repository's owner.
+    # One person on the `*` rule: the agent check takes that person for the repository's owner.
     lines = (ROOT / ".github" / "CODEOWNERS").read_text().splitlines()
     rules = [line.split() for line in lines if line.strip() and not line.startswith("#")]
     assert rules[0] == ["*", "@Junebugg1214"]
@@ -395,12 +395,10 @@ def test_every_ref_is_scanned_weekly_with_a_positive_control() -> None:
     assert runs.index(SCAN["run"]) < runs.index("uv build")
 
 
-# Each conformance job, the compose file it runs, and the command that runs its suite: DTR's
-# headless `inferno execute`, the scripted suites' driver (scripts/inferno_session.py).
+# Each conformance job, the compose file it runs, and the command that runs its suite: the
+# scripted suites' driver (scripts/inferno_session.py).
 SCRIPTED_COMPOSE = "sandbox/inferno/scripted/docker-compose.yml"
 CONFORMANCE_JOBS = {
-    "dtr-payer": ("sandbox/inferno/docker-compose.yml", "inferno execute", "dtr_payer_server_v220"),
-    "crd-server": (SCRIPTED_COMPOSE, "inferno_session.py", "crd_server_v221"),
     "smart-client": (SCRIPTED_COMPOSE, "inferno_session.py", "smart_client_stu2_2"),
     "bulk-client": (SCRIPTED_COMPOSE, "inferno_session.py", "bulk_data_v200_client"),
 }
@@ -409,10 +407,9 @@ CONFORMANCE_JOBS = {
 def test_conformance_runs_weekly_or_by_hand_with_no_secret_and_commits_nothing() -> None:
     """conformance.yml (sandbox/inferno/README.md): Inferno against the engines on synthetic
     data, never on a pull request, with a read-only token and no secret. Each suite is a job of
-    its own, so each has its own verdict, the checker's: only Inferno's own exit status (3 when a
-    test does not pass) is set aside, and the raw output, which can quote payloads, is an
-    artifact for 7 days, never committed; each job ends by removing its containers and
-    volumes."""
+    its own, so each has its own verdict, the checker's, and the driver's status counts too
+    (nothing is set aside); the raw output, which can quote payloads, is an artifact for 7
+    days, never committed; each job ends by removing its containers and volumes."""
     path = ROOT / ".github" / "workflows" / "conformance.yml"
     workflow = _workflow(path)
     assert set(_triggers(workflow)) == {"schedule", "workflow_dispatch"}
@@ -444,31 +441,11 @@ def test_conformance_runs_weekly_or_by_hand_with_no_secret_and_commits_nothing()
             command = step.get("run", "")
             if "docker compose" in command:
                 assert f"docker compose -f {compose}" in command, (name, command)
-    dtr = workflow["jobs"]["dtr-payer"]["steps"]
-    (execute,) = [s for s in dtr if "inferno execute" in s.get("run", "")]
-    assert "--groups 1 3 4" in execute["run"]  # group 2, Backend Services, waits for LP-23
-    assert execute["run"].rstrip().endswith('|| echo "inferno execute exited $?"')
-    for name in ("crd-server", "smart-client", "bulk-client"):  # the driver's status counts
+    for name in CONFORMANCE_JOBS:  # the driver's status counts
         (execute,) = [
             s for s in workflow["jobs"][name]["steps"] if "inferno_session.py" in s.get("run", "")
         ]
         assert "||" not in execute["run"], name
-
-
-def test_the_signed_in_engines_keys_are_made_in_the_job_for_the_job_alone() -> None:
-    """crd-server's engine signs in, which never runs PHI mode `off`: its two keys are made in
-    the job (os.urandom), masked, and handed to the later compose calls through $GITHUB_ENV, as
-    ci.yml's sandbox-e2e does; never a secret, never in the repository."""
-    steps = _workflow(ROOT / ".github" / "workflows" / "conformance.yml")["jobs"]["crd-server"][
-        "steps"
-    ]
-    (keys,) = [s for s in steps if "MENDARI_PHI_KEY" in s.get("run", "")]
-    assert "os.urandom(32)" in keys["run"] and 'echo "::add-mask::$key"' in keys["run"]
-    assert '>> "$GITHUB_ENV"' in keys["run"]
-    started = next(
-        i for i, s in enumerate(steps) if "up -d --wait engine-signin" in s.get("run", "")
-    )
-    assert steps.index(keys) < started
 
 
 # -- the FHIR packages the HL7 validator loads (DV-b) ---------------------------------------------
@@ -527,22 +504,22 @@ def test_no_workflow_loads_a_fhir_package_the_lock_does_not_pin(path: Path) -> N
 
 
 def test_the_package_check_catches_a_package_by_name() -> None:
-    locked = {"var/fhir-packages/hl7.fhir.us.davinci-crd-2.2.1.tgz"}
-    assert _unpinned_igs("x --ig hl7.fhir.us.davinci-crd#2.2.1 --ig var/a", locked) == [
-        "hl7.fhir.us.davinci-crd#2.2.1"
+    locked = {"var/fhir-packages/example.fhir.guide-1.0.0.tgz"}
+    assert _unpinned_igs("x --ig example.fhir.guide#1.0.0 --ig var/a", locked) == [
+        "example.fhir.guide#1.0.0"
     ]
     assert _unpinned_igs("java -jar v.jar -ig hl7.fhir.us.core#6.1.0", locked)
     assert _unpinned_igs("x --ig=hl7.fhir.us.core#6.1.0", locked)
     assert _unpinned_igs('x --ig "$PACKAGE"', locked)
     assert _unpinned_igs("x --ig var/fhir-packages/hl7.fhir.us.core-6.1.0.tgz", locked)
     assert not _unpinned_igs(
-        "x --ig var/fhir-terminology --ig var/fhir-packages/hl7.fhir.us.davinci-crd-2.2.1.tgz",
+        "x --ig var/fhir-terminology --ig var/fhir-packages/example.fhir.guide-1.0.0.tgz",
         locked,
     )
     # The value on the next line, after a backslash, and a quoted flag.
     continued = "uv run python scripts/fhir_validate.py --offline \\\n  --ig \\\n  {}\n"
-    assert _unpinned_igs(continued.format("hl7.fhir.us.davinci-crd#2.2.1"), locked) == [
-        "hl7.fhir.us.davinci-crd#2.2.1"
+    assert _unpinned_igs(continued.format("example.fhir.guide#1.0.0"), locked) == [
+        "example.fhir.guide#1.0.0"
     ]
     assert _unpinned_igs("x --ig \\\r\n hl7.fhir.us.core#6.1.0", locked)
     assert not _unpinned_igs(continued.format(next(iter(locked))), locked)
@@ -556,10 +533,10 @@ def test_the_package_check_catches_a_package_by_name() -> None:
 
 def test_the_validator_loads_only_the_locked_packages_each_checked() -> None:
     """The fhir-conformance job downloads each package the lock pins and checks it with
-    `sha256sum -c`, every run (a cached tarball too), before the validator first runs; each
-    validator run then builds a package cache of its own from them (`--offline`), so no step
-    fills a cache the runs share. Its cache key follows the lock, and no validator's package
-    cache is ever restored."""
+    `sha256sum -c`, every run (a cached tarball too), before the validator runs; the validator
+    run then builds a package cache of its own from them (`--offline`), so no step fills a
+    shared cache. Its cache key follows the lock, and no validator's package cache is ever
+    restored."""
     job = _workflow(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]["fhir-conformance"]
     steps = job["steps"]
     (cache,) = [s for s in steps if s.get("uses", "").startswith("actions/cache@")]
@@ -576,7 +553,7 @@ def test_the_validator_loads_only_the_locked_packages_each_checked() -> None:
     assert script.index("fi\n") < script.index("sha256sum -c")  # checked, downloaded or cached
     assert not [run for run in runs if "scripts/fhir_packages.py" in run]
     validations = [i for i, run in enumerate(runs) if "scripts/fhir_validate.py" in run]
-    assert len(validations) == 2 and download < min(validations)
+    assert len(validations) == 1 and download < min(validations)  # US Core, with Mendari's terms
     assert all("--offline" in runs[i].split() for i in validations)
     # The validator these packages were read from is the one the job downloads.
     lock_script = (ROOT / "scripts" / "fhir_packages.py").read_text()
@@ -602,7 +579,7 @@ def test_terminology_validation_runs_on_a_schedule_and_never_on_a_pull_request()
     assert job["env"] == offline["env"]
     runs = [step.get("run", "") for step in job["steps"]]
     validations = [run for run in runs if "scripts/fhir_validate.py" in run]
-    assert len(validations) == 2
+    assert len(validations) == 1
     assert all(_tx_values(run.split()) == [TX] for run in validations)
     as_offline = [
         {**step, "run": step["run"].replace(f"--tx {TX}", "--offline")}
@@ -616,24 +593,24 @@ def test_terminology_validation_runs_on_a_schedule_and_never_on_a_pull_request()
 # -- the agents workflow --------------------------------------------------------------------------
 
 
-def _changed_packs() -> ModuleType:
-    path = ROOT / "scripts" / "changed_packs.py"
-    spec = importlib.util.spec_from_file_location("changed_packs", path)
+def _changed_agents() -> ModuleType:
+    path = ROOT / "scripts" / "changed_agents.py"
+    spec = importlib.util.spec_from_file_location("changed_agents", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def test_a_pack_directory_is_data_never_code() -> None:
-    packs = (ROOT / ".github" / "workflows" / "agents.yml").read_text()
-    assert "scripts/changed_packs.py" in packs
-    assert "read -r -d ''" in packs  # NUL-separated names, read whole
-    for unsafe in ("resolve_pack('$", '"$dir")', "cut -d/", "$(git diff", "for name in $("):
-        assert unsafe not in packs, unsafe
+def test_an_agent_directory_is_data_never_code() -> None:
+    agents = (ROOT / ".github" / "workflows" / "agents.yml").read_text()
+    assert "scripts/changed_agents.py" in agents
+    assert "read -r -d ''" in agents  # NUL-separated names, read whole
+    for unsafe in ("resolve_agent('$", '"$dir")', "cut -d/", "$(git diff", "for name in $("):
+        assert unsafe not in agents, unsafe
 
 
-def test_pack_check_runs_on_every_pull_request() -> None:
+def test_agent_check_runs_on_every_pull_request() -> None:
     # A required check must report on every pull request: a path filter would leave it pending.
     workflow = _workflow(ROOT / ".github" / "workflows" / "agents.yml")
     assert workflow["name"] == "agents"  # a check is shown as `agents / agent-check`
@@ -643,99 +620,59 @@ def test_pack_check_runs_on_every_pull_request() -> None:
     assert steps[0]["with"]["fetch-depth"] == 0  # the base commit, for the diff and benchmarks
     find = next(step for step in steps if step.get("name") == "Find the changed agents")
     assert "no agent changes" in find["run"]
-    maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
-    assert 'case "$dir" in agents/*)' in maintained["run"]  # community packs go the other way
-    (community,) = [step for step in steps if "community_check.py" in step.get("run", "")]
-    # Who made the change reaches the script through `env` only. The author is the pull
-    # request's, never `github.actor` (whoever caused the run: the owner updating a fork's branch
-    # would be it); the branch must be in this repository and the pull request into the default
-    # branch. Who owns the repository is the person the base's CODEOWNERS names (the script
-    # reads it), never `github.repository_owner`: since the move to mendari-hq, an organization,
-    # which no pull request's author is.
-    assert community["env"] == {
-        "BASE": "${{ github.event.pull_request.base.sha }}",
-        "BASE_REF": "${{ github.event.pull_request.base.ref }}",
-        "DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
-        "AUTHOR": "${{ github.event.pull_request.user.login }}",
-        "HEAD_REPO": "${{ github.event.pull_request.head.repo.full_name }}",
-        "REPO": "${{ github.repository }}",
-    }
-    for argument in (
-        '--base "$BASE"',
-        '--actor "$AUTHOR"',
-        '--head-repo "$HEAD_REPO"',
-        '--repo "$REPO"',
-        '--base-ref "$BASE_REF"',
-        '--default-branch "$DEFAULT_BRANCH"',
-    ):
-        assert argument in community["run"]
-    step = json.dumps(community)
-    for unwanted in ("github.actor", "repository_owner", "--owner"):
-        assert unwanted not in step, unwanted
+    maintained = next(step for step in steps if "agent_gate.py" in step.get("run", ""))
+    assert 'case "$dir" in agents/*)' in maintained["run"]  # only the bundled agents' folders
+    # No step reads who made the change or owns the repository: nothing is decided by person.
+    for unwanted in ("github.actor", "repository_owner", "user.login"):
+        assert unwanted not in json.dumps(steps), unwanted
 
 
-def test_ci_runs_every_community_packs_tests() -> None:
-    ci = _workflow(ROOT / ".github" / "workflows" / "ci.yml")
-    scripts = [step.get("run", "") for step in ci["jobs"]["test"]["steps"]]
-    # By either name of the manifest (`core/pack.py` `MANIFEST_NAMES`).
-    names = "community-agents/*/agent.yaml community-agents/*/pack.yaml"
-    (loop,) = [run for run in scripts if names in run]
-    assert 'uv run mendari test "$(dirname "$manifest")"' in loop and "exit $failed" in loop
-
-
-def test_the_pack_workflow_finds_a_manifest_by_either_name() -> None:
+def test_the_agent_workflow_finds_a_manifest_by_its_name() -> None:
     """A folder with no manifest is "removed", and nothing of it is checked: so the workflow
-    looks for both names, `agent.yaml` and `pack.yaml`. Looking for `pack.yaml` alone, it took
-    the bundled agent for a removed one and skipped its validation, tests and evaluation gate."""
+    looks for the manifest by its name, `agent.yaml`. Looking for another name, it took the
+    bundled agent for a removed one and skipped its validation, tests and evaluation gate."""
     workflow = _workflow(ROOT / ".github" / "workflows" / "agents.yml")
     steps = workflow["jobs"]["agent-check"]["steps"]
-    maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
-    removed = 'if [ ! -f "$dir/agent.yaml" ] && [ ! -f "$dir/pack.yaml" ]; then'
+    maintained = next(step for step in steps if "agent_gate.py" in step.get("run", ""))
+    removed = 'if [ ! -f "$dir/agent.yaml" ]; then'
     assert removed in maintained["run"] and "was removed" in maintained["run"]
-    (data,) = [step for step in steps if step.get("name", "").endswith("dataset checks")]
-    assert '[ -f "$dir/agent.yaml" ] || [ -f "$dir/pack.yaml" ] || continue' in data["run"]
-    for step in steps:  # no step that asks for one name alone
-        for line in step.get("run", "").splitlines():
-            if ".yaml" in line and ("agent.yaml" in line) != ("pack.yaml" in line):
-                raise AssertionError(line)
+    # Its dataset checks run after that, on a folder that has the manifest.
+    assert maintained["run"].index(removed) < maintained["run"].index("mendari data check")
+    for step in steps:  # no step asks for a manifest by another name
+        for name in re.findall(r'-f "\$dir/([^"]+)"', step.get("run", "")):
+            assert name == "agent.yaml", name
 
 
-def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
-    for pack in (
+def test_changed_files_map_to_their_agent(tmp_path: Path) -> None:
+    for folder in (
         "agents/inbox",
-        "agents/my pack; $(touch x)",
+        "agents/my agent; $(touch x)",
         "agents/group/nested",
         "agents/a/b/c",
     ):
-        (tmp_path / pack).mkdir(parents=True)
-        (tmp_path / pack / "pack.yaml").write_text("id: x/y\n")
-    for agent in ("agents/renamed", "agents/group/renamed/deeper"):  # the manifest's new name
+        (tmp_path / folder).mkdir(parents=True)
+        (tmp_path / folder / "agent.yaml").write_text("id: x/y\n")
+    for agent in ("agents/renamed", "agents/group/renamed/deeper"):
         (tmp_path / agent).mkdir(parents=True)
         (tmp_path / agent / "agent.yaml").write_text("id: x/y\n")
     changed = [
         "agents/renamed/logic/rules.yaml",
         "agents/group/renamed/deeper/data/test.jsonl",
         "agents/inbox/rules/red_flags.yaml",
-        "agents/inbox/pack.yaml",
-        "agents/my pack; $(touch x)/tests/cases.yaml",
+        "agents/inbox/agent.yaml",
+        "agents/my agent; $(touch x)/tests/cases.yaml",
         "agents/group/nested/data/test.jsonl",
-        "agents/a/b/c/d/e/deep.yaml",  # deeper than a pack.yaml can be: belongs to agents/a/b/c
-        "agents/removed/pack.yaml",  # gone from the tree: reported as its top folder
-        "agents/README.md",  # directly in agents/: no pack
+        "agents/a/b/c/d/e/deep.yaml",  # deeper than a manifest can be: belongs to agents/a/b/c
+        "agents/removed/agent.yaml",  # gone from the tree: reported as its top folder
+        "agents/README.md",  # directly in agents/: no agent
         "src/mendari/cli.py",
-        "community-agents/visit-sorter/logic/rules.yaml",
-        "community-agents/visit-sorter/nested/pack.yaml",  # one folder is one community pack
-        "community-agents/gone; $(touch x)/pack.yaml",
-        "community-agents/MAINTAINERS.yaml",  # directly in community-agents/: no pack
     ]
-    assert _changed_packs().pack_dirs(changed, tmp_path) == [
+    assert _changed_agents().agent_dirs(changed, tmp_path) == [
         "agents/a/b/c",
         "agents/group/nested",
         "agents/group/renamed/deeper",
         "agents/inbox",
-        "agents/my pack; $(touch x)",
+        "agents/my agent; $(touch x)",
         "agents/removed",
         "agents/renamed",
-        "community-agents/gone; $(touch x)",
-        "community-agents/visit-sorter",
     ]

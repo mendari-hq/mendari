@@ -4,7 +4,7 @@
 There is no worker (owner decision 9): a job is a row that advances in slices, each slice one
 request an author (or the command line) makes, and nothing runs when nobody asks.
 
-- **A job** evaluates one version (a store version of the organization, by digest, or a pack this
+- **A job** evaluates one version (a store version of the organization, by digest, or an agent this
   deployment serves from disk, by id: the "current" a draft is compared with) on one dataset
   (one the version declares, by name, or one of the organization's uploaded datasets). It is
   chained `store_job.created`.
@@ -26,16 +26,16 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from mendari.core import clock, tenancy
+from mendari.core.agent import Agent
+from mendari.core.agent_store import WITHDRAWN, AgentStore, StoreError
 from mendari.core.audit import AuditStore, _canonical, _now
 from mendari.core.decision import Decision, DecisionResult
-from mendari.core.pack import Pack
-from mendari.core.pack_store import HELD, WITHDRAWN, PackStore, StoreError
 from mendari.errors import MendariError
 from mendari.evals import figures, paired
 from mendari.evals import ledger as ledgers
@@ -63,15 +63,23 @@ def _lines(built: ledgers.Ledger) -> list[dict[str, Any]]:
 
 
 def _joined(
-    header: dict[str, Any], lines: list[dict[str, Any]], n: int, limit: int | None
+    header: dict[str, Any],
+    lines: list[dict[str, Any]],
+    n: int,
+    limit: int | None,
+    order: Sequence[str],
 ) -> ledgers.Ledger:
     """The ledger a single run over every case writes: the slices' lines in order, models
-    numbered in the order they first appear."""
+    numbered in the order they first appear, reading each case's answers in the manifest's
+    question order (`order`), as a single run does. The job keeps its lines and header with
+    sorted keys, which would number models in another order when the questions are not in
+    alphabetical order."""
     models: list[str] = []
     cases = []
     for line in lines:
         q = {}
-        for question, answer in line["q"].items():
+        for question in [question for question in order if question in line["q"]]:
+            answer = line["q"][question]
             model = answer[4]
             if model is not None and model not in models:
                 models.append(model)
@@ -87,20 +95,20 @@ def _joined(
 
 
 class JobStore:
-    """Evaluation jobs over a `PackStore` (its database and chain). `served()` is what this
+    """Evaluation jobs over an `AgentStore` (its database and chain). `served()` is what this
     deployment serves from disk, a job's "current" when nothing is promoted; `decision_for` builds
     a version's `Decision` (its variants, the deployment's deadline and budget)."""
 
     def __init__(
         self,
-        packs: PackStore,
+        agents: AgentStore,
         *,
-        served: Callable[[], Mapping[str, Pack]],
-        decision_for: Callable[[Pack, Mapping[str, str]], Decision],
+        served: Callable[[], Mapping[str, Agent]],
+        decision_for: Callable[[Agent, Mapping[str, str]], Decision],
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self.packs = packs
-        self.store: AuditStore = packs.store
+        self.agents = agents
+        self.store: AuditStore = agents.store
         self.served = served
         self.decision_for = decision_for
         self.clock = clock
@@ -108,31 +116,31 @@ class JobStore:
     # -- what a job runs ---------------------------------------------------------------------
 
     def _target(
-        self, org: str, digest: str | None, pack: str | None
-    ) -> tuple[Pack, dict[str, Any]]:
-        """The pack a job evaluates, and how the job names it."""
-        if (digest is None) == (pack is None):
+        self, org: str, digest: str | None, agent: str | None
+    ) -> tuple[Agent, dict[str, Any]]:
+        """The agent a job evaluates, and how the job names it."""
+        if (digest is None) == (agent is None):
             raise StoreError("a job names a version (its digest) or an agent served here, not both")
         if digest is not None:
-            row = self.packs.version(org, digest)
-            if row["state"] in (HELD, WITHDRAWN):
+            row = self.agents.version(org, digest)
+            if row["state"] == WITHDRAWN:
                 raise StoreError(f"version {digest} is {row['state']}", 409)
-            return self.packs.load(org, digest), {"digest": digest}
-        found = self.served().get(str(pack))
+            return self.agents.load(org, digest), {"digest": digest}
+        found = self.served().get(str(agent))
         if found is None:
             raise StoreError("no such agent served here", 404)
-        return found, {"pack": found.id, "digest": found.digest}
+        return found, {"agent": found.id, "digest": found.digest}
 
-    def _dataset(self, org: str, pack: Pack, ref: Mapping[str, str]) -> Dataset:
-        """A job's dataset: one the pack declares (`{"name": ...}`) or one of the organization's
+    def _dataset(self, org: str, agent: Agent, ref: Mapping[str, str]) -> Dataset:
+        """A job's dataset: one the agent declares (`{"name": ...}`) or one of the organization's
         uploaded datasets (`{"id": ...}`), loaded with its case key."""
-        from mendari.evals.harness import load_dataset, resolve_dataset
+        from mendari.evals.harness import declared_dataset, load_dataset
 
         if "name" in ref:
-            if ref["name"] not in pack.manifest.evaluation.datasets:
-                raise StoreError(f"{pack.id} declares no dataset {ref['name']!r}")
-            return resolve_dataset(pack, ref["name"])
-        raw, name = self.packs.dataset_bytes(org, str(ref.get("id")))
+            if ref["name"] not in agent.manifest.evaluation.datasets:
+                raise StoreError(f"{agent.id} declares no dataset {ref['name']!r}")
+            return declared_dataset(agent, ref["name"])
+        raw, name = self.agents.dataset_bytes(org, str(ref.get("id")))
         return load_dataset(f"{name}.jsonl", name=name, raw=raw, label=name)
 
     # -- writes ------------------------------------------------------------------------------
@@ -143,16 +151,16 @@ class JobStore:
         *,
         by: str,
         digest: str | None = None,
-        pack: str | None = None,
+        agent: str | None = None,
         dataset: Mapping[str, str],
         variants: Mapping[str, str] | None = None,
         limits: Mapping[str, int] | None = None,
     ) -> dict[str, Any]:
-        """A queued job of `org` evaluating a version (or a pack served here) on a dataset, with
+        """A queued job of `org` evaluating a version (or an agent served here) on a dataset, with
         `variants` (default: the version's own). A remote variant needs the organization's
-        evaluation quota for its provider type (`eval_jev`, `eval_llm`) to be set, and runs on
+        evaluation quota for its provider type (`eval_llm`) to be set, and runs on
         `REMOTE_LIMIT` cases at most. Chained `store_job.created`."""
-        target, named = self._target(org, digest, pack)
+        target, named = self._target(org, digest, agent)
         data = self._dataset(org, target, dataset)
         problems = record_problems(target.manifest, data)
         if problems:
@@ -164,7 +172,7 @@ class JobStore:
         decision = self.decision_for(target, variants or {})
         total = min(len(data.records), MAX_CASES)
         if decision.is_remote:
-            types = {info.type for info in decision.provider_info.values()} & {"jev", "llm"}
+            types = {info.type for info in decision.provider_info.values()} & {"llm"}
             unset = sorted(t for t in types if f"eval_{t}" not in (limits or {}))
             if unset:
                 raise StoreError(
@@ -231,8 +239,8 @@ class JobStore:
                 (done + len(lines), _canonical(kept), _canonical(timing),
                  row["header"] or _canonical(header), job_id),
             )  # fmt: skip
-        if done + len(lines) >= total:
-            return self._finish(org, job_id)
+        if done + len(lines) >= total:  # the last slice's header lists the manifest's order
+            return self._finish(org, job_id, list(header["questions"]))
         return self.job(org, job_id)
 
     def _slice(
@@ -258,9 +266,9 @@ class JobStore:
         built = ledgers.build(decision, part, results)
         return _lines(built), built.header, [int(r.latency_ms) for r in results]
 
-    def _finish(self, org: str, job_id: str) -> dict[str, Any]:
+    def _finish(self, org: str, job_id: str, order: Sequence[str]) -> dict[str, Any]:
         """Write the report of a job whose every case is decided, once, in one transaction with
-        the job's own state."""
+        the job's own state. `order` is the manifest's question order."""
         from mendari.evals import metrics
 
         with self.store._db.session(exclusive=False) as db:
@@ -269,7 +277,7 @@ class JobStore:
             return self._shown(row)
         header, total = json.loads(row["header"]), int(row["total"])
         n = int(row["dataset_cases"])
-        joined = _joined(header, json.loads(row["lines"]), n, None if total == n else total)
+        joined = _joined(header, json.loads(row["lines"]), n, None if total == n else total, order)
         found = result_from_ledger(joined)
         run = {
             "id": str(uuid.uuid4()),
@@ -342,9 +350,9 @@ class JobStore:
 
 
 def _named(target: Mapping[str, Any]) -> tuple[str | None, str | None]:
-    """(digest, pack) as `_target` takes them, from how a job names what it runs."""
-    if "pack" in target:
-        return None, str(target["pack"])
+    """(digest, agent) as `_target` takes them, from how a job names what it runs."""
+    if "agent" in target:
+        return None, str(target["agent"])
     return str(target["digest"]), None
 
 
@@ -386,7 +394,7 @@ def compare_jobs(jobs: JobStore, org: str, draft: str, current: str) -> dict[str
         dataset_sha256=a["dataset_sha256"],
         lineage=True,
     )
-    target, _ = jobs._target(org, *_named({k: a[k] for k in ("digest", "pack") if k in a}))
+    target, _ = jobs._target(org, *_named({k: a[k] for k in ("digest", "agent") if k in a}))
     data = jobs._dataset(org, target, a["dataset"])
     ids = {
         ledgers.case_hash(data.case_key, record["id"]): str(record["id"]) for record in data.records

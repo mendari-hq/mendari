@@ -13,13 +13,10 @@ out: a missed emergency, a provider behaving oddly, an agent version you are uns
 
 | Hold | Covers | Set and lifted |
 |---|---|---|
-| One version of an agent (`pack_id` and `pack_digest`) | that digest, in your organization | the API, the command line (lifted in the dashboard too) |
-| An agent (`pack_id`) | every version of it, in your organization | the API, the dashboard, the command line |
+| One version of an agent (`agent_id` and `agent_digest`) | that digest, in your organization | the API, the command line (lifted in the dashboard too) |
+| An agent (`agent_id`) | every version of it, in your organization | the API, the dashboard, the command line |
 | Every agent | every decision in your organization | the API, the command line (lifted in the dashboard too) |
 | Every organization (`--all-orgs`) | every decision on the deployment | the command line only |
-
-`pack_id` and `pack_digest` name the agent and its version: the keys keep the word Mendari used
-before, as stored records hold them.
 
 Holds are rows in the deployment's database, read by each decision (and reused on a server for
 at most five seconds), so a hold set anywhere reaches every instance within seconds. Setting and
@@ -35,7 +32,7 @@ says when one covers the agent. People who may approve automation (signed in wit
 `governance` or `admin` role) can hold the agent there with a reason and lift their
 organization's holds. Holding is one click; lifting asks first, in a dialog that says the agent
 then decides on its own again. API keys and clients cannot hold or lift (their roles never approve); they
-can read `GET /api/holds`. The routes are `POST /api/holds` (`pack_id`, optional `pack_digest`
+can read `GET /api/holds`. The routes are `POST /api/holds` (`agent_id`, optional `agent_digest`
 of the version this deployment serves, `reason`) and `DELETE /api/holds/{id}`.
 
 ## From the command line (break-glass)
@@ -53,16 +50,9 @@ mendari automation list --db "$DATABASE_URL"
 mendari automation lift <id> --db "$DATABASE_URL"
 ```
 
-## What a hold means for prior authorization
-
-A held decision is a person's to confirm: the Da Vinci PAS route (`POST /api/agents/{id}/pas`
-with `submit`) sends a request to the payer only for a `submit_ready` recommendation that was
-automated, or that a reviewer resolved as `submit_ready` (the label the review chained; an
-outcome reported later does not count).
-
 ## Over an organization's daily quota
 
 A decision over its organization's daily decisions quota is held the same way: its remote calls
-(Jev, language models) fail with the quota, its local providers (the keyword rules, naive Bayes,
-criteria, dosing, and a CQL engine the deployment runs) still answer, and any decision that
-would have been automated goes to a person. An emergency rule still raises its message to `stat`.
+(language models, an agent's service) fail with the quota, its local providers (the keyword
+rules) still answer, and any decision that would have been automated goes to a person. An
+emergency rule still raises its message to `stat`.

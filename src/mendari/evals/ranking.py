@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """The one ranking of a leaderboard's configurations (`mendari.rank/1`, LP-10): the card, the
 command line and the dashboard all list the rows in the order this writes, never their own.
-A pack's own sets are public, in the repository and in the package, and a board can also hold a
-site's own file (`mendari leaderboard --dataset PATH`), never a frozen hidden set: so since
-LP-17g that order is shown as a listing order and no surface prints a rank, each table a
-regression check, not a ranking. `rank` and `standing` stay in the rows and the API as data.
+An agent's own sets are public, in the repository and in the package, and a board can also hold a
+site's own file (`mendari leaderboard --dataset PATH`): so since LP-17g that order is shown as
+a listing order and no surface prints a rank, each table a regression check, not a ranking.
+`rank` and `standing` stay in the rows and the API as data.
 
-Only rows measured on the pack as it is (its digest) rank, against rows on the same records (the
+Only rows measured on the agent as it is (its digest) rank, against rows on the same records (the
 dataset's name, hash and size; a row that did not record the hash is never on the same records as
 one that did). Within those, critical cases come first and accuracy never alone:
 
@@ -57,7 +57,7 @@ def about(group: Records, *, limited: bool, twin: bool) -> list[str]:
 
 
 def measured_on(version: Any, digest: Any, current: str | None) -> str:
-    """Why a row (or a benchmark) is not of the pack as it is, in words."""
+    """Why a row (or a benchmark) is not of the agent as it is, in words."""
     if not digest:
         return f"version {version}, its agent digest not recorded"
     if current is not None and version == current:
@@ -126,7 +126,7 @@ def grouped(
     out: list[tuple[Records, list[dict[str, Any]]]] = []
     for group in sorted(groups, key=lambda g: (g[0], -g[2], not g[1], g[1])):
         members = groups[group]
-        on = [digest is not None and r.get("pack_digest") == digest for r in members]
+        on = [digest is not None and r.get("agent_digest") == digest for r in members]
         current = [r for r, ok in zip(members, on, strict=True) if ok]
         others = [r for r, ok in zip(members, on, strict=True) if not ok]
         enough = any(c["n"] >= MIN_POSITIVES for r in current for c in r.get("critical", []))

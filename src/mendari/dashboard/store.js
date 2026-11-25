@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// An organization's pack store (LP-20j, ADR-0016 Proposed), in the dashboard: shown where the
+// An organization's agent store (LP-20j, ADR-0016 Proposed), in the dashboard: shown where the
 // server says the store is on (`/api/auth/me` `store`) to a person who holds `author` (the
-// `pack_author` role) or `promote` (`governance`, `admin`). Five tabs:
+// `agent_author` role) or `promote` (`governance`, `admin`). Five tabs:
 // - Agents (#store/agents): the organization's agents and their versions, with their state in
 //   words; copy an agent served here, upload a signed archive (in parts, with progress); a refused
-//   upload shows the PHI report's kinds, files and lines, never a value; a held one says only that
-//   it is held.
+//   upload shows the PHI report's kinds, files and lines, never a value.
 // - A version (#store/version/<digest>): its files, an editor for a text file that saves a new
 //   draft, its validation, its behaviour tests and the proposed tests from reviewers'
 //   corrections, and the Decision Card the server rendered, as text.
@@ -49,7 +48,6 @@ const TABS = [
 const PART_BYTES = 3 * 1024 * 1024;
 const STATE_WORDS = {
   draft: ["Draft", ""],
-  held: ["Held for the operator's review", "s-warning"],
   promoted: ["Serving", "s-ok"],
   retired: ["Retired", ""],
   withdrawn: ["Withdrawn", "o-ABSTAIN"],
@@ -63,11 +61,7 @@ const short = (digest) => esc(String(digest).replace("sha256:", "").slice(0, 12)
 const digestCode = (digest) => `<code title="${esc(digest)}">${short(digest)}</code>`;
 
 views.store = async (main, params = []) => {
-  const [asked = defaultTab(), ...rest] = params;
-  // The Agents tab's address was "#store/packs": a link made then opens the tab, and the address
-  // says "#store/agents" from there on.
-  const tab = asked === "packs" ? "agents" : asked;
-  if (tab !== asked) history.replaceState(history.state, "", `${location.pathname}${location.search}#store/${tab}`);
+  const [tab = defaultTab(), ...rest] = params;
   if (tab === "version" && rest[0]) return showVersion(main, rest[0]);
   const tabs = TABS.filter((t) => t.shown());
   const current = tabs.find((t) => t.key === tab) ?? tabs[0];
@@ -79,7 +73,7 @@ views.store = async (main, params = []) => {
     <section id="store-body" aria-busy="true"></section>`;
   const body = $("#store-body");
   try {
-    if (current.key === "agents") await showPacks(body);
+    if (current.key === "agents") await showAgents(body);
     else if (current.key === "results") await showResults(body);
     else if (current.key === "compare") await showCompare(body);
     else await showPromote(body);
@@ -92,16 +86,16 @@ views.store = async (main, params = []) => {
 };
 
 views.store.available = () => Boolean(state.store) && (may("author") || may("promote"));
-views.store.packless = true;
+views.store.agentless = true;
 views.store.leave = () => document.querySelectorAll("dialog[data-admin]:not([data-busy])").forEach((d) => d.close());
 
 function defaultTab() {
   return may("author") ? "agents" : "promote";
 }
 
-// -- packs ---------------------------------------------------------------------------------------
+// -- agents ---------------------------------------------------------------------------------------
 
-async function showPacks(body) {
+async function showAgents(body) {
   const lineages = await api("/api/store/agents");
   const list = lineages.length
     ? lineages.map(lineageHtml).join("")
@@ -110,8 +104,8 @@ async function showPacks(body) {
     <form class="panel admin-form" id="copy-form" novalidate>
       <h2>Copy an agent</h2>
       <p class="muted">A draft of an agent this deployment serves, under your organization's name. It runs on the engine for agents the deployment does not own.</p>
-      <label for="copy-pack">Agent to copy</label>
-      <input id="copy-pack" name="pack" required placeholder="mendari/portal-message-agent" autocomplete="off">
+      <label for="copy-agent">Agent to copy</label>
+      <input id="copy-agent" name="agent" required placeholder="mendari/portal-message-agent" autocomplete="off">
       <label for="copy-name">Name of the copy</label>
       <input id="copy-name" name="name" required pattern="[a-z0-9][a-z0-9\\-]{0,62}" placeholder="portal-agent">
       <button type="submit" class="primary">Copy</button>
@@ -120,7 +114,7 @@ async function showPacks(body) {
       <h2>Upload a signed archive</h2>
       <p class="muted">Built with <code>mendari archive build</code> and signed with one of your organization's author keys. Files that read as a person's details are refused.</p>
       <label for="upload-file">Archive</label>
-      <input id="upload-file" name="file" type="file" required accept=".mendari,.ohpack,application/gzip">
+      <input id="upload-file" name="file" type="file" required accept=".mendari,application/gzip">
       <progress id="upload-progress" max="1" value="0" hidden aria-label="Upload progress"></progress>
       <button type="submit" class="primary">Upload</button>
     </form>
@@ -128,12 +122,12 @@ async function showPacks(body) {
   $("#copy-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.target;
-    const pack = form.pack.value.trim();
+    const agent = form.agent.value.trim();
     const name = form.name.value.trim();
-    if (!pack || !name) return toastError("Enter both the source agent and a name for the copy.");
+    if (!agent || !name) return toastError("Enter both the source agent and a name for the copy.");
     whileBusy(form.querySelector("button"), "Copying…", async () => {
-      const made = await post("/api/store/copies", { pack, name });
-      toast(`Copied into a draft: ${made.pack_id}`);
+      const made = await post("/api/store/copies", { agent, name });
+      toast(`Copied into a draft: ${made.agent_id}`);
       location.hash = `#store/version/${encodeURIComponent(made.digest)}`;
     }).catch((error) => toastError(error.message));
   });
@@ -149,13 +143,13 @@ function lineageHtml(lineage) {
   const rows = lineage.versions.map((v) => [
     { html: `<a href="#store/version/${encodeURIComponent(v.digest)}">${esc(v.version)}</a> ${digestCode(v.digest)}`, sort: v.created_at },
     { html: stateBadge(v.state) },
-    { html: v.state === "held" ? "" : v.valid ? "Validates" : '<span class="badge o-ABSTAIN">Does not validate</span>' },
+    { html: v.valid ? "Validates" : '<span class="badge o-ABSTAIN">Does not validate</span>' },
     { html: esc(v.source ?? "") },
     { html: esc(time(v.created_at)), sort: v.created_at },
   ]);
-  return `<article class="panel" aria-label="${esc(lineage.pack_id)}">
-    <h2><code>${esc(lineage.pack_id)}</code></h2>
-    ${cellTable({ id: `store-${lineage.pack_id}`, columns: ["Version", "State", "Validation", "From", "Made"], rows })}
+  return `<article class="panel" aria-label="${esc(lineage.agent_id)}">
+    <h2><code>${esc(lineage.agent_id)}</code></h2>
+    ${cellTable({ id: `store-${lineage.agent_id}`, columns: ["Version", "State", "Validation", "From", "Made"], rows })}
   </article>`;
 }
 
@@ -184,7 +178,7 @@ async function upload(file) {
     progress.hidden = true;
   }
   result.innerHTML = uploadedHtml(answer);
-  if (answer.ok && answer.body.state !== "held") toast(`Uploaded: ${answer.body.pack_id}`);
+  if (answer.ok) toast(`Uploaded: ${answer.body.agent_id}`);
 }
 
 // A request whose refusal is shown in the page (the PHI report), not only in a toast.
@@ -207,22 +201,17 @@ function uploadedHtml({ ok, body }) {
       <p>Use synthetic data only. Where each was found (never what):</p>
       ${cellTable({ id: "phi-report", columns: ["Kind", "File", "Line"], rows })}</div>`;
   }
-  if (body.state === "held") {
-    return '<div class="callout neutral" role="status"><h3>Held for the operator\'s review</h3><p>This version is kept, held: it cannot be tested, edited from or promoted until the operator reviews it.</p></div>';
-  }
-  return `<div class="callout ok" role="status">A draft: <a href="#store/version/${encodeURIComponent(body.digest)}">${esc(body.pack_id)} ${esc(body.version)}</a>.</div>`;
+  return `<div class="callout ok" role="status">A draft: <a href="#store/version/${encodeURIComponent(body.digest)}">${esc(body.agent_id)} ${esc(body.version)}</a>.</div>`;
 }
 
 // -- one version -----------------------------------------------------------------------------------
 
 async function showVersion(main, digest) {
   const version = await api(`/api/store/versions/${encodeURIComponent(digest)}`);
-  const held = version.state === "held";
   main.innerHTML = `<p><a href="#store/agents">← Agent store</a></p>
-    <h1><code>${esc(version.pack_id)}</code> ${esc(version.version)}</h1>
+    <h1><code>${esc(version.agent_id)}</code> ${esc(version.version)}</h1>
     <p>${stateBadge(version.state)} ${digestCode(version.digest)}</p>
-    ${held ? '<div class="callout neutral" role="status">Held for the operator\'s review. Nothing more is shown until the operator answers.</div>' : versionBody(version)}`;
-  if (held) return focusHeading(main.querySelector("h1") ?? main);
+    ${versionBody(version)}`;
   $("#run-tests")?.addEventListener("click", (event) =>
     whileBusy(event.currentTarget, "Running…", async () => {
       const ran = await post(`/api/store/versions/${encodeURIComponent(digest)}/tests`, {});
@@ -239,7 +228,7 @@ async function showVersion(main, digest) {
       const made = await post(`/api/store/versions/${encodeURIComponent(digest)}/edits`, {
         files: [{ path: form.path.value, content: form.content.value }],
       });
-      toast(made.state === "held" ? "Saved: held for the operator's review" : "Saved as a new draft");
+      toast("Saved as a new draft");
       location.hash = `#store/version/${encodeURIComponent(made.digest)}`;
     }).catch((error) => toastError(error.message));
   });
@@ -269,7 +258,7 @@ function versionBody(version) {
       <div id="tests-result" aria-live="polite"></div></section>
     <form class="panel admin-form" id="edit-form" novalidate>
       <h2>Edit a text file</h2>
-      <p class="muted">Saving makes a new draft; this version never changes. A trained model is trained and uploaded, not edited here.</p>
+      <p class="muted">Saving makes a new draft; this version never changes. A calibration is fitted and uploaded, not edited here.</p>
       <label for="edit-path">File</label>
       <select id="edit-path" name="path"><option value="">Choose a file</option>${editable.map((f) => `<option>${esc(f.path)}</option>`).join("")}</select>
       <label for="edit-content">Content</label>
@@ -307,16 +296,16 @@ function testsHtml(ran) {
 
 async function showResults(body) {
   const [datasets, jobs, lineages] = await Promise.all([api("/api/store/datasets"), api("/api/store/jobs"), api("/api/store/agents")]);
-  const versions = lineages.flatMap((l) => l.versions.filter((v) => v.state !== "held" && v.state !== "withdrawn"));
+  const versions = lineages.flatMap((l) => l.versions.filter((v) => v.state !== "withdrawn"));
   const datasetRows = datasets.map((d) => [
     { html: esc(d.name) },
-    { html: d.state === "held" ? stateBadge("held") : esc(d.kind ?? "upload") },
+    { html: esc(d.kind ?? "upload") },
     { html: esc(d.cases ?? "") },
     { html: d.report ? esc(d.report.schema_problems.count + d.report.label_problems.count) : "" },
     { html: esc(time(d.created_at)), sort: d.created_at },
   ]);
   const jobRows = jobs.map((j) => [
-    { html: j.pack ? `<code>${esc(j.pack)}</code>` : digestCode(j.digest) },
+    { html: j.agent ? `<code>${esc(j.agent)}</code>` : digestCode(j.digest) },
     { html: `<progress max="${esc(j.total)}" value="${esc(j.done)}" aria-label="${esc(j.done)} of ${esc(j.total)} cases"></progress> ${esc(j.done)} of ${esc(j.total)}` },
     { html: esc(j.state) },
     { html: j.state === "queued" || j.state === "running" ? `<button type="button" data-advance="${esc(j.id)}">Run</button>` : "" },
@@ -327,12 +316,12 @@ async function showResults(body) {
     <form class="panel admin-form" id="job-form" novalidate>
       <h2>Make an evaluation job</h2>
       <label for="job-version">Version</label>
-      <select id="job-version" name="version">${versions.map((v) => `<option value="${esc(v.digest)}">${esc(v.pack_id)} ${esc(v.version)} (${short(v.digest)})</option>`).join("")}
+      <select id="job-version" name="version">${versions.map((v) => `<option value="${esc(v.digest)}">${esc(v.agent_id)} ${esc(v.version)} (${short(v.digest)})</option>`).join("")}
         <option value="">The agent it was copied from</option></select>
-      <label for="job-pack">Or an agent served here (the current one)</label>
-      <input id="job-pack" name="pack" placeholder="mendari/portal-message-agent">
+      <label for="job-agent">Or an agent served here (the current one)</label>
+      <input id="job-agent" name="agent" placeholder="mendari/portal-message-agent">
       <label for="job-dataset">Dataset</label>
-      <select id="job-dataset" name="source">${datasets.filter((d) => d.state !== "held").map((d) => `<option value="id:${esc(d.id)}">${esc(d.name)} (${esc(d.cases)} cases)</option>`).join("")}
+      <select id="job-dataset" name="source">${datasets.map((d) => `<option value="id:${esc(d.id)}">${esc(d.name)} (${esc(d.cases)} cases)</option>`).join("")}
         <option value="name:test">The version's own test set</option></select>
       <button type="submit" class="primary">Make the job</button>
     </form>
@@ -343,7 +332,7 @@ async function showResults(body) {
     event.preventDefault();
     const form = event.target;
     const [kind, value] = form.source.value.split(/:(.*)/s);
-    const target = form.pack.value.trim() ? { pack: form.pack.value.trim() } : { version: form.version.value };
+    const target = form.agent.value.trim() ? { agent: form.agent.value.trim() } : { version: form.version.value };
     whileBusy(form.querySelector("button"), "Making…", async () => {
       await post("/api/store/jobs", { ...target, dataset: { [kind === "id" ? "id" : "name"]: value } });
       toast("Job made: run it below");
@@ -380,7 +369,7 @@ async function runJob(id, anchor) {
 
 async function showCompare(body) {
   const jobs = (await api("/api/store/jobs")).filter((j) => j.state === "done");
-  const option = (j) => `<option value="${esc(j.id)}">${j.pack ? esc(j.pack) : short(j.digest)} on ${short(j.dataset_sha256)}</option>`;
+  const option = (j) => `<option value="${esc(j.id)}">${j.agent ? esc(j.agent) : short(j.digest)} on ${short(j.dataset_sha256)}</option>`;
   body.innerHTML = `<form class="panel admin-form" id="compare-form" novalidate>
       <h2>Draft against current</h2>
       <p class="muted">Two finished jobs on the same dataset, paired on the same cases.</p>
@@ -428,7 +417,7 @@ async function showPromote(body) {
         id: "promotions",
         columns: ["Agent", "Version", "Promoted", ""],
         rows: inForce.map((p) => [
-          { html: `<code>${esc(p.pack_id)}</code>` },
+          { html: `<code>${esc(p.agent_id)}</code>` },
           { html: `${esc(p.version)} ${digestCode(p.digest)}` },
           { html: esc(time(p.created_at)) },
           { html: `<button type="button" data-retire="${esc(p.id)}">Stop serving…</button>` },
@@ -461,14 +450,14 @@ async function showPromote(body) {
 
 function candidateHtml(v) {
   const id = `promote-${short(v.digest)}`;
-  const head = `<h2 id="${id}"><code>${esc(v.pack_id)}</code> ${esc(v.version)} ${digestCode(v.digest)}</h2>`;
+  const head = `<h2 id="${id}"><code>${esc(v.agent_id)}</code> ${esc(v.version)} ${digestCode(v.digest)}</h2>`;
   if (!v.may_promote) {
     return `<article class="panel" aria-labelledby="${id}">${head}<p class="callout neutral">You made this version, or one it was made from: someone else signs it off.</p></article>`;
   }
   if (!v.reports.length) {
     return `<article class="panel" aria-labelledby="${id}">${head}<p class="muted">No finished evaluation of this version yet: run a job on it first.</p></article>`;
   }
-  return `<form class="panel admin-form" data-promote="${esc(v.digest)}" data-pack="${esc(v.pack_id)}" data-version="${esc(v.version)}" aria-labelledby="${id}" novalidate>
+  return `<form class="panel admin-form" data-promote="${esc(v.digest)}" data-agent="${esc(v.agent_id)}" data-version="${esc(v.version)}" aria-labelledby="${id}" novalidate>
     ${head}
     <fieldset><legend>Evaluations relied on</legend>${v.reports.map((r, i) => `<label><input type="checkbox" name="reports" value="${esc(r)}" ${i === 0 ? "checked" : ""}> Report <code>${esc(r.slice(0, 8))}</code></label>`).join("")}</fieldset>
     <label for="${id}-reference">Reference (where the sign-off is recorded)</label>
@@ -484,7 +473,7 @@ async function promote(form) {
   const org = state.memberships?.find((m) => m.org === state.me?.org)?.name ?? state.me?.org ?? "your organization";
   return actionDialog({
     title: "Serve this version?",
-    body: `<p>From now on, <code>${esc(form.dataset.pack)}</code> ${esc(form.dataset.version)} answers every decide request for this agent made in <b>${esc(org)}</b>, by people, keys, clients and the EHR, and no other organization's. The version served before it is retired. It recommends; it automates only where its risk level and the automation approval allow.</p>`,
+    body: `<p>From now on, <code>${esc(form.dataset.agent)}</code> ${esc(form.dataset.version)} answers every decide request for this agent made in <b>${esc(org)}</b>, by people, keys, clients and the EHR, and no other organization's. The version served before it is retired. It recommends; it automates only where its risk level and the automation approval allow.</p>`,
     action: "Promote",
     run: () =>
       post("/api/store/promotions", {

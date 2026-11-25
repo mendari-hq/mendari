@@ -1,6 +1,12 @@
 # ADR-0007: Community agents come by pull request, and where an agent lives is its label
 
 ## Status
+Superseded by [ADR-0026](ADR-0026-one-release-baseline-agents-only.md) (2026-11-25): community
+agents are removed, with `community-agents/`, the `community` origin and its setting,
+`mendari new --community` and the community check. The bounded engine stays, for agents from a
+registry or a store
+([ADR-0009](ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md)).
+
 Accepted (2026-10-04). The code, checks and docs are built; the GitHub settings (labels, the DCO
 app, the agents' CI check and DCO as required checks, the code-owner ruleset) and turning community
 agents on for the hosted platform are the owner's steps (`tasks/todo.md`, B8 and B9).
@@ -8,7 +14,8 @@ Amended by [ADR-0009](ADR-0009-bounded-evaluation-for-agents-the-deployment-does
 (2026-10-07): agents from others run on the community engine in the server's process, not in an
 isolated one.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 The repository is going public so outside developers can contribute agents. Until now
@@ -40,7 +47,7 @@ The owner decided (2026-10-04):
   agent's id is refused and reported, whatever its version. Agents from anywhere else are found
   as before (the newest version of an id is served); one whose id is in `community/` gets the
   community limits wherever it was loaded from. A community agent's FHIR systems live under its
-  own url (`https://mendari.co/packs/community/<name>/`), and its name, CDS title and publisher
+  own url (`https://mendari.co/agents/community/<name>/`), and its name, CDS title and publisher
   never name Mendari nor copy a maintained agent's name (CI).
 - **Served, labelled, recommend-only.** A deployment serves community agents only with
   `MENDARI_COMMUNITY_AGENTS=on` (default off; the one switch turns them all on or off). Every

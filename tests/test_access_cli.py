@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.core.phi import PhiPolicy
 from tests.conftest import HASH_KEY_B64, INPUT_HASH_KEY, ROOT
@@ -65,13 +65,15 @@ def test_the_preflight_names_each_organization_in_use_without_a_record(
     store = AuditStore(db_target)
     store.create_api_key(name="k", role="viewer", org="clinic-b", created_by="Ada")
     store.hold_automation(
-        org="default", pack_id=None, pack_digest=None, reason="test", set_by="Ada"
+        org="default", agent_id=None, agent_digest=None, reason="test", set_by="Ada"
     )
-    with store._db.session(exclusive=True) as db:  # an evaluation report from before tenancy
-        db.all(
-            "INSERT INTO eval_reports (id, created_at, pack_id, dataset, report) "
-            "VALUES ('r1', '2026-10-07T00:00:00+00:00', 'p', 'd', '{}')"
-        )
+    store.save_report(  # saved in open mode: the default organization's
+        {
+            "run": {"id": "r1", "created_at": "2026-10-07T00:00:00+00:00"},
+            "agent": {"id": "p"},
+            "dataset": {"name": "d"},
+        }
+    )
     events = store.verify()["events"]
     code, out, err = run(capsys, "access", "check", "--db", db_target)
     report = json.loads(out)
@@ -149,22 +151,18 @@ def test_a_protected_database_takes_only_keyed_address_digests(
     assert [p["email_digest"].split(":")[0] for p in payloads] == ["hmac-sha256"]
 
 
-def test_the_read_commands_leave_the_database_as_it_was_and_read_an_older_one(
-    tmp_path: Path, inbox_pack: Pack, capsys: pytest.CaptureFixture[str]
+def test_the_read_commands_leave_the_database_as_it_was(
+    tmp_path: Path, triage_agent: Agent, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`org list`, `members`, `requests`, `keys`, `clients` and `check` open the database
-    read-only: no sidecar file, no migration; a database from before these records (or before
-    tenancy's columns) reads as having none, every row `default`'s."""
+    read-only: no sidecar file, nothing written; another application's database is refused."""
     folder = tmp_path / "var"
     folder.mkdir()
     db = folder / "mendari.db"
     with AuditStore(db) as store:
-        Decision(inbox_pack, store=store)({"message": {"body": "Refill please."}})
+        Decision(triage_agent, store=store)({"message": {"body": "Refill please."}})
     with closing(sqlite3.connect(db)) as connection, connection:
-        for table in ("users", "organizations", "memberships", "invitations", "access_requests"):
-            connection.execute(f"DROP TABLE {table}")
-        connection.execute("ALTER TABLE decisions DROP COLUMN org")
-        connection.execute("PRAGMA journal_mode=DELETE")
+        connection.execute("PRAGMA journal_mode=DELETE")  # so any write shows in its bytes
     before = db.read_bytes()
     reads = (
         ["access", "org", "list"],

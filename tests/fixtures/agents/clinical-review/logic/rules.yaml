@@ -1,0 +1,32 @@
+# Keyword rules for the reader (synthetic test fixture). Each pattern that matches adds its weight
+# to its label's score, the first label of each question starts at `default_score`, and a
+# softmax over the scores is the answer. A severe symptom told in other words ("makes them double
+# over") matches nothing, on purpose: the answer is then care at home at 0.58, for a person.
+# Every pattern means the same on RE2 as on Python's `re`: no lookaround, no back reference.
+text_fields: [note.text]
+
+questions:
+  disposition:
+    default: self_care
+    default_score: 1.0
+    labels:
+      see_today:
+        - {name: severe, pattern: "\\bsevere\\b|unbearable|cannot stand", weight: 7}
+      book_visit:
+        - {name: moderate, pattern: "\\bmoderate\\b|getting worse|keeps them up|hard to work", weight: 5}
+        - {name: weeks, pattern: "for (three|several) weeks|for a month", weight: 6}
+      self_care:
+        - {name: mild, pattern: "\\b(mild|slight)\\b|a little", weight: 3}
+        - {name: well, pattern: "no symptoms|feels well", weight: 3}
+  severity:
+    default: none
+    default_score: 1.0
+    labels:
+      none:
+        - {name: well, pattern: "no symptoms|feels well", weight: 5}
+      mild:
+        - {name: mild, pattern: "\\b(mild|slight)\\b|a little", weight: 5}
+      moderate:
+        - {name: moderate, pattern: "\\bmoderate\\b|getting worse|keeps them up|hard to work", weight: 5}
+      severe:
+        - {name: severe, pattern: "\\bsevere\\b|unbearable|cannot stand", weight: 6}

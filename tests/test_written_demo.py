@@ -14,11 +14,11 @@ from typing import Any
 
 import pytest
 
-from mendari import Decision, load_pack
+from mendari import Decision, load_agent
 from mendari.cli import main
 from mendari.core import packet
+from mendari.core.agent import Agent
 from mendari.core.card import render_card
-from mendari.core.pack import Pack
 from mendari.core.spec import Effect
 from mendari.evals import resolve_dataset, written
 from mendari.evals.render import DEMONSTRATION, SIMULATED, written_report_text
@@ -26,15 +26,15 @@ from mendari.evals.validation import problems as validation_problems
 from mendari.evals.written import INSUFFICIENT, NOT_VALIDATED, VALIDATED
 from mendari.providers.judge import Judge
 from mendari.sandbox.demo import STAGED
-from tests.conftest import DEMO_AGENT_DIR, ROOT
+from tests.conftest import DEMO_AGENT_DIR, ROOT, TRIAGE_DIR
 
 RUBRIC = "acknowledgement_quality"
 NURSE = "a nurse will call you today"
 
 
 @pytest.fixture(scope="module")
-def demo() -> Pack:
-    return load_pack(DEMO_AGENT_DIR)
+def demo() -> Agent:
+    return load_agent(DEMO_AGENT_DIR)
 
 
 @pytest.fixture(scope="module")
@@ -49,20 +49,20 @@ def script() -> ModuleType:
 
 
 @pytest.fixture(scope="module")
-def run(demo: Pack) -> written.WrittenRun:
+def run(demo: Agent) -> written.WrittenRun:
     decision = Decision(demo, origin_cap=False)
     dataset = resolve_dataset(demo, "written")
     return written.run(decision, dataset, RUBRIC, judge=Judge(demo, RUBRIC, mode="canned"))
 
 
 @pytest.fixture(scope="module")
-def report(demo: Pack, run: written.WrittenRun) -> dict[str, Any]:
+def report(demo: Agent, run: written.WrittenRun) -> dict[str, Any]:
     declared = demo.manifest.evaluation.grades[RUBRIC]
     _, grades = written.load_grades(demo.read_bytes(declared.file), where=declared.file)
     return written.report(run.ledger, grades)
 
 
-def test_the_written_output_is_the_acknowledgement_the_action_would_send(demo: Pack) -> None:
+def test_the_written_output_is_the_acknowledgement_the_action_would_send(demo: Agent) -> None:
     manifest = demo.manifest
     assert (manifest.spec_version, manifest.version) == ("0.4", "0.3.0")
     assert list(manifest.outputs) == ["acknowledgement"]
@@ -102,7 +102,7 @@ def test_the_committed_data_is_what_the_script_writes(script: ModuleType) -> Non
     assert "Nothing may be concluded from these grades" in doc
 
 
-def test_the_grades_file_says_its_graders_are_simulated(demo: Pack) -> None:
+def test_the_grades_file_says_its_graders_are_simulated(demo: Agent) -> None:
     lines = demo.read_bytes("data/written_grades.jsonl").decode().splitlines()
     header = json.loads(lines[0])
     assert header["simulated"] is True and header["format"] == "mendari.written-grades/1"
@@ -123,7 +123,7 @@ def test_the_grades_file_says_its_graders_are_simulated(demo: Pack) -> None:
 
 
 def test_the_canned_agent_still_misses_urgent_messages_worded_as_a_patient_would(
-    demo: Pack, run: written.WrittenRun
+    demo: Agent, run: written.WrittenRun
 ) -> None:
     """Its acknowledgement for those says two business days: the failure the rubric is there
     to catch, kept on purpose."""
@@ -246,7 +246,7 @@ def test_the_command_reports_the_demo_agent_with_its_own_grades(
     assert "only an agent writes" in capsys.readouterr().err
 
 
-def test_the_decision_card_and_the_committee_packet_say_what_it_writes(demo: Pack) -> None:
+def test_the_decision_card_and_the_committee_packet_say_what_it_writes(demo: Agent) -> None:
     """Text only, from the manifest: each output, each criterion with its instructions and its
     levels' anchors, and the floors. No figure of a judge is on either."""
     card = render_card(demo)
@@ -265,8 +265,8 @@ def test_the_decision_card_and_the_committee_packet_say_what_it_writes(demo: Pac
     assert "is at least 0.8. That is decided on at least 50 outputs" in section
     assert "kappa 0." not in card and "validated" not in section  # no figure, no verdict
     # An agent that writes nothing has no such section: its card is what it always was.
-    inbox = render_card(load_pack(ROOT / "tests/fixtures/reference-agents/patient-inbox-router"))
-    assert "## Written outputs" not in inbox
+    triage = render_card(load_agent(TRIAGE_DIR))
+    assert "## Written outputs" not in triage
     alone = packet.build_alone(demo)
     assert packet.problems(alone) == []
     (oversight,) = [s["content"] for s in alone["sections"] if s["key"] == "oversight"]

@@ -11,15 +11,14 @@ its own organization's requests (LP-20h). Its tables are created empty in every 
 
 ## Who does what
 
-- **Authors** hold the reserved role `pack_author` (`author`, people only; the role keeps the
-  name it had before, which memberships record). An administrator
+- **Authors** hold the reserved role `agent_author` (`author`, people only). An administrator
   gives it, themself included: `admin` does not hold it. Authors upload signed archives (the
-  `.mendari` file `mendari archive build` writes; one named `.ohpack`, as it was before
-  2026-11, is the same file), copy an agent this deployment serves, edit text files into new drafts, run a draft's tests and
-  withdraw a draft (`docs/guides/api.md`, "An organization's agent store").
+  `.mendari` file `mendari archive build` writes), copy an agent this deployment serves, edit
+  text files into new drafts, run a draft's tests and withdraw a draft (`docs/guides/api.md`,
+  "An organization's agent store").
 - **Administrators** (`keys`) register and revoke the authors' Ed25519 public keys: an upload
   must be signed by one of the organization's keys that is not revoked.
-- **The operator** reads and answers held versions with the commands below.
+- **The operator** checks, withdraws and frees versions with the commands below.
 
 ## The checks of a new version
 
@@ -27,20 +26,8 @@ Before any row is written, in this order: the archive's own (size, signature, na
 expansion), the PHI detector over every text file (a refusal answers `422` with kinds, files,
 lines and counts, never a value), the load on the bounded engine, the namespace rule (the id is
 `<organization>/<name>`, or a namespace the organization holds by an approved registry claim;
-`mendari`, `openhealth` and `community` never), then the validation and the dataset checks of
-each declared dataset (kept with the version), then the hidden-set check.
-
-**The hidden-set check.** With the hidden evaluation sets' keys set, every case the version
-carries (each JSON Lines record's input and each behaviour test's) is looked up in the keyed
-hidden-case index, exactly and under `norm/v1`. On any match the version is stored `held`: it
-is not tested, edited from or served, and its uploader is told only that it is held for the
-operator's review. The match (set and case ids) is kept for the operator only. After three
-held versions in 30 days an organization's uploads stop until the operator answers them.
-Without the keys the check is "not applicable": the deployment holds no hidden case.
-Once keys are set, `mendari store recheck` runs it over every draft kept before.
-
-A signed-in administrator's `/api/health` shows `store.held`, how many of their organization's
-versions wait for the operator.
+`mendari` and `openhealth` never), then the validation and the dataset checks of
+each declared dataset (kept with the version).
 
 ## What a version is
 
@@ -51,8 +38,8 @@ versions wait for the operator.
   keys the version by the digest that load hashed, never one it is told. Two versions with the
   same digest are the same agent.
 - **Never changed.** Its files, id, version, parent and source are written once, and the hash of
-  that row is in its `pack_version.created` event. Only its state moves (draft, held, withdrawn;
-  promotion comes later), each move one chained event that names the organization, the digest
+  that row is in its `store_version.created` event. Only its state moves (draft, promoted,
+  retired, withdrawn), each move one chained event that names the organization, the digest
   and who acted. `mendari audit verify` fails on a row changed past the store, a state no event
   moved it to, or a version with no event. An edit is a new version whose parent is the old one.
 - **Without anything uploaded about it.** `evals/`, a `DECISION_CARD.md` and hidden entries are
@@ -68,18 +55,17 @@ A store version is an agent the deployment does not own (origin `store`, "From t
 store"): it runs on the bounded engine (RE2, the caps, the input limits, one second of CPU per
 decision; ADR-0009), its model calls are capped as a pulled agent's are, and its id is never a
 bundled agent's at a tying version. Beyond what a pulled agent is held to, the deployment chooses
-its Jev price (so the recorded cost is the deployment's), whether its model questions share a
-call, and an LLM's temperature: the agent's own values are dropped. Only a provider setting that
-names it chooses its variants: unscoped `MENDARI_PROVIDERS` settings and the Jev defaults do not
-reach it, as for a community agent.
+whether its model questions share a call, and an LLM's temperature: the agent's own values are
+dropped. Only a provider setting that names it chooses its variants: unscoped
+`MENDARI_PROVIDERS` settings do not reach it.
 
 ## Evaluating a draft (LP-20g)
 
 There is no worker: a **job** is a row that runs when an author asks, a slice at a time.
 
 - **Datasets.** An author uploads a labelled dataset (JSON Lines) checked against a version:
-  the PHI detector, the dataset checks (kept and shown; a schema or label problem refuses it) and
-  the hidden-set check, as a version is. It is kept sealed under the deployment's PHI policy
+  the PHI detector and the dataset checks (kept and shown; a schema or label problem refuses
+  it), as a version is. It is kept sealed under the deployment's PHI policy
   (`encrypt`), and `mendari phi rotate` re-seals it with the inputs and notes. A job may also run
   on a dataset the version declares, by name.
 - **A job** evaluates one store version, or an agent served here (the current one a draft was
@@ -88,7 +74,7 @@ There is no worker: a **job** is a row that runs when an author asks, a slice at
   one transaction: two calls at once never decide a case twice, and a slice cut short is run
   again by the next call. The last slice writes one evaluation report with its ledger
   (`eval.recorded`), the same bytes a single run would write. A remote variant needs the
-  organization's evaluation quota (`eval_jev`, `eval_llm`) set and runs 200 cases at most; a job
+  organization's evaluation quota (`eval_llm`) set and runs 200 cases at most; a job
   runs 5,000 at most, and `store_jobs` bounds the jobs an organization makes a day.
 - **Draft against current.** `GET /api/store/comparisons?draft=…&current=…` pairs two finished
   jobs on the same dataset: each side's figures as k of n with exact intervals, each difference
@@ -102,7 +88,7 @@ A person who holds `promote` (`governance` and `admin`, people only) signs a ver
 served to their organization, naming the evaluation reports of that version they relied on, a
 reference (where the sign-off is recorded) and a note. It is refused when they made the version
 or any version it was edited from, when a report is not their organization's evaluation of that
-digest, when the version is held, withdrawn or does not validate, and when the deployment serves
+digest, when the version is withdrawn or does not validate, and when the deployment serves
 that agent id from disk. Promoting retires the version promoted before; retiring a promotion stops
 serving it (the store agent's recall). Every decision a promoted version makes records the
 promotion's id.
@@ -157,18 +143,15 @@ events stay.
 |---|---|
 | List an organization's versions, newest first | `mendari store versions --db … --org ORG [--agent ID]` |
 | Check every kept file and version against its hash and digest | `mendari store verify --db …` |
-| Withdraw a draft or held version, with a reason on the chain | `mendari store withdraw DIGEST --db … --org ORG --reason …` |
+| Withdraw a draft, with a reason on the chain | `mendari store withdraw DIGEST --db … --org ORG --reason …` |
 | Free the files of versions withdrawn more than 30 days ago | `mendari store purge --db …` |
-| Read the held versions, with the hidden sets and cases each matched | `mendari store held --db …` |
-| Release a held version (a draft again), or withdraw it | `mendari store release` or `dismiss DIGEST --db … --org ORG --reason …` |
-| Run the hidden-set check again over every draft | `mendari store recheck --db …` (needs the evaluation-set keys) |
 
 Every command takes `--db` (a SQLite path or a `postgresql://` URL) or reads `DATABASE_URL`; the
 reads open the database read-only.
 
 ## Prerequisites
 
-`mendari.core.pack_store.prerequisites` runs what the store rests on and names what is missing:
+`mendari.core.agent_store.prerequisites` runs what the store rests on and names what is missing:
 memberships mode (LP-12), a store agent on the bounded engine whose rules stop at the budget
 (LP-16), the exact statistics and the ledger's canonical JSON answering pinned values (LP-10),
 and the canonical forms of a case answering their pinned vectors (LP-11). With the switch on,

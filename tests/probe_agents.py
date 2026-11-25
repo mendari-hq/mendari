@@ -17,7 +17,7 @@ from typing import Any
 import yaml
 
 MANIFEST: dict[str, Any] = {
-    "spec_version": "0.2",
+    "spec_version": "0.4",
     "id": "clinic/probe-triage",
     "version": "0.1.0",
     "name": "Probe triage",

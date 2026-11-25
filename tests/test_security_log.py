@@ -25,36 +25,27 @@ from mendari import AuditStore
 from mendari import alerts as alerts_module
 from mendari.alerts import AlertSettings
 from mendari.core.decision import Decision
-from mendari.core.evalset_keys import EvalsetKeys
-from mendari.core.evalsets import EvalsetStore
-from mendari.core.registry import resolve_pack
 from mendari.server import app as app_module
 from mendari.server import security_log, smart_routes
 from mendari.server.app import create_app, quota_alert
-from mendari.server.auth import person_id
 from mendari.server.security_log import FIELDS, InternalError
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
-from tests.conftest import (
-    HASH_KEY_B64,
-    ROOT,
-    encrypt_mode,
-    encrypted_store,
-    evalset_on,
-    hosted,
-    member,
-    message,
-    security_lines,
-    signed_in,
+from tests.conftest import HASH_KEY_B64, encrypt_mode, hosted, message, security_lines, signed_in
+from tests.support.platform import (
+    SMART_APP,
+    SMART_CLIENT,
+    SMART_EHR,
+    SmartEhr,
+    full_smart_launch,
+    smart_launch,
 )
 from tests.test_auth import FakeIdp, sign_in, signing_in_with
-from tests.test_evalset_labelling import ROUTINE
-from tests.test_evalset_labelling import cases as evalset_cases
-from tests.test_evalset_store import CLINIC, MARKS, a_set
-from tests.test_smart import APP, EHR, REFERRAL, FakeEhr, full_launch, launch
 
-INBOX = "mendari/patient-inbox-router"
-TRIAL = "mendari/clinical-trial-prescreener"  # risk level 2: approvable
-DECIDE = f"/api/packs/{INBOX}/decide"
+APP, EHR = SMART_APP, SMART_EHR  # an EHR launch's: Mendari's public URL, the EHR's host
+
+INBOX = "mendari-test/triage"  # the agent these tests decide with
+APPROVABLE = "mendari-test/clinical-review"  # risk level 2: automated under an approval
+DECIDE = f"/api/agents/{INBOX}/decide"
 CASE_TEXT = "Synthetic: Rosalind Q. Example has crushing chest pain since noon"
 QUERY_VALUE = "QueryValueNeverLogged"
 
@@ -96,7 +87,7 @@ def test_every_line_is_json_with_allowed_keys_and_never_a_secret(
     session = app.cookies["__Host-mendari_session"]
     capsys.readouterr()
     decided = app.post(DECIDE, json=message(CASE_TEXT), headers=machine).json()
-    app.get("/api/audit", params={"pack_id": QUERY_VALUE})
+    app.get("/api/audit", params={"agent_id": QUERY_VALUE})
     app.get(f"/api/audit/{decided['id']}")
     app.get("/fhir/Task", params={"identifier": QUERY_VALUE})
     app.post("/fhir/Task/_search", data={"status": QUERY_VALUE})
@@ -113,7 +104,7 @@ def test_every_line_is_json_with_allowed_keys_and_never_a_secret(
         assert never not in text, never
     access = [(e["method"], e.get("route"), e["status"]) for e in lines if e["event"] == "request"]
     assert access == [  # one per API request: none for health, readiness, static files, the page
-        ("POST", "/api/packs/{namespace}/{name}/decide", 200),
+        ("POST", "/api/agents/{namespace}/{name}/decide", 200),
         ("GET", "/api/audit", 200),
         ("GET", "/api/audit/{decision_id}", 200),
         ("GET", "/fhir/Task", 200),
@@ -130,22 +121,24 @@ def test_every_response_carries_a_request_id_and_errors_repeat_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    made = client.get("/api/packs")
+    made = client.get("/api/agents")
     uuid.UUID(made.headers["x-request-id"])  # a new uuid4
     assert client.get("/static/style.css").headers["x-request-id"]
-    own = client.get("/api/packs", headers={"x-request-id": "ehr-1234:abc.def_9"})
+    own = client.get("/api/agents", headers={"x-request-id": "ehr-1234:abc.def_9"})
     assert own.headers["x-request-id"] == "ehr-1234:abc.def_9"
     for forged in ("short", "has a space in it", 'x{"event":"forged"}', "a" * 129):
-        answer = client.get("/api/packs", headers={"x-request-id": forged})
+        answer = client.get("/api/agents", headers={"x-request-id": forged})
         uuid.UUID(answer.headers["x-request-id"])  # not taken: replaced
     vercel = {
         "x-vercel-id": "iad1::iad1::abcde-1727900000000-0123456789ab",
         "x-request-id": "x" * 9,
     }
-    assert client.get("/api/packs", headers=vercel).headers["x-request-id"] == "x" * 9
+    assert client.get("/api/agents", headers=vercel).headers["x-request-id"] == "x" * 9
     hosted(monkeypatch)  # only Vercel's own header is trusted, and only there
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    assert client.get("/api/packs", headers=vercel).headers["x-request-id"] == vercel["x-vercel-id"]
+    assert (
+        client.get("/api/agents", headers=vercel).headers["x-request-id"] == vercel["x-vercel-id"]
+    )
     capsys.readouterr()
     missing = client.get("/api/audit/nope")
     assert missing.status_code == 404
@@ -303,19 +296,19 @@ def test_changes_exports_evaluations_and_input_reads_are_logged_with_ids(
     capsys.readouterr()
     made = client.post("/api/auth/keys", json={"name": "ehr", "role": "service"}, headers=admin)
     assert client.delete(f"/api/auth/keys/{made.json()['id']}", headers=admin).status_code == 204
-    body = {"pack_id": TRIAL, "reference": "minutes 12", "days": 30}
+    body = {"agent_id": APPROVABLE, "reference": "minutes 12", "days": 30}
     approval = client.post("/api/governance", json=body, headers=governance).json()
     assert client.delete(f"/api/governance/{approval['id']}", headers=governance).status_code == 204
     run = {"dataset": "test", "limit": 3}
-    assert client.post(f"/api/packs/{INBOX}/evals", json=run, headers=admin).status_code == 200
-    client.get("/api/audit/export/fhir", params={"pack_id": QUERY_VALUE}, headers=admin)
+    assert client.post(f"/api/agents/{INBOX}/evals", json=run, headers=admin).status_code == 200
+    client.get("/api/audit/export/fhir", params={"agent_id": QUERY_VALUE}, headers=admin)
     administrative = client.get(
         "/api/audit/administrative/export/fhir",
         params={"since": "2026-01-01T00:00:00Z"},
         headers=admin,
     )
     assert administrative.status_code == 200, administrative.text
-    client.get(f"/api/packs/{INBOX}/feedback/export", headers=admin)
+    client.get(f"/api/agents/{INBOX}/feedback/export", headers=admin)
     for url in (f"/api/audit/{decided['id']}", "/api/review", "/api/feedback"):
         assert CASE_TEXT in client.get(url, headers=admin).text
     lines = logged(capsys)
@@ -370,111 +363,6 @@ def test_a_note_read_without_its_input_is_logged_as_the_chain_has_it(
     assert (line["ids"], line["count"]) == ([decided["id"]], 1)
 
 
-def test_labelling_is_logged_by_set_id_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A labeller shown their next hidden case, their label, and a label refused (LP-11j): the
-    events name the hidden set by its id and nothing else of it (no case, assignment, label,
-    input or attribute), and the access lines the routes' templates. The operator's guide lists
-    each event among the security events (docs/deploying-with-phi.md, §7)."""
-    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
-    monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
-    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
-    encrypt_mode(monkeypatch)
-    keys = EvalsetKeys(*evalset_on(monkeypatch))
-    db = tmp_path / "a.db"
-    client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
-    with encrypted_store(db) as store:
-        hidden = EvalsetStore(store, keys)
-        set_id = a_set(hidden, resolve_pack(INBOX))
-        hidden.add_cases(set_id, evalset_cases(1))
-        hidden.sample(set_id, cases=1)
-        heads = [
-            member(store, org=CLINIC, roles=["labeller"], sub=f"labeller-{n}") for n in range(2)
-        ]
-        users = [person_id("https://idp.example.org", f"labeller-{n}") for n in range(2)]
-        hidden.assign(set_id, users)
-    capsys.readouterr()
-    shown = client.get("/api/labelling/next", headers=heads[0]).json()
-    url = f"/api/labelling/{shown['assignment']}"
-    assert client.post(url, json={"labels": ROUTINE}, headers=heads[0]).is_success
-    assert client.post(url, json={"labels": ROUTINE}, headers=heads[1]).status_code == 404
-    lines = logged(capsys)
-    events = [
-        (e["event"], e.get("ids"), e["outcome"], e.get("reason"), e["actor"])
-        for e in lines
-        if e["event"] != "request"
-    ]
-    assert events == [
-        ("evalset.case.read", [set_id], "ok", None, users[0]),
-        ("evalset.labelled", [set_id], "ok", None, users[0]),
-        ("evalset.labelled", None, "refused", "no_assignment", users[1]),
-    ]
-    routes = {e["route"] for e in lines if e["event"] == "request"}
-    assert routes == {"/api/labelling/next", "/api/labelling/{assignment_id}"}
-    guide = (ROOT / "docs" / "deploying-with-phi.md").read_text()
-    assert [event for event, *_ in events if f"`{event}`" not in guide] == []
-    written = json.dumps(lines)
-    for private in (shown["assignment"], MARKS["input"], MARKS["author"], "routine", "nurse"):
-        assert private not in written, private
-
-
-def test_curating_is_logged_by_set_id_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """An organization's administrator drawing a hidden set's cases, assigning them, and an
-    adjudication refused for another organization's set (LP-11k): the events name the set by
-    its id and how many, a refusal (`no_set`) no id at all, and the access lines the routes'
-    templates; never a case, an assignment, a stratum, an input or a label word. The
-    operator's guide lists each event among the security events (docs/deploying-with-phi.md,
-    §7)."""
-    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
-    monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
-    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
-    encrypt_mode(monkeypatch)
-    keys = EvalsetKeys(*evalset_on(monkeypatch))
-    db = tmp_path / "a.db"
-    client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
-    with encrypted_store(db) as store:
-        hidden = EvalsetStore(store, keys)
-        set_id = a_set(hidden, resolve_pack(INBOX))
-        theirs = a_set(hidden, resolve_pack(INBOX), "clinic-b")
-        hidden.add_cases(set_id, evalset_cases(2))
-        for n in range(2):
-            member(store, org=CLINIC, roles=["labeller"], sub=f"labeller-{n}")
-        users = [person_id("https://idp.example.org", f"labeller-{n}") for n in range(2)]
-        admin = member(store, org=CLINIC, roles=["admin"], sub="curator")
-    capsys.readouterr()
-    base = f"/api/evalsets/{set_id}"
-    assert client.post(f"{base}/sample", json={"cases": 2}, headers=admin).is_success
-    told = client.post(f"{base}/assignments", json={"labellers": users}, headers=admin)
-    assert told.is_success
-    other = f"/api/evalsets/{theirs}/adjudication"
-    assert client.post(other, json={"labellers": users}, headers=admin).status_code == 404
-    lines = logged(capsys)
-    events = [
-        (e["event"], e.get("ids"), e.get("count"), e["outcome"], e.get("reason"))
-        for e in lines
-        if e["event"] != "request"
-    ]
-    assert events == [
-        ("evalset.sampled", [set_id], 2, "ok", None),
-        ("evalset.assigned", [set_id], 4, "ok", None),
-        ("evalset.adjudication.assigned", None, None, "refused", "no_set"),
-    ]
-    routes = {e["route"] for e in lines if e["event"] == "request"}
-    assert routes == {
-        "/api/evalsets/{set_id}/sample",
-        "/api/evalsets/{set_id}/assignments",
-        "/api/evalsets/{set_id}/adjudication",
-    }
-    guide = (ROOT / "docs" / "deploying-with-phi.md").read_text()
-    assert [event for event, *_ in events if f"`{event}`" not in guide] == []
-    written = json.dumps(lines)
-    for private in (theirs, MARKS["input"], MARKS["stratum"], MARKS["name"], "routine"):
-        assert private not in written, private
-
-
 def test_a_rate_limit_is_logged_once_per_bucket_and_a_quota_once_a_day(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -524,10 +412,10 @@ def test_the_logger_writes_to_stdout_on_its_own(capsys: pytest.CaptureFixture[st
 
 
 @pytest.fixture
-def smart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, FakeEhr]]:
+def smart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, SmartEhr]]:
     """An EHR launch, as in tests/test_smart.py."""
-    ehr = FakeEhr()
-    monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari-app")
+    ehr = SmartEhr()
+    monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", SMART_CLIENT)
     monkeypatch.setenv("MENDARI_PUBLIC_URL", APP)
     monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", EHR)
     transport = httpx.MockTransport(ehr)
@@ -542,7 +430,7 @@ def smart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Tes
 
 
 def test_each_ehr_launch_is_logged_with_its_reason_and_never_its_values(
-    smart: tuple[TestClient, FakeEhr], capsys: pytest.CaptureFixture[str]
+    smart: tuple[TestClient, SmartEhr], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A launch is a sign-in: its refusals are logged like `/auth/callback`'s (a forged state is
     a launch-CSRF or replay probe), and the reference its error page shows is in the log."""
@@ -552,21 +440,22 @@ def test_each_ehr_launch_is_logged_with_its_reason_and_never_its_values(
     assert forged.status_code == 400 and "Reference" in forged.text
     assert client.get("/smart/callback", params={"error": "access_denied"}).status_code == 400
     assert client.get("/smart/launch").status_code == 422  # no iss or launch
-    elsewhere = {"iss": "https://evil.example/fhir", "launch": QUERY_VALUE, "pack": REFERRAL}
+    elsewhere = {"iss": "https://evil.example/fhir", "launch": QUERY_VALUE, "agent": INBOX}
     assert client.get("/smart/launch", params=elsewhere).status_code != 302
-    started = launch(client)
+    started = smart_launch(client)
     state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
     other = TestClient(client.app, base_url=APP)  # someone else's launch
     assert other.get("/smart/callback", params={"code": "c", "state": state}).status_code == 400
-    started = launch(client)
+    started = smart_launch(client)
     state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
     unknown = client.get("/smart/callback", params={"code": "not-issued", "state": state})
     assert unknown.status_code == 400  # the EHR refuses the code
-    assert full_launch(client, ehr).status_code == 302
+    assert full_smart_launch(client, ehr).status_code == 302
     lines = logged(capsys)
     text = json.dumps(lines)
-    for never in (QUERY_VALUE, "forged-state", "evil.example", "not-issued", "ref-p1", "access-"):
+    for never in (QUERY_VALUE, "forged-state", "evil.example", "not-issued", ehr.patient):
         assert never not in text, never
+    assert f"{ehr.token_prefix}-" not in text  # no access token the EHR issued
     events = [(e["event"], e.get("reason")) for e in lines if e["event"] != "request"]
     assert events == [
         ("smart.launch.refused", "state_unknown"),

@@ -23,6 +23,7 @@ from mendari.server.app import create_app
 from mendari.server.auth import CDS_PATH, permission_for
 from tests.conftest import encrypt_mode, security_lines, signed_in
 from tests.jwt_signers import DROP, PUBLIC_URL, cds_token, forged
+from tests.support.cds_messages import SERVICE, message_ehr, message_hook
 from tests.test_cds_clients import (
     BASE,
     DISCOVERY,
@@ -39,8 +40,6 @@ from tests.test_cds_clients import (
     register,
     token,
 )
-from tests.test_fhir_client import allow_ehr, referral_ehr
-from tests.test_limits import order_sign
 
 NOT_VALID = {"error": "AuthError", "detail": "the credential is not valid"}
 FEEDBACK = f"{HOOK}/feedback"  # the hook's card feedback (LP-23f)
@@ -109,9 +108,9 @@ def test_a_valid_token_reads_discovery_and_calls_the_hook(
     capsys.readouterr()
     listed = served.http.get(DISCOVERY, headers=bearer(token()))
     assert listed.status_code == 200, listed.text
-    assert "mendari.referral-router" in {s["id"] for s in listed.json()["services"]}
+    assert SERVICE in {s["id"] for s in listed.json()["services"]}  # the triage fixture's
     for signer in (RSA_EHR, EC_EHR):
-        called = served.http.post(HOOK, json=order_sign(1), headers=bearer(token(signer, HOOK)))
+        called = served.http.post(HOOK, json=message_hook(), headers=bearer(token(signer, HOOK)))
         assert called.status_code == 200, called.text
         assert len(called.json()["cards"]) == 1
     assert callers(capsys.readouterr().out) == ["cds:epic"] * 3
@@ -129,7 +128,7 @@ def test_wrong_iss_wrong_aud_expired_replayed_and_unregistered_jku_are_each_refu
     nothing; the security log says which it was."""
     served.registry_is_on()
     used = token(path=HOOK)
-    assert served.http.post(HOOK, json=order_sign(1), headers=bearer(used)).status_code == 200
+    assert served.http.post(HOOK, json=message_hook(), headers=bearer(used)).status_code == 200
     capsys.readouterr()
     refused = {
         "cds_issuer": token(path=HOOK, iss="https://evil.example"),
@@ -139,7 +138,7 @@ def test_wrong_iss_wrong_aud_expired_replayed_and_unregistered_jku_are_each_refu
         "cds_jku": token(path=HOOK, jku="https://evil.example/jwks.json"),
     }
     for sent in refused.values():
-        answer = served.http.post(HOOK, json=order_sign(1), headers=bearer(sent))
+        answer = served.http.post(HOOK, json=message_hook(), headers=bearer(sent))
         assert answer.status_code == 401
         assert answer.headers["www-authenticate"] == INVALID
         body = answer.json()
@@ -193,7 +192,7 @@ def test_a_cds_client_reaches_nothing_but_cds_services(
     }
     assert reasons == {"malformed"}  # an RS384 token is past the bearer cap everywhere else
     assert served.http.get(DISCOVERY, headers=bearer(token())).status_code == 200
-    hooked = served.http.post(HOOK, json=order_sign(1), headers=bearer(token(path=HOOK)))
+    hooked = served.http.post(HOOK, json=message_hook(), headers=bearer(token(path=HOOK)))
     assert hooked.status_code == 200
     (card,) = hooked.json()["cards"]
     feedback = {
@@ -223,7 +222,7 @@ def test_open_mode_refuses_an_unverified_jwt_on_cds_services(
     capsys.readouterr()
     for sent in (token(), token(EC_EHR), unsigned, "a.b.c"):
         assert plain.get(DISCOVERY, headers=bearer(sent)).status_code == 401
-        refused = plain.post(HOOK, json=order_sign(1), headers=bearer(sent))
+        refused = plain.post(HOOK, json=message_hook(), headers=bearer(sent))
         assert refused.status_code == 401 and refused.headers["www-authenticate"] == INVALID
     reasons = [
         line["reason"]
@@ -233,7 +232,7 @@ def test_open_mode_refuses_an_unverified_jwt_on_cds_services(
     assert reasons == ["cds_unregistered"] * 8
     for headers in ({}, bearer("ohk_not-a-key"), {"authorization": "Basic dXNlcjpwYXNz"}):
         assert plain.get(DISCOVERY, headers=headers).status_code == 200
-    assert plain.post(HOOK, json=order_sign(1)).status_code == 200  # no credential, as before
+    assert plain.post(HOOK, json=message_hook()).status_code == 200  # no credential, as before
     with AuditStore(tmp_path / "open.db") as store:
         assert len(store.query(limit=10)) == 1
 
@@ -241,11 +240,11 @@ def test_open_mode_refuses_an_unverified_jwt_on_cds_services(
     registered = TestClient(create_app(db_path=tmp_path / "registered.db"), base_url=PUBLIC_URL)
     assert registered.get("/api/health").json()["cds_clients"] == ["epic"]
     capsys.readouterr()
-    called = registered.post(HOOK, json=order_sign(1), headers=bearer(token(path=HOOK)))
+    called = registered.post(HOOK, json=message_hook(), headers=bearer(token(path=HOOK)))
     assert called.status_code == 200, called.text
     assert callers(capsys.readouterr().out) == ["cds:epic"]
-    assert registered.post(HOOK, json=order_sign(1), headers=bearer(unsigned)).status_code == 401
-    stranger = registered.post(HOOK, json=order_sign(1), headers=bearer(token(STRANGER, HOOK)))
+    assert registered.post(HOOK, json=message_hook(), headers=bearer(unsigned)).status_code == 401
+    stranger = registered.post(HOOK, json=message_hook(), headers=bearer(token(STRANGER, HOOK)))
     assert stranger.status_code == 401
     with AuditStore(tmp_path / "registered.db") as store:
         events = store.events()
@@ -261,8 +260,8 @@ def test_a_fhir_server_the_client_did_not_register_is_refused_before_any_read(
     or decided; the client's own base is read as before."""
     sign_in_on(monkeypatch)
     monkeypatch.setenv("MENDARI_PRINCIPAL_DAILY_LIMIT", "10")
-    request, _, handler, seen = referral_ehr()
-    allow_ehr(monkeypatch, handler)
+    request, ehr = message_ehr()
+    ehr.install(monkeypatch)
     elsewhere = entry(fhir_servers=[f"{EHR}/other"])
     pinned = entry(
         "pinned", iss=BASE, fhir_servers=[f"{EHR}/other", BASE], iss_is_fhir_server=True,
@@ -284,7 +283,7 @@ def test_a_fhir_server_the_client_did_not_register_is_refused_before_any_read(
         answer = http.post(HOOK, json=body, headers=bearer(sent))
         assert answer.status_code == 403, answer.text
         assert "not one registered for this CDS client" in answer.text
-    assert seen == [] and served.asked_by() == []
+    assert ehr.requests == [] and served.asked_by() == []
     with AuditStore(db_target) as store:
         assert store.principal_usage("cds:epic") == store.principal_usage("cds:pinned") == 0
     lines = security_lines(capsys.readouterr().out)
@@ -295,7 +294,7 @@ def test_a_fhir_server_the_client_did_not_register_is_refused_before_any_read(
     assert requests == ["cds:epic"] * 4 + ["cds:pinned"]
     answer = http.post(HOOK, json=request, headers=bearer(token(OTHER_EHR, HOOK, iss=BASE)))
     assert answer.status_code == 200, answer.text
-    assert len(seen) == 4 and served.asked_by() == ["cds pinned"]
+    assert len(ehr.requests) == 2 and served.asked_by() == ["cds pinned"]  # its two reads
 
 
 def test_a_cds_client_decides_in_its_registered_organization(
@@ -312,10 +311,10 @@ def test_a_cds_client_decides_in_its_registered_organization(
         store.create_organization(org="north", name="North", created_by="test")
     http = TestClient(create_app(db_path=db_target), base_url=PUBLIC_URL)
     capsys.readouterr()
-    called = http.post(HOOK, json=order_sign(1), headers=bearer(token(path=HOOK)))
+    called = http.post(HOOK, json=message_hook(), headers=bearer(token(path=HOOK)))
     assert called.status_code == 200, called.text
     theirs = token(OTHER_EHR, HOOK, iss=f"{EHR}/south")
-    refused = http.post(HOOK, json=order_sign(1), headers=bearer(theirs))
+    refused = http.post(HOOK, json=message_hook(), headers=bearer(theirs))
     assert refused.status_code == 401 and refused.headers["www-authenticate"] == INVALID
     lines = security_lines(capsys.readouterr().out)
     assert [line["actor"] for line in lines if line["event"] == "request"] == [
@@ -339,10 +338,10 @@ def test_a_long_jwt_elsewhere_is_still_malformed(
     and the registry is on."""
     served.registry_is_on()
     capsys.readouterr()
-    long, short = token(path="/api/packs"), token(EC_EHR, "/api/packs")
+    long, short = token(path="/api/agents"), token(EC_EHR, "/api/agents")
     assert len(long) > 512 >= len(short)
     for sent in (long, short):
-        assert served.http.get("/api/packs", headers=bearer(sent)).status_code == 401
+        assert served.http.get("/api/agents", headers=bearer(sent)).status_code == 401
     huge = token(pad="x" * 9000)
     assert served.http.get(DISCOVERY, headers=bearer(huge)).status_code == 401
     lines = security_lines(capsys.readouterr().out)

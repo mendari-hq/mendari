@@ -59,7 +59,7 @@ def body_of(text: str = "Please refill my metformin.", **extra: Any) -> dict[str
         "reader",
         QUESTIONS,
         {"message": {"subject": "Refill", "body": text}},
-        agent_id="my-agent",
+        service_id="my-agent",
         **extra,
     )
 
@@ -76,10 +76,10 @@ def test_the_kits_limits_are_the_engines() -> None:
     assert agent_kit.MAX_TOOL_CALLS == provider.MAX_TOOL_CALLS
     assert agent_kit.MAX_TOOL_NAME_CHARS == provider.MAX_TOOL_NAME_CHARS
     assert agent_kit.MAX_INPUT_CHARS == provider.MAX_REQUEST_CHARS
-    assert agent_kit.ID_PATTERN.pattern == provider.AGENT_ID_PATTERN
+    assert agent_kit.ID_PATTERN.pattern == provider.SERVICE_ID_PATTERN
     assert agent_kit.MAX_CALL_TOKENS == base.MAX_CALL_TOKENS
     assert agent_kit.MAX_CALL_COST_USD == base.MAX_CALL_COST_USD
-    # Proposed actions (spec 0.4): the engine's own limits and its name's shape.
+    # Proposed actions (spec §13.6): the engine's own limits and its name's shape.
     assert agent_kit.MAX_ACTIONS == engine_actions.MAX_PROPOSED == spec.MAX_ACTIONS
     assert agent_kit.MAX_ARGUMENT_CHARS == engine_actions.MAX_ARGUMENT_CHARS
     assert agent_kit.MAX_ARGUMENT_DEPTH == engine_actions.MAX_ARGUMENT_DEPTH
@@ -91,7 +91,11 @@ def test_the_kits_limits_are_the_engines() -> None:
 
 def test_a_case_holds_what_the_engine_sent() -> None:
     case = Case.parse(body_of(system_prompt=" Be careful. ", instructions="Be brief."))
-    assert (case.agent, case.slot, case.agent_id) == ("my-clinic/my-agent", "reader", "my-agent")
+    assert (case.agent_id, case.slot, case.service_id) == (
+        "my-clinic/my-agent",
+        "reader",
+        "my-agent",
+    )
     assert case.instructions == "Be careful.\n\nBe brief."
     assert [q.key for q in case.questions] == ["request", "urgent_symptoms"]
     request = case.question("request")
@@ -216,7 +220,7 @@ def test_an_answer_the_engine_would_refuse_is_an_error(request_answer: Any, mess
          "the agent answered a question it was not asked"),
         (None, {"model": "https://model.example"}, "the agent's model is not a valid id"),
         (None, {"model": ""}, "the agent's model is not a valid id"),
-        (None, {"agent_version": "1.0 beta"}, "the agent's agent_version is not a valid id"),
+        (None, {"service_version": "1.0 beta"}, "the agent's service_version is not a valid id"),
         (None, {"usage": {"input_tokens": -1}}, "the agent's usage is malformed"),
         (None, {"usage": {"input_tokens": True}}, "the agent's usage is malformed"),
         (None, {"usage": {"input_tokens": 10_000_001}}, "the agent's usage is malformed"),
@@ -246,14 +250,14 @@ def test_provenance_rationales_usage_and_tool_calls_reach_the_engine() -> None:
         {"request": ("refill", 0.95), "urgent_symptoms": ("no", 0.9)},
         rationales={"request": "  Asks for\na refill. " + "x" * 600, "urgent_symptoms": " "},
         model="my-model@2026-01",
-        agent_version="1.4.0",
+        service_version="1.4.0",
         usage={"input_tokens": 412, "output_tokens": 38, "cost_usd": 0.0004},
         tool_calls=["  classifier ", {"name": "screen", "status": "ok"}],
     )
     assert shown["answers"]["request"]["rationale"].startswith("Asks for a refill. xx")
     assert len(shown["answers"]["request"]["rationale"]) == 500
     assert shown["answers"]["urgent_symptoms"]["rationale"] is None
-    assert (shown["model"], shown["agent_version"]) == ("my-model@2026-01", "1.4.0")
+    assert (shown["model"], shown["service_version"]) == ("my-model@2026-01", "1.4.0")
     assert shown["usage"] == {"input_tokens": 412, "output_tokens": 38, "cost_usd": 0.0004}
     assert shown["tool_calls"] == ["classifier", {"name": "screen", "status": "ok"}]
 
@@ -343,8 +347,8 @@ def decide(app: Any, body: Any = None, header: str | bytes | None = None) -> Any
 
 
 def test_health_answers_without_a_token(token: str) -> None:
-    app = create_app(answering, title="Test", agent_version="2.0.0")
-    assert TestClient(app).get("/health").json() == {"status": "ok", "agent_version": "2.0.0"}
+    app = create_app(answering, title="Test", service_version="2.0.0")
+    assert TestClient(app).get("/health").json() == {"status": "ok", "service_version": "2.0.0"}
     assert TestClient(app).get("/docs").status_code == 404
 
 
@@ -504,7 +508,7 @@ def test_async_and_sync_handlers_both_answer(token: str) -> None:
     assert threads[0] != threads[1]
 
 
-# -- actions (spec 0.4): what the case offers, what the agent proposes, and asking before running --
+# -- actions (spec §13): what the case offers, what the agent proposes, and asking before running --
 
 DECLARED = {
     "look_up": ActionSpec.model_validate({"description": "Read the list.", "effect": "read"}),

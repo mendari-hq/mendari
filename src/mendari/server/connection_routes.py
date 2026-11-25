@@ -50,6 +50,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from mendari.core.agent import Agent
 from mendari.core.connections import (
     KEEP,
     NOT_LISTED_NOBODY,
@@ -57,10 +58,9 @@ from mendari.core.connections import (
     ConnectionRefused,
     ConnectionStore,
 )
-from mendari.core.pack import Pack
-from mendari.core.spec import is_pack_id
+from mendari.core.spec import is_agent_id
 from mendari.errors import MendariError, ProviderError
-from mendari.evals.pack_tests import load_cases
+from mendari.evals.behaviour_tests import load_cases
 from mendari.providers.agent import ENDPOINT_ENV, AgentProvider
 from mendari.providers.deadline import decision_deadline
 from mendari.providers.http import allowed_origins
@@ -133,7 +133,7 @@ class ConnectionRequest(BaseModel):
     )
 
 
-Providers = Callable[[str, str], tuple[Pack, list[AgentProvider]] | None]
+Providers = Callable[[str, str], tuple[Agent, list[AgentProvider]] | None]
 
 
 def add_connection_routes(
@@ -148,7 +148,7 @@ def add_connection_routes(
 ) -> None:
     """Mount the connection routes. `enabled`: whether organizations may set connections here
     (`MENDARI_AGENT_CONNECTIONS`); `agents(org)`: the ids of the agents `org` is served;
-    `providers(org, pack_id)`: an agent `org` is served or holds in its store, with the `agent`
+    `providers(org, agent_id)`: an agent `org` is served or holds in its store, with the `agent`
     variants it runs (a composite's members too), or None for any other; `changed()`: what was
     read of connections is forgotten (a change takes effect at once on this instance)."""
 
@@ -171,7 +171,7 @@ def add_connection_routes(
         carries a token; and, for who may set it, the whole endpoint."""
         if row is None:
             return None
-        seen = {key: value for key, value in row.items() if key not in ("pack_id", "endpoint")}
+        seen = {key: value for key, value in row.items() if key not in ("agent_id", "endpoint")}
         return {**seen, "endpoint": row["endpoint"]} if may_set(principal) else seen
 
     def slots(found: list[AgentProvider]) -> list[dict[str, Any]]:
@@ -195,16 +195,16 @@ def add_connection_routes(
             )
         return listed
 
-    def state(org: str, pack_id: str, principal: Principal) -> dict[str, Any] | None:
+    def state(org: str, agent_id: str, principal: Principal) -> dict[str, Any] | None:
         """One agent's connection state, or None for an agent `org` neither is served nor
         holds."""
-        found = providers(org, pack_id)
+        found = providers(org, agent_id)
         if found is None:
             return None
         listed = slots(found[1])
         sources = {slot["source"] for slot in listed}
         return {
-            "pack_id": pack_id,
+            "agent_id": agent_id,
             # Whether the agent has a service to connect at all (an `agent` variant in use).
             "applies": bool(listed),
             # Where its answers come from now: one source, or `mixed` when its slots differ.
@@ -213,7 +213,7 @@ def add_connection_routes(
             # automate where people sign in.
             "canned": any(slot["source"] == "none" for slot in listed),
             "slots": listed,
-            "connection": shown(connections.get(org, pack_id) if enabled else None, principal),
+            "connection": shown(connections.get(org, agent_id) if enabled else None, principal),
         }
 
     def deployment(principal: Principal) -> dict[str, Any]:
@@ -240,24 +240,24 @@ def add_connection_routes(
 
     def agent_of(request: Request, namespace: str, name: str) -> tuple[Principal, str, str]:
         principal = auth.acting(request)
-        pack_id = f"{namespace}/{name}"
-        if not is_pack_id(pack_id):
+        agent_id = f"{namespace}/{name}"
+        if not is_agent_id(agent_id):
             raise HTTPException(404, "no such agent here")
-        return principal, org_of(principal), pack_id
+        return principal, org_of(principal), agent_id
 
     def writable(request: Request, namespace: str, name: str) -> tuple[Principal, str, str]:
         """The caller, their organization and the agent, for a route that sets, clears or checks
         a connection: refused where connections are off, for an agent that is not theirs and
         for one with no service to connect."""
-        principal, org, pack_id = agent_of(request, namespace, name)
+        principal, org, agent_id = agent_of(request, namespace, name)
         if principal.kind not in ("user", "open"):  # the guard lets people only through
             raise HTTPException(403, "only a person who signed in may do this")
-        found = providers(org, pack_id)
+        found = providers(org, agent_id)
         if found is None:
             raise HTTPException(404, "no such agent here")
         if not found[1]:
             raise HTTPException(409, NO_SERVICE)
-        return principal, org, pack_id
+        return principal, org, agent_id
 
     @app.get("/api/connections", tags=[TAG], summary="Your organization's agent connections")
     def list_connections(request: Request) -> dict[str, Any]:
@@ -272,7 +272,7 @@ def add_connection_routes(
         names the organization whose administrators may; where it names none, nobody does)."""
         principal = auth.acting(request)
         org = org_of(principal)
-        listed = [state(org, pack_id, principal) for pack_id in sorted(agents(org))]
+        listed = [state(org, agent_id, principal) for agent_id in sorted(agents(org))]
         return {**deployment(principal), "agents": [item for item in listed if item is not None]}
 
     @app.get(
@@ -284,8 +284,8 @@ def add_connection_routes(
         """One agent's connection state in your organization, as `GET /api/connections` lists
         it, for an agent you are served or hold in your agent store. Any other agent, another
         organization's included, is a `404`."""
-        principal, org, pack_id = agent_of(request, namespace, name)
-        found = state(org, pack_id, principal)
+        principal, org, agent_id = agent_of(request, namespace, name)
+        found = state(org, agent_id, principal)
         if found is None:
             raise HTTPException(404, "no such agent here")
         return {**deployment(principal), **found}
@@ -316,7 +316,7 @@ def add_connection_routes(
         endpoint's origin."""
         if not enabled:
             raise HTTPException(409, OFF)
-        principal, org, pack_id = writable(request, namespace, name)
+        principal, org, agent_id = writable(request, namespace, name)
         if body.allow_origin and not may_allow(principal):
             unnamed = auth.operator_org is None and auth.enabled
             security_log.event(
@@ -325,15 +325,15 @@ def add_connection_routes(
                 reason="no_operator_named" if unnamed else "not_operator",
                 actor=principal.id,
                 org=org,
-                ids=[pack_id],
+                ids=[agent_id],
             )
             raise HTTPException(403, NO_OPERATOR_NAMED if unnamed else NOT_AN_OPERATOR)
         token: Any = body.token if "token" in body.model_fields_set else KEEP
-        before = connections.get(org, pack_id)
+        before = connections.get(org, agent_id)
         try:
             made = connections.set(
                 org,
-                pack_id,
+                agent_id,
                 endpoint=body.endpoint,
                 token=token,
                 by=principal.actor,
@@ -346,7 +346,7 @@ def add_connection_routes(
                 reason=error.code or "checks",
                 actor=principal.id,
                 org=org,
-                ids=[pack_id],
+                ids=[agent_id],
             )
             said = str(error)
             if error.code == "origin_not_listed" and auth.enabled and auth.operator_org is None:
@@ -358,10 +358,10 @@ def add_connection_routes(
             "origin_allowed_at"
         ):
             security_log.event(
-                "admin.connection.origin_allowed", actor=principal.id, org=org, ids=[pack_id]
+                "admin.connection.origin_allowed", actor=principal.id, org=org, ids=[agent_id]
             )
-        security_log.event("admin.connection.set", actor=principal.id, org=org, ids=[pack_id])
-        return {"pack_id": pack_id, "connection": shown(made, principal)}
+        security_log.event("admin.connection.set", actor=principal.id, org=org, ids=[agent_id])
+        return {"agent_id": agent_id, "connection": shown(made, principal)}
 
     @app.delete(
         "/api/connections/{namespace}/{name}",
@@ -375,15 +375,15 @@ def add_connection_routes(
         endpoint, else its canned examples). Chained `agent_connection.cleared`."""
         if not enabled:
             raise HTTPException(409, OFF)
-        principal, org, pack_id = agent_of(request, namespace, name)
+        principal, org, agent_id = agent_of(request, namespace, name)
         if principal.kind not in ("user", "open"):
             raise HTTPException(403, "only a person who signed in may do this")
         try:
-            connections.clear(org, pack_id, by=principal.actor)
+            connections.clear(org, agent_id, by=principal.actor)
         except ConnectionRefused as error:
             raise HTTPException(error.status, str(error)) from None
         changed()
-        security_log.event("admin.connection.cleared", actor=principal.id, org=org, ids=[pack_id])
+        security_log.event("admin.connection.cleared", actor=principal.id, org=org, ids=[agent_id])
         return Response(status_code=204)
 
     @app.post(
@@ -397,11 +397,11 @@ def add_connection_routes(
         back: `ok`, how long it took, and the model and version the service reports. A failure
         is said in fixed words (`said`) with its code (`problem`); nothing the service answered
         is repeated. Nothing is recorded, and no decision is made."""
-        principal, org, pack_id = writable(request, namespace, name)
-        found = providers(org, pack_id)
+        principal, org, agent_id = writable(request, namespace, name)
+        found = providers(org, agent_id)
         assert found is not None  # `writable` found it
-        pack, leaves = found
-        example = _example(pack)
+        agent, leaves = found
+        example = _example(agent)
         if example is None:
             raise HTTPException(409, "this agent carries no synthetic example to check with")
         case, inputs = example
@@ -412,16 +412,16 @@ def add_connection_routes(
             outcome="ok" if passed else "error",
             actor=principal.id,
             org=org,
-            ids=[pack_id],
+            ids=[agent_id],
         )
-        return {"pack_id": pack_id, "ok": passed, "example": case, "checked": checked}
+        return {"agent_id": agent_id, "ok": passed, "example": case, "checked": checked}
 
 
-def _example(pack: Pack) -> tuple[str, dict[str, Any]] | None:
+def _example(agent: Agent) -> tuple[str, dict[str, Any]] | None:
     """The agent's first behaviour test with an input: its name and that input (synthetic: an
     agent's tests are part of the agent, published with it)."""
     try:
-        cases = load_cases(pack)
+        cases = load_cases(agent)
     except MendariError:
         return None
     for case in cases:
@@ -467,5 +467,5 @@ def _checked(leaf: AgentProvider, inputs: Mapping[str, Any]) -> dict[str, Any]:
         "said": SAID["ok"],
         "latency_ms": latency,
         "model": output.extra.get("model"),
-        "agent_version": output.extra.get("agent_version"),
+        "service_version": output.extra.get("service_version"),
     }

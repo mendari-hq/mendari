@@ -804,12 +804,11 @@ def starts(database: str = ":memory:") -> None:
     whatever would stop the server raises here, with its message."""
     from mendari.sandbox import example_datasets_dir
     from mendari.server.app import create_app
-    from mendari.settings import daily_limits, default_providers, parse_providers
+    from mendari.settings import daily_limits, parse_providers
 
     app = create_app(
         db_path=database,
         providers=parse_providers(None),
-        default_providers=default_providers(),
         budget_limits=daily_limits(),
         datasets_dir=example_datasets_dir(),
     )

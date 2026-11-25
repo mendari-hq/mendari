@@ -1,20 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Provider comparison: the leaderboard in the server's order (ranking.grouped: the rows that rank
 // as data first, in mendari.rank/1's order, then the rest by configuration name), cost against
-// accuracy, per-check accuracy. The pack's own sets are public, so each table is a regression
+// accuracy, per-check accuracy. The agent's own sets are public, so each table is a regression
 // check, not a ranking: the order is a listing order and no rank is shown (LP-17g). Every share
 // of cases is a figure the server worked out (mendari.figures/1); this view only formats and
 // orders what it is given.
 
 import { chartHtml } from "./charts.js";
-import { criticalText, providerName, remoteModels, variantText } from "./pack.js";
+import { criticalText, providerName, remoteModels, variantText } from "./manifest.js";
 import { wire } from "./router.js";
 import { tableHtml } from "./table.js";
-import { $, docsLink, esc, evidenceMark, figureHtml, icon, num, share, shown, slotText, state, storageGet, storageSet, time } from "./ui.js";
-
-// Where the scoreboard is said to be: its runbook, which links the page of results (the page's
-// own path names a word this dashboard never uses, tests/test_invite_page.py).
-const SCOREBOARD_DOC = "operations/scoreboard.md";
+import { $, esc, evidenceMark, figureHtml, num, share, shown, slotText, state, storageGet, storageSet, time } from "./ui.js";
 
 const sameProvider = (a, b) => a?.variant === b?.variant && remoteModels(a?.model, a?.type).join() === remoteModels(b?.model, b?.type).join();
 
@@ -29,7 +25,7 @@ const missed = (row) => row.figures.critical.some((c) => c.detected.k < c.detect
 // before), a held-out set, the benchmark, or the first.
 function boardGroups(board) {
   const groups = board.groups.map((group, index) => ({ ...group, index }));
-  const saved = storageGet(`oh.board.${state.packId}`, "");
+  const saved = storageGet(`oh.board.${state.agentId}`, "");
   const benchmark = state.detail.manifest.evaluation?.benchmark_dataset;
   const current = groups.find((g) => g.label === saved) ?? groups.find((g) => g.dataset === saved)
     ?? groups.find((g) => g.dataset.endsWith("_holdout")) ?? groups.find((g) => g.dataset === benchmark) ?? groups[0];
@@ -39,15 +35,13 @@ function boardGroups(board) {
 export function leaderboardView(board) {
   const { groups, current } = boardGroups(board);
   if (!current) return `<div class="panel"><h2>Provider comparison</h2><p class="muted">No configurations compared yet.</p></div>`;
-  const scoreboard = docsLink(SCOREBOARD_DOC);
   const min = board.ranking.min_positives;
   return `<div class="panel">
     <h2>Provider comparison</h2>
     <p class="muted"><b>Public set: regression check, not a ranking.</b> Each set of records is compared on its own (updated ${esc(time(board.updated_at))}).
       Rows are a listing order: those measured on this version of the agent, where a critical label has at least ${esc(min)} positives, come first, the critical cases caught first
       (fewest automated, then the worst critical label's detection, then false automation, accuracy and cost; never accuracy alone); every other row follows, by configuration name.
-      Sorting a column reorders the rows. Nothing here is graded: the agent's own sets are public, in the repository and in the package, and grades are given only on frozen hidden sets.
-      Mendari's <a href="${esc(scoreboard)}" target="_blank" rel="noopener noreferrer">scoreboard ${icon("external")}</a> shows measured configurations on public sets, each figure with its interval and scope.</p>
+      Sorting a column reorders the rows. Nothing here is graded: the agent's own sets are public, in the repository and in the package.</p>
     <div class="choices" role="group" aria-label="Records">${groups.map((g) =>
       `<button type="button" data-board-group="${g.index}" aria-pressed="${g === current}" title="${esc(g.about.join("; "))}">${esc(g.label)}</button>`).join("")}</div>
     <div id="board" class="mt-3">${boardTables(board, current)}</div>
@@ -57,7 +51,7 @@ export function leaderboardView(board) {
 export function wireLeaderboard(root, board) {
   root.querySelectorAll("[data-board-group]").forEach((button) => button.addEventListener("click", () => {
     const group = { ...board.groups[Number(button.dataset.boardGroup)], index: Number(button.dataset.boardGroup) };
-    storageSet(`oh.board.${state.packId}`, group.label);
+    storageSet(`oh.board.${state.agentId}`, group.label);
     root.querySelectorAll("[data-board-group]").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
     $("#board", root).innerHTML = boardTables(board, group);
     wire($("#board", root));
@@ -120,8 +114,8 @@ function boardTables(board, group) {
     ...constantSlots.map((slot) => `all rows: ${esc(slot)} = ${esc(variantText(rows[0].providers[slot].variant))}`),
     ...constantMetrics.map((m) => `${esc(m.label)} ${esc(m.words(rows[0]))} in every configuration`),
   ];
-  const withoutCounts = rows.some((r) => r.figures.accuracy === null)
-    ? `<p class="table-note">Accuracy and false automation are n/a on a row recorded before leaderboards kept the counts they are of.</p>` : "";
+  const unlabelled = rows.some((r) => r.figures.accuracy === null)
+    ? `<p class="table-note">Accuracy is n/a on a row with no case labelled for the primary question.</p>` : "";
   return (notes.length ? `<p class="table-note">${notes.join(" · ")}</p>` : "") + tableHtml({
     id: `board-${group.index}`,
     caption: `<b>${esc(group.dataset)}</b> · ${esc(group.about.join("; "))}`,
@@ -129,10 +123,10 @@ function boardTables(board, group) {
     stickyFirst: true,
     rowClass: (r) => (isDeployed(r) ? "deployed" : ""),
     columns,
-  }) + withoutCounts + costChart(rows, varying, group) + otherQuestions(rows, varying, group);
+  }) + unlabelled + costChart(rows, varying, group) + otherQuestions(rows, varying, group);
 }
 
-// A configuration in plain words ("Rules + Jev 1.13.0"), for the slots that differ.
+// A configuration in plain words ("Rules + model-2"), for the slots that differ.
 const configName = (row, varying) => varying.map((slot) =>
   `${varying.length > 1 ? `${slotText(slot)}: ` : ""}${providerName(row.providers[slot])}`).join(", ") || row.config;
 
@@ -192,8 +186,8 @@ function costChart(rows, varying, group) {
 
 // Accuracy of the non-primary questions that differ between configurations, weak cells marked.
 function otherQuestions(rows, varying, group) {
-  const keys = [...new Set(rows.flatMap((r) => Object.keys(r.questions ?? {})))].sort();
-  const changing = keys.filter((k) => new Set(rows.map((r) => JSON.stringify(r.questions?.[k] ?? null))).size > 1);
+  const keys = [...new Set(rows.flatMap((r) => Object.keys(r.questions)))].sort();
+  const changing = keys.filter((k) => new Set(rows.map((r) => JSON.stringify(r.questions[k] ?? null))).size > 1);
   if (!changing.length) return "";
   const shade = (part) => (part === null ? "" : part < 0.8 ? "cell-bad" : part < 0.9 ? "cell-warn" : "");
   const name = (r) => configName(r, varying);
@@ -207,10 +201,10 @@ function otherQuestions(rows, varying, group) {
       columns: [
         { key: "config", label: "Configuration", className: "config-cell", sort: name, cell: (r) => `<span title="${esc(r.config)}">${esc(name(r))}</span>` },
         ...changing.map((k) => ({
-          key: k, label: `<code>${esc(k)}</code>`, numeric: true, sort: (r) => share(r.figures.questions?.[k]),
+          key: k, label: `<code>${esc(k)}</code>`, numeric: true, sort: (r) => share(r.figures.questions[k]),
           cell: (r) => {
-            const m = r.questions?.[k];
-            const figure = r.figures.questions?.[k];
+            const m = r.questions[k];
+            const figure = r.figures.questions[k];
             return m ? `<span class="${shade(share(figure))}" title="ECE ${num(m.ece)}">${figureHtml(figure)}</span>` : "n/a";
           },
         })),

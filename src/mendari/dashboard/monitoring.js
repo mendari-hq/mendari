@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// Monitoring: the served version of the pack over time, against its benchmark only where that
+// Monitoring: the served version of the agent over time, against its benchmark only where that
 // measured this build with the providers that run here: alerts first, then the last 7 days
 // (reviewed accuracy, overrides, confidence drift, automated decisions rated wrong), then week
 // by week, operational health included (provider errors, abstentions, how long 95% of decisions
 // took). Computed by the server (evals/monitoring.py) for this organization.
 
 import { chartHtml } from "./charts.js";
-import { communityNotice } from "./pack.js";
 import { render, views, wire } from "./router.js";
 import { tableHtml } from "./table.js";
 import { $, api, emptyState, esc, figureHtml, icon, money, share, shown, stat, state, storageGet, storageSet } from "./ui.js";
@@ -42,9 +41,9 @@ const took = (ms) => {
 views.monitoring = async (main) => {
   const storedDays = Number(storageGet("oh.monitoring.days", "30"));
   const days = PERIODS.includes(storedDays) ? storedDays : 30;
-  const packId = state.packId;
-  const report = await api(`/api/monitoring?pack_id=${encodeURIComponent(packId)}&days=${days}`);
-  if (state.packId !== packId) return;
+  const agentId = state.agentId;
+  const report = await api(`/api/monitoring?agent_id=${encodeURIComponent(agentId)}&days=${days}`);
+  if (state.agentId !== agentId) return;
   const week = report.last_7_days;
   const bench = report.benchmark;
   const psi = week.drift_psi;
@@ -53,7 +52,6 @@ views.monitoring = async (main) => {
   main.innerHTML = `
     <h1>Monitoring</h1>
     <p class="muted">${esc(state.detail.manifest.name)} in use${bench.comparable ? ", against its benchmark" : ""}. Alerts need enough evidence to fire.</p>
-    ${communityNotice(state.detail)}
     <div class="row toolbar">
       <label for="monitoring-days">Period</label>
       <select id="monitoring-days">${PERIODS.map((d) => `<option value="${d}" ${d === days ? "selected" : ""}>${d} days</option>`).join("")}</select>

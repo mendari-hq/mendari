@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """A yank: the signed record that recalls one published version (LP-18c, ADR-0012).
 
-    {"format": "mendari.yank/1", "pack": "site-a/inbox", "version": "1.0.0",
+    {"format": "mendari.yank/1", "agent": "site-a/inbox", "version": "1.0.0",
      "digest": "sha256:…", "archive_sha256": "<64 hex>", "reason": "…", "severity": "high",
      "signer": "publisher", "key_id": "ed25519:<16 hex>", "at": "2026-10-09T12:00:00Z",
      "signature": "<base64>"}
@@ -44,7 +44,7 @@ SEVERITIES: tuple[str, ...] = get_args(Severity)
 SIGNERS: tuple[str, ...] = get_args(Signer)
 FIELDS = (
     "format",
-    "pack",
+    "agent",
     "version",
     "digest",
     "archive_sha256",
@@ -99,7 +99,7 @@ def _signed(fields: Mapping[str, Any]) -> bytes:
 
 def sign(
     *,
-    pack: str,
+    agent: str,
     version: str,
     digest: str,
     archive_sha256: str,
@@ -113,7 +113,7 @@ def sign(
     """A yank record, signed with `key` (whose id, as the signer names its keys, is `key_id`)."""
     fields = {
         "format": FORMAT,
-        "pack": pack,
+        "agent": agent,
         "version": version,
         "digest": digest,
         "archive_sha256": archive_sha256,

@@ -9,26 +9,25 @@
             │        ▼                                   ▼                      ▼        │
             │   ┌─────────────────────────── Decision (runtime) ───────────────────┐    │
             │   │ input schema ─► provider slots ─► policy ─► DecisionResult        │    │
-            │   │                 rules│naive_bayes│jev    rules, thresholds, caps  │    │
+            │   │                 rules│llm│agent          rules, thresholds, caps  │    │
             │   └──────────────────────────────────────────┬───────────────────────┘    │
             │                                              ▼                             │
-            │   AuditStore (SQLite): decisions · hash-chained events · review queue ·    │
-            │                        eval reports                                         │
+            │   AuditStore (SQLite/Postgres): decisions · hash-chained events · review ·  │
+            │                        queue · eval reports                                 │
             │   Dashboard (static HTML/JS)  ◄── /api/stats /api/review /api/audit /api/evals│
             └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Spec and agent loading** (`core/spec.py`, `core/pack.py`): pydantic models, cross-reference
+- **Spec and agent loading** (`core/spec.py`, `core/agent.py`): pydantic models, cross-reference
   validation, file confinement, content digest.
 - **Registry** (`core/registry.py`): resolves `namespace/name[@version]` from
-  `MENDARI_AGENTS_PATH`, the registry cache, the bundled agents and, with
-  `MENDARI_COMMUNITY_AGENTS=on`, `community-agents/`. Each agent carries the origin of where it
-  was found (`core/origin.py`: maintained, community, hub or local); an id is one agent, and a
-  second claim is reported, never served. The origin, never the manifest's `publisher.type`
-  (self-declared), sets the label every surface shows: "Maintained by Mendari" or "Community ·
-  not clinically reviewed" ([ADR-0007](decisions/ADR-0007-community-agents-by-pull-request.md)).
-  The origin and the digest choose the engine an agent's patterns run on (`Pack.bounded`): an agent
-  the deployment does not own (a community agent, or a pulled one that is not a copy of an agent
+  `MENDARI_AGENTS_PATH`, the registry cache and the bundled agents. Each agent carries the
+  origin of where it was found (`core/origin.py`: maintained, hub or local, and store for a
+  version an organization's agent store serves). The origin, never the manifest's
+  `publisher.type` (self-declared), sets the label every surface shows, such as "Maintained by
+  Mendari" or "From a registry".
+  The origin and the digest choose the engine an agent's patterns run on (`Agent.bounded`): an agent
+  the deployment does not own (a pulled one, or a store's, that is not a copy of an agent
   bundled with the installed release, `core/reference.py`) runs on RE2 with caps, input limits and a CPU
   budget per decision; the others on `re`, their input schemas bounded in shape at load
   (`core/input_schema.py`, over `core/schema_graph.py`)
@@ -37,28 +36,20 @@
   files is refused.
 - **Runtime** (`core/decision.py`): binds an agent to concrete provider variants. It validates
   input, collects answers, applies policy and optionally records the result.
-- **Derived questions** (`core/derive.py`): computes decision-table questions from their
-  members' answers with exact probabilities (spec 0.2 §4.3), and adds expected values to score
-  answers.
 - **Policy** (`core/policy.py`): a pure function from answers and failures to an outcome. It
-  holds all automation limits, including risk-level caps, governance overrides, the
-  cap on community agents (one never automates) and the site code cap (a decision read
-  through a site's translation of its own code never automates, `core/site_codes.py`).
+  holds all automation limits, including risk-level caps, governance overrides and the site code
+  cap (a decision read through a site's translation of its own code never automates,
+  `core/site_codes.py`).
 - **Providers** (`providers/`): a common `answer(inputs) -> ProviderOutput` contract.
   Within one decision, remote providers that share an endpoint and model are merged into a
-  single call (`providers/batch.py`): two slots answered by the same Jev model, for example,
-  make one Jev call and use one budget unit.
+  single call (`providers/batch.py`): two slots answered by the same LLM, for example, make
+  one call and use one budget unit.
 - **Audit** (`core/audit.py`): write-once decision records. Reviews and outcomes are appended
   as events, the hash chain is verifiable, and the store also serves the review queue and
   live statistics.
 - **Evals** (`evals/`): pure metrics, the harness, the local-vs-benchmark comparison, the
-  agent behaviour tests, what a labelled set covers (`coverage.py`, over one canonical form of
-  a case's input, `canonical.py`), and what a grading run over a hidden evaluation set answers,
-  aggregates only (`hidden.py`, `mendari.hidden_result/1`). `method.py` pins the
-  [grading method](grading/method-1.0.md)'s version, hash and numbers. The scoreboard's entries
-  (`scoreboard.py`) are computed from ledgers and run records (`runs.py`), signed offline
-  (`signing.py`) and kept in an append-only store, a folder a deployment keeps
-  (`results_store.py`, `scoreboard/` unless `--store` names another), from which `scripts/scoreboard_page.py` renders a page.
+  agent behaviour tests, and what a labelled set covers (`coverage.py`, over one canonical form
+  of a case's input, `canonical.py`).
 - **Standards** (`standards/`): FHIR R4 mapping and `Task` output, CDS Hooks discovery and
   cards, the structural R4 check on FHIR inputs (`fhir_structure.py`, from HL7's R4 JSON
   Schema), US Core 6.1.0 checks on them (`us_core.py`, generated from the official packages),
@@ -77,8 +68,7 @@
    `BLOCK` without a person (step 4).
 2. JSON Schema validation. Invalid input becomes `BLOCK`, and no provider sees it.
 3. Each provider slot answers its questions. A provider error is recorded per question and
-   never raised to the caller. Derived questions are then computed from their members'
-   answers, and score answers get their expected value.
+   never raised to the caller. Score answers then get their expected value.
 4. Policy: rules, then thresholds, then caps (the site code cap among them, `core/policy.py`).
 5. The `DecisionResult` is returned. With a store attached, the record is written and
    `decision.created` is chained (with sign-in on, naming who asked: `requested_by`).
@@ -91,9 +81,8 @@
 
 ## Trust boundaries
 
-- **Agent content is code-adjacent.** Regexes, models and policies change behaviour. Agents are
-  identified by digest and SHOULD be reviewed like code. v0.1 loads agents only from local
-  paths.
+- **Agent content is code-adjacent.** Patterns, prompts, calibrations and policies change
+  behaviour. Agents are identified by digest and SHOULD be reviewed like code.
 - **Agents from a registry are verified before use** (`hub/client.py`):
   - the archive's SHA-256 recorded by the registry;
   - every file's hash in the signed manifest;
@@ -116,21 +105,23 @@
   registry's recalls in a thread of its own, started by a decision for one of its agents once the
   last read is five minutes old (`server/recalls.py`), and holds an agent whose registry it could
   not read for a day. The Decision Card shows the origin and the approval.
-- **Remote providers** (Jev, LLMs) receive only `state_fields` over HTTPS (plain http only
+- **Remote providers** (LLMs, agents) receive only `state_fields` over HTTPS (plain http only
   to a model server on localhost), with credentials read from the environment or the
   deployment's OIDC token. LLM prompts carry the input as JSON data under a system prompt that
-  forbids following it, and the response schema is fixed by the agent. Their responses are validated strictly and bounded in size. A batched
-  call sends the union of its variants' `state_fields`; a variant that must not share its
+  forbids following it, and the response schema is fixed by the agent. Their responses are
+  validated strictly and bounded in size. A batched call sends the union of its variants' `state_fields`; a variant that must not share its
   state sets `batch: false`. An owned agent's variant without `state_fields` sends the whole
-  input; an agent the deployment does not own (community, registry) must name them, and runs on
+  input; an agent the deployment does not own (a registry's, a store's) must name them, and runs on
   the deployment's model with its `max_tokens`, `timeout_ms` and `reasoning_effort` capped.
   Every variant's config is checked at load against its provider's closed config
   (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): such
   an agent is refused for a problem, an owned one warned.
-  - With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set (`providers/http.py`), every Jev, LLM and Vercel
-    Connect request to an origin it does not list is refused before it is opened
-    (`invalid_endpoint`), and an `LLM_BASE_URL` or `JEV_API_URL` off it stops startup. Unset,
-    the endpoints are only the deployment's own variables, as before.
+  - With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set (`providers/http.py`), every LLM and agent
+    request to an origin it does not list is refused before it is opened (`invalid_endpoint`),
+    and an `LLM_BASE_URL` or `MENDARI_AGENT_URL` off it stops startup. Unset, an LLM calls the
+    endpoint the deployment's variables name, and an agent its organization's own connection
+    (public addresses only, `providers/reach.py`), else an owned agent's own `endpoint`, else
+    `MENDARI_AGENT_URL`.
 - **The server** is open by default and binds to localhost. Production sits behind Vercel
   Authentication, and the docker sandbox publishes ports on 127.0.0.1 only.
   - With an OIDC issuer set (`server/auth.py`), every request passes one guard: a signed-in
@@ -146,7 +137,7 @@
   single guard. That includes CDS Hooks fetching prefetch the EHR left out, and later SMART and
   Bulk.
   - The server's origin must be on `MENDARI_FHIR_ALLOWED_SERVERS`. It is empty by default, so
-    CDS Hooks then works from prefetch only, as in v0.1.
+    CDS Hooks then works from prefetch only.
   - Plain http is allowed only for loopback and single-label (compose) hosts.
   - Requests stay under the server's base URL, redirects are refused, and responses are capped
     at 5 MB of JSON.
@@ -160,7 +151,8 @@
   - The `id_token` is verified with the server's JWKS: RS256 or ES384 only, with `iss`, `aud`,
     `exp` and `nonce` checked.
   - Access tokens stay in the database (`smart_sessions`, keyed by the SHA-256 of the browser's
-    opaque id, expiring with the token; not encrypted at rest until the v0.6 PHI mode).
+    opaque id, expiring with the token), each row sealed under a key derived from the browser's
+    own cookie (`core/session_seal.py`): the database alone opens none.
   - The session cookie is HttpOnly, Secure and SameSite=Lax. No refresh tokens are requested.
   - A decision is only made for a resource whose subject is the launch's patient.
 - **Bulk exports** (`standards/bulk.py`) go through the same allow-list, and so do the status URL

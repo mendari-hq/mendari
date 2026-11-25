@@ -15,7 +15,7 @@
 // registry, a publisher or a person is escaped; a Decision Card is shown as text.
 
 import { connectionDialog, connectionWords } from "./connection.js";
-import { holdsFor, originBadge, packOptions } from "./pack.js";
+import { holdsFor, originBadge, agentOptions } from "./manifest.js";
 import { views, wire } from "./router.js";
 import { $, actionDialog, api, emptyState, esc, focusHeading, icon, may, signedIn, state, time, toast, toastError } from "./ui.js";
 
@@ -57,7 +57,7 @@ views.agents = async (main, params = []) => {
   wire(body);
 };
 
-views.agents.packless = true;
+views.agents.agentless = true;
 views.agents.leave = () => document.querySelectorAll("dialog[data-admin]:not([data-busy])").forEach((d) => d.close());
 
 const failed = (title, text) => `<div class="panel error-state" role="alert"><h2>${esc(title)}</h2>
@@ -81,11 +81,11 @@ async function load() {
   ]);
   // The agent picker follows what is served now: one that started being served here is there to
   // choose without reloading the page.
-  state.packs = agents;
-  const picker = $("#pack-select");
+  state.agents = agents;
+  const picker = $("#agent-select");
   if (picker && agents.length) {
-    picker.innerHTML = packOptions(agents);
-    if (agents.some((a) => a.id === state.packId)) picker.value = state.packId;
+    picker.innerHTML = agentOptions(agents);
+    if (agents.some((a) => a.id === state.agentId)) picker.value = state.agentId;
   }
   return { agents, hub, connections, holds, registry, governance, lineages, jobs, promotions, author, promoter };
 }
@@ -113,7 +113,7 @@ async function showOurs(body) {
     evaluate(button.dataset.evaluate, button.dataset.name).then((done) => done && again(`[data-serve="${quoted(button.dataset.evaluate)}"]`, "#agents-waiting"))));
   body.querySelectorAll("[data-serve]").forEach((button) => button.addEventListener("click", () => {
     const version = waiting(ctx).find((v) => v.digest === button.dataset.serve);
-    return startServing(version).then((done) => done && again(`[data-agent="${quoted(version.pack_id)}"] [data-open]`, "#agents-served"));
+    return startServing(version).then((done) => done && again(`[data-agent="${quoted(version.agent_id)}"] [data-open]`, "#agents-served"));
   }));
   body.querySelectorAll("[data-withdraw]").forEach((button) => button.addEventListener("click", () =>
     withdraw(button.dataset.withdraw, button.dataset.name).then((done) => done && again(null, "#agents-waiting"))));
@@ -121,7 +121,7 @@ async function showOurs(body) {
 
 // Choose an agent in the page's picker and open one of its views.
 function openAgent(id, view) {
-  const picker = $("#pack-select");
+  const picker = $("#agent-select");
   if (picker && picker.value !== id) {
     picker.value = id;
     picker.dispatchEvent(new Event("change"));
@@ -132,21 +132,18 @@ function openAgent(id, view) {
 // Whether a served agent acts on its own now, and what stands in the way: each of the engine's own
 // conditions (core/decision.py, core/policy.py), read from what the page already asks.
 function standing(agent, ctx) {
-  if (agent.origin === "community") {
-    return { label: "Recommends only", tone: "", why: ["A community agent recommends, and a person confirms every decision."] };
-  }
   const why = [];
   const level = agent.risk?.level ?? 0;
   if (level >= 4) why.push("At risk level 4 a person reviews every decision.");
   if (holdsFor(ctx.holds, agent).length) why.push("Automation is on hold.");
-  const promotion = ctx.promotions?.promotions.find((p) => p.pack_id === agent.id && !p.retired_at);
+  const promotion = ctx.promotions?.promotions.find((p) => p.agent_id === agent.id && !p.retired_at);
   if (promotion && !promotion.automate) why.push("It is served to recommend only.");
-  if (agent.origin === "hub" && !ctx.registry.approvals.some((a) => a.pack_id === agent.id && a.pack_digest === agent.digest && !a.revoked_at)) {
+  if (agent.origin === "hub" && !ctx.registry.approvals.some((a) => a.agent_id === agent.id && a.agent_digest === agent.digest && !a.revoked_at)) {
     why.push("Your organization has not approved this exact version yet.");
   }
-  const approved = ctx.governance.approvals.some((a) => a.pack_id === agent.id && a.pack_digest === agent.digest && !a.revoked_at && new Date(a.expires_at) > new Date());
+  const approved = ctx.governance.approvals.some((a) => a.agent_id === agent.id && a.agent_digest === agent.digest && !a.revoked_at && new Date(a.expires_at) > new Date());
   if (level >= 2 && level < 4 && !approved) why.push(`At risk level ${level} it needs your organization's approval to act on its own.`);
-  const connection = ctx.connections.agents.find((c) => c.pack_id === agent.id);
+  const connection = ctx.connections.agents.find((c) => c.agent_id === agent.id);
   if (connection?.applies && connection.canned && signedIn()) why.push("It is not connected to its service, so it answers from canned examples.");
   return why.length
     ? { label: "A person decides every case", tone: "s-warning", why }
@@ -156,11 +153,11 @@ function standing(agent, ctx) {
 function servedHtml(ctx) {
   const cards = ctx.agents.map((agent, index) => {
     const found = standing(agent, ctx);
-    const connection = ctx.connections.agents.find((c) => c.pack_id === agent.id);
+    const connection = ctx.connections.agents.find((c) => c.agent_id === agent.id);
     const words = connectionWords(connection);
     const own = connection?.source === "organization" ? connection.connection : null;
-    const promotion = ctx.promotions?.promotions.find((p) => p.pack_id === agent.id && !p.retired_at);
-    const selected = agent.id === state.packId;
+    const promotion = ctx.promotions?.promotions.find((p) => p.agent_id === agent.id && !p.retired_at);
+    const selected = agent.id === state.agentId;
     return `<article class="panel agent-card" aria-labelledby="agent-${index}" data-agent="${esc(agent.id)}">
       <div class="row agent-head">
         <h3 id="agent-${index}">${esc(agent.name)}</h3>
@@ -192,10 +189,10 @@ function servedHtml(ctx) {
 function waiting(ctx) {
   const found = new Map();
   for (const lineage of ctx.lineages ?? []) {
-    for (const v of lineage.versions) if (["draft", "held", "retired"].includes(v.state)) found.set(v.digest, { ...v });
+    for (const v of lineage.versions) if (["draft", "retired"].includes(v.state)) found.set(v.digest, { ...v });
   }
   for (const v of ctx.promotions?.versions ?? []) found.set(v.digest, { ...(found.get(v.digest) ?? {}), ...v, candidate: true });
-  const done = (digest) => (ctx.jobs ?? []).filter((j) => !j.pack && j.digest === digest && j.state === "done").map((j) => j.report_id);
+  const done = (digest) => (ctx.jobs ?? []).filter((j) => !j.agent && j.digest === digest && j.state === "done").map((j) => j.report_id);
   return [...found.values()].map((v) => ({ ...v, reports: v.reports ?? done(v.digest) }))
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 }
@@ -230,11 +227,7 @@ function waitingHtml(ctx) {
       <p class="muted">Nothing is waiting. An agent added from the registry shows here until someone starts serving it.</p>`;
   }
   const cards = versions.map((v, index) => {
-    const name = `${v.pack_id} ${v.version}`;
-    if (v.state === "held") {
-      return `<article class="panel agent-card" aria-labelledby="waiting-${index}"><h3 id="waiting-${index}"><code>${esc(v.pack_id)}</code> ${esc(v.version)}</h3>
-        <p class="callout neutral">Held for the operator's review. Nothing more is shown until whoever runs this deployment answers.</p></article>`;
-    }
+    const name = `${v.agent_id} ${v.version}`;
     const evaluated = v.reports.length > 0;
     const fromHub = v.source === "hub";
     const serve = !evaluated
@@ -261,7 +254,7 @@ function waitingHtml(ctx) {
     ];
     return `<article class="panel agent-card" aria-labelledby="waiting-${index}" data-waiting="${esc(v.digest)}">
       <div class="row agent-head">
-        <h3 id="waiting-${index}"><code>${esc(v.pack_id)}</code> ${esc(v.version)}</h3>
+        <h3 id="waiting-${index}"><code>${esc(v.agent_id)}</code> ${esc(v.version)}</h3>
         <span class="badge">${v.state === "retired" ? "No longer served" : "Not in use yet"}</span>
         ${digestCode(v.digest)}
       </div>
@@ -269,7 +262,7 @@ function waitingHtml(ctx) {
       <ol class="adoption-steps">${steps.map(step).join("")}</ol>
       <div class="row agent-actions">
         ${ctx.author ? `<a class="button" href="#store/version/${encodeURIComponent(v.digest)}">Files, tests and Decision Card</a>` : ""}
-        <button type="button" data-connect="${esc(v.pack_id)}" data-name="${esc(name)}">Connection…</button>
+        <button type="button" data-connect="${esc(v.agent_id)}" data-name="${esc(name)}">Connection…</button>
         ${ctx.author && v.state === "draft" ? `<button type="button" data-withdraw="${esc(v.digest)}" data-name="${esc(name)}">Withdraw…</button>` : ""}
       </div>
     </article>`;
@@ -328,7 +321,7 @@ function startServing(v) {
   if (!v) return Promise.resolve(null);
   const fromHub = v.source === "hub";
   return actionDialog({
-    title: `Start serving ${v.pack_id} ${v.version}?`,
+    title: `Start serving ${v.agent_id} ${v.version}?`,
     body: `<p>From now on this version answers every request for this agent made in <b>${esc(orgName())}</b>, by people, keys, clients and
         the EHR, and in no other organization. The version served before it, if any, stops.</p>
       <p>${fromHub
@@ -395,7 +388,6 @@ const recallBadge = (recall) => (recall ? `<span class="badge o-BLOCK">${recall.
 function installedWords(installed) {
   if (!installed) return "";
   if (installed.state === "served") return `Your organization uses version ${esc(installed.version)}.`;
-  if (installed.state === "held") return "Your organization added it; it is held for the operator's review.";
   return `Your organization added version ${esc(installed.version)}; it is not in use yet.`;
 }
 
@@ -472,17 +464,17 @@ function reviewWords(review, declared) {
   return `Reviewed by the registry at risk level ${esc(review.risk_level)}.`;
 }
 
-async function showListing(main, packId) {
-  main.innerHTML = `<p><a href="#agents/hub">← Find agents</a></p><h1>${esc(packId)}</h1><section id="agents-body" aria-busy="true"><p class="muted">Reading the registry…</p></section>`;
+async function showListing(main, agentId) {
+  main.innerHTML = `<p><a href="#agents/hub">← Find agents</a></p><h1>${esc(agentId)}</h1><section id="agents-body" aria-busy="true"><p class="muted">Reading the registry…</p></section>`;
   const body = $("#agents-body");
   let hub;
   let found;
   try {
-    [hub, found] = await Promise.all([api("/api/hub"), api(`/api/hub/agents/${packId.split("/").map(encodeURIComponent).join("/")}`)]);
+    [hub, found] = await Promise.all([api("/api/hub"), api(`/api/hub/agents/${agentId.split("/").map(encodeURIComponent).join("/")}`)]);
   } catch (error) {
     body.removeAttribute("aria-busy");
     body.innerHTML = failed(error.status === 404 ? "The registry lists no such agent" : "The registry could not be read", error.message);
-    body.querySelector("[data-retry]").addEventListener("click", () => showListing(main, packId));
+    body.querySelector("[data-retry]").addEventListener("click", () => showListing(main, agentId));
     return focusHeading(main.querySelector("h1"), { scroll: false });
   }
   body.removeAttribute("aria-busy");
@@ -496,14 +488,14 @@ async function showListing(main, packId) {
     body.innerHTML = `<p class="callout danger"><b>Every version of this agent is recalled.</b> It cannot be added.</p>${recalls}`;
     return focusHeading(main.querySelector("h1"), { scroll: false });
   }
-  main.querySelector("h1").textContent = a.name ?? packId;
+  main.querySelector("h1").textContent = a.name ?? agentId;
   const c = a.checked;
   const evaluations = a.evaluations.published
     ? `<p>${a.evaluations.published} evaluation${a.evaluations.published === 1 ? "" : "s"} published by the publisher for this version:</p>
        <ul>${a.evaluations.listed.map((e) => `<li>${esc(e.dataset ?? "a dataset")}${e.cases != null ? `, ${esc(e.cases)} cases` : ""}${e.models.length ? `, with ${e.models.map(esc).join(", ")}` : ""}${e.rerun ? `. ${esc(e.rerun)}` : ""}</li>`).join("")}</ul>
        <p class="muted">The figures, with their intervals, are on the registry's own page. They are the publisher's: evaluate it on your own cases too.</p>`
     : `<p class="muted">The publisher has published no evaluation of this version. Evaluate it on your own cases before relying on it.</p>`;
-  body.innerHTML = `<p class="mono muted">${esc(packId)} v${esc(a.version)}${a.published_at ? ` · published ${esc(when(a.published_at))}` : ""}</p>
+  body.innerHTML = `<p class="mono muted">${esc(agentId)} v${esc(a.version)}${a.published_at ? ` · published ${esc(when(a.published_at))}` : ""}</p>
     ${a.recall ? `<p class="callout danger"><b>${a.recall.deleted ? "Deleted from the registry" : `Recalled (${esc(a.recall.severity)})`}.</b> ${esc(a.recall.reason ?? "")} It cannot be added.</p>` : ""}
     <p class="prose lead">${esc(a.summary ?? "")}</p>
     <p class="callout warning status-notice"><b>${esc(c.status_label ?? "Not clinically reviewed.")}</b></p>
@@ -533,7 +525,7 @@ async function showListing(main, packId) {
       <p class="muted">Rendered by the registry from the agent's files, and shown here as text.</p>
       <pre id="hub-card" class="registry-card" tabindex="0"></pre></section>`;
   $("#hub-card").textContent = a.card_markdown ? plainCard(a.card_markdown) : "The registry rendered no card for this version.";
-  $("#hub-add-button")?.addEventListener("click", () => add(packId, a, found));
+  $("#hub-add-button")?.addEventListener("click", () => add(agentId, a, found));
   wire(body);
   return focusHeading(main.querySelector("h1"), { scroll: false });
 }
@@ -565,8 +557,8 @@ async function pull(ref, acceptNewKey) {
   }
 }
 
-async function add(packId, a, found) {
-  const ref = `${packId}@${a.version}`;
+async function add(agentId, a, found) {
+  const ref = `${agentId}@${a.version}`;
   const result = $("#hub-add-result");
   const ask = (acceptNewKey, keys) => actionDialog({
     title: acceptNewKey ? "Accept this publisher's new key and add?" : `Add ${ref}?`,
@@ -592,12 +584,9 @@ async function add(packId, a, found) {
     result.innerHTML = `<p class="callout danger" role="alert">${esc(answer.body.detail ?? "It was not added.")}</p>`;
     return;
   }
-  const held = answer.body.state === "held";
   $("#hub-add-button")?.remove();
-  result.innerHTML = held
-    ? '<div class="callout neutral" role="status"><b>Kept, and held for the operator\'s review.</b> It cannot be evaluated or served until whoever runs this deployment answers.</div>'
-    : `<div class="callout ok" role="status"><p><b>Added and verified.</b> ${esc(ref)} is kept for ${esc(orgName())}, and is not in use yet.</p>
+  result.innerHTML = `<div class="callout ok" role="status"><p><b>Added and verified.</b> ${esc(ref)} is kept for ${esc(orgName())}, and is not in use yet.</p>
         <p>Next: evaluate it here, then someone other than you starts serving it. <a href="#agents">See it under Our agents.</a></p></div>`;
-  toast(held ? "Kept: held for the operator's review" : "Added: not in use yet");
+  toast("Added: not in use yet");
   found.installed = { version: a.version, digest: answer.body.digest, state: answer.body.state };
 }

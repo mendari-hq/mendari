@@ -1,7 +1,0 @@
-questions:
-  ecg_on_file:
-    checks: [{exists: {in: documents, codes: ["11524-6"], within_days: 365, then: "yes", undated: "no"}}]
-    default: "no"
-  marked_urgent:
-    checks: [{value: {field: referral.priority, in: [urgent, asap, stat], then: "yes"}}]
-    default: "no"

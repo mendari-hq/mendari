@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Per-pack images (MENDARI_PACKS) and the templates in deploy/: the one-machine install
+"""Per-agent images (MENDARI_AGENTS) and the templates in deploy/: the one-machine install
 (`deploy/site`: its compose file, its front, its daily jobs and the script that drives them),
 the on-prem template and Kubernetes."""
 
@@ -47,20 +47,20 @@ def templates() -> list[Path]:
     return found
 
 
-def test_a_per_pack_server_serves_only_its_pack(
+def test_a_per_agent_server_serves_only_its_agent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MENDARI_PACKS", "mendari/referral-router")
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari-test/clinical-review")
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    assert [p["id"] for p in client.get("/api/packs").json()] == ["mendari/referral-router"]
-    assert client.get("/api/packs/mendari/patient-inbox-router").status_code == 404
+    assert [p["id"] for p in client.get("/api/agents").json()] == ["mendari-test/clinical-review"]
+    assert client.get("/api/agents/mendari-test/triage").status_code == 404
 
 
-def test_a_pack_that_is_not_installed_fails_at_startup(
+def test_an_agent_that_is_not_installed_fails_at_startup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MENDARI_PACKS", "mendari/referal-router")  # a typo
-    with pytest.raises(MendariError, match="referal-router"):
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari-test/clinical-reveiw")  # a typo
+    with pytest.raises(MendariError, match="clinical-reveiw"):
         create_app(db_path=tmp_path / "a.db")
 
 
@@ -103,11 +103,11 @@ def test_compose_trusts_x_forwarded_for_from_the_gateway_a_proxy_on_the_host_com
 
 def test_only_the_sandbox_engine_answers_cds_hooks_from_the_network() -> None:
     """Open mode answers CDS Hooks on its own machine only (LP-23c), and `MENDARI_CDS_SANDBOX=1`
-    lifts that for a sandbox on synthetic data. Only a synthetic sandbox's open engine sets it
-    (the compose sandbox's and the Inferno harness's)
+    lifts that for a sandbox on synthetic data. Only the compose sandbox's open engine sets it
     (Docker's port publishing reaches it from a gateway, never from loopback): not its signed-in
-    engine (where the flag would stop startup), and nothing a site deploys from `deploy/` (the
-    on-prem compose file and its example settings, Kubernetes, Vercel) nor the hosted site."""
+    engine (where the flag would stop startup), not the Inferno harness (its SMART and Bulk
+    client suites call no hook), and nothing a site deploys from `deploy/` (the on-prem compose
+    file and its example settings, Kubernetes, Vercel) nor the hosted site."""
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
     setting = "MENDARI_CDS_SANDBOX"
     flagged = {
@@ -120,11 +120,8 @@ def test_only_the_sandbox_engine_answers_cds_hooks_from_the_network() -> None:
     assert engine[setting] == "1" and engine["MENDARI_PHI_MODE"] == "off"
     assert "MENDARI_OIDC_ISSUER" not in engine  # open mode: the flag stops startup with sign-in
     assert "MENDARI_OIDC_ISSUER" in compose["services"]["engine-signin"]["environment"]
-    inferno = yaml.safe_load((ROOT / "sandbox" / "inferno" / "docker-compose.yml").read_text())
-    harness = {n for n, s in inferno["services"].items() if setting in (s.get("environment") or {})}
-    assert harness == {"engine"}  # the Inferno harness's open engine, on synthetic data (DV-c)
-    assert inferno["services"]["engine"]["environment"][setting] == "1"
-    assert inferno["services"]["engine"]["environment"]["MENDARI_PHI_MODE"] == "off"
+    harnesses = sorted((ROOT / "sandbox" / "inferno").rglob("docker-compose.yml"))
+    assert harnesses and not [path for path in harnesses if setting in path.read_text()]
     onprem = yaml.safe_load((DEPLOY / "onprem" / "docker-compose.yml").read_text())
     assert not any(setting in (s.get("environment") or {}) for s in onprem["services"].values())
     deployed = [*templates(), ROOT / "vercel.json", ROOT / "app.py", ROOT / "Dockerfile"]

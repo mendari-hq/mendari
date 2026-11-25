@@ -1,9 +1,14 @@
 # ADR-0013: A scoreboard and scoped grades
 
 ## Status
+Superseded by [ADR-0026](ADR-0026-one-release-baseline-agents-only.md) (2026-11-25): the
+scoreboard is removed, with the grading method, the signed results and their store, and the
+hidden sets it graded on. Leaderboards stay (`mendari leaderboard`, `mendari.leaderboard/1`,
+ranked by `mendari.rank/1`).
+
 Accepted (2026-11-06, LP-17m). Proposed 2026-10-17, and built in steps (LP-17, `tasks/todo.md`,
 planned in `notes/lp17-plan.md`). What landed, in the order it was built:
-- 17a (#257), the [grading method 1.0](../grading/method-1.0.md) (`mendari.grading/1.0`, a draft
+- 17a (#257), the grading method 1.0 (`mendari.grading/1.0`, a draft
   not in effect) and its pinned constants (`mendari.evals.method`: the version, the SHA-256 of
   the document's bytes, the effective date left empty for the owner, and the parameters);
 - 17b (#258), the statistics the scoreboard adds (`mendari.evals.stats`: the stratified
@@ -26,7 +31,7 @@ planned in `notes/lp17-plan.md`). What landed, in the order it was built:
   (`mendari.hidden_scoreboard/1`), stored as answered;
 - 17m (#279), the close-out: the launch gates' probes (`a9-scoreboard`, `grading-method`),
   the threat model's residual risks, this status, the owner's runbook
-  ([Running the scoreboard](../operations/scoreboard.md)) and the end-to-end
+  (Running the scoreboard) and the end-to-end
   test.
 
 Two steps stay open. 17i is the owner's run: the remote arms' replicates on the public `test`
@@ -38,10 +43,11 @@ confirmed that 17l waits for LP-19 and LP-20, decision 10). Gate G3-4's
 effective date (gate `grading-method`). The defaults below hold unless the owner chooses
 otherwise: the owner's decisions still open are listed in `tasks/todo.md`.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
-Mendari compares an agent's configurations today with leaderboards (`mendari.leaderboard/2`), ranked
+Mendari compares an agent's configurations today with leaderboards (`mendari.leaderboard/1`), ranked
 by one function (`mendari.rank/1`, `evals/ranking.py`): critical cases automated first, then the
 worst critical label's lower bound, false automation, accuracy and cost, on raw 95% bounds, with a
 strict name tiebreak.
@@ -73,7 +79,7 @@ grade is given.
 2. **A separate scoreboard format, with `mendari.rank/1` kept as data.** The scoreboard's entries
    are a new format (`mendari.scoreboard/1`, LP-17d), computed from five committed inputs: the
    ledger, the dataset, a run record, a dated price table and the method. `mendari.rank/1`,
-   `mendari.eval/2`, `mendari.ledger/1`, `mendari.compare/1` and every committed benchmark and
+   `mendari.eval/1`, `mendari.ledger/1`, `mendari.compare/1` and every committed benchmark and
    ledger stay byte for byte as they are. Changing `rank/1` would make every published Decision
    Card stale.
 3. **Grades and ranks on frozen hidden sets only.** A grade is a set of attestations, each met,

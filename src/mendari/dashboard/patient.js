@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // This patient: opened by a SMART on FHIR launch from the EHR. The patient's banner, then the
-// resources the current pack decides about (their messages, their referrals), each decided on
+// resources the current agent decides about (their messages, their referrals), each decided on
 // request, with the decision shown in place (and, for those who may read the audit trail, one
 // link away). Everything is read live from the EHR by the server, with the launch's token;
 // nothing about the patient is kept in the browser.
@@ -12,7 +12,7 @@
 // patient, items and decide requests carry the pin (`X-Mendari-Launch`): the server answers 409
 // to a replaced one, so a launch that replaces this one between those requests shows nothing.
 
-import { communityNotice, isCommunity, originBadge, statusNotice } from "./pack.js";
+import { statusNotice } from "./manifest.js";
 import { render, route, views } from "./router.js";
 import { $, api, emptyState, esc, icon, may, outcomeBadge, priorityBadge, state, toast, toastError, whileBusy } from "./ui.js";
 
@@ -29,13 +29,13 @@ views.patient = async (main, params) => {
   state.smart = now;
   // Opened without a pin: the launch shown here is this window's from now on.
   if (!pinned && now.launch_id) state.launchPin = pinned = pin(now.launch_id);
-  const pack = encodeURIComponent(state.packId);
+  const agent = encodeURIComponent(state.agentId);
   const options = pinnedTo(pinned);
   let patient, items;
   try {
     [patient, items] = await Promise.all([
       api("/api/smart/patient", options),
-      api(`/api/smart/focus?pack_id=${pack}`, options),
+      api(`/api/smart/focus?agent_id=${agent}`, options),
     ]);
   } catch (error) {
     if (!error.launchEnded && !error.launchReplaced) throw error;
@@ -45,13 +45,12 @@ views.patient = async (main, params) => {
   }
   main.innerHTML = `
     <h1>This patient</h1>
-    <p class="muted">From the EHR launch: what ${esc(packName())} decides about for this patient.</p>
-    ${communityNotice(currentPack())}
-    ${statusNotice(currentPack())}
+    <p class="muted">From the EHR launch: what ${esc(agentName())} decides about for this patient.</p>
+    ${statusNotice(currentAgent())}
     ${banner(patient)}
     ${items.length ? `<ul class="work-items">${items.map(workItem).join("")}</ul>` : emptyState({
       icon: "inbox", title: "Nothing to decide",
-      text: `This patient has nothing ${esc(packName())} decides about. Choose another agent above.`,
+      text: `This patient has nothing ${esc(agentName())} decides about. Choose another agent above.`,
     })}`;
   $("#smart-logout").addEventListener("click", logout);
   main.querySelectorAll("button[data-decide]").forEach((button) => button.addEventListener("click", () => decide(button, pinned)));
@@ -80,10 +79,9 @@ function pin(launchId) {
   return launchId;
 }
 
-// The pack in use, with where it comes from (`origin_label`): a community pack says so here,
-// where a clinician decides from the EHR.
-const currentPack = () => state.packs.find((p) => p.id === state.packId);
-const packName = () => currentPack()?.name ?? state.packId;
+// The agent in use.
+const currentAgent = () => state.agents.find((p) => p.id === state.agentId);
+const agentName = () => currentAgent()?.name ?? state.agentId;
 
 function banner(patient) {
   const facts = [patient.gender, age(patient.birthDate)].filter(Boolean).map(esc);
@@ -124,7 +122,7 @@ async function decide(button, pinned) {
       }
       const { decision } = await api("/api/smart/decide", pinnedTo(pinned, {
         method: "POST",
-        body: JSON.stringify({ pack_id: state.packId, focus: button.dataset.decide }),
+        body: JSON.stringify({ agent_id: state.agentId, focus: button.dataset.decide }),
       }));
       if (!result.isConnected) return;
       result.innerHTML = decided(decision);
@@ -143,8 +141,7 @@ function decided(decision) {
   const record = !state.launchOnly && may("read")
     ? `<a class="action-link" href="#audit/${encodeURIComponent(decision.id)}">Open the decision ${icon("arrow-right")}</a>`
     : "";
-  const origin = isCommunity(currentPack()) ? ` ${originBadge(currentPack())}` : "";
-  return `<div class="decided-line">${outcomeBadge(decision.outcome)} → <b>${esc(decision.recommendation ?? "no recommendation")}</b>${origin}${record}</div>
+  return `<div class="decided-line">${outcomeBadge(decision.outcome)} → <b>${esc(decision.recommendation ?? "no recommendation")}</b>${record}</div>
     ${reasons.length ? `<ul class="reasons decided-reasons">${reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
     ${state.launchOnly ? `<p class="muted decided-id">Recorded in your organization's audit trail as <span class="mono">${esc(decision.id)}</span>.</p>` : ""}`;
 }

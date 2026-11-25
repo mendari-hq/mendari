@@ -22,7 +22,7 @@ The bundled demo agent answers from a fixture that matches keywords. Probed:
 
 ```text
 $ mendari probe mendari/portal-message-agent --limit 20
-Portal Message Agent 0.2.0 (mendari/portal-message-agent), reader=agent
+Portal Message Agent 0.3.0 (mendari/portal-message-agent), reader=agent
 20 of the 536 distinct cases of test (10 with a critical label), seed 0. Text changed: message.body.
 140 decisions, none of them a call to an agent: its answers are canned (MENDARI_AGENT_URL is not
 set), read on this machine. What follows is what the canned answers miss, not what your agent
@@ -113,14 +113,13 @@ take the tests with `--from-tests`. The tests the probe wrote itself are never i
 
 A case is what the agent reads of it. Where every provider names the fields it reads
 (`state_fields`, `text_fields`), the same message given twice, on another day or another channel,
-is one case and is probed once. Where one is sent the whole input, or reads structured data
-(criteria, CQL), a case is the whole input: two records the agent may decide differently are
-never one. `--limit N` takes N cases (50 by default, `all` for every one): cases with a critical
+is one case and is probed once. Where one is sent the whole input, a case is the whole input:
+two records the agent may decide differently are never one. `--limit N` takes N cases (50 by default, `all` for every one): cases with a critical
 label and cases without in turn, in an order the seed gives, so a small probe reaches both the
 answers a miss is costly on and the cases a wrong answer would automate.
 
 The text changed is the fields the running variant says it reads: an agent's or a model's
-`state_fields`, the `text_fields` of rules or a trained classifier. Where a variant is sent the
+`state_fields`, the `text_fields` of rules. Where a variant is sent the
 whole input, it is every string in it, those of a list's items too (the report names
 `notes[].text` once, however many notes a case has). Of those, a string the input schema holds
 to a list of values or a format (`enum`, `const`, `format`), or to a `pattern` that gives it a
@@ -219,12 +218,11 @@ mendari probe my-agent --confirm probe-61fcc11f3fbb
 That moves it into `tests/probe.yaml` as you left it. A test you do not agree with, delete.
 
 Not written: a `changed` finding, which has no right answer to hold the agent to; and any
-failure on a case that `mendari feedback export` or `mendari improve` marked as a site's own,
-which may be a patient's words. Such a case is probed where it is and never copied.
+failure on a case that `mendari feedback export` marked as a site's own, which may be a
+patient's words. Such a case is probed where it is and never copied.
 
-Only an agent of your own is written into. One the release bundles, a community agent of the
-repository or one pulled from a registry is refused before anything runs: copy it, and probe the
-copy.
+Only an agent of your own is written into. One the release bundles, a version in an agent store
+or one pulled from a registry is refused before anything runs: copy it, and probe the copy.
 
 ## What a probe costs
 

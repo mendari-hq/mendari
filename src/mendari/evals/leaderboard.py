@@ -4,63 +4,59 @@
 Each row summarises one evaluation report, i.e. one configuration on one dataset. Reports come
 from local runs or from a deployment's evaluation endpoint (for providers whose credentials
 exist only there), so every configuration is measured on identical records with identical
-metrics. The leaderboard lives at `evals/leaderboard.json` in the pack; like the benchmark it
-is an attestation about the pack and is not part of its digest. It contains no case text.
+metrics. The leaderboard lives at `evals/leaderboard.json` in the agent; like the benchmark it
+is an attestation about the agent and is not part of its digest. It contains no case text.
 
-Its rows keep their `rank` and `standing` (`mendari.rank/1`), as data. The pack's own sets are
+Its rows keep their `rank` and `standing` (`mendari.rank/1`), as data. The agent's own sets are
 public, so the card, the command line and the dashboard show each table as a regression check,
 not a ranking (LP-17g): the rows in `ranking.grouped`'s listing order (those that rank as data
 first, in `mendari.rank/1`'s order, then every other row by configuration name), and no rank
-printed. Grades and rankings are given only on frozen hidden sets (the scoreboard,
-`mendari.evals.scoreboard`).
+printed.
 """
 
 from __future__ import annotations
 
 import json
-import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from mendari.core.pack import Pack
-from mendari.evals import figures, grade, ranking, stats
+from mendari.core.agent import Agent
+from mendari.evals import figures, ranking, stats
 from mendari.evals.render import INTERVALS, evidence, num, shown
-from mendari.evals.result import MIN_POSITIVES, counted, false_automation, normalize
+from mendari.evals.result import MIN_POSITIVES, counted, false_automation
 
-FORMAT = "mendari.leaderboard/2"
+FORMAT = "mendari.leaderboard/1"
 PATH = "evals/leaderboard.json"
-PUBLIC_SET = grade.PUBLIC_SET  # what every table of a leaderboard is
-_COMPOSITES = ("any_of", "cascade", "vote", "check")
+PUBLIC_SET = "public set: regression check, not a ranking"  # what every table of a leaderboard is
+_COMPOSITES = ("check",)
 
 
-_DETERMINISTIC_PREFIXES = ("rules@", "naive_bayes@", "criteria@", "dosing@", "cql:")
+_DETERMINISTIC_PREFIXES = ("rules@",)
 
 
 def config_label(providers: Mapping[str, Mapping[str, Any]]) -> str:
     """`slot=variant` pairs, naming the model of remote providers (it is a deployment choice,
     so the same variant on two models is two configurations). Local artifacts are
-    fingerprinted as `type@hash` and are fixed by the pack version, so they are left out."""
+    fingerprinted as `type@hash` and are fixed by the agent version, so they are left out."""
     parts = []
     for slot, info in providers.items():
         model = str(info.get("model") or "")
-        if info.get("type") in _COMPOSITES:  # "name:model + name:model" (or " → ")
-            models = [m.split(":", 1)[1] for m in re.split(r" \+ | → ", model) if ":" in m]
+        if info.get("type") in _COMPOSITES:  # "name:model + name:model"
+            models = [m.split(":", 1)[1] for m in model.split(" + ") if ":" in m]
         else:
             models = [model] if model else []
         remote = [
             m
             for m in models
-            if not (m.startswith(_DETERMINISTIC_PREFIXES) and "@" in m)
-            and m not in ("rules", "naive_bayes", "criteria", "dosing")
+            if not (m.startswith(_DETERMINISTIC_PREFIXES) and "@" in m) and m != "rules"
         ]
         parts.append(f"{slot}={info['variant']}" + (f" ({', '.join(remote)})" if remote else ""))
     return " · ".join(parts)
 
 
 def row(report: Mapping[str, Any]) -> dict[str, Any]:
-    report = normalize(report)
     run = report["run"]
     primary = report["primary"]
     question = report["questions"].get(primary, {})
@@ -73,9 +69,9 @@ def row(report: Mapping[str, Any]) -> dict[str, Any]:
         "n": report["dataset"]["n"],
         "report_id": run.get("id"),
         "created_at": run.get("created_at"),
-        "pack_version": report["pack"]["version"],
-        # What a row is of: the pack as it was, the records, and the run's ledger (LP-10).
-        "pack_digest": report["pack"].get("digest"),
+        "agent_version": report["agent"]["version"],
+        # What a row is of: the agent as it was, the records, and the run's ledger (LP-10).
+        "agent_digest": report["agent"].get("digest"),
         "dataset_sha256": report["dataset"].get("sha256"),
         "limit": report["dataset"].get("limit"),
         "ledger": (report.get("ledger") or {}).get("id"),
@@ -97,7 +93,7 @@ def row(report: Mapping[str, Any]) -> dict[str, Any]:
         "cost_per_decision_usd": report["cost"]["per_decision_usd"],
         "errors": sum(report.get("errors", {}).values()),
         "error_codes": dict(report.get("errors", {})),
-        # The other questions, e.g. a safety screen or the criteria behind a derived primary.
+        # The other questions, e.g. a safety screen.
         "questions": {
             key: {"n": q["n"], "accuracy": q["accuracy"], "ece": q["calibration"]["ece"]}
             for key, q in report["questions"].items()
@@ -107,31 +103,35 @@ def row(report: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def build(
-    pack: Pack,
+    agent: Agent,
     reports: Iterable[Mapping[str, Any]],
     existing: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """A leaderboard from reports, merged into `existing`: a new report replaces the row of the
-    same configuration on the same pack digest and records; a row of an earlier version stays,
-    marked and unranked. Rows from another pack are refused. Ranked as `ranking.rank` does."""
+    same configuration on the same agent digest and records; a row of an earlier version stays,
+    marked and unranked. Rows from another agent are refused. Ranked as `ranking.rank` does."""
     rows = {_row_key(r): r for r in (existing or {}).get("rows", []) if "config" in r}
     for report in reports:
-        if report["pack"]["id"] != pack.id:
-            named = normalize(report)["run"].get("id")
-            raise ValueError(f"report {named} is for {report['pack']['id']}, not {pack.id}")
+        if report["agent"]["id"] != agent.id:
+            named = report["run"].get("id")
+            raise ValueError(f"report {named} is for {report['agent']['id']}, not {agent.id}")
         new = row(report)
         rows[_row_key(new)] = new
     return {
         "format": FORMAT,
-        "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
+        "agent": {"id": agent.id, "version": agent.version, "digest": agent.digest},
         "ranking": {"method": ranking.METHOD, "min_positives": MIN_POSITIVES},
         "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "rows": ranking.rank(list(rows.values()), pack.digest),
+        "rows": ranking.rank(list(rows.values()), agent.digest),
     }
 
 
 def _row_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
-    return (row.get("pack_digest") or row.get("pack_version"), *ranking.records(row), row["config"])
+    return (
+        row.get("agent_digest") or row.get("agent_version"),
+        *ranking.records(row),
+        row["config"],
+    )
 
 
 def _stored(p: stats.Proportion | None) -> dict[str, Any] | None:
@@ -140,7 +140,7 @@ def _stored(p: stats.Proportion | None) -> dict[str, Any] | None:
 
 def critical_text(item: Mapping[str, Any]) -> str:
     """e.g. `28 of 28 [87.7-100.0%] (0 automated; insufficient evidence ...)`, each named
-    (`note_pregnancy=yes 5 of 5 …`) when a pack has several critical labels; empty when the
+    (`note_pregnancy=yes 5 of 5 …`) when an agent has several critical labels; empty when the
     dataset has no critical cases."""
     named = len(item["critical"]) > 1
     return "; ".join(
@@ -153,28 +153,28 @@ def critical_text(item: Mapping[str, Any]) -> str:
     )
 
 
-def load(pack: Pack) -> dict[str, Any] | None:
-    """The pack's leaderboard as served (`figures.board`): ranked against the pack as it is
+def load(agent: Agent) -> dict[str, Any] | None:
+    """The agent's leaderboard as served (`figures.board`): ranked against the agent as it is
     (its digest), its rows with their figures, by set of records. None when there is none, or
     not one the card can show (`read`)."""
-    board = read(pack)[0]
+    board = read(agent)[0]
     if board is None:
         return None
-    return figures.board(board, pack.digest, pack.version)
+    return figures.board(board, agent.digest, agent.version)
 
 
-def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
+def read(agent: Agent) -> tuple[dict[str, Any] | None, str | None]:
     """The leaderboard, or None and why it is not shown. As the registry does, one that is not
     JSON, holds what a JSON response cannot or whose rows are not the rows `markdown` shows is
     treated as absent, never an error."""
-    board, problem = pack.attestation_json(PATH)
+    board, problem = agent.attestation_json(PATH)
     if board is None:
         return None, problem
     try:
         if not isinstance(board.get("rows", []), list):
             raise TypeError("rows")
-        markdown(board, pack.digest, pack.version)
-        figures.board(board, pack.digest, pack.version)  # what the server serves of it
+        markdown(board, agent.digest, agent.version)
+        figures.board(board, agent.digest, agent.version)  # what the server serves of it
     except (AttributeError, IndexError, KeyError, TypeError, ValueError, ArithmeticError) as error:
         return None, f"not a leaderboard ({type(error).__name__})"
     return board, None
@@ -182,17 +182,16 @@ def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
 
 def preface() -> str:
     """What the card and `mendari leaderboard` say above a leaderboard's tables (LP-17g): what
-    each is (`PUBLIC_SET`), that nothing on them is graded, the order their rows are listed in
-    (`ranking.grouped`'s) and where the scoreboard is. It calls only the pack's own sets public:
-    a board can hold a site's own file (`mendari leaderboard --dataset PATH`)."""
+    each is (`PUBLIC_SET`), that nothing on them is graded and the order their rows are listed
+    in (`ranking.grouped`'s). It calls only the agent's own sets public: a board can hold a
+    site's own file (`mendari leaderboard --dataset PATH`)."""
     return (
         f"{PUBLIC_SET[:1].upper()}{PUBLIC_SET[1:]}. Nothing here is graded: the agent's own sets "
         "are public, in the repository and in the package, so a configuration can be tuned to "
-        "them, and grades and rankings are given only on frozen hidden sets. The rows are a "
-        "listing order, not a ranking: those measured on this version of the agent, on records "
-        f"where a critical label has at least {MIN_POSITIVES} positives, come first, the "
-        "critical cases caught first and never accuracy alone; every other row follows, by "
-        "configuration name."
+        "them. The rows are a listing order, not a ranking: those measured on this version of "
+        f"the agent, on records where a critical label has at least {MIN_POSITIVES} positives, "
+        "come first, the critical cases caught first and never accuracy alone; every other row "
+        "follows, by configuration name."
     )
 
 
@@ -200,16 +199,16 @@ def markdown(
     board: Mapping[str, Any], digest: str | None = None, version: str | None = None
 ) -> list[str]:
     """One table per set of records (`ranking.grouped`), its rows in that function's listing
-    order against `digest` (the pack's own; `version` is its version): those that rank as data
+    order against `digest` (the agent's own; `version` is its version): those that rank as data
     first, in `mendari.rank/1`'s order, then every other row by configuration name. No rank is
     printed: each table is a regression check, not a ranking (LP-17g; `preface` says so). A
-    row of an earlier version of the pack says so beside its configuration (its AUTO and false
+    row of an earlier version of the agent says so beside its configuration (its AUTO and false
     automation followed that version's policy), and a critical label with too few positives
     says "insufficient evidence" beside its figure."""
     out: list[str] = []
-    recorded = board.get("pack")
+    recorded = board.get("agent")
     recorded = recorded if isinstance(recorded, Mapping) else {}
-    if digest is None:  # the pack it was last built for (mendari.leaderboard/2 records it)
+    if digest is None:  # the agent it was last built for (mendari.leaderboard/1 records it)
         digest = recorded.get("digest")
         version = version if version is not None else recorded.get("version")
     groups = ranking.grouped(board.get("rows", []), digest)
@@ -217,7 +216,7 @@ def markdown(
 
     def config(item: Mapping[str, Any]) -> str:
         if item["standing"] == ranking.EARLIER:
-            why = ranking.measured_on(item.get("pack_version"), item.get("pack_digest"), version)
+            why = ranking.measured_on(item.get("agent_version"), item.get("agent_digest"), version)
             return f"{item['config']} ({why})"
         return str(item["config"])
 
@@ -245,27 +244,21 @@ def markdown(
                 f"| {'unknown' if cost is None else f'${cost:.5f}'} | {_errors(item)} |"
             )
         if any(item.get("accuracy_proportion") is None for item in rows):
-            out += [
-                "",
-                "Accuracy and false automation are n/a on a row recorded before leaderboards kept "
-                "the counts they are of (mendari.leaderboard/1).",
-            ]
+            out += ["", "Accuracy is n/a on a row with no case labelled for the primary question."]
         out.append("")
         out += _question_table(rows, config)
     return out
 
 
 def _accuracy(item: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    """A row's primary accuracy over the cases labelled for it. A row from before stored only
-    the rate, and not how many cases were labelled (fewer than the dataset's when some have no
-    label), so it shows n/a."""
+    """A row's primary accuracy over the cases labelled for it, as the row stores it: None (n/a)
+    when no case is labelled for the primary question."""
     stored: Mapping[str, Any] | None = item.get("accuracy_proportion")
     return stored
 
 
 def _false_automation(item: Mapping[str, Any]) -> stats.Proportion | Mapping[str, Any] | None:
-    """A row's false automation over its labelled cases. A row from before stored only the rate
-    over its automated cases, a different measure, so it shows n/a."""
+    """A row's false automation over its labelled cases, as the row stores it."""
     stored: Mapping[str, Any] | None = item.get("false_automation")
     return stored
 
@@ -274,24 +267,21 @@ def _question_table(
     rows: list[dict[str, Any]], config: Callable[[Mapping[str, Any]], str]
 ) -> list[str]:
     """Accuracy and ECE of the other questions, for those whose results differ between the
-    configurations (the ones the providers being compared actually answer). Rows measured
-    before reports carried them have none, and are left out."""
-    rows = [item for item in rows if "questions" in item]
-    keys = sorted({key for item in rows for key in item.get("questions", {})})
+    configurations (the ones the providers being compared actually answer)."""
+    keys = sorted({key for item in rows for key in item["questions"]})
     varying = [
         key
         for key in keys
-        if len({json.dumps(item.get("questions", {}).get(key), sort_keys=True) for item in rows})
-        > 1
+        if len({json.dumps(item["questions"].get(key), sort_keys=True) for item in rows}) > 1
     ]
     if not varying:
         return []
 
     def cell(item: Mapping[str, Any], key: str) -> str:
-        metrics = item.get("questions", {}).get(key)
+        metrics = item["questions"].get(key)
         if metrics is None:
             return "n/a"
-        return f"{shown(counted(metrics['accuracy'], metrics.get('n')))} / {num(metrics['ece'])}"
+        return f"{shown(counted(metrics['accuracy'], metrics['n']))} / {num(metrics['ece'])}"
 
     return [
         "Other questions (accuracy / ECE):",

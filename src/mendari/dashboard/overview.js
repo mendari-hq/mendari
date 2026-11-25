@@ -3,44 +3,44 @@
 
 import { adoptionPath } from "./adoption.js";
 import { chartHtml, sparkline } from "./charts.js";
-import { holdNotice, originBadge, providerWords, statusNotice } from "./pack.js";
+import { holdNotice, originBadge, providerWords, statusNotice } from "./manifest.js";
 import { render, views, wire } from "./router.js";
 import { setupChecks, setupPanel } from "./system.js";
-import { $, actionDialog, api, copyText, download, emptyState, esc, figureHtml, fileSlug, focusHeading, icon, may, money, num, OUTCOMES, outcomeText, packPath, shown, slotText, stat, state, storageGet, storageSet, toast, toastError, today, whileBusy, zoneName } from "./ui.js";
+import { $, actionDialog, api, copyText, download, emptyState, esc, figureHtml, fileSlug, focusHeading, icon, may, money, num, OUTCOMES, outcomeText, agentPath, shown, slotText, stat, state, storageGet, storageSet, toast, toastError, today, whileBusy, zoneName } from "./ui.js";
 
 views.overview = async (main) => {
-  const packId = state.packId;
+  const agentId = state.agentId;
   const [stats, chain, holds, brief, setup] = await Promise.all([
-    api(`/api/stats?pack_id=${encodeURIComponent(packId)}`),
+    api(`/api/stats?agent_id=${encodeURIComponent(agentId)}`),
     // Verifying the chain reads every event: the deployment's operators alone (the server says
     // the same; ADR-0008): an administrator of the organization that operates it.
     may("operate") ? api("/api/audit/verify") : null,
     api("/api/holds").catch(() => []),
-    api(`${packPath()}/validation-brief?days=30`).catch(() => null),
+    api(`${agentPath()}/validation-brief?days=30`).catch(() => null),
     // A new deployment's operator sees what is left to set up first (system.js).
     setupChecks(),
   ]);
-  if (state.packId !== packId) return;
+  if (state.agentId !== agentId) return;
   const d = state.detail;
   const total = stats.decisions;
   const period = PERIODS.some(([key]) => key === storageGet("oh.period")) ? storageGet("oh.period") : "30";
   const lens = LENSES.some(([key]) => key === storageGet("oh.lens")) ? storageGet("oh.lens") : "governance";
   main.innerHTML = `
     ${setupPanel(setup)}
-    <section class="pack-hero pack-header" aria-label="Agent overview">
-      <div class="pack-hero-top">
-        <div class="pack-hero-title">
-          <p class="pack-risk">${originBadge(d)} <span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
+    <section class="agent-hero agent-header" aria-label="Agent overview">
+      <div class="agent-hero-top">
+        <div class="agent-hero-title">
+          <p class="agent-risk">${originBadge(d)} <span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
           <h1>${esc(d.name)}</h1>
         </div>
-        <div class="pack-hero-actions">
+        <div class="agent-hero-actions">
           ${may("decide") ? `<a class="button primary" href="#try">${icon("play")} Try it</a>` : ""}
           <a class="button" href="#evals">${icon("bar-chart")} Evaluations</a>
           ${may("review") ? `<a class="button" href="#review">${icon("clipboard-check")} Review queue${stats.pending_reviews ? ` (${stats.pending_reviews})` : ""}</a>` : ""}
           <a class="button" href="#card">${icon("file-text")} Decision Card</a>
         </div>
       </div>
-      ${packHeader(d, holds)}
+      ${agentHeader(d, holds)}
     </section>
     ${adoptionPath(stats, brief, d)}
     ${total ? `
@@ -128,7 +128,7 @@ function previous(figure, days) {
 }
 
 // The four numbers people act on: how much is automated, what waits for a person (now, whatever
-// the period), and whether people agree with the pack (overrides, observed accuracy), each with
+// the period), and whether people agree with the agent (overrides, observed accuracy), each with
 // what it is out of and the window before it.
 function primaryStats(stats, now, before, scope, days, trendDays) {
   const waiting = stats.pending_reviews;
@@ -211,9 +211,9 @@ function wireStack(root) {
   fit();
 }
 
-function packHeader(d, holds) {
+function agentHeader(d, holds) {
   const deployed = Object.entries(d.active_providers);
-  return `<div class="pack-header-meta">
+  return `<div class="agent-header-meta">
     ${statusNotice(d)}
     ${holdNotice(holds, d)}
     <p class="deployed"><span class="muted">Deployed</span> ${deployed.map(([slot, p]) =>
@@ -223,7 +223,7 @@ function packHeader(d, holds) {
   </div>`;
 }
 
-// Slots on the agent's offline floor although it offers a model there (e.g. no Jev set up).
+// Slots on the agent's offline floor although it offers a model there (e.g. no LLM set up).
 function withoutModel(slots) {
   if (!slots.length) return "";
   return `<div class="callout neutral" role="note"><b>Running without a model:</b> ${slots.map((slot) => esc(slotText(slot))).join(", ")}.
@@ -380,7 +380,7 @@ function improvementLens(brief, detail) {
 function ehrLens(detail) {
   const origin = location.origin;
   const rows = [
-    ["REST decide (live)", `POST ${origin}${packPath()}/decide`],
+    ["REST decide (live)", `POST ${origin}${agentPath()}/decide`],
     ["Shadow mode header", `X-Mendari-Shadow: 1`],
     ["FHIR R4 $decide", `POST ${origin}/fhir/$decide`],
     ...(detail.cds_service ? [["CDS Hooks 2.0 service", `POST ${origin}/cds-services/${detail.cds_service}`]] : []),
@@ -399,17 +399,17 @@ function wireCommandCenter(main, brief, detail) {
   const section = main.querySelector(".command-center");
   if (!section) return;
   const bindBody = () => {
-    const targetPack = state.packId;
+    const targetAgent = state.agentId;
     section.querySelector("#shadow-start")?.addEventListener("click", (event) => {
       const btn = event.currentTarget;
       whileBusy(btn, "Starting…", async () => {
         try {
           await api("/api/holds", {
             method: "POST",
-            body: JSON.stringify({ pack_id: targetPack, reason: "shadow pilot: 7-day validation against clinicians" }),
+            body: JSON.stringify({ agent_id: targetAgent, reason: "shadow pilot: 7-day validation against clinicians" }),
           });
           toast("Shadow pilot started: automation held for clinician comparison");
-          if (btn.isConnected && state.packId === targetPack) render();
+          if (btn.isConnected && state.agentId === targetAgent) render();
         } catch (error) {
           toastError(error.message);
         }
@@ -426,7 +426,7 @@ function wireCommandCenter(main, brief, detail) {
         run: async () => {
           await api(`/api/holds/${encodeURIComponent(holdId)}`, { method: "DELETE" });
           toast("Shadow pilot ended");
-          if (btn.isConnected && state.packId === targetPack) render();
+          if (btn.isConnected && state.agentId === targetAgent) render();
         },
       });
     });
@@ -439,27 +439,27 @@ function wireCommandCenter(main, brief, detail) {
     section.querySelector("#brief-download")?.addEventListener("click", (event) => {
       const m = Number(storageGet("oh.roi.mins", "3.5")) || 3.5;
       whileBusy(event.currentTarget, "Building…", () =>
-        download(`${packPath()}/validation-brief?days=30&minutes_per_case=${m}&format=markdown`, `${fileSlug(state.packId)}-validation-brief.md`));
+        download(`${agentPath()}/validation-brief?days=30&minutes_per_case=${m}&format=markdown`, `${fileSlug(state.agentId)}-validation-brief.md`));
     });
     section.querySelector("#packet-download")?.addEventListener("click", (event) =>
       whileBusy(event.currentTarget, "Building…", () =>
-        download(`${packPath()}/committee-packet?format=html`, `${fileSlug(state.packId)}-committee-packet.html`)));
+        download(`${agentPath()}/committee-packet?format=html`, `${fileSlug(state.agentId)}-committee-packet.html`)));
     section.querySelector("#brief-copy")?.addEventListener("click", () => {
       const mins = Number(storageGet("oh.roi.mins", "3.5")) || 3.5;
       const hours = ((brief.roi.weekly_auto_cases_projected * mins) / 60).toFixed(1);
-      const summary = `${brief.pack.name} (${brief.pack.id} v${brief.pack.version}) — ${brief.volume.total} local cases (last ${brief.window_days}d), agreement ${shown(brief.figures.agreement)}, automation-ready ${shown(brief.figures.automation_readiness)}, ${brief.volume.down_on_auto} rated wrong of ${brief.volume.automated} automated, ~${hours} clinician hrs/wk reclaimable.`;
+      const summary = `${brief.agent.name} (${brief.agent.id} v${brief.agent.version}) — ${brief.volume.total} local cases (last ${brief.window_days}d), agreement ${shown(brief.figures.agreement)}, automation-ready ${shown(brief.figures.automation_readiness)}, ${brief.volume.down_on_auto} rated wrong of ${brief.volume.automated} automated, ~${hours} clinician hrs/wk reclaimable.`;
       copyText(summary, "Executive summary copied");
     });
     section.querySelector("#export-overrides")?.addEventListener("click", (event) =>
       whileBusy(event.currentTarget, "Exporting…", () =>
-        download(`${packPath()}/feedback/export?source=overrides`, `${fileSlug(state.packId)}-overrides.jsonl`)
+        download(`${agentPath()}/feedback/export?source=overrides`, `${fileSlug(state.agentId)}-overrides.jsonl`)
           .catch((err) => toastError(err.message))));
     section.querySelector("#copy-recal")?.addEventListener("click", () => {
       const name = detail.id.split("/").pop();
       copyText(`mendari eval ${detail.id} --dataset ${name}-overrides.jsonl`, "Command copied");
     });
     const ehrValues = [
-      `POST ${location.origin}${packPath()}/decide`,
+      `POST ${location.origin}${agentPath()}/decide`,
       "X-Mendari-Shadow: 1",
       `POST ${location.origin}/fhir/$decide`,
       ...(detail.cds_service ? [`POST ${location.origin}/cds-services/${detail.cds_service}`] : []),

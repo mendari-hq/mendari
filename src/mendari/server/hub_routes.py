@@ -18,9 +18,9 @@ organizations' agent stores are served too (`MENDARI_AGENT_STORE=on`, membership
   (`hub/client.py` `fetch`): its archive's SHA-256 against the registry's record, the publisher's
   signature by a key of its namespace, and the registry's counter-signature where it signs
   (`MENDARI_REGISTRY_COUNTERSIGNATURE`). The keys are pinned for the organization in the
-  database (`core/pack_store.py` `OrgPins`), so a publisher's changed key is refused (`409`,
+  database (`core/agent_store.py` `OrgPins`), so a publisher's changed key is refused (`409`,
   naming the key ids) until an author accepts it. What was verified is then kept in the
-  organization's agent store (`PackStore.admit_pulled`), under every check, limit and quota a
+  organization's agent store (`AgentStore.admit_pulled`), under every check, limit and quota a
   version there passes: a draft, served to nobody until someone who did not add it promotes it.
   A recalled or deleted version, a version signed with a revoked key, a tampered archive and a
   registry that cannot be reached each add nothing.
@@ -39,14 +39,14 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from mendari.core.pack import Pack
-from mendari.core.pack_store import HELD, HUB, OrgPins, PackStore, PhiRejected, StoreError
-from mendari.core.spec import is_pack_id, is_version
+from mendari.core.agent import Agent
+from mendari.core.agent_store import HUB, AgentStore, OrgPins, PhiRejected, StoreError
+from mendari.core.spec import is_agent_id, is_version
 from mendari.errors import HubError, MendariError
 from mendari.hub.client import RegistryClient, fetch, pinned_in, pinned_keys
 from mendari.server import security_log
 from mendari.server.auth import Auth, org_of
-from mendari.server.store_routes import HELD_MESSAGE, _detail
+from mendari.server.store_routes import _detail
 
 TAG = "Agents"
 STORE_TAG = "Agent store"
@@ -134,7 +134,7 @@ def _listing(version: Mapping[str, Any]) -> dict[str, Any]:
     standards = version.get("standards")
     return {
         "id": _text(version.get("id"), 130),
-        "name": _text(version.get("pack_name"), 200),
+        "name": _text(version.get("agent_name"), 200),
         "version": _text(version.get("version"), 60),
         "published_at": _text(version.get("published_at"), 40),
         "summary": _text(claimed.get("summary") or version.get("summary"), 1000),
@@ -210,17 +210,15 @@ def add_hub_routes(
     auth: Auth,
     *,
     registry: str | None,
-    served: Callable[[], Mapping[str, Pack]],
-    served_here: Callable[[], Mapping[str, Pack]],
-    store: PackStore | None,
-    hidden: Any = None,
+    served: Callable[[], Mapping[str, Agent]],
+    served_here: Callable[[], Mapping[str, Agent]],
+    store: AgentStore | None,
 ) -> None:
     """Mount the console's registry routes. `registry`: the deployment's registry address, or
     None (then only `GET /api/hub` is served); `served`: the agents this deployment serves from
     its own files, whoever asks; `served_here`: the agents the request's organization is served
     (those, and its promoted store versions); `store`: organizations' agent stores, or None
-    where they are off (then nothing is added here); `hidden`: as the store's own routes take
-    it."""
+    where they are off (then nothing is added here)."""
 
     @app.get("/api/hub", tags=[TAG], summary="The registry agents are added from")
     def hub(request: Request) -> dict[str, Any]:
@@ -259,17 +257,19 @@ def add_hub_routes(
         except (MendariError, TypeError, ValueError, KeyError, AttributeError):
             raise HTTPException(502, NOT_A_REGISTRY) from None
 
-    def installed(org: str, pack_id: str | None, mine: Mapping[str, Pack]) -> dict[str, Any] | None:
+    def installed(
+        org: str, agent_id: str | None, mine: Mapping[str, Agent]
+    ) -> dict[str, Any] | None:
         """What `org` has of an agent already: the version it is served, or the newest version
         in its store and that version's state. None: nothing."""
-        if pack_id is None:
+        if agent_id is None:
             return None
-        pack = mine.get(pack_id)
-        if pack is not None:
-            return {"version": pack.version, "digest": pack.digest, "state": "served"}
+        agent = mine.get(agent_id)
+        if agent is not None:
+            return {"version": agent.version, "digest": agent.digest, "state": "served"}
         if store is None:
             return None
-        for row in store.versions(org, pack_id):
+        for row in store.versions(org, agent_id):
             if row["state"] != "withdrawn":
                 return {"version": row["version"], "digest": row["digest"], "state": row["state"]}
         return None
@@ -299,7 +299,7 @@ def add_hub_routes(
             if not isinstance(item, Mapping):
                 continue
             shown = _listing(item)
-            if shown["id"] is None or not is_pack_id(shown["id"]):
+            if shown["id"] is None or not is_agent_id(shown["id"]):
                 continue
             agents.append({**shown, "installed": installed(org, shown["id"], mine)})
         return {"registry": _shown(address), "agents": agents, "more": len(found) > MAX_RESULTS}
@@ -326,7 +326,7 @@ def add_hub_routes(
             raise HTTPException(404, NOT_LISTED)
         if version is not None and not is_version(version):
             raise HTTPException(404, NOT_LISTED)
-        pack_id = f"{namespace}/{name}"
+        agent_id = f"{namespace}/{name}"
 
         def read(client: RegistryClient) -> dict[str, Any]:
             listed = client.agent(namespace, name)
@@ -341,7 +341,9 @@ def add_hub_routes(
                 try:
                     evaluations = client.evaluations(namespace, name, str(shown["version"]))
                 except (HubError, httpx.HTTPError):
-                    evaluations = None  # a registry from before them, or one that did not say
+                    # A third read that failed (a timeout, a 5xx, the registry's read limit)
+                    # leaves the agent and its version shown, with no evaluations said.
+                    evaluations = None
             return {"listed": listed, "shown": shown, "evaluations": evaluations}
 
         found = asked(read)
@@ -350,7 +352,7 @@ def add_hub_routes(
         recalled = listed.get("recalled")
         answer: dict[str, Any] = {
             "registry": _shown(address),
-            "id": pack_id,
+            "id": agent_id,
             "versions": [v[:60] for v in versions if isinstance(v, str)][:MAX_VERSIONS]
             if isinstance(versions, list)
             else [],
@@ -359,12 +361,12 @@ def add_hub_routes(
                 for item in (recalled if isinstance(recalled, list) else [])[:MAX_VERSIONS]
                 if isinstance(item, Mapping)
             ],
-            "installed": installed(org, pack_id, served_here()),
+            "installed": installed(org, agent_id, served_here()),
             "agent": None,
         }
         if shown is not None:
             answer["agent"] = {
-                **_listing({**shown, "id": pack_id}),
+                **_listing({**shown, "id": agent_id}),
                 "card_markdown": _text(shown.get("card_markdown"), MAX_CARD_CHARS),
                 "evaluations": _evaluations(found["evaluations"]),
             }
@@ -393,24 +395,23 @@ def add_hub_routes(
         verify (`422`), the publisher's signing key is one your organization has not seen
         (`409` with `key_changed`: check it with the publisher, then send `accept_new_key`), your
         organization holds that version already (`409`), or a check, limit or quota of the
-        store refuses it. Answers the new version (`201`), `held` if it is held for the
-        operator's review. Chained `pack_version.created`."""
+        store refuses it. Answers the new version (`201`). Chained `store_version.created`."""
         principal = auth.acting(request)
         if principal.kind != "user":  # the guard lets people only through: fail closed
             raise HTTPException(403, "only a person who signed in may do this")
         by, org = principal.id, org_of(principal)
-        pack_id, at, wanted = body.ref.partition("@")
-        if not is_pack_id(pack_id) or (at and not is_version(wanted)):
+        agent_id, at, wanted = body.ref.partition("@")
+        if not is_agent_id(agent_id) or (at and not is_version(wanted)):
             raise HTTPException(422, "name the agent as namespace/name or namespace/name@version")
-        namespace = pack_id.partition("/")[0]
-        if pack_id in served():
+        namespace = agent_id.partition("/")[0]
+        if agent_id in served():
             raise HTTPException(
                 409,
-                f"this deployment serves {pack_id} from its own files: a version from the "
+                f"this deployment serves {agent_id} from its own files: a version from the "
                 "registry never replaces it",
             )
         try:
-            # The day's quota and the stop first: nothing is downloaded for a refused request.
+            # The day's quota first: nothing is downloaded for a refused request.
             kept.refuse_before_adding(org)
         except StoreError as error:
             raise HTTPException(error.status, str(error)) from None
@@ -458,21 +459,15 @@ def add_hub_routes(
             refused("registry_answer")
             raise HTTPException(502, NOT_A_REGISTRY) from None
         try:
-            made = kept.admit_pulled(org, fetched, by=by, hidden=hidden, served_ids=served())
+            made = kept.admit_pulled(org, fetched, by=by, served_ids=served())
         except PhiRejected as error:
             refused("phi")
             return JSONResponse({"detail": str(error), "phi": error.report}, status_code=422)
         except StoreError as error:
             refused("checks")
             raise HTTPException(error.status, str(error)) from None
-        if made.state == HELD:
-            security_log.event("store.version.held", actor=by, org=org, ids=[made.digest])
-        else:
-            security_log.event("store.pull.added", actor=by, org=org, ids=[made.digest])
-        row = kept.version(org, made.digest)
-        shown = _detail(row)
-        if row["state"] == HELD:
-            shown = {**shown, "message": HELD_MESSAGE}
+        security_log.event("store.pull.added", actor=by, org=org, ids=[made.digest])
+        shown = _detail(kept.version(org, made.digest))
         return JSONResponse({**shown, "source": HUB}, status_code=201)
 
 

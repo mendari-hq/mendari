@@ -23,11 +23,11 @@ from mendari.errors import HubError
 from mendari.hub import acceptance, yank
 from mendari.hub import checkpoint as registry_checkpoint
 from mendari.hub.registry import RegistryStore, stated_head
-from tests.conftest import Registry
+from tests.conftest import FIXTURE_NAMESPACE, Registry
 from tests.test_registry_acceptance import (
     OTHER_SEED,
-    REFERRAL,
     SUBJECT,
+    TRIAGE,
     _events,
     _key,
     _keyed,
@@ -115,7 +115,7 @@ def test_a_rewritten_chain_verifies_alone_and_fails_against_an_earlier_checkpoin
     _keyed(monkeypatch)
     kept = tmp_path / "checkpoint.json"
     _taken(capsys, db_target, kept)
-    _plant(db_target, "mendari")
+    _plant(db_target, FIXTURE_NAMESPACE)
     _restart_chain(db_target)
     rewritten = _events(db_target)
     code, out, _ = _run(capsys, "registry", "verify", "--db", db_target)
@@ -143,7 +143,7 @@ def test_a_rewritten_chain_verifies_alone_and_fails_against_an_earlier_checkpoin
     code, out, err = _run(capsys, "registry", "countersign", "--db", db_target)
     assert json.loads(out) == {
         "signed": [SUBJECT],
-        "skipped": [f"{REFERRAL.id}@9.9.9: its archive is another agent or version"],
+        "skipped": [f"{TRIAGE.id}@9.9.9: its archive is another agent or version"],
         "events_since_checkpoint": None,
         "checkpoint": None,
     }
@@ -194,17 +194,17 @@ def test_a_statement_by_another_key_or_of_another_format_is_refused(
     head = _events(db_target)[-1]["hash"]
     good = registry_checkpoint.sign(head, today, own)
     record = acceptance.sign(
-        pack=REFERRAL.id,
-        version=REFERRAL.version,
-        digest=REFERRAL.digest,
+        agent=TRIAGE.id,
+        version=TRIAGE.version,
+        digest=TRIAGE.digest,
         archive_sha256=head,
         publisher_key_id="ed25519:" + "0" * 16,
         key=own,
     )
     recall = yank.sign(
-        pack=REFERRAL.id,
-        version=REFERRAL.version,
-        digest=REFERRAL.digest,
+        agent=TRIAGE.id,
+        version=TRIAGE.version,
+        digest=TRIAGE.digest,
         archive_sha256=head,
         reason="a recall",
         severity="high",
@@ -299,7 +299,7 @@ def test_countersign_takes_a_checkpoint_and_says_which(
     assert f"the checkpoint of {statement['date']} is 1 events behind the chain" in err
     assert "it says nothing about those events" in err
     with RegistryStore(db_target, read_only=True) as store:
-        assert store.verify(head=statement["head"])["after_checkpoint"] == 1  # `pack.accepted`
+        assert store.verify(head=statement["head"])["after_checkpoint"] == 1  # `agent.accepted`
 
 
 def test_a_checkpoint_needs_the_key_a_chain_that_verifies_and_a_database_that_is_there(
@@ -349,7 +349,7 @@ def test_a_checkpoint_needs_the_key_a_chain_that_verifies_and_a_database_that_is
         assert code != 0 and out == "" and err.startswith("error:"), broken
         assert not missing.exists()
     # A chain that does not verify gets no statement: it would vouch for the planted row.
-    _plant(db_target, "mendari")
+    _plant(db_target, FIXTURE_NAMESPACE)
     code, out, err = _run(capsys, *command)
     assert code != 0 and out == "" and "no checkpoint was signed" in err
     assert "1 of the versions have no chained event" in err

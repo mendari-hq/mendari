@@ -2,7 +2,7 @@
 // The status page (/status, status.html, LP-21b): this deployment's readiness
 // (/api/health/ready, server/readiness.py), read every 30 seconds while the page is open. The
 // answer holds fixed codes only, so the page shows nothing that is not public: whether the
-// database answers, whether the packs loaded, and when it last asked. An answer that does not
+// database answers, whether the agents loaded, and when it last asked. An answer that does not
 // come is an outage too. Only this deployment's own state: the operator's status page
 // (docs/operations/status-checks.md) adds sign-in, a decision, the registry and the Hub, and
 // survives an outage that takes this page down.
@@ -19,7 +19,7 @@ const STATES = {
   silent: { tone: "danger", title: "Not answering", text: "The service did not answer." },
 };
 const DATABASE = { ok: "Answering", unreachable: "Not answering" };
-const PACKS = { ok: "Loaded", degraded: "One or more did not load", none: "None served" };
+const AGENTS = { ok: "Loaded", degraded: "One or more did not load", none: "None served" };
 
 const body = document.getElementById("status-body");
 
@@ -50,7 +50,7 @@ function show(answer) {
     </div>
     <dl class="facts">
       <dt>Database</dt><dd data-check="database">${esc(DATABASE[checks.database] ?? "Unknown")}</dd>
-      <dt>Agents</dt><dd data-check="packs">${esc(PACKS[checks.packs] ?? "Unknown")}</dd>
+      <dt>Agents</dt><dd data-check="agents">${esc(AGENTS[checks.agents] ?? "Unknown")}</dd>
       <dt>Version</dt><dd>${esc(answer?.version ?? "Unknown")}</dd>
       <dt>Checked</dt><dd>${esc(when)}, again every 30 seconds</dd>
     </dl>`;

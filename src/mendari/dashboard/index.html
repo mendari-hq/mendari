@@ -65,7 +65,6 @@
     <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
     <symbol id="i-key" viewBox="0 0 24 24"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
-    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
     <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
     <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
     <symbol id="i-keyboard" viewBox="0 0 24 24"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></symbol>
@@ -80,7 +79,7 @@
       <span>Mendari</span>
       <span class="badge tag">sandbox<span class="tag-detail"> · synthetic data only</span></span>
     </div>
-    <!-- On phones the theme and the pack move into a sheet under the bar, opened by this button. -->
+    <!-- On phones the theme and the agent move into a sheet under the bar, opened by this button. -->
     <button type="button" class="icon-button settings-button" id="settings-button" aria-expanded="false"
       aria-controls="topbar-actions" aria-label="Settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg></button>
     <div class="topbar-actions" id="topbar-actions">
@@ -107,9 +106,9 @@
         <select id="org-select"></select>
         <button type="submit">Switch</button>
       </form>
-      <label class="pack-picker">
+      <label class="agent-picker">
         <span class="setting-name">Agent</span>
-        <select id="pack-select"></select>
+        <select id="agent-select"></select>
       </label>
     </div>
   </header>
@@ -141,7 +140,7 @@
       <div class="nav-section-label" data-nav-group="adopt" aria-hidden="true">Adopt</div>
       <!-- The organization's agents, and the registry more are found in and added from (agents.js). -->
       <a href="#agents" data-view="agents" data-nav-section="adopt"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-search"/></svg>Agents</span></a>
-      <!-- A pack author or someone who may promote, where the organization's pack store is served
+      <!-- An agent author or someone who may promote, where the organization's agent store is served
            (store.js, LP-20j). -->
       <a href="#store" data-view="store" data-nav-section="adopt" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-package"/></svg>Agent store</span></a>
       <a href="#card" data-view="card" data-nav-section="adopt"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-file-text"/></svg>Decision Card</span></a>
@@ -149,11 +148,6 @@
       <a href="#try" data-view="try" data-nav-section="evaluate"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-play"/></svg>Try it</span></a>
       <a href="#evals" data-view="evals" data-nav-section="evaluate"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-bar-chart"/></svg>Evaluations</span></a>
       <a href="#feedback" data-view="feedback" data-nav-section="evaluate"><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-message"/></svg>Feedback</span></a>
-      <!-- An administrator who signed in, in memberships mode where hidden evaluation sets are on
-           (evalsets.js): their organization's sets, drawn, assigned and followed. -->
-      <a href="#evalsets" data-view="evalsets" data-nav-section="evaluate" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-lock"/></svg>Hidden sets</span></a>
-      <!-- Someone holding `label` where the labelling routes are served (labelling.js). -->
-      <a href="#labelling" data-view="labelling" data-nav-section="evaluate" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-tag"/></svg>Labelling</span></a>
       <!-- Someone holding `label` where a grader's routes are served (written.js). -->
       <a href="#written" data-view="written" data-nav-section="evaluate" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-message"/></svg>Written output</span></a>
       <div class="nav-section-label" data-nav-group="review" aria-hidden="true">Review and monitor</div>
@@ -165,7 +159,7 @@
       <a href="#system" data-view="system" data-nav-section="administer" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-monitor"/></svg>System</span></a>
       <!-- An administrator who signed in (admin.js): API keys and clients; people in memberships mode. -->
       <a href="#admin" data-view="admin" data-nav-section="administer" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-key"/></svg>Access</span></a>
-      <!-- A reviewer of the pack registry, in its review organization, where the registry is served
+      <!-- A reviewer of the agent registry, in its review organization, where the registry is served
            here (registry.js): the namespace claims waiting. -->
       <a href="#registry-review" data-view="registry-review" data-nav-section="administer" hidden><span class="nav-label"><svg class="icon nav-icon" aria-hidden="true"><use href="#i-shield-check"/></svg>Registry review</span></a>
       <a href="/docs" class="external" data-nav-section="administer">API docs <svg class="icon" aria-hidden="true"><use href="#i-external"/></svg></a>

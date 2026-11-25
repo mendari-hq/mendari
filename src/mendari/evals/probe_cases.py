@@ -1,23 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
 """The cases `mendari probe` changes, and where their text is.
 
-**Which cases.** A labelled dataset (one of the agent's, or a JSON Lines file), or the agent's
-own behaviour tests (`source`). A case is what the agent reads of it (`identity_fields`): two
-records that are the same in every field the running providers say they read are one case
-(`distinct_cases`), probed once. Where a provider is sent the whole input, or reads fields it
-does not list (structured criteria, CQL), a case is the whole input: two records it may decide
-differently are never one. A small probe takes cases with a critical label and cases without
-in turn, in an order the seed gives (`in_turn`), so it reaches both the answers a miss is costly
-on and the cases a wrong answer would automate.
+**Which cases.** A labelled dataset (one of the agent's, or a JSON Lines file), or the agent's own
+behaviour tests (`source`). A case is what the agent reads of it (`identity_fields`): two records
+that are the same in every field the running providers say they read are one case
+(`distinct_cases`), probed once. Where a provider is sent the whole input, a case is the whole
+input: two records it may decide differently are never one. A small probe takes cases with a
+critical label and cases without in turn, in an order the seed gives (`in_turn`), so it reaches both
+the answers a miss is costly on and the cases a wrong answer would automate.
 
-**Which text.** The fields the running providers say they read text in (`read_fields`: an
-agent's, a model's or Jev's `state_fields`; the `text_fields` of rules, a trained classifier or a
-dosing table), or, when one of them is sent the whole input, every string in it. Of those, a
-string the input schema holds to a list of values or a format (`enum`, `const`, `format`), or to
-a `pattern` that gives it a shape, is a code, a date or an id, not text, and is never changed
-(`text_places`). A pattern that ordinary text meets (`\\S`: not blank; one line only) gives no
-shape: the field is text, and a variant its pattern refuses is left out when it is built.
-Fields the caller names take the place of all that, and say nothing of what a case is.
+**Which text.** The fields the running providers say they read text in (`read_fields`: an agent's or
+a model's `state_fields`; the `text_fields` of rules), or, when one of them is sent the whole input,
+every string in it. Of those, a string the input schema holds to a list of values or a format
+(`enum`, `const`, `format`), or to a `pattern` that gives it a shape, is a code, a date or an id,
+not text, and is never changed (`text_places`). A pattern that ordinary text meets (`\\S`: not
+blank; one line only) gives no shape: the field is text, and a variant its pattern refuses is left
+out when it is built. Fields the caller names take the place of all that, and say nothing of what a
+case is.
 """
 
 from __future__ import annotations
@@ -28,23 +27,18 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from mendari.core import patterns, site_cases
+from mendari.core.agent import Agent
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack
-from mendari.core.spec import PackManifest
+from mendari.core.spec import AgentManifest
 from mendari.errors import MendariError
+from mendari.evals.behaviour_tests import load_cases
 from mendari.evals.canonical import canonical_input
 from mendari.evals.harness import record_problems, resolve_dataset
-from mendari.evals.pack_tests import load_cases
 from mendari.evals.probe_transforms import Stream
 from mendari.providers import Provider
 from mendari.providers.agent import AgentProvider
 from mendari.providers.base import select_fields
-from mendari.providers.cql import CqlProvider
-from mendari.providers.criteria import CriteriaProvider
-from mendari.providers.dosing import DosingProvider
-from mendari.providers.jev import JevProvider
 from mendari.providers.llm import LlmProvider
-from mendari.providers.naive_bayes import NaiveBayesProvider
 from mendari.providers.rules import RulesProvider
 
 Place = tuple[str | int, ...]  # where a text is in an input: ("message", "body")
@@ -84,19 +78,19 @@ class Case:
     site: bool = False
 
 
-def source(pack: Pack, dataset: str | None = None, *, tests: bool = False) -> Source:
+def source(agent: Agent, dataset: str | None = None, *, tests: bool = False) -> Source:
     """The cases to probe: the dataset named (one of the agent's, or a JSON Lines file), or the
     agent's own behaviour tests (`tests`). With neither: its benchmark dataset, else the first
     dataset it declares, else its tests. A dataset the agent cannot evaluate is refused as an
     evaluation refuses it. The tests the probe wrote itself are never its cases."""
     if tests and dataset is not None:
         raise MendariError("--from-tests and --dataset: choose one")
-    declared = pack.manifest.evaluation
+    declared = agent.manifest.evaluation
     if dataset is None and not tests:
         dataset = declared.benchmark_dataset or next(iter(declared.datasets), None)
     if dataset is not None and not tests:
-        found = resolve_dataset(pack, dataset)
-        problems = record_problems(pack.manifest, found)
+        found = resolve_dataset(agent, dataset)
+        problems = record_problems(agent.manifest, found)
         if problems:
             more = f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""
             raise MendariError(f"{problems[0]}{more}")
@@ -113,17 +107,17 @@ def source(pack: Pack, dataset: str | None = None, *, tests: bool = False) -> So
                 for record in found.records
             ),
         )
-    cases = load_cases(pack)
+    cases = load_cases(agent)
     if not cases:
         raise MendariError(
-            f"{pack.ref} has no case to probe: name a labelled dataset with --dataset, or give "
+            f"{agent.ref} has no case to probe: name a labelled dataset with --dataset, or give "
             "the agent behaviour tests"
         )
     return Source(
         "tests",
-        str(pack.manifest.tests),
+        str(agent.manifest.tests),
         tuple(
-            Record(str(number), case["input"], _test_labels(pack.manifest, case["expect"]))
+            Record(str(number), case["input"], _test_labels(agent.manifest, case["expect"]))
             for number, case in enumerate(cases, start=1)
         ),
     )
@@ -134,7 +128,7 @@ def shown_id(value: Any) -> str:
     return value if isinstance(value, str) else canonical_input(value)
 
 
-def _test_labels(manifest: PackManifest, expect: Mapping[str, Any]) -> dict[str, str]:
+def _test_labels(manifest: AgentManifest, expect: Mapping[str, Any]) -> dict[str, str]:
     """The answers a behaviour test says are right: its `answers`, and its `recommendation` as
     the primary question's."""
     labels = {
@@ -146,12 +140,12 @@ def _test_labels(manifest: PackManifest, expect: Mapping[str, Any]) -> dict[str,
     return labels
 
 
-def critical(manifest: PackManifest) -> list[tuple[str, str]]:
+def critical(manifest: AgentManifest) -> list[tuple[str, str]]:
     """The (question, label) pairs the manifest calls critical."""
     return [(found.question, found.label) for found in manifest.evaluation.critical]
 
 
-def is_critical(labels: Mapping[str, str], manifest: PackManifest) -> bool:
+def is_critical(labels: Mapping[str, str], manifest: AgentManifest) -> bool:
     return any(labels.get(question) == label for question, label in critical(manifest))
 
 
@@ -165,7 +159,7 @@ def distinct_cases(
     agent reads; they say which text is changed, never what a case is."""
     read = fields if fields is not None else read_fields(decision)
     known = identity_fields(decision)
-    schema = decision.pack.input_schema
+    schema = decision.agent.input_schema
     by_key: dict[str, Case] = {}
     by_id: dict[str, Case] = {}
     refused = 0
@@ -180,7 +174,7 @@ def distinct_cases(
             schema,
             read,
             named=fields is not None,
-            community=decision.pack.bounded,
+            bounded=decision.agent.bounded,
         )
         if key not in by_key and places:
             by_key[key] = Case(
@@ -196,7 +190,7 @@ def distinct_cases(
     return by_key, by_id, refused
 
 
-def in_turn(cases: Sequence[Case], manifest: PackManifest, seed: int) -> list[Case]:
+def in_turn(cases: Sequence[Case], manifest: AgentManifest, seed: int) -> list[Case]:
     """Cases in the order a small probe takes them: an order the seed gives (whatever the
     source's), those with a critical label and those without in turn."""
     ordered = sorted(cases, key=lambda case: Stream(seed, "cases", case.key).below(1 << 62))
@@ -217,15 +211,10 @@ def leaves(decision: Decision) -> Iterator[Provider]:
         yield from provider.leaves()
 
 
-# Providers that answer from the input's coded data, dates and numbers: they read no free text,
-# and do not list the fields they read.
-_STRUCTURED = (CriteriaProvider, CqlProvider)
-
-
 def read_fields(decision: Decision) -> tuple[str, ...] | None:
     """The input fields the running providers say they read text in, or None when one of them
-    is sent the whole input, or none names a field. A provider of structured data reads none."""
-    return _together(_named(leaf) for leaf in leaves(decision) if not isinstance(leaf, _STRUCTURED))
+    is sent the whole input, or none names a field."""
+    return _together(_named(leaf) for leaf in leaves(decision))
 
 
 def identity_fields(decision: Decision) -> tuple[str, ...] | None:
@@ -237,8 +226,8 @@ def identity_fields(decision: Decision) -> tuple[str, ...] | None:
 
 def _named(leaf: Provider) -> list[str] | None:
     """The input fields a provider says it reads, or None: it is sent the whole input, or does
-    not say (structured criteria, CQL, a provider type this module does not know)."""
-    if isinstance(leaf, AgentProvider | LlmProvider | JevProvider):
+    not say (a provider type this module does not know)."""
+    if isinstance(leaf, AgentProvider | LlmProvider):
         fields = leaf.settings.state_fields
         return None if fields is None else list(fields)
     if isinstance(leaf, RulesProvider):
@@ -246,10 +235,6 @@ def _named(leaf: Provider) -> list[str] | None:
         for rules in leaf.rules.questions.values():
             named += rules.text_fields or []
         return named
-    if isinstance(leaf, NaiveBayesProvider):
-        return list(leaf.text_fields)
-    if isinstance(leaf, DosingProvider):
-        return list(leaf.table.text_fields)
     return None
 
 
@@ -310,19 +295,19 @@ _ORDINARY = (
 
 
 def text_places(
-    value: Any, schema: Any, fields: Sequence[str] | None, *, named: bool, community: bool = False
+    value: Any, schema: Any, fields: Sequence[str] | None, *, named: bool, bounded: bool = False
 ) -> list[Place]:
     """Where the text of an input is: each string in it (through mappings and lists) that holds
     something, is at or under one of `fields` when there are any, and, unless the fields were
-    `named` by the caller, is one the schema leaves free (`_free`). `community`: the schema's
-    patterns are searched as the agent's own validator searches them (`Pack.bounded`)."""
+    `named` by the caller, is one the schema leaves free (`_free`). `bounded`: the schema's
+    patterns are searched as the agent's own validator searches them (`Agent.bounded`)."""
     found: list[Place] = []
     stack: list[tuple[Any, Place, list[Any]]] = [(value, (), [schema])]
     while stack:
         node, place, schemas = stack.pop()
         if isinstance(node, str):
             read = fields is None or _under(place, fields)
-            if node.strip() and read and (named or _free(schemas, schema, community)):
+            if node.strip() and read and (named or _free(schemas, schema, bounded)):
                 found.append(place)
         elif isinstance(node, Mapping):
             children: list[tuple[str | int, Any]] = list(node.items())
@@ -344,7 +329,7 @@ def _under(place: Place, fields: Sequence[str]) -> bool:
     return any(names[: len(parts)] == parts for parts in (name.split(".") for name in fields))
 
 
-def _free(schemas: Sequence[Any], root: Any, community: bool) -> bool:
+def _free(schemas: Sequence[Any], root: Any, bounded: bool) -> bool:
     """Whether the schemas of a string leave it free text: none holds it to a list of values
     or a format (`_NOT_TEXT`), nor to a pattern that ordinary text does not meet."""
     for schema in schemas:
@@ -353,7 +338,7 @@ def _free(schemas: Sequence[Any], root: Any, community: bool) -> bool:
                 return False
             pattern = node.get("pattern")
             if isinstance(pattern, str) and not any(
-                patterns.search(pattern, text, community=community) for text in _ORDINARY
+                patterns.search(pattern, text, bounded=bounded) for text in _ORDINARY
             ):
                 return False
     return True

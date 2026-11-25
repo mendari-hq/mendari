@@ -60,7 +60,7 @@ from functools import lru_cache
 from typing import Any
 
 from mendari.core.policy import PolicyInputs
-from mendari.core.spec import PackManifest, Thresholds
+from mendari.core.spec import AgentManifest, Thresholds
 from mendari.errors import MendariError
 from mendari.evals import stats
 from mendari.evals.ledger import Ledger
@@ -273,14 +273,14 @@ def cases_of(ledger: Ledger, results: Sequence[Any]) -> list[Case]:
     return cases
 
 
-def at_threshold(manifest: PackManifest, threshold: float) -> PackManifest:
+def at_threshold(manifest: AgentManifest, threshold: float) -> AgentManifest:
     """The manifest with one setting changed: `policy.thresholds.auto`."""
     thresholds = Thresholds(auto=threshold, review=manifest.policy.thresholds.review)
     policy = manifest.policy.model_copy(update={"thresholds": thresholds})
     return manifest.model_copy(update={"policy": policy})
 
 
-def decided(manifest: PackManifest, cases: Sequence[Case]) -> list[Decided]:
+def decided(manifest: AgentManifest, cases: Sequence[Case]) -> list[Decided]:
     """Each case's outcome and recommendation under `manifest`: its policy applied again to what
     it decided from, or what the run gave it when no policy ran."""
     out: list[Decided] = []
@@ -310,14 +310,11 @@ def tally(cases: Sequence[Case], outcomes: Sequence[Decided], labels: int) -> Ta
     return Tally(len(cases), automated, labelled, wrong, tuple((k, n) for k, n in critical))
 
 
-def tally_of(report: Mapping[str, Any]) -> Tally | None:
-    """The counts a report states at the threshold it ran with, or None when it does not hold
-    them all (a `mendari.eval/1` report without its counts)."""
+def tally_of(report: Mapping[str, Any]) -> Tally:
+    """The counts a report states at the threshold it ran with."""
     decisions = report["decisions"]
     counts = decisions["outcome_counts"]
     wrong = false_automation(report)
-    if wrong is None:
-        return None
     return Tally(
         cases=sum(counts.values()),
         automated=counts.get(_AUTO, 0),
@@ -406,7 +403,7 @@ class Found:
         return self.tested[self.passed] if self.passed < len(self.tested) else None
 
 
-def recommend(manifest: PackManifest, cases: Sequence[Case], targets: Targets) -> Found:
+def recommend(manifest: AgentManifest, cases: Sequence[Case], targets: Targets) -> Found:
     """Walk the sequence on `cases` and say what it found."""
     labels = len(manifest.evaluation.critical)
     recorded: list[Decided] = [(case.outcome, case.recommendation) for case in cases]
@@ -470,7 +467,7 @@ def recommend(manifest: PackManifest, cases: Sequence[Case], targets: Targets) -
 # --------------------------------------------------------------------------------------------
 
 
-def check(manifest: PackManifest, targets: Targets | None) -> None:
+def check(manifest: AgentManifest, targets: Targets | None) -> None:
     """Refuse a target the agent has nothing to hold to it, before a run is paid for: a target
     on critical misses for an agent that declares no critical label."""
     if targets is None or targets.critical_miss is None or manifest.evaluation.critical:
@@ -482,7 +479,7 @@ def check(manifest: PackManifest, targets: Targets | None) -> None:
 
 
 def build(
-    manifest: PackManifest,
+    manifest: AgentManifest,
     ledger: Ledger,
     results: Sequence[Any],
     targets: Targets | None = None,
@@ -529,7 +526,7 @@ def _point(
 
 
 def block_of(
-    manifest: PackManifest,
+    manifest: AgentManifest,
     names: Sequence[tuple[str, str]],
     targets: Targets,
     current: Tally,
@@ -931,13 +928,11 @@ def markdown(block: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def of_report(report: Mapping[str, Any], confidence: float = CONFIDENCE) -> dict[str, Any] | None:
+def of_report(report: Mapping[str, Any], confidence: float = CONFIDENCE) -> dict[str, Any]:
     """The point at the threshold a report ran with, from the counts its result states alone (so
     a card shows nothing it did not work out from them): each risk as k of n with its bound at
-    `confidence`. None for a report that does not hold the counts."""
+    `confidence`."""
     found = tally_of(report)
-    if found is None:
-        return None
     names = [(str(c["question"]), str(c["label"])) for c in report["decisions"]["critical"]]
     return _point(float(report["policy"]["thresholds"]["auto"]), found, names, confidence)
 

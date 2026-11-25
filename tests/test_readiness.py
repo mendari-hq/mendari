@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Readiness (`GET /api/health/ready`, LP-21 requirement 1, `server/readiness.py`): one bounded
-database read per instance every few seconds, the packs as start-up found them, an in-memory
+database read per instance every few seconds, the agents as start-up found them, an in-memory
 limit per address, fixed codes only; liveness (`/api/health`) stays three fields and no
 database work."""
 
@@ -25,11 +25,11 @@ from mendari.core import db as db_module
 from mendari.core.registry import SearchPath
 from mendari.server import readiness
 from mendari.server.app import create_app
-from mendari.server.readiness import Readiness, packs_state
+from mendari.server.readiness import Readiness, agents_state
+from tests.conftest import CLINICAL_DIR, TRIAGE_DIR
 from tests.test_auth import FakeIdp, signing_in_with
 
 READY = "/api/health/ready"
-PACKS = Path(__file__).parent / "fixtures" / "reference-agents"
 # A driver's message can carry the host, the user and the database: none of it may leave.
 SECRET_TEXT = 'connection to server at "db.internal.example" (10.9.8.7) failed: user "mendari"'
 
@@ -191,12 +191,12 @@ def test_with_the_database_unreachable_the_readiness_route_fails(
         answer = client.get(READY)
         assert answer.status_code == 200
         assert answer.json()["status"] == "ready"
-        assert answer.json()["checks"] == {"database": "ok", "packs": "ok"}
+        assert answer.json()["checks"] == {"database": "ok", "agents": "ok"}
         break_db(how)
         refused = client.get(READY)
         assert refused.status_code == 503
         assert refused.json()["status"] == "unready"
-        assert refused.json()["checks"] == {"database": "unreachable", "packs": "ok"}
+        assert refused.json()["checks"] == {"database": "unreachable", "agents": "ok"}
         assert refused.headers["cache-control"] == "no-store"
         assert client.head(READY).status_code == 503
     if how == "deleted" and not db_target.startswith("postgresql"):
@@ -396,39 +396,39 @@ def test_readiness_tells_no_error_text(
     assert answer.json() == {
         "status": "unready",
         "version": answer.json()["version"],
-        "checks": {"database": "unreachable", "packs": "ok"},
+        "checks": {"database": "unreachable", "agents": "ok"},
     }
     for text in (answer.text, caplog.text):
         assert "db.internal" not in text and "10.9.8.7" not in text and 'user "' not in text
     assert "ConnectionRefusedError" in caplog.text  # the operator learns the kind of failure
 
 
-def test_packs_that_did_not_load_make_readiness_degraded_and_no_pack_unready(
+def test_agents_that_did_not_load_make_readiness_degraded_and_no_agent_unready(
     tmp_path: Path,
 ) -> None:
     broken = tmp_path / "broken"
-    shutil.copytree(PACKS / "patient-inbox-router", broken)
+    shutil.copytree(TRIAGE_DIR, broken)
     (broken / "fhir" / "mapping.yaml").write_text("fhir_version: R5\n")  # no terminology
-    served = [SearchPath(broken, "maintained"), SearchPath(PACKS / "ai-guard", "maintained")]
-    degraded = TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=served))
+    served = [SearchPath(broken, "maintained"), SearchPath(CLINICAL_DIR, "maintained")]
+    degraded = TestClient(create_app(db_path=tmp_path / "a.db", agents_paths=served))
     answer = degraded.get(READY)
     assert answer.status_code == 200
     assert answer.json()["status"] == "degraded"
-    assert answer.json()["checks"] == {"database": "ok", "packs": "degraded"}
-    assert "patient-inbox-router" not in answer.text  # signed-in health names it, not this
+    assert answer.json()["checks"] == {"database": "ok", "agents": "degraded"}
+    assert "triage" not in answer.text  # signed-in health names it, not this
 
     (tmp_path / "empty").mkdir()
-    nothing = create_app(db_path=tmp_path / "b.db", packs_paths=[tmp_path / "empty"])
+    nothing = create_app(db_path=tmp_path / "b.db", agents_paths=[tmp_path / "empty"])
     answer = TestClient(nothing).get(READY)
     assert answer.status_code == 503
-    assert answer.json()["checks"] == {"database": "ok", "packs": "none"}
+    assert answer.json()["checks"] == {"database": "ok", "agents": "none"}
 
 
-def test_packs_state() -> None:
-    assert packs_state(built=3, problems=0) == "ok"
-    assert packs_state(built=3, problems=1) == "degraded"
-    assert packs_state(built=0, problems=0) == "none"
-    assert packs_state(built=0, problems=2) == "none"
+def test_agents_state() -> None:
+    assert agents_state(built=3, problems=0) == "ok"
+    assert agents_state(built=3, problems=1) == "degraded"
+    assert agents_state(built=0, problems=0) == "none"
+    assert agents_state(built=0, problems=2) == "none"
 
 
 def test_head_answers_as_get_does(tmp_path: Path) -> None:

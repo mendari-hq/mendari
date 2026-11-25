@@ -20,8 +20,8 @@ from fastapi.testclient import TestClient
 
 from mendari import agent_kit
 from mendari.agent_kit import Case
+from mendari.core.agent import load_agent
 from mendari.core.decision import Decision
-from mendari.core.pack import load_pack
 from mendari.providers.agent import ENDPOINT_ENV, TOKEN_ENV, request_body, validate_response
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,16 +86,16 @@ def case_of(body: str) -> Case:
 
 def mendari_request(body: str) -> dict[str, Any]:
     """The body Mendari sends for the demo agent, built by the engine itself."""
-    pack = load_pack(DEMO)
-    slot = pack.manifest.providers["reader"]
-    questions = {key: pack.manifest.questions[key] for key in slot.answers}
+    agent = load_agent(DEMO)
+    slot = agent.manifest.providers["reader"]
+    questions = {key: agent.manifest.questions[key] for key in slot.answers}
     config = slot.variants["agent"].model_extra or {}
     return request_body(
-        pack.id,
+        agent.id,
         "reader",
         questions,
         {"message": {"body": body}},
-        agent_id=config.get("agent_id"),
+        service_id=config.get("service_id"),
         system_prompt=config.get("system_prompt"),
         state_fields=config.get("state_fields"),
     )
@@ -126,15 +126,15 @@ def test_the_request_to_claude_is_governed_by_its_schema_and_defaults() -> None:
 def test_its_answers_pass_mendaris_own_validation() -> None:
     case = case_of("I have had chest pain since last night. Refill too please.")
     shown = agent.answer(case, FakeMessages(), environ={})
-    pack = load_pack(DEMO)
-    questions = {key: pack.manifest.questions[key] for key in ("request", "urgent_symptoms")}
+    loaded = load_agent(DEMO)
+    questions = {key: loaded.manifest.questions[key] for key in ("request", "urgent_symptoms")}
     checked = validate_response(shown, questions)
     assert checked["answers"]["urgent_symptoms"]["label"] == "yes"
     assert checked["answers"]["urgent_symptoms"]["confidence"] == pytest.approx(0.9)
     assert shown["answers"]["request"]["value"] == "refill"
     assert sum(shown["answers"]["request"]["probabilities"].values()) == pytest.approx(1.0)
     assert shown["usage"] == {"input_tokens": 310, "output_tokens": 60, "cost_usd": 0.00244}
-    assert shown["model"] == "claude-opus-5-5" and shown["agent_version"] == agent.AGENT_VERSION
+    assert shown["model"] == "claude-opus-5-5" and shown["service_version"] == agent.SERVICE_VERSION
 
 
 @pytest.mark.parametrize(
@@ -229,7 +229,7 @@ def test_the_engine_governs_the_live_agent_end_to_end(monkeypatch: pytest.Monkey
         return httpx.Response(reply.status_code, content=reply.content)
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", to_service)
-    decision = Decision(load_pack(DEMO))
+    decision = Decision(load_agent(DEMO))
     urgent = decision({"message": {"body": "It feels like an elephant is sitting on my chest."}})
     assert (urgent.outcome.value, urgent.priority.value) == ("HUMAN_REVIEW", "urgent")
     routine = decision({"message": {"body": "Could you refill my lisinopril?"}})

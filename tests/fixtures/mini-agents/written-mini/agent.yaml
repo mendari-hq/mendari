@@ -1,4 +1,4 @@
-# Test fixture for written output (spec 0.4): an `agent` variant whose canned answers carry a
+# Test fixture for written output (spec §15): an `agent` variant whose canned answers carry a
 # reply, a second output read from the input, two rubrics and a canned judge. Not a real agent;
 # every message, reply and grade here is synthetic.
 spec_version: "0.4"
@@ -33,7 +33,7 @@ providers:
     variants:
       agent:
         type: agent
-        agent_id: written-mini-agent
+        service_id: written-mini-agent
         state_fields: [message.body]
         mock_file: fixtures/mock_agent.json
 policy:

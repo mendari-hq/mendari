@@ -9,18 +9,18 @@ A site record is a JSON object signed with one of the site's Ed25519 keys (`hub/
 
 The signature is Ed25519 over `PREFIX`, the format and a zero byte, then the canonical JSON of
 every other field (sorted keys, no spaces, ASCII). The prefix and the formats are a site's own:
-a recall (`hub/yank.py`, bare canonical JSON), the registry's counter-signature, a publisher's
-archive and the scoreboard's grading key (`evals/signing.py`, its own prefix) never sign these
-bytes, so none of their signatures is a site's; and as the format is signed, a ticket request is
-never a submission (the rule of S19 and S20). A site key is never a publisher's key either
-(`sites.add_site_key`). `nonce` is 16 random bytes; the registry refuses one a site has used
-(LP-22e), and `at` within `MAX_SKEW_S` of its clock, as a recall's time is checked.
+a recall (`hub/yank.py`, bare canonical JSON), the registry's counter-signature and a
+publisher's archive never sign these bytes, so none of their signatures is a site's; and as the
+format is signed, a ticket request is never a submission (the rule of S19 and S20). A site key
+is never a publisher's key either (`sites.add_site_key`). `nonce` is 16 random bytes; the
+registry refuses one a site has used (LP-22e), and `at` within `MAX_SKEW_S` of its clock, as a
+recall's time is checked.
 
 Formats:
-- `mendari.site-ticket-request/1` (22e): the pack (id, version, digest), the configuration
+- `mendari.site-ticket-request/1` (22e): the agent (id, version, digest), the configuration
   (each slot's variant), `remote_consent`, the commitment and the dataset's size `n`;
 - `mendari.site-ticket-withdrawal/1` (22e): the ticket given up;
-- `mendari.site-submission/1` (22f): the ticket and the `mendari.site-report/2` payload.
+- `mendari.site-submission/1` (22f): the ticket and the `mendari.site-report/1` payload.
 
 The site's own files, in the client's configuration directory (`client.config_dir()`), written
 private (0600) as credentials are: `site.json` (the site's id and its key's id),

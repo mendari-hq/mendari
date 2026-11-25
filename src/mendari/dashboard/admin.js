@@ -10,7 +10,7 @@
 // and its usage (the usage ledger, LP-21g): the remote model calls its decisions and evaluations
 // made over the last 30 days and what they cost, never a cost where a call was not priced; and
 // its activity (12g-ii, administrators): its administrative events of the last 90 days, newest
-// first, asked for each time the tab is shown, and all of them exported as FHIR. Where the pack
+// first, asked for each time the tab is shown, and all of them exported as FHIR. Where the agent
 // registry is served here (MENDARI_REGISTRY=on), registry.js adds its namespaces and publisher
 // tokens (`extendAdmin`).
 // Open mode has no view: its API acts for every organization. Someone who may use none of the
@@ -78,9 +78,9 @@ views.admin.update = (params) => {
 
 views.admin.available = () => ADMIN_TABS.some((t) => t.shown());
 
-// An organization's people and credentials, not a pack's: shown without waiting for the pack's
+// An organization's people and credentials, not an agent's: shown without waiting for the agent's
 // details (router.js).
-views.admin.packless = true;
+views.admin.agentless = true;
 
 // The link leaves the page with the view: an open dialog (a link or a key shown once among them)
 // closes, but one whose request is running (`data-busy`, ui.js actionDialog) closes with its
@@ -1163,7 +1163,7 @@ async function showHistory(button, subject) {
 // day, newest first: calls, how many were priced, tokens, and the cost, "unknown" unless every
 // call was priced (never a partial sum, never $0 for what was not priced).
 
-const PROVIDER_TEXT = { jev: "Jev", llm: "Language model" };
+const PROVIDER_TEXT = { llm: "Language model", agent: "Agent" };
 const PURPOSE_TEXT = { decision: "Decisions", evaluation: "Evaluations" };
 const UNPRICED = "Some of these calls had no price: their provider gave none, or the call failed";
 const whole = (n) => esc(Number(n).toLocaleString("en-US"));
@@ -1183,9 +1183,9 @@ function usageColumns() {
 
 function showUsage() {
   const usage = adminState.usage ?? { rows: [], totals: [] };
-  const intro = `<p class="muted">The calls to Jev and language models${ofOrg()} from ${esc(usage.since ?? "")} to ${esc(usage.until ?? "")} (local days), for decisions and for evaluations. A cost shows only when every call was priced.</p>`;
+  const intro = `<p class="muted">The calls to language models and agents${ofOrg()} from ${esc(usage.since ?? "")} to ${esc(usage.until ?? "")} (local days), for decisions and for evaluations. A cost shows only when every call was priced.</p>`;
   if (!usage.rows.length) {
-    return intro + emptyState({ icon: "inbox", title: "No remote calls", text: "Decisions and evaluations that call Jev or a language model show here." });
+    return intro + emptyState({ icon: "inbox", title: "No remote calls", text: "Decisions and evaluations that call a language model or an agent show here." });
   }
   const totals = tableHtml({ id: "usage-totals", caption: `Over the last ${USAGE_DAYS} days`, columns: usageColumns(), rows: usage.totals });
   const days = tableHtml({
@@ -1200,7 +1200,7 @@ function showUsage() {
 
 // -- activity (12g-ii) ---------------------------------------------------------------------------
 // The organization's administrative events (its keys, clients, approvals, holds, evaluation
-// reports, record, people and hidden evaluation sets) of the last ACTIVITY_DAYS days, newest
+// reports, record and people) of the last ACTIVITY_DAYS days, newest
 // first: what happened in words, about what, by whom, when. Never a payload's other values (a
 // hold's reason, an approval's reference). Asked for newest first (`order=desc`), page by page up
 // to ACTIVITY_PAGES, so a window with more events than that shows its newest, and says so. The
@@ -1221,8 +1221,8 @@ const ACTIVITY_TEXT = {
   "client.keys_replaced": "Client's key set replaced",
   "governance.approved": "Automation approved",
   "governance.revoked": "Automation approval revoked",
-  "registry_pack.approved": "Agent from a registry approved",
-  "registry_pack.revoked": "Agent from a registry no longer approved",
+  "registry_agent.approved": "Agent from a registry approved",
+  "registry_agent.revoked": "Agent from a registry no longer approved",
   "automation.held": "Automation held",
   "automation.lifted": "Automation hold lifted",
   "eval.recorded": "Evaluation report recorded",
@@ -1236,29 +1236,14 @@ const ACTIVITY_TEXT = {
   "invitation.revoked": "Invitation revoked",
   "access.requested": "Asked to join",
   "access.handled": "Request to join answered",
-  "evalset.created": "Hidden evaluation set created",
-  "evalset.case_added": "Hidden evaluation case added",
-  "evalset.case_removed": "Hidden evaluation case removed",
-  "evalset.sampled": "Hidden evaluation set sampled",
-  "evalset.assigned": "Hidden evaluation case assigned",
-  "evalset.case_read": "Hidden evaluation case read by its labeller",
-  "evalset.labelled": "Hidden evaluation case labelled",
-  "evalset.measured": "Labellers' agreement measured",
-  "evalset.frozen": "Hidden evaluation set frozen",
-  "evalset.activated": "Hidden evaluation set activated",
-  "evalset.graded": "Hidden evaluation set read to grade an agent",
-  "evalset.retired": "Hidden evaluation set retired",
-  "pack_version.created": "Agent store version added",
-  "pack_version.held": "Agent store version held for the operator's review",
-  "pack_version.released": "Agent store version released",
-  "pack_version.withdrawn": "Agent store version withdrawn",
+  "store_version.created": "Agent store version added",
+  "store_version.withdrawn": "Agent store version withdrawn",
   "store_key.added": "Agent store author key registered",
   "store_key.revoked": "Agent store author key revoked",
   "store_dataset.created": "Agent store dataset added",
-  "store_dataset.held": "Agent store dataset held for the operator's review",
   "store_job.created": "Agent store evaluation job made",
-  "pack_version.promoted": "Agent store version promoted to be served",
-  "pack_version.retired": "Agent store version's promotion retired",
+  "store_version.promoted": "Agent store version promoted to be served",
+  "store_version.retired": "Agent store version's promotion retired",
   "store_dataset.proposal_accepted": "Proposed test accepted for an agent store version",
   "store_dataset.proposal_dismissed": "Proposed test dismissed for an agent store version",
   "agent_connection.set": "Agent connection set",
@@ -1270,15 +1255,15 @@ const ACTIVITY_TEXT = {
 const SUBJECT_TEXT = {
   key: "API key", client: "Client", governance: "Automation approval", registry_approval: "Registry approval",
   hold: "Automation hold", eval: "Evaluation report", org: "Organization", membership: "Member",
-  invitation: "Invitation", access: "Request to join", evalset: "Hidden evaluation set",
-  pack_version: "Agent store version", store_key: "Agent store author key",
+  invitation: "Invitation", access: "Request to join",
+  store_version: "Agent store version", store_key: "Agent store author key",
   store_dataset: "Agent store dataset", store_job: "Agent store evaluation job",
   agent_connection: "Agent connection",
 };
 
 // Who acted: the first of these a payload has, or a kind's own (standards/audit_fhir.py _ACTORS).
 const ACTOR_KEYS = ["created_by", "rotated_by", "revoked_by", "set_by", "lifted_by", "approver", "changed_by", "removed_by", "handled_by", "ended_by", "actor", "user"];
-const ACTOR_KEY = { "client.keys_replaced": "replaced_by", "evalset.case_read": "labeller", "evalset.labelled": "labeller", "evalset.graded": "grader" };
+const ACTOR_KEY = { "client.keys_replaced": "replaced_by" };
 
 let activityAsked = 0; // the latest request: an older answer, arriving after it, is dropped
 

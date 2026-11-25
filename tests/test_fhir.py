@@ -6,11 +6,13 @@ from typing import Any
 
 import pytest
 
-from mendari import Decision, Pack
+from mendari import Agent, Decision
 from mendari.errors import FhirError
 from mendari.standards import cds_hooks
 from mendari.standards.fhir import FhirAdapter, age_band, select
 
+# A synthetic message the triage fixture (`mendari-test/triage`) reads as a possible same-day
+# emergency, as a Communication from its sender, a Patient the fixture does not read.
 COMMUNICATION: dict[str, Any] = {
     "resourceType": "Communication",
     "id": "msg-1",
@@ -20,7 +22,7 @@ COMMUNICATION: dict[str, Any] = {
     "medium": [{"coding": [{"system": "x", "code": "sms"}]}],
     "sent": "2026-09-25T10:00:00Z",
     "payload": [
-        {"contentString": "My throat feels like it's closing"},
+        {"contentString": "I have had chest pain since last night"},
         {"contentString": "after the new medicine."},
     ],
 }
@@ -40,7 +42,7 @@ BUNDLE: dict[str, Any] = {
 def test_select_follows_fhirpath_list_semantics() -> None:
     indexed = {"Communication": COMMUNICATION}
     assert select(indexed, "Communication.payload.contentString") == [
-        "My throat feels like it's closing",
+        "I have had chest pain since last night",
         "after the new medicine.",
     ]
     assert select(indexed, "Communication.payload[1].contentString") == ["after the new medicine."]
@@ -63,20 +65,22 @@ def test_age_band(born: str, band: str | None) -> None:
     assert age_band(born, today=date(2026, 9, 25)) == band
 
 
-def test_bundle_maps_onto_pack_input(inbox_pack: Pack) -> None:
-    adapter = FhirAdapter.for_pack(inbox_pack)
+def test_bundle_maps_onto_agent_input(triage_agent: Agent) -> None:
+    """The message's topic, its text joined a part a line, and how it came, as the fixture's
+    channel code; its sender is not read."""
+    adapter = FhirAdapter.for_agent(triage_agent)
     inputs = adapter.to_input(adapter.index(BUNDLE))
-    assert inputs["message"] == {
-        "subject": "Help",
-        "body": "My throat feels like it's closing\nafter the new medicine.",
-        "channel": "sms",
-        "sent_at": "2026-09-25T10:00:00Z",
+    assert inputs == {
+        "message": {
+            "subject": "Help",
+            "body": "I have had chest pain since last night\nafter the new medicine.",
+            "channel": "sms",
+        }
     }
-    assert inputs["patient"] == {"age_band": "65+", "preferred_language": "es"}
 
 
-def test_decision_becomes_a_fhir_task(router: Decision) -> None:
-    result, task = router.decide_fhir(BUNDLE)
+def test_decision_becomes_a_fhir_task(triage: Decision) -> None:
+    result, task = triage.decide_fhir(BUNDLE)
     assert result.recommendation == "nurse" and result.priority.value == "stat"
     assert task["resourceType"] == "Task"
     assert task["status"] == "requested"  # HUMAN_REVIEW: a person must accept it
@@ -87,43 +91,43 @@ def test_decision_becomes_a_fhir_task(router: Decision) -> None:
     assert task["identifier"][0]["value"] == result.id
 
 
-def test_the_task_says_when_but_leaves_its_version_to_the_server(router: Decision) -> None:
+def test_the_task_says_when_but_leaves_its_version_to_the_server(triage: Decision) -> None:
     """`meta.versionId` belongs to whichever server stores the Task; no profile is claimed (none
     exists); the narrative has codes, ids and times, never the message or the reasons."""
-    result, task = router.decide_fhir(BUNDLE)
+    result, task = triage.decide_fhir(BUNDLE)
     assert task["meta"]["lastUpdated"] == result.created_at
     assert "versionId" not in task["meta"] and "profile" not in task["meta"]
-    assert task["meta"]["tag"][0]["code"] == f"{result.pack_id}@{result.pack_version}"
+    assert task["meta"]["tag"][0]["code"] == f"{result.agent_id}@{result.agent_version}"
     div = task["text"]["div"]
     assert task["text"]["status"] == "generated"
     for shown in (result.id, "HUMAN_REVIEW", "stat", "nurse", result.created_at):
         assert shown in div
     assert result.reasons and not any(reason in div for reason in result.reasons)
-    for private in ("throat", "medicine", "Help", task["description"]):
+    for private in ("chest pain", "medicine", "Help", task["description"]):
         assert private not in div
 
 
-def test_performer_codes_are_what_the_template_can_fill(router: Decision) -> None:
-    adapter = FhirAdapter.for_pack(router.pack)
-    labels = router.pack.manifest.labels("destination")
+def test_performer_codes_are_what_the_template_can_fill(triage: Decision) -> None:
+    adapter = FhirAdapter.for_agent(triage.agent)
+    labels = triage.agent.manifest.labels("destination")
     assert adapter.performer_template == "{recommendation}"
     assert list(adapter.performer_codes()) == [*labels, "manual-triage"]
     assert adapter.performer_codes()["nurse"] == {"recommendation": "nurse"}
 
 
-def test_missing_required_resource(inbox_pack: Pack) -> None:
-    adapter = FhirAdapter.for_pack(inbox_pack)
+def test_missing_required_resource(triage_agent: Agent) -> None:
+    adapter = FhirAdapter.for_agent(triage_agent)
     with pytest.raises(FhirError, match="Communication"):
         adapter.index({"resourceType": "Bundle", "entry": [{"resource": PATIENT}]})
 
 
-def test_cds_discovery_and_card(router: Decision) -> None:
-    services = cds_hooks.discovery([router.pack])["services"]
-    assert services[0]["id"] == "mendari.patient-inbox-router"
+def test_cds_discovery_and_card(triage: Decision) -> None:
+    services = cds_hooks.discovery([triage.agent])["services"]
+    assert services[0]["id"] == "mendari-test.triage"
     assert services[0]["hook"] == "mendari-message-received"
 
     response = cds_hooks.invoke(
-        router,
+        triage,
         {
             "hook": "mendari-message-received",
             "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
@@ -137,9 +141,9 @@ def test_cds_discovery_and_card(router: Decision) -> None:
     assert card["suggestions"][0]["actions"][0]["resource"]["resourceType"] == "Task"
 
 
-def test_cds_requires_prefetch(router: Decision) -> None:
+def test_cds_requires_prefetch(triage: Decision) -> None:
     with pytest.raises(FhirError, match="prefetch required"):
-        cds_hooks.invoke(router, {"hook": "mendari-message-received", "prefetch": {}})
+        cds_hooks.invoke(triage, {"hook": "mendari-message-received", "prefetch": {}})
 
 
 @pytest.mark.parametrize("data", ["héllo", "not base64!", "QUJD", "", None, 12])

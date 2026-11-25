@@ -22,6 +22,7 @@ from mendari.server.cors import ALLOW_HEADERS, ALLOW_METHODS, MAX_AGE
 from mendari.server.origin import REFUSED
 from tests.conftest import encrypt_mode, security_lines, signed_in, without_request_id
 from tests.jwt_signers import PUBLIC_URL, cds_token
+from tests.support.cds_messages import message_hook
 from tests.test_cds_clients import (
     DISCOVERY,
     EHR,
@@ -32,7 +33,6 @@ from tests.test_cds_clients import (
     register,
     token,
 )
-from tests.test_limits import order_sign
 
 APP = "https://ehr-app.example.org"  # where the EHR's own page runs, registered for `epic`
 OTHER_APP = "https://other-ehr.example.org"  # registered for `other`
@@ -116,7 +116,7 @@ def test_a_registered_origin_gets_cors_on_cds_services_only(
     http, db = signed
     listed = http.get(DISCOVERY, headers={**page_on(APP), **bearer(token())})
     called = http.post(
-        HOOK, json=order_sign(1), headers={**page_on(APP), **bearer(token(path=HOOK))}
+        HOOK, json=message_hook(), headers={**page_on(APP), **bearer(token(path=HOOK))}
     )
     expired = http.get(DISCOVERY, headers={**page_on(APP), **bearer(token(lifetime=-120))})
     assert (listed.status_code, called.status_code, expired.status_code) == (200, 200, 401)
@@ -127,17 +127,17 @@ def test_a_registered_origin_gets_cors_on_cds_services_only(
     with AuditStore(db) as store:
         key = store.create_api_key(name="rest", role="service", org="default", created_by="t")
     elsewhere = [
-        http.get("/api/packs", headers={**page_on(APP), **bearer(key["key"])}),
+        http.get("/api/agents", headers={**page_on(APP), **bearer(key["key"])}),
         http.get("/fhir/metadata", headers=page_on(APP)),
         http.get("/api/health", headers=page_on(APP)),
-        http.options("/api/packs", headers=preflight(APP, "GET")),
+        http.options("/api/agents", headers=preflight(APP, "GET")),
     ]
     assert [answer.status_code for answer in elsewhere] == [200, 200, 200, 403]
     assert all(cors_headers(answer) == {} for answer in elsewhere)
     assert not any(varies_by_origin(answer) for answer in elsewhere)
 
     open_mode, _ = local
-    hooked = open_mode.post(HOOK, json=order_sign(1), headers=page_on(APP))
+    hooked = open_mode.post(HOOK, json=message_hook(), headers=page_on(APP))
     assert hooked.status_code == 200, hooked.text
     assert cors_headers(hooked) == {"access-control-allow-origin": APP}
 
@@ -215,7 +215,7 @@ def test_an_unregistered_origin_gets_no_cors_and_is_refused_as_before(
         assert cors_headers(answer) == {}
     for origin in (EVIL, "null"):
         sent = {**page_on(origin), **bearer(token(path=HOOK))}
-        answer = http.post(HOOK, json=order_sign(1), headers=sent)
+        answer = http.post(HOOK, json=message_hook(), headers=sent)
         assert answer.status_code == 403, answer.text
         assert without_request_id(answer.json(), answer) == {
             "error": "AuthError",
@@ -231,16 +231,16 @@ def test_an_unregistered_origin_gets_no_cors_and_is_refused_as_before(
     )
     assert claims(db) == 0
     own = {"origin": PUBLIC_URL, "sec-fetch-site": "same-origin"}
-    answer = http.post(HOOK, json=order_sign(1), headers={**own, **bearer(token(path=HOOK))})
+    answer = http.post(HOOK, json=message_hook(), headers={**own, **bearer(token(path=HOOK))})
     assert answer.status_code == 200 and cors_headers(answer) == {}
     with AuditStore(db) as store:
         cookie = signed_in(store, role="reviewer", host="mendari.test")["cookie"]
-    with_cookie = http.post(HOOK, json=order_sign(1), headers={**page_on(APP), "cookie": cookie})
+    with_cookie = http.post(HOOK, json=message_hook(), headers={**page_on(APP), "cookie": cookie})
     assert with_cookie.status_code == 403
     assert without_request_id(with_cookie.json(), with_cookie)["detail"] == REFUSED
 
     open_mode, _ = local
-    assert open_mode.post(HOOK, json=order_sign(1), headers=page_on(EVIL)).status_code == 403
+    assert open_mode.post(HOOK, json=message_hook(), headers=page_on(EVIL)).status_code == 403
     assert open_mode.options(HOOK, headers=preflight(EVIL)).status_code == 403
 
     register(monkeypatch, entry(), public_url=HERE)  # no origins
@@ -262,7 +262,7 @@ def test_an_origin_registered_for_another_client_is_refused(
     http, db = signed
     theirs = cds_token(OTHER_EHR, f"{EHR}/other", f"{PUBLIC_URL}{HOOK}")
     capsys.readouterr()
-    refused = http.post(HOOK, json=order_sign(1), headers={**page_on(APP), **bearer(theirs)})
+    refused = http.post(HOOK, json=message_hook(), headers={**page_on(APP), **bearer(theirs)})
     assert refused.status_code == 403
     assert without_request_id(refused.json(), refused)["detail"] == CDS_ORIGIN
     assert cors_headers(refused) == {"access-control-allow-origin": APP}
@@ -275,7 +275,7 @@ def test_an_origin_registered_for_another_client_is_refused(
         assert store.query(limit=5) == []
     again = cds_token(OTHER_EHR, f"{EHR}/other", f"{PUBLIC_URL}{HOOK}")
     for origin, sent in ((OTHER_APP, again), (APP, token(path=HOOK))):
-        answer = http.post(HOOK, json=order_sign(1), headers={**page_on(origin), **bearer(sent)})
+        answer = http.post(HOOK, json=message_hook(), headers={**page_on(origin), **bearer(sent)})
         assert answer.status_code == 200, answer.text
         assert cors_headers(answer) == {"access-control-allow-origin": origin}
     assert claims(db) == 2

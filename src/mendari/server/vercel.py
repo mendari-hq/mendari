@@ -5,15 +5,13 @@ Configuration comes from the environment:
 - `DATABASE_URL`: pooled Postgres URL (injected by the Neon integration). Required on Vercel:
   functions have no persistent disk, and an audit trail that silently disappears is worse
   than none. `DATABASE_URL_UNPOOLED` (direct) is used for schema setup when present.
-- `MENDARI_PROVIDERS`: provider variants, e.g. `reader=rules`, or scoped to one pack,
+- `MENDARI_PROVIDERS`: provider variants, e.g. `reader=rules`, or scoped to one agent,
   e.g. `mendari/portal-message-agent:reader=rules`. A setting that names a slot or
-  variant a pack does not have is skipped and reported in `/api/health`. With Jev set up, a
-  pack listed in `settings.JEV_DEFAULTS` (none in a release) runs Mendari + Jev in every slot
-  these settings choose nothing for.
-- `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT`: daily call budgets (`none`: no
-  limit). `MENDARI_ORG_DAILY_LIMITS`: per-organization daily quotas
-  (`decisions=5000,jev=2000,llm=200`; unset: none). `MENDARI_PRINCIPAL_DAILY_LIMIT`: a daily
-  cap on the decisions each principal asks for (unset: none).
+  variant an agent does not have is skipped and reported in `/api/health`.
+- `MENDARI_LLM_DAILY_LIMIT`: the daily call budget (`none`: no limit).
+  `MENDARI_ORG_DAILY_LIMITS`: per-organization daily quotas (`decisions=5000,llm=200`; unset:
+  none). `MENDARI_PRINCIPAL_DAILY_LIMIT`: a daily cap on the decisions each principal asks for
+  (unset: none).
 - `MENDARI_DECISION_DEADLINE_S`: how long one decision's remote calls may take together
   (whole seconds, 10 to 270; default 120), within `maxDuration` (300 s, `vercel.json`).
 - `MENDARI_RATE_LIMITS`: `on` (the default with sign-in), `log` or `off`, then overrides
@@ -44,7 +42,7 @@ Configuration comes from the environment:
   (`/api/internal/monitor`) and the checkpoint at 10:00 (`/api/internal/checkpoint`);
   `MENDARI_RETENTION_DAYS` (default 30); `MENDARI_STATUS_ORG` is the organization the monitor
   leaves out (the status checks').
-- `MENDARI_REGISTRY`: `on` serves the pack registry under this app, on its database, at
+- `MENDARI_REGISTRY`: `on` serves the agent registry under this app, on its database, at
   `/registry/v1/...`, with an administrator's claims and publisher tokens at
   `/api/registry/...` (LP-19d; docs/operations/registry.md). Unset (the default): nothing is
   mounted. A request body there is `MENDARI_MAX_BODY_BYTES` at most, under Vercel's 4.5 MB.
@@ -56,24 +54,18 @@ Configuration comes from the environment:
   `off`): a publish's regression check runs within this function's `maxDuration`
   (`vercel.json`, 300 s; the check stops at 180). The order to turn these on, and the Hub's
   own project, are in deploy/vercel/README.md ("Registry and Hub").
-- `MENDARI_AGENT_STORE`: `on` serves organizations' pack stores at `/api/store/...` (LP-20f;
+- `MENDARI_AGENT_STORE`: `on` serves organizations' agent stores at `/api/store/...` (LP-20f;
   memberships mode only, docs/operations/agent-store.md). Unset (the default): nothing is
   mounted. `MENDARI_STORE_ORG_BYTES` (256 MiB unset) bounds what one organization keeps;
   `MENDARI_STORE_MAX_ARCHIVE_BYTES` (32 MiB unset) an archive, sent in parts each under
   `MENDARI_MAX_BODY_BYTES`.
 - `MENDARI_CHECKPOINT_KEY` (32 bytes in base64): signs the daily checkpoint, published at
   `/api/audit/checkpoint` (LP-21k).
-- `MENDARI_EVALSET_KEY` and `MENDARI_EVALSET_INDEX_KEY` (32 bytes in base64 each, two different
-  keys; `MENDARI_EVALSET_READ_KEYS` during a rotation): turn on hidden evaluation sets (LP-11).
-  Production only, as Secret: the server refuses them on a Preview or Development deployment,
-  whose database copy then holds only ciphertext, and wherever `VERCEL_ENV` is not exposed
-  (Vercel's system variables). Unset, the feature is off.
 - `MENDARI_ALERT_WEBHOOK` (where quota alerts go), `MENDARI_ALERT_FORMAT` (`mendari` or
   `slack`) and `MENDARI_ALERT_SECRET` (32 characters or more: signs every alert).
 - `LLM_MODEL`: the model for `llm` variants that pin none (an AI Gateway id,
   `<vendor>/<model>`). There is no built-in default: without it they are `not_configured`, and
   their decisions go to a person.
-- `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `mendari.providers.jev`.
 """
 
 from __future__ import annotations
@@ -82,14 +74,13 @@ import os
 
 from mendari.sandbox import example_datasets_dir
 from mendari.server.app import create_app
-from mendari.settings import daily_limits, database_target, default_providers, parse_providers
+from mendari.settings import daily_limits, database_target, parse_providers
 
 # Built at import, as Vercel needs: anything that imports this module opens `database_target()`.
 app = create_app(
     db_path=database_target(),
     migrate_url=os.environ.get("DATABASE_URL_UNPOOLED", "").strip() or None,
     providers=parse_providers(None),
-    default_providers=default_providers(),
     datasets_dir=example_datasets_dir(),
     budget_limits=daily_limits(),
 )

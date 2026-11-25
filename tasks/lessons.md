@@ -893,3 +893,27 @@ again as another record of the same text.
 ### Verification
 `tests/test_improve.py::test_a_message_received_again_is_one_case` gives each message three
 times and expects the run on each message once.
+
+## 2026-11-25 - communication
+
+### What happened
+Rewriting the root files for wave 6, the README said in three places that the repository was not
+public (`gh repo view` says it is), and the README, CLAUDE.md and the `core` marker in
+pyproject.toml said the edit loop takes about 20 s (measured: 54 s and 60 s, 48 s of it CPU).
+No test failed for any of them, and the same files' claims about the code were held by tests.
+
+### Root cause
+Facts about what surrounds the code (the repository's visibility, a package index, a hosted
+site, a tag, how long a command runs) were written once and then carried forward as if a test
+held them, like the facts about the code.
+
+### Rule
+Whenever a root file is edited, check each sentence it states about something outside the code
+at its source: the repository's visibility (`gh repo view --json visibility`), the package index
+(`https://pypi.org/pypi/mendari/json`), a hosted site (its address), the remote's tags
+(`git ls-remote --tags`), a time or a count (run it and measure). A number no test pins is
+measured before it is written, and the commit says how; one that was not measured is left out.
+
+### Verification
+The commit that edits a root file names each such fact and the check behind it, as the wave 6
+phase 5A commits do.

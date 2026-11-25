@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "A synthetic patient message (test fixture)",
+  "description": "One synthetic message to a clinic, made up for tests. It carries no identifier.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["message"],
+  "properties": {
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["body"],
+      "properties": {
+        "subject": {"type": "string", "maxLength": 200},
+        "body": {"type": "string", "minLength": 1, "maxLength": 5000, "pattern": "\\S"},
+        "channel": {"enum": ["portal", "sms", "email"]}
+      }
+    }
+  }
+}

@@ -29,6 +29,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore
 from mendari.errors import MendariError
 from mendari.server.app import create_app, mounted_routes
@@ -36,8 +37,8 @@ from mendari.server.auth import CDS_PATH, OPEN_MODE_REMOTE
 from mendari.server.cds_clients import SANDBOX_ENV, CdsOpenMode, on_this_machine
 from tests.conftest import encrypt_mode, hosted, security_lines, without_request_id
 from tests.jwt_signers import cds_token
+from tests.support.cds_messages import SERVICE, message_hook
 from tests.test_cds_clients import DISCOVERY, EHR, HOOK, RSA_EHR, register
-from tests.test_limits import order_sign
 
 ELSEWHERE = ("203.0.113.7", 50000)  # another machine (TEST-NET-3)
 LOOPBACK = ("127.0.0.1", 50000)
@@ -108,7 +109,7 @@ def test_open_mode_answers_cds_hooks_on_this_machine_only(
     app = create_app(db_path=db)
     capsys.readouterr()
     remote = from_(app, ELSEWHERE)
-    for answer in (remote.get(DISCOVERY), remote.post(HOOK, json=order_sign(1))):
+    for answer in (remote.get(DISCOVERY), remote.post(HOOK, json=message_hook())):
         assert_refused(answer)
     assert_refused(TestClient(app).get(DISCOVERY))  # `testclient`, Host `testserver`
     assert (
@@ -119,8 +120,8 @@ def test_open_mode_answers_cds_hooks_on_this_machine_only(
     with on_loopback(app, port) as base, httpx.Client(base_url=base, timeout=30) as http:
         listed = http.get(DISCOVERY)
         assert listed.status_code == 200, listed.text
-        assert "mendari.referral-router" in {s["id"] for s in listed.json()["services"]}
-        called = http.post(HOOK, json=order_sign(1))
+        assert SERVICE in {s["id"] for s in listed.json()["services"]}  # the triage fixture's
+        called = http.post(HOOK, json=message_hook())
         assert called.status_code == 200 and len(called.json()["cards"]) == 1
         named = http.get(DISCOVERY, headers={"host": f"localhost:{port}"})
         assert named.status_code == 200
@@ -164,7 +165,7 @@ def test_a_spoofed_host_or_forwarded_header_is_not_this_machine(
         {"x-real-ip": "203.0.113.7"},
     ]
     for headers in forwarded:
-        assert_refused(local.post(HOOK, json=order_sign(1), headers=headers))
+        assert_refused(local.post(HOOK, json=message_hook(), headers=headers))
     assert_refused(from_(app, ELSEWHERE, "http://localhost:8000").get(DISCOVERY))
     assert (
         refusals(capsys.readouterr().out) == [("auth.permission.refused", "open_mode_remote")] * 9
@@ -217,7 +218,7 @@ def test_the_sandbox_flag_answers_from_anywhere_and_stops_startup_on_vercel_or_w
     assert any(f"{SANDBOX_ENV}=1" in r.getMessage() for r in caplog.records)
     remote = from_(app, ELSEWHERE, "http://engine:8000")
     assert remote.get(DISCOVERY).status_code == 200
-    called = remote.post(HOOK, json=order_sign(1))
+    called = remote.post(HOOK, json=message_hook())
     assert called.status_code == 200 and len(called.json()["cards"]) == 1
 
     monkeypatch.setenv(SANDBOX_ENV, "0")
@@ -257,14 +258,14 @@ def test_a_verified_token_does_not_lift_the_rule_in_open_mode(
         return {"authorization": f"Bearer {cds_token(RSA_EHR, EHR, f'{HERE}{HOOK}')}"}
 
     capsys.readouterr()
-    assert_refused(from_(app, ELSEWHERE).post(HOOK, json=order_sign(1), headers=token()))
+    assert_refused(from_(app, ELSEWHERE).post(HOOK, json=message_hook(), headers=token()))
     out = capsys.readouterr().out
     assert refusals(out) == [("auth.permission.refused", "open_mode_remote")]
     assert "cds:epic" not in out
     with AuditStore(db) as store, store._db.session(exclusive=False) as session:
         claims = session.one("SELECT COUNT(*) AS n FROM smart_sessions WHERE kind = 'cds-jti'")
     assert claims is not None and claims["n"] == 0 and decisions(db) == 0
-    called = from_(app, LOOPBACK).post(HOOK, json=order_sign(1), headers=token())
+    called = from_(app, LOOPBACK).post(HOOK, json=message_hook(), headers=token())
     assert called.status_code == 200, called.text
     lines = security_lines(capsys.readouterr().out)
     assert [line["actor"] for line in lines if line["event"] == "request"] == ["cds:epic"]
@@ -274,7 +275,7 @@ def test_a_verified_token_does_not_lift_the_rule_in_open_mode(
 
 
 def test_the_rest_of_open_mode_is_unchanged(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], triage_agent: Agent
 ) -> None:
     """From another machine, over every route the app mounts: only `/cds-services` and its
     children get the refusal; every other route answers as open mode did (deciding, the FHIR
@@ -297,9 +298,9 @@ def test_the_rest_of_open_mode_is_unchanged(
     assert all(CDS_PATH.match(path) for _, path in refused)
     reasons = [reason for _, reason in refusals(capsys.readouterr().out)]
     assert reasons.count("open_mode_remote") == 3
-    assert remote.get("/api/packs").status_code == 200
+    assert remote.get("/api/agents").status_code == 200
     decided = remote.post(
-        "/api/packs/mendari/patient-inbox-router/decide",
+        f"/api/agents/{triage_agent.id}/decide",
         json={"message": {"body": "Can I get a refill?", "channel": "portal"}},
     )
     assert decided.status_code == 200, decided.text

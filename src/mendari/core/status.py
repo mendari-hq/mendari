@@ -1,20 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
-"""What every surface says of a pack's status, and what a person reads instead of its keys.
+"""What every surface says of an agent's status, and what a person reads instead of its keys.
 
-The status line is derived from the manifest's `card.provenance`, never written by a pack.
-Mendari has no way yet to record a clinician's review of a pack's digest, so every pack is
-"not clinically reviewed"; a pack built from synthetic data is also only an example.
+The status line is derived from the manifest's `card.provenance`, never written by an agent.
+Mendari has no way yet to record a clinician's review of an agent's digest, so every agent is
+"not clinically reviewed"; an agent built from synthetic data is also only an example.
 """
 
 from __future__ import annotations
 
-from mendari.core.spec import PackManifest, Question, readable
+from mendari.core.spec import AgentManifest, Question, readable
 
 SYNTHETIC_EXAMPLE = "Synthetic example. Not clinically reviewed. Not for patient care."
 NOT_REVIEWED = "Not clinically reviewed."
 
 
-def status_label(manifest: PackManifest) -> str:
+def status_label(manifest: AgentManifest) -> str:
     return SYNTHETIC_EXAMPLE if manifest.card.provenance == "synthetic" else NOT_REVIEWED
 
 

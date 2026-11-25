@@ -1,21 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """A running server honours its registries' recalls (LP-18e, ADR-0012).
 
-For each pack it serves that came from a registry, the server reads that registry's list of
+For each agent it serves that came from a registry, the server reads that registry's list of
 recalled versions (`GET /v1/yanks`) in a thread of its own, so no decision waits for it. A
-decision for one of the registry's packs starts the read once the last one is older than
+decision for one of the registry's agents starts the read once the last one is older than
 `MENDARI_REGISTRY_RECALL_CHECK_S` seconds (300 unless set); that decision, and any made while
-the read runs, use the list read before, and nothing reads while no decision is made. A pack the
-list recalls (its id, version and digest) stops automating, and its own BLOCK goes to a person,
-as before its organization approved it (`core/decision.py`). So does a pack whose registry has
-not been read in `MENDARI_REGISTRY_RECALL_STALE_S` seconds (86400 unless set), one whose
-registry was never read since the server started, and one whose verified marker names no
-registry (pulled before LP-18d: pull it again): what cannot be checked is treated as recalled,
-the safe direction.
+the read runs, use the list read before, and nothing reads while no decision is made. An agent
+the list recalls (its id, version and digest) stops automating, and its own BLOCK goes to a
+person, as before its organization approved it (`core/decision.py`). So does an agent whose
+registry has not been read in `MENDARI_REGISTRY_RECALL_STALE_S` seconds (86400 unless set), one
+whose registry was never read since the server started, and one whose verified marker names no
+registry: what cannot be checked is treated as recalled, the safe direction.
 
 The same read asks whether the registry publishes a signing key (`GET /v1/registry-key`, 200 or
-404). Once it does, a pack whose marker does not record `accepted: true` (pulled while the
-registry counter-signed nothing, or before LP-19i) stops automating as a recalled one does, until
+404). Once it does, an agent whose marker does not record `accepted: true` (pulled while the
+registry counter-signed nothing) stops automating as a recalled one does, until
 `mendari pull` fetches it again with the registry's counter-signature (LP-19i, ADR-0015); the
 copy in the cache is never removed. A registry with no key changes nothing, and a read that fails
 keeps what was known, as for recalls.
@@ -38,8 +37,8 @@ from typing import Any
 
 import httpx
 
+from mendari.core.agent import Agent
 from mendari.core.https_only import is_https_or_local
-from mendari.core.pack import Pack
 from mendari.errors import MendariError
 
 CHECK_ENV = "MENDARI_REGISTRY_RECALL_CHECK_S"
@@ -122,19 +121,41 @@ def fetch_signs(registry: str) -> bool:
 @dataclass
 class _Registry:
     checked_at: float | None = None  # the last read that worked (monotonic)
-    recalled: dict[tuple[str, str], str] = field(default_factory=dict)  # (pack, version) -> why
+    recalled: dict[tuple[str, str], str] = field(default_factory=dict)  # (agent, version) -> why
     reading_since: float | None = None  # a read in flight, since
     failed_at: float | None = None  # the last failed read, for backoff on outage
     failing: str | None = None  # the last read's error type, while reads fail
     signs: bool = False  # it published a signing key at the last read that worked
 
 
+def _recalls(listed: Any) -> dict[tuple[str, str], str]:
+    """The recalled versions a registry's feed lists, by (agent id, version): why each is held.
+    An item this release cannot read (no agent id or version, or a feed of another shape) fails
+    the whole read, never only that item: a recall skipped would let its version automate, so
+    the read fails and what was known stands, until it is stale and every agent from the
+    registry is held."""
+    if not isinstance(listed, list):
+        raise ValueError("the registry's recalls are not a list")
+    recalled: dict[tuple[str, str], str] = {}
+    for item in listed:
+        agent = item.get("agent") if isinstance(item, Mapping) else None
+        version = item.get("version") if isinstance(item, Mapping) else None
+        if not isinstance(agent, str) or not isinstance(version, str):
+            raise ValueError("a recall the registry lists names no agent and version")
+        yank = item.get("yank")
+        stated = yank.get("severity") if isinstance(yank, Mapping) else None
+        severity = stated if isinstance(stated, str) and stated in SEVERITIES else "unknown"
+        why = "deleted" if item.get("deleted") is not None else f"recalled ({severity})"
+        recalled[(agent, version)] = why
+    return recalled
+
+
 class RecallWatch:
-    """The recalls of the registries the served packs came from, read in the background."""
+    """The recalls of the registries the served agents came from, read in the background."""
 
     def __init__(
         self,
-        packs: Iterable[Pack],
+        agents: Iterable[Agent],
         *,
         fetch: Fetch | None = None,
         fetch_key: FetchKey | None = None,
@@ -155,13 +176,13 @@ class RecallWatch:
         self._lock = threading.Lock()
         self.registries: dict[str, _Registry] = {
             str(url): _Registry()
-            for pack in packs
-            if pack.origin == "hub" and isinstance(url := pack.pulled.get("registry"), str)
+            for agent in agents
+            if agent.origin == "hub" and isinstance(url := agent.pulled.get("registry"), str)
         }
 
     def watch(self, registry: str) -> None:
         """Watch a registry this server did not know when it started: one a version an
-        organization added from the console came from (`core/pack_store.py`), read from then on
+        organization added from the console came from (`core/agent_store.py`), read from then on
         as the others are. What it recalls is unknown until its first read: until then every
         agent from it is held."""
         with self._lock:
@@ -174,7 +195,8 @@ class RecallWatch:
         try:
             listed = (self._fetch or fetch_yanks)(registry)
             signs = (self._fetch_key or fetch_signs)(registry)
-        except Exception as error:  # unreachable, refused, not JSON: what was known stands
+            recalled = _recalls(listed)
+        except Exception as error:  # unreachable, refused, not JSON or not read: as was known
             kind = type(error).__name__
             with self._lock:
                 state.reading_since = None
@@ -183,16 +205,6 @@ class RecallWatch:
             if changed:  # once a change of state, never the registry's own words
                 log.warning("a registry's recalls could not be read (%s)", kind)
             return
-        recalled: dict[tuple[str, str], str] = {}
-        for item in listed:
-            pack, version = item.get("pack"), item.get("version")
-            if not isinstance(pack, str) or not isinstance(version, str):
-                continue
-            yank = item.get("yank")
-            stated = yank.get("severity") if isinstance(yank, Mapping) else None
-            severity = stated if isinstance(stated, str) and stated in SEVERITIES else "unknown"
-            why = "deleted" if item.get("deleted") is not None else f"recalled ({severity})"
-            recalled[(pack, version)] = why
         with self._lock:
             state.recalled, state.checked_at, state.signs = recalled, self._clock(), signs
             state.reading_since, state.failed_at, state.failing = None, None, None
@@ -218,11 +230,11 @@ class RecallWatch:
             with self._lock:
                 state.reading_since = None
 
-    def held(self, pack: Pack) -> str | None:
-        """Why this pack may not automate for its registry now, or None."""
-        if pack.origin != "hub":
+    def held(self, agent: Agent) -> str | None:
+        """Why this agent may not automate for its registry now, or None."""
+        if agent.origin != "hub":
             return None
-        registry = pack.pulled.get("registry")
+        registry = agent.pulled.get("registry")
         if not isinstance(registry, str):
             return "its registry is not recorded beside it: pull it again"
         if registry not in self.registries:
@@ -235,27 +247,27 @@ class RecallWatch:
             return "its registry has not been checked for recalls yet"
         if self._clock() - checked > self.stale_s:
             return "its registry could not be checked for recalls"
-        why = recalled.get((pack.id, pack.version))
+        why = recalled.get((agent.id, agent.version))
         if why is not None:
             return f"{why} by its registry"
-        if signs and pack.pulled.get("accepted") is not True:
+        if signs and agent.pulled.get("accepted") is not True:
             return UNSIGNED
         return None
 
-    def recalled(self, pack: Pack) -> str | None:
+    def recalled(self, agent: Agent) -> str | None:
         """Why its registry recalled this served version (`recalled (<severity>)` or `deleted`),
         as the last read listed it, or None: for the operator's banner (`server/system.py`),
         which names a recall and not the other reasons an agent from a registry is held (a
         registry not read yet, a missing counter-signature). Starts a read when one is due, as a
         decision does."""
-        if pack.origin != "hub":
+        if agent.origin != "hub":
             return None
-        registry = pack.pulled.get("registry")
+        registry = agent.pulled.get("registry")
         if not isinstance(registry, str) or registry not in self.registries:
             return None
         self._due(registry)
         with self._lock:
-            return self.registries[registry].recalled.get((pack.id, pack.version))
+            return self.registries[registry].recalled.get((agent.id, agent.version))
 
     def status(self) -> dict[str, Any]:
         """For health: each registry's last read's age in seconds and how many it recalls."""

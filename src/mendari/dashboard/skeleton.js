@@ -20,8 +20,6 @@ const SHAPES = {
   access: () => `${bar("form")}`,
   admin: () => `${bar("tabs")}${bar("toolbar")}${rows(5)}`,
   system: () => `<div class="sk-stats">${repeat(3, bar("stat"))}</div>${rows(6)}`,
-  labelling: () => `${rows(2)}${bar("form")}`,
-  evalsets: () => `${bar("tabs")}${rows(5)}`,
   "registry-review": () => `${repeat(2, bar("card"))}`,
   store: () => `${bar("tabs")}${repeat(2, bar("card"))}`,
   agents: () => `${bar("tabs")}${repeat(3, bar("card"))}`,

@@ -13,7 +13,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mendari.errors import MendariError
-from mendari.evals.pack_tests import PROBE_TESTS, PROBE_UNCONFIRMED
+from mendari.evals.behaviour_tests import PROBE_TESTS, PROBE_UNCONFIRMED
 from mendari.providers.agent import ENDPOINT_ENV
 
 FORMAT = "mendari.probe/1"

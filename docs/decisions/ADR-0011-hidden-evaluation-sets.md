@@ -1,6 +1,11 @@
 # ADR-0011: Hidden evaluation sets, blind labelling and agreement
 
 ## Status
+Superseded by [ADR-0026](ADR-0026-one-release-baseline-agents-only.md) (2026-11-25): hidden
+evaluation sets are removed, with their keys, tables, routes, commands and screens, the grading
+key and the `grading` role. The `labeller` role stays, and so does the blind grading screen,
+which written output uses ([ADR-0025](ADR-0025-a-judge-is-trusted-by-measured-agreement.md)).
+
 Proposed (2026-10-09). Built (LP-11, 11a to 11p, 2026-10-09 to 2026-10-18) by the defaults of
 the plan's conflicts 1 to 57 (`notes/lp11-plan.md`), as `tasks/todo.md` records them, each
 confirmed by the owner on 2026-11-07; decisions 4 to 6 were confirmed then too, and 1 to 3
@@ -72,7 +77,7 @@ in the order they landed:
   shown to a person holding `label` where those routes are served; someone who only labels sees
   it alone (`labelOnly`: no agent, no notice, no other section); their counts set by set, then
   one case at a time, its input escaped by `record.js` (the generic renderer, taken out of
-  `pack.js`) and the set's questions as radio groups with nothing chosen. Blind: nothing of the
+  `manifest.js`) and the set's questions as radio groups with nothing chosen. Blind: nothing of the
   case but its input, nor anyone's label, reaches the page, and nothing is kept in the
   browser's storage.
 - 11k, an organization's curators' routes (`GET /api/evalsets`, `GET /api/evalsets/{set_id}`,
@@ -99,7 +104,7 @@ in the order they landed:
   header is checked against the agent asked for (its id; a later version asking the same
   questions grades the set too) and every provider slot must run a local variant (conflict 52,
   owner decision 4, confirmed 2026-11-07); the store's grading read then chains the run and
-  hands the cases in memory to a Decision with no store, whose `mendari.eval/2` result,
+  hands the cases in memory to a Decision with no store, whose `mendari.eval/1` result,
   computed from its in-memory ledger, is projected onto the closed `mendari.hidden_result/1`
   (`evals/hidden.py`, built from a site report's parts: aggregates only, calibration bins and
   Brier intervals over 10 cases or
@@ -149,7 +154,8 @@ in the order they landed:
   not cover, naming the set; `mendari audit verify --evalsets` and `rotate --check` check all
   of it, and count the rows from before these commitments (`predating`), read as before.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in agent manifests and inside
@@ -228,11 +234,11 @@ graded here" when its configurations are remote, or "not applicable".
 - Agreement (percent agreement with its Clopper-Pearson interval, Cohen's kappa per rater pair,
   Krippendorff's alpha across the pool, with seeded percentile bootstrap intervals) is computed
   by the command line and at freeze and stored sealed; routes serve only the stored aggregates.
-- The coverage report counts distinct positives; the evaluation report (`mendari.eval/2`) still
+- The coverage report counts distinct positives; the evaluation report (`mendari.eval/1`) still
   counts every positive (a set built from templates can hold far fewer distinct positives than
   positives). The grading
   method's evidence rule uses distinct positives (LP-17 decision 3, confirmed by the owner on
-  2026-11-07), and `mendari.eval/2` does not change.
+  2026-11-07), and `mendari.eval/1` does not change.
 - An organization's administrators can link one case's events by its keyed hash, in the
   administrative list and its FHIR export, and see who read and labelled it (by user id) and
   that it went to adjudication, which shows that its first two labellers disagreed; never what

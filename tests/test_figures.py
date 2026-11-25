@@ -6,10 +6,9 @@ serves no figures instead of failing a page."""
 
 from __future__ import annotations
 
-import copy
 import json
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -17,19 +16,13 @@ from typing import Any
 import pytest
 
 from mendari.core.card import benchmark, render_card
-from mendari.core.registry import resolve_pack
 from mendari.evals import figures, leaderboard, ranking, stats
 from mendari.evals.render import shown
-from tests.conftest import ROOT
+from tests.conftest import CHART_DIR, CLINICAL_DIR, ROOT, TRIAGE_DIR
+from tests.support.engine import published
 
-PACKS = (
-    "patient-inbox-router",
-    "referral-router",
-    "ai-guard",
-    "clinical-trial-prescreener",
-    "prior-auth-preflight",
-)
-V1 = json.loads((ROOT / "tests" / "fixtures" / "eval-v1-inbox.json").read_text())
+# The test fixtures' agents, each published in a test with its own benchmark (`published`).
+FIXTURES = {"triage": TRIAGE_DIR, "clinical-review": CLINICAL_DIR, "chart-summary": CHART_DIR}
 
 
 def card_figures(f: dict[str, Any]) -> Iterator[dict[str, Any] | None]:
@@ -91,14 +84,14 @@ def test_figures_never_format_a_stored_bound() -> None:
     assert shown({**stored, "low": 0.5, "high": 0.6}) == "12 of 31 [21.8-57.8%]"
 
 
-@pytest.mark.parametrize("name", PACKS)
-def test_report_figures_are_the_ones_the_card_shows(name: str) -> None:
+@pytest.mark.parametrize("name", FIXTURES)
+def test_report_figures_are_the_ones_the_card_shows(name: str, tmp_path: Path) -> None:
     """Each served figure is the one on the card's own row for it: the same k of n over the
     same denominator, never merely text that appears somewhere on the card."""
-    pack = resolve_pack(f"mendari/{name}")
-    report = benchmark(pack)
+    agent = published(FIXTURES[name], tmp_path)
+    report = benchmark(agent)
     assert report is not None
-    lines = render_card(pack).splitlines()
+    lines = render_card(agent).splitlines()
     worked = figures.report(report)
     assert all(figure is not None for figure in card_figures(worked))  # all counts are stored
 
@@ -131,44 +124,45 @@ def test_report_figures_are_the_ones_the_card_shows(name: str) -> None:
         row(f"{t['threshold']:.2f}", shown(f["automated"]), shown(f["correct"]))
 
 
-def test_a_v1_report_has_every_figure_it_can_prove() -> None:
-    worked = figures.report(V1)
-    assert shown(worked["accuracy"]) == "596 of 600 [98.3-99.8%]"
-    first = worked["sweep"][0]
-    assert (shown(first["automated"]), shown(first["correct"])) == (
-        "598 of 600 [98.8-99.96%]",
-        "595 of 598 [98.5-99.9%]",
-    )
-    # Every case of the fixture is labelled, so each subgroup's accuracy is over its members.
-    assert all(
-        group["accuracy"] is not None
-        for values in worked["subgroups"].values()
-        for group in values.values()
-    )
-
-
-def test_an_eval2_report_from_before_its_counts_were_stored_derives_them() -> None:
-    report = benchmark(resolve_pack("mendari/patient-inbox-router"))
-    assert report is not None
-    earlier = copy.deepcopy(report)
-    for row in earlier["threshold_sweep"]:
+def _sweep_uncounted(report: dict[str, Any]) -> None:
+    for row in report["threshold_sweep"]:
         del row["chosen"], row["scored"]
-    for values in earlier["subgroups"].values():
-        for group in values.values():
-            del group["labelled"], group["automated"]
-    assert figures.report(earlier) == figures.report(report)
-    # Not every case labelled: a subgroup's accuracy is then of an unknown n, so n/a.
-    earlier["dataset"]["n"] += 1
-    assert all(
-        group["accuracy"] is None
-        for values in figures.report(earlier)["subgroups"].values()
-        for group in values.values()
-    )
+
+
+def _subgroups_unlabelled(report: dict[str, Any]) -> None:
+    for values in report["subgroups"].values():
+        for members in values.values():
+            del members["labelled"]
+
+
+def _false_automation_uncounted(report: dict[str, Any]) -> None:
+    del report["proportions"]["false_automation"]
+
+
+@pytest.mark.parametrize(
+    "spoil",
+    [_sweep_uncounted, _subgroups_unlabelled, _false_automation_uncounted],
+    ids=["sweep", "subgroups", "false-automation"],
+)
+def test_a_report_without_the_counts_its_figures_are_of_serves_none(
+    spoil: Callable[[dict[str, Any]], None], tmp_path: Path
+) -> None:
+    """Every report a release writes holds the cases each figure is of: a sweep row its `scored`
+    and its `chosen` at or above the threshold, a subgroup its `labelled` members, false
+    automation its count (`proportions`). One without them is not read another way (from a
+    row's coverage, a subgroup's size, the rate over the automated cases): no figure is served
+    for it (n/a on the page)."""
+    report = benchmark(published(TRIAGE_DIR, tmp_path))
+    assert report is not None
+    spoil(report)
+    with pytest.raises(KeyError):
+        figures.report(report)
+    assert figures.guarded(lambda: figures.report(report)) is None
 
 
 def test_a_rate_beyond_any_share_is_never_multiplied() -> None:
     """A report can be someone else's file: 1e308 x 600 is infinite, and rounding it raised,
-    which made every registry read of a pack, and search, a server error."""
+    which made every registry read of an agent, and search, a server error."""
     from mendari.evals.result import counted as result_counted
 
     for rate in (1e308, -1e308, 1.0000001):
@@ -182,17 +176,9 @@ def test_a_rate_beyond_any_share_is_never_multiplied() -> None:
     assert row["figures"]["automation"] is None and row["figures"]["questions"] == {"other": None}
 
 
-def test_a_v1_report_with_nothing_scored_has_no_cases_in_its_sweep() -> None:
-    nothing = copy.deepcopy(V1)
-    nothing["questions"][nothing["primary"]]["calibration"]["bins"] = []
-    for row in nothing["threshold_sweep"]:  # as a v1 sweep over no scored cases was written
-        row.update(coverage=None, accuracy=None, errors=0)
-    first = figures.report(nothing)["sweep"][0]
-    assert (shown(first["automated"]), shown(first["correct"])) == ("no cases", "no cases")
-
-
 def test_a_registry_leaderboard_too_large_to_work_out_on_every_read_is_none() -> None:
-    rows = [{"config": "a", "dataset": "d", "n": i + 1, "critical": []} for i in range(16500)]
+    row = {"config": "a", "dataset": "d", "critical": [], "questions": {}}
+    rows = [{**row, "n": i + 1} for i in range(16500)]
     started = time.monotonic()
     served = figures.registry({"leaderboard": {"rows": rows}, "digest": None, "version": "1"})
     assert served["leaderboard"] is None and time.monotonic() - started < 0.2
@@ -210,47 +196,33 @@ def test_comparison_figures_say_what_they_are_of() -> None:
             {"kind": "calibration", "local": 0.2, "baseline": 0.02, "n": 300},
             {"kind": "subgroup", "baseline": 0.99, "local": 0.5, "n": 40, "local_n": 40,
              "baseline_n": 600, "baseline_scope": "overall"},
-            # Stored before LP-10b: no counts. Recall's `n` is its local support, a subgroup's
-            # `n` its members (not its labelled ones), so that local side stays n/a.
-            {"kind": "label_recall", "baseline": 1.0, "local": 0.5, "n": 20},
-            {"kind": "subgroup", "baseline": 1.0, "local": 0.5, "n": 20},
+            # A benchmark that does not say how many cases its recall is of: n/a on its side.
+            {"kind": "label_recall", "baseline": 1.0, "local": 0.5, "n": 20, "local_n": 20,
+             "baseline_n": None},
         ],
     }  # fmt: skip
     worked = figures.comparison(comparison)
     assert worked is not None
     assert shown(worked["baseline"]) == shown(figures.of(594, 600))
-    critical, calibration, overall, recall, subgroup = worked["findings"]
+    critical, calibration, overall, recall = worked["findings"]
     assert critical == {"automated": figures.of(2, 20), "insufficient_evidence": True}
     assert calibration is None
     assert overall["overall"] is True and overall["local"] == figures.of(20, 40)
     assert recall["baseline"] is None and recall["local"] == figures.of(10, 20)
-    assert subgroup["local"] is None
     assert figures.comparison({"status": "unknown", "reason": "x", "findings": []}) is None
-
-
-@pytest.mark.parametrize("name", PACKS)
-def test_a_shipped_leaderboard_is_served_with_its_figures(name: str) -> None:
-    pack = resolve_pack(f"mendari/{name}")
-    served = leaderboard.load(pack)
-    assert served is not None
-    assert served["ranking"] == {"method": ranking.METHOD, "min_positives": 100}
-    order = [(g, [r["config"] for r in rows]) for g, rows in ranking.grouped(
-        served["rows"], pack.digest)]  # fmt: skip
-    assert [(g["dataset"], g["n"]) for g in served["groups"]] == [(g[0], g[2]) for g, _ in order]
-    for row in served["rows"]:  # every shipped row is from mendari.leaderboard/1
-        assert row["rank"] is None and "its agent digest not recorded" in row["standing_text"]
-        assert row["figures"]["accuracy"] is None and row["figures"]["false_automation"] is None
-        assert row["figures"]["automation"] == figures.counted(row["auto_rate"], row["n"])
-        for c in row["figures"]["critical"]:
-            assert c["insufficient_evidence"] == (c["detected"]["n"] < 100)
+    # A finding holds the counts its figures are of: one without them is not read from its `n`.
+    for kind in ("label_recall", "subgroup", "false_automation"):
+        uncounted = {"kind": kind, "baseline": 1.0, "local": 0.5, "n": 20}
+        with pytest.raises(KeyError):
+            figures.comparison({**comparison, "findings": [uncounted]})
 
 
 def rows_on(digest: str, sha: str = "d" * 64) -> list[dict[str, Any]]:
     base = {
-        "dataset": "test", "dataset_sha256": sha, "n": 600, "pack_digest": digest,
-        "pack_version": "1.0.0", "auto_rate": 0.0, "cost_per_decision_usd": 0.0, "errors": 0,
+        "dataset": "test", "dataset_sha256": sha, "n": 600, "agent_digest": digest,
+        "agent_version": "1.0.0", "auto_rate": 0.0, "cost_per_decision_usd": 0.0, "errors": 0,
         "macro_f1": 0.9, "ece": 0.02, "latency_p50_ms": 1.0,
-        "false_automation": stats.proportion(0, 600).to_dict(),
+        "false_automation": stats.proportion(0, 600).to_dict(), "questions": {},
     }  # fmt: skip
     return [
         {**base, "config": config, "accuracy_proportion": stats.proportion(k, 600).to_dict(),
@@ -260,8 +232,8 @@ def rows_on(digest: str, sha: str = "d" * 64) -> list[dict[str, Any]]:
     ]  # fmt: skip
 
 
-def test_a_critical_figure_is_named_when_the_pack_has_several_labels() -> None:
-    """As the card names it (leaderboard.critical_text): by the labels the pack has, not by
+def test_a_critical_figure_is_named_when_the_agent_has_several_labels() -> None:
+    """As the card names it (leaderboard.critical_text): by the labels the agent has, not by
     those with positives on these records."""
     digest = "sha256:" + "a" * 64
     row = rows_on(digest)[0]
@@ -317,9 +289,11 @@ def test_a_stored_bound_is_never_trusted_for_the_ranking() -> None:
             {"question": "q", "label": "y", "n": 5, "auto_missed": 0}]}],
         [{"config": "a", "dataset": "t", "n": 5, "critical": [],
           "accuracy_proportion": {"k": 9, "n": 5}}],
+        # Every row a leaderboard is built of holds its other questions, if none.
+        [{"config": "a", "dataset": "t", "n": 5, "critical": []}],
     ],
     ids=["number", "no-dataset", "n-text", "n-huge", "detected-over-n", "bool", "no-detected",
-         "accuracy-over-n"],
+         "accuracy-over-n", "no-questions"],
 )  # fmt: skip
 def test_a_malformed_board_is_refused_and_the_registry_shows_none(rows: list[Any]) -> None:
     started = time.monotonic()

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Proposed actions in the console (spec 0.4): the review queue shows what confirming a decision
+"""Proposed actions in the console (spec §13): the review queue shows what confirming a decision
 releases, the audit view shows a decision's actions and their events, and the Decision Card lists
 what an agent may ask to have done. On a server of its own, serving the actions fixture."""
 
@@ -16,9 +16,9 @@ import pytest
 from playwright.sync_api import Browser, Page, expect
 
 from mendari.server.app import create_app
-from tests.browser.conftest import serving
-from tests.browser.test_dashboard import open_pack, show
-from tests.conftest import INBOX_DIR, ROOT, message
+from tests.browser.conftest import TRIAGE, serving
+from tests.browser.test_dashboard import open_agent, show
+from tests.conftest import ROOT, TRIAGE_DIR, message
 
 pytestmark = pytest.mark.browser
 
@@ -35,8 +35,8 @@ UNDECLARED = "Try an undeclared thing."  # an action the manifest does not decla
 def actions_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     root = Path(tmp_path_factory.mktemp("actions"))
     shutil.copytree(MINI, root / "agents" / "actions-mini")
-    shutil.copytree(INBOX_DIR, root / "agents" / "patient-inbox-router")
-    app = create_app(db_path=root / "mendari.db", packs_paths=[root / "agents"])
+    shutil.copytree(TRIAGE_DIR, root / "agents" / "triage")
+    app = create_app(db_path=root / "mendari.db", agents_paths=[root / "agents"])
     with serving(app) as port:
         yield f"http://127.0.0.1:{port}"
 
@@ -69,7 +69,7 @@ def test_the_queue_shows_what_confirming_releases_and_a_reviewer_denies_one(
     console: Page, actions_server: str
 ) -> None:
     decided = decide(actions_server, VISIT)
-    open_pack(console, AGENT, "review")
+    open_agent(console, AGENT, "review")
     card = console.locator(f'.review-card[data-id="{decided["id"]}"]')
     expect(card.get_by_role("heading", name="Proposed actions")).to_be_visible()
     rows = card.locator(".actions-list > li")
@@ -113,7 +113,7 @@ def test_the_queue_shows_what_confirming_releases_and_a_reviewer_denies_one(
 
 def test_another_label_denies_the_held_actions(console: Page, actions_server: str) -> None:
     decided = decide(actions_server, VISIT)
-    open_pack(console, AGENT, "review")
+    open_agent(console, AGENT, "review")
     card = console.locator(f'.review-card[data-id="{decided["id"]}"]')
     card.get_by_role("button", name="Refill", exact=True).click()
     expect(card.locator(".undo-bar")).to_contain_text("Override to Refill")
@@ -126,13 +126,13 @@ def test_another_label_denies_the_held_actions(console: Page, actions_server: st
 def test_a_decision_with_nothing_held_confirms_in_one_tap_as_before(
     console: Page, actions_server: str
 ) -> None:
-    inbox = httpx.post(
-        f"{actions_server}/api/agents/mendari/patient-inbox-router/decide",
+    triage = httpx.post(
+        f"{actions_server}/api/agents/{TRIAGE}/decide",
         json={"message": {"body": "Crushing chest pain and my left arm is numb"}},
         timeout=30,
     ).json()
-    open_pack(console, "mendari/patient-inbox-router", "review")
-    card = console.locator(f'.review-card[data-id="{inbox["id"]}"]')
+    open_agent(console, TRIAGE, "review")
+    card = console.locator(f'.review-card[data-id="{triage["id"]}"]')
     expect(card.locator(".actions-list")).to_have_count(0)  # an older agent's card is as it was
     expect(card.get_by_role("heading", name="Proposed actions")).to_have_count(0)
     card.get_by_role("button", name=re.compile("^Confirm Nurse")).click()
@@ -143,7 +143,7 @@ def test_the_audit_view_shows_a_decisions_actions_and_their_events(
     console: Page, actions_server: str
 ) -> None:
     decided = decide(actions_server, UNDECLARED)
-    open_pack(console, AGENT, "audit")
+    open_agent(console, AGENT, "audit")
     console.goto(f"/#audit/{decided['id']}")
     drawer = console.locator(".drawer")
     expect(drawer.get_by_role("heading", name="Actions", exact=True)).to_be_visible()
@@ -183,7 +183,7 @@ def test_a_reviewed_decisions_events_say_what_was_released(
         timeout=30,
     )
     assert resolved.status_code == 200
-    open_pack(console, AGENT, "audit")
+    open_agent(console, AGENT, "audit")
     console.goto(f"/#audit/{decided['id']}")
     drawer = console.locator(".drawer")
     released = drawer.locator(".timeline > li", has_text="Action released or denied by review")
@@ -196,7 +196,7 @@ def test_a_reviewed_decisions_events_say_what_was_released(
 
 
 def test_the_card_lists_the_declared_actions_and_how_each_is_gated(console: Page) -> None:
-    open_pack(console, AGENT, "card")
+    open_agent(console, AGENT, "card")
     expect(console.locator('.toc a[href="#card/actions"]')).to_have_text("Actions")
     section = console.locator("#card-actions")
     expect(section).to_contain_text("Mendari authorizes each action and runs none")
@@ -211,7 +211,7 @@ def test_the_card_lists_the_declared_actions_and_how_each_is_gated(console: Page
     expect(rows.nth(3)).to_contain_text("medication")
     expect(rows.nth(5).locator(".chip")).to_have_text("order")
     # An agent that declares none has no such section, and no link to one.
-    open_pack(console, "mendari/patient-inbox-router", "card")
+    open_agent(console, TRIAGE, "card")
     expect(console.locator("#card-actions")).to_have_count(0)
     expect(console.locator('.toc a[href="#card/actions"]')).to_have_count(0)
 
@@ -221,7 +221,7 @@ def test_the_views_with_actions_have_no_unnamed_control_and_fit_a_phone(
 ) -> None:
     decide(actions_server, VISIT)
     console.set_viewport_size({"width": 390, "height": 844})
-    open_pack(console, AGENT, "review")
+    open_agent(console, AGENT, "review")
     card = console.locator(".review-card").first
     expect(card.locator(".actions-list")).to_be_visible()
     unnamed = console.evaluate(

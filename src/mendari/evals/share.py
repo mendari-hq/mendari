@@ -1,25 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """What of an evaluation a site can share: counts, never cases.
 
-`mendari.site-report/1` (LP-07) was a closed schema, the same on both sides. It held the
-pack, the providers and policy, the metrics per question, the outcome counts and rates, the
-critical counts, the threshold sweep, latency, cost, error counts and the dataset's size. It
-never holds a case id, case text, the dataset's name or hash, who approved a governance
-override (only that one applied), or subgroup cells: a subgroup's values come from a site's
-data (a clinic, a clinician, a date), and nothing can tell a category from a name until a pack
-declares each subgroup's values. Every string is a name the pack or Mendari defines (a
-question, label, slot, variant, composite member, provider type or model), short and ASCII, or
-one of Mendari's error codes (a closed set, `FAILURE_CODES`); every number is bounded and
-rounded. A composite provider (`any_of`, `cascade`, `vote`) is shared as it is recorded: its
-model lists each member's as `member:model`, joined as the composite joins them (" + ", or a
-cascade's " → ", the one character that is not ASCII), and a failed member's error is
-`member:code`. Calibration bins with fewer than `MIN_GROUP` cases are dropped.
+A site shares `mendari.site-report/1` (LP-22c, ADR-0017), built by `site_report` (`shareable`,
+as sent): a closed schema, the same on both sides, of whole counts, names and booleans counted
+from the run's ledger. It holds no rate and no fraction: the registry computes every figure it
+shows from the counts. Small cells (1 to 9 cases, under `MIN_GROUP`) are suppressed by one
+function (`suppress`) that both sides run, and a run on fewer than `MIN_DATASET` cases is not
+shared at all.
 
-Its models are kept for what is built from their parts (a hidden set's result,
-`evals/hidden.py`) and for reports a registry stored before LP-22c; a registry no longer takes
-it, and nothing here builds it. A site shares `mendari.site-report/2` (LP-22c, ADR-0017),
-built by `site_report` (`shareable`, as sent): whole counts only, counted from the run's
-ledger, small cells suppressed by one function (`suppress`) that both sides run.
+It never holds a case id, case text, the dataset's name or hash, who approved a governance
+override (only that one applied), or subgroup cells: a subgroup's values come from a site's
+data (a clinic, a clinician, a date), and nothing can tell a category from a name until an agent
+declares each subgroup's values. Every string is a name the agent or Mendari defines (a
+question, label, slot, variant, composite member, provider type or model), short and ASCII. A
+composite provider (`check`) is shared as it is recorded: its model lists each member's as
+`member:model`, joined as the composite joins them (" + ").
 """
 
 from __future__ import annotations
@@ -32,7 +27,6 @@ from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
 from pydantic import (
-    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -42,7 +36,7 @@ from pydantic import (
     model_validator,
 )
 
-from mendari.errors import FAILURE_CODES, MendariError
+from mendari.errors import MendariError
 from mendari.evals.ledger import Ledger
 from mendari.evals.result import CONFIDENCE, OUTCOMES, PREDICTED, TRUTH
 from mendari.providers import PROVIDER_TYPES
@@ -50,40 +44,21 @@ from mendari.providers.composite import CompositeProvider
 
 MIN_GROUP = 10
 MAX_MEMBERS = 16  # the most members a shared composite may list
-SITE_REPORT_FORMAT = "mendari.site-report/1"
 
 _NAME_PART = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}"
 _MODEL_PART = r"[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,127}"
 _NAME = rf"^{_NAME_PART}$"
-# An error code (Mendari's closed set), or a composite's failed members as `member:code` (", "
-# between several, as `CompositeProvider.output` records them).
-_CODE = f"(?:{'|'.join(map(re.escape, sorted(FAILURE_CODES)))})"
-_MEMBER_CODE = rf"{_NAME_PART}:{_CODE}"
-_ERROR_KEY = rf"^(?:{_CODE}|{_MEMBER_CODE}(?:, {_MEMBER_CODE}){{0,{MAX_MEMBERS - 1}}})$"
 
 Name = Annotated[str, Field(pattern=_NAME)]
-ErrorKey = Annotated[str, Field(pattern=_ERROR_KEY)]
 Count = Annotated[int, Field(ge=0, le=10**9)]
-# Rounded on both sides: the digits past these say nothing about a pack and could say something
-# about a single case.
-Rate = Annotated[
-    float, Field(ge=0.0, le=1.0, allow_inf_nan=False), AfterValidator(lambda v: round(v, 4))
-]
-Positive = Annotated[
-    float, Field(ge=0.0, le=1e9, allow_inf_nan=False), AfterValidator(lambda v: round(v, 3))
-]
 
 
 class _Closed(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
 
-class SharedPack(_Closed):
-    """The agent a shared record is about (its `pack` key): its id, version and digest."""
-
-    # What an API description calls this schema (`server/api_docs.py` `titled`); the class and
-    # the `pack` key it types keep their names, as the signed records that hold them do.
-    model_config = ConfigDict(title="SharedAgent")
+class SharedAgent(_Closed):
+    """The agent a shared record is about (its `agent` key): its id, version and digest."""
 
     id: Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}/[a-z0-9][a-z0-9-]{0,62}$")]
     version: Annotated[str, Field(pattern=r"^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$")]
@@ -130,127 +105,11 @@ def composite_members(provider: SharedProvider) -> list[str] | None:
     return [part.split(":", 1)[0] for part in provider.model.split(joiner)]
 
 
-class SharedThresholds(_Closed):
-    auto: Rate
-    review: Rate
-
-
-class SharedPolicy(_Closed):
-    risk_level: Annotated[int, Field(ge=0, le=4)]
-    thresholds: SharedThresholds
-    governance_override: bool
-
-
-class SharedDataset(_Closed):
-    n: Count
-
-
-class LabelMetrics(_Closed):
-    precision: Rate | None
-    recall: Rate | None
-    f1: Rate | None
-    support: Count
-
-
-class CalibrationBin(_Closed):
-    low: Rate
-    high: Rate
-    n: Annotated[int, Field(ge=MIN_GROUP, le=10**9)]
-    confidence: Rate | None
-    accuracy: Rate | None
-
-
-class Calibration(_Closed):
-    ece: Rate | None
-    bins: Annotated[list[CalibrationBin], Field(max_length=20)]
-
-
-class QuestionMetrics(_Closed):
-    n: Count
-    accuracy: Rate | None
-    macro_f1: Rate | None
-    per_label: Annotated[dict[Name, LabelMetrics], Field(max_length=64)]
-    confusion: Annotated[
-        dict[Name, Annotated[dict[Name, Count], Field(max_length=65)]], Field(max_length=64)
-    ]
-    calibration: Calibration
-    brier: Positive | None
-
-
-class Automation(_Closed):
-    n: Count
-    accuracy: Rate | None
-    false_automation_rate: Rate | None
-    false_automation_share: Rate | None
-
-
-class Review(_Closed):
-    n: Count
-    expected_override_rate: Rate | None
-
-
-class CriticalCounts(_Closed):
-    question: Name
-    label: Name
-    n: Count
-    detected: Count
-    detection_rate: Rate | None
-    auto_missed: Count
-
-
 Outcome = Literal["AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK"]
 
 
-class Decisions(_Closed):
-    outcome_counts: dict[Outcome, Count]
-    outcome_rates: dict[Outcome, Rate | None]
-    abstention_rate: Rate | None
-    automation: Automation
-    review: Review
-    recommendation_accuracy: Rate | None
-    critical: Annotated[list[CriticalCounts], Field(max_length=64)]
-
-
-class SweepRow(_Closed):
-    threshold: Rate
-    coverage: Rate | None
-    accuracy: Rate | None
-    errors: Count
-
-
-class Latency(_Closed):
-    mean: Positive | None
-    p50: Positive | None
-    p95: Positive | None
-    max: Positive | None
-
-
-class Cost(_Closed):
-    total_usd: Positive | None
-    per_decision_usd: Positive | None
-    input_tokens: Count
-    output_tokens: Count
-
-
-class SiteReport(_Closed):
-    """Everything a site may share about one evaluation, and nothing else."""
-
-    format: Literal["mendari.site-report/1"]
-    pack: SharedPack
-    providers: Annotated[dict[Name, SharedProvider], Field(max_length=64)]
-    policy: SharedPolicy
-    dataset: SharedDataset
-    primary: Name
-    questions: Annotated[dict[Name, QuestionMetrics], Field(max_length=64)]
-    decisions: Decisions
-    threshold_sweep: Annotated[list[SweepRow], Field(max_length=101)]
-    latency_ms: Latency
-    cost: Cost
-    errors: Annotated[dict[ErrorKey, Count], Field(max_length=64)]
-
-
 def _field_names() -> frozenset[str]:
-    models: list[type[BaseModel]] = [SiteReport, SiteReportV2]
+    models: list[type[BaseModel]] = [SiteReportV1]
     names: set[str] = {"report", "site", "body", "query", "path"}
     while models:
         model = models.pop()
@@ -283,27 +142,11 @@ def where(loc: tuple[Any, ...] | list[Any]) -> str:
     return ".".join(shown)
 
 
-def summary(report: Mapping[str, Any]) -> dict[str, Any]:
-    """The few numbers a site-to-site comparison shows."""
-    primary = report.get("primary")
-    question = (report.get("questions") or {}).get(primary, {})
-    decisions = report.get("decisions") or {}
-    return {
-        "n": (report.get("dataset") or {}).get("n"),
-        "primary": primary,
-        "accuracy": question.get("accuracy"),
-        "macro_f1": question.get("macro_f1"),
-        "automation_rate": (decisions.get("outcome_rates") or {}).get("AUTO"),
-        "false_automation_rate": (decisions.get("automation") or {}).get("false_automation_rate"),
-        "ece": (question.get("calibration") or {}).get("ece"),
-    }
-
-
 # --------------------------------------------------------------------------------------------
-# mendari.site-report/2: counts in, rates out (LP-22c)
+# mendari.site-report/1: counts in, rates out (LP-22c)
 # --------------------------------------------------------------------------------------------
 
-SITE_REPORT_V2 = "mendari.site-report/2"
+SITE_REPORT_V1 = "mendari.site-report/1"
 MIN_DATASET = 100  # owner decision 3 (plan): a run on fewer cases is not shared
 BASIS = 10_000  # a threshold as a whole number of basis points: 0.85 is 8500
 BINS = 10  # calibration: confidence deciles, as `metrics.calibration` cuts them
@@ -391,12 +234,12 @@ class Tokens(_Closed):
     output: Count
 
 
-class SiteReportV2(_Closed):
+class SiteReportV1(_Closed):
     """Everything a site may share about one evaluation: whole counts, names and booleans.
     No rate, no fraction, no case. The registry computes every figure it shows from these."""
 
-    format: Literal["mendari.site-report/2"]
-    pack: SharedPack
+    format: Literal["mendari.site-report/1"]
+    agent: SharedAgent
     providers: Annotated[dict[Name, SharedProvider], Field(max_length=64)]
     policy: CountedPolicy
     remote_consent: bool
@@ -407,7 +250,7 @@ class SiteReportV2(_Closed):
     tokens: Tokens
 
     @model_validator(mode="after")
-    def _whole(self) -> SiteReportV2:
+    def _whole(self) -> SiteReportV1:
         if set(self.decisions.outcomes) != set(OUTCOMES):
             raise ValueError("outcomes must name each outcome once")
         shown = sum(c for c in self.decisions.outcomes.values() if c is not None)
@@ -419,7 +262,7 @@ class SiteReportV2(_Closed):
         return self
 
 
-# The rule each field of mendari.site-report/2 is shared by (spec: docs/spec/
+# The rule each field of mendari.site-report/1 is shared by (spec: docs/spec/
 # evaluation-reports.md, "Shared site reports"). A test holds every field to one.
 TOTAL = "total: shared exactly"
 CELL = "cell: null when 1 to 9, and complementary suppression"
@@ -427,7 +270,7 @@ SAFETY = "safety count: shared exactly, never suppressed"
 NAME = "name, version, digest or flag: as it is"
 SUPPRESSION_RULES: dict[str, str] = {
     "format": NAME,
-    "pack": NAME,
+    "agent": NAME,
     "providers": NAME,
     "policy": NAME,
     "remote_consent": NAME,
@@ -516,8 +359,8 @@ def counted_report(ledger: Ledger, *, remote_consent: bool = False) -> dict[str,
     policy = header["policy"]
     thresholds = policy.get("thresholds") or {}
     return {
-        "format": SITE_REPORT_V2,
-        "pack": header["pack"],
+        "format": SITE_REPORT_V1,
+        "agent": header["agent"],
         "providers": header["providers"],
         "policy": {
             "risk_level": policy.get("risk_level"),
@@ -748,9 +591,9 @@ def _add_up(report: Mapping[str, Any]) -> None:
                 raise MendariError(NOT_COUNTS)
 
 
-def site_report(ledger: Ledger, *, remote_consent: bool = False) -> SiteReportV2:
+def site_report(ledger: Ledger, *, remote_consent: bool = False) -> SiteReportV1:
     """The payload a site shares about one run: counted from its ledger, suppressed, checked."""
-    return SiteReportV2.model_validate(
+    return SiteReportV1.model_validate(
         suppress(counted_report(ledger, remote_consent=remote_consent))
     )
 
@@ -768,7 +611,7 @@ def shareable(ledger: Ledger, *, remote_consent: bool = False) -> dict[str, Any]
         ) from None
 
 
-def unchanged_by_suppression(report: SiteReportV2) -> bool:
+def unchanged_by_suppression(report: SiteReportV1) -> bool:
     """What the registry checks: the payload is what `suppress` makes of it."""
     shared = report.model_dump(mode="json")
     try:
@@ -777,7 +620,7 @@ def unchanged_by_suppression(report: SiteReportV2) -> bool:
         return False
 
 
-def adds_up(report: SiteReportV2) -> bool:
+def adds_up(report: SiteReportV1) -> bool:
     """Whether a payload's counts are one run's: every equation it states holds where its cells
     are shown, and can hold where they are null (`_add_up`). What the registry checks of a
     publisher's evaluation, whose counts are not suppressed (`hub/evaluations.py`)."""

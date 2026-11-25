@@ -1,4 +1,4 @@
-# Test fixture for actions (spec 0.4): the five actions of the spec's example, one of each
+# Test fixture for actions (spec §13): the five actions of the spec's example, one of each
 # effect, and an `agent` variant whose canned answers propose them. Not a real agent.
 spec_version: "0.4"
 id: mendari-test/actions-mini
@@ -36,7 +36,7 @@ providers:
     variants:
       agent:
         type: agent
-        agent_id: actions-mini-agent
+        service_id: actions-mini-agent
         state_fields: [message.body]
         mock_file: fixtures/mock_agent.json
 policy:

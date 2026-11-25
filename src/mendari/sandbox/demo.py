@@ -4,7 +4,7 @@
 One story, in six numbered sections and an ending:
 
 1. It routes a few patient portal messages through the agent under its policy.
-2. It shows what the agent asked to do with them (spec 0.4): the demo agent declares two
+2. It shows what the agent asked to do with them (spec §13): the demo agent declares two
    actions and its canned answers propose them. A write is released with an AUTO decision, a
    message to the patient is held until a reviewer confirms the decision, and an action the
    agent never declared is blocked. Mendari authorizes each and runs none.
@@ -36,17 +36,17 @@ import textwrap
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision, DecisionResult
-from mendari.core.pack import Pack
 from mendari.core.reference import bundled_dir
-from mendari.core.registry import SearchPath, resolve_pack
+from mendari.core.registry import SearchPath, resolve_agent
 from mendari.evals import evaluate, probe, probe_report, resolve_dataset, written
 from mendari.evals.operating_point import NONE_CERTIFIED, RECOMMENDED, SUPPORTED, Targets
 from mendari.evals.render import shown
 from mendari.evals.result import counted
 
-PACK_ID = "mendari/portal-message-agent"
+AGENT_ID = "mendari/portal-message-agent"
 RUBRIC = "acknowledgement_quality"  # the demo agent's rubric for what it writes
 # What section 6 says of itself, in one sentence: its three states are arranged.
 STAGED = (
@@ -69,8 +69,8 @@ REVIEWED = 200  # the first cases of the test set, decided and then reviewed
 # What the demo holds the agent to: of the urgent messages, at most 1% automated, so read by no
 # person (critical misses), shown with 95% confidence.
 TARGETS = Targets(critical_miss=0.01)
-# The demo's last words: the commands to type next, each as the command line reads it (none
-# with a flag it had before), and what each is for. They are what an installed Mendari can do.
+# The demo's last words: the commands to type next, each as the command line reads it, and what
+# each is for. They are what an installed Mendari can do.
 NEXT = (
     ("mendari new my-agent --id my-clinic/my-agent", "an agent of your own, from a template"),
     ("mendari probe my-agent", "its failures, found and kept as tests (--write)"),
@@ -93,12 +93,12 @@ def _section(title: str) -> None:
     print(f"\n== {title} {'=' * max(0, 72 - len(title))}")
 
 
-def bundled() -> Pack:
+def bundled() -> Agent:
     """The demo agent this release bundles, and never a copy of it pulled from a registry: a
     pulled copy comes first on the search path, and it automates nothing until an organization
     approves it, so the demo would show every message waiting for a person."""
     root = bundled_dir()
-    return resolve_pack(PACK_ID, [] if root is None else [SearchPath(root, "maintained")])
+    return resolve_agent(AGENT_ID, [] if root is None else [SearchPath(root, "maintained")])
 
 
 def run_demo() -> None:
@@ -107,17 +107,17 @@ def run_demo() -> None:
 
 
 def _run(store: AuditStore) -> None:
-    agent = Decision(bundled(), store=store)
-    pack = agent.pack
-    m = pack.manifest
-    providers = ", ".join(f"{slot}={info.variant}" for slot, info in agent.provider_info.items())
+    decision = Decision(bundled(), store=store)
+    agent = decision.agent
+    m = agent.manifest
+    providers = ", ".join(f"{slot}={info.variant}" for slot, info in decision.provider_info.items())
     print(f"{m.name} {m.version}  ·  risk level {int(m.risk.level)} ({m.risk.category})")
     print(f"providers: {providers}  (canned answers offline; set MENDARI_AGENT_URL for yours)")
 
     _section("1. Patient messages, through the agent and its policy")
     decided = []
     for body in SAMPLES:
-        result = agent({"message": {"body": body}})
+        result = decision({"message": {"body": body}})
         decided.append(result)
         confidence = "  -  " if result.confidence is None else f"{result.confidence:.2f}"
         target = result.recommendation or "(front desk)"
@@ -128,13 +128,13 @@ def _run(store: AuditStore) -> None:
     print("The last-but-one message describes chest pain in other words; see section 4.")
 
     _section("2. What the agent asks to do")
-    _actions(agent, store, decided)
+    _actions(decision, store, decided)
 
     _section("3. The review queue and the audit trail")
-    test = resolve_dataset(pack, "test")
+    test = resolve_dataset(agent, "test")
     truth = {}
     for record in test.records[:REVIEWED]:
-        truth[agent(record["input"]).id] = record["labels"][m.policy.primary]
+        truth[decision(record["input"]).id] = record["labels"][m.policy.primary]
     pending = store.pending_reviews(limit=1000)
     print(f"{len(pending)} decisions wait for a person (urgent first). Simulating reviewers…")
     for item in pending:
@@ -149,7 +149,7 @@ def _run(store: AuditStore) -> None:
     print(f"audit chain: {'verified' if chain['ok'] else 'BROKEN'} ({chain['events']} events)")
 
     _section("4. Before going live: evaluate the agent")
-    report = evaluate(Decision(pack), test, targets=TARGETS)
+    report = evaluate(Decision(agent), test, targets=TARGETS)
     decisions = report["decisions"]
     request = report["questions"][m.policy.primary]
     print(f"{test.name} set, {len(test.records)} synthetic messages with labels")
@@ -170,13 +170,15 @@ def _run(store: AuditStore) -> None:
         "Each case is rewritten six ways that keep its meaning (a typing error, a line break, an\n"
         "instruction slipped in): an answer that then changes is a failure."
     )
-    planned = probe.plan(Decision(pack), probe.source(pack, test.name), probe.Options(limit=PROBED))
+    planned = probe.plan(
+        Decision(agent), probe.source(agent, test.name), probe.Options(limit=PROBED)
+    )
     found = probe.run(planned)
     # The probe's own report, from its second line: the agent is named above.
     print("\n".join(probe_report.text(found.report, shown=FINDINGS_SHOWN).splitlines()[1:]))
 
     _section("6. What the agent wrote")
-    _written(pack)
+    _written(agent)
 
     _section("What next")
     point = report["run"]["operating_point"]
@@ -220,21 +222,21 @@ def _actions(agent: Decision, store: AuditStore, decided: Sequence[DecisionResul
     _line(asked["disposition"], "an action the agent never declared", None, "asked for message 1")
 
 
-def _written(pack: Any) -> None:
+def _written(agent: Any) -> None:
     """The agent's written output, graded: per criterion, how far the canned judge agrees with
     the simulated graders, the gate's state, and the judge's share for the ungraded outputs
     only where that state is validated."""
     from mendari.providers.judge import Judge
 
-    manifest = pack.manifest
+    manifest = agent.manifest
     rubric = manifest.rubrics[RUBRIC]
-    dataset = resolve_dataset(pack, WRITTEN_SET)
-    judge = Judge(pack, RUBRIC, mode="canned")  # offline, whatever model this machine has set
-    run = written.run(Decision(pack, origin_cap=False), dataset, RUBRIC, judge=judge)
+    dataset = resolve_dataset(agent, WRITTEN_SET)
+    judge = Judge(agent, RUBRIC, mode="canned")  # offline, whatever model this machine has set
+    run = written.run(Decision(agent, origin_cap=False), dataset, RUBRIC, judge=judge)
     declared = manifest.evaluation.grades[RUBRIC]
     scales = {key: [level for level, _ in c.scale()] for key, c in rubric.criteria.items()}
     _, grades = written.load_grades(
-        pack.read_bytes(declared.file), where=declared.file, scales=scales
+        agent.read_bytes(declared.file), where=declared.file, scales=scales
     )
     found = written.report(run.ledger, grades)
     cases = found["cases"]
@@ -272,7 +274,7 @@ def _written(pack: Any) -> None:
     print(
         "Below its floors a judge's figure is withheld, never shown with a caveat. The full report:"
     )
-    print(f"  mendari written eval {PACK_ID} --rubric {RUBRIC} --dataset {WRITTEN_SET}")
+    print(f"  mendari written eval {AGENT_ID} --rubric {RUBRIC} --dataset {WRITTEN_SET}")
 
 
 def _line(disposition: str, name: str, effect: Any, why: str) -> None:

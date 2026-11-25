@@ -11,9 +11,9 @@ Mendari `POST`s to `MENDARI_AGENT_URL` (with `Authorization: Bearer $MENDARI_AGE
 
 ```json
 {
-  "pack_id": "mendari/portal-message-agent",
+  "agent_id": "mendari/portal-message-agent",
   "slot": "reader",
-  "agent_id": "starter-portal-agent",
+  "service_id": "starter-portal-agent",
   "questions": [
     {"key": "urgent_symptoms", "type": "boolean", "instructions": "…",
      "choices": ["yes", "no"], "criteria": {"yes": "…", "no": "…"}}
@@ -23,8 +23,8 @@ Mendari `POST`s to `MENDARI_AGENT_URL` (with `Authorization: Bearer $MENDARI_AGE
 }
 ```
 
-(`pack_id` is the agent's id: the key keeps the name it had before) and expects, for every
-question asked and no other:
+(`agent_id` is the agent's id, and `service_id` the name its manifest gives this service) and
+expects, for every question asked and no other:
 
 ```json
 {
@@ -33,7 +33,7 @@ question asked and no other:
                         "rationale": "One short sentence."}
   },
   "model": "claude-opus-5-5",
-  "agent_version": "0.1.0",
+  "service_version": "0.1.0",
   "usage": {"input_tokens": 1224, "output_tokens": 165, "cost_usd": 0.008196}
 }
 ```

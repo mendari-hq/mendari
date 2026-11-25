@@ -53,7 +53,7 @@ EHR = "https://ehr.example.org"
 BASE = f"{EHR}/fhir"
 JWKS_URI = f"{EHR}/.well-known/jwks.json"
 DISCOVERY = "/cds-services"
-HOOK = "/cds-services/mendari.referral-router"
+HOOK = "/cds-services/mendari-test.triage"  # the triage fixture's service (its message hook)
 INVALID = 'Bearer realm="mendari", error="invalid_token"'
 # The EHR's keys, made for this run: RSA and EC, and another party's with the same kid.
 RSA_EHR = Signer("RS384", "ehr-rsa", rsa.generate_private_key(public_exponent=65537, key_size=2048))
@@ -1003,7 +1003,7 @@ def test_the_principal_is_confined_to_cds_services(
     with AuditStore(db_target) as store:
         guard = guard_for(store)
         monkeypatch.setattr(Auth, "authenticate", lambda self, request: cds)
-        for method, path in (("GET", "/api/packs"), ("GET", "/api/audit"), ("POST", "/api/x")):
+        for method, path in (("GET", "/api/agents"), ("GET", "/api/audit"), ("POST", "/api/x")):
             assert guard.ask(None, path, method) == 403
         assert guard.ask(token(path="/cds-services/x/y"), "/cds-services/x/y", "POST") == 403
         assert guard.claims() == 0  # refused before its jti is claimed

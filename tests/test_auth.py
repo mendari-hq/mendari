@@ -45,20 +45,17 @@ from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
 from tests.conftest import (
     DASHBOARD,
-    FORMER_ROUTES,
-    as_now,
+    calm_agent,
     encrypt_mode,
-    encrypted_store,
-    evalset_on,
-    evalsets_are_on,
     launched,
-    member,
     message,
     run_async,
     signed_in,
     without_request_id,
 )
 from tests.jwt_signers import cds_token, forged
+from tests.support.fixture_records import SHOWCASE
+from tests.support.platform import CHART
 from tests.test_cds_clients import BASE, EHR, RSA_EHR
 
 IDP = "https://idp.example.org"
@@ -66,8 +63,12 @@ REALM = 'Bearer realm="mendari"'
 INVALID = f'{REALM}, error="invalid_token"'
 SEARCHED = ("Task", "AuditEvent", "Provenance", "CodeSystem")
 CLIENT = "mendari-org"
-INBOX = "mendari/patient-inbox-router"
+INBOX = "mendari-test/triage"  # the agent these tests decide with
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
+# Its providers that automate with sign-in on: its router and its screen's agent are a live
+# service (`calm_agent`), the screen's checked by its keyword rules. A refill is automated; a
+# message with chest pain waits for a person.
+CHECKED = {"router": "agent", "screen": "checked"}
 
 
 class FakeIdp:
@@ -130,12 +131,12 @@ def idp() -> FakeIdp:
 
 
 @pytest.fixture
-def app(
-    tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch, screened: dict[str, str]
-) -> Iterator[TestClient]:
-    """Routine messages are automated: the urgency screen runs with a fake Jev."""
+def app(tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """Routine messages are automated: the triage fixture's screen asks a live agent service,
+    checked by its rules (`CHECKED`)."""
     monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=reviewer")
-    with signing_in_with(idp, tmp_path, monkeypatch, providers=screened) as client:
+    calm_agent(monkeypatch)
+    with signing_in_with(idp, tmp_path, monkeypatch, providers=CHECKED) as client:
         yield client
 
 
@@ -198,8 +199,8 @@ def test_signing_in_starts_a_session_with_the_mapped_role(app: TestClient, idp: 
 
 
 def test_each_role_can_do_exactly_its_part(app: TestClient, idp: FakeIdp) -> None:
-    decide = f"/api/packs/{INBOX}/decide"
-    evals = f"/api/packs/{INBOX}/evals"
+    decide = f"/api/agents/{INBOX}/decide"
+    evals = f"/api/agents/{INBOX}/evals"
     sign_in(app, idp, roles=["viewer"])
     assert app.get("/api/audit").status_code == 200
     assert app.post(decide, json=message(ROUTINE)).status_code == 403
@@ -220,7 +221,7 @@ def test_reviews_and_ratings_are_recorded_for_whoever_is_signed_in(
     kim = {"email": "kim@clinic.example.org", "email_verified": True}
     sign_in(app, idp, name="Nurse Kim", roles=["clinicians"], **kim)
     emergency = message("Crushing chest pain and my left arm is numb")  # waits for review
-    decided = app.post(f"/api/packs/{INBOX}/decide", json=emergency).json()
+    decided = app.post(f"/api/agents/{INBOX}/decide", json=emergency).json()
     posed_as = {"final_label": "nurse", "reviewer": "Dr Somebody Else"}
     assert app.post(f"/api/review/{decided['id']}", json=posed_as).status_code == 200
     rating = {"rating": "up", "reporter": "Dr Somebody Else"}
@@ -247,7 +248,7 @@ def test_people_are_chained_by_verified_email_else_by_issuer_and_subject(
     person by what the identity provider vouches for, never by a display name."""
     sign_in(app, idp, name="Nurse Kim", roles=["clinicians"], **claims)
     emergency = message("Crushing chest pain and my left arm is numb")  # waits for review
-    decided = app.post(f"/api/packs/{INBOX}/decide", json=emergency).json()
+    decided = app.post(f"/api/agents/{INBOX}/decide", json=emergency).json()
     app.post(f"/api/review/{decided['id']}", json={"final_label": "nurse", "reviewer": "x"})
     record = app.get(f"/api/audit/{decided['id']}").json()
     assert record["reviewer"] == chained
@@ -260,14 +261,14 @@ def test_open_mode_names_are_identifiers(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.delenv("MENDARI_OIDC_ISSUER", raising=False)
     client = TestClient(create_app(db_path=tmp_path / "open.db"))
     emergency = message("Crushing chest pain and my left arm is numb")  # waits for review
-    decided = client.post(f"/api/packs/{INBOX}/decide", json=emergency).json()
+    decided = client.post(f"/api/agents/{INBOX}/decide", json=emergency).json()
     review, rate = f"/api/review/{decided['id']}", f"/api/audit/{decided['id']}/feedback"
     for name in ("Dr Somebody", "x" * 101, "nurse\tkim", "nurse\nkim", " nurse", "nurse\u00a0kim"):
         refused = client.post(review, json={"final_label": "nurse", "reviewer": name})
         assert refused.status_code == 422 and "reviewer must be an identifier" in refused.text
         refused = client.post(rate, json={"rating": "up", "reporter": name})
         assert refused.status_code == 422 and "reporter must be an identifier" in refused.text
-        approval = {"pack_id": "mendari/clinical-trial-prescreener", "reference": "minutes 1"}
+        approval = {"agent_id": "mendari-test/clinical-review", "reference": "minutes 1"}
         refused = client.post("/api/governance", json={**approval, "approver": name})
         assert refused.status_code == 422 and "approver must be an identifier" in refused.text
     assert client.post(rate, json={"rating": "up", "reporter": "nurse.kim@clinic"}).is_success
@@ -291,10 +292,10 @@ def test_api_keys_work_for_machines_are_hashed_and_revocable(
     app.cookies.clear()
     machine = {"authorization": f"Bearer {secret}"}
     assert (
-        app.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE), headers=machine).status_code
+        app.post(f"/api/agents/{INBOX}/decide", json=message(ROUTINE), headers=machine).status_code
         == 200
     )
-    assert app.get(f"/api/packs/{INBOX}/feedback/export", headers=machine).status_code == 403
+    assert app.get(f"/api/agents/{INBOX}/feedback/export", headers=machine).status_code == 403
     with AuditStore(tmp_path / "a.db")._db.session(exclusive=False) as db:
         stored = [row["key_sha256"] for row in db.all("SELECT key_sha256 FROM api_keys")]
     assert stored == [hashlib.sha256(secret.encode()).hexdigest()]
@@ -427,23 +428,17 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     ]
     # Nothing that writes needs only what every role holds (`read`, `discover`).
     assert all(permission_for(m, p) not in ("read", "discover") for m, p in writes), writes
-    # `discover` reaches the two lists of agents to decide with, and nothing else (the list
-    # of agents at the path it had before too, which answers the same: `server/paths.py`).
+    # `discover` reaches the two lists of agents to decide with, and nothing else.
     assert {r for r in routes if permission_for(*r) == "discover"} == {
         ("GET", "/api/agents"),
-        ("GET", "/api/packs"),
         ("GET", "/cds-services"),
     }
-    assert {r: permission_for(*r) for r in FORMER_ROUTES} == {
-        old: permission_for(*now) for old, now in FORMER_ROUTES.items()
-    }
     assert permission_for("POST", "/api/agents/a/b/evals") == "evaluate"
-    assert permission_for("POST", "/api/packs/a/b/evals") == "evaluate"
     assert permission_for("POST", "/fhir/$decide") == "decide"
     # CDS Hooks card feedback (LP-23f): its own rule before the catch-all, which needs `admin`.
     assert permission_for("POST", "/cds-services/s1/feedback") == "decide"
     assert permission_for("POST", "/cds-services/s1/other") == "admin"
-    assert permission_for("GET", "/fhir/CodeSystem/x") == "read"  # pack labels and criteria
+    assert permission_for("GET", "/fhir/CodeSystem/x") == "read"  # agent labels and criteria
     assert permission_for("GET", "/fhir/Patient/p1") == "admin"  # not a conformance resource
     assert permission_for("GET", "/fhir/Task/t1/_history/2") == "read"
     assert permission_for("GET", "/fhir/Task/t1/_history") == "admin"  # no history Bundles
@@ -491,125 +486,25 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
         ("POST", "/api/smart/decide"),
     }
     assert permission_for("POST", "/api/smart/decide") == "launch_decide"
-    # A labeller's routes (LP-11j: memberships mode with the evaluation-set keys, not mounted
-    # here): `label`, people only, for every method and path under theirs.
-    for (method, path), permission in EVALSET_ROUTES.items():
-        assert permission_for(method, re.sub(r"\{[^}]+\}", "x1", path)) == permission
-    for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"):
-        for path in ("/api/labelling", "/api/labelling/", "/api/labelling/a1/x"):
-            assert permission_for(method, path) == "label", (method, path)
-    assert permission_for("GET", "/api/labellings") == "read"  # another path: not theirs
-    # An organization's curators' (LP-11k, mounted likewise): `curate`, people only, for every
-    # method and path under theirs; the evaluations' list is another path.
-    for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"):
-        for path in ("/api/evalsets", "/api/evalsets/", "/api/evalsets/s1/x/y"):
-            assert permission_for(method, path) == "curate", (method, path)
-        # A grading run (LP-11l, mounted with the keys in both account modes): `grade`, an
-        # organization's grading key's only, before the curators' rule, for every method on
-        # its path; a path below it is the curators'.
-        assert permission_for(method, "/api/evalsets/s1/runs") == "grade", method
-        for path in ("/api/evalsets/s1/runs/", "/api/evalsets/s1/runs/x", "/api/evalsets/runs"):
-            assert permission_for(method, path) == "curate", (method, path)
+    # A grader's routes over written output (ADR-0025, memberships mode: not mounted here):
+    # `label`, people only, never `read` or `discover`, whatever the catch-all says.
+    for method, path in WRITTEN_GRADING:
+        assert permission_for(method, re.sub(r"\{[^}]+\}", "x1", path)) == "label", path
     assert permission_for("GET", "/api/evals") == "read"
-    assert permission_for("GET", "/api/evalsetsx") == "read"
 
 
-# Every route hidden evaluation sets mount (LP-11j and later), with the permission it needs, and
-# what names one: a permission of theirs, or a path about them (as tests/test_evalset_leaks.py).
-EVALSET_ROUTES = {
-    ("GET", "/api/labelling"): "label",
-    ("GET", "/api/labelling/next"): "label",
-    ("POST", "/api/labelling/{assignment_id}"): "label",
-    # A grader's routes over written output (ADR-0025) need `label` too, and are held to the
-    # same rule: never read or discover, whatever the catch-all says.
-    ("GET", "/api/written/labelling"): "label",
-    ("GET", "/api/written/labelling/next"): "label",
-    ("POST", "/api/written/labelling/{assignment_id}"): "label",
-    ("GET", "/api/evalsets"): "curate",
-    ("GET", "/api/evalsets/{set_id}"): "curate",
-    ("POST", "/api/evalsets/{set_id}/sample"): "curate",
-    ("POST", "/api/evalsets/{set_id}/assignments"): "curate",
-    ("POST", "/api/evalsets/{set_id}/adjudication"): "curate",
-    ("POST", "/api/evalsets/{set_id}/runs"): "grade",
+# A grader's routes over written output (ADR-0025): the labeller's role, a person's.
+WRITTEN_GRADING = {
+    ("GET", "/api/written/labelling"),
+    ("GET", "/api/written/labelling/next"),
+    ("POST", "/api/written/labelling/{assignment_id}"),
 }
-# Of those, what claims mode mounts too (with the keys): the grading route (LP-11l).
-EVALSET_CLAIMS_ROUTES = {("POST", "/api/evalsets/{set_id}/runs")}
-EVALSET_PERMISSIONS = {"label", "curate", "grade"}
-EVALSET_PATH = re.compile(r"evalset|labell|grading|hidden")
-
-
-def test_no_evaluation_set_route_resolves_to_read_or_discover(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The catch-all (`GET ^/api/`, `read`) gives every viewer and key any GET route no rule
-    lists. Every route hidden evaluation sets mount (memberships mode, both keys and Backend
-    Services: the most) is pinned here with its permission, named by a rule of its own before
-    the catch-all, and needs one of theirs (`label`, `curate` or `grade`), never `read` or
-    `discover`; so does every other method and path under a labeller's and under a curator's
-    (plan risk 1, conflict 50). Claims mode mounts the grading route alone (LP-11l), which
-    needs `grade` there too; every other of their paths reads there as any route no rule lists,
-    `admin`."""
-    monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
-    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
-    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
-    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
-    monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
-    monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
-    evalset_on(monkeypatch)
-    app = create_app(db_path=tmp_path / "routes.db")
-    with encrypted_store(tmp_path / "routes.db") as served:
-        reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
-    evalsets_are_on(TestClient(app, base_url="https://mendari.test"), reader)
-    routes = {
-        (method, route.path)
-        for route in app.routes
-        if isinstance(route, APIRoute)
-        for method in route.methods or ()
-    }
-    hidden = {
-        (method, path)
-        for method, path in routes
-        if permission_for(method, path) in EVALSET_PERMISSIONS or EVALSET_PATH.search(path)
-    }
-    assert {route: permission_for(*route) for route in hidden} == EVALSET_ROUTES
-    rules = auth_module._RULES
-    catch_all = next(n for n, (m, p, _) in enumerate(rules) if (m, p.pattern) == ("GET", "^/api/"))
-    probes = {(m, re.sub(r"\{[^}]+\}", "x1", p)) for m, p in hidden}
-    probes |= {
-        (method, path)
-        for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
-        for path in (
-            "/api/labelling",
-            "/api/labelling/next",
-            "/api/labelling/x1/y",
-            "/api/evalsets",
-            "/api/evalsets/x1",
-            "/api/evalsets/x1/y/z",
-            "/api/evalsets/x1/runs",
-            "/api/evalsets/x1/runs/y",
-        )
-    }
-    for method, path in probes:
-        first = next(n for n, (m, p, _) in enumerate(rules) if m in ("*", method) and p.match(path))
-        assert first < catch_all, (method, path)
-        assert permission_for(method, path) in EVALSET_PERMISSIONS, (method, path)
-    settings = AuthSettings(IDP, CLIENT, None, "roles", {}, None, None)
-    with AuditStore(tmp_path / "modes.db") as store:
-        claims = Auth(settings, store)
-        members = Auth(
-            AuthSettings(IDP, CLIENT, None, "roles", {}, None, None, accounts="memberships"), store
-        )
-        grading = {re.sub(r"\{[^}]+\}", "x1", p) for _, p in EVALSET_CLAIMS_ROUTES}
-        for method, path in probes:
-            in_claims = "grade" if path in grading else "admin"  # every method on its path
-            assert claims.permission(method, path) == in_claims, (method, path)
-            assert members.permission(method, path) in EVALSET_PERMISSIONS, (method, path)
 
 
 # -- the matrix: route x principal kind x role x scope (ADR-0004) -------------------------------
 
 # What each role may do (server/auth.py PERMISSIONS), written out as the oracle.
-ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as amended)
+ROLE_PERMISSIONS = {  # every role also lists the agents (`discover`, ADR-0004 as amended)
     "viewer": {"read", "discover"},
     "reviewer": {"read", "discover", "read_input", "decide", "review", "outcome"},
     "service": {"read", "discover", "decide", "outcome"},
@@ -625,22 +520,19 @@ ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as
         "evaluate",
         "admin",
         "keys",
-        "curate",
         "promote",
         # The deployment's readiness and its operator's actions: here every administrator's
         # (claims mode, no operator organization named; tests/test_operators.py has the rest).
         "operate",
     },
-    # Hidden evaluation sets (LP-11): a labeller labels (a person, memberships mode only); a
-    # grading key grades (the operator's, never a person's).
+    # A labeller grades written output (ADR-0025): a person, memberships mode only.
     "labeller": {"label"},
-    "grading": {"grade"},
-    # The pack registry's reviewers (LP-19e): in its one review organization only.
+    # The agent registry's reviewers (LP-19e): in its one review organization only.
     "registry_reviewer": {"registry_review"},
-    # An organization's pack store (LP-20f): its authors, people only.
-    "pack_author": {"author"},
+    # An organization's agent store (LP-20f): its authors, people only.
+    "agent_author": {"author"},
 }
-PEOPLE_ONLY = {"keys", "curate", "label", "registry_review", "author", "promote", "operate"}
+PEOPLE_ONLY = {"keys", "label", "registry_review", "author", "promote", "operate"}
 # Every route a scoped key (or token) may reach, and the one scope that reaches it. Everything
 # else that is not public is a 403 for a scoped principal, whatever its role.
 ROUTE_SCOPE = {
@@ -653,22 +545,16 @@ ROUTE_SCOPE = {
     **{("GET", f"/fhir/{kind}"): f"system/{kind}.s" for kind in SEARCHED},
     **{("POST", f"/fhir/{kind}/_search"): f"system/{kind}.s" for kind in SEARCHED},
     ("POST", "/api/agents/{namespace}/{name}/decide"): DECIDE,
-    ("POST", "/api/agents/{namespace}/{name}/guard"): DECIDE,
     ("POST", "/api/agents/{namespace}/{name}/fhir/decide"): DECIDE,
-    ("POST", "/api/agents/{namespace}/{name}/pas"): DECIDE,
     ("POST", "/api/agents/{namespace}/{name}/actions"): DECIDE,  # authorizing an action
     ("POST", "/cds-services/{service_id}"): DECIDE,
     ("POST", "/cds-services/{service_id}/feedback"): DECIDE,  # a card's feedback (LP-23f)
     ("POST", "/fhir/$decide"): DECIDE,
-    ("POST", "/fhir/Questionnaire/$questionnaire-package"): DECIDE,
     ("POST", "/api/audit/{decision_id}/outcome"): OUTCOME,
     # Deciding implies listing the agents to decide with (`discover`, ADR-0004 as amended).
     ("GET", "/api/agents"): DECIDE,
     ("GET", "/cds-services"): DECIDE,
 }
-# A renamed route at the path it had before (`server/paths.py`): reached with the scope that
-# reaches it now, and by nothing else.
-FORMER_SCOPE = {old: ROUTE_SCOPE[now] for old, now in FORMER_ROUTES.items() if now in ROUTE_SCOPE}
 SCOPED_KEYS = [
     ("viewer", "system/*.rs"),
     ("viewer", "system/Task.r"),
@@ -746,12 +632,7 @@ def expected(kind: str, role: str, scope: str | None, method: str, path: str) ->
         # Claims mode: a reserved role never comes from a claim, and a person whose claims map
         # to no role is not signed in (`roles_from`).
         return expected("anonymous", "", None, method, path)
-    if kind == "user":
-        allowed = ROLE_PERMISSIONS[role] - {"grade"}
-    elif role == "grading":
-        allowed = {"grade"} if scope is None else set()  # only an unscoped grading key grades
-    else:
-        allowed = ROLE_PERMISSIONS[role] - PEOPLE_ONLY - {"grade"}
+    allowed = ROLE_PERMISSIONS[role] - (set() if kind == "user" else PEOPLE_ONLY)
     if permission != "page" and permission not in allowed:
         return 403, f'{REALM}, error="insufficient_scope"'
     if scope is not None:
@@ -800,17 +681,13 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
     registry, is refused there. Open mode without the sandbox flag answers the CDS services on
     this machine only (LP-23c): from elsewhere (the guard's requests come from no machine) each
     is a `403`, a valid token's too, which claims nothing, while every other route answers as
-    before. Hidden evaluation sets are on, so the routes they mount are in the matrix (LP-11g)."""
+    before."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
-    evalset_on(monkeypatch)
     app = create_app(db_path=tmp_path / "routes.db")
-    with encrypted_store(tmp_path / "routes.db") as served:
-        reader = signed_in(served, role="viewer")
-    evalsets_are_on(TestClient(app, base_url="https://mendari.test"), reader)
     routes = sorted(
         (method, route.path)
         for route in app.routes
@@ -826,11 +703,7 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         ("POST", "/api/auth/clients/{client_id}/keys"),
     }
     assert set(ROUTE_SCOPE) <= set(routes)
-    # Every renamed route is mounted at its former path too, and each of those is held, below,
-    # to what this file's tables say of the route that answers it now (`as_now`).
-    assert set(FORMER_ROUTES) <= set(routes) and set(FORMER_ROUTES.values()) <= set(routes)
-    assert len(FORMER_SCOPE) == 5
-    assert {r: needed(*r) for r in routes if needed(*r)} == {**ROUTE_SCOPE, **FORMER_SCOPE}
+    assert {r: needed(*r) for r in routes if needed(*r)} == ROUTE_SCOPE
     lists = {("GET", "/api/agents"), ("GET", "/cds-services")}
     for route, scope in ROUTE_SCOPE.items():  # a scope stands for the route's own permission
         implied = (
@@ -858,8 +731,6 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         if role in MACHINE_ROLES:
             made = store.create_api_key(name=role, role=role, org="default", created_by="t")
             secret = made["key"]
-        elif role == "grading":  # the operator's, from the command line (LP-11)
-            secret = store.create_grading_key(org="default", created_by="t", reason="matrix")["key"]
         else:
             secret = legacy_key(tmp_path / "matrix.db", role)
         principals.append(("key", role, None, {"authorization": f"Bearer {secret}"}))
@@ -950,7 +821,7 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         for got, want in [
             (
                 attempt(guards.get(kind, signed), method, path, sent(kind, headers, path)),
-                expected(kind, role, scope, *as_now((method, path))),
+                expected(kind, role, scope, method, path),
             )
         ]
         if got != want
@@ -970,13 +841,13 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         for method, path in routes
         if attempt(signed, method, path, headers)[0] == 200
     }
-    # Each reachable by some key, a renamed route under both its paths.
-    assert reached == PUBLIC | BACKEND_PUBLIC | set(ROUTE_SCOPE) | set(FORMER_SCOPE)
+    # Each reachable by some key.
+    assert reached == PUBLIC | BACKEND_PUBLIC | set(ROUTE_SCOPE)
 
 
 def test_no_fhir_data_route_is_public(tmp_path: Path) -> None:
     """Every `/fhir` route but the two that say how to talk to the server reads something an
-    organization owns or a pack defines. Without a signed-in organization the store's scope is
+    organization owns or an agent defines. Without a signed-in organization the store's scope is
     every organization's rows, so none of them may ever be public."""
     app = create_app(db_path=tmp_path / "a.db")
     fhir = {
@@ -991,7 +862,6 @@ def test_no_fhir_data_route_is_public(tmp_path: Path) -> None:
     assert {permission_for(m, p) for m, p in data} == {"read"}
     assert all(permission_for(m, p) != "public" for m, p in fhir - discovery)
     assert permission_for("GET", "/api/agents/a/b/feedback/export") == "admin"
-    assert permission_for("GET", "/api/packs/a/b/feedback/export") == "admin"  # its former path
     assert permission_for("DELETE", "/api/something/new") == "admin"  # deny by default
 
 
@@ -1020,7 +890,7 @@ def test_organizations_never_see_each_others_work(
     client.cookies.clear()
     emergency = message("Crushing chest pain and my left arm is numb")  # waits for review
     decided = client.post(
-        f"/api/packs/{INBOX}/decide", json=emergency, headers=keys["clinic-a"]
+        f"/api/agents/{INBOX}/decide", json=emergency, headers=keys["clinic-a"]
     ).json()
     a_list = client.get("/api/audit", headers=keys["clinic-a"]).json()
     b_list = client.get("/api/audit", headers=keys["clinic-b"]).json()
@@ -1055,11 +925,12 @@ def test_organizations_never_see_each_others_work(
     assert len(client.get("/api/feedback", headers=keys["clinic-a"]).json()) == 1
     assert client.get("/api/feedback", headers=keys["clinic-b"]).json() == []
 
-    report: dict[str, Any] = {"id": "r1", "created_at": "2026-09-30T00:00:00+00:00"}
-    report |= {"pack": {"id": INBOX}, "dataset": {"name": "local"}}
+    report: dict[str, Any] = {"run": {"id": "r1", "created_at": "2026-09-30T00:00:00+00:00"}}
+    report |= {"agent": {"id": INBOX}, "dataset": {"name": "local"}}
     with tenancy.acting_for("clinic-a"):
         AuditStore(tmp_path / "two-orgs.db").save_report(report)
-    assert [r["id"] for r in client.get("/api/evals", headers=keys["clinic-a"]).json()] == ["r1"]
+    listed = client.get("/api/evals", headers=keys["clinic-a"]).json()
+    assert [r["run"]["id"] for r in listed] == ["r1"]
     assert client.get("/api/evals", headers=keys["clinic-b"]).json() == []
     sign_in(client, idp, roles=["admin"], org="clinic-b")
     assert client.get("/api/audit/export/fhir").text == ""
@@ -1144,7 +1015,6 @@ def test_the_api_reference_asks_a_browser_to_sign_in(app: TestClient, idp: FakeI
     }
     assert operations[("GET", "/api/health")]["security"] == []
     decide = operations[("POST", "/api/agents/{namespace}/{name}/decide")]
-    assert not set(FORMER_ROUTES) & set(operations)  # a former path answers, and is not listed
     assert decide["security"] == [{"apiKey": []}, {"session": []}]
     assert "the `decide` permission" in decide["description"]
     # Only an EHR launch decides there: never a session or a key.
@@ -1160,17 +1030,18 @@ def test_the_api_reference_asks_a_browser_to_sign_in(app: TestClient, idp: FakeI
 
 
 def legacy_key(db: Path | str, role: str, org: str = "default") -> str:
-    """A key as made before Phase 4 (ADR-0004): any role, no scopes, no expiry. Opening the
-    store afterwards is a start: the migration gives it its expiry."""
+    """A key of a role no route makes (keys are viewer or service, ADR-0004), with no scopes,
+    written past the store as someone with the database could: whatever its role, a key never
+    does what only a person may. It expires as every key does."""
     secret = "ohk_" + secrets.token_urlsafe(32)
     row = (secrets.token_hex(6), hashlib.sha256(secret.encode()).hexdigest(), f"old {role}")
+    expires = (datetime.now(UTC) + timedelta(days=30)).isoformat(timespec="milliseconds")
     with AuditStore(db) as store, store._db.session(exclusive=True) as session:
         session.all(
-            "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at) "
-            "VALUES (?, ?, ?, ?, ?, 'before', '2026-09-01T00:00:00.000+00:00')",
-            (*row, role, org),
+            "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at, "
+            "expires_at) VALUES (?, ?, ?, ?, ?, 'before', '2026-09-01T00:00:00.000+00:00', ?)",
+            (*row, role, org, expires),
         )
-    AuditStore(db).close()
     return secret
 
 
@@ -1226,13 +1097,13 @@ def test_a_bearer_header_never_falls_back_to_the_launch_cookie(
     cookie = launched(store, iss=ehr)
     assert app.get("/api/smart/session", headers=cookie).json()["active"] is True
     key = store.create_api_key(name="worker", role="service", org="default", created_by="t")
-    body = {"pack_id": "mendari/referral-router", "focus": "ServiceRequest/ref-sr1"}
+    body = {"agent_id": CHART, "focus": f"Patient/{SHOWCASE.id}"}
     for header, status in (("Bearer ohk_not-a-key", 401), (f"Bearer {key['key']}", 403)):
         sent = {**cookie, "authorization": header}
         for method, path in (
             ("POST", "/api/smart/decide"),
             ("GET", "/api/smart/patient"),
-            ("GET", "/api/smart/focus?pack_id=mendari/referral-router"),
+            ("GET", f"/api/smart/focus?agent_id={CHART}"),
         ):
             refused = app.request(method, path, json=body, headers=sent)
             assert refused.status_code == status, (header, path, refused.text)
@@ -1375,7 +1246,7 @@ def test_every_refusal_on_the_api_and_fhir_says_how_to_authenticate(
         assert refused.headers["www-authenticate"] == REALM, path
     viewer = {"authorization": f"Bearer {key_for(app, idp, role='viewer')}"}
     for method, path in (
-        ("POST", f"/api/packs/{INBOX}/decide"),
+        ("POST", f"/api/agents/{INBOX}/decide"),
         ("POST", "/fhir/$decide"),
         ("GET", "/api/audit/verify"),
     ):
@@ -1433,7 +1304,7 @@ def test_an_empty_organization_is_never_one_to_act_for(
     client.cookies.clear()
     machine = {"authorization": f"Bearer {blank['key']}"}
     assert client.get("/api/audit", headers=machine).status_code == 403
-    decided = client.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE), headers=machine)
+    decided = client.post(f"/api/agents/{INBOX}/decide", json=message(ROUTINE), headers=machine)
     assert decided.status_code == 403
     with AuditStore(tmp_path / "a.db") as store:
         assert store.query() == []  # nothing written into `default`
@@ -1500,7 +1371,7 @@ def test_api_answers_are_never_stored(app: TestClient, idp: FakeIdp) -> None:
 def test_an_outcome_is_recorded_for_whoever_sends_it(app: TestClient, idp: FakeIdp) -> None:
     """Like a review's reviewer: the signed-in person or the key, whatever the body says."""
     machine = {"authorization": f"Bearer {key_for(app, idp)}"}
-    decided = app.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE), headers=machine)
+    decided = app.post(f"/api/agents/{INBOX}/decide", json=message(ROUTINE), headers=machine)
     outcome = {"final_label": "nurse", "source": "ehr", "recorded_by": "Dr Somebody Else"}
     recorded = app.post(f"/api/audit/{decided.json()['id']}/outcome", json=outcome, headers=machine)
     key_id = app.get("/api/auth/me", headers=machine).json()["principal"]["actor"]
@@ -1547,7 +1418,7 @@ def test_the_api_reference_says_keys_are_managed_by_people(app: TestClient, idp:
 def test_new_keys_are_for_machines_only(app: TestClient, idp: FakeIdp) -> None:
     """Review and approval are a person's: a key is a viewer or a service."""
     sign_in(app, idp, roles=["admin"])
-    for role in ("reviewer", "governance", "admin", "grading", "labeller"):
+    for role in ("reviewer", "governance", "admin", "labeller"):
         refused = app.post("/api/auth/keys", json={"name": "x", "role": role})
         assert refused.status_code == 422, role
         assert refused.json()["detail"][0]["loc"] == ["body", "role"]
@@ -1626,7 +1497,7 @@ def test_a_scoped_key_reaches_only_what_its_scopes_name(app: TestClient, idp: Fa
     assert made.json()["scope"] == f"{DECIDE} system/Task.r"  # deduplicated, sorted
     app.cookies.clear()
     machine = {"authorization": f"Bearer {made.json()['key']}"}
-    decided = app.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE), headers=machine)
+    decided = app.post(f"/api/agents/{INBOX}/decide", json=message(ROUTINE), headers=machine)
     assert decided.status_code == 200
     task = app.get(f"/fhir/Task/{decided.json()['id']}", headers=machine)
     assert task.status_code == 200 and task.json()["resourceType"] == "Task"
@@ -1638,8 +1509,8 @@ def test_a_scoped_key_reaches_only_what_its_scopes_name(app: TestClient, idp: Fa
         ("GET", "/api/audit", None),  # no scope reaches Mendari's own reads
         ("GET", f"/api/audit/{decided.json()['id']}", None),
         ("GET", "/openapi.json", None),
-        ("GET", f"/api/packs/{INBOX}", None),  # a pack's detail: not a list to decide from
-        ("GET", f"/api/packs/{INBOX}/examples", None),
+        ("GET", f"/api/agents/{INBOX}", None),  # an agent's detail: not a list to decide from
+        ("GET", f"/api/agents/{INBOX}/examples", None),
     ):
         refused = app.request(
             method, path, json={"final_label": "x", "source": "ehr"}, headers=machine
@@ -1650,9 +1521,9 @@ def test_a_scoped_key_reaches_only_what_its_scopes_name(app: TestClient, idp: Fa
         assert "scopes do not cover" in refused.text
     page = app.get("/", headers=machine, follow_redirects=False)
     assert page.status_code == 403  # not even the dashboard page
-    # Deciding finds what to decide with: the lists of packs and of CDS services (only).
-    packs = app.get("/api/packs", headers=machine)
-    assert packs.status_code == 200 and INBOX in {p["id"] for p in packs.json()}
+    # Deciding finds what to decide with: the lists of agents and of CDS services (only).
+    agents = app.get("/api/agents", headers=machine)
+    assert agents.status_code == 200 and INBOX in {p["id"] for p in agents.json()}
     assert app.get("/cds-services", headers=machine).status_code == 200
     me = app.get("/api/auth/me", headers=machine).json()["principal"]
     assert me["kind"] == "key" and me["roles"] == ["service"]
@@ -1670,7 +1541,7 @@ def test_a_scope_never_widens_a_role(app: TestClient, idp: FakeIdp) -> None:
     app.cookies.clear()
     assert app.get("/fhir/Task", headers=machine).status_code == 200
     assert app.get("/fhir/NamingSystem/x", headers=machine).status_code == 404  # reached
-    refused = app.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE), headers=machine)
+    refused = app.post(f"/api/agents/{INBOX}/decide", json=message(ROUTINE), headers=machine)
     assert (
         refused.status_code == 403 and refused.json()["detail"] == "your role may not decide here"
     )
@@ -1708,29 +1579,6 @@ def test_keys_list_scope_expiry_and_who_revoked_them_never_the_key(
     assert store.verify()["ok"] is True
 
 
-def test_keys_from_before_phase_4_expire_30_days_after_the_start(
-    app: TestClient, idp: FakeIdp, tmp_path: Path
-) -> None:
-    """They keep their role (an old reviewer key still reviews) until they expire; managing keys
-    they never may."""
-    reviewer = {"authorization": f"Bearer {legacy_key(tmp_path / 'a.db', 'reviewer')}"}
-    me = app.get("/api/auth/me", headers=reviewer).json()["principal"]
-    assert me["roles"] == ["reviewer"] and me["scope"] is None
-    left = (datetime.fromisoformat(me["expires_at"]) - datetime.now(UTC)) / timedelta(days=1)
-    assert 29.9 < left <= 30
-    emergency = message("Crushing chest pain and my left arm is numb")  # waits for review
-    decided = app.post(f"/api/packs/{INBOX}/decide", json=emergency, headers=reviewer).json()
-    assert (
-        app.post(
-            f"/api/review/{decided['id']}",
-            json={"final_label": "nurse", "reviewer": "x"},
-            headers=reviewer,
-        ).status_code
-        == 200
-    )
-    assert app.get("/api/auth/keys", headers=reviewer).status_code == 403
-
-
 def test_an_authorization_endpoint_with_a_query_keeps_it(app: TestClient, idp: FakeIdp) -> None:
     """An endpoint published as `…/authorize?tenant=x` got a second `?` before Mendari's
     parameters, and the provider misread them; the query is extended instead."""
@@ -1749,28 +1597,30 @@ def test_a_scoped_credential_gets_the_public_health_only(app: TestClient, idp: F
     sign_in(app, idp, roles=["admin"])
     made = app.post("/api/auth/keys", json={"name": "ehr", "role": "service", "scope": DECIDE})
     full = app.get("/api/health").json()
-    assert "packs" in full and "retention_days" in full
+    assert "agents" in full and "retention_days" in full
     app.cookies.clear()
     scoped = app.get("/api/health", headers={"authorization": f"Bearer {made.json()['key']}"})
     assert scoped.status_code == 200
     assert set(scoped.json()) == {"status", "version", "sign_in"}
     unscoped = app.get("/api/health", headers={"authorization": f"Bearer {key_for(app, idp)}"})
-    assert "packs" in unscoped.json()  # a key with its role's reach still reads it
+    assert "agents" in unscoped.json()  # a key with its role's reach still reads it
 
 
 def test_head_needs_what_get_needs(app: TestClient, idp: FakeIdp) -> None:
     """The rules name GET, so HEAD resolved to `admin`: the static files, which serve HEAD as
     GET, refused an anonymous `HEAD /static/main.js` (link checkers, uptime tools) with 401, and
     `HEAD /` was a 401 instead of the sign-in redirect."""
-    assert permission_for("HEAD", "/api/packs") == permission_for("GET", "/api/packs") == "discover"
+    assert (
+        permission_for("HEAD", "/api/agents") == permission_for("GET", "/api/agents") == "discover"
+    )
     assert permission_for("HEAD", "/api/audit") == permission_for("GET", "/api/audit") == "read"
     assert permission_for("HEAD", "/static/main.js") == "public"
     assert permission_for("HEAD", "/api/auth/keys") == permission_for("GET", "/api/auth/keys")
     assert app.head("/static/main.js").status_code == 200
     assert app.head("/", follow_redirects=False).status_code == 302
-    assert app.head("/api/packs").status_code == 401  # still a credential's route
+    assert app.head("/api/agents").status_code == 401  # still a credential's route
     sign_in(app, idp, roles=["viewer"])
-    assert app.head("/api/packs").status_code == 405  # past the guard; the route serves GET only
+    assert app.head("/api/agents").status_code == 405  # past the guard; the route serves GET only
 
 
 def test_signing_in_again_ends_the_browsers_earlier_session(app: TestClient, idp: FakeIdp) -> None:
@@ -1778,15 +1628,15 @@ def test_signing_in_again_ends_the_browsers_earlier_session(app: TestClient, idp
     for up to its idle time; memberships mode already ended it ("one browser, one person")."""
     assert sign_in(app, idp, roles=["viewer"]).status_code == 302
     first = dict(app.cookies)
-    assert first and app.get("/api/packs").status_code == 200
+    assert first and app.get("/api/agents").status_code == 200
     # The same browser, cookie still held, signs in again (`sign_in` would clear it first).
     started = app.get("/auth/login", params={"next": "/"}, follow_redirects=False)
     code = idp.authorize(started.headers["location"], roles=["viewer"])
     state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
     again = app.get("/auth/callback", params={"code": code, "state": state}, follow_redirects=False)
     assert again.status_code == 302
-    assert app.get("/api/packs").status_code == 200  # the new session
+    assert app.get("/api/agents").status_code == 200  # the new session
     app.cookies.clear()
     for name, value in first.items():
         app.cookies.set(name, value)
-    assert app.get("/api/packs").status_code == 401  # the earlier one is gone
+    assert app.get("/api/agents").status_code == 401  # the earlier one is gone

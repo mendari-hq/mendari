@@ -58,9 +58,9 @@ from urllib.parse import urlencode
 from mendari.errors import FhirRequestError
 from mendari.standards.audit_fhir import EVENT_SYSTEM
 from mendari.standards.fhir import (
+    AGENT_TAG_SYSTEM,
     DECISION_ID_SYSTEM,
     OUTCOME_SYSTEM,
-    PACK_TAG_SYSTEM,
     narrative,
 )
 
@@ -187,7 +187,7 @@ SPECS: dict[str, ResourceSearch] = {
                     "_tag",
                     "token",
                     "Resource-tag",
-                    f"{PACK_TAG_SYSTEM}|{{namespace}}/{{name}}@{{version}}.",
+                    f"{AGENT_TAG_SYSTEM}|{{namespace}}/{{name}}@{{version}}.",
                 ),
             ),
             (("t", "instant"), ("id", "id")),
@@ -603,8 +603,8 @@ def stored(instant: datetime) -> str:
 
 # -- paging ----------------------------------------------------------------------------------
 
-# A stored timestamp (written to the millisecond, UTC; looser, so older rows still page).
-_INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})")
+# A stored timestamp, as `stored` and every decision write it: to the millisecond, in UTC.
+_INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+00:00")
 
 
 def encode_cursor(key: Mapping[str, Any]) -> str:

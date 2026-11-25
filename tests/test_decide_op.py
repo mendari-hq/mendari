@@ -17,16 +17,15 @@ from mendari.settings import FhirValidation
 from mendari.standards import audit_fhir, decide_op
 from mendari.standards.fhir import DECISION_ID_SYSTEM, OUTCOME_SYSTEM
 from mendari.standards.terminology import Terminology
+from tests.support import triage_records
 
 FIXTURES = Path(__file__).parent / "fixtures" / "us-core"
-INBOX = "mendari/patient-inbox-router"
-PACKS = {
-    "inbox.json": INBOX,
-    "prior-auth.json": "mendari/prior-auth-preflight",
-    "referral.json": "mendari/referral-router",
-    "trial.json": "mendari/clinical-trial-prescreener",
+TRIAGE = "mendari-test/triage"  # triage.json: its sender, then the Communication
+AGENTS = {
+    "triage.json": TRIAGE,
+    "chart.json": "mendari-test/chart-summary",  # a patient's record: the Patient is the focus
 }
-MESSAGE = "Can I get a refill of my blood pressure medicine?"  # the fixture's case text
+MESSAGE = triage_records.MESSAGE  # the fixture's case text
 
 
 def load(name: str) -> dict[str, Any]:
@@ -34,8 +33,8 @@ def load(name: str) -> dict[str, Any]:
     return data
 
 
-def parameters(pack: str, data: dict[str, Any], **extra: str) -> dict[str, Any]:
-    given = [{"name": "pack", "valueString": pack}, {"name": "data", "resource": data}]
+def parameters(agent: str, data: dict[str, Any], **extra: str) -> dict[str, Any]:
+    given = [{"name": "agent", "valueString": agent}, {"name": "data", "resource": data}]
     given += [{"name": name, "valueString": value} for name, value in extra.items()]
     return {"resourceType": "Parameters", "parameter": given}
 
@@ -78,7 +77,7 @@ def outcome_of(response: Any, status: int) -> list[dict[str, Any]]:
 
 
 def test_a_decision_as_fhir(client: TestClient) -> None:
-    response = client.post("/fhir/$decide", json=parameters(INBOX, load("inbox.json")))
+    response = client.post("/fhir/$decide", json=parameters(TRIAGE, load("triage.json")))
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/fhir+json")
     bundle = response.json()
@@ -96,7 +95,7 @@ def test_a_decision_as_fhir(client: TestClient) -> None:
     assert guidance["outputParameters"]["reference"] == urls["Parameters"]
     assert group["action"][0]["resource"]["reference"] == urls["Task"]
     assert task["basedOn"] == [{"reference": urls["RequestGroup"]}]
-    patient = {"reference": "http://example.org/fhir/Patient/in-p1"}  # the input's fullUrl
+    patient = {"reference": "http://example.org/fhir/Patient/tr-p1"}  # the input's fullUrl
     assert guidance["subject"] == group["subject"] == task["for"] == patient
     outcome = next(p for p in found["Parameters"]["parameter"] if p["name"] == "outcome")
     assert outcome["valueCoding"]["system"] == OUTCOME_SYSTEM
@@ -106,7 +105,7 @@ def test_a_decision_as_fhir(client: TestClient) -> None:
 
 
 def test_the_provenance_is_the_audit_trails_own(client: TestClient) -> None:
-    bundle = client.post("/fhir/$decide", json=parameters(INBOX, load("inbox.json"))).json()
+    bundle = client.post("/fhir/$decide", json=parameters(TRIAGE, load("triage.json"))).json()
     found = entries(bundle)
     provenance = found["Provenance"]
     decision_id = found["GuidanceResponse"]["identifier"][0]["value"]
@@ -120,8 +119,8 @@ def test_the_provenance_is_the_audit_trails_own(client: TestClient) -> None:
 
 def test_labels_are_coded_as_the_served_codesystems_say(client: TestClient) -> None:
     """Every coding in the answers is in a CodeSystem this server serves, with its display."""
-    bundle = client.post("/fhir/$decide", json=parameters(INBOX, load("inbox.json"))).json()
-    terms = Terminology.for_packs(discover(None).packs)
+    bundle = client.post("/fhir/$decide", json=parameters(TRIAGE, load("triage.json"))).json()
+    terms = Terminology.for_agents(discover(None).agents)
     codings = []
     stack: list[Any] = [entries(bundle)["Parameters"]]
     while stack:
@@ -141,12 +140,12 @@ def test_labels_are_coded_as_the_served_codesystems_say(client: TestClient) -> N
 
 
 def test_a_refused_input_is_a_failure_whose_action_is_the_fallback(client: TestClient) -> None:
-    """The pack's schema needs a message body; under BLOCK the proposed work item is the pack's
+    """The agent's schema needs a message body; under BLOCK the proposed work item is the agent's
     fallback, never the blocked action, and the findings say why by path and rule."""
-    data = load("inbox.json")
+    data = load("triage.json")
     communication = data["entry"][1]["resource"]
     communication["payload"] = [{"contentString": " "}]
-    bundle = client.post("/fhir/$decide", json=parameters(INBOX, data)).json()
+    bundle = client.post("/fhir/$decide", json=parameters(TRIAGE, data)).json()
     found = entries(bundle)
     guidance, group, task = found["GuidanceResponse"], found["RequestGroup"], found["Task"]
     assert guidance["status"] == "failure"
@@ -161,8 +160,8 @@ def test_a_refused_input_is_a_failure_whose_action_is_the_fallback(client: TestC
 
 def test_us_core_findings_under_enforce_refuse_the_input(tmp_path: Path) -> None:
     client = app_client(tmp_path, "enforce")
-    data = load("invalid/referral.json")
-    response = client.post("/fhir/$decide", json=parameters("mendari/referral-router", data))
+    data = load("invalid/chart.json")
+    response = client.post("/fhir/$decide", json=parameters(AGENTS["chart.json"], data))
     assert response.status_code == 200  # the refusal is a recorded decision, not an HTTP error
     found = entries(response.json())
     assert found["GuidanceResponse"]["status"] == "failure"
@@ -171,30 +170,30 @@ def test_us_core_findings_under_enforce_refuse_the_input(tmp_path: Path) -> None
 
 
 def test_focus_picks_the_resource_to_decide_about(client: TestClient) -> None:
-    data = load("inbox.json")
+    data = load("triage.json")
     second = copy.deepcopy(data["entry"][1])
-    second["resource"]["id"] = "in-c2"
-    second["fullUrl"] = "http://example.org/fhir/Communication/in-c2"
+    second["resource"]["id"] = "tr-c2"
+    second["fullUrl"] = "http://example.org/fhir/Communication/tr-c2"
     data["entry"].append(second)
-    several = client.post("/fhir/$decide", json=parameters(INBOX, data))
+    several = client.post("/fhir/$decide", json=parameters(TRIAGE, data))
     assert outcome_of(several, 422)[0]["code"] == "processing"
     chosen = client.post(
-        "/fhir/$decide", json=parameters(INBOX, data, focus="Communication/in-c2")
+        "/fhir/$decide", json=parameters(TRIAGE, data, focus="Communication/tr-c2")
     ).json()
     task = entries(chosen)["Task"]
-    assert task["focus"] == {"reference": "http://example.org/fhir/Communication/in-c2"}
-    missing = client.post("/fhir/$decide", json=parameters(INBOX, data, focus="Communication/x"))
+    assert task["focus"] == {"reference": "http://example.org/fhir/Communication/tr-c2"}
+    missing = client.post("/fhir/$decide", json=parameters(TRIAGE, data, focus="Communication/x"))
     assert outcome_of(missing, 422)[0]["code"] == "processing"
 
 
-@pytest.mark.parametrize("fixture", sorted(PACKS))
+@pytest.mark.parametrize("fixture", sorted(AGENTS))
 def test_every_reference_resolves(client: TestClient, fixture: str) -> None:
     """In a Bundle whose entries have urn:uuid full URLs a relative reference has no base (R4
     bundle.html), so a reference to the input is the absolute URL the input gives the resource.
     No other input URL is echoed."""
     data = load(fixture)
     given = {entry["fullUrl"] for entry in data["entry"]}
-    bundle = client.post("/fhir/$decide", json=parameters(PACKS[fixture], data)).json()
+    bundle = client.post("/fhir/$decide", json=parameters(AGENTS[fixture], data)).json()
     inside = {entry["fullUrl"] for entry in bundle["entry"]}
     outside = {reference for reference in references(bundle) if reference not in inside}
     assert outside and outside <= given
@@ -215,8 +214,8 @@ def urn_full_urls(data: dict[str, Any]) -> None:
 
 
 def another_resources_url(data: dict[str, Any]) -> None:
-    data["entry"][0]["fullUrl"] = "http://example.org/fhir/Patient/in-p2"
-    data["entry"][1]["fullUrl"] = "http://example.org/fhir/Communication/in-c1/_history/2"
+    data["entry"][0]["fullUrl"] = "http://example.org/fhir/Patient/tr-p2"
+    data["entry"][1]["fullUrl"] = "http://example.org/fhir/Communication/tr-c1/_history/2"
 
 
 def first_duplicate_has_none(data: dict[str, Any]) -> None:
@@ -244,30 +243,30 @@ def test_without_an_absolute_full_url_references_are_relative(
 ) -> None:
     """Then the reference is `Type/id`: relative to the client's own FHIR server, as the
     OperationDefinition says."""
-    data = load("inbox.json")
+    data = load("triage.json")
     change(data)
-    found = entries(client.post("/fhir/$decide", json=parameters(INBOX, data)).json())
+    found = entries(client.post("/fhir/$decide", json=parameters(TRIAGE, data)).json())
     task = found["Task"]
-    patient = {"reference": "Patient/in-p1"}
+    patient = {"reference": "Patient/tr-p1"}
     assert found["GuidanceResponse"]["subject"] == found["RequestGroup"]["subject"] == patient
-    assert task["for"] == patient and task["focus"] == {"reference": "Communication/in-c1"}
+    assert task["for"] == patient and task["focus"] == {"reference": "Communication/tr-c1"}
     description = decide_op.operation_definition()["description"]
     assert "relative to the client's own FHIR server" in description
 
 
 def test_an_absolute_reference_in_the_input_stays(client: TestClient) -> None:
-    data = load("inbox.json")
+    data = load("triage.json")
     without_full_urls(data)
-    patient = "https://ehr.example.com/r4/Patient/in-p1"
+    patient = "https://ehr.example.com/r4/Patient/tr-p1"
     data["entry"][1]["resource"]["subject"]["reference"] = patient
-    found = entries(client.post("/fhir/$decide", json=parameters(INBOX, data)).json())
+    found = entries(client.post("/fhir/$decide", json=parameters(TRIAGE, data)).json())
     assert found["Task"]["for"] == found["GuidanceResponse"]["subject"] == {"reference": patient}
-    assert found["Task"]["focus"] == {"reference": "Communication/in-c1"}
+    assert found["Task"]["focus"] == {"reference": "Communication/tr-c1"}
 
 
 def test_references_use_the_full_urls_of_nested_search_bundles(client: TestClient) -> None:
     """A search Bundle in `data` is flattened, and its entries' full URLs (any base) count."""
-    data = load("inbox.json")
+    data = load("triage.json")
     base = "https://ehr.example.com/r4"
     search = {
         "resourceType": "Bundle",
@@ -278,21 +277,21 @@ def test_references_use_the_full_urls_of_nested_search_bundles(client: TestClien
         ],
     }
     nested = {"resourceType": "Bundle", "type": "collection", "entry": [{"resource": search}]}
-    task = entries(client.post("/fhir/$decide", json=parameters(INBOX, nested)).json())["Task"]
-    assert task["for"] == {"reference": f"{base}/Patient/in-p1"}
-    assert task["focus"] == {"reference": f"{base}/Communication/in-c1"}
+    task = entries(client.post("/fhir/$decide", json=parameters(TRIAGE, nested)).json())["Task"]
+    assert task["for"] == {"reference": f"{base}/Patient/tr-p1"}
+    assert task["focus"] == {"reference": f"{base}/Communication/tr-c1"}
 
 
 @pytest.mark.parametrize(
     ("body", "status", "code"),
     [
-        (load("inbox.json"), 400, "invalid"),  # a bare Bundle: use the /api route
+        (load("triage.json"), 400, "invalid"),  # a bare Bundle: use the /api route
         ([1, 2], 400, "structure"),  # not a JSON object: refused before $decide reads it
-        (parameters("mendari/nope", load("inbox.json")), 404, "not-found"),
-        (parameters(INBOX, load("inbox.json"), version="9.9.9"), 404, "not-found"),
-        (parameters(INBOX, load("inbox.json"), colour="blue"), 400, "not-supported"),
+        (parameters("mendari/nope", load("triage.json")), 404, "not-found"),
+        (parameters(TRIAGE, load("triage.json"), version="9.9.9"), 404, "not-found"),
+        (parameters(TRIAGE, load("triage.json"), colour="blue"), 400, "not-supported"),
         (
-            {"resourceType": "Parameters", "parameter": [{"name": "pack", "valueString": INBOX}]},
+            {"resourceType": "Parameters", "parameter": [{"name": "agent", "valueString": TRIAGE}]},
             400,
             "required",
         ),
@@ -300,9 +299,9 @@ def test_references_use_the_full_urls_of_nested_search_bundles(client: TestClien
             {
                 "resourceType": "Parameters",
                 "parameter": [
-                    {"name": "pack", "valueString": INBOX},
-                    {"name": "pack", "valueString": INBOX},
-                    {"name": "data", "resource": load("inbox.json")},
+                    {"name": "agent", "valueString": TRIAGE},
+                    {"name": "agent", "valueString": TRIAGE},
+                    {"name": "data", "resource": load("triage.json")},
                 ],
             },
             400,
@@ -312,7 +311,7 @@ def test_references_use_the_full_urls_of_nested_search_bundles(client: TestClien
             {
                 "resourceType": "Parameters",
                 "parameter": [
-                    {"name": "pack", "valueString": INBOX},
+                    {"name": "agent", "valueString": TRIAGE},
                     {"name": "data", "resource": {"resourceType": "Patient", "id": "p"}},
                 ],
             },
@@ -323,8 +322,8 @@ def test_references_use_the_full_urls_of_nested_search_bundles(client: TestClien
             {
                 "resourceType": "Parameters",
                 "parameter": [
-                    {"name": "pack", "valueInteger": 7},
-                    {"name": "data", "resource": load("inbox.json")},
+                    {"name": "agent", "valueInteger": 7},
+                    {"name": "data", "resource": load("triage.json")},
                 ],
             },
             400,
@@ -339,9 +338,9 @@ def test_bad_requests_are_operation_outcomes(
 
 
 def test_malformed_data_is_a_400_and_never_echoed(client: TestClient) -> None:
-    data = load("inbox.json")
+    data = load("triage.json")
     data["entry"][1]["resource"]["meta"] = "Synthetic secret"
-    response = client.post("/fhir/$decide", json=parameters(INBOX, data))
+    response = client.post("/fhir/$decide", json=parameters(TRIAGE, data))
     assert outcome_of(response, 400)[0]["code"] == "structure"
     assert "Synthetic secret" not in response.text
 
@@ -354,7 +353,7 @@ def test_the_operation_definition_is_served(client: TestClient) -> None:
     assert definition["system"] is True and definition["instance"] is False
     names = {(p["name"], p["use"]) for p in definition["parameter"]}
     assert names == {
-        ("pack", "in"),
+        ("agent", "in"),
         ("version", "in"),
         ("data", "in"),
         ("focus", "in"),
@@ -371,8 +370,8 @@ def test_audit_fhir_provenance_targets_the_decision() -> None:
         "seq": 1,
         "created_at": "2026-10-01T12:00:00+00:00",
         "payload": {},
-        "pack_id": INBOX,
-        "pack_version": "0.3.0",
+        "agent_id": TRIAGE,
+        "agent_version": "1.0.0",
         "record": {"input_hash": "hmac-sha256:0123456789abcdef:00"},
     }
     provenance = audit_fhir.provenance(event)
@@ -385,7 +384,8 @@ def test_audit_fhir_provenance_targets_the_decision() -> None:
         ("budget_exhausted", "throttled"),
         ("timeout", "timeout"),
         ("invalid_response", "exception"),
-        ("jev:budget_exhausted, rules:invalid_response", "throttled"),  # any_of, vote
+        # A composite's (`check`): each member that failed, as `member:code`.
+        ("agent:budget_exhausted, second:invalid_response", "throttled"),
         ("llm:timeout", "timeout"),
     ],
 )
@@ -393,8 +393,10 @@ def test_provider_failures_keep_their_kind(failure: str, issue: str) -> None:
     assert decide_op._provider_issue(failure) == issue
 
 
-def test_a_pack_without_fhir_input_is_a_422(client: TestClient) -> None:
-    response = client.post("/fhir/$decide", json=parameters("mendari/ai-guard", load("inbox.json")))
+def test_an_agent_without_fhir_input_is_a_422(client: TestClient) -> None:
+    """The clinical-review fixture reads a note as JSON only: it declares no FHIR mapping."""
+    clinical = parameters("mendari-test/clinical-review", load("triage.json"))
+    response = client.post("/fhir/$decide", json=clinical)
     assert outcome_of(response, 422)[0]["code"] == "processing"
 
 

@@ -270,10 +270,10 @@ def test_inferno_that_never_answers_fails_after_the_wait() -> None:
         session.wait_until_up()
 
 
-# -- the parts of a session, on a session tree of CRD's shape (nested groups) ------------------
+# -- the parts of a session, on a session tree of nested groups ---------------------------------
 
 TREE = {
-    "id": "crd_server_v221",
+    "id": "a_suite",
     "test_groups": [
         {"id": "g1", "short_id": "1", "tests": [{"id": "t1", "short_id": "1.01", "title": "a"}]},
         {
@@ -286,7 +286,7 @@ TREE = {
                     "inputs": [
                         {"name": "base_url"},
                         {"name": "manual_continuation", "default": "no"},
-                        {"name": "order_sign_service_ids"},
+                        {"name": "service_ids"},
                         {"name": "unknown_and_unheld"},
                     ],
                     "test_groups": [
@@ -308,7 +308,7 @@ TREE = {
                             "id": "t34",
                             "short_id": "3.4.02",
                             "title": "b",
-                            "verifies_requirements": ["hl7.fhir.us.davinci-crd_2.2.1@resp-1"],
+                            "verifies_requirements": ["example.guide_1.0.0@req-1"],
                         }
                     ],
                 }
@@ -323,7 +323,7 @@ def _tree_session(held: list[dict[str, str]] | None = None) -> Any:
         return httpx.Response(200, json=held or [])
 
     http = httpx.Client(base_url=driver.INFERNO, transport=httpx.MockTransport(answer))
-    session = driver.Session("crd_server_v221", http, sleep=lambda _s: None)
+    session = driver.Session("a_suite", http, sleep=lambda _s: None)
     session.id, session.tree = "s1", copy.deepcopy(TREE)
     return session
 
@@ -338,7 +338,7 @@ def test_a_nested_group_is_found_by_its_short_id_and_its_tests_listed_in_order()
             "id": "t34",
             "short_id": "3.4.02",
             "title": "b",
-            "requirements": ["hl7.fhir.us.davinci-crd_2.2.1@resp-1"],
+            "requirements": ["example.guide_1.0.0@req-1"],
         },
     ]
     assert session.runnables([]) == [session.tree]  # no group: the suite
@@ -350,23 +350,22 @@ def test_each_input_is_the_presets_else_the_sessions_else_its_default() -> None:
     """As Inferno's own command line fills a run's inputs: what the preset gives, else what the
     session holds (an earlier test's output), else the input's default; an input with none is
     not sent."""
-    session = _tree_session([{"name": "order_sign_service_ids", "value": "held"}])
+    session = _tree_session([{"name": "service_ids", "value": "held"}])
     group = session.runnables(["3.4"])[0]
     assert session.inputs_for(group, {"base_url": "http://engine-signin:8000"}) == [
         {"name": "base_url", "value": "http://engine-signin:8000"},
         {"name": "manual_continuation", "value": "no"},
-        {"name": "order_sign_service_ids", "value": "held"},
+        {"name": "service_ids", "value": "held"},
     ]
 
 
-def test_a_crd_hook_wait_gets_no_client_step() -> None:
-    """Inferno's own job calls the hooks and resumes the test: nothing runs in the engine."""
+def test_a_wait_the_driver_has_no_step_for_is_left_to_inferno() -> None:
+    """A test whose other side is Inferno's own job resumes by itself: nothing runs in the
+    engine."""
     engine = FakeEngine()
     session = _tree_session()
     session.engine = engine
-    session.client_step(
-        {"id": "r1", "test_id": "crd_server_v221-g34-crd_v221_server_invoke_hook_test"}, {}
-    )
+    session.client_step({"id": "r1", "test_id": "a_suite-g34-a_test_inferno_resumes"}, {})
     assert engine.ran == [] and session.problems == []
 
 

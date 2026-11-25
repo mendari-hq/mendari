@@ -20,7 +20,7 @@ import pytest
 import yaml
 
 from mendari.cli import _command, build_parser, main
-from mendari.core.pack import load_pack
+from mendari.core.agent import load_agent
 from mendari.evals import resolve_dataset
 from mendari.evals.gate import Limits
 from tests.conftest import DEMO_AGENT_DIR, ROOT
@@ -82,8 +82,7 @@ def test_it_is_a_composite_action_with_a_default_for_every_input() -> None:
     defaults = {name: given["default"] for name, given in held["inputs"].items()}
     assert defaults["agent"] == "." and defaults["dataset"] == "examples"
     assert defaults["python-version"] == "3.12" and defaults["baseline"] == ""
-    # By default no critical case may be automated, and nine in ten must be detected: what
-    # Mendari asks of a contributed agent too (community/check.py).
+    # By default no critical case may be automated, and nine in ten must be detected.
     assert defaults["min-critical-detection"] == "90%" and defaults["max-critical-misses"] == "0"
     assert defaults["min-accuracy"] == defaults["max-false-automation"] == ""
     # No target unless the workflow gives one: a recommendation is asked for, never assumed.
@@ -356,7 +355,7 @@ def test_a_use_within_its_limits_passes_and_writes_the_summary_and_the_result(
         "Critical misses: `urgent_symptoms=yes` cases automated, so no person read them (9): "
         "`demo-0002`" in summary
     )
-    dataset = resolve_dataset(load_pack(DEMO_AGENT_DIR), "test")
+    dataset = resolve_dataset(load_agent(DEMO_AGENT_DIR), "test")
     written = summary + run.log + (directory / "result.json").read_text()
     for record in dataset.records:
         assert record["input"]["message"]["body"] not in written, record["id"]

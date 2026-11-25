@@ -77,7 +77,7 @@ class OriginCheck:
     # The origins CDS clients registered (`CdsRegistry.origins`, LP-23c): pages there may call
     # `/cds-services` without a Mendari cookie.
     cds_origins: frozenset[str] = frozenset()
-    # The pack registry is mounted here (LP-19d): only then is `/registry/` a public route
+    # The agent registry is mounted here (LP-19d): only then is `/registry/` a public route
     # another site's page may read, as the guard reads it (`Auth.permission`).
     registry: bool = False
 

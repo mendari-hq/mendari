@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for the first-class AI agent provider (`providers/agent.py`) and `mendari new --agent`."""
+"""Tests for the first-class AI agent provider (`providers/agent.py`) and `mendari new`."""
 
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ import httpx
 import pytest
 import yaml
 
-from mendari import AuditStore, Decision, Pack, load_pack
+from mendari import Agent, AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core.origin import deployment_config
 from mendari.core.spec import Outcome, Question
-from mendari.errors import MendariError, PackValidationError, ProviderError
+from mendari.errors import AgentValidationError, MendariError, ProviderError
 from mendari.evals import evaluate, resolve_dataset
-from mendari.evals.pack_tests import run_pack_tests
+from mendari.evals.behaviour_tests import run_behaviour_tests
 from mendari.providers import (
     ENDPOINT_ENVS,
     MODEL_TYPES,
@@ -53,15 +53,15 @@ CANARY = "canary-agent-secret-token"
 
 
 @pytest.fixture
-def agent_pack_dir(tmp_path: Path) -> Path:
-    target = tmp_path / "agent-pack"
-    assert main(["new", str(target), "--agent", "--id", "clinic/agent-pack"]) == 0
+def http_agent_dir(tmp_path: Path) -> Path:
+    target = tmp_path / "http-agent"
+    assert main(["new", str(target), "--id", "clinic/http-agent"]) == 0
     return target
 
 
 @pytest.fixture
-def agent_pack(agent_pack_dir: Path) -> Pack:
-    return load_pack(agent_pack_dir)
+def http_agent(http_agent_dir: Path) -> Agent:
+    return load_agent(http_agent_dir)
 
 
 def agent_response(
@@ -85,7 +85,7 @@ def agent_response(
             },
         },
         "model": "claude-sonnet-4-20250514",
-        "agent_version": "2.1.0",
+        "service_version": "2.1.0",
         "tool_calls": [
             {"name": "ehr_medication_lookup", "status": "ok"},
             "red_flag_checker",
@@ -97,17 +97,17 @@ def agent_response(
 
 
 def make_agent_provider(
-    pack: Pack,
+    agent: Agent,
     handler: Any | None = None,
     **config_overrides: Any,
 ) -> AgentProvider:
-    slot = pack.manifest.providers["reader"]
+    slot = agent.manifest.providers["reader"]
     base = dict(slot.variants["agent"].model_extra or {})
     config = {"type": "agent", **base, **config_overrides}
     info = ProviderInfo(slot="reader", variant="agent", type="agent")
-    questions = {key: pack.manifest.questions[key] for key in slot.answers}
+    questions = {key: agent.manifest.questions[key] for key in slot.answers}
     client = httpx.Client(transport=httpx.MockTransport(handler)) if handler is not None else None
-    return AgentProvider(pack, info, questions, config, client=client)
+    return AgentProvider(agent, info, questions, config, client=client)
 
 
 # -- registry & test isolation --------------------------------------------------------------------
@@ -124,8 +124,8 @@ def test_agent_provider_is_registered_as_first_class_model_provider() -> None:
 # -- offline mock_file execution ------------------------------------------------------------------
 
 
-def test_offline_mock_file_answers_with_tool_calls_and_rationale(agent_pack: Pack) -> None:
-    provider = build_provider(agent_pack, "reader", "agent")
+def test_offline_mock_file_answers_with_tool_calls_and_rationale(http_agent: Agent) -> None:
+    provider = build_provider(http_agent, "reader", "agent")
     provider.preflight()
     output = provider.answer(message("Could you refill my lisinopril? I am running low."))
 
@@ -135,9 +135,9 @@ def test_offline_mock_file_answers_with_tool_calls_and_rationale(agent_pack: Pac
     assert sum(output.answers["request"].probabilities.values()) == pytest.approx(1.0)
     assert output.answers["urgent_symptoms"].label == "no"
     assert output.answers["request"].provider.model == "mock-portal-agent"
-    assert output.extra["agent_id"] == "starter-portal-agent"
+    assert output.extra["service_id"] == "starter-portal-agent"
     assert output.extra["model"] == "mock-portal-agent"
-    assert output.extra["agent_version"] == "0.1.0"
+    assert output.extra["service_version"] == "0.1.0"
     assert output.extra["mock_file"] == "fixtures/mock_agent.json"
     assert output.extra["tool_calls"] == [{"name": "intent_classifier", "status": "ok"}]
     assert "tool:intent_classifier" in output.answers["request"].evidence
@@ -146,9 +146,9 @@ def test_offline_mock_file_answers_with_tool_calls_and_rationale(agent_pack: Pac
 
 def test_offline_mock_file_supports_yaml_and_exact_input_match(tmp_path: Path) -> None:
     target = tmp_path / "yaml-agent"
-    assert main(["new", str(target), "--agent", "--id", "clinic/yaml-agent"]) == 0
+    assert main(["new", str(target), "--id", "clinic/yaml-agent"]) == 0
     yaml_mock = {
-        "agent_version": "1.0.0",
+        "service_version": "1.0.0",
         "cases": [
             {
                 "match": {"input": {"message": {"body": "exact match payload"}}},
@@ -173,8 +173,8 @@ def test_offline_mock_file_supports_yaml_and_exact_input_match(tmp_path: Path) -
     manifest["providers"]["reader"]["variants"]["agent"]["mock_file"] = "fixtures/mock_agent.yaml"
     (target / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
 
-    pack = load_pack(target)
-    provider = build_provider(pack, "reader", "agent")
+    agent = load_agent(target)
+    provider = build_provider(agent, "reader", "agent")
     matched = provider.answer(message("exact match payload"))
     assert matched.answers["request"].label == "appointment"
     assert matched.answers["urgent_symptoms"].label == "no"
@@ -187,9 +187,9 @@ def test_offline_mock_file_supports_yaml_and_exact_input_match(tmp_path: Path) -
 
 def test_offline_mock_file_respects_state_fields(tmp_path: Path) -> None:
     target = tmp_path / "filtered-mock"
-    assert main(["new", str(target), "--agent", "--id", "clinic/filtered-mock"]) == 0
-    pack = load_pack(target)
-    provider = build_provider(pack, "reader", "agent")
+    assert main(["new", str(target), "--id", "clinic/filtered-mock"]) == 0
+    agent = load_agent(target)
+    provider = build_provider(agent, "reader", "agent")
     # "chest pain" only appears in an unshared field outside `state_fields`
     output = provider.answer(
         {
@@ -205,7 +205,7 @@ def test_offline_mock_file_respects_state_fields(tmp_path: Path) -> None:
 
 
 def test_live_http_agent_request_contract_state_fields_and_metadata(
-    agent_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    http_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
     monkeypatch.setenv(TOKEN_ENV, "live-agent-secret")
@@ -218,7 +218,7 @@ def test_live_http_agent_request_contract_state_fields_and_metadata(
         return httpx.Response(200, json=agent_response())
 
     provider = make_agent_provider(
-        agent_pack,
+        http_agent,
         handler,
         instructions="Prioritize clinical safety over automation.",
     )
@@ -233,9 +233,9 @@ def test_live_http_agent_request_contract_state_fields_and_metadata(
     assert seen["url"] == AGENT_URL
     assert seen["auth"] == "Bearer live-agent-secret"
     body = seen["body"]
-    assert body["pack_id"] == "clinic/agent-pack"
+    assert body["agent_id"] == "clinic/http-agent"
     assert body["slot"] == "reader"
-    assert body["agent_id"] == "starter-portal-agent"
+    assert body["service_id"] == "starter-portal-agent"
     assert body["instructions"] == "Prioritize clinical safety over automation."
     assert "system_prompt" in body
     # Data minimization: `patient` is excluded by `state_fields: [message.subject, message.body]`
@@ -250,9 +250,9 @@ def test_live_http_agent_request_contract_state_fields_and_metadata(
     assert output.input_tokens == 240
     assert output.output_tokens == 55
     assert output.cost_usd == pytest.approx(0.0018)
-    assert output.extra["agent_id"] == "starter-portal-agent"
+    assert output.extra["service_id"] == "starter-portal-agent"
     assert output.extra["model"] == "claude-sonnet-4-20250514"
-    assert output.extra["agent_version"] == "2.1.0"
+    assert output.extra["service_version"] == "2.1.0"
     assert output.extra["tool_calls"] == [
         {"name": "ehr_medication_lookup", "status": "ok"},
         "red_flag_checker",
@@ -301,8 +301,8 @@ def test_live_agent_handles_boolean_and_score_questions_and_explicit_probabiliti
     assert expected_score == pytest.approx(0.15 * 1 + 0.8 * 2)
 
 
-def test_unconfigured_agent_without_mock_or_url_fails_preflight(agent_pack: Pack) -> None:
-    provider = make_agent_provider(agent_pack, mock_file=None)
+def test_unconfigured_agent_without_mock_or_url_fails_preflight(http_agent: Agent) -> None:
+    provider = make_agent_provider(http_agent, mock_file=None)
     with pytest.raises(ProviderError) as error:
         provider.preflight()
     assert error.value.code == "not_configured"
@@ -323,14 +323,14 @@ def test_unconfigured_agent_without_mock_or_url_fails_preflight(agent_pack: Pack
     ],
 )
 def test_agent_http_errors_raise_audit_safe_provider_error(
-    agent_pack: Pack, monkeypatch: pytest.MonkeyPatch, status: int, code: str
+    http_agent: Agent, monkeypatch: pytest.MonkeyPatch, status: int, code: str
 ) -> None:
     from mendari.providers import http
 
     monkeypatch.setattr(http, "_sleep", lambda _: None)
     monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
     provider = make_agent_provider(
-        agent_pack, lambda _: httpx.Response(status, text="leaked-secret-body")
+        http_agent, lambda _: httpx.Response(status, text="leaked-secret-body")
     )
     with pytest.raises(ProviderError) as error:
         provider.answer(message("hello"))
@@ -339,7 +339,7 @@ def test_agent_http_errors_raise_audit_safe_provider_error(
 
 
 def test_agent_timeout_and_deadline_fail_closed_in_decision_and_audit(
-    agent_pack: Pack, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    http_agent: Agent, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
 
@@ -351,7 +351,7 @@ def test_agent_timeout_and_deadline_fail_closed_in_decision_and_audit(
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", fake_handle)
     with AuditStore(tmp_path / "audit.db") as store:
-        decision = Decision(agent_pack, store=store)
+        decision = Decision(http_agent, store=store)
         result = decision.decide(message("Refill my lisinopril please."))
         assert result.outcome is Outcome.ABSTAIN
         assert result.recommendation is None
@@ -369,7 +369,7 @@ def test_agent_timeout_and_deadline_fail_closed_in_decision_and_audit(
         called = True
         return httpx.Response(200, json=agent_response())
 
-    provider = make_agent_provider(agent_pack, should_not_run)
+    provider = make_agent_provider(http_agent, should_not_run)
     with decision_deadline(0.0), pytest.raises(ProviderError) as error:
         provider.answer(message("hello"))
     assert error.value.code == "timeout"
@@ -377,7 +377,7 @@ def test_agent_timeout_and_deadline_fail_closed_in_decision_and_audit(
 
 
 def test_malformed_agent_output_fails_closed_in_decision(
-    agent_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    http_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
 
@@ -393,7 +393,7 @@ def test_malformed_agent_output_fails_closed_in_decision(
         )
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", bad_handler)
-    result = Decision(agent_pack).decide(message("Refill my metformin."))
+    result = Decision(http_agent).decide(message("Refill my metformin."))
     assert result.outcome is Outcome.ABSTAIN
     assert result.errors == {
         "request": "invalid_response",
@@ -423,7 +423,7 @@ def test_malformed_agent_output_fails_closed_in_decision(
         ),
         lambda b: b["answers"]["request"].update(rationale=123),
         lambda b: b.update(model="https://evil.test/model"),
-        lambda b: b.update(agent_version="bad version!"),
+        lambda b: b.update(service_version="bad version!"),
         lambda b: b.update(tool_calls="not-a-list"),
         lambda b: b.update(tool_calls=[123]),
         lambda b: b.update(usage={"input_tokens": -1, "output_tokens": 0}),
@@ -431,12 +431,12 @@ def test_malformed_agent_output_fails_closed_in_decision(
         lambda b: b.update(usage={"input_tokens": 1, "output_tokens": 1, "cost_usd": -0.5}),
     ],
 )
-def test_agent_response_validation_is_strict(agent_pack: Pack, mutate: Any) -> None:
+def test_agent_response_validation_is_strict(http_agent: Agent, mutate: Any) -> None:
     body = agent_response()
     mutate(body)
     questions = {
-        key: agent_pack.manifest.questions[key]
-        for key in agent_pack.manifest.providers["reader"].answers
+        key: http_agent.manifest.questions[key]
+        for key in http_agent.manifest.providers["reader"].answers
     }
     with pytest.raises(ProviderError) as error:
         validate_response(body, questions)
@@ -444,10 +444,10 @@ def test_agent_response_validation_is_strict(agent_pack: Pack, mutate: Any) -> N
 
 
 def test_agent_rejects_oversized_response(
-    agent_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    http_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
-    provider = make_agent_provider(agent_pack, lambda _: httpx.Response(200, content=b" " * 70_000))
+    provider = make_agent_provider(http_agent, lambda _: httpx.Response(200, content=b" " * 70_000))
     with pytest.raises(ProviderError) as error:
         provider.answer(message("hello"))
     assert error.value.code == "invalid_response"
@@ -457,23 +457,23 @@ def test_agent_rejects_oversized_response(
 
 
 def test_ssrf_and_provider_allowed_origins_enforced(
-    agent_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    http_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Plain HTTP to non-localhost is refused
     monkeypatch.setenv(ENDPOINT_ENV, "http://agent.test/v1/decide")
     with pytest.raises(ProviderError) as error:
-        make_agent_provider(agent_pack, lambda _: httpx.Response(200)).preflight()
+        make_agent_provider(http_agent, lambda _: httpx.Response(200)).preflight()
     assert error.value.code == "invalid_endpoint"
 
     # Credentials in URL are refused
     monkeypatch.setenv(ENDPOINT_ENV, "https://user:pass@agent.test/v1/decide")
     with pytest.raises(ProviderError) as error:
-        make_agent_provider(agent_pack, lambda _: httpx.Response(200)).preflight()
+        make_agent_provider(http_agent, lambda _: httpx.Response(200)).preflight()
     assert error.value.code == "invalid_endpoint"
 
     # Localhost HTTP is allowed (local agent server)
     monkeypatch.setenv(ENDPOINT_ENV, "http://127.0.0.1:8080/decide")
-    make_agent_provider(agent_pack, lambda _: httpx.Response(200)).preflight()
+    make_agent_provider(http_agent, lambda _: httpx.Response(200)).preflight()
 
     # MENDARI_PROVIDER_ALLOWED_ORIGINS enforced at startup (`provider_allow_list`) and call time
     monkeypatch.setenv(ENDPOINT_ENV, "https://blocked.test/v1/decide")
@@ -488,7 +488,7 @@ def test_ssrf_and_provider_allowed_origins_enforced(
         called = True
         return httpx.Response(200, json=agent_response())
 
-    provider = make_agent_provider(agent_pack, spy)
+    provider = make_agent_provider(http_agent, spy)
     with pytest.raises(ProviderError) as error:
         provider.answer(message("hello"))
     assert error.value.code == "invalid_endpoint"
@@ -501,11 +501,11 @@ def test_ssrf_and_provider_allowed_origins_enforced(
     assert out.answers["request"].label == "refill" and called
 
 
-def test_pack_endpoint_never_receives_deployment_agent_token(
-    agent_pack: Pack, monkeypatch: pytest.MonkeyPatch
+def test_agent_endpoint_never_receives_deployment_agent_token(
+    http_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Even on an owned pack, `MENDARI_AGENT_TOKEN` is only sent to `MENDARI_AGENT_URL`,
-    never to a pack-specified `endpoint`."""
+    """Even on an owned agent, `MENDARI_AGENT_TOKEN` is only sent to `MENDARI_AGENT_URL`,
+    never to an agent-specified `endpoint`."""
     monkeypatch.setenv(TOKEN_ENV, CANARY)
     monkeypatch.setenv(ENDPOINT_ENV, "https://deployment.test/decide")
     seen_headers: dict[str, str] = {}
@@ -515,7 +515,7 @@ def test_pack_endpoint_never_receives_deployment_agent_token(
         return httpx.Response(200, json=agent_response())
 
     provider = make_agent_provider(
-        agent_pack, handler, endpoint="https://custom-pack-agent.test/decide"
+        http_agent, handler, endpoint="https://custom-agent-agent.test/decide"
     )
     out = provider.answer(message("refill my pills"))
     assert out.answers["request"].label == "refill"
@@ -523,18 +523,18 @@ def test_pack_endpoint_never_receives_deployment_agent_token(
     assert CANARY not in json.dumps(seen_headers)
 
 
-def test_bounded_pack_cannot_set_endpoint_or_steal_agent_token(
-    agent_pack_dir: Path, monkeypatch: pytest.MonkeyPatch
+def test_bounded_agent_cannot_set_endpoint_or_steal_agent_token(
+    http_agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Untrusted/bounded packs cannot set `endpoint`, must declare `state_fields`, have
+    """Untrusted/bounded agents cannot set `endpoint`, must declare `state_fields`, have
     `timeout_seconds` capped, and can never exfiltrate `MENDARI_AGENT_TOKEN`."""
-    manifest = yaml.safe_load((agent_pack_dir / "agent.yaml").read_text())
+    manifest = yaml.safe_load((http_agent_dir / "agent.yaml").read_text())
     manifest["providers"]["reader"]["variants"]["agent"]["endpoint"] = "https://evil.test/steal"
-    (agent_pack_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (http_agent_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
 
-    # Refused at load for a bounded (hub) pack
-    with pytest.raises(PackValidationError, match="may not set endpoint"):
-        load_pack(agent_pack_dir, origin="hub")
+    # Refused at load for a bounded (hub) agent
+    with pytest.raises(AgentValidationError, match="may not set endpoint"):
+        load_agent(http_agent_dir, origin="hub")
 
     # `deployment_config` also strips `endpoint` and caps `timeout_seconds`
     cleaned = deployment_config(
@@ -548,62 +548,34 @@ def test_bounded_pack_cannot_set_endpoint_or_steal_agent_token(
     assert "endpoint" not in cleaned
     assert cleaned["timeout_seconds"] == 15.0
 
-    # Even if a bounded pack is loaded cleanly and run against deployment's MENDARI_AGENT_URL,
+    # Even if a bounded agent is loaded cleanly and run against deployment's MENDARI_AGENT_URL,
     # no request ever goes to evil.test
     manifest["providers"]["reader"]["variants"]["agent"].pop("endpoint")
-    (agent_pack_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    bounded_pack = load_pack(agent_pack_dir, origin="hub")
-    assert bounded_pack.bounded
+    (http_agent_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    bounded_agent = load_agent(http_agent_dir, origin="hub")
+    assert bounded_agent.bounded
 
-    # Direct constructor also refuses `endpoint` on bounded pack
-    with pytest.raises(PackValidationError, match="may not set endpoint"):
-        make_agent_provider(bounded_pack, endpoint="https://evil.test/steal")
+    # Direct constructor also refuses `endpoint` on bounded agent
+    with pytest.raises(AgentValidationError, match="may not set endpoint"):
+        make_agent_provider(bounded_agent, endpoint="https://evil.test/steal")
 
-    # Bounded pack without `state_fields` is refused at load
+    # Bounded agent without `state_fields` is refused at load
     manifest["providers"]["reader"]["variants"]["agent"].pop("state_fields")
-    (agent_pack_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    with pytest.raises(PackValidationError, match="must name its state_fields"):
-        load_pack(agent_pack_dir, origin="hub")
+    (http_agent_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    with pytest.raises(AgentValidationError, match="must name its state_fields"):
+        load_agent(http_agent_dir, origin="hub")
 
 
 @pytest.mark.parametrize("field", ["endpoint_env", "token_env", "api_key_env"])
-def test_agent_pack_may_not_choose_deployment_env_vars(agent_pack_dir: Path, field: str) -> None:
-    manifest = yaml.safe_load((agent_pack_dir / "agent.yaml").read_text())
-    manifest["providers"]["reader"]["variants"]["agent"][field] = "PACK_SAFETY_CANARY"
-    (agent_pack_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    with pytest.raises(PackValidationError, match=f"Remove: {field}"):
-        load_pack(agent_pack_dir)
+def test_http_agent_may_not_choose_deployment_env_vars(http_agent_dir: Path, field: str) -> None:
+    manifest = yaml.safe_load((http_agent_dir / "agent.yaml").read_text())
+    manifest["providers"]["reader"]["variants"]["agent"][field] = "AGENT_SAFETY_CANARY"
+    (http_agent_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    with pytest.raises(AgentValidationError, match=f"Remove: {field}"):
+        load_agent(http_agent_dir)
 
 
-# -- composites & end-to-end `mendari new --agent` ------------------------------------------------
-
-
-def test_agent_works_inside_composite_safety_screen(
-    agent_pack_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Wrap an external agent with deterministic keyword rules via `any_of`: if the agent fails,
-    the deterministic safety screen still escalates urgent symptoms and never automates."""
-    manifest = yaml.safe_load((agent_pack_dir / "agent.yaml").read_text())
-    manifest["providers"]["reader"]["variants"]["guarded"] = {
-        "type": "any_of",
-        "escalate": {"request": "other", "urgent_symptoms": "yes"},
-        "members": {
-            "rules": {"type": "rules", "config": "logic/rules.yaml"},
-            "agent": {
-                "type": "agent",
-                "agent_id": "triage-agent",
-                "state_fields": ["message.body"],
-                "mock_file": "fixtures/mock_agent.json",
-            },
-        },
-    }
-    (agent_pack_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    pack = load_pack(agent_pack_dir)
-    decision = Decision(pack, providers={"reader": "guarded"})
-    urgent = decision.decide(message("I have crushing chest pain right now."))
-    assert urgent.outcome is Outcome.HUMAN_REVIEW
-    assert urgent.priority.value == "urgent"
-    assert urgent.answers["urgent_symptoms"].label == "yes"
+# -- end-to-end `mendari new` ---------------------------------------------------------------------
 
 
 def test_mendari_new_agent_end_to_end_offline_and_live_switch(
@@ -615,7 +587,6 @@ def test_mendari_new_agent_end_to_end_offline_and_live_switch(
             [
                 "new",
                 str(target),
-                "--agent",
                 "--id",
                 "my-clinic/clinic-agent",
                 "--publisher",
@@ -627,7 +598,7 @@ def test_mendari_new_agent_end_to_end_offline_and_live_switch(
 
     # 1. Offline: validate, test, eval (agent + rules comparison) all pass with zero sockets
     def no_socket(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("offline agent pack must not open a network socket")
+        raise AssertionError("offline agent must not open a network socket")
 
     monkeypatch.setattr(socket.socket, "connect", no_socket)
     assert main(["validate", str(target)]) == 0
@@ -635,14 +606,14 @@ def test_mendari_new_agent_end_to_end_offline_and_live_switch(
     assert main(["eval", str(target), "--dataset", "examples"]) == 0
     assert main(["eval", str(target), "--dataset", "examples", "--provider", "reader=rules"]) == 0
 
-    pack = load_pack(target)
-    decision = Decision(pack)
-    assert all(outcome.passed for outcome in run_pack_tests(decision))
-    report = evaluate(decision, resolve_dataset(pack, "examples"))
+    agent = load_agent(target)
+    decision = Decision(agent)
+    assert all(outcome.passed for outcome in run_behaviour_tests(decision))
+    report = evaluate(decision, resolve_dataset(agent, "examples"))
     assert report["questions"]["request"]["accuracy"] == 1.0
     assert report["questions"]["urgent_symptoms"]["accuracy"] == 1.0
 
-    # 2. Setting MENDARI_AGENT_URL switches the exact same pack to the live external agent
+    # 2. Setting MENDARI_AGENT_URL switches the exact same agent to its live service
     monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
     monkeypatch.setenv(TOKEN_ENV, "prod-token")
     live_calls: list[httpx.Request] = []
@@ -666,13 +637,13 @@ def test_the_landing_pages_example_is_the_demo_agents_decision() -> None:
     """The public page's example decision and the demo agent's figure (web/index.html) are typed
     in by hand: the page names the bundled agent's current version, and shows what that version
     decides on the message and how many of its bundled examples it gets right."""
-    pack = load_pack(ROOT / "agents" / "portal-message-agent")
-    decision = Decision(pack)
+    agent = load_agent(ROOT / "agents" / "portal-message-agent")
+    decision = Decision(agent)
     site = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     figure = site[site.index('<figure class="decision"') : site.index("</figure>")]
     named = re.search(r"mendari/portal-message-agent (\S+) · offline mock agent", figure)
-    assert pack.id == "mendari/portal-message-agent"
-    assert named is not None and named.group(1) == pack.version
+    assert agent.id == "mendari/portal-message-agent"
+    assert named is not None and named.group(1) == agent.version
     body = re.search(r"<blockquote>“(.+?)”</blockquote>", figure)
     assert body is not None
     shown = dict(re.findall(r"<div><dt>([\w ]+)</dt><dd>(\w+)</dd></div>", figure))
@@ -688,7 +659,7 @@ def test_the_landing_pages_example_is_the_demo_agents_decision() -> None:
     assert f"Confident ({result.confidence:.2f})" in figure
     assert result.rule == "same-day-symptoms"
 
-    right = evaluate(decision, resolve_dataset(pack, "examples"))["proportions"]["accuracy"]
+    right = evaluate(decision, resolve_dataset(agent, "examples"))["proportions"]["accuracy"]
     assert f'<span class="k">{right["k"]} / {right["n"]}</span>' in site
 
 
@@ -699,14 +670,14 @@ CANNED_REASON = "canned answers: MENDARI_AGENT_URL is not set; a person decides"
 
 
 def test_canned_answers_are_said_to_be_canned_and_live_ones_are_not(
-    agent_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    http_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv(ENDPOINT_ENV, raising=False)
     assert CANNED == "canned answers: MENDARI_AGENT_URL is not set"
-    assert make_agent_provider(agent_pack).answer(message("refill please")).canned == CANNED
+    assert make_agent_provider(http_agent).answer(message("refill please")).canned == CANNED
     monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
     live = make_agent_provider(
-        agent_pack, lambda request: httpx.Response(200, json=agent_response())
+        http_agent, lambda request: httpx.Response(200, json=agent_response())
     )
     assert live.answer(message("refill please")).canned is None
 
@@ -717,17 +688,17 @@ def test_with_the_canned_cap_the_demo_agents_routine_refill_goes_to_a_person(
     """The cap only lowers automation: the same answers, recommendation and priority, with the
     reason; without it (`mendari demo`, tests, open mode) the refill is AUTO as before."""
     monkeypatch.delenv(ENDPOINT_ENV, raising=False)
-    pack = load_pack(DEMO_AGENT_DIR)
-    before = Decision(pack).decide(REFILL)
+    agent = load_agent(DEMO_AGENT_DIR)
+    before = Decision(agent).decide(REFILL)
     assert before.outcome is Outcome.AUTO and CANNED_REASON not in before.reasons
-    capped = Decision(pack, canned_cap=True).decide(REFILL)
+    capped = Decision(agent, canned_cap=True).decide(REFILL)
     assert capped.outcome is Outcome.HUMAN_REVIEW
     assert capped.recommendation == before.recommendation == "refill"
     assert capped.priority == before.priority
     assert capped.reasons == (*before.reasons, CANNED_REASON)
     # Already going to a person: the outcome is the rule's, and the reason says it is canned.
     urgent = message("Please refill my inhaler. Also I have had chest pain since last night.")
-    review = Decision(pack, canned_cap=True).decide(urgent)
+    review = Decision(agent, canned_cap=True).decide(urgent)
     assert review.outcome is Outcome.HUMAN_REVIEW and review.rule == "same-day-symptoms"
     assert review.reasons[-1] == CANNED_REASON
 
@@ -737,7 +708,7 @@ def test_with_the_canned_cap_a_live_agent_still_automates(monkeypatch: pytest.Mo
     monkeypatch.setattr(
         "mendari.providers.agent.post_json", lambda *args, **kwargs: agent_response()
     )
-    result = Decision(load_pack(DEMO_AGENT_DIR), canned_cap=True).decide(REFILL)
+    result = Decision(load_agent(DEMO_AGENT_DIR), canned_cap=True).decide(REFILL)
     assert result.outcome is Outcome.AUTO and result.recommendation == "refill"
     assert not any(reason.startswith("canned answers") for reason in result.reasons)
 
@@ -754,16 +725,16 @@ def test_a_server_with_sign_in_never_automates_on_canned_answers(
     from tests.conftest import DASHBOARD
 
     monkeypatch.delenv(ENDPOINT_ENV, raising=False)
-    route = "/api/packs/mendari/portal-message-agent/decide"
+    route = "/api/agents/mendari/portal-message-agent/decide"
     agents = [ROOT / "agents"]
-    open_mode = TestClient(create_app(db_path=tmp_path / "open.db", packs_paths=agents))
+    open_mode = TestClient(create_app(db_path=tmp_path / "open.db", agents_paths=agents))
     assert open_mode.post(route, json=REFILL).json()["outcome"] == "AUTO"
 
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-tests")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     db = tmp_path / "signed.db"
-    app = create_app(db_path=db, packs_paths=agents)
+    app = create_app(db_path=db, agents_paths=agents)
     with encrypted_store(db) as served:
         headers = signed_in(served, role="reviewer")
     client = TestClient(app, base_url="https://mendari.test", headers=DASHBOARD)

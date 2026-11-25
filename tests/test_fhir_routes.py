@@ -26,7 +26,10 @@ from mendari.standards.fhir import DECISION_ID_SYSTEM
 from tests.conftest import HASH_KEY_B64, encrypt_mode, signed_in
 from tests.test_fhir_structure import load_script
 
-INBOX = "mendari/patient-inbox-router"
+TRIAGE = "mendari-test/triage"
+# The triage fixture automates only while its screen runs an agent: here its canned one, which a
+# server without sign-in may automate on.
+SCREEN_AGENT = {"screen": "agent"}
 SERVER = "https://mendari.test"
 BASE = f"{SERVER}/fhir"
 FORM = {"content-type": "application/x-www-form-urlencoded"}
@@ -34,9 +37,9 @@ SECRET = "Synthetic secret: crushing chest pain since noon"
 
 
 @pytest.fixture
-def client(db_target: str, screened: dict[str, str]) -> Iterator[TestClient]:
-    """Routine messages are automated: the urgency screen runs with a fake Jev."""
-    app = create_app(db_path=db_target, providers=screened)
+def client(db_target: str) -> Iterator[TestClient]:
+    """Routine messages are automated: the screen runs the triage fixture's canned agent."""
+    app = create_app(db_path=db_target, providers=SCREEN_AGENT)
     with TestClient(app, base_url=SERVER) as test_client:
         yield test_client
 
@@ -50,7 +53,7 @@ def ok(response: Any) -> Any:
 
 def decide(client: TestClient, body: str, headers: dict[str, str] | None = None) -> str:
     answer = client.post(
-        f"/api/packs/{INBOX}/decide", json={"message": {"body": body}}, headers=headers
+        f"/api/agents/{TRIAGE}/decide", json={"message": {"body": body}}, headers=headers
     )
     assert answer.status_code == 200, answer.text
     return str(answer.json()["id"])
@@ -60,7 +63,7 @@ def reviewed(client: TestClient, headers: dict[str, str] | None = None) -> str:
     """A decision with three Task versions: made, overridden in review, rated (no version),
     then given what really happened downstream."""
     decision = decide(client, SECRET, headers)
-    review = {"final_label": "physician", "reviewer": "rn-1", "note": "note: " + SECRET}
+    review = {"final_label": "billing", "reviewer": "rn-1", "note": "note: " + SECRET}
     calls = [
         (f"/api/review/{decision}", review),
         (f"/api/audit/{decision}/feedback", {"rating": "up", "note": SECRET}),
@@ -467,9 +470,8 @@ def test_a_policy_block_without_confidence_is_completed_not_failed(
     client: TestClient, db_target: str
 ) -> None:
     """Only a refused input is `failed`. A BLOCK rule on another question can leave the primary
-    unanswered (no confidence); the stored `refused` flag tells the two apart, and rows from
-    before the flag fall back to "BLOCK without confidence"."""
-    decision = Decision.from_hub(INBOX)
+    unanswered (no confidence); the stored `refused` flag tells the two apart."""
+    decision = Decision.from_hub(TRIAGE)
     made = decision({"message": {"body": "Can you send a refill for metformin?"}})
     others = {k: v for k, v in made.answers.items() if k != made.primary}
     policy = replace(
@@ -484,6 +486,3 @@ def test_a_policy_block_without_confidence_is_completed_not_failed(
     assert ok(client.get(f"/fhir/Task/{refused.id}"))["status"] == "failed"
     found = ok(client.get("/fhir/Task", params={"status": "failed"}))
     assert [e["resource"]["id"] for e in found["entry"]] == [refused.id]
-    with AuditStore(db_target) as store, store._db.session(exclusive=True) as db:
-        db.all("UPDATE decisions SET refused = NULL")  # as written before the column
-    assert ok(client.get(f"/fhir/Task/{refused.id}"))["status"] == "failed"

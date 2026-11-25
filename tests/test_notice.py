@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import Decision, Pack, notices
+from mendari import Agent, Decision, notices
 from mendari.core.audit import AuditStore
 from mendari.core.card import render_card
 from mendari.core.registry import discover
@@ -20,11 +20,11 @@ from mendari.server.app import create_app
 from mendari.server.smart_routes import error_page
 from mendari.standards import cds_hooks
 from tests.conftest import ROOT, encrypt_mode, message, signed_in
-from tests.test_fhir import COMMUNICATION, PATIENT
+from tests.support.platform import COMMUNICATION, PATIENT, TRIAGE
 
-INBOX = "mendari/patient-inbox-router"
+INBOX = TRIAGE  # the agent these tests decide with
 REFILL = "Hi, I need a refill on my lisinopril. Thanks"
-REFERENCE = sorted((p for p in discover().packs if p.origin == "maintained"), key=lambda p: p.id)
+REFERENCE = sorted((p for p in discover().agents if p.origin == "maintained"), key=lambda p: p.id)
 
 
 @pytest.fixture
@@ -54,17 +54,17 @@ def test_the_hub_says_the_same_words() -> None:
     assert notices.NOTICE in (ROOT / "hub" / "app" / "layout.tsx").read_text()
 
 
-@pytest.mark.parametrize("pack", REFERENCE, ids=lambda p: p.id)
-def test_every_decision_card_carries_it(pack: Pack) -> None:
-    for card in (render_card(pack), (pack.root / "DECISION_CARD.md").read_text()):
+@pytest.mark.parametrize("agent", REFERENCE, ids=lambda p: p.id)
+def test_every_decision_card_carries_it(agent: Agent) -> None:
+    for card in (render_card(agent), (agent.root / "DECISION_CARD.md").read_text()):
         assert card.splitlines()[4] == f"*{notices.NOTICE}*"
 
 
-def test_cds_hooks_carry_it(router: Decision) -> None:
-    service = cds_hooks.discovery([router.pack])["services"][0]
+def test_cds_hooks_carry_it(triage: Decision) -> None:
+    service = cds_hooks.discovery([triage.agent])["services"][0]
     assert notices.NOTICE in service["usageRequirements"]
     response = cds_hooks.invoke(
-        router,
+        triage,
         {
             "hook": "mendari-message-received",
             "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
@@ -76,11 +76,8 @@ def test_cds_hooks_carry_it(router: Decision) -> None:
 
 
 def test_every_decide_answer_carries_it(open_client: TestClient) -> None:
-    decided = open_client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL)).json()
+    decided = open_client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL)).json()
     assert decided["notice"] == notices.notice() and decided["outcome"]
-    draft = open_client.get("/api/packs/mendari/ai-guard/examples").json()[0]["input"]
-    checked = open_client.post("/api/packs/mendari/ai-guard/guard", json=draft).json()
-    assert checked["notice"] == notices.notice() and checked["status"]
 
 
 def test_the_notice_says_what_the_plan_requires() -> None:
@@ -115,14 +112,13 @@ def test_a_signed_in_person_acknowledges_before_deciding(
     asked = client.get("/api/notice", headers=reviewer).json()
     assert asked["required"] is True and asked["acknowledged"] is False
     assert asked["text"] == notices.NOTICE and asked["acknowledgement"] == notices.ACKNOWLEDGEMENT
-    refused = client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL), headers=reviewer)
+    refused = client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL), headers=reviewer)
     assert refused.status_code == 403 and refused.json()["error"] == "NoticeNotAcknowledged"
     assert refused.headers["Mendari-Notice-Required"] == notices.VERSION
     assert "WWW-Authenticate" not in refused.headers  # not a sign-in challenge
     # Every route that takes data in from a person: deciding, reviewing, feedback.
     for path in (
-        f"/api/packs/{INBOX}/fhir/decide",
-        f"/api/packs/{INBOX}/guard",
+        f"/api/agents/{INBOX}/fhir/decide",
         "/api/review/any",
         "/api/audit/any/feedback",
     ):
@@ -132,7 +128,7 @@ def test_a_signed_in_person_acknowledges_before_deciding(
         done = client.post("/api/notice/acknowledge", headers=reviewer).json()
         assert done["acknowledged"] is True
     assert client.get("/api/notice", headers=reviewer).json()["acknowledged"] is True
-    decided = client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL), headers=reviewer)
+    decided = client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL), headers=reviewer)
     assert decided.status_code == 200, decided.text
 
     events = _events(store)
@@ -159,7 +155,7 @@ def test_a_new_notice_version_asks_again(
     client.post("/api/notice/acknowledge", headers=reviewer)
     monkeypatch.setattr(notices, "VERSION", "2")
     assert client.get("/api/notice", headers=reviewer).json()["acknowledged"] is False
-    refused = client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL), headers=reviewer)
+    refused = client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL), headers=reviewer)
     assert refused.status_code == 403
 
 
@@ -188,7 +184,7 @@ def test_keys_are_never_asked(signed_in_app: tuple[TestClient, AuditStore]) -> N
     client, store = signed_in_app
     key = store.create_api_key(name="svc", role="service", org="default", created_by="t")["key"]
     machine = {"authorization": f"Bearer {key}"}
-    decided = client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL), headers=machine)
+    decided = client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL), headers=machine)
     assert decided.status_code == 200
 
 
@@ -196,7 +192,7 @@ def test_open_mode_is_never_asked(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "required")
     client = TestClient(create_app(db_path=tmp_path / "o.db"))  # no sign-in: a local sandbox
     assert client.get("/api/notice").json()["required"] is False
-    assert client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL)).status_code == 200
+    assert client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL)).status_code == 200
 
 
 def test_a_bad_setting_fails_at_startup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

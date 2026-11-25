@@ -38,7 +38,12 @@ LEAKS = [
     "notes/vision-audit.md",
     ".github/workflows/ci.yml",
 ]
-CLEAN = ["mendari/__init__.py", "mendari/_packs/referral-router/pack.yaml", "LICENSE", "NOTICE"]
+CLEAN = [
+    "mendari/__init__.py",
+    "mendari/_agents/portal-message-agent/agent.yaml",
+    "LICENSE",
+    "NOTICE",
+]
 
 
 def tar(path: Path, names: list[str]) -> Path:
@@ -75,7 +80,7 @@ BUILDERS = {
 @pytest.mark.parametrize("kind", BUILDERS)
 @pytest.mark.parametrize("leak", LEAKS)
 def test_each_excluded_path_is_refused_at_any_depth(tmp_path: Path, kind: str, leak: str) -> None:
-    for depth, where in enumerate((leak, f"mendari/_packs/referral-router/{leak}")):
+    for depth, where in enumerate((leak, f"mendari/_agents/portal-message-agent/{leak}")):
         (tmp_path / str(depth)).mkdir()
         built = BUILDERS[kind](tmp_path / str(depth), [*CLEAN, where])
         found = check.excluded(check.members(built))

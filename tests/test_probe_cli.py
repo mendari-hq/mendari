@@ -12,11 +12,11 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari import Decision, cli, load_pack
+from mendari import Decision, cli, load_agent
 from mendari.cli import GROUPS, build_parser, main
-from mendari.core.pack import pack_digest
+from mendari.core.agent import agent_digest
 from mendari.evals import probe, probe_report
-from mendari.evals.pack_tests import PROBE_TESTS, PROBE_UNCONFIRMED
+from mendari.evals.behaviour_tests import PROBE_TESTS, PROBE_UNCONFIRMED
 from mendari.evals.probe import Options
 from tests.conftest import DEMO_AGENT_DIR
 from tests.probe_agents import CASES, build_agent, write_rules
@@ -25,9 +25,9 @@ from tests.test_probe import CANNED_BY_KEYWORD, GIVEN, agent_variant
 
 @pytest.fixture(autouse=True)
 def _the_bundled_agent_is_as_it_was() -> Iterator[None]:
-    before = pack_digest(DEMO_AGENT_DIR)
+    before = agent_digest(DEMO_AGENT_DIR)
     yield
-    assert pack_digest(DEMO_AGENT_DIR) == before, "a test changed agents/portal-message-agent"
+    assert agent_digest(DEMO_AGENT_DIR) == before, "a test changed agents/portal-message-agent"
 
 
 @pytest.fixture
@@ -44,9 +44,9 @@ def ran(capsys: pytest.CaptureFixture[str], *argv: Any) -> tuple[int, str, str]:
 
 def expected(root: Path, *names: str, **options: Any) -> dict[str, Any]:
     """The report the library gives for the same probe."""
-    pack = load_pack(root)
+    agent = load_agent(root)
     chosen = Options(transformations=names, **options) if names else Options(**options)
-    planned = probe.plan(Decision(pack, origin_cap=False), probe.source(pack), chosen)
+    planned = probe.plan(Decision(agent, origin_cap=False), probe.source(agent), chosen)
     return probe.run(planned).report
 
 
@@ -56,12 +56,12 @@ def expected(root: Path, *names: str, **options: Any) -> dict[str, Any]:
 def test_probe_prints_the_report_and_changes_nothing(
     agent: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    before = pack_digest(agent)
+    before = agent_digest(agent)
     code, out, err = ran(capsys, agent)
     assert (code, err) == (0, "")  # a report only: findings do not fail it unless asked
     assert out == probe_report.text(expected(agent)) + "\n"
     assert out.splitlines()[-1].startswith("Verdict: not ready. ")
-    assert pack_digest(agent) == before and not (agent / PROBE_TESTS).exists()
+    assert agent_digest(agent) == before and not (agent / PROBE_TESTS).exists()
 
 
 @pytest.mark.parametrize(

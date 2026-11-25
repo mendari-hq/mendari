@@ -116,7 +116,7 @@ def test_a_key_s_scopes_must_be_usable_by_its_role(role: str, scope: str, refuse
 
 def test_a_grant_stands_for_permissions() -> None:
     assert parse("system/Task.r").permissions == {"read"}
-    assert parse(DECIDE).permissions == {"decide", "discover"}  # deciding finds the packs
+    assert parse(DECIDE).permissions == {"decide", "discover"}  # deciding finds the agents
     assert parse(f"{OUTCOME} system/CodeSystem.s").permissions == {"outcome", "read"}
 
 
@@ -167,16 +167,13 @@ def test_a_token_gets_what_it_asked_within_what_its_client_registered() -> None:
         ("GET", "/fhir/Task/_search", None),
         ("POST", "/fhir/$decide", DECIDE),
         ("GET", "/fhir/$decide", None),
-        ("POST", "/fhir/Questionnaire/$questionnaire-package", DECIDE),
-        ("POST", "/api/packs/a/b/decide", DECIDE),
-        ("POST", "/api/packs/a/b/guard", DECIDE),
-        ("POST", "/api/packs/a/b/fhir/decide", DECIDE),
-        ("POST", "/api/packs/a/b/pas", DECIDE),
-        ("POST", "/api/packs/a/b/evals", None),
+        ("POST", "/api/agents/a/b/decide", DECIDE),
+        ("POST", "/api/agents/a/b/fhir/decide", DECIDE),
+        ("POST", "/api/agents/a/b/evals", None),
         ("POST", "/cds-services/triage", DECIDE),
         ("GET", "/cds-services", DECIDE),  # the lists to decide from (ADR-0004 as amended)
-        ("GET", "/api/packs", DECIDE),
-        ("GET", "/api/packs/a/b", None),  # a pack's detail: no scope reaches it
+        ("GET", "/api/agents", DECIDE),
+        ("GET", "/api/agents/a/b", None),  # an agent's detail: no scope reaches it
         ("POST", "/api/audit/d1/outcome", OUTCOME),
         ("POST", "/api/audit/d1/feedback", None),
         ("GET", "/api/audit", None),

@@ -9,13 +9,13 @@ readinessProbe call:
 - **the database**: one read of the chain's table (`AuditStore.ping`), `ok`, or `unreachable`
   whatever failed (a refused connection, a file that is not the database, no answer within
   READY_TIMEOUT_S);
-- **the packs**: what start-up found, never rebuilt: `ok`; `degraded` when a pack did not load,
+- **the agents**: what start-up found, never rebuilt: `ok`; `degraded` when an agent did not load,
   build or get its terminology (signed-in `/api/health` lists it under `invalid`); `none` when
-  no pack is served.
+  no agent is served.
 
-`503` with `status: "unready"` when the database fails or no pack is served; otherwise `200`,
+`503` with `status: "unready"` when the database fails or no agent is served; otherwise `200`,
 `ready` or `degraded`. The answer holds fixed codes and the version only: no error text (a
-driver's message can name a host or a user), no pack ids, no counts.
+driver's message can name a host or a user), no agent ids, no counts.
 
 **Bounded, whoever asks.** An instance checks at most once every READY_SECONDS and keeps the
 answer, a failure too. The read runs in a thread of its own, waited for at most
@@ -45,13 +45,13 @@ READY_SECONDS = 5.0
 READY_TIMEOUT_S = 3.0
 _MARGIN_S = 0.5  # beyond the read's own timeout, for the thread to report it
 
-Packs = Literal["ok", "degraded", "none"]
+Agents = Literal["ok", "degraded", "none"]
 ready_logger = logging.getLogger("mendari.ready")
 
 
-def packs_state(*, built: int, problems: int) -> Packs:
-    """What readiness says of the packs, from start-up: `built` packs serve, `problems` are
-    what signed-in health lists under `invalid` (a pack that did not load, build or get its
+def agents_state(*, built: int, problems: int) -> Agents:
+    """What readiness says of the agents, from start-up: `built` agents serve, `problems` are
+    what signed-in health lists under `invalid` (an agent that did not load, build or get its
     terminology)."""
     if built == 0:
         return "none"
@@ -67,9 +67,9 @@ class Answer:
 class Readiness:
     """The cached, bounded check; `ping(timeout_s)` raises when the database does not answer."""
 
-    def __init__(self, ping: Callable[[float], None], packs: Packs):
+    def __init__(self, ping: Callable[[float], None], agents: Agents):
         self._ping = ping
-        self._packs = packs
+        self._agents = agents
         self._lock = threading.Lock()  # held by the one caller running a check
         self._last: tuple[float, Answer] | None = None
         self._reading: threading.Thread | None = None  # a read that outlived its wait
@@ -126,8 +126,8 @@ class Readiness:
         return "unreachable"
 
     def _answer(self, database: str) -> Answer:
-        unready = database != "ok" or self._packs == "none"
-        status = "unready" if unready else "degraded" if self._packs == "degraded" else "ready"
-        checks = {"database": database, "packs": self._packs}
+        unready = database != "ok" or self._agents == "none"
+        status = "unready" if unready else "degraded" if self._agents == "degraded" else "ready"
+        checks = {"database": database, "agents": self._agents}
         body = {"status": status, "version": __version__, "checks": checks}
         return Answer(503 if unready else 200, body)

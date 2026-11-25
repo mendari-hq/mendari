@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Hostile or malformed manifests are refused as the agent's problem, named so its author can act,
-never with a raw error or a stall (`core/pack.py`, `core/spec.py`, `core/patterns.py`)."""
+never with a raw error or a stall (`core/agent.py`, `core/spec.py`, `core/patterns.py`)."""
 
 from __future__ import annotations
 
@@ -12,17 +12,17 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari import load_pack
+from mendari import load_agent
 from mendari.core import patterns, re2_syntax
-from mendari.errors import PackValidationError
-from tests.conftest import INBOX_DIR
+from mendari.errors import AgentValidationError
+from tests.conftest import TRIAGE_DIR
 
 SCHEMA_LINE = "schema: schemas/input.schema.json"
 
 
 def _copy(tmp_path: Path) -> Path:
-    root = tmp_path / "pack"
-    shutil.copytree(INBOX_DIR, root)
+    root = tmp_path / "agent"
+    shutil.copytree(TRIAGE_DIR, root)
     return root
 
 
@@ -41,8 +41,8 @@ def _edit_manifest(root: Path, edit: Callable[[dict[str, Any]], None]) -> None:
 
 
 def _refused(root: Path) -> list[str]:
-    with pytest.raises(PackValidationError) as caught:
-        load_pack(root)
+    with pytest.raises(AgentValidationError) as caught:
+        load_agent(root)
     return caught.value.problems
 
 
@@ -56,13 +56,6 @@ def test_a_manifest_path_holding_a_nul_is_refused_naming_its_field(tmp_path: Pat
         "inputs.schema: path 'schemas/in\\x00put.schema.json' is not a path a file can have "
         "(ValueError)"
     ]
-
-
-def test_a_policy_path_holding_a_nul_is_refused_naming_its_field(tmp_path: Path) -> None:
-    root = _copy(tmp_path)
-    _replace(root, "policy: policy.yaml", 'policy: "policy\\0.yaml"')
-    (problem,) = _refused(root)
-    assert problem.startswith("policy: path 'policy\\x00.yaml' is not a path a file can have")
 
 
 def test_a_manifest_path_too_long_for_the_filesystem_is_refused_shortened(
@@ -92,7 +85,6 @@ def test_a_question_whose_criteria_or_levels_are_not_a_mapping_is_named(
     root = _copy(tmp_path)
 
     def edit(raw: dict[str, Any]) -> None:
-        raw["spec_version"] = "0.2"
         raw["questions"]["extra"] = question
         raw["providers"]["router"]["answers"].append("extra")
 
@@ -109,7 +101,7 @@ def test_a_question_whose_criteria_or_levels_are_not_a_mapping_is_named(
 @pytest.mark.parametrize(
     "pattern", ["a{4294967294}", "(?:(?:(?:a{99999}){99999}){99999}){99999}", "a{1000001}"]
 )
-def test_a_community_pattern_past_re2s_size_is_refused_before_it_is_written_out(
+def test_a_bounded_pattern_past_re2s_size_is_refused_before_it_is_written_out(
     monkeypatch: pytest.MonkeyPatch, pattern: str
 ) -> None:
     """A count over RE2's 1,000 is written out as counts one after another, so these few
@@ -121,12 +113,12 @@ def test_a_community_pattern_past_re2s_size_is_refused_before_it_is_written_out(
     monkeypatch.setattr(re2_syntax, "translate", never)
     patterns._re2.cache_clear()
     try:
-        problem = patterns.problem(pattern, community=True)
+        problem = patterns.problem(pattern, bounded=True)
     finally:
         patterns._re2.cache_clear()
     assert problem is not None and problem.startswith("too large for RE2")
 
 
-def test_a_community_pattern_within_re2s_size_still_compiles() -> None:
-    assert patterns.problem("a{500000}", community=True) is None
+def test_a_bounded_pattern_within_re2s_size_still_compiles() -> None:
+    assert patterns.problem("a{500000}", bounded=True) is None
     assert re2_syntax.size("a{500000}") <= patterns.MAX_RE2_SIZE

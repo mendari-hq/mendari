@@ -5,13 +5,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"358\" height=\"20\" viewBox=\"0 0 358 20\" role=\"img\" aria-label=\"Mendari: evaluated, 600 synthetic cases, 0 critical automated\"><title>Mendari: evaluated, 600 synthetic cases, 0 critical automated</title><rect width=\"358\" height=\"20\" rx=\"3\" fill=\"#1d4ed8\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2069\" y=\"140\" transform=\"scale(.1)\" textLength=\"2896\">evaluated, 600 synthetic cases, 0 critical automated</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:6829383ef3d6970c39121e795a753823b013e26361b37e4d4be3af25c5d87a6f",
+     "digest": "sha256:d790927a6ec2b9f4a63ec544d2313bc73cfd015efa6b3e32771d5572c963ad6b",
      "name": "Fixture agent: clean",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -129,7 +129,7 @@
          },
          "primary": "request"
         },
-        "id": "95570b5f4520a9ebf9b39306730ceb62de5abfdc30bc56ce9503480a4109a640",
+        "id": "ce74fb1d5fc41bd5d9445fb820af9052424214636ba6afec0e972df106187ebc",
         "label": "reader=careful",
         "models": [
          "rules@efbe439fa104"
@@ -142,7 +142,7 @@
           "variant": "careful"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -187,10 +187,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -198,13 +198,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"481\" height=\"20\" viewBox=\"0 0 481 20\" role=\"img\" aria-label=\"Mendari: evaluated, 2 configurations, 600 synthetic cases, 0 to 9 critical automated\"><title>Mendari: evaluated, 2 configurations, 600 synthetic cases, 0 to 9 critical automated</title><rect width=\"481\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2683\" y=\"140\" transform=\"scale(.1)\" textLength=\"4124\">evaluated, 2 configurations, 600 synthetic cases, 0 to 9 critical automated</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:cf00392f9e28914b4eef8cdf4b045b76e357efa79d7eb6e4c3da3f255309b1c9",
+     "digest": "sha256:d5965d7522851a3d1aa4f9596a4d8eab8c061741fe111a55926249fc611857fe",
      "name": "Fixture agent: clear",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -215,7 +215,7 @@
     "datasets": [
      {
       "comparison": {
-       "best": "b33fb708078bd08a6cacaa98ae141d1e8c8500c18d2ab71de8492e0be02a6243",
+       "best": "0f6c04fdc23d5607cd5952ab5fd1ff2480462eeed23f1bd26a832585977434db",
        "decided_by": "critical_automated",
        "figures": {
         "first": {
@@ -231,9 +231,9 @@
          "n": 114
         }
        },
-       "first": "b33fb708078bd08a6cacaa98ae141d1e8c8500c18d2ab71de8492e0be02a6243",
+       "first": "0f6c04fdc23d5607cd5952ab5fd1ff2480462eeed23f1bd26a832585977434db",
        "first_band": [
-        "b33fb708078bd08a6cacaa98ae141d1e8c8500c18d2ab71de8492e0be02a6243"
+        "0f6c04fdc23d5607cd5952ab5fd1ff2480462eeed23f1bd26a832585977434db"
        ],
        "measures": [
         "critical_automated",
@@ -242,7 +242,7 @@
         "accuracy"
        ],
        "method": "mendari.rank/1",
-       "second": "16a2d13a8f4fb16ffd7c82085e5c739c953b7ad85ba5248f4e3b86da8b583247",
+       "second": "d65324fd3d35d4b91ad2b645d14f1e5b199cd972dc14d229756cb6d72104fe30",
        "separated": true,
        "status": "ordered",
        "tied": []
@@ -337,7 +337,7 @@
          },
          "primary": "request"
         },
-        "id": "b33fb708078bd08a6cacaa98ae141d1e8c8500c18d2ab71de8492e0be02a6243",
+        "id": "0f6c04fdc23d5607cd5952ab5fd1ff2480462eeed23f1bd26a832585977434db",
         "label": "reader=careful",
         "models": [
          "rules@efbe439fa104"
@@ -350,7 +350,7 @@
           "variant": "careful"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -451,7 +451,7 @@
          },
          "primary": "request"
         },
-        "id": "16a2d13a8f4fb16ffd7c82085e5c739c953b7ad85ba5248f4e3b86da8b583247",
+        "id": "d65324fd3d35d4b91ad2b645d14f1e5b199cd972dc14d229756cb6d72104fe30",
         "label": "reader=rules",
         "models": [
          "rules@33463eddba9c"
@@ -464,7 +464,7 @@
           "variant": "rules"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -509,10 +509,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -520,13 +520,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"358\" height=\"20\" viewBox=\"0 0 358 20\" role=\"img\" aria-label=\"Mendari: evaluated, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 600 synthetic cases, 9 critical automated</title><rect width=\"358\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2069\" y=\"140\" transform=\"scale(.1)\" textLength=\"2896\">evaluated, 600 synthetic cases, 9 critical automated</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:60515ba33274e90477c1594d21f9463ccfd1a851408aab1305fb8fe2b9ece2af",
+     "digest": "sha256:c9e1944b0d00cc8d890db4f41b51183ee7b9e305323808cf77ea61ec9ad34eb3",
      "name": "Fixture agent: failed",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -644,7 +644,7 @@
          },
          "primary": "request"
         },
-        "id": "119b2b811a37b14bf6362471b39325b64844bd705acc98f54213d79f4233281e",
+        "id": "ccc697bccd596ffe31cbeb30f94d9f9afb11f6a5e1b8b3a11e2127c05fb62cbf",
         "label": "reader=agent",
         "models": [
          "mock-portal-agent"
@@ -657,7 +657,7 @@
           "variant": "agent"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "calls_a_model",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -702,200 +702,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
-    }
-   }
-  },
-  "states/first-format": {
-   "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"358\" height=\"20\" viewBox=\"0 0 358 20\" role=\"img\" aria-label=\"Mendari: evaluated, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 600 synthetic cases, 9 critical automated</title><rect width=\"358\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2069\" y=\"140\" transform=\"scale(.1)\" textLength=\"2896\">evaluated, 600 synthetic cases, 9 critical automated</text></g></svg>",
-   "evaluation": {
-    "agent": {
-     "digest": "sha256:1650179787c0118921caccc2fc956e7eda725588af33fbb32844b61022029dea",
-     "name": "Fixture agent: first-format",
-     "primary": "request",
-     "published_at": "2026-11-23T11:00:00+00:00",
-     "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
-     "synthetic": true,
-     "version": "0.1.2"
-    },
-    "badge": {
-     "label": "Mendari",
-     "message": "evaluated, 600 synthetic cases, 9 critical automated",
-     "state": "evaluated",
-     "tone": "warn"
-    },
-    "datasets": [
-     {
-      "comparison": {
-       "best": null,
-       "decided_by": null,
-       "figures": null,
-       "first": null,
-       "first_band": [],
-       "measures": [
-        "critical_automated",
-        "critical_detection",
-        "false_automation",
-        "accuracy"
-       ],
-       "method": "mendari.rank/1",
-       "second": null,
-       "separated": null,
-       "status": "one_configuration",
-       "tied": []
-      },
-      "configurations": [
-       {
-        "claimed": {
-         "cost_usd_per_decision": 0.0062,
-         "latency_ms_p50": 1840.0,
-         "latency_ms_p95": 3920.5
-        },
-        "configuration": {
-         "reader": "agent"
-        },
-        "critical_automated": 9,
-        "critical_cases": 114,
-        "critical_missed": 33,
-        "engine": null,
-        "figures": {
-         "accuracy": {
-          "high": 0.9360585801779702,
-          "k": 549,
-          "low": 0.8897540169486022,
-          "n": 600
-         },
-         "critical": [
-          {
-           "automated": {
-            "high": 0.1445801219406786,
-            "k": 9,
-            "low": 0.036735306701181206,
-            "n": 114
-           },
-           "automated_misses": 9,
-           "detected": {
-            "high": 0.7916425715285965,
-            "k": 81,
-            "low": 0.6181437391142989,
-            "n": 114
-           },
-           "insufficient_evidence": false,
-           "label": "yes",
-           "question": "urgent_symptoms"
-          }
-         ],
-         "false_automation": {
-          "high": 0.028283028358010665,
-          "k": 9,
-          "low": 0.0068812945967882564,
-          "n": 600
-         },
-         "format": "mendari.figures/1",
-         "n": 600,
-         "outcomes": {
-          "ABSTAIN": {
-           "count": 0,
-           "share": {
-            "high": 0.006129271330669206,
-            "k": 0,
-            "low": 0.0,
-            "n": 600
-           }
-          },
-          "AUTO": {
-           "count": 326,
-           "share": {
-            "high": 0.5837255002508432,
-            "k": 326,
-            "low": 0.5025126722260347,
-            "n": 600
-           }
-          },
-          "BLOCK": {
-           "count": 0,
-           "share": {
-            "high": 0.006129271330669206,
-            "k": 0,
-            "low": 0.0,
-            "n": 600
-           }
-          },
-          "HUMAN_REVIEW": {
-           "count": 274,
-           "share": {
-            "high": 0.4974873277739653,
-            "k": 274,
-            "low": 0.4162744997491568,
-            "n": 600
-           }
-          }
-         },
-         "primary": "request"
-        },
-        "id": "fa01153592d4429702c2800a7a2d32893f233068031a7baaac4ab1925fad9538",
-        "label": "reader=agent",
-        "models": [
-         "mock-portal-agent"
-        ],
-        "position": null,
-        "providers": {
-         "reader": {
-          "model": "starter-portal-agent",
-          "type": "agent",
-          "variant": "agent"
-         }
-        },
-        "record_format": "mendari.publisher-evaluation/1",
-        "rerun": "calls_a_model",
-        "signed": {
-         "at": "2026-11-23T12:00:00Z",
-         "key_id": "ed25519:56475aa75463474c",
-         "verified": true
-        },
-        "tokens": {
-         "input": 0,
-         "output": 0
-        }
-       }
-      ],
-      "critical": [
-       {
-        "label": "yes",
-        "n": 114,
-        "question": "urgent_symptoms"
-       }
-      ],
-      "labelled_by": [],
-      "n": 600,
-      "name": "test",
-      "provenance": null,
-      "sha256": "f743f736e25621d3462663bd2f6b218b0b51cd8d042724cef127816a65812426"
-     }
-    ],
-    "format": "mendari.agent-evaluation/1",
-    "id": "states/first-format",
-    "links": {
-     "page": null
-    },
-    "not_shown": [],
-    "note": "The publisher's own evaluation, on a dataset it chose and published: a configuration can be tuned to it. It compares the configurations of one agent. It ranks no agent against another, and it is not evidence of how the agent does on a site's own cases.",
-    "publisher": {
-     "display_name": "States (synthetic)",
-     "namespace": "states",
-     "publisher_type": "verified"
-    },
-    "state": "evaluated",
-    "superseded": 0,
-    "versions": {
-     "evaluated": [
-      "0.1.2"
-     ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -903,13 +713,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"358\" height=\"20\" viewBox=\"0 0 358 20\" role=\"img\" aria-label=\"Mendari: evaluated, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 600 synthetic cases, 9 critical automated</title><rect width=\"358\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2069\" y=\"140\" transform=\"scale(.1)\" textLength=\"2896\">evaluated, 600 synthetic cases, 9 critical automated</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:cd69a18dcd85a115bb1fad4d2c541ac78e3000e57e5048f4230dcf47e622f908",
+     "digest": "sha256:ffa74fd2e6958e7b2e90a48a2a45d645943a9e1d2a6412aaa716f279e22839df",
      "name": "Hostile <script>window.__hostile = 5</script> Agent",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -1027,7 +837,7 @@
          },
          "primary": "request"
         },
-        "id": "188679da37047ec659aafc1c241d5f38dfb2d28cbf2cd4184b5571355f85761d",
+        "id": "7384d93757ac2ed65a6aed71fa27698d3ecd702a9948c04348ebf07f54a48709",
         "label": "reader=agent",
         "models": [
          "mock-portal-agent"
@@ -1040,7 +850,7 @@
           "variant": "agent"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "calls_a_model",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -1085,10 +895,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -1096,13 +906,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"455\" height=\"20\" viewBox=\"0 0 455 20\" role=\"img\" aria-label=\"Mendari: evaluated, 2 configurations, 300 synthetic cases, 7 critical automated\"><title>Mendari: evaluated, 2 configurations, 300 synthetic cases, 7 critical automated</title><rect width=\"455\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2554\" y=\"140\" transform=\"scale(.1)\" textLength=\"3866\">evaluated, 2 configurations, 300 synthetic cases, 7 critical automated</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:4c206ce554fd2c26969eddae0fe56dd9e931a9504de7cf6941e2479e61be71ca",
+     "digest": "sha256:5d44c73c448046c1909b1d235b9ffc33fb81dac254168fd91518f8788ea1f178",
      "name": "Fixture agent: insufficient",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -1220,7 +1030,7 @@
          },
          "primary": "request"
         },
-        "id": "3f76fecba7675f7786adc1419b1383c568b72ecf92588eef38c2d977010b4379",
+        "id": "3770cb813d28dae87b3754d0866a8a23f54759ecc62e7238cbefef9075c50b44",
         "label": "reader=agent",
         "models": [
          "mock-portal-agent"
@@ -1233,7 +1043,7 @@
           "variant": "agent"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "calls_a_model",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -1334,7 +1144,7 @@
          },
          "primary": "request"
         },
-        "id": "ccc173f9e718de390f679f492f002ecdfd3aa109f70e30f0e0c0924e5a47c649",
+        "id": "79db9aa1c951b25189f498237e717c135adba2fe1dd727ce77a73462a87458bb",
         "label": "reader=rules",
         "models": [
          "rules@33463eddba9c"
@@ -1347,7 +1157,7 @@
           "variant": "rules"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -1392,10 +1202,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -1403,13 +1213,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"337\" height=\"20\" viewBox=\"0 0 337 20\" role=\"img\" aria-label=\"Mendari: evaluated, 2 configurations, 600 synthetic cases\"><title>Mendari: evaluated, 2 configurations, 600 synthetic cases</title><rect width=\"337\" height=\"20\" rx=\"3\" fill=\"#1d4ed8\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"1962\" y=\"140\" transform=\"scale(.1)\" textLength=\"2682\">evaluated, 2 configurations, 600 synthetic cases</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:379cb84e6a27335c1862b7f332e9d5d1392e3133a8ae55aeecad6487d16f8fd6",
+     "digest": "sha256:ae911d4826b35bcc81f9504ccffe9b80e18bc896a5679c8b9f54a533ea04c603",
      "name": "Fixture agent: no-critical",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -1508,7 +1318,7 @@
          },
          "primary": "request"
         },
-        "id": "39c51af94a4ba26cd133fe75660085d172c5710eb143c8a1ae2e9cf8f02132c4",
+        "id": "a1b4c07011ae45fb85fdef04edf2d129657c4760b3af9fb304d72e2fe279cf24",
         "label": "reader=agent",
         "models": [
          "mock-portal-agent"
@@ -1521,7 +1331,7 @@
           "variant": "agent"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "calls_a_model",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -1603,7 +1413,7 @@
          },
          "primary": "request"
         },
-        "id": "4e73c50628600960414f2793db30eb6ac648ef03504497f7e9a25321c404889e",
+        "id": "f679d32977bd7ed71488b0da5cd538ee5b2a8516c55e3defadc68ee1604aeb4a",
         "label": "reader=rules",
         "models": [
          "rules@33463eddba9c"
@@ -1616,7 +1426,7 @@
           "variant": "rules"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -1655,10 +1465,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -1666,13 +1476,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"20\" viewBox=\"0 0 200 20\" role=\"img\" aria-label=\"Mendari: no evaluation published\"><title>Mendari: no evaluation published</title><rect width=\"200\" height=\"20\" rx=\"3\" fill=\"#64748b\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"1280\" y=\"140\" transform=\"scale(.1)\" textLength=\"1318\">no evaluation published</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:7eb3b2332b46194acf3c9830467e2c60df42314c35e1cde21132155c2ba983da",
+     "digest": "sha256:c318b13dd5e4b181192354757817cc5f3d20e5cc2ffc430b2bd4809f04c5815f",
      "name": "Fixture agent: none",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -1697,8 +1507,8 @@
     "superseded": 0,
     "versions": {
      "evaluated": [],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -1706,7 +1516,7 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"20\" viewBox=\"0 0 200 20\" role=\"img\" aria-label=\"Mendari: no evaluation published\"><title>Mendari: no evaluation published</title><rect width=\"200\" height=\"20\" rx=\"3\" fill=\"#64748b\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"1280\" y=\"140\" transform=\"scale(.1)\" textLength=\"1318\">no evaluation published</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:a91fa488d3885fcf8d8cd00779f8ce044f4d3c76fafb63a79f87aae011230a74",
+     "digest": "sha256:3b753ec5b0b4741f3cd73f8833b460bbebe0e070743fe32dad7a33fe33ea8910",
      "name": "Fixture agent: older",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
@@ -1748,7 +1558,7 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"20\" viewBox=\"0 0 200 20\" role=\"img\" aria-label=\"Mendari: no evaluation published\"><title>Mendari: no evaluation published</title><rect width=\"200\" height=\"20\" rx=\"3\" fill=\"#64748b\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"1280\" y=\"140\" transform=\"scale(.1)\" textLength=\"1318\">no evaluation published</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:f7f85dfb02dd5bfaf249392ec2bee91afde10a24e27b85292e3afcb785f32278",
+     "digest": "sha256:a92ce8b62f40d134836f23e7070fca2ebf5c2bbee259caf75372323e151c4ae9",
      "name": "Fixture agent: older",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
@@ -1765,7 +1575,7 @@
     "datasets": [
      {
       "comparison": {
-       "best": "b568081823ab61a7c5121952197207b9c5cc4a9be0d70015e97c080ba082d108",
+       "best": "78d383769bc75553c0c83b3501707f03468fe58626db14fb1d84f17ff580d5a5",
        "decided_by": "false_automation",
        "figures": {
         "first": {
@@ -1781,9 +1591,9 @@
          "n": 600
         }
        },
-       "first": "b568081823ab61a7c5121952197207b9c5cc4a9be0d70015e97c080ba082d108",
+       "first": "78d383769bc75553c0c83b3501707f03468fe58626db14fb1d84f17ff580d5a5",
        "first_band": [
-        "b568081823ab61a7c5121952197207b9c5cc4a9be0d70015e97c080ba082d108"
+        "78d383769bc75553c0c83b3501707f03468fe58626db14fb1d84f17ff580d5a5"
        ],
        "measures": [
         "critical_automated",
@@ -1792,7 +1602,7 @@
         "accuracy"
        ],
        "method": "mendari.rank/1",
-       "second": "bef29c2fd1d9c97e917ac4b9abca5977807db5391b56862cc9c0642ffe46f78b",
+       "second": "9dd79749128c0f1df8fe1a34d0c13d16e1573644ec72a89aac02f72094df6c71",
        "separated": true,
        "status": "ordered",
        "tied": []
@@ -1887,7 +1697,7 @@
          },
          "primary": "request"
         },
-        "id": "b568081823ab61a7c5121952197207b9c5cc4a9be0d70015e97c080ba082d108",
+        "id": "78d383769bc75553c0c83b3501707f03468fe58626db14fb1d84f17ff580d5a5",
         "label": "reader=rules",
         "models": [
          "rules@33463eddba9c"
@@ -1900,7 +1710,7 @@
           "variant": "rules"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -2001,7 +1811,7 @@
          },
          "primary": "request"
         },
-        "id": "bef29c2fd1d9c97e917ac4b9abca5977807db5391b56862cc9c0642ffe46f78b",
+        "id": "9dd79749128c0f1df8fe1a34d0c13d16e1573644ec72a89aac02f72094df6c71",
         "label": "reader=agent",
         "models": [
          "mock-portal-agent"
@@ -2014,7 +1824,7 @@
           "variant": "agent"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "calls_a_model",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -2070,13 +1880,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"358\" height=\"20\" viewBox=\"0 0 358 20\" role=\"img\" aria-label=\"Mendari: evaluated, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 600 synthetic cases, 9 critical automated</title><rect width=\"358\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2069\" y=\"140\" transform=\"scale(.1)\" textLength=\"2896\">evaluated, 600 synthetic cases, 9 critical automated</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:d44f71629441428f6721c55690faa452faa7c7a165401478297ba8f18fcede7d",
+     "digest": "sha256:ed2a48f500a3e2f8015cc828013974fb8b2cdd90345607bf3f7db54f8348e8dc",
      "name": "Fixture agent: one",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -2194,7 +2004,7 @@
          },
          "primary": "request"
         },
-        "id": "49988634809f676d2cd5a9d2b7f59a3ec39480dadf1c1a84946f052d32d13e8c",
+        "id": "b6ae0964673953523307e5a6c5b101510b6a02334c7f54300425e89c9c301d43",
         "label": "reader=rules",
         "models": [
          "rules@33463eddba9c"
@@ -2207,7 +2017,7 @@
           "variant": "rules"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -2252,10 +2062,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -2263,13 +2073,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"481\" height=\"20\" viewBox=\"0 0 481 20\" role=\"img\" aria-label=\"Mendari: evaluated, 2 configurations, 600 synthetic cases, 6 to 9 critical automated\"><title>Mendari: evaluated, 2 configurations, 600 synthetic cases, 6 to 9 critical automated</title><rect width=\"481\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2683\" y=\"140\" transform=\"scale(.1)\" textLength=\"4124\">evaluated, 2 configurations, 600 synthetic cases, 6 to 9 critical automated</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:46751e83e6f3213f333e0b9e4d0685f762f96c186e8918fd78287d370fd3824f",
+     "digest": "sha256:dfba7c3cc6456ae83d5c69219acb6f23ac6c374c567e3ec06d35f659ef7fe5c0",
      "name": "Fixture agent: overlap",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -2296,10 +2106,10 @@
          "n": 114
         }
        },
-       "first": "7d33fd6950209fda2031f85d9cca277033023fe8567034d3286fa518d65fa396",
+       "first": "ce048458db905da5cfbfe66d027e1f9c581cbc01550c0a73602953de81a3b02d",
        "first_band": [
-        "7d33fd6950209fda2031f85d9cca277033023fe8567034d3286fa518d65fa396",
-        "bdc39a7bba3a6864e911a040b99a5a06c4a771dd4135d2647b4b0e2a9146168f"
+        "ce048458db905da5cfbfe66d027e1f9c581cbc01550c0a73602953de81a3b02d",
+        "528bd4fff65bb2b195c670b2b56f8c761298c9b6a3e4e0a89954bc23971e8e03"
        ],
        "measures": [
         "critical_automated",
@@ -2308,7 +2118,7 @@
         "accuracy"
        ],
        "method": "mendari.rank/1",
-       "second": "bdc39a7bba3a6864e911a040b99a5a06c4a771dd4135d2647b4b0e2a9146168f",
+       "second": "528bd4fff65bb2b195c670b2b56f8c761298c9b6a3e4e0a89954bc23971e8e03",
        "separated": false,
        "status": "ordered",
        "tied": []
@@ -2403,7 +2213,7 @@
          },
          "primary": "request"
         },
-        "id": "7d33fd6950209fda2031f85d9cca277033023fe8567034d3286fa518d65fa396",
+        "id": "ce048458db905da5cfbfe66d027e1f9c581cbc01550c0a73602953de81a3b02d",
         "label": "reader=wider",
         "models": [
          "rules@c269c58d0a7e"
@@ -2416,7 +2226,7 @@
           "variant": "wider"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -2517,7 +2327,7 @@
          },
          "primary": "request"
         },
-        "id": "bdc39a7bba3a6864e911a040b99a5a06c4a771dd4135d2647b4b0e2a9146168f",
+        "id": "528bd4fff65bb2b195c670b2b56f8c761298c9b6a3e4e0a89954bc23971e8e03",
         "label": "reader=rules",
         "models": [
          "rules@33463eddba9c"
@@ -2530,7 +2340,7 @@
           "variant": "rules"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -2575,10 +2385,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -2618,13 +2428,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"193\" height=\"20\" viewBox=\"0 0 193 20\" role=\"img\" aria-label=\"Mendari: evaluation not verified\"><title>Mendari: evaluation not verified</title><rect width=\"193\" height=\"20\" rx=\"3\" fill=\"#b3261e\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"1242\" y=\"140\" transform=\"scale(.1)\" textLength=\"1243\">evaluation not verified</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:836bf1cd20ee32fa0d09cf394064c385c4e1f33a701f8284c56253559f63e32c",
+     "digest": "sha256:7c135edc4cb544497b75a3371ba668029c2021fad0e00ce7fe3a8f5335451417",
      "name": "Fixture agent: revoked",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -2642,7 +2452,7 @@
      {
       "configuration": "reader=agent",
       "dataset": "test",
-      "id": "44116f61a092640adf795fb7becee6840035e8b838806d64da76297ad31ea2c9",
+      "id": "b7cbb80ab1743c4d6862a15ce202eb610705f3dba7e270785ecae2fff209c94a",
       "key_id": "ed25519:24f6ed6acbfe1009",
       "reason": "key_revoked"
      }
@@ -2657,10 +2467,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -2668,13 +2478,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"481\" height=\"20\" viewBox=\"0 0 481 20\" role=\"img\" aria-label=\"Mendari: evaluated, 3 configurations, 600 synthetic cases, 5 to 9 critical automated\"><title>Mendari: evaluated, 3 configurations, 600 synthetic cases, 5 to 9 critical automated</title><rect width=\"481\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2683\" y=\"140\" transform=\"scale(.1)\" textLength=\"4124\">evaluated, 3 configurations, 600 synthetic cases, 5 to 9 critical automated</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:8e27e23ce572993582be948fc0d659caa1f8a58bf8105dbe01d4744d2c1c04eb",
+     "digest": "sha256:9f1718dbd01cadb5dfaef753d5569c34154d77f7f2d21ee92040c3de5d5cf937",
      "name": "Fixture agent: several",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -2701,11 +2511,11 @@
          "n": 114
         }
        },
-       "first": "c024d37c23a03398adcd266e0289b82c9a0e5d58566a470b736bf48a81902da5",
+       "first": "6d353d21964dce7fc3ccefb241bffd91c0c93aa322c26a1e73ab16c3c53fb0c1",
        "first_band": [
-        "c024d37c23a03398adcd266e0289b82c9a0e5d58566a470b736bf48a81902da5",
-        "ea38ddf475b1b48756a7e61a9a5f738b434a20dccbf90ba48a48a581817a111d",
-        "16669aec939153e2fb75af9cdf9651139fcdcaadf94d9da0e7efc135c4dda9bf"
+        "6d353d21964dce7fc3ccefb241bffd91c0c93aa322c26a1e73ab16c3c53fb0c1",
+        "b2f4c6bd13b3733374eeb623d1f0b8a23a897b8ecc525edc4b7815dbba98fdbb",
+        "c90ccc104866da6c0bc6b97ac6f8918a80676a38dd3728cb3cb444986cd9ca06"
        ],
        "measures": [
         "critical_automated",
@@ -2714,7 +2524,7 @@
         "accuracy"
        ],
        "method": "mendari.rank/1",
-       "second": "ea38ddf475b1b48756a7e61a9a5f738b434a20dccbf90ba48a48a581817a111d",
+       "second": "b2f4c6bd13b3733374eeb623d1f0b8a23a897b8ecc525edc4b7815dbba98fdbb",
        "separated": false,
        "status": "ordered",
        "tied": []
@@ -2809,7 +2619,7 @@
          },
          "primary": "request"
         },
-        "id": "c024d37c23a03398adcd266e0289b82c9a0e5d58566a470b736bf48a81902da5",
+        "id": "6d353d21964dce7fc3ccefb241bffd91c0c93aa322c26a1e73ab16c3c53fb0c1",
         "label": "reader=cautious",
         "models": [
          "rules@ea11a62d3d30"
@@ -2822,7 +2632,7 @@
           "variant": "cautious"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -2923,7 +2733,7 @@
          },
          "primary": "request"
         },
-        "id": "ea38ddf475b1b48756a7e61a9a5f738b434a20dccbf90ba48a48a581817a111d",
+        "id": "b2f4c6bd13b3733374eeb623d1f0b8a23a897b8ecc525edc4b7815dbba98fdbb",
         "label": "reader=rules",
         "models": [
          "rules@33463eddba9c"
@@ -2936,7 +2746,7 @@
           "variant": "rules"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -3037,7 +2847,7 @@
          },
          "primary": "request"
         },
-        "id": "16669aec939153e2fb75af9cdf9651139fcdcaadf94d9da0e7efc135c4dda9bf",
+        "id": "c90ccc104866da6c0bc6b97ac6f8918a80676a38dd3728cb3cb444986cd9ca06",
         "label": "reader=agent",
         "models": [
          "mock-portal-agent"
@@ -3050,7 +2860,7 @@
           "variant": "agent"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "calls_a_model",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -3095,10 +2905,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -3106,13 +2916,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"358\" height=\"20\" viewBox=\"0 0 358 20\" role=\"img\" aria-label=\"Mendari: evaluated, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 600 synthetic cases, 9 critical automated</title><rect width=\"358\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2069\" y=\"140\" transform=\"scale(.1)\" textLength=\"2896\">evaluated, 600 synthetic cases, 9 critical automated</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:9543a24a21106ecb4e488978039acd7974369eda069433a2aca9a3312fe19c67",
+     "digest": "sha256:e7d9d12d4c304e9ab33f6b3f6018e70ea58b8f6302b6b5bebbd1f38fef44c7a0",
      "name": "Fixture agent: tampered",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -3230,7 +3040,7 @@
          },
          "primary": "request"
         },
-        "id": "6c8375cf1dd0c3bbb5b2f2ef2193b6180da1e89db62667cb56d3caa2c4ce7240",
+        "id": "959381f20c3f73db7b778bf80e75998b28ed0d57cc2ee85cfb09be5c7db3527d",
         "label": "reader=agent",
         "models": [
          "mock-portal-agent"
@@ -3243,7 +3053,7 @@
           "variant": "agent"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "calls_a_model",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -3281,7 +3091,7 @@
      {
       "configuration": "reader=rules",
       "dataset": "test",
-      "id": "e46de31fb38d26233d05cda26034a45644715439527ceeecb250d8218d32b06e",
+      "id": "9a2a8d8195d1a05c9a2549884bff27f8875ff187da4d624daa807d810bbbe32e",
       "key_id": "ed25519:56475aa75463474c",
       "reason": "record"
      }
@@ -3296,10 +3106,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -3307,13 +3117,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"455\" height=\"20\" viewBox=\"0 0 455 20\" role=\"img\" aria-label=\"Mendari: evaluated, 2 configurations, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 2 configurations, 600 synthetic cases, 9 critical automated</title><rect width=\"455\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2554\" y=\"140\" transform=\"scale(.1)\" textLength=\"3866\">evaluated, 2 configurations, 600 synthetic cases, 9 critical automated</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:c5419dc01043a8df7fe5a7ffa05c44a75db734c94499c07d6cceb20b4998d134",
+     "digest": "sha256:faf4b0adeef9346f757c2e0144409150a130698407453c7c267f167e797f1130",
      "name": "Fixture agent: tied",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -3329,8 +3139,8 @@
        "figures": null,
        "first": null,
        "first_band": [
-        "bc02fb977c069285b9866079e908775c403803ba9c6f1b448809f429760b6eee",
-        "f36650b459d2b321782759b150dea02331a821b5b7be474a2ec93ef7a212b8d4"
+        "3627bbb51fe48db2c214439701be90b11e9dfee59c8005a2bd730cabb0c21a46",
+        "d59b3c906a8b965276c9f9f3629b5af27b1cf55f3c5cbe3d454d29c74ae3cf2b"
        ],
        "measures": [
         "critical_automated",
@@ -3343,8 +3153,8 @@
        "separated": null,
        "status": "tied",
        "tied": [
-        "bc02fb977c069285b9866079e908775c403803ba9c6f1b448809f429760b6eee",
-        "f36650b459d2b321782759b150dea02331a821b5b7be474a2ec93ef7a212b8d4"
+        "3627bbb51fe48db2c214439701be90b11e9dfee59c8005a2bd730cabb0c21a46",
+        "d59b3c906a8b965276c9f9f3629b5af27b1cf55f3c5cbe3d454d29c74ae3cf2b"
        ]
       },
       "configurations": [
@@ -3437,7 +3247,7 @@
          },
          "primary": "request"
         },
-        "id": "bc02fb977c069285b9866079e908775c403803ba9c6f1b448809f429760b6eee",
+        "id": "3627bbb51fe48db2c214439701be90b11e9dfee59c8005a2bd730cabb0c21a46",
         "label": "reader=rules",
         "models": [
          "rules@33463eddba9c"
@@ -3450,7 +3260,7 @@
           "variant": "rules"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -3551,7 +3361,7 @@
          },
          "primary": "request"
         },
-        "id": "f36650b459d2b321782759b150dea02331a821b5b7be474a2ec93ef7a212b8d4",
+        "id": "d59b3c906a8b965276c9f9f3629b5af27b1cf55f3c5cbe3d454d29c74ae3cf2b",
         "label": "reader=same",
         "models": [
          "rules@72e4ba704521"
@@ -3564,7 +3374,7 @@
           "variant": "same"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -3609,10 +3419,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -3620,13 +3430,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"455\" height=\"20\" viewBox=\"0 0 455 20\" role=\"img\" aria-label=\"Mendari: evaluated, 2 configurations, 600 synthetic cases, 9 critical automated\"><title>Mendari: evaluated, 2 configurations, 600 synthetic cases, 9 critical automated</title><rect width=\"455\" height=\"20\" rx=\"3\" fill=\"#8a4f00\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"2554\" y=\"140\" transform=\"scale(.1)\" textLength=\"3866\">evaluated, 2 configurations, 600 synthetic cases, 9 critical automated</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:8f0859a770aa4493a21dc92a874d7cbb9feca198da15118ef71725bb106666f1",
+     "digest": "sha256:a13491f613725d3c5868a924541a5e7856a83ae1626a43ddee438a1e5e022a51",
      "name": "Fixture agent: two",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -3637,7 +3447,7 @@
     "datasets": [
      {
       "comparison": {
-       "best": "4ae581016abba1d2b5f98af761c06c6ea09990d664a904e2ccd4086e630886a4",
+       "best": "bc2b596784fed3a5b9b8ed601e69360d646a200c54caf494e744b7bb215c2001",
        "decided_by": "false_automation",
        "figures": {
         "first": {
@@ -3653,9 +3463,9 @@
          "n": 600
         }
        },
-       "first": "4ae581016abba1d2b5f98af761c06c6ea09990d664a904e2ccd4086e630886a4",
+       "first": "bc2b596784fed3a5b9b8ed601e69360d646a200c54caf494e744b7bb215c2001",
        "first_band": [
-        "4ae581016abba1d2b5f98af761c06c6ea09990d664a904e2ccd4086e630886a4"
+        "bc2b596784fed3a5b9b8ed601e69360d646a200c54caf494e744b7bb215c2001"
        ],
        "measures": [
         "critical_automated",
@@ -3664,7 +3474,7 @@
         "accuracy"
        ],
        "method": "mendari.rank/1",
-       "second": "8e7718be96c742effd580036d1b8188634c350105dd088902450cdec841bc0e3",
+       "second": "c6b5176ec1481a6519deefcda654365433a3a04b6bb7f32da6de4e59d4455334",
        "separated": true,
        "status": "ordered",
        "tied": []
@@ -3759,7 +3569,7 @@
          },
          "primary": "request"
         },
-        "id": "4ae581016abba1d2b5f98af761c06c6ea09990d664a904e2ccd4086e630886a4",
+        "id": "bc2b596784fed3a5b9b8ed601e69360d646a200c54caf494e744b7bb215c2001",
         "label": "reader=rules",
         "models": [
          "rules@33463eddba9c"
@@ -3772,7 +3582,7 @@
           "variant": "rules"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "matched",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -3873,7 +3683,7 @@
          },
          "primary": "request"
         },
-        "id": "8e7718be96c742effd580036d1b8188634c350105dd088902450cdec841bc0e3",
+        "id": "c6b5176ec1481a6519deefcda654365433a3a04b6bb7f32da6de4e59d4455334",
         "label": "reader=agent",
         "models": [
          "mock-portal-agent"
@@ -3886,7 +3696,7 @@
           "variant": "agent"
          }
         },
-        "record_format": "mendari.publisher-evaluation/2",
+        "record_format": "mendari.publisher-evaluation/1",
         "rerun": "calls_a_model",
         "signed": {
          "at": "2026-11-23T12:00:00Z",
@@ -3931,10 +3741,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   },
@@ -3942,13 +3752,13 @@
    "badge": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"193\" height=\"20\" viewBox=\"0 0 193 20\" role=\"img\" aria-label=\"Mendari: evaluation not verified\"><title>Mendari: evaluation not verified</title><rect width=\"193\" height=\"20\" rx=\"3\" fill=\"#b3261e\"/><path fill=\"#334155\" d=\"M3 0H56.1V20H3A3 3 0 0 1 0 17V3A3 3 0 0 1 3 0Z\"/><g fill=\"#ffffff\" text-anchor=\"middle\" font-family=\"Verdana,Geneva,DejaVu Sans,sans-serif\" font-size=\"110\" text-rendering=\"geometricPrecision\"><text x=\"280\" y=\"140\" transform=\"scale(.1)\" textLength=\"441\">Mendari</text><text x=\"1242\" y=\"140\" transform=\"scale(.1)\" textLength=\"1243\">evaluation not verified</text></g></svg>",
    "evaluation": {
     "agent": {
-     "digest": "sha256:525383076b34d3e925eeb206b9e2ab324a624785a01d6d0866e2272d5700c440",
+     "digest": "sha256:ba4e410ff72acb78e02e6f4670ce8c39392113ee75692e453544532cf474a72a",
      "name": "Fixture agent: unverified",
      "primary": "request",
      "published_at": "2026-11-23T11:00:00+00:00",
      "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
      "synthetic": true,
-     "version": "0.1.2"
+     "version": "0.3.0"
     },
     "badge": {
      "label": "Mendari",
@@ -3966,7 +3776,7 @@
      {
       "configuration": "reader=rules",
       "dataset": "test",
-      "id": "ec7eea8d420e56bae7292473c0b4686b3763dc9beb27551aab707f043fefc1ea",
+      "id": "50b39ba5a5f1760b360f8988ec4b8d8c46708db37a61905683ee4fad85ef865f",
       "key_id": "ed25519:56475aa75463474c",
       "reason": "record"
      }
@@ -3981,10 +3791,10 @@
     "superseded": 0,
     "versions": {
      "evaluated": [
-      "0.1.2"
+      "0.3.0"
      ],
-     "latest": "0.1.2",
-     "shown": "0.1.2"
+     "latest": "0.3.0",
+     "shown": "0.3.0"
     }
    }
   }

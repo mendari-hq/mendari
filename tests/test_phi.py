@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.core.phi import PhiPolicy, phi_policy
 from mendari.errors import MendariError
@@ -47,9 +47,9 @@ def test_the_settings(monkeypatch: pytest.MonkeyPatch) -> None:
         phi_policy()
 
 
-def test_hash_mode_stores_no_input(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_hash_mode_stores_no_input(tmp_path: Path, triage_agent: Agent) -> None:
     store = AuditStore(tmp_path / "a.db", phi=PhiPolicy(mode="hash"))
-    result = Decision(inbox_pack, store=store)(message(SECRET_WORDS))
+    result = Decision(triage_agent, store=store)(message(SECRET_WORDS))
     item = store.get(result.id, reader="anyone")
     assert item is not None and item["record"]["input"] is None
     assert item["record"]["input_hash"].startswith("sha256:")  # a store without a hash key
@@ -58,10 +58,10 @@ def test_hash_mode_stores_no_input(tmp_path: Path, inbox_pack: Pack) -> None:
 
 
 def test_encrypt_mode_keeps_only_ciphertext_and_reveals_it_to_readers(
-    tmp_path: Path, inbox_pack: Pack
+    tmp_path: Path, triage_agent: Agent
 ) -> None:
     store = encrypting(tmp_path)
-    result = Decision(inbox_pack, store=store)(message(SECRET_WORDS))
+    result = Decision(triage_agent, store=store)(message(SECRET_WORDS))
     with store._db.session(exclusive=False) as db:
         rows = db.all("SELECT ciphertext FROM decision_inputs") + db.all(
             "SELECT record FROM decisions"
@@ -76,13 +76,13 @@ def test_encrypt_mode_keeps_only_ciphertext_and_reveals_it_to_readers(
     shown = store.get(result.id, reader="Nurse Kim")
     assert shown is not None and shown["record"]["input"] == message(SECRET_WORDS)
     assert shown["events"][-1]["event"] == "input.read"
-    assert shown["events"][-1]["payload"] == {"reader": "Nurse Kim"}
+    assert shown["events"][-1]["payload"] == {"reader": "Nurse Kim", "org": "default"}
     assert store.verify()["ok"] is True
 
 
-def test_a_ciphertext_only_opens_for_its_own_decision(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_a_ciphertext_only_opens_for_its_own_decision(tmp_path: Path, triage_agent: Agent) -> None:
     store = encrypting(tmp_path)
-    decide = Decision(inbox_pack, store=store)
+    decide = Decision(triage_agent, store=store)
     first, second = decide(message(SECRET_WORDS)), decide(message("refill please"))
     with store._db.session(exclusive=True) as db:
         stolen = db.one("SELECT ciphertext FROM decision_inputs WHERE decision_id = ?", (first.id,))
@@ -94,13 +94,13 @@ def test_a_ciphertext_only_opens_for_its_own_decision(tmp_path: Path, inbox_pack
     with pytest.raises(MendariError, match="does not decrypt"):
         store.get(second.id, reader="Nurse Kim")
     wrong_key = AuditStore(tmp_path / "a.db", phi=PhiPolicy(mode="encrypt", key=os.urandom(32)))
-    with pytest.raises(MendariError, match="does not decrypt"):
+    with pytest.raises(MendariError, match=r"sealed under key \w+, which this deployment lacks"):
         wrong_key.get(first.id, reader="Nurse Kim")
 
 
-def test_retention_purges_inputs_and_keeps_the_chain(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_retention_purges_inputs_and_keeps_the_chain(tmp_path: Path, triage_agent: Agent) -> None:
     store = encrypting(tmp_path)
-    decide = Decision(inbox_pack, store=store)
+    decide = Decision(triage_agent, store=store)
     old, new = decide(message(SECRET_WORDS)), decide(message("refill please"))
     long_ago = (datetime.now(UTC) - timedelta(days=400)).isoformat()
     with store._db.session(exclusive=True) as db:
@@ -128,14 +128,15 @@ def test_only_reviewers_and_admins_read_inputs() -> None:
 
 
 def test_the_server_reports_the_mode_and_reads_through_the_policy(
-    tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
     monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     assert client.get("/api/health").json()["phi_mode"] == "encrypt"
-    decided = client.post(f"/api/packs/{inbox_pack.id}/decide", json=message(SECRET_WORDS)).json()
+    path = f"/api/agents/{triage_agent.id}/decide"
+    decided = client.post(path, json=message(SECRET_WORDS)).json()
     record = client.get(f"/api/audit/{decided['id']}").json()
     assert record["record"]["input"] is None and record["input_restricted"] is True
     # without sign-in there is no one to log the read against, so the input stays sealed
@@ -144,7 +145,7 @@ def test_the_server_reports_the_mode_and_reads_through_the_policy(
 
 
 def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
-    tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
     monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
@@ -163,7 +164,7 @@ def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
         "viewer": {"authorization": f"Bearer {viewer['key']}"},
     }
     urgent = message("Crushing chest pain, " + SECRET_WORDS)  # waits for review
-    path = f"/api/packs/{inbox_pack.id}/decide"
+    path = f"/api/agents/{triage_agent.id}/decide"
     decided = client.post(path, json=urgent, headers=keys["reviewer"]).json()
     client.post(
         f"/api/audit/{decided['id']}/feedback", json={"rating": "up"}, headers=keys["reviewer"]
@@ -184,7 +185,7 @@ def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
 
 def test_the_cli_purges(
     tmp_path: Path,
-    inbox_pack: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -192,7 +193,7 @@ def test_the_cli_purges(
     monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
     store = encrypting(tmp_path)
-    Decision(inbox_pack, store=store)(message(SECRET_WORDS))
+    Decision(triage_agent, store=store)(message(SECRET_WORDS))
     assert main(["phi", "purge", "--db", str(tmp_path / "a.db"), "--days", "30"]) == 0
     out = capsys.readouterr().out
     assert "0 stored input(s) deleted and 0 note(s) erased, older than 30 days" in out

@@ -2,16 +2,16 @@
 """The registry's regression check on every publish (LP-18g, ADR-0012).
 
 The registry evaluates a version on the publisher's own test set (its manifest's
-`evaluation.benchmark_dataset`, a file the pack digest covers) and runs the pack gate
-(`evals/gate.py`, as `scripts/pack_gate.py` does in CI) against the newest earlier version's
+`evaluation.benchmark_dataset`, a file the agent digest covers) and runs the agent gate
+(`evals/gate.py`, as `scripts/agent_gate.py` does in CI) against the newest earlier version's
 check. It is what the registry computed itself, so it may be shown, labelled for what it is:
 **publisher's own test set: regression check, not a ranking**. A set the publisher chose cannot
-rank a pack; only the scoreboard (LP-17) does.
+rank an agent.
 
 It runs in an isolated job: a child process (`python -I -m mendari.hub.regression DIR`) with an
 environment holding no credential or setting but its own, a wall-clock limit, a CPU limit and,
-where the system allows, a memory limit; the pack is loaded as a pack from a registry (on its
-engine, ADR-0009) and decided by local providers only. A pack whose default providers call a
+where the system allows, a memory limit; the agent is loaded as an agent from a registry (on its
+engine, ADR-0009) and decided by local providers only. An agent whose default providers call a
 model is not run (`needs_remote`), nor one with no test set (`no_test_set`); one whose check
 fails says so (`failed`), with the error's type only. A regression is shown, never refused: the
 version is the publisher's.
@@ -64,12 +64,12 @@ def slot() -> Iterator[None]:
         _SLOTS.release()
 
 
-def check(pack_dir: Path, previous: Mapping[str, Any] | None) -> dict[str, Any]:
-    """The check of the pack at `pack_dir`, gated against `previous` (the newest earlier
+def check(agent_dir: Path, previous: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The check of the agent at `agent_dir`, gated against `previous` (the newest earlier
     version's measured check, with its version and whether it is recalled, or None). The gate
     uses the earlier check's tolerance, so a version cannot widen the margin it is held to, and
     a test set that changed is said to, not compared."""
-    measured = _isolated(pack_dir)
+    measured = _isolated(agent_dir)
     if measured.get("status") != "measured":
         return {"format": FORMAT, "label": LABEL, **measured}
     shown: dict[str, Any] = {
@@ -105,13 +105,13 @@ def check(pack_dir: Path, previous: Mapping[str, Any] | None) -> dict[str, Any]:
     return shown
 
 
-def rerun(pack_dir: Path, configuration: Mapping[str, str], dataset: str) -> dict[str, Any]:
-    """The counts of the pack at `pack_dir` run on its dataset `dataset` with `configuration`
+def rerun(agent_dir: Path, configuration: Mapping[str, str], dataset: str) -> dict[str, Any]:
+    """The counts of the agent at `agent_dir` run on its dataset `dataset` with `configuration`
     (slot -> variant, every slot), in the isolated child: `{"status": "measured", "counts":
     ...}`, or `{"status": "failed", "reason": ...}` (`needs_remote` for a configuration that
     calls anything off the machine, which the child never runs)."""
     return _isolated(
-        pack_dir, "--evaluation", dataset, json.dumps(dict(configuration), sort_keys=True)
+        agent_dir, "--evaluation", dataset, json.dumps(dict(configuration), sort_keys=True)
     )
 
 
@@ -130,7 +130,7 @@ def _boot() -> str:
     )
 
 
-def _isolated(pack_dir: Path, *extra: str) -> dict[str, Any]:
+def _isolated(agent_dir: Path, *extra: str) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as home:
         env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -141,7 +141,7 @@ def _isolated(pack_dir: Path, *extra: str) -> dict[str, Any]:
         }
         try:
             child = subprocess.Popen(
-                [sys.executable, "-I", "-c", _boot(), str(pack_dir), *extra],
+                [sys.executable, "-I", "-c", _boot(), str(agent_dir), *extra],
                 env=env,
                 cwd=home,
                 stdin=subprocess.DEVNULL,
@@ -184,7 +184,7 @@ def _isolated(pack_dir: Path, *extra: str) -> dict[str, Any]:
 
 
 def _limits() -> None:
-    """In the child, before the pack is loaded: its CPU time, the files it may write, and its
+    """In the child, before the agent is loaded: its CPU time, the files it may write, and its
     memory where the system bounds it (not macOS)."""
     import resource
 
@@ -195,7 +195,7 @@ def _limits() -> None:
 
 
 def summary(report: Mapping[str, Any]) -> dict[str, Any]:
-    """What the gate reads of an evaluation report (`mendari.eval/2`), and nothing else: the
+    """What the gate reads of an evaluation report (`mendari.eval/1`), and nothing else: the
     test set's name, size and hash, the primary question's accuracy over n, the false
     automation rate over the automated, and each critical label's detection."""
     primary = str(report["primary"])
@@ -221,32 +221,32 @@ def summary(report: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _rerun_main(pack_dir: str, dataset: str, configuration: str) -> dict[str, Any]:
+def _rerun_main(agent_dir: str, dataset: str, configuration: str) -> dict[str, Any]:
     """In the child: a publisher's evaluation run again (`rerun`)."""
+    from mendari.core.agent import load_agent
     from mendari.core.decision import Decision
-    from mendari.core.pack import load_pack
-    from mendari.evals.harness import evaluation, resolve_dataset
+    from mendari.evals.harness import declared_dataset, evaluation
     from mendari.evals.share import counted_report
 
-    pack = load_pack(Path(pack_dir), origin="hub")
-    if dataset not in pack.manifest.evaluation.datasets:  # never a path: the pack's own sets
+    agent = load_agent(Path(agent_dir), origin="hub")
+    if dataset not in agent.manifest.evaluation.datasets:  # never a path: the agent's own sets
         return {"status": "failed", "reason": "no_such_dataset"}
-    decision = Decision(pack, providers=json.loads(configuration), origin_cap=False)
+    decision = Decision(agent, providers=json.loads(configuration), origin_cap=False)
     if decision.is_remote:
         return {"status": "needs_remote"}
-    run = evaluation(decision, resolve_dataset(pack, dataset))
+    run = evaluation(decision, declared_dataset(agent, dataset))
     return {"status": "measured", "counts": counted_report(run.ledger)}
 
 
 def _main(argv: list[str]) -> int:
-    """The child: evaluate the pack at argv[0] on its own test set, print the summary; or, with
+    """The child: evaluate the agent at argv[0] on its own test set, print the summary; or, with
     `--evaluation DATASET CONFIGURATION`, run a publisher's evaluation again (`rerun`)."""
+    from mendari.core.agent import load_agent
     from mendari.core.decision import Decision
-    from mendari.core.pack import load_pack
-    from mendari.evals.harness import evaluation, resolve_dataset
+    from mendari.evals.harness import declared_dataset, evaluation
 
     if os.name == "posix":
-        _limits()  # before anything of the pack is read
+        _limits()  # before anything of the agent is read
     if len(argv) == 4 and argv[1] == "--evaluation":
         try:
             again = _rerun_main(argv[0], argv[2], argv[3])
@@ -255,20 +255,20 @@ def _main(argv: list[str]) -> int:
         sys.stdout.write(json.dumps(again))
         return 0
     try:
-        pack = load_pack(Path(argv[0]), origin="hub")
-        test_set = pack.manifest.evaluation.benchmark_dataset
+        agent = load_agent(Path(argv[0]), origin="hub")
+        test_set = agent.manifest.evaluation.benchmark_dataset
         if not test_set:
             answer: dict[str, Any] = {"status": "no_test_set"}
         else:
-            decision = Decision(pack, origin_cap=False)  # the pack's own policy, measured
+            decision = Decision(agent, origin_cap=False)  # the agent's own policy, measured
             if decision.is_remote:
                 answer = {"status": "needs_remote"}
             else:
-                report = evaluation(decision, resolve_dataset(pack, test_set)).report
+                report = evaluation(decision, declared_dataset(agent, test_set)).report
                 answer = {
                     "status": "measured",
                     "summary": summary(report),
-                    "tolerance": pack.manifest.evaluation.degradation_tolerance,
+                    "tolerance": agent.manifest.evaluation.degradation_tolerance,
                 }
     except Exception as error:  # the publisher's content: named by its type alone
         answer = {"status": "failed", "reason": type(error).__name__}

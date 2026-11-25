@@ -1,6 +1,6 @@
 {
   "model": "mock-actions-agent",
-  "agent_version": "0.1.0",
+  "service_version": "0.1.0",
   "cases": [
     {
       "match": "abusive",

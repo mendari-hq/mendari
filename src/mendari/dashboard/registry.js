@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// The pack registry served under this engine (MENDARI_REGISTRY=on, LP-19f, ADR-0015), in the
+// The agent registry served under this engine (MENDARI_REGISTRY=on, LP-19f, ADR-0015), in the
 // dashboard. Two tabs in the Access view (admin.js), for an administrator who signed in (`keys`)
 // where the server says the registry is on (`/api/health`): their organization's namespaces (claim
 // one, see whether the registry lists it, register a publisher key) and its publisher tokens (mint
@@ -449,8 +449,8 @@ views["registry-review"] = async (main) => {
 
 views["registry-review"].available = reviewer;
 
-// The registry's review, not a pack's: shown without waiting for a pack (router.js).
-views["registry-review"].packless = true;
+// The registry's review, not an agent's: shown without waiting for an agent (router.js).
+views["registry-review"].agentless = true;
 
 views["registry-review"].leave = () => document.querySelectorAll("dialog[data-admin]:not([data-busy])").forEach((d) => d.close());
 

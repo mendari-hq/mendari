@@ -3,14 +3,13 @@
 
 Dataset format (JSON Lines), one case per line:
 
-    {"id": "...", "input": {...pack input...},
+    {"id": "...", "input": {...agent input...},
      "labels": {"<question>": "<label>", ...},        # ground truth, any subset of questions
      "attributes": {"language": "es", "site": "..."}} # optional, for subgroup analysis
 
-Two attributes mean something to Mendari itself: `exported_by`, which `mendari feedback
-export` writes on every record, and `added_by`, which `mendari improve` writes on a case it adds
-to a pack (`core/site_cases.py`). Each says the case is a site's own, and a pack that holds one
-is not published.
+One attribute means something to Mendari itself: `exported_by`, which `mendari feedback
+export` writes on every record (`core/site_cases.py`). It says the case is a site's own, and an
+agent that holds one is not published.
 
 Reports never contain case inputs or ids: a case is named by its ledger hash
 (mendari.evals.ledger), so a report on local data can be shared without sharing the data. A
@@ -33,19 +32,17 @@ from pathlib import Path
 from typing import Any
 
 from mendari import __version__
+from mendari.core.agent import Agent, not_json
 from mendari.core.decision import Decision, DecisionResult
-from mendari.core.pack import Pack, not_json
-from mendari.core.spec import PackManifest
+from mendari.core.spec import AgentManifest
 from mendari.errors import MendariError
 from mendari.evals import confidence, metrics, operating_point
 from mendari.evals import ledger as ledgers
 from mendari.evals.ledger import Ledger
 from mendari.evals.operating_point import Targets
-from mendari.evals.result import FORMAT, result_from_ledger, result_sha256
+from mendari.evals.result import result_from_ledger, result_sha256
 from mendari.parallel import parallel_map
 from mendari.providers.base import Metered
-
-REPORT_FORMAT = FORMAT
 
 
 @dataclass(frozen=True)
@@ -68,7 +65,7 @@ class Dataset:
 def load_dataset(
     path: str | Path, name: str | None = None, *, raw: bytes | None = None, label: str | None = None
 ) -> Dataset:
-    """A JSONL dataset: the file at `path`, or `raw` (a pack's dataset, as its digest covers
+    """A JSONL dataset: the file at `path`, or `raw` (an agent's dataset, as its digest covers
     it). A line that is not UTF-8 or not JSON (an integer over Python's 4,300 digits, nested too
     deep), or holds what a JSON report cannot (a lone surrogate, NaN), is a `MendariError`
     naming the file (`label`, or `path`) and the line, never the line's text."""
@@ -111,10 +108,10 @@ def load_dataset(
     )
 
 
-def record_problems(manifest: PackManifest, dataset: Dataset) -> list[str]:
-    """What in a dataset's records the pack cannot evaluate, one line per record named by its id
+def record_problems(manifest: AgentManifest, dataset: Dataset) -> list[str]:
+    """What in a dataset's records the agent cannot evaluate, one line per record named by its id
     (never its text): a repeated id (its ledger hash would be too), `labels` that are not a
-    mapping of the pack's questions to their labels, or `attributes` that are not a mapping.
+    mapping of the agent's questions to their labels, or `attributes` that are not a mapping.
     Other keys are kept as they are (`mendari feedback export` adds what the system decided and
     the ratings behind its labels)."""
     problems = []
@@ -133,7 +130,7 @@ def record_problems(manifest: PackManifest, dataset: Dataset) -> list[str]:
             problems.append(f"{where}: `attributes` must be a mapping")
         else:
             for question, label in labels.items():
-                # Only what the pack defines is named: a site's label can hold case text.
+                # Only what the agent defines is named: a site's label can hold case text.
                 if question not in manifest.questions:
                     problems.append(
                         f"{where}: labels name a question the agent does not have (its "
@@ -149,14 +146,25 @@ def record_problems(manifest: PackManifest, dataset: Dataset) -> list[str]:
     return problems
 
 
-def resolve_dataset(pack: Pack, ref: str) -> Dataset:
-    """A dataset named in the pack's `evaluation.datasets`, or a path to a JSONL file."""
-    named = pack.manifest.evaluation.datasets.get(ref)
-    if named is not None:
-        return load_dataset(pack.path(named), name=ref, raw=pack.read_bytes(named), label=named)
+def declared_dataset(agent: Agent, name: str) -> Dataset:
+    """A dataset the agent declares in `evaluation.datasets`, read from its own files: all a
+    server, an agent store or a registry ever reads. A name it does not declare is refused,
+    never read as a path."""
+    named = agent.manifest.evaluation.datasets.get(name)
+    if named is None:
+        known = ", ".join(agent.manifest.evaluation.datasets) or "none"
+        raise MendariError(f"dataset {name!r} is not one the agent declares ({known})")
+    return load_dataset(agent.path(named), name=name, raw=agent.read_bytes(named), label=named)
+
+
+def resolve_dataset(agent: Agent, ref: str) -> Dataset:
+    """A dataset the agent declares (`declared_dataset`), or, on the command line, a path to a
+    JSONL file."""
+    if ref in agent.manifest.evaluation.datasets:
+        return declared_dataset(agent, ref)
     if Path(ref).is_file():
         return load_dataset(ref)
-    known = ", ".join(pack.manifest.evaluation.datasets) or "none"
+    known = ", ".join(agent.manifest.evaluation.datasets) or "none"
     raise MendariError(f"dataset {ref!r} is neither a file nor an agent dataset ({known})")
 
 
@@ -164,7 +172,7 @@ def evaluate(
     decision: Decision, dataset: Dataset, *, workers: int = 1, targets: Targets | None = None
 ) -> dict[str, Any]:
     """Run every case. `workers > 1` overlaps network-bound providers; order is preserved. A
-    dataset whose records the pack cannot evaluate (`record_problems`) is refused first.
+    dataset whose records the agent cannot evaluate (`record_problems`) is refused first.
     `targets` are what a recommended automation threshold must keep to (`operating_point`)."""
     return evaluation(decision, dataset, workers=workers, targets=targets).report
 
@@ -183,11 +191,11 @@ def evaluation(
     decision: Decision, dataset: Dataset, *, workers: int = 1, targets: Targets | None = None
 ) -> Evaluation:
     """Run every case (as `evaluate`), keeping the ledger to store beside the report."""
-    problems = record_problems(decision.pack.manifest, dataset)
+    problems = record_problems(decision.agent.manifest, dataset)
     if problems:
         more = f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""
         raise MendariError(f"{problems[0]}{more}")
-    operating_point.check(decision.pack.manifest, targets)  # before a provider is asked
+    operating_point.check(decision.agent.manifest, targets)  # before a provider is asked
     inputs = [record["input"] for record in dataset.records]
     results = parallel_map(decision.decide, inputs, workers)
     return build_evaluation(decision, dataset, results, targets=targets)
@@ -209,7 +217,7 @@ def build_evaluation(
         "engine": __version__,
         # Advice on the automation threshold, from what each decision kept in memory: in the
         # run, never in the result, which is computed from the ledger alone.
-        "operating_point": operating_point.build(decision.pack.manifest, ledger, results, targets),
+        "operating_point": operating_point.build(decision.agent.manifest, ledger, results, targets),
     }
     if decision.governance is not None:  # who approved it: local, never in the result
         run["governance_override"] = decision.governance.to_dict()
@@ -218,7 +226,7 @@ def build_evaluation(
     calibration = confidence.calibration(decision, dataset, results)
     if calibration["variants"]:
         run["calibration"] = calibration
-    primary = decision.pack.manifest.policy.primary
+    primary = decision.agent.manifest.policy.primary
     truths = [(record.get("labels") or {}).get(primary) for record in dataset.records]
     second_signal = confidence.second_signal(decision, ledger.cases, results, truths)
     if second_signal["signals"]:

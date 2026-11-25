@@ -20,23 +20,22 @@ import uvicorn
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 
 from mendari.cli import main
+from mendari.core.agent import Agent, PatternsRefused, load_agent
 from mendari.core.decision import Decision
-from mendari.core.origin import pulled_record
-from mendari.core.pack import Pack, PatternsRefused, load_pack
-from mendari.core.registry import discover, origin_of, resolve_pack, search_paths
-from mendari.errors import HubError, PackNotFoundError, PackValidationError
-from mendari.evals.share import SiteReportV2
+from mendari.core.origin import ORIGIN_FORMAT, pulled_record
+from mendari.core.registry import discover, resolve_agent
+from mendari.errors import AgentNotFoundError, AgentValidationError, HubError
+from mendari.evals.share import SiteReportV1
 from mendari.hub import archive, client
 from mendari.hub.client import RegistryClient, pull
 from mendari.hub.registry import RegistryStore, create_registry_app
-from mendari.sandbox import example_datasets_dir
-from tests.conftest import INBOX_DIR
+from tests.conftest import FIXTURE_NAMESPACE, TRIAGE_DIR
+from tests.support.registry import ROUTER_RULES, TRIAGE, attested, with_lookahead
 
-REFERRAL_DIR = resolve_pack("mendari/referral-router").root
-# The packs these tests publish under other ids are copies of the inbox pack, whose patterns
-# all run on RE2: a pulled pack that is not a reference pack of this release runs on the engine
-# for packs from a registry (ADR-0009), which the referral pack's lookahead cannot run on.
-SHIPPED = load_pack(INBOX_DIR).version  # the inbox pack as it ships
+# The agents these tests publish under other ids are copies of the triage fixture, whose patterns
+# all run on RE2: a pulled agent that is not a reference agent of this release runs on the engine
+# for agents from a registry (ADR-0009), which cannot run a lookahead (`with_lookahead`).
+SHIPPED = TRIAGE.version  # the triage fixture as it ships
 
 
 def free_port() -> int:
@@ -97,59 +96,38 @@ def hub(tmp_path: Path) -> Iterator[Hub]:
     thread.join(timeout=5)
 
 
-def copy_pack(tmp_path: Path, pack_id: str, version: str = SHIPPED) -> Pack:
-    """The inbox pack under another id (and version): a pack no search path has."""
-    target = tmp_path / "packs" / pack_id.replace("/", "-") / version
-    shutil.copytree(INBOX_DIR, target)
+def copy_agent(tmp_path: Path, agent_id: str, version: str = SHIPPED) -> Agent:
+    """The triage fixture under another id (and version): an agent no search path has."""
+    target = tmp_path / "agents" / agent_id.replace("/", "-") / version
+    shutil.copytree(TRIAGE_DIR, target)
     manifest = (target / "agent.yaml").read_text()
-    manifest = manifest.replace("id: mendari/patient-inbox-router", f"id: {pack_id}", 1)
+    manifest = manifest.replace(f"id: {TRIAGE.id}", f"id: {agent_id}", 1)
     manifest = manifest.replace(f"version: {SHIPPED}", f"version: {version}", 1)
     (target / "agent.yaml").write_text(manifest)
-    return load_pack(target)
+    return load_agent(target)
 
 
 def test_push_then_pull_verifies_and_caches(hub: Hub, tmp_path: Path) -> None:
     token, key = hub.namespace("site-a")
-    pack = copy_pack(tmp_path, "site-a/inbox")
-    published = hub.client(token).push(pack, key)
-    assert published["digest"] == pack.digest
+    agent = copy_agent(tmp_path, "site-a/inbox")
+    published = hub.client(token).push(agent, key)
+    assert published["digest"] == agent.digest
     pulled = pull("site-a/inbox", hub.client())
-    assert (pulled.id, pulled.version, pulled.digest) == (pack.id, pack.version, pack.digest)
-    assert pulled.root == client.packs_cache() / "site-a" / "inbox" / SHIPPED
-    assert resolve_pack("site-a/inbox").digest == pack.digest  # the cache is on the search path
+    assert (pulled.id, pulled.version, pulled.digest) == (agent.id, agent.version, agent.digest)
+    assert pulled.root == client.agents_cache() / "site-a" / "inbox" / SHIPPED
+    assert resolve_agent("site-a/inbox").digest == agent.digest  # the cache is on the search path
 
 
-def _as_pulled_before_the_rename(pulled: Pack) -> Path:
-    """A pulled agent moved to where a release before 2026-11 cached it, the cache's former
-    folder (`client.former_cache`), with nothing left in the folder the cache has now."""
-    former = client.former_cache() / pulled.root.relative_to(client.packs_cache())
-    former.parent.mkdir(parents=True)
-    shutil.move(pulled.root, former)
-    shutil.rmtree(client.packs_cache())
-    return former
-
-
-def test_a_version_pulled_before_the_cache_was_renamed_is_still_read(
+def test_a_cached_copy_is_used_as_it_is_and_fetched_again_once_it_is_not_the_registrys(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The registry cache's folder is `agents/`; it was `packs/` until 2026-11. A version an
-    earlier release cached is read where it was left: it is on the search path as an agent from
-    a registry, and the next pull uses it as it is, fetching nothing and writing what the
-    registry says of it now beside it. A version pulled now goes to `agents/`, and the two are
-    one agent's versions."""
-    assert (client.packs_cache().name, client.former_cache().name) == ("agents", "packs")
-    assert client.caches() == (client.packs_cache(), client.former_cache())
+    """A version in the cache is used as it is: the next pull fetches nothing and writes what the
+    registry says of it now beside it. One whose marker records another archive than the
+    registry's is fetched again, in its place, so the version has one copy."""
     token, key = hub.namespace("site-a")
-    publisher = hub.client(token)
-    pack = copy_pack(tmp_path, "site-a/inbox")
-    publisher.push(pack, key)
-    former = _as_pulled_before_the_rename(pull("site-a/inbox", hub.client()))
-
-    found = resolve_pack("site-a/inbox")
-    assert (found.root, found.origin, found.digest) == (former.resolve(), "hub", pack.digest)
-    assert origin_of(former) == "hub" and Decision.from_path(former).pack.origin == "hub"
-    assert [path for path, origin in search_paths() if origin == "hub"] == [client.former_cache()]
-
+    agent = copy_agent(tmp_path, "site-a/inbox")
+    hub.client(token).push(agent, key)
+    cached = pull("site-a/inbox", hub.client()).root
     fetched: list[tuple[Any, ...]] = []
     served = RegistryClient.archive
 
@@ -158,101 +136,67 @@ def test_a_version_pulled_before_the_cache_was_renamed_is_still_read(
         return served(self, *version)
 
     monkeypatch.setattr(RegistryClient, "archive", archive_of)
-    long_ago = {**pulled_record(former), "pulled_at": "2026-01-01T00:00:00+00:00"}
-    (former / ".mendari-verified").write_text(json.dumps(long_ago) + "\n")
+    marker = cached / ".mendari-verified"
+    long_ago = {**pulled_record(cached), "pulled_at": "2026-01-01T00:00:00+00:00"}
+    marker.write_text(json.dumps(long_ago) + "\n")
     again = pull("site-a/inbox", hub.client())
-    assert again.root == former.resolve() and fetched == []
-    assert pulled_record(former)["pulled_at"] != long_ago["pulled_at"]  # written again, there
-    assert not client.packs_cache().exists()
-
-    publisher.push(copy_pack(tmp_path, "site-a/inbox", "9.0.0"), key)
-    newer = pull("site-a/inbox", hub.client())
-    assert newer.root == (client.packs_cache() / "site-a" / "inbox" / "9.0.0").resolve()
-    assert len(fetched) == 1 and former.is_dir()
-    assert [path for path, origin in search_paths() if origin == "hub"] == list(client.caches())
-    assert resolve_pack("site-a/inbox").version == "9.0.0"
-    assert resolve_pack(f"site-a/inbox@{SHIPPED}").root == former.resolve()
-
-
-def test_a_copy_in_the_caches_former_folder_is_replaced_and_deleted_as_any_other(
-    hub: Hub, tmp_path: Path
-) -> None:
-    """A copy the cache's former folder holds is the copy in use until its version is fetched
-    again. One that no longer is what the registry recorded is fetched again into the folder
-    the cache has now, and removed where it was, so the version has one copy; and a version
-    the registry deleted is removed from both folders and never served."""
-    token, key = hub.namespace("site-a")
-    pack = copy_pack(tmp_path, "site-a/inbox")
-    hub.client(token).push(pack, key)
-    former = _as_pulled_before_the_rename(pull("site-a/inbox", hub.client()))
-    current = client.packs_cache() / "site-a" / "inbox" / SHIPPED
-
-    marker = former / ".mendari-verified"
-    marker.write_text(json.dumps({**pulled_record(former), "archive_sha256": "0" * 64}) + "\n")
+    assert again.root == cached and fetched == []
+    assert pulled_record(cached)["pulled_at"] != long_ago["pulled_at"]  # written again, there
+    marker.write_text(json.dumps({**pulled_record(cached), "archive_sha256": "0" * 64}) + "\n")
     again = pull("site-a/inbox", hub.client())
-    assert again.root == current.resolve() and again.digest == pack.digest
-    assert not former.exists()  # the copy it replaces
-    assert [p.root for p in discover().packs if p.id == "site-a/inbox"] == [current.resolve()]
-
-    shutil.copytree(current, former)  # a release from before pulled it again, into its folder
-    with hub.operator() as store:
-        store.delete("site-a", "inbox", SHIPPED, reason="carried a file", by="operator")
-    with pytest.raises(HubError, match="was deleted from the registry: carried a file"):
-        pull(f"site-a/inbox@{SHIPPED}", hub.client())
-    assert not current.exists() and not former.exists()
-    with pytest.raises(PackNotFoundError):
-        resolve_pack("site-a/inbox")
+    assert again.root == cached and again.digest == agent.digest and len(fetched) == 1
+    assert pulled_record(cached)["archive_sha256"] != "0" * 64
+    assert [p.root for p in discover().agents if p.id == "site-a/inbox"] == [cached.resolve()]
 
 
-def test_the_cache_refuses_a_version_that_leaves_its_folder_in_either_place(
-    tmp_path: Path,
-) -> None:
+def test_the_cache_refuses_a_version_that_leaves_its_folder(tmp_path: Path) -> None:
     """A registry's answer never chooses where a copy is read, replaced or removed: a version
-    is a version before any path is built, and its place stays inside the agent's own folder,
-    in the cache's folder and in the one it had before."""
-    for cache in client.caches():
-        inside = client._cached_at(cache, "site-a/inbox", "0.1.0")
-        assert inside == cache.resolve() / "site-a" / "inbox" / "0.1.0"
-        (cache / "site-a" / "inbox").mkdir(parents=True)
-        (cache / "site-a" / "inbox" / "0.2.0").symlink_to(tmp_path, target_is_directory=True)
-        with pytest.raises(HubError, match="a version that is not one of site-a/inbox"):
-            client._cached_at(cache, "site-a/inbox", "0.2.0")
+    is a version before any path is built, and its place stays inside the agent's own folder
+    in the cache."""
+    cache = client.agents_cache()
+    inside = client._cached_at(cache, "site-a/inbox", "0.1.0")
+    assert inside == cache.resolve() / "site-a" / "inbox" / "0.1.0"
+    (cache / "site-a" / "inbox").mkdir(parents=True)
+    (cache / "site-a" / "inbox" / "0.2.0").symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(HubError, match="a version that is not one of site-a/inbox"):
+        client._cached_at(cache, "site-a/inbox", "0.2.0")
 
 
-def test_a_pulled_packs_uploaded_figures_are_not_shown_where_it_is_served(
+def test_a_pulled_agents_uploaded_figures_are_not_shown_where_it_is_served(
     hub: Hub, tmp_path: Path
 ) -> None:
     """The LP-18a review: the registry shows no uploaded benchmark or leaderboard, but the
-    engine's pack detail and `mendari card` did, once the pack was pulled. A pack from a registry
-    is shown as the registry renders it (ADR-0012); the same pack of one's own keeps its own."""
+    engine's agent detail and `mendari card` did, once the agent was pulled. An agent from a
+    registry
+    is shown as the registry renders it (ADR-0012); the same agent of one's own keeps its own."""
     from fastapi.testclient import TestClient
 
     from mendari.core.card import card_of
     from mendari.server.app import create_app
 
     token, key = hub.namespace("site-a")
-    pack = copy_pack(tmp_path, "site-a/inbox")
-    assert (pack.root / "evals" / "benchmark.json").is_file()
-    hub.client(token).push(pack, key)
+    agent = attested(copy_agent(tmp_path, "site-a/inbox"))
+    assert (agent.root / "evals" / "benchmark.json").is_file()
+    hub.client(token).push(agent, key)
     pulled = pull("site-a/inbox", hub.client())
     card = card_of(pulled)
     assert "The registry shows no figure it did not compute itself" in card
-    assert "## Provider comparison" not in card and "## Provider comparison" in card_of(pack)
+    assert "## Provider comparison" not in card and "## Provider comparison" in card_of(agent)
     with TestClient(create_app(db_path=tmp_path / "a.db")) as engine:
-        detail = engine.get("/api/packs/site-a/inbox").json()
+        detail = engine.get("/api/agents/site-a/inbox").json()
     assert detail["origin"] == "hub"
     assert detail["benchmark"] is None and detail["leaderboard"] is None
     assert detail["card_markdown"] == card
 
 
-def test_a_pulled_packs_uploaded_benchmark_is_never_compared_or_monitored_against(
+def test_a_pulled_agents_uploaded_benchmark_is_never_compared_or_monitored_against(
     hub: Hub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """LP-18h: the engine still read a pulled pack's uploaded benchmark in two places. The
+    """LP-18h: the engine once read a pulled agent's uploaded benchmark in two places: the
     evaluation route and `mendari eval` attached a comparison with it, and the monitor took it
-    as its reference. Now the evaluation says it is not compared with the benchmark the pack
+    as its reference. The evaluation says it is not compared with the benchmark the agent
     carries, as it says when a benchmark cannot be compared, and the monitor has no benchmark
-    (`from_registry`). The same pack of one's own is compared as before."""
+    (`from_registry`). The same agent of one's own is compared with its benchmark."""
     from fastapi.testclient import TestClient
 
     from mendari.core.card import benchmark
@@ -260,14 +204,14 @@ def test_a_pulled_packs_uploaded_benchmark_is_never_compared_or_monitored_agains
     from mendari.server.app import create_app
 
     token, key = hub.namespace("site-a")
-    pack = copy_pack(tmp_path, "site-a/inbox")
-    hub.client(token).push(pack, key)
+    agent = attested(copy_agent(tmp_path, "site-a/inbox"))
+    hub.client(token).push(agent, key)
     pulled = pull("site-a/inbox", hub.client())
     assert pulled.origin == "hub" and benchmark(pulled) is not None  # it carries one
-    run = {"dataset": "red_flags", "limit": 20}
+    run = {"dataset": "calibration", "limit": 20}  # not its benchmark set: compared
     with TestClient(create_app(db_path=tmp_path / "a.db")) as engine:
-        answer = engine.post("/api/packs/site-a/inbox/evals", json=run).json()
-        monitored = engine.get("/api/monitoring", params={"pack_id": "site-a/inbox"}).json()
+        answer = engine.post("/api/agents/site-a/inbox/evals", json=run).json()
+        monitored = engine.get("/api/monitoring", params={"agent_id": "site-a/inbox"}).json()
     capsys.readouterr()  # the server's security log
     assert answer["comparison"] == not_compared(FROM_REGISTRY)
     assert answer["figures"]["comparison"] is None
@@ -276,22 +220,22 @@ def test_a_pulled_packs_uploaded_benchmark_is_never_compared_or_monitored_agains
         "from_registry",
     )
     assert monitored["benchmark"]["figures"]["accuracy"] is None
-    eval_args = ["--dataset", "red_flags", "--limit", "20"]
+    eval_args = ["--dataset", "calibration", "--limit", "20"]
     assert main(["eval", "site-a/inbox", *eval_args, "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["comparison"] == not_compared(FROM_REGISTRY)
     assert main(["eval", "site-a/inbox", *eval_args]) == 0
     assert f"Comparison unavailable: {FROM_REGISTRY}" in capsys.readouterr().out
-    # The pack it was published from is one's own: compared with its benchmark, as before.
-    assert main(["eval", str(pack.root), *eval_args, "--json"]) == 0
+    # The agent it was published from is one's own: compared with its benchmark.
+    assert main(["eval", str(agent.root), *eval_args, "--json"]) == 0
     own = json.loads(capsys.readouterr().out)["comparison"]
     assert own["status"] in ("ok", "warning", "degraded") and "baseline" in own
 
 
-def test_a_cached_pack_is_not_downloaded_again(
+def test_a_cached_agent_is_not_downloaded_again(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     token, key = hub.namespace("site-a")
-    hub.client(token).push(copy_pack(tmp_path, "site-a/inbox"), key)
+    hub.client(token).push(copy_agent(tmp_path, "site-a/inbox"), key)
     pull("site-a/inbox", hub.client())
     monkeypatch.setattr(RegistryClient, "archive", lambda *a: pytest.fail("downloaded again"))
     assert pull(f"site-a/inbox@{SHIPPED}", hub.client()).version == SHIPPED
@@ -301,25 +245,25 @@ def test_an_archive_that_is_not_the_recorded_one_is_refused(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     token, key = hub.namespace("site-a")
-    hub.client(token).push(copy_pack(tmp_path, "site-a/inbox"), key)
+    hub.client(token).push(copy_agent(tmp_path, "site-a/inbox"), key)
     original = RegistryClient.archive
     monkeypatch.setattr(RegistryClient, "archive", lambda self, *a: original(self, *a) + b"\0")
     with pytest.raises(HubError, match="not the one the registry recorded"):
         pull("site-a/inbox", hub.client())
-    assert not (client.packs_cache() / "site-a" / "inbox").exists()
+    assert not (client.agents_cache() / "site-a" / "inbox").exists()
 
 
 class HostileRegistry:
     """A registry (compromised, or a wrong MENDARI_REGISTRY_URL) that serves a genuinely signed
-    archive of the referral pack (or `root`) under whatever version it is told to name."""
+    archive of the triage fixture (or `root`) under whatever version it is told to name."""
 
-    def __init__(self, tmp_path: Path, root: Path = REFERRAL_DIR) -> None:
-        self.pack = load_pack(root)
+    def __init__(self, tmp_path: Path, root: Path = TRIAGE_DIR) -> None:
+        self.agent = load_agent(root)
         private, self.public = archive.generate_key()
         key = archive.load_private_key(private)
-        self.data = archive.build(self.pack, key)
+        self.data = archive.build(self.agent, key)
         self.key_id = archive.key_id(key.public_key())
-        self.version = self.pack.version
+        self.version = self.agent.version
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -334,7 +278,7 @@ class HostileRegistry:
             "version": self.version,
             "archive_sha256": hashlib.sha256(self.data).hexdigest(),
             "key_id": self.key_id,
-            "digest": self.pack.digest,
+            "digest": self.agent.digest,
         }
         return httpx.Response(200, json={"latest": meta, **meta})
 
@@ -347,7 +291,7 @@ class HostileRegistry:
 @pytest.mark.parametrize("version", ["{victim}", "../../../victim", "0.1.1/../../../../victim"])
 def test_a_registry_cannot_choose_where_a_pull_writes(tmp_path: Path, version: str) -> None:
     """T11: the cache path was built from the registry's `version` and replaced with rmtree, so
-    a hostile registry deleted any directory and wrote the pack there, the publisher's key
+    a hostile registry deleted any directory and wrote the agent there, the publisher's key
     pinned and the signature good. The version must be one, inside the cache, and the signed
     manifest's."""
     victim = tmp_path / "victim"
@@ -355,10 +299,10 @@ def test_a_registry_cannot_choose_where_a_pull_writes(tmp_path: Path, version: s
     (victim / "precious.txt").write_text("keep me")
     registry = HostileRegistry(tmp_path)
     with registry.client() as honest:
-        assert pull("mendari/referral-router", honest).version == registry.pack.version  # pins
+        assert pull(TRIAGE.id, honest).version == registry.agent.version  # pins
     registry.version = version.format(victim=victim)
     with registry.client() as hostile, pytest.raises(HubError, match="not one of"):
-        pull("mendari/referral-router", hostile)
+        pull(TRIAGE.id, hostile)
     assert (victim / "precious.txt").read_text() == "keep me"
     assert sorted(p.name for p in victim.iterdir()) == ["precious.txt"]
 
@@ -366,110 +310,109 @@ def test_a_registry_cannot_choose_where_a_pull_writes(tmp_path: Path, version: s
 def test_a_registry_cannot_serve_one_version_as_another(tmp_path: Path) -> None:
     registry = HostileRegistry(tmp_path)
     registry.version = "9.9.9"  # a valid version, but not the signed archive's
-    with registry.client() as hostile, pytest.raises(HubError, match="is not mendari/referral"):
-        pull("mendari/referral-router", hostile)
-    assert not (client.packs_cache() / "mendari" / "referral-router" / "9.9.9").exists()
+    with registry.client() as hostile, pytest.raises(HubError, match=f"is not {TRIAGE.id}@"):
+        pull(TRIAGE.id, hostile)
+    assert not (client.agents_cache() / TRIAGE.id / "9.9.9").exists()
     with registry.client() as hostile, pytest.raises(HubError, match="not namespace/name"):
         pull("../x", hostile)
 
 
-def changed_referral(tmp_path: Path, version: str | None = None) -> Path:
-    """A copy of the referral pack with one more line in its rules, at `version` (its own unless
-    given)."""
+def changed_triage(tmp_path: Path, version: str | None = None) -> Path:
+    """A copy of the triage fixture with one more line in its router's rules, at `version` (its
+    own unless given)."""
     changed = tmp_path / "changed"
-    shutil.copytree(REFERRAL_DIR, changed)
-    rules = changed / "logic" / "triage_rules.yaml"
+    shutil.copytree(TRIAGE_DIR, changed)
+    rules = changed / ROUTER_RULES
     rules.write_text(rules.read_text() + "# one more line\n")
     if version is not None:
         manifest = changed / "agent.yaml"
-        shipped = load_pack(REFERRAL_DIR).version
         manifest.write_text(
-            manifest.read_text().replace(f"version: {shipped}", f"version: {version}", 1)
+            manifest.read_text().replace(f"version: {SHIPPED}", f"version: {version}", 1)
         )
     return changed
 
 
 def test_a_pull_the_engine_refuses_leaves_nothing_in_the_cache(tmp_path: Path) -> None:
-    """H3: a signed copy of the referral pack with one changed byte (at a new version: at its own
-    it is a shadow, below) is not the reference pack, so it runs on the engine for packs from a
-    registry, which cannot run its lookahead. The pull refuses it before the rename: no version
-    directory, no verified marker, nothing on the search path."""
-    registry = HostileRegistry(tmp_path, changed_referral(tmp_path, "9.9.9"))
+    """H3: a signed copy of the triage fixture with a changed rule (at a new version: at its own
+    it is a shadow, below) is not the reference agent, so it runs on the engine for agents from a
+    registry, which cannot run the lookahead the change added. The pull refuses it before the
+    rename: no version directory, no verified marker, nothing on the search path."""
+    registry = HostileRegistry(tmp_path, with_lookahead(changed_triage(tmp_path, "9.9.9")))
     assert registry.version == "9.9.9"
     with registry.client() as signed, pytest.raises(PatternsRefused) as refused:
-        pull("mendari/referral-router", signed)
+        pull(TRIAGE.id, signed)
     assert any("lookahead" in problem for problem in refused.value.problems)
-    assert any("not the copy of it in this release" in p for p in refused.value.problems)
-    cache = client.packs_cache()
-    assert not (cache / "mendari" / "referral-router" / registry.version).exists()
+    cache = client.agents_cache()
+    assert not (cache / TRIAGE.id / registry.version).exists()
     assert list(cache.rglob(".mendari-verified")) == []
-    assert resolve_pack("mendari/referral-router").origin == "maintained"
+    assert resolve_agent(TRIAGE.id).origin == "maintained"
 
 
 def test_a_pull_of_a_shadow_is_refused_and_nothing_is_cached(tmp_path: Path) -> None:
-    """F: a signed copy of the referral pack with one changed byte at the reference pack's own
-    version would be served in its place. The pull refuses it before the rename, and the
-    reference pack is still the one served."""
-    registry = HostileRegistry(tmp_path, changed_referral(tmp_path))
-    reference = load_pack(REFERRAL_DIR)
-    assert registry.version == reference.version
-    with registry.client() as signed, pytest.raises(PackValidationError) as refused:
-        pull("mendari/referral-router", signed)
+    """F: a signed copy of the triage fixture with one changed byte at the reference agent's own
+    version would be served in its place. The pull refuses it before it moves into the cache,
+    and the reference agent is still the one served."""
+    registry = HostileRegistry(tmp_path, changed_triage(tmp_path))
+    assert registry.version == TRIAGE.version
+    with registry.client() as signed, pytest.raises(AgentValidationError) as refused:
+        pull(TRIAGE.id, signed)
     assert not isinstance(refused.value, PatternsRefused)
     (problem,) = refused.value.problems
     assert "never takes a bundled agent's place" in problem and "remove" not in problem
-    cache = client.packs_cache()
-    assert not (cache / "mendari" / "referral-router" / reference.version).exists()
+    cache = client.agents_cache()
+    assert not (cache / TRIAGE.id / TRIAGE.version).exists()
     assert list(cache.rglob(".mendari-verified")) == []
-    served = resolve_pack("mendari/referral-router")
-    assert (served.origin, served.digest) == ("maintained", reference.digest)
+    served = resolve_agent(TRIAGE.id)
+    assert (served.origin, served.digest) == ("maintained", TRIAGE.digest)
 
 
 def test_a_shadow_cached_before_this_release_is_refused_on_the_cache_hit_path(
     tmp_path: Path,
 ) -> None:
     """One pulled before this release refused it is in the cache, marked verified: the pull's
-    cache hit loads it and refuses it, naming the directory to remove, and the reference pack is
+    cache hit loads it and refuses it, naming the directory to remove, and the reference agent is
     served."""
-    registry = HostileRegistry(tmp_path, changed_referral(tmp_path))
-    reference = load_pack(REFERRAL_DIR)
-    cached = client.packs_cache() / "mendari" / "referral-router" / reference.version
-    shutil.copytree(registry.pack.root, cached)
-    (cached / ".mendari-verified").write_text(hashlib.sha256(registry.data).hexdigest() + "\n")
-    with registry.client() as signed, pytest.raises(PackValidationError) as refused:
-        pull("mendari/referral-router", signed)
+    registry = HostileRegistry(tmp_path, changed_triage(tmp_path))
+    cached = client.agents_cache() / TRIAGE.id / TRIAGE.version
+    shutil.copytree(registry.agent.root, cached)
+    sha256 = hashlib.sha256(registry.data).hexdigest()
+    (cached / ".mendari-verified").write_text(
+        json.dumps({"format": ORIGIN_FORMAT, "archive_sha256": sha256}) + "\n"
+    )
+    with registry.client() as signed, pytest.raises(AgentValidationError) as refused:
+        pull(TRIAGE.id, signed)
     (problem,) = refused.value.problems
     assert problem.endswith(f"; remove {cached.resolve()} from the cache")
-    served = resolve_pack("mendari/referral-router")
-    assert (served.origin, served.digest) == ("maintained", reference.digest)
+    served = resolve_agent(TRIAGE.id)
+    assert (served.origin, served.digest) == ("maintained", TRIAGE.digest)
 
 
-def test_pulling_a_reference_pack_keeps_the_maintained_engine(
+def test_pulling_a_reference_agent_keeps_the_maintained_engine(
     hub: Hub, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The reference pack, published unchanged (`scripts/hub_seed.py`, `hub-e2e`), is a copy
+    """The reference agent, published unchanged (`scripts/hub_seed.py`, `hub-e2e`), is a copy
     of the one this release bundles: pulled, it keeps the maintained engine."""
-    token, key = hub.namespace("mendari")
-    reference = load_pack(REFERRAL_DIR)
+    token, key = hub.namespace(FIXTURE_NAMESPACE)
+    reference = load_agent(TRIAGE_DIR)
     hub.client(token).push(reference, key)
     assert main(["login", "--registry", hub.url, "--token", token]) == 0
     capsys.readouterr()
-    assert main(["pull", "mendari/referral-router"]) == 0
+    assert main(["pull", TRIAGE.id]) == 0
     out = capsys.readouterr().out
     assert "runs on the maintained engine: a copy of an agent this release bundles" in out
-    cached = client.packs_cache() / "mendari" / "referral-router" / reference.version
-    pack = Decision.from_path(cached).pack
-    assert (pack.origin, pack.bounded, pack.digest) == ("hub", False, reference.digest)
+    cached = client.agents_cache() / TRIAGE.id / reference.version
+    agent = Decision.from_path(cached).agent
+    assert (agent.origin, agent.bounded, agent.digest) == ("hub", False, reference.digest)
 
 
 def test_a_rotated_key_needs_consent(hub: Hub, tmp_path: Path) -> None:
     token, key = hub.namespace("site-a")
     publisher = hub.client(token)
-    publisher.push(copy_pack(tmp_path, "site-a/inbox"), key)
+    publisher.push(copy_agent(tmp_path, "site-a/inbox"), key)
     pull("site-a/inbox", hub.client())  # pins the first key
     private, public = archive.generate_key()
     publisher.add_key("site-a", public)
-    publisher.push(copy_pack(tmp_path, "site-a/inbox", "0.2.0"), archive.load_private_key(private))
+    publisher.push(copy_agent(tmp_path, "site-a/inbox", "0.2.0"), archive.load_private_key(private))
     with pytest.raises(HubError, match="has not seen before"):
         pull("site-a/inbox@0.2.0", hub.client())
     assert pull("site-a/inbox@0.2.0", hub.client(), accept_new_key=True).version == "0.2.0"
@@ -497,13 +440,13 @@ def test_a_revoked_key_is_trusted_only_for_what_was_published_before_it(
 ) -> None:
     token, old = hub.namespace("site-a")
     publisher = hub.client(token)
-    publisher.push(copy_pack(tmp_path, "site-a/inbox", "0.1.0"), old)
+    publisher.push(copy_agent(tmp_path, "site-a/inbox", "0.1.0"), old)
     private, public = archive.generate_key()
     publisher.add_key("site-a", public)
     with hub.operator() as store:
         store.revoke_key("site-a", archive.key_id(old.public_key()), reason="lost", by="operator")
     new = archive.load_private_key(private)
-    publisher.push(copy_pack(tmp_path, "site-a/inbox", "0.2.0"), new)
+    publisher.push(copy_agent(tmp_path, "site-a/inbox", "0.2.0"), new)
     (listed,) = [k for k in hub.client().namespace("site-a")["keys"] if k["revoked_at"]]
     revoked_at = datetime.fromisoformat(listed["revoked_at"])
 
@@ -519,29 +462,27 @@ def test_a_revoked_key_is_trusted_only_for_what_was_published_before_it(
         monkeypatch.setattr(RegistryClient, "version", version)
         with pytest.raises(HubError, match="lists as revoked since"):
             pull("site-a/inbox@0.1.0", hub.client(), accept_new_key=True)
-        assert not (client.packs_cache() / "site-a" / "inbox" / "0.1.0").exists()
+        assert not (client.agents_cache() / "site-a" / "inbox" / "0.1.0").exists()
         # A live key is unaffected, with or without a time.
         assert pull("site-a/inbox@0.2.0", hub.client(), accept_new_key=True).version == "0.2.0"
-        shutil.rmtree(client.packs_cache() / "site-a" / "inbox" / "0.2.0")
+        shutil.rmtree(client.agents_cache() / "site-a" / "inbox" / "0.2.0")
     monkeypatch.setattr(RegistryClient, "version", served)
     # What the revoked key signed before it was revoked still verifies, as on the registry.
     assert pull("site-a/inbox@0.1.0", hub.client()).version == "0.1.0"
     assert pull("site-a/inbox@0.2.0", hub.client()).version == "0.2.0"
 
 
-def test_from_hub_pulls_a_pack_that_is_not_local(
+def test_from_hub_pulls_an_agent_that_is_not_local(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     token, key = hub.namespace("site-a")
-    hub.client(token).push(copy_pack(tmp_path, "site-a/inbox"), key)
-    with pytest.raises(PackNotFoundError, match="no registry"):
+    hub.client(token).push(copy_agent(tmp_path, "site-a/inbox"), key)
+    with pytest.raises(AgentNotFoundError, match="no registry"):
         Decision.from_hub("site-a/inbox")
     monkeypatch.setenv("MENDARI_REGISTRY_URL", hub.url)
     decision = Decision.from_hub("site-a/inbox")
-    dataset = (example_datasets_dir() or Path("datasets")) / "local-site-example.jsonl"
-    case = json.loads(dataset.read_text().splitlines()[0])
-    assert decision(case["input"]).recommendation
-    assert decision.pack.origin == "hub" and decision.pack.bounded  # not a reference pack
+    assert decision({"message": {"body": "Could you refill my lisinopril?"}}).recommendation
+    assert decision.agent.origin == "hub" and decision.agent.bounded  # not a reference agent
 
 
 def test_the_cli_logs_in_pushes_searches_and_pulls(
@@ -554,8 +495,8 @@ def test_the_cli_logs_in_pushes_searches_and_pulls(
     assert main(["login", "--registry", hub.url, "--token", token]) == 0
     credentials = client.config_dir() / "credentials.json"
     assert credentials.stat().st_mode & 0o777 == 0o600
-    pack = copy_pack(tmp_path, "site-a/inbox")
-    assert main(["push", str(pack.root), "--key", str(key_file)]) == 0
+    agent = copy_agent(tmp_path, "site-a/inbox")
+    assert main(["push", str(agent.root), "--key", str(key_file)]) == 0
     assert main(["search", "inbox"]) == 0
     assert f"site-a/inbox@{SHIPPED}" in capsys.readouterr().out
     assert main(["pull", "site-a/inbox"]) == 0
@@ -569,8 +510,8 @@ def test_the_cli_logs_in_pushes_searches_and_pulls(
 def test_search_shows_no_figure_a_registry_sends(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A registry before LP-18 served the publisher's own benchmark beside each entry: the
-    listing never shows an uploaded number (ADR-0012), and says the risk level is declared."""
+    """A registry may send the publisher's own benchmark beside each entry: the listing never
+    shows an uploaded number (ADR-0012), and says the risk level is declared."""
     import contextlib
 
     from mendari import cli
@@ -621,9 +562,14 @@ def _hub_site(hub: Hub, capsys: pytest.CaptureFixture[str]) -> str:
     return str(site["id"])
 
 
+# A site's own labelled cases for the triage fixture, a file outside the agent: here its test
+# set's, as many cases as a site's shared evaluation needs (100 or more).
+SITE_DATASET = TRIAGE_DIR / "data" / "test.jsonl"
+
+
 def _reports(hub: Hub) -> list[dict[str, object]]:
     with httpx.Client() as http:
-        answer = http.get(f"{hub.url}/v1/packs/mendari/referral-router/reports").json()
+        answer = http.get(f"{hub.url}/v1/agents/{TRIAGE.id}/reports").json()
     return list(answer["reports"])
 
 
@@ -633,26 +579,27 @@ def test_eval_share_out_writes_exactly_what_is_sent_and_sends_nothing(
     """`--share-out` lets a site read the signed submission first: no report leaves, no case
     id is in it; `mendari site submit` sends those bytes later (LP-22f)."""
     monkeypatch.chdir(tmp_path)
-    token, key = hub.namespace("mendari")
-    hub.client(token).push(resolve_pack("mendari/referral-router"), key)
+    token, key = hub.namespace(FIXTURE_NAMESPACE)
+    hub.client(token).push(TRIAGE, key)
     site = _hub_site(hub, capsys)
-    dataset = (example_datasets_dir() or Path("datasets")) / "referral-local-site-example.jsonl"
+    dataset = SITE_DATASET
     out = tmp_path / "share.json"
-    args = ["eval", "mendari/referral-router", "--dataset", str(dataset), "--baseline", "none"]
+    args = ["eval", TRIAGE.id, "--dataset", str(dataset), "--baseline", "none"]
     assert main([*args, "--share-out", str(out)]) == 0
     err = capsys.readouterr().err
-    assert f"wrote the signed submission to {out}" in err and "of 300 right" in err  # a summary
+    n = len(dataset.read_text().splitlines())
+    assert f"wrote the signed submission to {out}" in err and f"of {n} right" in err  # a summary
     written = json.loads(out.read_text())
-    assert written["site"] == site and SiteReportV2.model_validate(written["report"]).dataset.n
+    assert written["site"] == site and SiteReportV1.model_validate(written["report"]).dataset.n
     ids = [json.loads(line)["id"] for line in dataset.read_text().splitlines() if line.strip()]
     assert ids and not any(case in out.read_text() for case in ids)
     assert _reports(hub) == []  # nothing sent
     assert main(["site", "submit", str(out)]) == 0
     (served,) = _reports(hub)
     with httpx.Client() as http:
-        record = http.get(
-            f"{hub.url}/v1/packs/mendari/referral-router/reports/{served['id']}"
-        ).json()["record"]
+        record = http.get(f"{hub.url}/v1/agents/{TRIAGE.id}/reports/{served['id']}").json()[
+            "record"
+        ]
     assert record == written  # exactly the bytes it wrote
     assert served["site"] == site and served["verified"] is True
 
@@ -661,15 +608,16 @@ def test_eval_share_sends_the_signed_counts(
     hub: Hub, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    token, key = hub.namespace("mendari")
-    hub.client(token).push(resolve_pack("mendari/referral-router"), key)
+    token, key = hub.namespace(FIXTURE_NAMESPACE)
+    hub.client(token).push(TRIAGE, key)
     site = _hub_site(hub, capsys)
-    dataset = (example_datasets_dir() or Path("datasets")) / "referral-local-site-example.jsonl"
-    args = ["eval", "mendari/referral-router", "--dataset", str(dataset), "--baseline", "none"]
+    dataset = SITE_DATASET
+    args = ["eval", TRIAGE.id, "--dataset", str(dataset), "--baseline", "none"]
     assert main([*args, "--share"]) == 0
     assert "shared report" in capsys.readouterr().err
     (served,) = _reports(hub)
-    assert (served["site"], served["figures"]["n"]) == (site, 300)  # type: ignore[index]
+    n = len(dataset.read_text().splitlines())
+    assert (served["site"], served["figures"]["n"]) == (site, n)  # type: ignore[index]
     # A shared run covers the whole file: its ticket's commitment is over it.
     assert main([*args, "--limit", "120", "--share"]) == 1
     assert "drop --limit" in capsys.readouterr().err

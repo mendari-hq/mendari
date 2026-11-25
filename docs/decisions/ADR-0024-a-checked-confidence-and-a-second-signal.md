@@ -5,7 +5,7 @@ Accepted
 
 Decided by the maintainer on 2026-11-24, before the repository was public, so no comment period ran; open to revision when it is.
 
-Specified in [agent manifest spec 0.4](../spec/agent-manifest-0.4.md), sections 8 to 13. Built
+Specified in [the agent manifest spec](../spec/agent-manifest.md), section 14. Built
 beside [ADR-0023](ADR-0023-an-agent-proposes-actions.md) (actions); point 5 below is where the
 two meet.
 
@@ -63,7 +63,7 @@ The fit is a file of the agent (`mendari.agent-calibration/1`), named by the var
 `calibration` key as an `llm` variant's is. So the agent's digest, archive and signature cover
 it, a registry's approval is of the agent with that calibration, and changing it is changing
 the agent. It records what it was fitted on (the dataset's name and sha256, the number of
-cases, the date) and for which agent: the variant's `agent_id` and the `agent_version` the
+cases, the date) and for which agent: the variant's `service_id` and the `service_version` the
 service reported while it was asked.
 
 The fitting cases are meant to be separate from the cases an evaluation reports on, as they are
@@ -74,7 +74,7 @@ optimistic. Neither is refused: a site with one small set may still want the fit
 see what it is worth.
 
 Calibration is refused where it would not mean anything: on canned answers (they are not the
-agent's confidence), on a service that reports no `agent_version`, and on one that reported two
+agent's confidence), on a service that reports no `service_version`, and on one that reported two
 versions while it was asked.
 
 It is applied inside the provider, for every call (`AgentProvider.answer`), so before the
@@ -89,7 +89,7 @@ calibration error before and after on cases of its own, and the next decision.
 
 ### 2. A calibration fitted for one version does not bless another
 When the agent's service reports a version other than the one the calibration was fitted for,
-or none, or the variant's `agent_id` is not the one it was fitted for:
+or none, or the variant's `service_id` is not the one it was fitted for:
 
 - nothing is rescaled (the confidence is as reported, and the evidence says "not calibrated");
 - the decision is capped: AUTO becomes HUMAN_REVIEW, with the reason

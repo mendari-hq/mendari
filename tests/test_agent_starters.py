@@ -17,8 +17,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari import agent_kit
+from mendari.core.agent import load_agent
 from mendari.core.decision import Decision
-from mendari.core.pack import load_pack
 from mendari.providers.agent import ENDPOINT_ENV, TOKEN_ENV
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,7 +92,7 @@ def governed(monkeypatch: pytest.MonkeyPatch, service: ModuleType) -> tuple[Deci
         return httpx.Response(reply.status_code, content=reply.content)
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", to_service)
-    return Decision(load_pack(DEMO)), seen
+    return Decision(load_agent(DEMO)), seen
 
 
 URGENT = (

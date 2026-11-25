@@ -33,8 +33,8 @@ from typing import Any
 import httpx
 
 from mendari.core import tenancy
+from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore
-from mendari.core.pack import Pack
 from mendari.errors import MendariError
 from mendari.sandbox.code_systems import SANDBOX_TAG
 from mendari.server.origin import OWN_REQUEST
@@ -52,7 +52,7 @@ def launch_value(patient: str, provider: str) -> str:
     return base64.urlsafe_b64encode(json.dumps(fields).encode()).decode().rstrip("=")
 
 
-def focus_search(agent: Pack) -> tuple[str, dict[str, str]]:
+def focus_search(agent: Agent) -> tuple[str, dict[str, str]]:
     """What an agent decides about, as a FHIR search: the resource type its mapping focuses on
     and, where the mapping says which of them count by a code set read at `<element>.coding`
     (`focus_where`), the token search for those codes (`<element>=<system>|<code>,...`). So a
@@ -63,7 +63,7 @@ def focus_search(agent: Pack) -> tuple[str, dict[str, str]]:
             f"{agent.id} has no FHIR mapping (`inputs.fhir`): the sandbox finds an agent's work "
             "on the FHIR server by what its mapping focuses on"
         )
-    mapping = FhirAdapter.for_pack(agent).mapping
+    mapping = FhirAdapter.for_agent(agent).mapping
     narrowed: dict[str, str] = {}
     rule = mapping.focus_where
     if rule is not None and rule.code_set is not None and rule.path.endswith(".coding"):
@@ -74,7 +74,7 @@ def focus_search(agent: Pack) -> tuple[str, dict[str, str]]:
     return mapping.focus, narrowed
 
 
-def find_patient(fhir: str, agent: Pack) -> str:
+def find_patient(fhir: str, agent: Agent) -> str:
     """A synthetic patient who has something for the agent to decide: one of its focus
     resources (`focus_search`), whichever other agents' cases the server holds."""
     kind, narrowed = focus_search(agent)
@@ -99,7 +99,7 @@ def run(
     engine: str,
     launcher: str,
     fhir: str,
-    agent: Pack,
+    agent: Agent,
     patient: str | None = None,
     provider: str = "sandbox-clinician",
     limit: int = 5,
@@ -112,13 +112,13 @@ def run(
     if expect_org is not None and db is None:
         raise MendariError("checking the organization needs the engine's database (db)")
     engine = engine.rstrip("/")
-    pack_id = agent.id
+    agent_id = agent.id
     patient = patient or find_patient(fhir, agent)
     iss = f"{launcher.rstrip('/')}/v/r4/fhir"
     with httpx.Client(follow_redirects=False, timeout=60) as browser:
         started = browser.get(
             f"{engine}/smart/launch",
-            params={"iss": iss, "launch": launch_value(patient, provider), "pack": pack_id},
+            params={"iss": iss, "launch": launch_value(patient, provider), "agent": agent_id},
         )
         authorize = _redirect(started, "the engine's launch")
         # The engine's cookies are Secure and the sandbox runs on plain http, so this script
@@ -134,11 +134,11 @@ def run(
         cookie = {"cookie": _cookie(done, COOKIE, "session"), OWN_REQUEST: "1"}
         session = _json(browser.get(f"{engine}/api/smart/session", headers=cookie))
         items = _json(
-            browser.get(f"{engine}/api/smart/focus", params={"pack_id": pack_id}, headers=cookie)
+            browser.get(f"{engine}/api/smart/focus", params={"agent_id": agent_id}, headers=cookie)
         )
         decided = []
         for item in items[:limit]:
-            body = {"pack_id": pack_id, "focus": item["ref"]}
+            body = {"agent_id": agent_id, "focus": item["ref"]}
             result = _json(browser.post(f"{engine}/api/smart/decide", json=body, headers=cookie))
             decision = result["decision"]
             decided.append(

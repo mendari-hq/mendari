@@ -9,11 +9,12 @@ never in a public issue. Most contributions will be one of these:
 
 The bundled agent, `agents/portal-message-agent`, is the one agent Mendari maintains.
 
-1. Change its questions and criteria, its policy, its rules or its canned answers. Its test set
-   (`data/test.jsonl`) is written by a script: edit `scripts/demo_agent_data.py`, run it
-   (`uv run python scripts/demo_agent_data.py`) and commit both; CI fails when they differ. The
-   canned answers miss some urgent messages worded as a patient might, on purpose: the
-   evaluation is there to show it.
+1. Change its questions and criteria, its policy, its rules or its canned answers. Its datasets
+   (`data/test.jsonl`, `data/written.jsonl`) and the simulated grades of what it writes
+   (`data/written_grades.jsonl`) are written by a script: edit `scripts/demo_agent_data.py`,
+   run it (`uv run python scripts/demo_agent_data.py`) and commit the script with what it
+   wrote; CI fails when they differ. The canned answers miss some urgent messages worded as a
+   patient might, on purpose: the evaluation is there to show it.
 2. Run `uv run mendari validate agents/portal-message-agent`, then `test` and
    `eval --dataset test` on the same folder.
 3. Add a `tests/cases.yaml` case for any behaviour you fixed or introduced, especially safety
@@ -21,41 +22,12 @@ The bundled agent, `agents/portal-message-agent`, is the one agent Mendari maint
 4. Raise the agent's version (MAJOR for label changes, MINOR for behaviour changes, PATCH for
    documentation).
 
-## Contribute a new agent
+### What CI does with a change to it
 
-Fork the repository, clone your fork and run `uv sync` in it (Mendari is not on PyPI yet; see
-[Install](README.md#install)). Start with `uv run mendari new <dir> --id <namespace>/<name>` and
-the [authoring guide](docs/guides/authoring-an-agent.md), which needs no programming. Commands
-take the agent's folder (`uv run mendari test <dir>`); to try it in the dashboard, put that
-folder on the search path: `MENDARI_AGENTS_PATH=<dir> uv run mendari serve`. An agent is ready
-for review when:
-
-- `mendari validate <dir>` and `mendari test <dir>` pass;
-- the Decision Card states intended use, users, population, out-of-scope uses and known
-  failure modes honestly;
-- the risk level matches the intended use (see `docs/spec/agent-manifest-0.2.md` §7);
-- a benchmark report is published, and critical labels (cases a person must see: never
-  automated by default; see the spec, §8) are declared under `evaluation.critical`;
-- all data is synthetic: **never real patient data**, not even de-identified;
-- a clinician other than the author has reviewed the criteria (say who in the PR).
-
-The demo agent Mendari maintains in `agents/` is the owner's demonstration of how an agent is
-built: a synthetic example, not clinically reviewed and not for patient care, as its Decision
-Card says. An agent meant for use keeps the rule above.
-
-An agent contributed for others to use goes in `community-agents/<name>/` with the id
-`community/<name>`. [Contributing an agent](docs/guides/contributing-an-agent.md) is the whole
-path: propose it in an issue (the proposal form), start it with
-`uv run mendari new community-agents/<name> --community`, check it with
-`uv run mendari community-check community-agents/<name> --base origin/main` (the checks CI runs,
-each saying what to fix), and open the PR with the template for a community agent (the guide
-gives its address). The folder's own README lists what CI checks.
-
-### What CI does with an agent PR
-
-A CI job runs on every PR (with no agent changed, it says so and passes). For every bundled
-agent (`agents/`) your PR changes, it:
-- validates it, runs its behaviour tests, and evaluates it on its benchmark dataset;
+A CI job, `agent-check`, runs on every PR (with no agent changed, it says so and passes). For
+every bundled agent (`agents/`) your PR changes, it:
+- validates it, checks its datasets, runs its behaviour tests, and evaluates it on its
+  benchmark dataset;
 - renders its Decision Card (an artifact of the run);
 - compares its metrics with the benchmark it publishes on `main`, in the job summary (an agent
   with none there has nothing to compare with, and passes).
@@ -65,10 +37,33 @@ now is, or if the primary accuracy or the false-automation rate gets worse by mo
 agent's tolerance. An agent that gets worse on purpose (say, a safer policy that automates less)
 explains why in the PR and updates its benchmark.
 
-For a community agent (`community-agents/`) it runs `mendari community-check` instead, and puts
-the metrics and the rendered Decision Card in the job summary. A PR that changes a community
-agent and anything outside its folder (its entry in `community-agents/MAINTAINERS.yaml` aside)
-fails.
+## Your own agent
+
+Mendari maintains one agent, the demo agent, and takes no other into this repository: yours
+lives in a repository of your own, and you publish it to a registry under your organization's
+namespace ([The Agent Hub](README.md#the-agent-hub-publish-and-pull)). Mendari is not on PyPI yet:
+install it from a clone ([Install](README.md#install)). Start with
+`uv run mendari new <dir> --id <namespace>/<name>` and the
+[authoring guide](docs/guides/authoring-an-agent.md), which needs no programming; what `new`
+writes includes a workflow that runs the same checks on every change
+([Evaluating an agent on every change](docs/guides/evaluate-in-ci.md)). Commands take the
+agent's folder (`uv run mendari test <dir>`); to try it in the console, put that folder on the
+search path: `MENDARI_AGENTS_PATH=<dir> uv run mendari serve`. Publish it when:
+
+- `mendari validate <dir>` and `mendari test <dir>` pass (a registry refuses a version that
+  `mendari validate` refuses);
+- the Decision Card states intended use, users, population, out-of-scope uses and known
+  failure modes honestly;
+- the risk level matches the intended use (the risk levels are in
+  [the spec](docs/spec/agent-manifest.md));
+- critical labels (cases a person must see: never automated by default) are declared under
+  `evaluation.critical`, and its evaluations go with it (`mendari push --evaluate`);
+- all data is synthetic: **never real patient data**, not even de-identified;
+- a clinician other than the author has reviewed the criteria.
+
+The demo agent is the owner's demonstration of how an agent is built: a synthetic example, not
+clinically reviewed and not for patient care, as its Decision Card says. An agent meant for use
+keeps the rule above.
 
 ## Code changes
 
@@ -170,23 +165,20 @@ Dependabot's are not checked. To sign off commits you already made:
 Agents carry clinical content, so where it comes from matters as much as the code:
 
 - **No real patient data**, anywhere: not in data, tests, issues or pull requests, not even
-  de-identified. Write synthetic cases yourself
-  ([how](docs/guides/contributing-an-agent.md#synthetic-data-without-python)).
+  de-identified. Write synthetic cases yourself.
 - **No proprietary criteria or copyrighted instruments.** Do not copy text from InterQual, MCG,
   payer medical policies, licensed questionnaires or scoring instruments. Write criteria in
   your own words from public sources (guidelines, published papers, regulations), and cite
   them in `card.evidence`.
 - **Code systems with licence terms** (CPT, licensed by the AMA; SNOMED CT, whose Affiliate
   Licence is free in member countries and paid in some others) appear only as their licences
-  allow. List the
-  systems an agent uses in its manifest's `code_systems`; a licensed one needs a `licence_note`
-  with the terms, and an agent whose files name one by its url or OID without it does not load
-  (spec §3). A bare code names no system, so declaring where your codes come from is yours to
-  do. Prefer
-  free systems (ICD-10-CM, LOINC) or a fictional one named as such in place of CPT and
-  SNOMED CT (no package carries either).
-- **Say what you used.** The pull request template for a community agent asks for the sources
-  of the criteria and of `card.evidence`, and who reviewed the clinical content.
+  allow. List the systems an agent uses in its manifest's `code_systems`; a licensed one needs
+  a `licence_note` with the terms, and an agent whose files name one by its url or OID without
+  it does not load ([the spec](docs/spec/agent-manifest.md)). A bare code names no system, so
+  declaring where your codes come from is yours to do. Prefer free systems (ICD-10-CM, LOINC)
+  or a fictional one named as such in place of CPT and SNOMED CT (no package carries either).
+- **Say what you used.** The pull request names the sources of the criteria and of
+  `card.evidence`, and who reviewed the clinical content.
 
 ## Licence
 

@@ -24,8 +24,10 @@ HL7 FHIR R4 and US Core 6.1.0
   Licence: CC0 1.0 (HL7 International's FHIR specifications).
   HL7 and FHIR are registered trademarks of Health Level Seven International.
 
+The source repository also carries, in no package:
+
 LOINC
-  LOINC codes in the sandbox's synthetic FHIR records (src/mendari/sandbox/fhir_records.py) and in tests
+  LOINC codes in tests: the observations of the chart-summary test fixture's synthetic records (tests/support/fixture_records.py, tests/fixtures/us-core/chart.json)
   Licence: the LOINC License (https://loinc.org/license).
   This material contains content from LOINC® (http://loinc.org). LOINC is copyright © 1995-2026,
   Regenstrief Institute, Inc. and the Logical Observation Identifiers Names and Codes (LOINC)
@@ -33,26 +35,19 @@ LOINC
   registered United States trademark of Regenstrief Institute, Inc.
 
 RxNorm
-  RxNorm codes in the sandbox's synthetic EHR profile (src/mendari/sandbox/ehr_profile.py) and in tests
+  RxNorm codes in tests: the medications of the chart-summary test fixture's synthetic records (tests/support/fixture_records.py, tests/fixtures/us-core/chart.json)
   Licence: public domain (U.S. National Library of Medicine: RxNorm's normalized names and codes).
   This product uses publicly available data courtesy of the U.S. National Library of Medicine
   (NLM), National Institutes of Health, Department of Health and Human Services; NLM is not
   responsible for the product and does not endorse or recommend this or any other product.
 
 ICD-10-CM
-  ICD-10-CM codes in the sandbox's synthetic records and in tests
+  ICD-10-CM codes in tests: the conditions of the chart-summary test fixture and its synthetic records (tests/fixtures/agents/chart-summary, tests/support/fixture_records.py, tests/fixtures/us-core/chart.json)
   Licence: free to use from the U.S. National Center for Health Statistics, which adapted it from the World Health Organization's copyrighted ICD-10 with WHO's authorization, for U.S. government purposes.
 
 ICD-10-PCS
-  three procedure codes and their titles in the sandbox's payer crosswalk (src/mendari/sandbox/synthetic_prior_auth.py), sent with the synthetic prior-authorization orders
+  procedure codes and their titles in tests: the orders of the chart-summary test fixture's synthetic records (tests/support/fixture_records.py, tests/fixtures/us-core/chart.json)
   Licence: public domain (U.S. Centers for Medicare & Medicaid Services).
-
-X12 code system names
-  the urls naming the X12 code systems Da Vinci PAS uses (https://codesystem.x12.org/005010/...), in src/mendari/standards/pas.py, src/mendari/sandbox/payer.py and the licensed-code-system check (src/mendari/core/spec.py); no X12 code value: a site supplies its own, as settings or with each request
-  Licence: the names as HL7's Da Vinci PAS guide gives them (CC0 1.0); X12's code values, which a site supplies, are under X12's terms.
-  X12 is a registered trademark of X12.
-
-The source repository also carries, in no package:
 
 SNOMED CT
   SNOMED CT codes in test inputs and tests (tests/: the US Core fixtures code procedures and referrals in SNOMED CT), the scan that keeps them out of the packages (scripts/check_snomed.py), and the project's notes and history
@@ -64,11 +59,6 @@ axe-core 4.14.0
   Licence: Mozilla Public License 2.0.
   Copyright (c) Deque Systems, Inc.
   Its third-party notices: LICENSE-3RD-PARTY.txt beside it.
-
-X12 code values
-  a few X12 code values as test and sandbox configuration, the settings a site would give: tests/test_pas.py, tests/test_notes.py, tests/test_x12_values.py and tests/test_key_presets.py, scripts/davinci_sample.py (the samples the HL7 validator checks) and docker-compose.yml (the sandbox's settings); listed, for X12's answer, in tasks/todo.md (LP-14); and quoted in an earlier review in notes/
-  Licence: X12's terms; X12's written answer on this use is asked for (tasks/todo.md, LP-14).
-  X12 is a registered trademark of X12.
 
 Newsreader
   web/fonts/newsreader.woff2: the mendari.co page's display face (its Latin subset, as Google Fonts serves it)

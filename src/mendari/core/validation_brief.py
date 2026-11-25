@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The validation and readiness brief (mendari.validation-brief/2).
+"""The validation and readiness brief (mendari.validation-brief/1).
 
 Counts from an organization's own audit trail, live or in a shadow pilot, as a summary a
 committee can read: five readiness gates, each share of cases as k of n with its exact
@@ -25,12 +25,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from mendari import notices
+from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore
-from mendari.core.pack import Pack
 from mendari.evals import figures
 from mendari.evals.monitoring import MIN_FOR_DRIFT, MIN_FOR_OPERATIONS
 
-FORMAT = "mendari.validation-brief/2"
+FORMAT = "mendari.validation-brief/1"
 MIN_PILOT_CASES = 30
 DEFAULT_MINUTES_PER_CASE = 3.5
 # A gate's states, and what a person reads for each. `no_data`: nothing was measured.
@@ -52,11 +52,11 @@ NOT_COMPARED = {
 }
 
 
-def _shadow_hold(holds: Sequence[Mapping[str, Any]], pack: Pack) -> Mapping[str, Any] | None:
-    """Return the active shadow-pilot hold covering `pack`, if any."""
+def _shadow_hold(holds: Sequence[Mapping[str, Any]], agent: Agent) -> Mapping[str, Any] | None:
+    """Return the active shadow-pilot hold covering `agent`, if any."""
     for hold in holds:
-        pack_id = hold.get("pack_id")
-        if pack_id is not None and pack_id != pack.id:
+        agent_id = hold.get("agent_id")
+        if agent_id is not None and agent_id != agent.id:
             continue
         reason = str(hold.get("reason") or "").lower()
         if reason.startswith("shadow pilot:") or reason.startswith("[shadow]"):
@@ -64,12 +64,12 @@ def _shadow_hold(holds: Sequence[Mapping[str, Any]], pack: Pack) -> Mapping[str,
     return None
 
 
-def _non_shadow_holds(holds: Sequence[Mapping[str, Any]], pack: Pack) -> list[Mapping[str, Any]]:
-    """Active operational holds covering `pack` other than a shadow-mode pilot hold."""
+def _non_shadow_holds(holds: Sequence[Mapping[str, Any]], agent: Agent) -> list[Mapping[str, Any]]:
+    """Active operational holds covering `agent` other than a shadow-mode pilot hold."""
     found: list[Mapping[str, Any]] = []
     for hold in holds:
-        pack_id = hold.get("pack_id")
-        if pack_id is not None and pack_id != pack.id:
+        agent_id = hold.get("agent_id")
+        if agent_id is not None and agent_id != agent.id:
             continue
         reason = str(hold.get("reason") or "").lower()
         if reason.startswith("shadow pilot:") or reason.startswith("[shadow]"):
@@ -160,21 +160,21 @@ def _agreement_gate(agreement: Mapping[str, Any] | None, days: int) -> dict[str,
 
 
 def _governance_gate(
-    pack: Pack,
+    agent: Agent,
     hard_holds: Sequence[Mapping[str, Any]],
     governance_active: Mapping[str, Any] | None,
     registry_approval: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     label = "Governance & risk gates"
-    risk_level = pack.manifest.risk.level
+    risk_level = agent.manifest.risk.level
     needs_risk_approval = risk_level in (2, 3) and governance_active is None
-    needs_reg_approval = pack.origin == "hub" and not (
+    needs_reg_approval = agent.origin == "hub" and not (
         registry_approval and registry_approval.get("active")
     )
     if hard_holds:
         return _gate("governance", label, WARN, f"{len(hard_holds)} automation hold(s) active.")
-    if pack.community or risk_level >= 4:
-        detail = "Human-in-the-loop permanently enforced by agent origin or risk level."
+    if risk_level >= 4:
+        detail = "Human-in-the-loop permanently enforced by risk level."
         return _gate("governance", label, PASS, detail)
     if needs_risk_approval or needs_reg_approval:
         pending_items = []
@@ -183,7 +183,7 @@ def _governance_gate(
         if needs_reg_approval:
             pending_items.append("registry digest approval required")
         return _gate("governance", label, WARN, "; ".join(pending_items).capitalize() + ".")
-    if risk_level in (2, 3) or pack.origin == "hub":
+    if risk_level in (2, 3) or agent.origin == "hub":
         detail = "Required governance approvals are in force with no operational holds."
     else:  # nothing was required, so nothing is "in force": say that
         detail = (
@@ -231,7 +231,7 @@ def _drift_gate(monitoring: Mapping[str, Any] | None) -> dict[str, Any]:
 
 def build(
     store: AuditStore,
-    pack: Pack,
+    agent: Agent,
     *,
     days: int = 30,
     minutes_per_case: float = DEFAULT_MINUTES_PER_CASE,
@@ -240,14 +240,14 @@ def build(
     registry_approval: Mapping[str, Any] | None = None,
     monitoring: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build the structured `mendari.validation-brief/2` report for `pack`. `monitoring` is the
+    """Build the structured `mendari.validation-brief/1` report for `agent`. `monitoring` is the
     monitor's report for the same organization (`evals.monitoring.monitor`); without it the
     drift gate has no data."""
     if days < 1:
         raise ValueError("days must be >= 1")
     if not math.isfinite(minutes_per_case) or minutes_per_case < 0:
         raise ValueError("minutes_per_case must be a finite non-negative number")
-    summary = store.validation_summary(pack.id, days=days)
+    summary = store.validation_summary(agent.id, days=days)
     total = int(summary["total"])
     automated = int(summary["outcomes"].get("AUTO", 0))
     would_auto = int(summary["would_automate"])
@@ -257,8 +257,8 @@ def build(
     agreed = int(summary["agreed"])
     down_on_auto = int(summary["down_on_auto"])
 
-    shadow_pilot = _shadow_hold(holds, pack)
-    hard_holds = _non_shadow_holds(holds, pack)
+    shadow_pilot = _shadow_hold(holds, agent)
+    hard_holds = _non_shadow_holds(holds, agent)
 
     agreement_fig = figures.of(agreed, labelled) if labelled else None
     override_fig = figures.of(overrides, reviewed) if reviewed else None
@@ -271,12 +271,12 @@ def build(
 
     alerts = list((monitoring or {}).get("alerts") or ())
     high_alerts = [a for a in alerts if a.get("severity") == "high"]
-    risk_level = pack.manifest.risk.level
+    risk_level = agent.manifest.risk.level
     gates = [
         _volume_gate(total, days),
         _safety_gate(summary, high_alerts, days),
         _agreement_gate(agreement_fig, days),
-        _governance_gate(pack, hard_holds, governance_active, registry_approval),
+        _governance_gate(agent, hard_holds, governance_active, registry_approval),
         _drift_gate(monitoring),
     ]
     ready = all(g["status"] == PASS for g in gates)
@@ -287,16 +287,16 @@ def build(
         # What this document is: computed on request, and signed by nothing.
         "about": ABOUT,
         "signed": False,
-        "pack": {
-            "id": pack.id,
-            "name": pack.manifest.name,
-            "version": pack.version,
-            "digest": pack.digest,
-            "origin": pack.origin,
+        "agent": {
+            "id": agent.id,
+            "name": agent.manifest.name,
+            "version": agent.version,
+            "digest": agent.digest,
+            "origin": agent.origin,
             "risk_level": risk_level,
-            "risk_category": pack.manifest.risk.category,
-            "auto_threshold": pack.manifest.policy.thresholds.auto,
-            "review_threshold": pack.manifest.policy.thresholds.review,
+            "risk_category": agent.manifest.risk.category,
+            "auto_threshold": agent.manifest.policy.thresholds.auto,
+            "review_threshold": agent.manifest.policy.thresholds.review,
         },
         "window_days": days,
         "shadow_pilot": (
@@ -377,7 +377,7 @@ def _md_cell(value: object) -> str:
 def render_markdown(brief: Mapping[str, Any]) -> str:
     """The brief as Markdown, for a committee's file (zero PHI). It says what it is: computed
     here, and not signed."""
-    pack = brief["pack"]
+    agent = brief["agent"]
     vol = brief["volume"]
     figs = brief["figures"]
     roi = brief["roi"]
@@ -386,15 +386,15 @@ def render_markdown(brief: Mapping[str, Any]) -> str:
         f"(at {roi['minutes_per_case']} min/case) |"
     )
     lines = [
-        f"# Clinical AI Validation & Readiness Brief: {_md_cell(pack['name'])}",
+        f"# Clinical AI Validation & Readiness Brief: {_md_cell(agent['name'])}",
         "",
         f"*{brief['notice']}*",
         "",
         f"*{brief['about']}*",
         "",
-        f"- **Agent**: `{_md_cell(pack['id'])}` v{_md_cell(pack['version'])} "
-        f"(`{pack['digest'][:19]}...`)",
-        f"- **Risk level**: {pack['risk_level']} ({_md_cell(pack['risk_category'])})",
+        f"- **Agent**: `{_md_cell(agent['id'])}` v{_md_cell(agent['version'])} "
+        f"(`{agent['digest'][:19]}...`)",
+        f"- **Risk level**: {agent['risk_level']} ({_md_cell(agent['risk_category'])})",
         f"- **Validation window**: Last {brief['window_days']} days ({brief['generated_at']})",
         f"- **Shadow pilot**: {'Active' if brief['shadow_pilot']['active'] else 'Off'}",
         f"- **Go-live readiness**: {readiness_line(brief['gates'])}",

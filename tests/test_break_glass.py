@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari.cli import main
 from mendari.core.audit import SESSION_GROUPS, break_glass_reason
 from mendari.server import auth as auth_module
@@ -128,30 +128,6 @@ def test_revoking_all_of_an_organization_leaves_every_other_s(
     assert code == 1 and "no key or client of clinic-a in force" in err
 
 
-def test_the_listings_read_an_older_database_as_it_is(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """From before Phase 4 (keys without scopes, expiry or rotation) and before Backend Services
-    (no clients): keys listed as they are, none of them usable; no client."""
-    db = tmp_path / "old.db"
-    with AuditStore(db) as store:
-        key = store.create_api_key(name="k", role="service", org="clinic-a", created_by="Ada")
-    with closing(sqlite3.connect(db)) as connection, connection:
-        connection.execute("DROP TABLE oauth_tokens")
-        connection.execute("DROP TABLE oauth_clients")
-        for column in ("scopes", "expires_at", "revoked_by", "replaced_by", "preset"):
-            connection.execute(f"ALTER TABLE api_keys DROP COLUMN {column}")
-        connection.execute("PRAGMA journal_mode=DELETE")
-    before = db.read_bytes()
-    code, listed, _ = run(capsys, "access", "keys", "--db", str(db))
-    assert code == 0 and [(k["id"], k["status"], k["scope"]) for k in listed] == [
-        (key["id"], "expired", None)  # no expiry is refused, as the server refuses it
-    ]
-    code, listed, _ = run(capsys, "access", "clients", "--db", str(db))
-    assert code == 0 and listed == []
-    assert db.read_bytes() == before
-
-
 def put_every_kind(store: AuditStore) -> int:
     """A row of each kind the session table holds, and an expired person's session."""
     until = int(time.time()) + 600
@@ -164,10 +140,10 @@ def put_every_kind(store: AuditStore) -> int:
 
 
 def test_ending_sessions_ends_a_group_s_kinds_and_never_a_claim(
-    db_target: str, inbox_pack: Pack, capsys: pytest.CaptureFixture[str]
+    db_target: str, triage_agent: Agent, capsys: pytest.CaptureFixture[str]
 ) -> None:
     store = AuditStore(db_target)
-    Decision(inbox_pack, store=store)({"message": {"body": "Refill please."}})  # a server's
+    Decision(triage_agent, store=store)({"message": {"body": "Refill please."}})  # a server's
     until = put_every_kind(store)
     code, out, err = run(
         capsys, "access", "end-sessions", "--kind", "people", "--reason", REASON,
@@ -242,13 +218,13 @@ def test_a_revoked_key_and_ended_sessions_are_refused_by_the_running_server(
     with signing_in_with(idp, tmp_path, monkeypatch) as site:
         secret = key_for(site, idp)
         bearer = {"authorization": f"Bearer {secret}"}
-        assert site.get("/api/packs", headers=bearer).is_success
+        assert site.get("/api/agents", headers=bearer).is_success
         sign_in(site, idp, roles=["admin"])
         assert site.get("/api/auth/me").json()["signed_in"] is True
         db = str(tmp_path / "a.db")
         [key] = AuditStore(db).api_keys()
         assert main(["access", "revoke", "key", key["id"], "--reason", REASON, "--db", db]) == 0
-        assert site.get("/api/packs", headers=bearer).status_code == 401
+        assert site.get("/api/agents", headers=bearer).status_code == 401
         assert main(["access", "end-sessions", "--kind", "people", "--reason", REASON,
                      "--db", db]) == 0  # fmt: skip
         assert site.get("/api/auth/me").json()["signed_in"] is False

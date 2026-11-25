@@ -19,7 +19,7 @@ from urllib.parse import parse_qsl, urlsplit
 import pytest
 import yaml
 
-from mendari import AuditStore, Decision, DecisionResult, Outcome, Pack
+from mendari import Agent, AuditStore, Decision, DecisionResult, Outcome
 from mendari.core import audit, tenancy
 from mendari.core.db import PostgresSession, SqliteSession
 from mendari.core.phi import PhiPolicy
@@ -27,17 +27,17 @@ from mendari.core.query import OneOf, Query, Within
 from mendari.standards import audit_fhir, fhir_search, fhir_structure, task_fhir
 from mendari.standards import search as S
 from mendari.standards.audit_fhir import EVENT_SYSTEM
-from mendari.standards.fhir import DECISION_ID_SYSTEM, OUTCOME_SYSTEM, PACK_TAG_SYSTEM
+from mendari.standards.fhir import AGENT_TAG_SYSTEM, DECISION_ID_SYSTEM, OUTCOME_SYSTEM
 from mendari.standards.terminology import Terminology
-from tests.conftest import INBOX_DIR, calm_jev, message
+from tests.conftest import TRIAGE_DIR, message
 
 BASE = "https://mendari.example/fhir"
 SECRET = "SECRET-NOTE-TEXT"
 START = datetime(2026, 9, 28, tzinfo=UTC)
 ORGS = ("clinic-a", "clinic-b", "default")
-LABELS = ("front_desk", "nurse", "physician", "billing", "medical_assistant")
-PACK_TAG = "mendari/patient-inbox-router"
-PACK_VERSION = yaml.safe_load((INBOX_DIR / "agent.yaml").read_text())["version"]
+LABELS = ("front_desk", "nurse", "pharmacy", "billing")  # the triage fixture's teams
+AGENT_TAG = "mendari-test/triage"
+AGENT_VERSION = yaml.safe_load((TRIAGE_DIR / "agent.yaml").read_text())["version"]
 
 
 class Clock:
@@ -58,16 +58,15 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> Clock:
 
 
 @pytest.fixture(scope="module")
-def templates(inbox_pack: Pack) -> list[DecisionResult]:
+def templates(triage_agent: Agent) -> list[DecisionResult]:
     """One decision of each kind, decided once: seeding copies them with new ids and times. A
     policy BLOCK (blocked with an answered primary question) is an AUTO with its outcome
-    changed; the refused input has no primary confidence. The urgency screen runs with a fake
-    Jev, so the routine message is automated."""
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        decide = Decision(inbox_pack, providers=calm_jev(monkeypatch))
-        bodies = ("Can you send a refill?", "Crushing chest pain")
-        kinds = [decide(message(body)) for body in bodies]
-        kinds += [decide(message("hello?")), decide({"message": {}})]
+    changed; the refused input has no primary confidence. The triage fixture's screen runs its
+    canned agent, so the routine message is automated."""
+    decide = Decision(triage_agent, providers={"screen": "agent"})
+    bodies = ("Can you send a refill?", "Crushing chest pain")
+    kinds = [decide(message(body)) for body in bodies]
+    kinds += [decide(message("hello?")), decide({"message": {}})]
     blocked = dataclasses.replace(kinds[0], outcome=Outcome.BLOCK)
     assert [k.outcome.value for k in kinds] == ["AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK"]
     assert kinds[3].confidence is None and blocked.confidence is not None
@@ -111,7 +110,7 @@ def record(
                 final_label=rng.choice(LABELS),
                 source="ehr",
                 recorded_by="rn-9",
-                labels=lambda pack_id, question: LABELS,  # a refused input has no answer
+                labels=lambda agent_id, question: LABELS,  # a refused input has no answer
             )
         if rng.random() < 0.3:
             clock.now += timedelta(minutes=rng.randrange(1, 600))
@@ -331,9 +330,9 @@ def random_values(rng: random.Random, name: str, seeded: Seeded) -> str:
         ],
         "priority": ["routine", "stat", "urgent", f"{PRIORITY}|stat", "x|routine"],
         "_tag": [
-            f"{PACK_TAG_SYSTEM}|{PACK_TAG}@{PACK_VERSION}",
-            f"{PACK_TAG_SYSTEM}|{PACK_TAG}@9.9.9",
-            f"{PACK_TAG_SYSTEM}|",
+            f"{AGENT_TAG_SYSTEM}|{AGENT_TAG}@{AGENT_VERSION}",
+            f"{AGENT_TAG_SYSTEM}|{AGENT_TAG}@9.9.9",
+            f"{AGENT_TAG_SYSTEM}|",
             "no-version",
         ],
         "_id:AuditEvent": [f"{did}-{seq}", f"{did}-{seq}", f"{did}-p{seq}", "x-1", "abc"],
@@ -659,8 +658,8 @@ def test_store_conditions(store: AuditStore, clock: Clock, templates: list[Decis
 # -- CodeSystem, in memory -----------------------------------------------------------------------
 
 
-def test_code_system_search(store: AuditStore, inbox_pack: Pack) -> None:
-    terminology = Terminology.for_packs([inbox_pack])
+def test_code_system_search(store: AuditStore, triage_agent: Agent) -> None:
+    terminology = Terminology.for_agents([triage_agent])
     systems = sorted(
         (r for r in terminology.resources if r["resourceType"] == "CodeSystem"),
         key=lambda r: r["id"],

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """An acceptance: the registry's counter-signature on a version it accepted (LP-19i, ADR-0015).
 
-    {"format": "mendari.registry-acceptance/1", "pack": "site-a/inbox", "version": "1.0.0",
+    {"format": "mendari.registry-acceptance/1", "agent": "site-a/inbox", "version": "1.0.0",
      "digest": "sha256:…", "archive_sha256": "<64 hex>",
      "publisher_key_id": "<the namespace key that signed the archive>",
      "key_id": "ed25519:<16 hex>", "at": "2026-11-10T12:00:00Z", "signature": "<base64>"}
@@ -9,11 +9,11 @@
 The signature is Ed25519 over the canonical JSON of every other field (sorted keys, no spaces),
 by the registry's own key (`MENDARI_REGISTRY_SIGNING_KEY`, `hub/yank.py` `registry_key`), as a
 recall the registry makes is signed. The `format` is inside what is signed and is this record's
-own, so no recall, checkpoint or scoreboard signature by the same key is ever an acceptance.
+own, so no recall or checkpoint signature by the same key is ever an acceptance.
 
 The registry writes one when a version becomes listed (`hub/registry.py`): a version written
 straight into its database has none. A client that trusts the registry's key refuses a version
-whose record is missing, does not verify, or names another pack, version, digest, archive or
+whose record is missing, does not verify, or names another agent, version, digest, archive or
 publisher key (`hub/client.py`).
 
 The keys a client trusts without first use ship in `registry_keys.json`, beside this module:
@@ -47,7 +47,7 @@ FORMAT = "mendari.registry-acceptance/1"
 KEYS_FORMAT = "mendari.registry-keys/1"
 KEYS_FILE = Path(__file__).with_name("registry_keys.json")
 # What an acceptance names: the version, exactly (`NAMED`), then who signed it and when.
-NAMED = ("pack", "version", "digest", "archive_sha256", "publisher_key_id")
+NAMED = ("agent", "version", "digest", "archive_sha256", "publisher_key_id")
 FIELDS = ("format", *NAMED, "key_id", "at")
 _SHA = re.compile(r"[0-9a-f]{64}")
 
@@ -58,7 +58,7 @@ def _signed(fields: Mapping[str, Any]) -> bytes:
 
 def sign(
     *,
-    pack: str,
+    agent: str,
     version: str,
     digest: str,
     archive_sha256: str,
@@ -69,7 +69,7 @@ def sign(
     """An acceptance of one version, signed with the registry's key."""
     fields = {
         "format": FORMAT,
-        "pack": pack,
+        "agent": agent,
         "version": version,
         "digest": digest,
         "archive_sha256": archive_sha256,
@@ -118,13 +118,10 @@ def problem(record: Any, public: Ed25519PublicKey, key_id: str) -> str | None:
 
 
 def names_problem(record: Mapping[str, Any], **named: Any) -> str | None:
-    """Why a well-formed `record` is not about exactly this pack, version, digest, archive and
+    """Why a well-formed `record` is not about exactly this agent, version, digest, archive and
     publisher key (`NAMED`, each given by name; None: it is)."""
     assert set(named) == set(NAMED), sorted(named)
-    # In words: the record's `pack` field names an agent, and keeps its name on the wire.
-    other = [
-        "agent" if name == "pack" else name for name in NAMED if record.get(name) != named[name]
-    ]
+    other = [name for name in NAMED if record.get(name) != named[name]]
     return f"it names another {' and '.join(other)}".replace("_", " ") if other else None
 
 

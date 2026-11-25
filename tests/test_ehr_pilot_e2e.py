@@ -5,11 +5,13 @@ card, takes the clinician's feedback on that card, and `mendari audit verify` pr
 
 1. Sign-in on (its identity provider never called), the EHR registered as Epic publishes its
    client: keys by one pinned `jwks_uri` on the allow-list, ES384, `jku` in each token's header;
-2. discovery and two `order-sign` hooks over HTTP (`TestClient`), each call with a new token
-   addressed to its own URL; the hooks name the FHIR server and send no prefetch, so the record
-   of each vendor-shaped patient (`tests/support/ehr_profile.py`) is read there;
-3. each hook answers one card, named by its decision's id, its one suggestion's id derived from
-   it (`selectionBehavior: at-most-one`), and the decision is chained as asked for by the client;
+2. discovery and two `patient-view` hooks of the chart-summary test fixture over HTTP
+   (`TestClient`), each call with a new token addressed to its own URL; the hooks name the FHIR
+   server and its token and send no prefetch, so the record of each vendor-shaped patient
+   (`tests/test_ehr_profile.py`, served by `tests/support/chart_ehr.py`) is read there;
+3. each hook answers one card (a chart that needs a visit soon, and one with a routine
+   follow-up), named by its decision's id, its one suggestion's id derived from it
+   (`selectionBehavior: at-most-one`), and the decision is chained as asked for by the client;
 4. feedback on both cards with a signed token: one accepted with its suggestion, one overridden
    with a reason the card offered, each chained as `card.feedback` on its card's decision and
    naming the client that sent it;
@@ -25,6 +27,7 @@ made at run time; the patients are synthetic. It takes seconds."""
 from __future__ import annotations
 
 import json
+import socket
 from typing import Any
 
 import pytest
@@ -39,23 +42,58 @@ from mendari.standards import cds_hooks
 from mendari.standards.data_coverage import FORMAT
 from tests.conftest import security_lines
 from tests.jwt_signers import DROP, PUBLIC_URL
-from tests.support import ehr_profile
-from tests.support import sandbox as fixtures
+from tests.support.chart_ehr import TOKEN
+from tests.support.chart_fixture import CHART_ID, hook
+from tests.support.fixture_records import BASE, TODAY
 from tests.test_cds_auth import Served, bearer, sign_in_on
 from tests.test_cds_clients import EC_EHR, JWKS_URI, entry, jwks_server, register, token
 from tests.test_cds_feedback import accepted, card_feedback, feedback, overridden
-from tests.test_ehr_profile import TODAY, profile_server
-from tests.test_fhir_client import allow_ehr
-from tests.test_scoreboard_end_to_end import on_this_machine  # noqa: F401 - the socket guard
+from tests.test_ehr_profile import PROFILE, profile_server
 
-SERVICE = "mendari.referral-router"
+SERVICE = CHART_ID.replace("/", ".")  # mendari-test.chart-summary, a patient-view service
 DISCOVERY = "/cds-services"
 HOOK = f"{DISCOVERY}/{SERVICE}"
 FEEDBACK = f"{HOOK}/feedback"
-# Two of the profile's referral patients whose order the pack decides (tests/test_ehr_profile.py,
-# NOT_DECIDED names the others): one card is accepted, the other overridden.
-PATIENTS = ("ehr-ref-2", "ehr-ref-4")
+# Two of the profile's patients whose chart the agent shows a card for: one needing a visit soon
+# (its card accepted), one with a routine follow-up (its card overridden).
+PATIENTS = ("chart-ehr-2", "chart-ehr-1")
 CLIENT = "cds epic"  # the actor a verified token of the registered client `epic` is
+LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+
+
+@pytest.fixture
+def on_this_machine(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Every socket connection refused, and recorded, unless it stays on this machine (a Unix
+    socket or the loopback address): what the test tried to reach off it."""
+    tried: list[str] = []
+    connect, connect_ex = socket.socket.connect, socket.socket.connect_ex
+
+    def off_the_machine(sock: socket.socket, address: Any) -> str | None:
+        if sock.family == getattr(socket, "AF_UNIX", None):
+            return None
+        host = str(address[0] if isinstance(address, tuple) else address)
+        return None if host in LOOPBACK else host
+
+    def local_connect(sock: socket.socket, address: Any) -> None:
+        if (host := off_the_machine(sock, address)) is not None:
+            tried.append(host)
+            raise AssertionError(f"a connection off the machine, to {host}")
+        connect(sock, address)
+
+    def local_connect_ex(sock: socket.socket, address: Any) -> int:
+        if (host := off_the_machine(sock, address)) is not None:
+            tried.append(host)
+            raise AssertionError(f"a connection off the machine, to {host}")
+        return connect_ex(sock, address)
+
+    monkeypatch.setattr(socket.socket, "connect", local_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", local_connect_ex)
+    # The positive control: an address off the machine (TEST-NET-1) is refused before any packet.
+    with socket.socket() as probe, pytest.raises(AssertionError, match="off the machine"):
+        probe.connect(("192.0.2.1", 9))
+    assert tried == ["192.0.2.1"]
+    tried.clear()
+    return tried
 
 
 def signed(path: str) -> dict[str, str]:
@@ -74,16 +112,16 @@ def test_a_signed_hook_its_card_and_its_feedback_verify_end_to_end(
     db_target: str,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    on_this_machine: list[str],  # noqa: F811
+    on_this_machine: list[str],
 ) -> None:
     """A signed hook, its card and its feedback, chained and verified; a changed event is not."""
     monkeypatch.setattr(clock, "today", lambda: TODAY)
     sign_in_on(monkeypatch)
     fetched = jwks_server(monkeypatch, {"keys": [EC_EHR.jwk]})
     register(monkeypatch, entry(jwks=DROP, jwks_uri=JWKS_URI))
-    read: list[Any] = []
-    allow_ehr(monkeypatch, profile_server(ehr_profile.resources(TODAY), read))
-    profile = {patient.id: patient for patient in ehr_profile.patients(TODAY)}
+    server = profile_server()
+    server.install(monkeypatch)
+    profile = {case.id: case for case in PROFILE}
 
     with TestClient(create_app(db_path=db_target), base_url=PUBLIC_URL) as http:
         served = Served(http, db_target)
@@ -93,11 +131,13 @@ def test_a_signed_hook_its_card_and_its_feedback_verify_end_to_end(
         listed = http.get(DISCOVERY, headers=signed(DISCOVERY))
         assert listed.status_code == 200, listed.text
         hooks = {service["id"]: service["hook"] for service in listed.json()["services"]}
-        assert hooks[SERVICE] == "order-sign"
+        assert hooks[SERVICE] == "patient-view"
 
         cards = []
         for patient_id in PATIENTS:
-            body = fixtures.hook_request("order-sign", profile[patient_id], ehr_profile.BASE)
+            body = hook(
+                profile[patient_id], today=TODAY, fhir_server=BASE, token=TOKEN, prefetched=False
+            )
             assert "prefetch" not in body  # the record is read from the EHR's FHIR server
             answer = http.post(HOOK, json=body, headers=signed(HOOK))
             assert answer.status_code == 200, answer.text
@@ -108,8 +148,9 @@ def test_a_signed_hook_its_card_and_its_feedback_verify_end_to_end(
             assert suggestion["uuid"] == cds_hooks.suggestion_id(card["uuid"])
             assert card["overrideReasons"], patient_id
             cards.append(card)
+        read = server.requests
         assert read and {request.method for request in read} == {"GET"}
-        assert all(str(request.url).startswith(f"{ehr_profile.BASE}/") for request in read)
+        assert all(str(request.url).startswith(f"{BASE}/") for request in read)
 
         taken, overriding = (card["uuid"] for card in cards)
         offered = cards[1]["overrideReasons"][1]["code"]  # a reason the card offered

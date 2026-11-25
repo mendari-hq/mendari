@@ -13,12 +13,14 @@ from urllib.parse import quote
 
 import pytest
 
-from mendari import AuditStore, Decision, DecisionResult, Pack
-from mendari.errors import MendariError
+from mendari import Agent, AuditStore, Decision, DecisionResult
 from tests.conftest import message
 
 Decide = Callable[[str], DecisionResult]
 
+# The triage fixture's messages, decided with its screen's canned agent, without which its policy
+# automates nothing (`automation_requires`).
+SCREENED = {"screen": "agent"}
 REVIEW = "hello?"  # abstains: no recommendation, HUMAN_REVIEW queue
 EMERGENCY = "Crushing chest pain and my left arm is numb"  # stat HUMAN_REVIEW -> nurse
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO
@@ -31,8 +33,8 @@ def tamper(store: AuditStore, sql: str, params: tuple[Any, ...] = ()) -> None:
 
 
 @pytest.fixture
-def decide(inbox_pack: Pack, store: AuditStore, screened: dict[str, str]) -> Decide:
-    decision = Decision(inbox_pack, providers=screened, store=store)
+def decide(triage_agent: Agent, store: AuditStore) -> Decide:
+    decision = Decision(triage_agent, providers=SCREENED, store=store)
     return lambda body: decision(message(body))
 
 
@@ -119,44 +121,6 @@ def test_the_database_refuses_a_second_event_after_the_same_head(
         )
 
 
-def test_a_database_that_already_forks_refuses_the_migration(
-    db_target: str, inbox_pack: Pack
-) -> None:
-    """A database from before the index that holds a fork: the start stops, says to run
-    `audit verify`, names no event or hash, and migrates nothing (the index is still absent,
-    so a fixed database takes it on the next start)."""
-    with AuditStore(db_target) as store:
-        Decision(inbox_pack, store=store)(message(ROUTINE))
-        Decision(inbox_pack, store=store)(message(ROUTINE))
-        tamper(store, f"DROP INDEX {LINKS}")
-        _fork(store)
-        with store._db.session(exclusive=False) as db:
-            hashes = [str(row["hash"]) for row in db.all("SELECT hash FROM audit_events")]
-    with pytest.raises(MendariError, match="mendari audit verify") as refused:
-        AuditStore(db_target)
-    said = str(refused.value)
-    assert "forks" in said and "nothing was migrated" in said
-    assert not any(digest in said for digest in hashes)
-    with AuditStore(db_target, read_only=True) as reader:
-        assert not _links_indexed(reader)
-        assert reader.verify()["ok"] is False  # what the operator is told to run finds it
-
-
-def test_a_clean_database_from_before_the_index_migrates(db_target: str, inbox_pack: Pack) -> None:
-    with AuditStore(db_target) as store:
-        for _ in range(3):
-            Decision(inbox_pack, store=store)(message(ROUTINE))
-        tamper(store, f"DROP INDEX {LINKS}")
-        assert not _links_indexed(store)
-    with AuditStore(db_target) as store:
-        assert _links_indexed(store)
-        assert store.verify()["ok"] is True
-        Decision(inbox_pack, store=store)(message(ROUTINE))
-        with pytest.raises(_refused_by_the_database()):
-            _fork(store)
-        assert store.verify()["ok"] is True
-
-
 # -- Postgres: a server whose default isolation is not READ COMMITTED -------------------------
 
 
@@ -167,7 +131,7 @@ def _with_isolation(target: str, level: str) -> str:
 
 
 def test_concurrent_writers_never_fork_whatever_the_servers_isolation(
-    db_target: str, inbox_pack: Pack
+    db_target: str, triage_agent: Agent
 ) -> None:
     """A Postgres role or database may default to REPEATABLE READ. An exclusive session's
     snapshot would then be taken as it waits for the chain's lock, so it would read the head as
@@ -182,7 +146,7 @@ def test_concurrent_writers_never_fork_whatever_the_servers_isolation(
         with stores[0]._db.session(exclusive=False) as db:
             level = db.one("SELECT current_setting('default_transaction_isolation') AS level")
         assert level is not None and level["level"] == "repeatable read"  # the option holds
-        results = [Decision(inbox_pack)(message(ROUTINE)) for _ in range(30)]
+        results = [Decision(triage_agent)(message(ROUTINE)) for _ in range(30)]
         failures: list[BaseException] = []
 
         def write(store: AuditStore, mine: list[DecisionResult]) -> None:
@@ -276,7 +240,7 @@ def test_a_decision_made_to_look_automated_breaks_verification(
 
 @pytest.mark.parametrize(
     ("column", "value"),
-    [("priority", "routine"), ("pack_id", "other-pack"), ("pack_version", "9.9.9")],
+    [("priority", "routine"), ("agent_id", "other-agent"), ("agent_version", "9.9.9")],
 )
 def test_each_unchanging_column_is_checked_against_the_record(
     store: AuditStore, decide: Decide, column: str, value: str
@@ -319,12 +283,12 @@ def test_a_decision_added_past_the_store_breaks_verification(
     never recorded."""
     decide(ROUTINE)
     columns = (
-        "id, created_at, pack_id, pack_version, outcome, recommendation, priority, confidence, "
+        "id, created_at, agent_id, agent_version, outcome, recommendation, priority, confidence, "
         "latency_ms, cost_usd, record, review_status, org"
     )
     tamper(
         store,
-        f"INSERT INTO decisions ({columns}) SELECT 'forged', created_at, pack_id, pack_version, "
+        f"INSERT INTO decisions ({columns}) SELECT 'forged', created_at, agent_id, agent_version, "
         "outcome, recommendation, priority, confidence, latency_ms, cost_usd, record, "
         "review_status, org FROM decisions",
     )

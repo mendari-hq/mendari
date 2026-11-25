@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Linked record data (LP-23h): what a spec 0.3 mapping reaches by a link the record does not
+"""Linked record data (LP-23h): what an agent's mapping reaches by a link the record does not
 hold, a note's Binary, the payer behind a Coverage and the drug behind a MedicationRequest, read
 from the EHR's FHIR server (`standards/linked.py`). Each read goes through the allow-listed client,
 stays under the request's `fhirServer`, reads a Binary as FHIR JSON only, is capped per decision
 and in size, and is made once a request; a link not read is its field's reason and the decision
-abstains, and `fhir/decide` and `$decide` never fetch. Every record is synthetic, every system
-fictional, and the keys and tokens are made here."""
+abstains, and `fhir/decide` and `$decide` never fetch.
+
+On a copy of the chart-summary test fixture (`linked_agent`): its notes read as the fixture reads
+them (`attachment_text`), a payer followed from the Coverage, and each MedicationRequest's drug
+followed from its `medicationReference`; on its `rules` variant, which reads the notes (a note
+naming warfarin lists an anticoagulant). Every record is synthetic, every system fictional, and
+the keys and tokens are made here."""
 
 from __future__ import annotations
 
@@ -20,10 +25,9 @@ from typing import Any
 
 import httpx
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.core import site_codes
 from mendari.core.decision import DecisionResult
 from mendari.core.phi import PhiPolicy
@@ -37,21 +41,22 @@ from mendari.standards import cds_hooks, linked
 from mendari.standards.fhir import FhirAdapter, renditions, unread_attachments
 from mendari.standards.fhir_client import FhirClient
 from mendari.standards.linked import MAX_NOTE_READS, Linker, reads_links
-from tests.conftest import INPUT_HASH_KEY, ROOT
-from tests.test_spec_03 import mini
+from tests.conftest import CHART_DIR, DEMO_AGENT_DIR, INPUT_HASH_KEY, TRIAGE_DIR
+from tests.support.chart_fixture import COPY_ID, chart_copy
+from tests.support.fixture_records import RXNORM, SITE_DRUG_CODES, SITE_DRUGS
 
 EHR = "https://ehr.example.org/fhir"
 ORIGIN = "https://ehr.example.org"
 TOKEN = "linked-test-token"  # made for these tests; no server outside them takes it
 MED = "https://site.example/fhir/CodeSystem/medications"  # fictional
 PAYER = "https://site.example/fhir/NamingSystem/payers"  # fictional
-SITE_FORMULARY = "https://site.example/fhir/CodeSystem/formulary"  # a site's own drug codes
-PACK = "mendari-test/prescreen-mini"
-SERVICE = "/cds-services/mendari-test.prescreen-mini"
+AGENT = COPY_ID  # the chart agent's copy (`linked_agent`)
+SERVICE = f"/cds-services/{AGENT.replace('/', '.')}"
 PATIENT = {"resourceType": "Patient", "id": "p1", "birthDate": "1970-01-01"}
 NOTE_MARK = "NOTEMARK-amber-wren"  # in linked text: never in a reason, a record or the chain
 LINK_MARK = "LNK8842"  # in linked ids, urls, codes and identifiers: likewise
 SERVER_TEXT = "SERVER-SAYS-p1-HAS-SECRETS"  # what a failing server answers
+TAKES_WARFARIN = "Takes warfarin every day."  # what the rules read as an anticoagulant listed
 
 NOTES = {"path": "DocumentReference.content.attachment", "transform": "attachment_text"}
 PAYER_FIELD = {
@@ -70,37 +75,35 @@ MEDICATIONS: dict[str, Any] = {
         }
     }
 }
-PREFETCH = {
-    "coverage": "Coverage?patient={{context.patientId}}",
-    "medications": "MedicationRequest?patient={{context.patientId}}",
-}
+PREFETCH = {"coverage": "Coverage?patient={{context.patientId}}"}
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
 
-def linked_pack(tmp_path: Path, medications: dict[str, Any] = MEDICATIONS) -> Path:
-    """The prescreen fixture at spec 0.3, reading its notes as `attachment_text`, the payer by
-    its Coverage's reference and each MedicationRequest's drug by its `medicationReference`
-    (`medications`, its list); its hook prefetches the Coverage and the MedicationRequests too,
-    and shows every card."""
-    root = mini(
-        tmp_path,
-        {
-            "fields": {"notes": NOTES, "patient.payer": PAYER_FIELD},
-            "lists": {"medications": medications},
-        },
-        spec="0.3",
-        systems=(MED, PAYER),
-    )
-    manifest = yaml.safe_load((root / "agent.yaml").read_text())
-    manifest["cds_hooks"]["prefetch"].update(PREFETCH)
-    del manifest["cds_hooks"]["card"]["show"]
-    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    schema_path = root / "schemas" / "input.schema.json"
-    schema = json.loads(schema_path.read_text())
-    schema["properties"]["medications"] = {"type": "array", "items": {"type": "object"}}
-    schema_path.write_text(json.dumps(schema))
-    return root
+def linked_agent(
+    base: Path,
+    medications: dict[str, Any] = MEDICATIONS,
+    *,
+    use: str = "rules",
+    code_sets: dict[str, Any] | None = None,
+) -> Path:
+    """A copy of the chart-summary agent (`mendari-test/chart-copy`) in `base/chart`, reading its
+    notes as `attachment_text`, the payer by its Coverage's reference and each MedicationRequest's
+    drug by its `medicationReference` (`medications`, its list, which leaves the statements out),
+    with `code_sets` beside its own, on its `use` variant (`rules` reads the notes); its hook
+    prefetches the Coverage too, and shows every card."""
+
+    def manifest(data: dict[str, Any]) -> None:
+        data["cds_hooks"]["prefetch"].update(PREFETCH)
+        del data["cds_hooks"]["card"]["show"]
+
+    changes: dict[str, Any] = {
+        "fields": {"notes": NOTES, "patient.payer": PAYER_FIELD},
+        "lists": {"medications": medications},
+    }
+    if code_sets:
+        changes["code_sets"] = code_sets
+    return chart_copy(base, changes, systems=(MED, PAYER), use=use, manifest=manifest)
 
 
 def b64(text: str) -> str:
@@ -148,11 +151,11 @@ def organization(id_: str, payer: str) -> dict[str, Any]:
     }
 
 
-def medication(id_: str, code: str) -> dict[str, Any]:
+def medication(id_: str, code: str, system: str = MED) -> dict[str, Any]:
     return {
         "resourceType": "Medication",
         "id": id_,
-        "code": {"coding": [{"system": MED, "code": code}]},
+        "code": {"coding": [{"system": system, "code": code}]},
     }
 
 
@@ -224,8 +227,8 @@ class Ehr:
 
 
 @pytest.fixture
-def pack(tmp_path: Path) -> Decision:
-    return Decision(load_pack(linked_pack(tmp_path / "packs")))
+def agent(tmp_path: Path) -> Decision:
+    return Decision(load_agent(linked_agent(tmp_path / "agents")))
 
 
 def decide(
@@ -237,8 +240,8 @@ def decide(
 
 
 def mapped(decision: Decision, ehr: Ehr | None, *resources: dict[str, Any]) -> dict[str, Any]:
-    """The pack's input from the record, after the linked reads when there is an EHR."""
-    adapter = FhirAdapter.for_pack(decision.pack)
+    """The agent's input from the record, after the linked reads when there is an EHR."""
+    adapter = FhirAdapter.for_agent(decision.agent)
     indexed = adapter.index(bundle(*resources))
     if ehr is not None:
         Linker.of(ehr.client()).read(adapter.mapping, indexed)
@@ -246,18 +249,19 @@ def mapped(decision: Decision, ehr: Ehr | None, *resources: dict[str, Any]) -> d
 
 
 def serve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ehr: Ehr) -> TestClient:
-    """The app with the linked pack, and `ehr` as the allow-listed EHR behind every
+    """The app with the linked agent, and `ehr` as the allow-listed EHR behind every
     `fhirServer`."""
     monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", ORIGIN)
     patched = functools.partial(FhirClient, transport=httpx.MockTransport(ehr))
     monkeypatch.setattr(cds_hooks, "FhirClient", patched)
-    linked_pack(tmp_path / "packs")
-    packs = [SearchPath(tmp_path / "packs", "local")]
-    return TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=packs))
+    linked_agent(tmp_path / "agents")
+    agents = [SearchPath(tmp_path / "agents", "local")]
+    return TestClient(create_app(db_path=tmp_path / "a.db", agents_paths=agents))
 
 
 def hook(*notes: dict[str, Any], server: str | None = EHR, **record: Any) -> dict[str, Any]:
-    """A patient-view request with the whole prefetch, so only linked data is read."""
+    """A patient-view request with the whole prefetch (the agent's five keys and the Coverage),
+    so only linked data is read."""
     request: dict[str, Any] = {
         "hook": "patient-view",
         "hookInstance": "6b1d7c35-49f2-4c3e-9d1e-3a4c1f0b2d11",
@@ -265,10 +269,10 @@ def hook(*notes: dict[str, Any], server: str | None = EHR, **record: Any) -> dic
         "prefetch": {
             "patient": PATIENT,
             "conditions": searchset(),
-            "observations": searchset(),
+            "medications": searchset(),
+            "medication_requests": searchset(*record.get("medications", ())),
             "notes": searchset(*notes),
             "coverage": searchset(*record.get("coverage", ())),
-            "medications": searchset(*record.get("medications", ())),
         },
     }
     if server is not None:
@@ -295,12 +299,12 @@ def test_a_linked_note_is_read_through_the_allow_listed_client(
 ) -> None:
     """A CDS hook's note that is only a link to a Binary, relative or an absolute URL under the
     `fhirServer`, is read from that server: one GET each, with the request's token and `Accept:
-    application/fhir+json`, its text reaching the decision (the note screen finds
-    pancreatitis), and the note counted as read. A Binary the server answers with its raw bytes
-    instead of FHIR JSON is not read (`not_json`)."""
+    application/fhir+json`, its text reaching the decision (the rules find warfarin), and the
+    note counted as read. A Binary the server answers with its raw bytes instead of FHIR JSON is
+    not read (`not_json`)."""
     ehr = Ehr(
-        binary("b1", "History of pancreatitis in 2019."),
-        binary("b2", "<p>Seen for diabetes follow-up.</p>", "text/html"),
+        binary("b1", TAKES_WARFARIN),
+        binary("b2", "<p>Reviewed at the clinic today.</p>", "text/html"),
     )
     app = serve(tmp_path, monkeypatch, ehr)
     request = hook(
@@ -309,7 +313,7 @@ def test_a_linked_note_is_read_through_the_allow_listed_client(
     )
     record = audited(app, app.post(SERVICE, json=request))
     assert record["outcome"] != "ABSTAIN" and record["reasons"] != []
-    assert record["answers"]["note_pancreatitis"]["label"] == "yes"
+    assert record["answers"]["on_anticoagulant"]["label"] == "yes"
     notes = record["data_coverage"]["fields"]["notes"]
     assert (notes["values"], notes["unreadable"]) == (2, {})
     assert ehr.reads() == ["Binary/b1", "Binary/b2"]
@@ -320,7 +324,7 @@ def test_a_linked_note_is_read_through_the_allow_listed_client(
 
     ehr.requests.clear()
     ehr.faults["Binary/b1"] = lambda r: httpx.Response(
-        200, content=b"History of pancreatitis.", headers={"content-type": "text/plain"}
+        200, content=TAKES_WARFARIN.encode(), headers={"content-type": "text/plain"}
     )
     record = audited(app, app.post(SERVICE, json=hook(note("n1", linking("Binary/b1")))))
     assert record["outcome"] == "ABSTAIN"
@@ -339,12 +343,12 @@ def test_a_linked_note_is_read_through_the_allow_listed_client(
     ],
 )
 def test_an_attachment_off_the_fhir_server_is_never_fetched_and_counts_unreadable(
-    pack: Decision, url: str
+    agent: Decision, url: str
 ) -> None:
     """A link anywhere but under the `fhirServer`'s base is `off_server`: nothing is sent for
     it, the note counts it as unreadable and the decision abstains, the url in no reason."""
     ehr = Ehr(binary("b1", "Seen today."))
-    result = decide(pack, note("n1", linking(url)), ehr=ehr)
+    result = decide(agent, note("n1", linking(url)), ehr=ehr)
     assert ehr.requests == []
     assert result.outcome.value == "ABSTAIN"
     assert result.reasons == ("could not read notes: off_server",)
@@ -358,7 +362,7 @@ def test_a_fhir_server_off_the_allow_list_reads_no_link(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A `fhirServer` not on the allow-list is configuration, not the patient's data (conflict
-    14): for a pack that reads links, the hook is refused (`422`) before anything is decided,
+    14): for an agent that reads links, the hook is refused (`422`) before anything is decided,
     with nothing fetched or recorded, whether its record holds every link or not, as it is when
     a prefetch key is left out. With the server listed, the same request decides."""
     ehr = Ehr(binary("b1", "Seen today."))
@@ -381,7 +385,7 @@ def test_a_fhir_server_off_the_allow_list_reads_no_link(
 
 
 def test_linked_reads_are_capped_per_decision_and_in_size(
-    pack: Decision, monkeypatch: pytest.MonkeyPatch
+    agent: Decision, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """At most `MAX_NOTE_READS` note links a decision: past them, a link is `cap` and is not
     read (the budgets by purpose and per request: `tests/test_epic_data_fit.py`). Each read is
@@ -390,14 +394,14 @@ def test_linked_reads_are_capped_per_decision_and_in_size(
     many = MAX_NOTE_READS + 5
     ehr = Ehr(*(binary(f"b{n}", f"Note {n}.") for n in range(many)))
     notes = [note(f"n{n}", linking(f"Binary/b{n}")) for n in range(many)]
-    result = decide(pack, *notes, ehr=ehr)
+    result = decide(agent, *notes, ehr=ehr)
     assert MAX_NOTE_READS == 50 and len(ehr.reads()) == MAX_NOTE_READS
     assert result.reasons == ("could not read notes: cap",)
     assert result.data_coverage is not None
     assert result.data_coverage["fields"]["notes"]["unreadable"] == {"cap": many - MAX_NOTE_READS}
 
     ehr = Ehr(*(binary(f"b{n}", f"Note {n}.") for n in range(MAX_NOTE_READS)))
-    result = decide(pack, *notes[:MAX_NOTE_READS], ehr=ehr)
+    result = decide(agent, *notes[:MAX_NOTE_READS], ehr=ehr)
     assert result.unreadable == () and len(ehr.reads()) == MAX_NOTE_READS  # the cap itself reads
 
     monkeypatch.setattr(linked, "MAX_BYTES", 200)
@@ -407,36 +411,36 @@ def test_linked_reads_are_capped_per_decision_and_in_size(
         binary("wire", "x" * 300),  # its answer is past twice the cap
         medication("m1", "y" * 200),  # its JSON is past the cap
     )
-    assert mapped(pack, ehr, note("n1", linking("Binary/full")))["notes"] == "x" * 200
+    assert mapped(agent, ehr, note("n1", linking("Binary/full")))["notes"] == "x" * 200
     for name in ("over", "wire"):
-        result = decide(pack, note("n1", linking(f"Binary/{name}")), ehr=ehr)
+        result = decide(agent, note("n1", linking(f"Binary/{name}")), ehr=ehr)
         assert result.reasons == ("could not read notes: too_large",), name
-    result = decide(pack, request_for("r1", "Medication/m1"), ehr=ehr)
+    result = decide(agent, request_for("r1", "Medication/m1"), ehr=ehr)
     assert result.reasons == ("could not read medications.code: too_large",)
 
 
-def test_html_is_read_as_text_and_rtf_abstains(pack: Decision) -> None:
+def test_html_is_read_as_text_and_rtf_abstains(agent: Decision) -> None:
     """A linked text/html Binary is read as text, its scripts dropped. An RTF note abstains
     (`unsupported_type`), and is not fetched: its content type says so first. A link said to be
     text whose Binary is RTF is fetched, and abstains. Renditions of one document (a
     DocumentReference's `content`) are one note: once one reads, the others (an RTF beside the
     HTML, a second text) are neither read nor counted, and only a note with no rendition read
     abstains."""
-    html = "<script>alert('pancreatitis')</script><p>Seen for diabetes follow-up.</p>"
+    html = "<script>alert('warfarin')</script><p>Reviewed at the clinic today.</p>"
     ehr = Ehr(
         binary("h1", html, "text/html"),
         binary("p1", "Seen today.", "text/plain"),
-        binary("r1", "{\\rtf1 Pancreatitis.}", "application/rtf"),
+        binary("r1", "{\\rtf1 Takes warfarin.}", "application/rtf"),
     )
-    found = mapped(pack, ehr, note("n1", linking("Binary/h1", "text/html")))
-    assert found["notes"] == "Seen for diabetes follow-up."
+    found = mapped(agent, ehr, note("n1", linking("Binary/h1", "text/html")))
+    assert found["notes"] == "Reviewed at the clinic today."
     assert ehr.reads() == ["Binary/h1"]
 
     ehr.requests.clear()
-    result = decide(pack, note("n1", linking("Binary/r1", "application/rtf")), ehr=ehr)
+    result = decide(agent, note("n1", linking("Binary/r1", "application/rtf")), ehr=ehr)
     assert result.reasons == ("could not read notes: unsupported_type",)
     assert ehr.reads() == []
-    result = decide(pack, note("n1", linking("Binary/r1")), ehr=ehr)  # said to be text
+    result = decide(agent, note("n1", linking("Binary/r1")), ehr=ehr)  # said to be text
     assert result.reasons == ("could not read notes: unsupported_type",)
     assert ehr.reads() == ["Binary/r1"]
 
@@ -447,11 +451,11 @@ def test_html_is_read_as_text_and_rtf_abstains(pack: Decision) -> None:
         (linking("https://elsewhere.example/fhir/Binary/x"), linking("Binary/p1"), "p1"),
     ):
         ehr.requests.clear()
-        result = decide(pack, note("n1", first, second), ehr=ehr)
+        result = decide(agent, note("n1", first, second), ehr=ehr)
         assert result.unreadable == (), (first, second)
         assert result.answers, (first, second)  # decided: the providers ran
         assert ehr.reads() == [f"Binary/{read}"], (first, second)
-    result = decide(pack, note("n1", linking("Binary/r1", "application/rtf"), {}), ehr=ehr)
+    result = decide(agent, note("n1", linking("Binary/r1", "application/rtf"), {}), ehr=ehr)
     assert result.reasons == ("could not read notes: unsupported_type",)
 
     # Elsewhere, two attachments are two contents: one that cannot be read still counts.
@@ -466,7 +470,9 @@ def test_html_is_read_as_text_and_rtf_abstains(pack: Decision) -> None:
     ]
 
 
-def test_a_note_url_to_another_type_or_an_empty_binary_is_unsupported_type(pack: Decision) -> None:
+def test_a_note_url_to_another_type_or_an_empty_binary_is_unsupported_type(
+    agent: Decision,
+) -> None:
     """A note's url that names another type than a Binary is `unsupported_type`, never read,
     whether it is relative or an absolute URL under the base, and so is one that names a
     resource of another type inside the record; with no server to read from, one the record
@@ -481,19 +487,19 @@ def test_a_note_url_to_another_type_or_an_empty_binary_is_unsupported_type(pack:
         f"{EHR}/DocumentReference/x",
     ):
         ehr.requests.clear()
-        result = decide(pack, note("n1", linking(url)), ehr=ehr)
+        result = decide(agent, note("n1", linking(url)), ehr=ehr)
         assert result.reasons == ("could not read notes: unsupported_type",), url
         assert ehr.requests == [], url
-        unread = decide(pack, note("n1", linking(url)))
+        unread = decide(agent, note("n1", linking(url)))
         assert unread.reasons == ("could not read notes: not_fetched",), url
-    inside = decide(pack, note("n1", linking("Patient/p1")))  # the record's own Patient
+    inside = decide(agent, note("n1", linking("Patient/p1")))  # the record's own Patient
     assert inside.reasons == ("could not read notes: unsupported_type",)
 
     ehr.requests.clear()
-    result = decide(pack, note("n1", linking("Binary/b0")), ehr=ehr)
+    result = decide(agent, note("n1", linking("Binary/b0")), ehr=ehr)
     assert result.reasons == ("could not read notes: unsupported_type",)
     assert ehr.reads() == ["Binary/b0"]
-    held = decide(pack, note("n1", linking("Binary/b0")), empty)
+    held = decide(agent, note("n1", linking("Binary/b0")), empty)
     assert held.reasons == ("could not read notes: unsupported_type",)
     assert held.data_coverage is not None
     assert held.data_coverage["fields"]["notes"]["unreadable"] == {"unsupported_type": 1}
@@ -501,7 +507,7 @@ def test_a_note_url_to_another_type_or_an_empty_binary_is_unsupported_type(pack:
 
 @pytest.mark.parametrize("mode", ["warn", "enforce"])
 def test_a_linked_resource_is_checked_as_the_record_is(
-    pack: Decision, mode: FhirValidation
+    agent: Decision, mode: FhirValidation
 ) -> None:
     """What a linked read reads is checked as the record is (`fhir_validation`): a payer whose
     identifier's `use` is outside its required value set (an R4 issue that does not block) is
@@ -531,7 +537,7 @@ def test_a_linked_resource_is_checked_as_the_record_is(
         "type": "collection",
         "entry": [{"resource": patient}, {"resource": held}],
     }
-    strict = Decision(pack.pack, fhir_validation=mode)
+    strict = Decision(agent.agent, fhir_validation=mode)
     payer = organization(f"{LINK_MARK}-o1", "ACME-77")
     clean, _ = strict.decide_fhir(record, links=Linker.of(Ehr(payer).client()))
     assert clean.input_issues == () and clean.answers  # the record and its payer decide
@@ -556,7 +562,7 @@ def test_a_linked_resource_is_checked_as_the_record_is(
         assert not result.rejected and result.answers
 
 
-def test_the_payer_is_read_by_its_coverage_reference(pack: Decision) -> None:
+def test_the_payer_is_read_by_its_coverage_reference(agent: Decision) -> None:
     """`Coverage.payor[0]` reaches its Organization: contained, in the record, or by one read
     under the server (relative, or an absolute URL under the base, its scheme in any case, which
     finds an Organization the record holds without a read). A payor that is not of the type the
@@ -576,18 +582,18 @@ def test_the_payer_is_read_by_its_coverage_reference(pack: Decision) -> None:
         ((coverage(f"{EHR}/Organization/o1"), payer), []),
     ):
         ehr.requests.clear()
-        assert mapped(pack, ehr, *record)["patient"]["payer"] == "ACME-77", record
+        assert mapped(agent, ehr, *record)["patient"]["payer"] == "ACME-77", record
         assert ehr.reads() == reads, record
-        adapter = FhirAdapter.for_pack(pack.pack)
+        adapter = FhirAdapter.for_agent(agent.agent)
         read = Linker.of(ehr.client()).read(adapter.mapping, adapter.index(bundle(*record)))
         assert [f"{r['resourceType']}/{r['id']}" for r in read] == reads, record
 
     ehr.requests.clear()
-    result = decide(pack, coverage("Patient/p1"), ehr=ehr)
+    result = decide(agent, coverage("Patient/p1"), ehr=ehr)
     assert result.unreadable == () and ehr.reads() == []
-    assert "payer" not in mapped(pack, ehr, coverage("Patient/p1")).get("patient", {})
+    assert "payer" not in mapped(agent, ehr, coverage("Patient/p1")).get("patient", {})
 
-    result = decide(pack, coverage("Organization/missing"), ehr=ehr)
+    result = decide(agent, coverage("Organization/missing"), ehr=ehr)
     assert result.reasons == ("could not read patient.payer: http_status",)
     assert SERVER_TEXT not in json.dumps(result.to_record())
     assert result.data_coverage is not None
@@ -598,13 +604,13 @@ def test_the_payer_is_read_by_its_coverage_reference(pack: Decision) -> None:
     for spelled in ("https", "HTTPS", "Https"):
         elsewhere = coverage(f"{spelled}://elsewhere.example/fhir/Organization/o1")
         ehr.requests.clear()
-        result = decide(pack, elsewhere, ehr=ehr)
+        result = decide(agent, elsewhere, ehr=ehr)
         assert result.reasons == ("could not read patient.payer: off_server",), spelled
         assert ehr.requests == [], spelled
-        assert decide(pack, elsewhere).reasons == ("could not read patient.payer: not_fetched",)
+        assert decide(agent, elsewhere).reasons == ("could not read patient.payer: not_fetched",)
 
 
-def test_a_medication_reference_is_read_once(pack: Decision) -> None:
+def test_a_medication_reference_is_read_once(agent: Decision) -> None:
     """Each Medication is read once a request, however many MedicationRequests name it and
     however they spell it (relative, or an absolute URL under the base), across the decisions of
     one request (the draft orders of one order hook share one linker)."""
@@ -616,10 +622,10 @@ def test_a_medication_reference_is_read_once(pack: Decision) -> None:
         request_for("r4", "Medication/m2"),
     )
     links = Linker.of(ehr.client())
-    results = [pack.decide_fhir(bundle(*requests), links=links)[0] for _ in range(2)]
+    results = [agent.decide_fhir(bundle(*requests), links=links)[0] for _ in range(2)]
     assert ehr.reads() == ["Medication/m1", "Medication/m2"]
     assert [result.unreadable for result in results] == [(), ()]
-    medications = [item["code"] for item in mapped(pack, ehr, *requests)["medications"]]
+    medications = [item["code"] for item in mapped(agent, ehr, *requests)["medications"]]
     assert medications == ["RX-1", "RX-1", "RX-1", "RX-2"]
     assert results[0].data_coverage is not None
     source = results[0].data_coverage["lists"]["medications"]["sources"]["MedicationRequest"]
@@ -634,51 +640,44 @@ def test_a_linked_resource_is_read_through_the_organizations_site_code_map(tmp_p
     """LP-23h with LP-23i: what a linked read fetched is read with the organization's site code
     map, as the rest of the record is. A drug the EHR codes only in the site's own formulary,
     behind a `medicationReference` the record does not hold, is read from the EHR and then,
-    through the map, as the pack's code: the decision records the map, and since its input took
+    through the map, as the agent's code: the decision records the map, and since its input took
     a value through a translation it goes to a person (`site_code`). The same drug coded the
-    pack's own way, and the site's code without a map, are decided by the pack alone, and
-    automate."""
+    agent's own way (RxNorm's warfarin), and the site's code without a map, are decided by the
+    agent alone (its canned answers), and automate."""
     medications = copy.deepcopy(MEDICATIONS)
     field = medications["resources"]["MedicationRequest"]["fields"]["code"]
-    field.update(path="Medication.code.coding", code_set="drugs")
-    root = linked_pack(tmp_path / "packs", medications)
-    mapping_path = root / "fhir" / "mapping.yaml"
-    mapping = yaml.safe_load(mapping_path.read_text())
-    mapping["code_sets"] = {"drugs": {"system": MED, "codes": ["RX-1"]}}
-    mapping_path.write_text(yaml.safe_dump(mapping, sort_keys=False))
-    manifest = yaml.safe_load((root / "agent.yaml").read_text())
-    manifest["risk"]["level"] = 1  # may automate
-    manifest["policy"]["thresholds"]["auto"] = 0.8  # this record's eligibility gives 0.85
-    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    pack = load_pack(root)
-    translation = {"system": SITE_FORMULARY, "code": "F-77", "as": "RX-1"}
-    given = {"default": {"version": "2026-11-06.1", "sets": {"drugs": [translation]}}}
+    field.update(path="Medication.code.coding", code_set="anticoagulants")
+    sets = {"anticoagulants": {"system": RXNORM, "codes": ["11289"]}}
+    root = linked_agent(tmp_path / "agents", medications, use="agent", code_sets=sets)
+    agent = load_agent(root)
+    site_code = SITE_DRUG_CODES["11289"]  # the site's formulary code for warfarin (fictional)
+    translation = {"system": SITE_DRUGS, "code": site_code, "as": "11289"}
+    given = {"default": {"version": "2026-11-06.1", "sets": {"anticoagulants": [translation]}}}
     maps = site_codes.parse(json.dumps(given), signed_in=False)
-    site_codes.check(maps, [pack])
-    site_drug = {
-        "resourceType": "Medication",
-        "id": "m1",
-        "code": {"coding": [{"system": SITE_FORMULARY, "code": "F-77"}]},
-    }
+    site_codes.check(maps, [agent])
+    site_drug = medication("m1", site_code, SITE_DRUGS)
     order = request_for("r1", "Medication/m1")
 
     ehr = Ehr(site_drug)
-    through, _ = Decision(pack, site_codes=maps).decide_fhir(
+    through, _ = Decision(agent, site_codes=maps).decide_fhir(
         bundle(order), links=Linker.of(ehr.client())
     )
     assert ehr.reads() == ["Medication/m1"]
     assert through.unreadable == ()
     assert through.site_codes == maps.maps["default"].stamp()
     assert through.outcome is Outcome.HUMAN_REVIEW
-    assert "site code translated (drugs): a person decides" in through.reasons
+    assert through.answers["on_anticoagulant"].label == "yes"
+    assert "site code translated (anticoagulants): a person decides" in through.reasons
 
-    ehr = Ehr(medication("m1", "RX-1"))
-    own, _ = Decision(pack, site_codes=maps).decide_fhir(
+    ehr = Ehr(medication("m1", "11289", RXNORM))
+    own, _ = Decision(agent, site_codes=maps).decide_fhir(
         bundle(order), links=Linker.of(ehr.client())
     )
     ehr = Ehr(site_drug)
-    alone, _ = Decision(pack).decide_fhir(bundle(order), links=Linker.of(ehr.client()))
+    alone, _ = Decision(agent).decide_fhir(bundle(order), links=Linker.of(ehr.client()))
     assert own.outcome is alone.outcome is Outcome.AUTO
+    assert own.answers["on_anticoagulant"].label == "yes"  # read the agent's own way
+    assert alone.answers["on_anticoagulant"].label == "no"  # the site's code, untranslated
     assert own.site_codes == through.site_codes and alone.site_codes is None
     assert not any("site code" in reason for reason in (*own.reasons, *alone.reasons))
     assert through.recommendation == own.recommendation == alone.recommendation
@@ -692,7 +691,7 @@ def test_a_request_its_list_leaves_out_is_not_read_for_its_links(tmp_path: Path)
     medications = copy.deepcopy(MEDICATIONS)
     period = {"start": "start", "end": "end"}
     medications["resources"]["MedicationRequest"]["medication_period"] = period
-    decision = Decision(load_pack(linked_pack(tmp_path / "packs", medications)))
+    decision = Decision(load_agent(linked_agent(tmp_path / "agents", medications)))
     ehr = Ehr(medication("m1", "RX-1"))
     gone = {**request_for("r3", "Medication/gone"), "status": "entered-in-error"}
     record = (request_for("r1", "Medication/m1"), gone)
@@ -738,7 +737,7 @@ def test_without_a_server_a_link_is_not_fetched_and_says_so(
     request = hook(record[0], server=None, coverage=[record[1]], medications=[record[2]])
     decided = audited(app, app.post(SERVICE, json=request))
     assert decided["reasons"] == expected
-    answered = app.post(f"/api/packs/{PACK}/fhir/decide", json=bundle(*record))
+    answered = app.post(f"/api/agents/{AGENT}/fhir/decide", json=bundle(*record))
     assert answered.status_code == 200, answered.text
     assert answered.json()["decision"]["reasons"] == expected
     operation = app.post(
@@ -746,7 +745,7 @@ def test_without_a_server_a_link_is_not_fetched_and_says_so(
         json={
             "resourceType": "Parameters",
             "parameter": [
-                {"name": "pack", "valueString": PACK},
+                {"name": "agent", "valueString": AGENT},
                 {"name": "data", "resource": bundle(*record)},
             ],
         },
@@ -776,7 +775,7 @@ NO_ID = {"resourceType": "Binary", "contentType": "text/plain", "data": b64("See
     ],
 )
 def test_a_linked_read_that_fails_abstains_with_its_reason(
-    pack: Decision, reason: str, fault: Handler | None
+    agent: Decision, reason: str, fault: Handler | None
 ) -> None:
     """A linked read that fails is its note's reason, from the closed set, never what the
     server answered: the decision abstains before any provider, recorded like any other."""
@@ -786,30 +785,30 @@ def test_a_linked_read_that_fails_abstains_with_its_reason(
         raise httpx.ConnectError("failed", request=request)
 
     ehr.faults["Binary/b1"] = fault or broken
-    result = decide(pack, note("n1", linking("Binary/b1")), ehr=ehr)
+    result = decide(agent, note("n1", linking("Binary/b1")), ehr=ehr)
     assert result.reasons == (f"could not read notes: {reason}",)
     assert result.answers == {} and result.outcome.value == "ABSTAIN"
     assert SERVER_TEXT not in json.dumps(result.to_record())
 
 
 def test_smart_decide_reads_links_with_the_session_token_and_a_401_ends_the_launch(
-    pack: Decision,
+    agent: Decision,
 ) -> None:
     """The SMART launch's decide reads its links through the session's client, as a hook does;
     a `401` on one ends the launch (it is raised, for `ehr` to end the session)."""
-    ehr = Ehr(binary("b1", "History of pancreatitis."), record=(note("n1", linking("Binary/b1")),))
-    result, _ = decide_for(pack, ehr.client(), "p1", "Patient/p1")
-    assert result.unreadable == () and result.answers["note_pancreatitis"].label == "yes"
+    ehr = Ehr(binary("b1", TAKES_WARFARIN), record=(note("n1", linking("Binary/b1")),))
+    result, _ = decide_for(agent, ehr.client(), "p1", "Patient/p1")
+    assert result.unreadable == () and result.answers["on_anticoagulant"].label == "yes"
     assert ehr.reads()[-1:] == ["Binary/b1"]  # after the focus and the prefetch
     assert {r.headers["authorization"] for r in ehr.requests} == {f"Bearer {TOKEN}"}
     ehr.faults["Binary/b1"] = lambda r: fhir_json({}, status=401)
     with pytest.raises(FhirError) as ended:
-        decide_for(pack, ehr.client(), "p1", "Patient/p1")
+        decide_for(agent, ehr.client(), "p1", "Patient/p1")
     assert ended.value.status == 401
 
 
 def test_no_note_text_reaches_the_coverage_record_reasons_or_the_chain(
-    tmp_path: Path, pack: Decision
+    tmp_path: Path, agent: Decision
 ) -> None:
     """Marks planted in linked data (a Binary's text, a payer's identifier, a drug's code, the
     links' ids and urls, one off the server) are in no reason, no data-coverage record and no
@@ -818,7 +817,7 @@ def test_no_note_text_reaches_the_coverage_record_reasons_or_the_chain(
         tmp_path / "a.db",
         phi=PhiPolicy(mode="encrypt", key=os.urandom(32), hash_key=INPUT_HASH_KEY),
     )
-    decision = Decision(pack.pack, store=store)
+    decision = Decision(agent.agent, store=store)
     ehr = Ehr(
         binary(f"{LINK_MARK}-b1", f"Seen today. {NOTE_MARK}."),
         organization(f"{LINK_MARK}-o1", f"{LINK_MARK}-payer"),
@@ -855,47 +854,45 @@ def test_no_note_text_reaches_the_coverage_record_reasons_or_the_chain(
     store.close()
 
 
-def test_a_0_1_or_0_2_pack_reads_no_link(tmp_path: Path) -> None:
-    """A pack before spec 0.3 cannot reach anything by a link: a hook with a `fhirServer` makes no
-    linker for a shipped one (the inbox's), and a 0.2 note that is only a link is `not_fetched` as
-    before (LP-23d). Of the reference packs LP-23k moved to spec 0.3, the trial and
-    prior-authorization packs read links (notes through `attachment_text`, a followed payer or
-    drug); the referral router follows none."""
-    request = {"fhirServer": EHR}
-    linking = set()
-    for root in sorted((ROOT / "tests" / "fixtures" / "reference-agents").glob("*/agent.yaml")):
-        found = load_pack(root.parent)
-        if found.manifest.inputs.fhir is None or found.manifest.cds_hooks is None:
-            continue
-        reaches = reads_links(FhirAdapter.for_pack(found).mapping)
-        if found.manifest.spec_version == "0.3":
-            if reaches:
-                linking.add(found.id)
-            continue
-        assert not reaches, found.id
-        assert cds_hooks.linker(Decision(found), request) is None, found.id
-    assert linking == {"mendari/clinical-trial-prescreener", "mendari/prior-auth-preflight"}
-    as_before = Decision(load_pack(mini(tmp_path, {})))
-    result = decide(as_before, note("n1", {"url": "Binary/b1"}), ehr=Ehr(binary("b1", "Seen.")))
-    assert result.reasons == ("could not read notes: not_fetched",)
+def test_an_agent_whose_mapping_reads_no_link_makes_no_linker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook makes linked reads only for an agent whose mapping reaches something by a link: the
+    chart-summary fixture (its notes' Binaries, its requests' drugs) gets a linker for a request
+    with an allow-listed `fhirServer` (one off the list is refused), and none without one; an
+    agent that reads a message (the triage fixture, the bundled demo agent) gets none, whatever
+    the request names, so nothing is read for it, nor is its server even checked."""
+    request = {"fhirServer": EHR}  # not on the allow-list yet
+    chart = Decision(load_agent(CHART_DIR))
+    assert reads_links(FhirAdapter.for_agent(chart.agent).mapping)
+    with pytest.raises(FhirError, match="allow-list"):
+        cds_hooks.linker(chart, request)
+    for folder in (TRIAGE_DIR, DEMO_AGENT_DIR):
+        reader = load_agent(folder)
+        assert reader.manifest.inputs.fhir is not None and reader.manifest.cds_hooks is not None
+        assert not reads_links(FhirAdapter.for_agent(reader).mapping), reader.id
+        assert cds_hooks.linker(Decision(reader), request) is None, reader.id
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", ORIGIN)
+    assert cds_hooks.linker(chart, request) is not None
+    assert cds_hooks.linker(chart, {}) is None
 
 
-def test_the_record_holds_what_was_read_by_its_link_only(pack: Decision) -> None:
+def test_the_record_holds_what_was_read_by_its_link_only(agent: Decision) -> None:
     """A resource read for a link is reached by that link: it is not one of the record's
     resources of its type, so no list or unfollowed path reads it, and the data-coverage record
     counts it among what a reference reached, not among the record's Organizations. The same
     record read twice in one request gives the same bytes, with one read."""
     ehr = Ehr(organization("o1", "ACME-77"))
     links = Linker.of(ehr.client())
-    first = pack.decide_fhir(bundle(coverage("Organization/o1")), links=links)[0]
-    again = pack.decide_fhir(bundle(coverage("Organization/o1")), links=links)[0]
+    first = agent.decide_fhir(bundle(coverage("Organization/o1")), links=links)[0]
+    again = agent.decide_fhir(bundle(coverage("Organization/o1")), links=links)[0]
     assert first.data_coverage is not None
     payer = first.data_coverage["fields"]["patient.payer"]
     assert payer["resources"] == {"Coverage": 1, "Organization": 0}
     assert payer["follow"]["reached"] == 1 and payer["values"] == 1
     assert json.dumps(first.data_coverage) == json.dumps(again.data_coverage)
     assert ehr.reads() == ["Organization/o1"]
-    adapter = FhirAdapter.for_pack(pack.pack)
+    adapter = FhirAdapter.for_agent(agent.agent)
     indexed = adapter.index(bundle(coverage("Organization/o1")))
     Linker.of(ehr.client()).read(adapter.mapping, indexed)
     assert "Organization" not in indexed and list(indexed.linked) == ["Organization/o1"]

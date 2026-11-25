@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """A deterministic detector of text that looks like a real person's details (LP-20d).
 
-The pack store (LP-20f) refuses an upload whose files hold such text, `mendari data check --phi`
-reports it, and the community check's warnings (`community/phi_scan.py`) are five of its kinds.
+The agent store (LP-20f) refuses an upload whose files hold such text, and `mendari data check
+--phi` reports it.
 It finds shapes and listed names, not people: a filter, never a guarantee, so the store's terms
 still forbid real data.
 
@@ -30,14 +30,14 @@ Kinds (`KINDS`):
   synthetic datasets are full of made-up names, and many names are also words.
 
 The verdict (`rejects`): any of the first six kinds rejects alone; name findings reject from
-`NAME_THRESHOLD`. Measured on 2026-11-15 over the 94 files of the five agents now in
-`tests/fixtures/reference-agents` and their synthetic datasets: no finding of any kind, names
-included (110 of their lines hold a listed name, none beside a person's word or another kind),
-so one name finding is enough (`tests/test_phi_detect.py` keeps the measurement).
+`NAME_THRESHOLD`. Measured on 2026-11-15 over the 94 files of the five agents the tests then
+decided with and their synthetic datasets: no finding of any kind, names included (110 of
+their lines hold a listed name, none beside a person's word or another kind), so one name
+finding is enough (`tests/test_phi_detect.py` keeps the measurement).
 
 Every pattern is compiled with RE2 (`core/patterns.py`'s engine), because the detector reads
 hostile uploads: a long line costs one pass, never a backtracking search. The patterns hold no
-lookaround, which RE2 cannot run: what the community heuristics checked with one is checked on
+lookaround, which RE2 cannot run: what earlier heuristics checked with one is checked on
 the captured digits in Python, and the edges of a number are matched characters."""
 
 from __future__ import annotations
@@ -355,12 +355,12 @@ def _decoded(path: str, text: str) -> list[tuple[int, str]]:
             return []
         found += [(1, s) for s in _strings(value, budget)]
     elif lower.endswith((".yaml", ".yml")):
-        from mendari.core.pack import parse_yaml
-        from mendari.errors import PackValidationError
+        from mendari.core.agent import parse_yaml
+        from mendari.errors import AgentValidationError
 
         try:
             value = parse_yaml(text.encode("utf-8", "replace"), path, path)
-        except PackValidationError as exc:
+        except AgentValidationError as exc:
             # Alias bombs, excessive depth or expansion limits are refused as unscannable;
             # ordinary malformed YAML falls back to raw-text scanning.
             msg = str(exc).lower()

@@ -30,7 +30,7 @@ from tests.test_registry_mount import APP, IDP, World, bearer, served, sign_in_o
 
 REVIEW_ORG = "registry-review"
 REVIEW = "/api/registry/review"
-VERSION = f"{REVIEW}/packs/acme/inbox/{SHIPPED}"
+VERSION = f"{REVIEW}/agents/acme/inbox/{SHIPPED}"
 # Every reviewer route, with a body that is valid for it.
 REVIEW_ROUTES: tuple[tuple[str, str, dict[str, Any] | None], ...] = (
     ("GET", REVIEW, None),
@@ -76,7 +76,7 @@ def refused_everywhere(world: World, headers: dict[str, str] | None, status: int
 
 def test_a_first_publish_stays_invisible_until_a_reviewer_approves_it(world: World) -> None:
     world.published()
-    public = f"/registry/v1/packs/acme/inbox/{SHIPPED}"
+    public = f"/registry/v1/agents/acme/inbox/{SHIPPED}"
     assert world.http.get(public).status_code == 404
     assert world.http.get("/registry/v1/search").json() == []
     rita = reviewer(world)
@@ -118,7 +118,7 @@ def test_an_administrator_of_another_organization_is_not_a_reviewer(world: World
     assert me["permissions"] == [] and me["roles"] == []
     refused_everywhere(world, None, 401)
     assert world.registry.claims(status="pending")[0]["namespace"] == "acme"
-    assert world.http.get(f"/registry/v1/packs/acme/inbox/{SHIPPED}").status_code == 404
+    assert world.http.get(f"/registry/v1/agents/acme/inbox/{SHIPPED}").status_code == 404
 
 
 def test_the_reviewer_role_cannot_be_granted_outside_the_review_organization(
@@ -208,7 +208,7 @@ def test_a_reviewer_does_not_decide_their_own_claim(world: World) -> None:
     )
     assert made.status_code == 201, made.text
     key = world.key()
-    world.publish(world.pack(), key, bearer(str(world.mint()["token"])))
+    world.publish(world.agent(), key, bearer(str(world.mint()["token"])))
     as_reviewer = world.person(REVIEW_ORG, "registry_reviewer", sub="both")  # ...who reviews
     (item,) = world.http.get(REVIEW, headers=as_reviewer).json()["pending"]
     assert item["own"] is True
@@ -310,18 +310,18 @@ def test_approval_refusal_review_recall_and_deletion_are_chained_by_the_reviewer
             "namespace.approved",
             "namespace.refused",
             "namespace.publisher_type_set",
-            "pack.reviewed",
-            "pack.yanked",
-            "pack.deleted",
+            "agent.reviewed",
+            "agent.yanked",
+            "agent.deleted",
         )
     ]
     assert [e["event"] for e in events] == [
         "namespace.approved",
         "namespace.refused",
         "namespace.publisher_type_set",
-        "pack.reviewed",
-        "pack.yanked",
-        "pack.deleted",
+        "agent.reviewed",
+        "agent.yanked",
+        "agent.deleted",
     ]
     assert [e.get("by", e.get("reviewer")) for e in events] == [who] * 6
     same = world.http.post(sent[2][0], json=sent[2][1], headers=rita)  # nothing changed:
@@ -331,17 +331,19 @@ def test_approval_refusal_review_recall_and_deletion_are_chained_by_the_reviewer
     assert "example.org" not in json.dumps(world.events())
     assert world.registry.verify()["ok"] is True
     # What the acts did: served as verified and reviewed, then recalled, then gone.
-    served_now = world.http.get(f"/registry/v1/packs/acme/inbox/{SHIPPED}").json()
+    served_now = world.http.get(f"/registry/v1/agents/acme/inbox/{SHIPPED}").json()
     assert served_now["checked"]["publisher_type"] == "verified"
     assert served_now["checked"]["review"]["reviewer"] == who
     assert served_now["yank"]["signer"] == "registry" and served_now["deleted"]["reason"]
-    assert world.http.get(f"/registry/v1/packs/acme/inbox/{SHIPPED}/archive").status_code != 200
+    assert world.http.get(f"/registry/v1/agents/acme/inbox/{SHIPPED}/archive").status_code != 200
     # Once each: a second recall or deletion, and what does not exist.
     for path, body, _ in sent[4:]:
         assert world.http.post(path, json=body, headers=rita).status_code == 409
-    missing = f"{REVIEW}/packs/acme/nothing/1.0.0"
+    missing = f"{REVIEW}/agents/acme/nothing/1.0.0"
     assert world.http.post(missing, json=sent[3][1], headers=rita).status_code == 404
-    odd = world.http.post(f"{REVIEW}/packs/acme/inbox/not a version", json=sent[3][1], headers=rita)
+    odd = world.http.post(
+        f"{REVIEW}/agents/acme/inbox/not a version", json=sent[3][1], headers=rita
+    )
     assert odd.status_code == 404 and "not a version" not in odd.text
     # The security log: the reviewer's id, the review organization, ids only.
     logged = {line["event"]: line for line in security_lines(capsys.readouterr().out)}
@@ -349,9 +351,9 @@ def test_approval_refusal_review_recall_and_deletion_are_chained_by_the_reviewer
         "admin.registry_claim.approved",
         "admin.registry_claim.refused",
         "admin.registry_namespace.publisher_type_set",
-        "admin.registry_pack.reviewed",
-        "admin.registry_pack.recalled",
-        "admin.registry_pack.deleted",
+        "admin.registry_agent.reviewed",
+        "admin.registry_agent.recalled",
+        "admin.registry_agent.deleted",
     ):
         assert (logged[event]["actor"], logged[event]["org"]) == (who, REVIEW_ORG), event
 
@@ -409,7 +411,7 @@ def test_the_recall_needs_the_signing_key_and_says_so(
     body = {"reason": "a fault", "severity": "critical"}
     unkeyed = world.http.post(f"{VERSION}/recall", json=body, headers=rita)
     assert unkeyed.status_code == 409 and yank.KEY_ENV in unkeyed.text
-    assert not [e for e in world.events() if e["event"] == "pack.yanked"]
+    assert not [e for e in world.events() if e["event"] == "agent.yanked"]
     signing_key(monkeypatch)
     recalled = world.http.post(f"{VERSION}/recall", json=body, headers=rita)
     assert recalled.status_code == 201, recalled.text
@@ -458,9 +460,9 @@ def test_the_operators_commands_set_a_type_review_recall_and_delete(
     ]
     assert [e["event"] for e in events] == [
         "namespace.publisher_type_set",
-        "pack.reviewed",
-        "pack.yanked",
-        "pack.deleted",
+        "agent.reviewed",
+        "agent.yanked",
+        "agent.deleted",
     ]
     assert (
         main(["registry", "review", "acme/inbox", *db, "--risk-level", "1", "--reason", "x"]) != 0

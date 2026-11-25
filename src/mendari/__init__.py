@@ -8,32 +8,25 @@ result = agent({"message": {"body": "I need a refill on my lisinopril."}})
 result.outcome, result.recommendation
 """
 
-import os
-
-from mendari.legacy import adopt_legacy_settings
-
-# Before anything reads a setting: deployments configured as OpenHealth Hub keep working.
-adopt_legacy_settings(os.environ)
-
-from mendari.core.audit import AuditStore  # noqa: E402
-from mendari.core.decision import CallBudget, Decision, DecisionResult  # noqa: E402
-from mendari.core.pack import Pack, load_pack  # noqa: E402
-from mendari.core.policy import GovernanceOverride  # noqa: E402
-from mendari.core.registry import resolve_pack  # noqa: E402
-from mendari.core.spec import Outcome, Priority, RiskLevel  # noqa: E402
+from mendari.core.agent import Agent, load_agent
+from mendari.core.audit import AuditStore
+from mendari.core.decision import CallBudget, Decision, DecisionResult
+from mendari.core.policy import GovernanceOverride
+from mendari.core.registry import resolve_agent
+from mendari.core.spec import Outcome, Priority, RiskLevel
 
 __version__ = "0.1.0"
 
 __all__ = [
+    "Agent",
     "AuditStore",
     "CallBudget",
     "Decision",
     "DecisionResult",
     "GovernanceOverride",
     "Outcome",
-    "Pack",
     "Priority",
     "RiskLevel",
-    "load_pack",
-    "resolve_pack",
+    "load_agent",
+    "resolve_agent",
 ]

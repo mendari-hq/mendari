@@ -15,16 +15,25 @@ import pytest
 from pydantic import ValidationError
 
 from mendari.cli import main
-from mendari.core.registry import resolve_pack
-from mendari.evals.share import SiteReportV2
+from mendari.core.agent import load_agent
+from mendari.evals.share import SiteReportV1
 from mendari.hub import archive, site_signing
-from mendari.hub.registry import RegistryStore
 from mendari.hub.site_signing import Site, init_site
-from tests.conftest import Registry, share_signed, shared_benchmark, site_ticket, verified_site
+from tests.conftest import (
+    TRIAGE_DIR,
+    Registry,
+    share_signed,
+    shared_benchmark,
+    site_ticket,
+    verified_site,
+)
 
-REFERRAL = resolve_pack("mendari/referral-router")
-PATH = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
-LISTED = "/v1/packs/mendari/referral-router/reports"
+# The agent `Registry.publish()` publishes, whose benchmark set's counts `shared_benchmark()`
+# shares.
+TRIAGE = load_agent(TRIAGE_DIR)
+NAMESPACE, NAME = TRIAGE.id.split("/")
+PATH = f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}/reports"
+LISTED = f"/v1/agents/{TRIAGE.id}/reports"
 
 
 @pytest.fixture
@@ -114,10 +123,10 @@ def test_a_report_for_another_digest_configuration_size_or_site_than_its_ticket_
     report = shared_benchmark()
     if field == "digest":
         issued = site_ticket(published, site, report)
-        report = {**report, "pack": {**report["pack"], "digest": "sha256:" + "1" * 64}}
+        report = {**report, "agent": {**report["agent"], "digest": "sha256:" + "1" * 64}}
     elif field == "configuration":
-        slot = next(s for s, p in REFERRAL.manifest.providers.items() if len(p.variants) > 1)
-        variants = list(REFERRAL.manifest.providers[slot].variants)
+        slot = next(s for s, p in TRIAGE.manifest.providers.items() if len(p.variants) > 1)
+        variants = list(TRIAGE.manifest.providers[slot].variants)
         other = next(v for v in variants if v != report["providers"][slot]["variant"])
         configuration = {s: p["variant"] for s, p in report["providers"].items()}
         issued = site_ticket(
@@ -153,7 +162,7 @@ def test_a_payload_with_any_case_text_fails_on_both_sides(
             slot = next(iter(bad["providers"]))
             bad["providers"][slot]["model"] = text
         with pytest.raises(ValidationError):  # the sender's model refuses it
-            SiteReportV2.model_validate(bad)
+            SiteReportV1.model_validate(bad)
         answer = _send(published, _submission(site, issued, bad), issued["submit_secret"])
         assert answer.status_code == 422 and "Jane" not in answer.text
     assert _stored(published) == []
@@ -163,7 +172,7 @@ def test_a_publisher_token_no_longer_shares_a_report(published: Registry) -> Non
     answer = published.client.post(
         PATH,
         json={"site": "Site A", "report": shared_benchmark()},
-        headers={"authorization": f"Bearer {published.token}"},
+        headers={"authorization": f"Bearer {published.fixture_publisher()[0]}"},
     )
     assert answer.status_code == 401 and "mendari site init" in answer.text
 
@@ -289,33 +298,6 @@ def test_an_offline_ticket_and_submission_are_accepted_through_the_same_checks(
     assert main(["registry", "accept-report", str(carried), "--db", db_target]) == 1  # once
 
 
-def test_unsigned_reports_from_before_are_kept_and_not_served(
-    published: Registry, tmp_path: Path, db_target: str
-) -> None:
-    with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
-        db.all(
-            "INSERT INTO hub_reports (id, namespace, name, version, site, submitted_by, "
-            "created_at, report) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "old-1",
-                "mendari",
-                "referral-router",
-                REFERRAL.version,
-                "Old site",
-                "token:x",
-                "2026-01-01T00:00:00Z",
-                json.dumps(shared_benchmark()),
-            ),
-        )
-    site = verified_site(published, tmp_path)
-    assert share_signed(published, site, shared_benchmark()).status_code == 201
-    listed = published.client.get(LISTED)
-    assert [r["site"] for r in listed.json()["reports"]] == [site.id]
-    assert "Old site" not in listed.text
-    with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
-        assert db.one("SELECT id FROM hub_reports WHERE id = 'old-1'") is not None  # kept
-
-
 def test_the_registry_chain_verifies_after_a_ticket_a_report_and_a_supersession(
     published: Registry, tmp_path: Path
 ) -> None:
@@ -350,7 +332,7 @@ def test_counts_that_cannot_add_up_are_refused_without_holding_the_registry(
     report = shared_benchmark()
     issued = site_ticket(published, site, report)
     broken = copy.deepcopy(report)
-    broken["questions"]["next_step"]["calibration"][9]["wrong"] = 200
+    broken["questions"][TRIAGE.manifest.policy.primary]["calibration"][9]["wrong"] = 200
     answer = _send(published, _submission(site, issued, broken), issued["submit_secret"])
     assert answer.status_code == 422
     assert (
@@ -365,9 +347,7 @@ def test_a_recalled_version_takes_no_report_on_a_ticket_issued_before(
     site = verified_site(published, tmp_path)
     report = shared_benchmark()
     issued = site_ticket(published, site, report)
-    published.operator.delete(
-        "mendari", "referral-router", REFERRAL.version, reason="test", by="operator"
-    )
+    published.operator.delete(NAMESPACE, NAME, TRIAGE.version, reason="test", by="operator")
     answer = _send(published, _submission(site, issued, report), issued["submit_secret"])
     assert answer.status_code in (404, 409)
     assert _stored(published) == []
@@ -394,4 +374,4 @@ def test_the_client_sends_only_a_submission_it_can_read(tmp_path: Path) -> None:
     from mendari.hub.client import RegistryClient
 
     with RegistryClient("http://127.0.0.1:9") as client, pytest.raises(MendariError):
-        client.submit({"report": {"pack": {"id": "../../v1/tickets", "version": "x"}}}, "s")
+        client.submit({"report": {"agent": {"id": "../../v1/tickets", "version": "x"}}}, "s")

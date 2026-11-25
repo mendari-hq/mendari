@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""CDS Hooks 2.0: expose each pack that declares `cds_hooks` as a CDS service.
+"""CDS Hooks 2.0: expose each agent that declares `cds_hooks` as a CDS service.
 
 The EHR sends the data via `prefetch` (resources or search Bundles), and for order hooks the
 orders in `context.draftOrders`. A prefetch key the EHR left out is fetched from the request's
-`fhirServer` with its `fhirAuthorization` token, using the pack's own prefetch template, but only
+`fhirServer` with its `fhirAuthorization` token, using the agent's own prefetch template, but only
 when that server is on the deployment's allow-list (`MENDARI_FHIR_ALLOWED_SERVERS`, empty by
 default; see `fhir_client`). A key sent empty (`{}`, `[]`, `""`) counts as left out, as before. A
 key left out with no `fhirServer` is a `412` (`PrefetchRequired`), as CDS Hooks 2.0 says; a key
@@ -15,18 +15,15 @@ fetched for the request.
 The hook always answers (LP-23d). A key that could not be read (each read on its own: a failed
 fetch, an OperationOutcome, a resource or search page Mendari fetched that is not R4, a page
 cap) makes the decision ABSTAIN with its reason, recorded like any other, and the card says so
-whatever the pack's `show` says. Card wording comes from the pack's `cds_hooks.card`; without it,
-the card describes a routing decision. Spec 0.3 adds two keys to it (§5): `refused`, for a decision
+whatever the agent's `show` says. Card wording comes from the agent's `cds_hooks.card`; without it,
+the card describes a routing decision. Two of its keys (spec §9.13): `refused`, for a decision
 that refused its input, whose card lists why whatever the links (a template that does not name it
-words such a decision as `none`, as before), and `also_show`, the policy rules whose match shows a
-card for a recommendation `show` leaves out, in the rule's own words. A pack that declares
-`coverage_information` also returns, for each decided order, a Da Vinci CRD system action
-(`standards/davinci.py`): `indeterminate` for a technical reason when the order abstained over
-unreadable data and the Coverage was read.
+words such a decision as `none`), and `also_show`, the policy rules whose match shows a card for
+a recommendation `show` leaves out, in the rule's own words.
 
-**Linked data** (LP-23h): for a spec 0.3 pack, what its mapping reaches by a link the record does
-not hold (a note's Binary, the payer behind a Coverage, the drug behind a MedicationRequest) is
-read from the same `fhirServer`, under its base, with the same token, at most 50 note Binaries
+**Linked data** (LP-23h): what an agent's mapping reaches by a link the record does not hold (a
+note's Binary, the payer behind a Coverage, the drug behind a MedicationRequest) is read from
+the same `fhirServer`, under its base, with the same token, at most 50 note Binaries
 and 50 followed references a decision and 100 reads a request, inside the decision's deadline
 (`standards/linked.py`); a link that is not read is its field's reason, and the decision
 abstains. Without a `fhirServer`, nothing is read and such a link is `not_fetched`; a
@@ -35,20 +32,16 @@ abstains. Without a `fhirServer`, nothing is read and such a link is `not_fetche
 **Cards** (LP-23f) are CDS Hooks 2.0's: the card's `uuid` is its decision's id and its one
 suggestion's is `suggestion_id` of it, so feedback names them without anything stored; a card
 with suggestions says `selectionBehavior` (`at-most-one`) and offers the override reasons of
-`terminology.OVERRIDE_REASONS`. Its summary is the pack's words with display names
-(`templates.fill_display`), and its detail the pack's status, the notice and one plain sentence,
+`terminology.OVERRIDE_REASONS`. Its summary is the agent's words with display names
+(`templates.fill_display`), and its detail the agent's status, the notice and one plain sentence,
 never a percentage. With `MENDARI_PUBLIC_URL` set (`CardLinks`) the reasons are behind a link to
-the decision in the audit view, `source.url` is the pack's card, and when the EHR may launch the
-pack (SMART on, the request's `fhirServer` registered for launches in the caller's organization)
+the decision in the audit view, `source.url` is the agent's card, and when the EHR may launch the
+agent (SMART on, the request's `fhirServer` registered for launches in the caller's organization)
 a `smart` link opens it; without the public URL the reasons stay in the detail, but for the
 confidence thresholds' (`policy.threshold_reason`), whose figures carry no interval. A list read
 without a source the EHR does not offer (`DecisionResult.limitations`) is in the detail either
 way, on every card: an unreadable ABSTAIN's and a refused input's say it apart from what was not
 read or why the input was refused (`ALSO_NOTED`), since it is neither.
-A Da Vinci CRD service (a pack with `coverage_information`) declares the CRD version and its one
-configuration option, `coverage-info`, in discovery, and sets every card's `source.topic`; a
-request that sets `coverage-info` to false gets neither its cards nor its system actions, and is
-still decided.
 
 **Feedback** (`CardFeedback`): what the clinician did with each card, accepted with the
 suggestion taken or overridden with one of the reasons offered, checked against what the card
@@ -70,10 +63,8 @@ from urllib.parse import quote
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from mendari import notices
-from mendari.core import clock
+from mendari.core.agent import Agent
 from mendari.core.decision import REJECTED, Decision, DecisionResult
-from mendari.core.origin import COMMUNITY_LABEL
-from mendari.core.pack import Pack
 from mendari.core.policy import threshold_reason
 from mendari.core.spec import REFUSED, SUMMARY_CHARS, CdsCard, Outcome, Priority, RuleCard
 from mendari.core.templates import NO_RECOMMENDATION, fill_display, shown
@@ -84,7 +75,7 @@ from mendari.errors import (
     PrefetchRequired,
     ReadReason,
 )
-from mendari.standards import davinci, fhir_structure
+from mendari.standards import fhir_structure
 from mendari.standards.data_coverage import source_type
 from mendari.standards.ehr_declarations import EhrDeclaration
 from mendari.standards.fhir import FhirAdapter
@@ -113,7 +104,7 @@ UNREADABLE_DETAIL = (
     "Mendari could not read part of this patient's record, so it made no recommendation and a "
     "person decides. Not read:"
 )
-# What a card keyed `refused` says (spec 0.3 §5): fixed words, then each reason the input was
+# What a card keyed `refused` says (spec §9.13): fixed words, then each reason the input was
 # refused, as the audit record keeps them (where in the input and which rule of the schema, a
 # resource by its type and position: never a value or an id).
 REFUSED_DETAIL = (
@@ -124,7 +115,7 @@ REFUSED_DETAIL = (
 # neither what could not be read nor why the input was refused (a list read without a source the
 # EHR does not offer; on a refused input, a part that could not be read).
 ALSO_NOTED = "Also noted:"
-# A card's detail: the pack's status, the notice, and one plain sentence for its outcome.
+# A card's detail: the agent's status, the notice, and one plain sentence for its outcome.
 OUTCOME_SENTENCES = {
     Outcome.AUTO: "Automated: the recommendation may be acted on without a person reviewing it.",
     Outcome.HUMAN_REVIEW: (
@@ -140,40 +131,17 @@ OUTCOME_SENTENCES = {
 SELECTION_BEHAVIOR = "at-most-one"
 AUDIT_LINK = "Reasons and engine detail (Mendari audit trail)"
 LAUNCH_LINK = "Open in Mendari"
-# Da Vinci CRD (2.2.1): the versions a CRD service declares in discovery (its first two
-# numbers), its one configuration option, which the request's `davinci-crd.configuration` may
-# turn off, and the type every card of a CRD service says it is (`source.topic`).
-CRD_VERSIONS = ("2.2",)
-CRD_VERSION = "davinci-crd.version"
-CRD_OPTIONS = "davinci-crd.configuration-options"
-CRD_CONFIGURATION = "davinci-crd.configuration"
-COVERAGE_INFO = "coverage-info"
-CARD_TYPE = {
-    "system": "http://terminology.hl7.org/CodeSystem/cdshooks-card-type",
-    "code": COVERAGE_INFO,
-    "display": "Coverage Information",
-}
-COVERAGE_INFO_OPTION = {
-    "code": COVERAGE_INFO,
-    "type": "boolean",
-    "name": "Coverage Information",
-    "description": "Whether each order comes back with its coverage information and its card. "
-    "Off, the service sends neither, and still decides and records each order.",
-    "default": True,
-}
 
 
 @dataclass(frozen=True)
 class CardLinks:
     """Where a card may link: Mendari's public address (`MENDARI_PUBLIC_URL`, None: no link and
     the reasons in the detail, the confidence thresholds' left out), and whether the EHR may
-    launch the pack's SMART view from the card (SMART on, and the request's `fhirServer`
+    launch the agent's SMART view from the card (SMART on, and the request's `fhirServer`
     registered for launches in the caller's organization, `MENDARI_SMART_EHRS`).
 
-    A link into the console names the agent as the console's address does, `?agent=` (it was
-    `?pack=` until 2026-11, which the console still reads: a card an EHR kept opens as before).
-    The launch link keeps `?pack=`: that is the launch route's own query parameter
-    (`server/smart_routes.py`), a name on the wire that an EHR's registered launch may hold."""
+    A link into the console, and the launch link (`server/smart_routes.py`), name the agent as
+    the console's address does, `?agent=`."""
 
     public_url: str | None = None
     launch: bool = False
@@ -188,40 +156,29 @@ def suggestion_id(decision_id: str) -> str:
     return str(uuid.uuid5(uuid.UUID(decision_id), "suggestion"))
 
 
-def service_id(pack: Pack) -> str:
-    return pack.id.replace("/", ".")
+def service_id(agent: Agent) -> str:
+    return agent.id.replace("/", ".")
 
 
-def discovery(packs: Iterable[Pack]) -> dict[str, Any]:
+def discovery(agents: Iterable[Agent]) -> dict[str, Any]:
     services = []
-    for pack in packs:
-        hooks = pack.manifest.cds_hooks
+    for agent in agents:
+        hooks = agent.manifest.cds_hooks
         if hooks is None:
             continue
         usage = (
-            f"{pack.status_label} {notices.NOTICE} "
-            f"Risk level {int(pack.manifest.risk.level)} ({pack.manifest.risk.category}). "
-            f"Validate locally first: `mendari eval {pack.id} --dataset <local data>`."
+            f"{agent.status_label} {notices.NOTICE} "
+            f"Risk level {int(agent.manifest.risk.level)} ({agent.manifest.risk.category}). "
+            f"Validate locally first: `mendari eval {agent.id} --dataset <local data>`."
         )
-        description = hooks.description
-        if pack.community:  # the EHR's integrator reads this before turning the service on
-            description = f"{description} ({COMMUNITY_LABEL})"
-            usage = (
-                f"{COMMUNITY_LABEL}: it recommends, and a person confirms every decision. {usage}"
-            )
         service: dict[str, Any] = {
             "hook": hooks.hook,
-            "id": service_id(pack),
+            "id": service_id(agent),
             "title": hooks.title,
-            "description": description,
+            "description": hooks.description,
             "prefetch": hooks.prefetch,
             "usageRequirements": usage,
         }
-        if hooks.coverage_information:  # a Da Vinci CRD service
-            service["extension"] = {
-                CRD_VERSION: list(CRD_VERSIONS),
-                CRD_OPTIONS: [dict(COVERAGE_INFO_OPTION)],
-            }
         services.append(service)
     return {"services": services}
 
@@ -235,30 +192,30 @@ def invoke(
     links: CardLinks = NO_LINKS,
     declared: EhrDeclaration | None = None,
 ) -> dict[str, Any]:
-    """The cards (and Da Vinci system actions) for one hook request. An order hook decides each
-    draft order the pack is about, at most `most` of them; `charge` is given the number of
-    decisions about to be made, before anything is fetched or decided (the rate limit), and
-    refuses by raising. `links` says where the cards may link.
+    """The cards for one hook request. An order hook decides each draft order the agent is about,
+    at most `most` of them; `charge` is given the number of decisions about to be made, before
+    anything is fetched or decided (the rate limit), and refuses by raising. `links` says where
+    the cards may link.
 
     `declared` is what the request's `fhirServer` does not offer, as the site declared it for
     the caller's organization (`standards/ehr_declarations.py`): a prefetch key of such a type,
-    for a pack that may read its list without it (`EhrDeclaration.skipped`), is never fetched,
+    for an agent that may read its list without it (`EhrDeclaration.skipped`), is never fetched,
     and left out, sent empty, null or as a search with no entries, it is not offered (the
     decision records so, and never automates). A value with entries is data, used as sent, and
     an OperationOutcome is still `operation_outcome`."""
-    hooks = decision.pack.manifest.cds_hooks
+    hooks = decision.agent.manifest.cds_hooks
     if hooks is None:
-        raise FhirError(f"agent {decision.pack.id} is not a CDS service")
+        raise FhirError(f"agent {decision.agent.id} is not a CDS service")
     if request.get("hook") != hooks.hook:
         raise FhirError(f"service expects hook {hooks.hook!r}, got {request.get('hook')!r}")
     orders: list[dict[str, Any]] = []
     if hooks.hook in ORDER_HOOKS:
-        # One decision per draft order the pack is about (e.g. each referral, not the lab
+        # One decision per draft order the agent is about (e.g. each referral, not the lab
         # orders signed with it), each with the prefetched record: as the decision reads its
         # record, with its organization's site code map (LP-23k).
         context = _object(request, "context")
         site = decision.site_map()
-        orders = FhirAdapter.for_pack(decision.pack).focus_resources(
+        orders = FhirAdapter.for_agent(decision.agent).focus_resources(
             context.get("draftOrders"), site_codes=None if site is None else site.sets
         )
         if len(orders) > most:
@@ -286,7 +243,7 @@ def invoke(
         {}
         if declared is None
         else declared.skipped(
-            FhirAdapter.for_pack(decision.pack).mapping, hooks.prefetch, hooks.prefetch
+            FhirAdapter.for_agent(decision.agent).mapping, hooks.prefetch, hooks.prefetch
         )
     )
     not_offered = {
@@ -345,49 +302,12 @@ def invoke(
                 )
             ]
     template = hooks.card
-    # A CRD service the request turned `coverage-info` off for: decided and recorded, and
-    # nothing of that type sent back, neither cards nor system actions (CRD 2.2.1).
-    silenced = bool(hooks.coverage_information) and not coverage_info_wanted(request)
     cards = []
     for result, task in decided:
-        if silenced or not shows_card(template, result):
+        if not shows_card(template, result):
             continue  # decided and audited, but nothing worth interrupting the user for
-        cards.append(card(decision.pack, result, task, links))
-    response: dict[str, Any] = {"cards": cards}
-    crd = bool(hooks.coverage_information) and not silenced
-    coverage = davinci.coverage_reference(prefetch) if crd else None
-    if coverage is not None:
-        actions = []
-        for order, (result, _) in zip(orders, decided, strict=True):
-            if result.abstained_unreadable:  # the requirements were not checked: CRD's way
-                extension = davinci.indeterminate(result, coverage, clock.today())
-                actions.append(davinci.system_action(order, extension))
-                continue
-            info = hooks.coverage_information.get(result.recommendation or "")
-            if info is not None:
-                form = None
-                dtr = hooks.questionnaire
-                if dtr is not None and result.recommendation == dtr.missing:
-                    labels = {key: answer.label for key, answer in result.answers.items()}
-                    context = davinci.context_of(decision.pack, labels)
-                    url = davinci.questionnaire_url(decision.pack, context)
-                    form = f"{url}|{decision.pack.version}"
-                extension = davinci.coverage_information(
-                    info, result, coverage, clock.today(), questionnaire=form
-                )
-                actions.append(davinci.system_action(order, extension))
-        if actions:
-            response["systemActions"] = actions
-    return response
-
-
-def coverage_info_wanted(request: Mapping[str, Any]) -> bool:
-    """Whether a CRD request wants coverage information: unless its
-    `extension.davinci-crd.configuration` sets `coverage-info` to false. Configuration Mendari
-    does not support, or of another shape, is ignored, as CRD says."""
-    extension = request.get("extension")
-    configuration = extension.get(CRD_CONFIGURATION) if isinstance(extension, Mapping) else None
-    return not (isinstance(configuration, Mapping) and configuration.get(COVERAGE_INFO) is False)
+        cards.append(card(decision.agent, result, task, links))
+    return {"cards": cards}
 
 
 def fetch(
@@ -419,14 +339,14 @@ def fetch(
 
 def linker(decision: Decision, request: Mapping[str, Any]) -> Linker | None:
     """The linked reads of one hook request (LP-23h): from its `fhirServer`, with its token, for
-    a pack whose mapping reaches anything by a link (spec 0.3). None without a `fhirServer` or
-    for any other pack: nothing is read. The client opens when a link first needs it, so a
+    an agent whose mapping reaches anything by a link (spec §9.4). None without a `fhirServer` or
+    for any other agent: nothing is read. The client opens when a link first needs it, so a
     request whose record holds every link opens none. A request fault is refused before anything
     is decided, as for the prefetch (`fetch`): a `fhirAuthorization` that is not a Bearer token,
     and a `fhirServer` off the allow-list, which is configuration, not the patient's data, so
     nothing is fetched or recorded (conflict 14), whether or not the record holds every link."""
     server = request.get("fhirServer")
-    if not server or not reads_links(FhirAdapter.for_pack(decision.pack).mapping):
+    if not server or not reads_links(FhirAdapter.for_agent(decision.agent).mapping):
         return None
     token = _token(request)
     check_allowed(str(server))
@@ -597,18 +517,16 @@ def fill_template(template: str, context: Mapping[str, Any]) -> str:
     return query
 
 
-def source_label(pack: Pack) -> str:
-    """Who a card comes from, as the clinician sees it under the card: a community pack says it
-    is not clinically reviewed."""
-    label = f"Mendari · {pack.manifest.name} {pack.version}"
-    return f"{label} · {COMMUNITY_LABEL}" if pack.community else label
+def source_label(agent: Agent) -> str:
+    """Who a card comes from, as the clinician sees it under the card."""
+    return f"Mendari · {agent.manifest.name} {agent.version}"
 
 
 def card_key(template: CdsCard | None, result: DecisionResult) -> str:
     """Which of a card template's keys words a decision's card: its recommendation, `none`
     without one, or `refused` for a decision that refused its input (a BLOCK before any
-    provider ran) when the template names `refused` (spec 0.3 §5); one that does not reads it
-    as `none`, as before."""
+    provider ran) when the template names `refused` (spec §9.13); one that does not reads it
+    as `none`."""
     if result.recommendation is not None:
         return result.recommendation
     refused = result.outcome is Outcome.BLOCK and result.rejected
@@ -617,7 +535,7 @@ def card_key(template: CdsCard | None, result: DecisionResult) -> str:
 
 def rule_card(template: CdsCard | None, result: DecisionResult) -> RuleCard | None:
     """The wording of the policy rule that decided, for a recommendation `show` leaves out
-    (`also_show`, spec 0.3 §5); None for one `show` names, or any other decision."""
+    (`also_show`, spec §9.13); None for one `show` names, or any other decision."""
     if template is None or template.show is None or result.rule is None:
         return None
     if card_key(template, result) in template.show:
@@ -635,16 +553,16 @@ def shows_card(template: CdsCard | None, result: DecisionResult) -> bool:
 
 
 def card(
-    pack: Pack,
+    agent: Agent,
     result: DecisionResult,
     task: Mapping[str, Any],
     links: CardLinks = NO_LINKS,
 ) -> dict[str, Any]:
-    template = pack.manifest.cds_hooks.card if pack.manifest.cds_hooks else None
+    template = agent.manifest.cds_hooks.card if agent.manifest.cds_hooks else None
     key = card_key(template, result)
     if result.abstained_unreadable:
-        detail = _unreadable_detail(pack, result)
-        return _card(pack, result, task, "info", UNREADABLE_SUMMARY, detail, links)
+        detail = _unreadable_detail(agent, result)
+        return _card(agent, result, task, "info", UNREADABLE_SUMMARY, detail, links)
     by_rule = rule_card(template, result)
     if result.priority is Priority.STAT:
         indicator = "critical"
@@ -657,9 +575,9 @@ def card(
     else:
         indicator = "warning"
     if by_rule is not None:
-        summary = fill_display(by_rule.summary, result, pack.manifest)
+        summary = fill_display(by_rule.summary, result, agent.manifest)
     elif template is not None and key in template.summaries:
-        summary = fill_display(template.summaries[key], result, pack.manifest)
+        summary = fill_display(template.summaries[key], result, agent.manifest)
     else:
         verb = {
             Outcome.AUTO: "Routed",
@@ -667,11 +585,11 @@ def card(
             Outcome.ABSTAIN: "No recommendation;",
             Outcome.BLOCK: "Blocked;",
         }[result.outcome]
-        summary = f"{verb} to {_target(pack, result)}" + (
+        summary = f"{verb} to {_target(agent, result)}" + (
             f" ({result.priority.value})" if result.priority.value != "routine" else ""
         )
     if key == REFUSED:
-        return _card(pack, result, task, indicator, summary, _refused_detail(pack, result), links)
+        return _card(agent, result, task, indicator, summary, _refused_detail(agent, result), links)
     # The engine's reasons are behind the audit link when there is one, else in the detail, but
     # for the confidence thresholds': its figures carry no interval, and the outcome's sentence
     # says what it decided. A list read without a source the EHR does not offer (declared) stays
@@ -683,36 +601,36 @@ def card(
         or not (links.public_url or threshold_reason(reason))
     ]
     detail = "\n".join(
-        [f"*{pack.status_label}* *{notices.NOTICE}*", "", OUTCOME_SENTENCES[result.outcome]]
+        [f"*{agent.status_label}* *{notices.NOTICE}*", "", OUTCOME_SENTENCES[result.outcome]]
         + (["", *reasons] if reasons else [])
         + ([f"\nFallback: {result.fallback}"] if result.fallback else [])
     )
-    return _card(pack, result, task, indicator, summary, detail, links)
+    return _card(agent, result, task, indicator, summary, detail, links)
 
 
-def _target(pack: Pack, result: DecisionResult) -> str:
+def _target(agent: Agent, result: DecisionResult) -> str:
     """Who a decision routes to, as a person reads it: the recommendation's display name."""
     if result.recommendation is None:
         return NO_RECOMMENDATION
-    return shown(pack.manifest, pack.manifest.policy.primary, result.recommendation)
+    return shown(agent.manifest, agent.manifest.policy.primary, result.recommendation)
 
 
-def _unreadable_detail(pack: Pack, result: DecisionResult) -> str:
-    """An unreadable ABSTAIN's detail: the pack's status and the notice, the fixed words, and
-    each key with its reason code (the pack's own names and a closed set: nothing from the
+def _unreadable_detail(agent: Agent, result: DecisionResult) -> str:
+    """An unreadable ABSTAIN's detail: the agent's status and the notice, the fixed words, and
+    each key with its reason code (the agent's own names and a closed set: nothing from the
     record, the request or a server); then, apart, each list read without a source the EHR does
     not offer (`DecisionResult.limitations`), whatever the links."""
     limited = [reason for reason in result.reasons if reason.startswith(result.limitations)]
     return "\n".join(
-        [f"*{pack.status_label}* *{notices.NOTICE}*", "", UNREADABLE_DETAIL, ""]
+        [f"*{agent.status_label}* *{notices.NOTICE}*", "", UNREADABLE_DETAIL, ""]
         + [f"- {key}: {reason}" for key, reason in result.unreadable]
         + _also_noted(limited)
         + ([f"\nFallback: {result.fallback}"] if result.fallback else [])
     )
 
 
-def _refused_detail(pack: Pack, result: DecisionResult) -> str:
-    """A refused input's detail (the `refused` key): the pack's status and the notice, the fixed
+def _refused_detail(agent: Agent, result: DecisionResult) -> str:
+    """A refused input's detail (the `refused` key): the agent's status and the notice, the fixed
     words, and each reason it was refused as the audit record keeps it
     (`DecisionResult.to_record`), whatever the links: why it was refused is what the card is
     for. Its other reasons (a part that could not be read, a list read without a source the EHR
@@ -721,7 +639,7 @@ def _refused_detail(pack: Pack, result: DecisionResult) -> str:
     why = [reason.removeprefix(REJECTED) for reason in reasons if reason.startswith(REJECTED)]
     other = [reason for reason in reasons if not reason.startswith(REJECTED)]
     return "\n".join(
-        [f"*{pack.status_label}* *{notices.NOTICE}*", "", REFUSED_DETAIL, ""]
+        [f"*{agent.status_label}* *{notices.NOTICE}*", "", REFUSED_DETAIL, ""]
         + [f"- {reason}" for reason in why]
         + _also_noted(other)
         + ([f"\nFallback: {result.fallback}"] if result.fallback else [])
@@ -734,7 +652,7 @@ def _also_noted(reasons: list[str]) -> list[str]:
 
 
 def _card(
-    pack: Pack,
+    agent: Agent,
     result: DecisionResult,
     task: Mapping[str, Any],
     indicator: str,
@@ -744,19 +662,17 @@ def _card(
 ) -> dict[str, Any]:
     """A CDS Hooks 2.0 card for one decision: its uuid is the decision's id, its one
     suggestion's `suggestion_id` of it."""
-    template = pack.manifest.cds_hooks.card if pack.manifest.cds_hooks else None
+    template = agent.manifest.cds_hooks.card if agent.manifest.cds_hooks else None
     label = (
         template.suggestion
         if template is not None
-        else f"Create routing task for {_target(pack, result)}"
+        else f"Create routing task for {_target(agent, result)}"
     )
-    source: dict[str, Any] = {"label": source_label(pack)}
-    shown_pack = quote(pack.id, safe="/")
+    source: dict[str, Any] = {"label": source_label(agent)}
+    shown_agent = quote(agent.id, safe="/")
     public = links.public_url.rstrip("/") if links.public_url else None
     if public is not None:
-        source["url"] = f"{public}/?agent={shown_pack}#card"
-    if pack.manifest.cds_hooks is not None and pack.manifest.cds_hooks.coverage_information:
-        source["topic"] = dict(CARD_TYPE)  # CRD 2.2.1: every card of a CRD service says its type
+        source["url"] = f"{public}/?agent={shown_agent}#card"
     found: dict[str, Any] = {
         "uuid": result.id,
         "summary": summary[:SUMMARY_CHARS],
@@ -781,7 +697,7 @@ def _card(
         found["links"] = [
             {
                 "label": AUDIT_LINK,
-                "url": f"{public}/?agent={shown_pack}#audit/{quote(result.id, safe='')}",
+                "url": f"{public}/?agent={shown_agent}#audit/{quote(result.id, safe='')}",
                 "type": "absolute",
             }
         ]
@@ -789,7 +705,7 @@ def _card(
             found["links"].append(
                 {
                     "label": LAUNCH_LINK,
-                    "url": f"{public}/smart/launch?pack={shown_pack}",
+                    "url": f"{public}/smart/launch?agent={shown_agent}",
                     "type": "smart",
                 }
             )

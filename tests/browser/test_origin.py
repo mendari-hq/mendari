@@ -15,8 +15,8 @@ from playwright.sync_api import Browser, BrowserContext, Route, expect
 from mendari.core.audit import AuditStore
 from mendari.server.app import create_app
 from mendari.server.origin import OWN_REQUEST
-from tests.browser.conftest import INBOX, serving
-from tests.browser.test_dashboard import open_pack, show
+from tests.browser.conftest import TRIAGE, serving
+from tests.browser.test_dashboard import open_agent, show
 from tests.conftest import encrypt_mode, security_lines, signed_in
 
 pytestmark = pytest.mark.browser
@@ -127,7 +127,7 @@ def test_the_dashboard_works_in_a_browser_without_fetch_metadata(
 
     context.route(f"{base}/**", without_fetch_metadata)
     page = context.new_page()
-    open_pack(page, INBOX)
+    open_agent(page, TRIAGE)
     expect(page.locator("#signed-in")).to_be_visible()
     show(page, "review")
     show(page, "audit")
@@ -161,7 +161,7 @@ def test_the_dashboard_works_in_a_browser_without_fetch_metadata(
     reads += [(m, p, own, status) for m, p, own, status in sent if p == "/openapi.json"]
     called = {p for _, p, _, _ in reads}
     assert {"/api/audit/export/fhir", "/api/audit/administrative", "/openapi.json"} <= called
-    assert f"/api/agents/{INBOX}/feedback/export" in called
+    assert f"/api/agents/{TRIAGE}/feedback/export" in called
     assert [r for r in reads if r[2] != "1" or r[3] == 403] == []
     logged = security_lines(capsys.readouterr().out)
     assert {"export.audit", "export.audit.administrative"} <= {e["event"] for e in logged}

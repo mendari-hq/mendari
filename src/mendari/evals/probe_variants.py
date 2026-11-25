@@ -27,8 +27,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mendari.core.pack import not_json
-from mendari.core.spec import LabelPolicy, PackManifest
+from mendari.core.agent import not_json
+from mendari.core.spec import AgentManifest, LabelPolicy
 from mendari.errors import MendariError, ProviderError
 from mendari.evals import probe_model, probe_tests
 from mendari.evals.canonical import canonical_input
@@ -150,13 +150,13 @@ def translation(language: str) -> str:
     return name
 
 
-def denials(manifest: PackManifest) -> list[tuple[str, str, str]]:
+def denials(manifest: AgentManifest) -> list[tuple[str, str, str]]:
     """What a denial can be asked of: each critical label of a question a provider answers
     with two labels, as (the question, its critical label, the label a denial leaves)."""
     found = []
     for question, label in critical(manifest):
         labels = manifest.labels(question)
-        if len(labels) == 2 and manifest.questions[question].derive is None:
+        if len(labels) == 2:
             found.append((question, label, next(other for other in labels if other != label)))
     return found
 
@@ -164,7 +164,9 @@ def denials(manifest: PackManifest) -> list[tuple[str, str, str]]:
 # -- offline ---------------------------------------------------------------------------------------
 
 
-def offline(case: Case, name: str, index: int, seed: int, manifest: PackManifest) -> Variant | None:
+def offline(
+    case: Case, name: str, index: int, seed: int, manifest: AgentManifest
+) -> Variant | None:
     """A case's variant by an offline transformation, or None when it changes nothing in it.
     Every text field is changed, or (an addition) the longest one."""
     transformation = OFFLINE[name]
@@ -185,19 +187,17 @@ def offline(case: Case, name: str, index: int, seed: int, manifest: PackManifest
     return Variant(case, name, "; ".join(dict.fromkeys(details)), changed, seed, index)
 
 
-def asks(manifest: PackManifest, labels: Mapping[str, str]) -> dict[str, str]:
+def asks(manifest: AgentManifest, labels: Mapping[str, str]) -> dict[str, str]:
     """The answers an injected instruction asks the model for, the ones that would do most
     harm if it obeyed: for each critical label, another label of its question; for the primary
-    question, a label the policy may automate that is not the case's own. Only questions a
-    provider answers are named: a derived one is not asked of any model."""
+    question, a label the policy may automate that is not the case's own."""
     asked: dict[str, str] = {}
-    answered = [key for key, question in manifest.questions.items() if question.derive is None]
     for question, label in critical(manifest):
         others = [other for other in manifest.labels(question) if other != label]
-        if question in answered and others:
+        if others:
             asked.setdefault(question, others[0])
     primary = manifest.policy.primary
-    if primary in answered and primary not in asked:
+    if primary not in asked:
         others = [label for label in manifest.labels(primary) if label != labels.get(primary)]
         automated = [
             label for label in others if manifest.policy.labels.get(label, LabelPolicy()).allow_auto
@@ -213,7 +213,7 @@ def jobs(
     case: Case,
     name: str,
     index: int,
-    manifest: PackManifest,
+    manifest: AgentManifest,
     deniable: Sequence[tuple[str, str, str]],
 ) -> Iterator[Job | str]:
     """The variants of a case a model is to write under one transformation: each a `Job`, or
@@ -277,7 +277,7 @@ _REQUIRED = ("case", "transformation", "input")
 _OPTIONAL = ("labels", "model", "detail", "seed", "variant")
 
 
-def load_variants(path: str | Path, manifest: PackManifest) -> list[Given]:
+def load_variants(path: str | Path, manifest: AgentManifest) -> list[Given]:
     """The variants of a JSON Lines file, one a line:
 
         {"case": "<the case's id in the dataset>", "transformation": "<a name>",
@@ -322,7 +322,7 @@ def load_variants(path: str | Path, manifest: PackManifest) -> list[Given]:
     return found
 
 
-def _given_problem(record: Any, manifest: PackManifest) -> str | None:
+def _given_problem(record: Any, manifest: AgentManifest) -> str | None:
     """Why a line of a variants file is not a variant, without repeating what it says."""
     if not isinstance(record, dict):
         return "a variant is an object with `case`, `transformation` and `input`"

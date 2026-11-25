@@ -4,9 +4,10 @@ with each card, accepted with the suggestion taken or overridden with one of the
 offered, chained on the card's decision as `card.feedback`, codes and ids only. All or nothing: a
 suggestion or reason the card did not offer, a field CDS Hooks 2.0 does not define (but
 `extension`, accepted and never kept) or a time with no UTC time is a `422`; a card that is not
-a decision of the service's pack in the caller's organization, or, when the caller is named,
+a decision of the service's agent in the caller's organization, or, when the caller is named,
 one it did not ask for, is one `404`, whichever it is. The comment is never kept. The route is a
-decide route, rate limited in the decide bucket and never counted against the daily cap."""
+decide route, rate limited in the decide bucket and never counted against the daily cap. The
+service is the triage test fixture's (`tests/support/cds_messages.py`): one card a message."""
 
 from __future__ import annotations
 
@@ -22,16 +23,15 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore
+from mendari import AuditStore, load_agent
 from mendari.cli import main
 from mendari.server.app import create_app
 from mendari.standards import cds_hooks, fhir_structure, terminology
 from mendari.standards.terminology import OVERRIDE_REASONS, OVERRIDE_REASONS_SYSTEM
-from tests.conftest import ROOT, security_lines
-from tests.test_limits import order_sign, service_key, sign_in_on
+from tests.conftest import CHART_DIR, CLINICAL_DIR, ROOT, encrypt_mode, security_lines
+from tests.support.cds_messages import HOOK, SERVICE, message_hook
+from tests.support.fixture_records import SHOWCASE
 
-SERVICE = "mendari.referral-router"
-HOOK = f"/cds-services/{SERVICE}"
 FEEDBACK = f"{HOOK}/feedback"
 AT = "2026-10-18T12:00:00-04:00"  # US Eastern
 AT_UTC = "2026-10-18T16:00:00+00:00"
@@ -72,11 +72,29 @@ def card_feedback(store: AuditStore) -> list[dict[str, Any]]:
     return [e for e in store.events() if e["event"] == "card.feedback"]
 
 
-def hooked(client: TestClient, orders: int = 2, **headers: str) -> list[str]:
-    """The card ids a referral hook gives, one per order."""
-    answer = client.post(HOOK, json=order_sign(orders), headers=headers)
-    assert answer.status_code == 200, answer.text
-    return [card["uuid"] for card in answer.json()["cards"]]
+def sign_in_on(monkeypatch: pytest.MonkeyPatch, limits: str) -> None:
+    """Sign-in on (its identity provider never called), with `limits` as the rate limits."""
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
+    monkeypatch.setenv("MENDARI_RATE_LIMITS", limits)
+
+
+def service_key(db: str) -> dict[str, str]:
+    with AuditStore(db) as store:
+        made = store.create_api_key(name="ehr", role="service", org="default", created_by="t")
+    return {"authorization": f"Bearer {made['key']}"}
+
+
+def hooked(client: TestClient, messages: int = 2, **headers: str) -> list[str]:
+    """The card ids the hook gives for `messages` messages, one card each."""
+    cards = []
+    for n in range(1, messages + 1):
+        answer = client.post(HOOK, json=message_hook(n), headers=headers)
+        assert answer.status_code == 200, answer.text
+        cards += [card["uuid"] for card in answer.json()["cards"]]
+    assert len(cards) == messages
+    return cards
 
 
 def test_feedback_for_an_accepted_and_an_overridden_card_is_recorded_and_chained(
@@ -134,10 +152,10 @@ def test_feedback_for_an_accepted_and_an_overridden_card_is_recorded_and_chained
         assert len(card_feedback(store)) == 3
 
 
-def test_feedback_naming_another_organizations_packs_or_callers_decision_answers_as_unknown(
+def test_feedback_naming_another_organizations_agents_or_callers_decision_answers_as_unknown(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With sign-in on: another organization's card, a decision of another pack, a card another
+    """With sign-in on: another organization's card, a decision of another agent, a card another
     caller of the same organization asked for and an id that names nothing are each the one
     `404`, the same answer but for the id it repeats, and nothing is chained; a request naming
     one of them beside the caller's own card records neither. The caller's own card: `200`."""
@@ -154,10 +172,8 @@ def test_feedback_naming_another_organizations_packs_or_callers_decision_answers
     )
     (card,) = hooked(client, 1, **mine)
     (their_card,) = hooked(client, 1, **theirs)
-    inbox = client.post(
-        "/api/packs/mendari/patient-inbox-router/decide",
-        json={"message": {"body": "Can I get a refill?", "channel": "portal"}},
-        headers=mine,
+    chart = client.post(  # a decision of another agent with a hook
+        f"/api/agents/{load_agent(CHART_DIR).id}/decide", json=SHOWCASE.input(), headers=mine
     ).json()["id"]
     nothing = str(uuid.uuid4())
     with AuditStore(db) as store:
@@ -170,11 +186,11 @@ def test_feedback_naming_another_organizations_packs_or_callers_decision_answers
 
     shown = {
         "another organization's": refused(mine, overridden(their_card)),
-        "another pack's": refused(mine, overridden(inbox)),
+        "another agent's": refused(mine, overridden(chart)),
         "another caller's": refused(other_caller, overridden(card)),
         "nothing's": refused(mine, overridden(nothing)),
     }
-    named = {"another organization's": their_card, "another pack's": inbox}
+    named = {"another organization's": their_card, "another agent's": chart}
     named |= {"another caller's": card, "nothing's": nothing}
     for which, body in shown.items():
         assert body["error"] == "UnknownCard", which
@@ -183,16 +199,17 @@ def test_feedback_naming_another_organizations_packs_or_callers_decision_answers
     mixed = refused(mine, accepted(card), overridden(nothing))
     assert mixed["detail"] == f"no card of this service: {nothing}"  # all or nothing
     assert refused(mine, overridden(card), path="/cds-services/nope/feedback")["error"] == (
-        "PackNotFoundError"
+        "AgentNotFoundError"
     )
-    # A pack with no hook makes no card, so its own decisions take no card feedback either.
-    guard = client.post(
-        "/api/packs/mendari/ai-guard/guard",
-        json=client.get("/api/packs/mendari/ai-guard/examples", headers=mine).json()[0]["input"],
-        headers=mine,
-    ).json()["decision_id"]
-    unhooked = "/cds-services/mendari.ai-guard/feedback"
-    assert refused(mine, overridden(guard), path=unhooked)["error"] == "PackNotFoundError"
+    # An agent with no hook makes no card, so its own decisions take no card feedback either.
+    reviewer = load_agent(CLINICAL_DIR)
+    assert reviewer.manifest.cds_hooks is None
+    example = client.get(f"/api/agents/{reviewer.id}/examples", headers=mine).json()[0]
+    reviewed = client.post(
+        f"/api/agents/{reviewer.id}/decide", json=example["input"], headers=mine
+    ).json()["id"]
+    unhooked = f"/cds-services/{reviewer.id.replace('/', '.')}/feedback"
+    assert refused(mine, overridden(reviewed), path=unhooked)["error"] == "AgentNotFoundError"
     with AuditStore(db) as store:
         assert len(card_feedback(store)) == before
     sent = client.post(FEEDBACK, json=feedback(accepted(card)), headers=mine)
@@ -438,7 +455,7 @@ def test_the_override_reasons_are_published_with_displays(tmp_path: Path) -> Non
     concepts = {c["code"]: c for c in system["concept"]}
     assert list(concepts) == ["not-relevant", "already-addressed", "clinical-judgement"]
     assert all(c["display"] and c["definition"] for c in concepts.values())
-    answer = client.post(HOOK, json=order_sign(1)).json()
+    answer = client.post(HOOK, json=message_hook()).json()
     offered = answer["cards"][0]["overrideReasons"]
     assert offered == terminology.override_reasons()
     assert {(c["code"], c["display"]) for c in offered} == {

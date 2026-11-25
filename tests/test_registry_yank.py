@@ -13,39 +13,43 @@ from typing import Any
 import pytest
 
 from mendari.cli import main
-from mendari.core.registry import resolve_pack
+from mendari.core.agent import load_agent
 from mendari.errors import HubError
 from mendari.hub import archive, yank
 from mendari.hub.client import pull, recall_of
 from mendari.hub.registry import RegistryStore
-from tests.conftest import Registry
-from tests.test_hub_client import Hub, copy_pack, hub  # noqa: F401 - the live registry fixture
+from tests.conftest import FIXTURE_NAMESPACE, TRIAGE_DIR, Registry
+from tests.test_hub_client import Hub, copy_agent, hub  # noqa: F401 - the live registry fixture
 
-REFERRAL = resolve_pack("mendari/referral-router")
-PATH = f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"
+# The agent `Registry.publish()` publishes, in the test fixtures' namespace, with that
+# namespace's token and key (`Registry.fixture_publisher`).
+TRIAGE = load_agent(TRIAGE_DIR)
+NAMESPACE, NAME = TRIAGE.id.split("/")
+PATH = f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}"
 REGISTRY_KEY = base64.b64encode(os.urandom(32)).decode()
 
 
 def _record(registry: Registry, **changes: Any) -> dict[str, str]:
-    """The referral pack's yank, signed by the namespace's key."""
+    """The triage fixture's yank, signed by its namespace's key."""
     meta = registry.client.get(PATH).json()
+    key = registry.fixture_publisher()[1]
     fields: dict[str, Any] = {
-        "pack": REFERRAL.id,
-        "version": REFERRAL.version,
+        "agent": TRIAGE.id,
+        "version": TRIAGE.version,
         "digest": meta["digest"],
         "archive_sha256": meta["archive_sha256"],
         "reason": "routes chest pain as routine",
         "severity": "high",
         "signer": "publisher",
-        "key": registry.key,
-        "key_id": archive.key_id(registry.key.public_key()),
+        "key": key,
+        "key_id": archive.key_id(key.public_key()),
     }
     fields.update(changes)
     return yank.sign(**fields)
 
 
 def _yank(registry: Registry, record: dict[str, Any], token: str | None = None) -> Any:
-    headers = {"authorization": f"Bearer {token or registry.token}"}
+    headers = {"authorization": f"Bearer {token or registry.fixture_publisher()[0]}"}
     return registry.client.post(f"{PATH}/yank", json={"record": record}, headers=headers)
 
 
@@ -59,15 +63,15 @@ def test_a_yanked_version_leaves_latest_and_search_and_is_still_served_by_versio
     assert answer.status_code == 201, answer.text
     assert answer.json()["yank"] == record
     assert registry.client.get("/v1/search").json() == []
-    pack = registry.client.get(f"/v1/packs/{REFERRAL.id}").json()
-    assert pack["latest"] is None and pack["versions"] == []
-    assert pack["recalled"] == [{"version": REFERRAL.version, "yank": record, "deleted": None}]
-    assert registry.client.get("/v1/namespaces/mendari").json()["packs"] == []
+    agent = registry.client.get(f"/v1/agents/{TRIAGE.id}").json()
+    assert agent["latest"] is None and agent["versions"] == []
+    assert agent["recalled"] == [{"version": TRIAGE.version, "yank": record, "deleted": None}]
+    assert registry.client.get(f"/v1/namespaces/{FIXTURE_NAMESPACE}").json()["agents"] == []
     exact = registry.client.get(PATH).json()
     assert exact["yank"] == record and exact["card_markdown"]
     assert registry.client.get(f"{PATH}/archive").content == archive_before  # never deleted
     assert registry.client.get("/v1/yanks").json() == [
-        {"pack": REFERRAL.id, "version": REFERRAL.version, "yank": record, "deleted": None}
+        {"agent": TRIAGE.id, "version": TRIAGE.version, "yank": record, "deleted": None}
     ]
     again = _yank(registry, _record(registry))
     assert again.status_code == 409 and "already recalled" in again.text
@@ -78,24 +82,25 @@ def test_a_yanked_version_leaves_latest_and_search_and_is_still_served_by_versio
 def test_a_newer_version_stays_latest_when_an_older_one_is_yanked(
     registry: Registry, tmp_path: Path
 ) -> None:
-    from tests.test_registry import INBOX, _at_version
+    from tests.test_registry import _at_version
 
-    assert registry.publish(_at_version(tmp_path / "a", INBOX, "9.9.8")).status_code == 201
-    assert registry.publish(_at_version(tmp_path / "b", INBOX, "9.9.9")).status_code == 201
-    path = f"/v1/packs/{INBOX.id}/9.9.9"
+    assert registry.publish(_at_version(tmp_path / "a", TRIAGE, "9.9.8")).status_code == 201
+    assert registry.publish(_at_version(tmp_path / "b", TRIAGE, "9.9.9")).status_code == 201
+    path = f"/v1/agents/{TRIAGE.id}/9.9.9"
     meta = registry.client.get(path).json()
+    token, key = registry.fixture_publisher()
     record = yank.sign(
-        pack=INBOX.id, version="9.9.9", digest=meta["digest"],
+        agent=TRIAGE.id, version="9.9.9", digest=meta["digest"],
         archive_sha256=meta["archive_sha256"], reason="a bad rule", severity="critical",
-        signer="publisher", key=registry.key, key_id=archive.key_id(registry.key.public_key()),
+        signer="publisher", key=key, key_id=archive.key_id(key.public_key()),
     )  # fmt: skip
-    headers = {"authorization": f"Bearer {registry.token}"}
+    headers = {"authorization": f"Bearer {token}"}
     assert (
         registry.client.post(f"{path}/yank", json={"record": record}, headers=headers).status_code
         == 201
     )
-    pack = registry.client.get(f"/v1/packs/{INBOX.id}").json()
-    assert pack["latest"]["version"] == "9.9.8" and pack["versions"] == ["9.9.8"]
+    agent = registry.client.get(f"/v1/agents/{TRIAGE.id}").json()
+    assert agent["latest"]["version"] == "9.9.8" and agent["versions"] == ["9.9.8"]
     assert [item["version"] for item in registry.client.get("/v1/search").json()] == ["9.9.8"]
 
 
@@ -155,13 +160,13 @@ def test_the_registry_signs_its_own_recall(
     body = {"reason": "a safety notice from the registry", "severity": "critical"}
     # Over the registry's own routes a reason is never enough: a recall is the publisher's
     # signed record there (LP-19g). The registry's is a reviewer's or the operator's.
-    publisher = {"authorization": f"Bearer {registry.token}"}
+    publisher = {"authorization": f"Bearer {registry.fixture_publisher()[0]}"}
     unsigned = registry.client.post(f"{PATH}/yank", json=body, headers=publisher)
     assert unsigned.status_code == 422 and "signed with a namespace key" in unsigned.text
 
     def recall() -> dict[str, Any]:
         return registry.operator.recall_as_registry(
-            "mendari", "referral-router", REFERRAL.version, by="operator", **body
+            NAMESPACE, NAME, TRIAGE.version, by="operator", **body
         )
 
     with pytest.raises(HubError, match="no signing key") as unkeyed:
@@ -184,15 +189,13 @@ def test_a_deleted_version_is_never_served_and_its_bytes_are_gone(
     registry: Registry, db_target: str
 ) -> None:
     assert registry.publish().status_code == 201
-    publisher = {"authorization": f"Bearer {registry.token}"}
+    publisher = {"authorization": f"Bearer {registry.fixture_publisher()[0]}"}
     body = {"reason": "the archive carried a file it must not"}
     gone_route = registry.client.post(f"{PATH}/delete", json=body, headers=publisher)
     assert gone_route.status_code in (404, 405)  # a reviewer's or the operator's (LP-19g)
 
     def delete() -> dict[str, Any]:
-        return registry.operator.delete(
-            "mendari", "referral-router", REFERRAL.version, by="operator", **body
-        )
+        return registry.operator.delete(NAMESPACE, NAME, TRIAGE.version, by="operator", **body)
 
     assert delete()["deleted"]["reason"] == body["reason"]
     gone = registry.client.get(f"{PATH}/archive")
@@ -214,20 +217,20 @@ def test_a_pull_shows_a_recall_and_whether_its_signature_holds(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     token, key = hub.namespace("site-a")
-    pack = copy_pack(tmp_path, "site-a/inbox")
-    hub.client(token).push(pack, key)
+    agent = copy_agent(tmp_path, "site-a/inbox")
+    hub.client(token).push(agent, key)
     publisher = hub.client(token)
     publisher.yank(
-        "site-a", "inbox", pack.version, reason="misroutes refills", severity="medium", key=key
+        "site-a", "inbox", agent.version, reason="misroutes refills", severity="medium", key=key
     )
     with pytest.raises(HubError, match="every version of site-a/inbox is recalled"):
         pull("site-a/inbox", hub.client())
-    assert main(["pull", f"site-a/inbox@{pack.version}", "--registry", hub.url]) == 0
+    assert main(["pull", f"site-a/inbox@{agent.version}", "--registry", hub.url]) == 0
     err = capsys.readouterr().err
     assert "RECALLED (medium) by its publisher" in err and "misroutes refills" in err
     assert "the record's signature holds; do not automate with this version" in err
-    meta = hub.client().version("site-a", "inbox", pack.version)
-    assert recall_of(meta, hub.client(), pack) == {
+    meta = hub.client().version("site-a", "inbox", agent.version)
+    assert recall_of(meta, hub.client(), agent) == {
         "severity": "medium",
         "reason": "misroutes refills",
         "signer": "publisher",
@@ -237,14 +240,14 @@ def test_a_pull_shows_a_recall_and_whether_its_signature_holds(
         "deleted": False,
     }
     forged = {**meta, "yank": {**meta["yank"], "reason": "nothing to see"}}
-    shown = recall_of(forged, hub.client(), pack)
+    shown = recall_of(forged, hub.client(), agent)
     assert shown is not None and not shown["verified"]
     assert shown["problem"] == "its signature does not hold"
-    # A real record about another pack (a registry could serve one): a recall, not verified.
-    other = copy_pack(tmp_path / "other", "site-a/other")
+    # A real record about another agent (a registry could serve one): a recall, not verified.
+    other = copy_agent(tmp_path / "other", "site-a/other")
     shown = recall_of(meta, hub.client(), other)
     assert shown is not None and shown["problem"] == "it is about another agent, version or build"
-    assert recall_of({**meta, "yank": None}, hub.client(), pack) is None
+    assert recall_of({**meta, "yank": None}, hub.client(), agent) is None
 
 
 def test_a_recall_by_a_revoked_key_verifies_only_when_signed_before_it(
@@ -252,26 +255,26 @@ def test_a_recall_by_a_revoked_key_verifies_only_when_signed_before_it(
     tmp_path: Path,
 ) -> None:
     token, key = hub.namespace("site-a")
-    pack = copy_pack(tmp_path, "site-a/inbox")
-    hub.client(token).push(pack, key)
-    hub.client(token).yank("site-a", "inbox", pack.version, reason="misroutes", severity="high",
+    agent = copy_agent(tmp_path, "site-a/inbox")
+    hub.client(token).push(agent, key)
+    hub.client(token).yank("site-a", "inbox", agent.version, reason="misroutes", severity="high",
                            key=key)  # fmt: skip
     key_id = archive.key_id(key.public_key())
     with RegistryStore(hub.db) as store:
         store.revoke_key("site-a", key_id, reason="lost laptop", by="operator")
-    meta = hub.client().version("site-a", "inbox", pack.version)
-    shown = recall_of(meta, hub.client(), pack)  # signed before the key was revoked
+    meta = hub.client().version("site-a", "inbox", agent.version)
+    shown = recall_of(meta, hub.client(), agent)  # signed before the key was revoked
     assert shown is not None and shown["verified"] and shown["problem"] is None
     # The same key's record dated after it was revoked (one the registry would refuse): still a
     # recall, never a verified one.
     revoked_at = next(k["revoked_at"] for k in hub.client().namespace("site-a")["keys"])
     later = (datetime.fromisoformat(revoked_at) + timedelta(seconds=1)).isoformat()
     record = yank.sign(
-        pack=pack.id, version=pack.version, digest=meta["digest"],
+        agent=agent.id, version=agent.version, digest=meta["digest"],
         archive_sha256=meta["archive_sha256"], reason="misroutes", severity="high",
         signer="publisher", key=key, key_id=key_id, at=later.replace("+00:00", "Z"),
     )  # fmt: skip
-    shown = recall_of({**meta, "yank": record}, hub.client(), pack)
+    shown = recall_of({**meta, "yank": record}, hub.client(), agent)
     assert shown is not None and not shown["verified"]
     assert "lists as revoked since" in str(shown["problem"])
 
@@ -287,16 +290,16 @@ def test_a_deleted_version_is_removed_from_the_cache_and_never_pulled(
     from mendari.hub import client
 
     token, key = hub.namespace("site-a")
-    pack = copy_pack(tmp_path, "site-a/inbox")
-    hub.client(token).push(pack, key)
-    cached = pull(f"site-a/inbox@{pack.version}", hub.client())
+    agent = copy_agent(tmp_path, "site-a/inbox")
+    hub.client(token).push(agent, key)
+    cached = pull(f"site-a/inbox@{agent.version}", hub.client())
     assert cached.root.is_dir()
     with hub.operator() as store:
-        store.delete("site-a", "inbox", pack.version, reason="carried a file", by="operator")
-    assert main(["pull", f"site-a/inbox@{pack.version}", "--registry", hub.url]) == 1
+        store.delete("site-a", "inbox", agent.version, reason="carried a file", by="operator")
+    assert main(["pull", f"site-a/inbox@{agent.version}", "--registry", hub.url]) == 1
     assert "was deleted from the registry: carried a file" in capsys.readouterr().err
     assert not cached.root.exists()
-    assert not (client.packs_cache() / "site-a" / "inbox" / pack.version).exists()
+    assert not (client.agents_cache() / "site-a" / "inbox" / agent.version).exists()
 
 
 def test_a_recall_body_is_read_only_after_its_sender_is_checked(registry: Registry) -> None:
@@ -304,7 +307,7 @@ def test_a_recall_body_is_read_only_after_its_sender_is_checked(registry: Regist
     checked the token. Now the token comes first, and the body is capped."""
     assert registry.publish().status_code == 201
     huge = b'{"record": {"x": "' + b"a" * 5_000_000 + b'"}}'
-    publisher = {"authorization": f"Bearer {registry.token}"}
+    publisher = {"authorization": f"Bearer {registry.fixture_publisher()[0]}"}
     refused = registry.client.post(f"{PATH}/yank", content=huge)
     assert refused.status_code == 403
     too_big = registry.client.post(f"{PATH}/yank", content=huge, headers=publisher)

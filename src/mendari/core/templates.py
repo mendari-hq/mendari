@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Wording templates in packs (FHIR Task text, CDS card summaries).
+"""Wording templates in agents (FHIR Task text, CDS card summaries).
 
 A template may use `{recommendation}`, `{priority}`, and `{<question>}` for any question of the
-pack, which is replaced by that question's label, e.g. "Referral to {specialty} is missing
+agent, which is replaced by that question's label, e.g. "Referral to {specialty} is missing
 information". A question without an answer (its provider failed) reads as "unknown".
 
 A CDS Hooks card is read by a person (`fill_display`, LP-23f): there each label reads as its
-display name (`Question.name_of`: the pack's `names`, else a readable form of the label), and no
+display name (`Question.name_of`: the agent's `names`, else a readable form of the label), and no
 recommendation reads as "manual triage". A Task's text and its performer code (`fill`) keep the
 labels as they are.
 
 A placeholder is a bare name (`template_problems`): no conversion, format spec, attribute or
-index, which would let a template pad a label to any length or reach into what fills it. A pack
-the deployment does not own is refused for one; an owned pack is warned, and `fill` renders its
+index, which would let a template pad a label to any length or reach into what fills it. An agent
+the deployment does not own is refused for one; an owned agent is warned, and `fill` renders its
 templates as it always did.
 """
 
@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from mendari.core.decision import DecisionResult
-    from mendari.core.spec import PackManifest
+    from mendari.core.spec import AgentManifest
 
 BUILT_IN = ("recommendation", "priority")
 UNKNOWN = "unknown"  # what a placeholder reads when its question has no answer
@@ -35,7 +35,7 @@ SHOWN_CHARS = 40  # how much of a placeholder a problem shows
 
 
 def unknown_placeholders(template: str, questions: Iterable[str]) -> list[str]:
-    """Placeholders a template uses that are neither built in nor a question of the pack."""
+    """Placeholders a template uses that are neither built in nor a question of the agent."""
     allowed = {*BUILT_IN, *questions}
     try:
         names = {name for _, name, _, _ in string.Formatter().parse(template) if name is not None}
@@ -90,7 +90,7 @@ def fill(template: str, result: DecisionResult, *, recommendation: str) -> str:
     return template.format_map(_Unknown(values))
 
 
-def fill_display(template: str, result: DecisionResult, manifest: PackManifest) -> str:
+def fill_display(template: str, result: DecisionResult, manifest: AgentManifest) -> str:
     """A card's words: as `fill`, with each answer and the recommendation as a person reads it
     (`shown`), and `NO_RECOMMENDATION` when there is none."""
     values = {
@@ -108,14 +108,14 @@ def fill_display(template: str, result: DecisionResult, manifest: PackManifest) 
     return template.format_map(_Unknown(values))
 
 
-def shown(manifest: PackManifest, question: str, label: str) -> str:
-    """One of a question's labels as a person reads it (`Question.name_of`); a question the pack
+def shown(manifest: AgentManifest, question: str, label: str) -> str:
+    """One of a question's labels as a person reads it (`Question.name_of`); a question the agent
     does not have keeps the label."""
     found = manifest.questions.get(question)
     return label if found is None else found.name_of(label)
 
 
-def display_choices(manifest: PackManifest) -> dict[str, list[str]]:
+def display_choices(manifest: AgentManifest) -> dict[str, list[str]]:
     """Every text each placeholder of a card summary can read (`fill_display`): the primary
     question's display names or `NO_RECOMMENDATION`, each priority, and each question's display
     names or `UNKNOWN`."""

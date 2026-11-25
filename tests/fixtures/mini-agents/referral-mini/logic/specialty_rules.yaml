@@ -1,8 +1,0 @@
-text_fields: [referral.reason]
-questions:
-  specialty:
-    default: other
-    default_score: 1.0
-    labels:
-      cardiology: [{name: heart, pattern: "chest pain|palpitations|murmur", weight: 5}]
-      dermatology: [{name: skin, pattern: "rash|mole|eczema", weight: 5}]

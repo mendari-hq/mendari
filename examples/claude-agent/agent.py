@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """A model-backed agent that speaks Mendari's agent contract, answering with Claude.
 
-Mendari POSTs `{pack_id, slot, agent_id, questions, input, system_prompt?, instructions?}`
+Mendari POSTs `{agent_id, slot, service_id, questions, input, system_prompt?, instructions?}`
 (src/mendari/providers/agent.py, `request_body`). This agent asks Claude, through the Anthropic
 SDK, for a probability for every allowed answer of every question plus a one-line rationale.
 The kit (`mendari_agent_kit.py`, a copy of `mendari.agent_kit`) checks the request, turns those
@@ -29,7 +29,7 @@ from typing import Any, Protocol
 
 from mendari_agent_kit import AgentError, Case, respond
 
-AGENT_VERSION = "0.1.0"
+SERVICE_VERSION = "0.1.0"
 DEFAULT_MODEL = "claude-opus-5-5"
 DEFAULT_EFFORT = "low"
 MAX_TOKENS = 4096
@@ -157,7 +157,7 @@ def answer(
         answers,
         rationales=rationales,
         model=served_by,
-        agent_version=AGENT_VERSION,
+        service_version=SERVICE_VERSION,
         usage={
             "input_tokens": tokens_in,
             "output_tokens": tokens_out,

@@ -148,31 +148,37 @@ sealed with until the last backup that needs them has expired
 The restore is tested in CI, on SQLite and on Postgres, with these commands
 (`tests/test_restore.py`).
 
-## Before deploying the chain's unique index
+## Starting over
 
-A start of this release gives `audit_events` a unique index on `prev_hash`
-(`audit_events_prev_hash`), so the database itself refuses a second event chained after the same
-one (a fork). A database that already holds a fork cannot take it: the start stops with an error
-that says to run `mendari audit verify`, and migrates nothing. Before deploying it, check
-production read-only: `mendari audit verify --db "$DATABASE_URL"` opens the database without
-writing to it (no migration, no mark) and must say `"ok": true`. The fork check alone, in a
-read-only transaction, must return no row:
+Mendari opens only a database a release of it made, or an empty one. When the engine makes its
+tables it marks them, in the same transaction (`settings` row `schema`: `mendari-engine/1`), and
+so does the registry (`hub_meta` row `schema`: `mendari-registry/1`). Every start, and every
+command that opens the database, read-only ones included, reads the mark before anything else.
+The engine and the registry may share one database, as the hosted deployment's do: each checks
+only its own tables and mark.
 
-```bash
-psql "$DATABASE_URL" -c "BEGIN READ ONLY; SELECT 1 FROM audit_events GROUP BY prev_hash HAVING COUNT(*) > 1 LIMIT 1; ROLLBACK;"
-```
+- **"This database was made by a pre-release version of Mendari and cannot be read or
+  migrated."** The tables are there without the mark: a version from before the first release
+  made them. Nothing in them is read or changed, and no release migrates them. Give the server
+  an empty database, as below.
+- **"This database was made by a newer Mendari."** The mark names a later schema than this
+  release's. Run that release, or a later one, on it. Going back to this release is a restore
+  of a backup this release made ([Backup and restore](#backup-and-restore)).
 
-The registry's chain gets the same index (`hub_events_prev_hash`), and its start the same
-refusal, naming `mendari registry verify`. Check the registry's database likewise, with the
-registry deployment's own `$DATABASE_URL`: `mendari registry verify --db "$DATABASE_URL"`
-must pass, and its fork check must return no row:
+Keep the old database if anything in it may still be wanted: no release reads it again. Then
+give the server an empty one:
 
-```bash
-psql "$DATABASE_URL" -c "BEGIN READ ONLY; SELECT 1 FROM hub_events GROUP BY prev_hash HAVING COUNT(*) > 1 LIMIT 1; ROLLBACK;"
-```
+| Database | An empty database |
+|---|---|
+| SQLite | stop the server, move `var/mendari.db`, `var/mendari.db-wal` and `var/mendari.db-shm` aside together, and start it again: it makes a new `var/mendari.db` |
+| Postgres | a new database (`createdb`), with `DATABASE_URL` pointed at it. Or empty the one in use, over its direct address: list its tables (`psql "$DATABASE_URL" -c '\dt'`) and check that they are all Mendari's (the engine's, the registry's `hub_*` and `rate_limits`); then `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` if the role owns the schema, or `DROP TABLE <table> CASCADE` for each table listed |
+| Neon (the hosted deployment) | as Postgres, on `DATABASE_URL_UNPOOLED`. Neon's preview branches and its history window still hold the old rows: delete the branches made before, and decide whether the history may keep them |
 
-If any of these fails, do not deploy: treat it as a SEV1 (the chain fails verification) and restore
-from a backup taken before the break, as above.
+The first start on the empty database (or, hosted, the first request after a redeploy, such as
+`/api/health`) makes and marks both schemas. Nothing of the old database comes with it: make the
+first administrator, the organizations, keys and clients, and the registry's namespaces again
+(`mendari access bootstrap`, `mendari registry claim`), and discard the signed checkpoint
+statements of the old chains, which nothing verifies against any more.
 
 ## The firewall (the owner's)
 

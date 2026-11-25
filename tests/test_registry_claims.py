@@ -14,26 +14,25 @@ import httpx
 import pytest
 
 from mendari.cli import main
-from mendari.core.pack import Pack
-from mendari.core.registry import resolve_pack
+from mendari.core.agent import Agent, load_agent
 from mendari.errors import HubError
 from mendari.hub import archive, yank
 from mendari.hub import registry as registry_module
 from mendari.hub.client import RegistryClient, pull
 from mendari.hub.registry import PUBLIC, REVIEWER, RegistryStore, Viewer, token_id
-from tests.conftest import Registry, shared_benchmark
-from tests.test_hub_client import SHIPPED, copy_pack
+from tests.conftest import FIXTURE_NAMESPACE, TRIAGE_DIR, Registry, shared_benchmark
+from tests.test_hub_client import SHIPPED, copy_agent
 
 CLAIMANT = "user:3f9a"  # a person as a chain names one: an id, never an address
 REVIEWED_BY = "user:77aa"
-REFERRAL = resolve_pack("mendari/referral-router")
-# Every read of a namespace and a pack in it, by path.
+TRIAGE = load_agent(TRIAGE_DIR)  # the agent `Registry.publish()` publishes, listed
+# Every read of a namespace and an agent in it, by path.
 READS = (
     "/v1/namespaces/{ns}",
-    "/v1/packs/{ns}/inbox",
-    "/v1/packs/{ns}/inbox/reports",
-    "/v1/packs/{ns}/inbox/{version}",
-    "/v1/packs/{ns}/inbox/{version}/archive",
+    "/v1/agents/{ns}/inbox",
+    "/v1/agents/{ns}/inbox/reports",
+    "/v1/agents/{ns}/inbox/{version}",
+    "/v1/agents/{ns}/inbox/{version}/archive",
 )
 
 
@@ -68,7 +67,7 @@ def _bearer(token: str) -> dict[str, str]:
 
 
 class Claimed:
-    """A claimed namespace as its publisher holds it: a token, a key, and a pack to publish."""
+    """A claimed namespace as its publisher holds it: a token, a key, and an agent to publish."""
 
     def __init__(self, registry: Registry, db_target: str, tmp_path: Path, name: str = "acme"):
         self.registry, self.name = registry, name
@@ -88,21 +87,21 @@ class Claimed:
         assert added.status_code == 201, added.text
         self.tmp_path = tmp_path
 
-    def pack(self, version: str = SHIPPED, name: str = "inbox") -> Pack:
-        return copy_pack(self.tmp_path, f"{self.name}/{name}", version)
+    def agent(self, version: str = SHIPPED, name: str = "inbox") -> Agent:
+        return copy_agent(self.tmp_path, f"{self.name}/{name}", version)
 
     def publish(self, version: str = SHIPPED, name: str = "inbox") -> dict[str, Any]:
-        answer = self.registry.publish(self.pack(version, name), key=self.key, token=self.token)
+        answer = self.registry.publish(self.agent(version, name), key=self.key, token=self.token)
         assert answer.status_code == 201, answer.text
         published: dict[str, Any] = answer.json()
         return published
 
     def recall(self) -> dict[str, Any]:
         """The publisher recalls its own version, signed with the namespace's key."""
-        path = f"/v1/packs/{self.name}/inbox/{SHIPPED}"
+        path = f"/v1/agents/{self.name}/inbox/{SHIPPED}"
         meta = self.registry.client.get(path, headers=_bearer(self.token)).json()
         record = yank.sign(
-            pack=f"{self.name}/inbox", version=SHIPPED, digest=meta["digest"],
+            agent=f"{self.name}/inbox", version=SHIPPED, digest=meta["digest"],
             archive_sha256=meta["archive_sha256"], reason="a bad rule", severity="high",
             signer="publisher", key=self.key, key_id=archive.key_id(self.key.public_key()),
         )  # fmt: skip
@@ -143,7 +142,7 @@ def _reads(registry: Registry, namespace: str, token: str | None = None) -> list
     return answers
 
 
-@pytest.mark.parametrize("name", ["mendari", "openhealth", "mendari-labs", "openhealth-packs"])
+@pytest.mark.parametrize("name", ["mendari", "openhealth", "mendari-labs", "openhealth-agents"])
 def test_a_reserved_namespace_is_never_claimed(
     registry: Registry, db_target: str, name: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -230,21 +229,21 @@ def test_an_organization_holds_three_pending_claims_at_most(
 def test_a_first_publish_is_invisible_to_search_pull_the_namespace_the_recall_list_and_health(
     registry: Registry, db_target: str, claimed: Claimed
 ) -> None:
-    assert registry.publish().status_code == 201  # a listed pack, beside it
+    assert registry.publish().status_code == 201  # a listed agent, beside it
     published = claimed.publish()
     assert published["listed"] is False and published["id"] == "acme/inbox"
     report = shared_benchmark()
     for who in ({}, _bearer(registry.token), _bearer("ohr_made-up")):  # nobody, another publisher
         assert [p["id"] for p in registry.client.get("/v1/search", headers=who).json()] == [
-            REFERRAL.id
+            TRIAGE.id
         ]
         assert registry.client.get("/v1/search?q=inbox", headers=who).json() == []
-        assert registry.client.get("/v1/health", headers=who).json()["packs"] == 1
+        assert registry.client.get("/v1/health", headers=who).json()["agents"] == 1
         for path in READS:
             hidden = registry.client.get(path.format(ns="acme", version=SHIPPED), headers=who)
             assert hidden.status_code == 404, path
         shared = registry.client.post(
-            f"/v1/packs/acme/inbox/{SHIPPED}/reports",
+            f"/v1/agents/acme/inbox/{SHIPPED}/reports",
             json={"site": "Site A", "report": report},
             headers=who,
         )
@@ -258,10 +257,10 @@ def test_a_first_publish_is_invisible_to_search_pull_the_namespace_the_recall_li
     assert registry.client.get("/v1/yanks").json() == []
     assert registry.client.get("/v1/yanks", headers=_bearer(registry.token)).json() == []
     own = registry.client.get("/v1/yanks", headers=_bearer(claimed.token)).json()
-    assert [(r["pack"], r["yank"]) for r in own] == [("acme/inbox", record)]
+    assert [(r["agent"], r["yank"]) for r in own] == [("acme/inbox", record)]
     # The store's own answer, whatever route asks (the rule is in the store, not per route).
     with RegistryStore(db_target) as store:
-        assert [p["id"] for p in store.latest()] == [REFERRAL.id]
+        assert [p["id"] for p in store.latest()] == [TRIAGE.id]
         assert store.versions("acme", "inbox") == []
         assert store.reports("acme", "inbox") == {"reports": [], "superseded": 0}
         assert store.recalled() == [] and len(store.recalled(REVIEWER)) == 1
@@ -296,7 +295,7 @@ def test_a_pending_namespace_answers_as_one_that_does_not_exist(
     report = shared_benchmark()
     shared = [
         registry.client.post(
-            f"/v1/packs/{name}/inbox/{SHIPPED}/reports",
+            f"/v1/agents/{name}/inbox/{SHIPPED}/reports",
             json={"site": "Site A", "report": report},
             headers=_bearer(registry.token),
         )
@@ -324,9 +323,9 @@ def test_its_own_token_reads_its_pending_version(
     own = _bearer(claimed.token)
     assert [status for status, _ in _reads(registry, "acme", claimed.token)] == [200] * len(READS)
     namespace = registry.client.get("/v1/namespaces/acme", headers=own).json()
-    assert namespace["listed"] is False and namespace["packs"] == ["acme/inbox"]
+    assert namespace["listed"] is False and namespace["agents"] == ["acme/inbox"]
     assert namespace["claim"]["status"] == "pending" and namespace["claim"]["org"] == "acme"
-    version = registry.client.get(f"/v1/packs/acme/inbox/{SHIPPED}", headers=own).json()
+    version = registry.client.get(f"/v1/agents/acme/inbox/{SHIPPED}", headers=own).json()
     assert version["listed"] is False and version["digest"] == published["digest"]
     assert [p["id"] for p in registry.client.get("/v1/search", headers=own).json()] == [
         "acme/inbox"
@@ -339,7 +338,7 @@ def test_its_own_token_reads_its_pending_version(
     # commands): no token reads as a reviewer over the registry's own routes (LP-19g).
     reviewed = registry.operator.version("acme", "inbox", SHIPPED, REVIEWER)
     assert reviewed["digest"] == published["digest"]
-    assert registry.client.get("/v1/health", headers=own).json()["packs"] == 0  # the public count
+    assert registry.client.get("/v1/health", headers=own).json()["agents"] == 0  # the public count
     with RegistryStore(db_target) as store:
         store.revoke_token(claimed.token_id, org="acme", by=CLAIMANT)
     assert [status for status, _ in _reads(registry, "acme", claimed.token)] == [404] * len(READS)
@@ -354,7 +353,7 @@ def test_approved_it_is_listed_and_pulls(
     assert approved["decided_at"] is not None and approved["note"].startswith("checked")
     assert [status for status, _ in _reads(registry, "acme")] == [200] * len(READS)
     namespace = registry.client.get("/v1/namespaces/acme").json()
-    assert namespace["listed"] is True and namespace["packs"] == ["acme/inbox"]
+    assert namespace["listed"] is True and namespace["agents"] == ["acme/inbox"]
     assert namespace["claim"] is None  # the organization is its own and the reviewers' to see
     other = registry.client.get("/v1/namespaces/acme", headers=_bearer(registry.token)).json()
     assert other["claim"] is None  # another publisher is the public here
@@ -364,7 +363,7 @@ def test_approved_it_is_listed_and_pulls(
         "acme/inbox", ""
     ).replace("Acme Health", "")
     assert [p["id"] for p in registry.client.get("/v1/search").json()] == ["acme/inbox"]
-    assert registry.client.get("/v1/health").json()["packs"] == 1
+    assert registry.client.get("/v1/health").json()["agents"] == 1
     with _client(registry) as client:  # the real pull, by anyone
         pulled = pull("acme/inbox", client)
     assert (pulled.id, pulled.version, pulled.digest) == (
@@ -372,18 +371,18 @@ def test_approved_it_is_listed_and_pulls(
         SHIPPED,
         published["digest"],
     )
-    # From then a later version and a new pack name in the namespace list at once.
+    # From then a later version and a new agent name in the namespace list at once.
     assert claimed.publish("9.9.9")["listed"] is True
     assert claimed.publish(name="triage")["listed"] is True
     assert sorted(p["id"] for p in registry.client.get("/v1/search").json()) == [
         "acme/inbox",
         "acme/triage",
     ]
-    assert registry.client.get("/v1/packs/acme/inbox").json()["latest"]["version"] == "9.9.9"
+    assert registry.client.get("/v1/agents/acme/inbox").json()["latest"]["version"] == "9.9.9"
     listed = [
         json.loads(e["payload"])["listed"]
         for e in _events(db_target)
-        if e["event"] == "pack.published"
+        if e["event"] == "agent.published"
     ]
     assert listed == [False, True, True]
     with pytest.raises(HubError, match="already approved") as decided:  # decided once
@@ -397,13 +396,13 @@ def test_a_refused_namespace_never_lists_and_its_archive_is_kept(
 ) -> None:
     published = claimed.publish()
     data = registry.client.get(
-        f"/v1/packs/acme/inbox/{SHIPPED}/archive", headers=_bearer(claimed.token)
+        f"/v1/agents/acme/inbox/{SHIPPED}/archive", headers=_bearer(claimed.token)
     ).content
     refused = _decide(db_target, approve=False, note="not who it says it is")
     assert (refused["status"], refused["note"]) == ("refused", "not who it says it is")
     assert [status for status, _ in _reads(registry, "acme")] == [404] * len(READS)
     assert registry.client.get("/v1/search").json() == []
-    assert registry.client.get("/v1/health").json()["packs"] == 0
+    assert registry.client.get("/v1/health").json()["agents"] == 0
     with pytest.raises(HubError, match="no agent acme/inbox"):
         pull("acme/inbox", _client(registry))
     # Kept: the archive, the version and the chain (a refusal removes nothing), for a reviewer
@@ -460,7 +459,7 @@ def test_claim_approval_and_publish_are_chained_with_the_organization(
         "namespace.claimed",
         "token.issued",
         "key.added",
-        "pack.published",
+        "agent.published",
         "namespace.approved",
     ]
     payloads = [json.loads(e["payload"]) for e in events]
@@ -477,7 +476,7 @@ def test_claim_approval_and_publish_are_chained_with_the_organization(
     }
     assert payloads[1] == {"namespace": "acme", "org": "acme", "by": CLAIMANT}
     assert payloads[4] == {
-        "pack": "acme/inbox",
+        "agent": "acme/inbox",
         "version": SHIPPED,
         "digest": published["digest"],
         "archive_sha256": published["archive_sha256"],
@@ -513,7 +512,7 @@ def test_the_operators_commands_claim_approve_refuse_and_list(
     approved = json.loads(capsys.readouterr().out)
     assert (approved["status"], approved["note"]) == ("approved", "the first publish")
     assert approved["decided_by"].startswith("command line (")
-    assert registry.client.get(f"/v1/packs/acme/inbox/{SHIPPED}").status_code == 200
+    assert registry.client.get(f"/v1/agents/acme/inbox/{SHIPPED}").status_code == 200
     assert main(["registry", "refuse", *decide, "lookalike", "--reason", "a lookalike"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "refused"
     last = _events(db_target)[-1]
@@ -539,54 +538,17 @@ def test_the_operators_commands_claim_approve_refuse_and_list(
     assert main(["registry", "verify", "--db", db_target]) == 0
 
 
-def test_a_namespace_from_before_claims_stays_listed(
-    registry: Registry, db_target: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A namespace with no claim row (every one from before LP-19c) reads as it did. A database
-    from before has no claims table: read as it is it verifies and serves; opened by a registry
-    it gains the table, and its chain is as it was."""
+def test_a_namespace_with_no_claim_is_listed(registry: Registry, db_target: str) -> None:
+    """A namespace with no claim row (`create_namespace`, the store's own) is listed, and its
+    events link it to no organization."""
     assert registry.publish().status_code == 201
-    path = f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"
+    path = f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}"
     version = registry.client.get(path).json()
     assert version["listed"] is True
-    namespace = registry.client.get("/v1/namespaces/mendari").json()
+    namespace = registry.client.get(f"/v1/namespaces/{FIXTURE_NAMESPACE}").json()
     assert namespace["listed"] is True and namespace["claim"] is None
     assert json.loads(_events(db_target)[-1]["payload"])["org"] is None  # no claim, no link
-    _drop_claims(db_target)
-    with RegistryStore(db_target, read_only=True) as store:
-        before = store.verify()
-        assert before["ok"], before
-        assert store.claims() == []
-        assert [p["id"] for p in store.latest()] == [REFERRAL.id]
-        found = store.version("mendari", "referral-router", REFERRAL.version)
-        assert (found["digest"], found["listed"]) == (version["digest"], True)
-        assert store.namespace("mendari", Viewer(namespace="mendari"))["claim"] is None
-        assert store.archive(version["archive_sha256"])
-        with store._db.session(exclusive=False) as db:
-            events = db.all("SELECT * FROM hub_events ORDER BY seq")
-            assert not db.columns("hub_claims")  # still as it was: nothing written
-    assert main(["registry", "claims", "--db", db_target]) == 0
-    assert json.loads(capsys.readouterr().out) == []
-    assert _events(db_target) == events  # opened read-write: the table comes, no event does
-    assert _verify(db_target) == before
-    assert registry.client.get(path).json() == version
-    assert [p["id"] for p in registry.client.get("/v1/search").json()] == [REFERRAL.id]
+    assert [p["id"] for p in registry.client.get("/v1/search").json()] == [TRIAGE.id]
     with _client(registry) as client:
-        assert pull(REFERRAL.id, client).digest == REFERRAL.digest
+        assert pull(TRIAGE.id, client).digest == TRIAGE.digest
     assert registry_module.MAX_PENDING_CLAIMS == 3 and not PUBLIC.reviewer
-
-
-def _drop_claims(db_target: str) -> None:
-    """Drop the table past the store: opening a `RegistryStore` to write creates it again."""
-    if db_target.startswith("postgres"):
-        import psycopg
-
-        with psycopg.connect(db_target, autocommit=True) as connection:
-            connection.execute("DROP TABLE IF EXISTS hub_claims")
-        return
-    import sqlite3
-    from contextlib import closing
-
-    with closing(sqlite3.connect(db_target)) as connection:
-        connection.execute("DROP TABLE IF EXISTS hub_claims")
-        connection.commit()

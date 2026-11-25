@@ -4,7 +4,12 @@
 Proposed (2026-11-10). Built on the branch that proposes it; it changes what an agent decides on
 some inputs, so merging it is the owner's decision.
 
-Terminology updated 2026-11-23: what this record called a pack is an agent.
+Amended by [ADR-0026](ADR-0026-one-release-baseline-agents-only.md) (2026-11-25): `dosing`,
+`naive_bayes` and `criteria` are removed. `rules` is the one provider it names that stays, and it
+reads its text fields in their plain form (`providers/base.py`, `text_from`).
+
+Terminology updated 2026-11-23 and 2026-11-25: what Mendari governs is called an agent here,
+as everywhere since [ADR-0026](ADR-0026-one-release-baseline-agents-only.md).
 
 ## Context
 An agent's patterns are written as a keyboard types them: `can'?t breathe`, `chest (pain|pressure)`.

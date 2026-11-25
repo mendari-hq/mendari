@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import base64
 import json
-import sqlite3
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -306,20 +304,3 @@ def test_the_operators_site_records_operator_and_why(
     ]
     assert events[2]["note"] == "called their CMIO"
     assert events[3]["compromised"] is False
-
-
-def test_a_database_from_before_sites_still_verifies(registry: Registry, db_target: str) -> None:
-    if "://" in db_target:
-        pytest.skip("tables are dropped on SQLite here")
-    assert registry.publish().status_code == 201
-    with closing(sqlite3.connect(db_target)) as raw:  # `with` alone commits, never closes
-        raw.execute("DROP TABLE hub_sites")
-        raw.execute("DROP TABLE hub_site_keys")
-        raw.commit()
-    with RegistryStore(db_target, read_only=True) as old:
-        assert old.verify()["ok"]
-        assert old.sites() == []
-    with RegistryStore(db_target) as store:  # opened to write: the tables are made
-        assert store.verify()["ok"]
-        store.register_site(org="north-health", name="North (synthetic)", by="user:1")
-        assert store.verify()["ok"]

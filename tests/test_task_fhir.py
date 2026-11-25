@@ -11,11 +11,11 @@ from typing import Any
 
 import pytest
 
-from mendari import AuditStore, Decision, DecisionResult, Outcome, Pack, load_pack
+from mendari import Agent, AuditStore, Decision, DecisionResult
 from mendari.core.phi import PhiPolicy
-from mendari.standards import audit_fhir, davinci, task_fhir
-from mendari.standards.fhir import PACK_ID_SYSTEM
-from tests.conftest import ROOT, SCREENED, message
+from mendari.standards import audit_fhir, task_fhir
+from mendari.standards.fhir import AGENT_ID_SYSTEM
+from tests.conftest import ROOT, message
 
 EMERGENCY = "Crushing chest pain and my left arm is numb"  # stat HUMAN_REVIEW -> nurse
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO (`decide`)
@@ -24,15 +24,20 @@ SECRET = "SECRET-NOTE-TEXT"
 BASE = "https://mendari.example/fhir"
 PINNED = ROOT / "tests" / "fixtures" / "fhir" / "task-versions.json"
 
-# Decisions from a store run the urgency screen with a fake Jev (`screened`), so routine ones
+# Decisions from a store run the triage fixture's screen on its canned agent, so routine ones
 # are automated.
-pytestmark = pytest.mark.usefixtures("screened")
+SCREEN_AGENT = {"screen": "agent"}
 
-# A fixed synthetic chain: a HUMAN_REVIEW decision that a reviewer overrode, then rated (no
-# version), then corrected downstream. `seq` is global, so this decision's events are sparse.
+# A fixed synthetic chain: a HUMAN_REVIEW decision of the triage fixture that a reviewer overrode,
+# then rated (no version), then corrected downstream. `seq` is global, so this decision's events
+# are sparse.
 DECISION_ID = "2b3f6c1e-8d4a-4f0b-9c71-5e2d8a6b4c90"
-PACK = "mendari/patient-inbox-router"
-REASON = "confidence 0.58 is below the auto threshold 0.90 for 'medical_assistant'"
+AGENT = "mendari-test/triage"
+VERSION = "1.0.0"
+REASON = "confidence 0.92 is below the auto threshold 0.95 for 'front_desk'"
+# The CodeSystem of the primary question's labels, which a Task's codings name whether or not
+# the deployment still serves the agent (`terminology.py` generates it).
+SYSTEM = f"https://mendari.co/agents/{AGENT}/CodeSystem/destination"
 
 
 def chain_item() -> dict[str, Any]:
@@ -49,26 +54,26 @@ def chain_item() -> dict[str, Any]:
     return {
         "id": DECISION_ID,
         "created_at": "2026-10-01T14:00:00.000+00:00",
-        "pack_id": PACK,
-        "pack_version": "0.3.0",
+        "agent_id": AGENT,
+        "agent_version": VERSION,
         "outcome": "HUMAN_REVIEW",
-        "recommendation": "medical_assistant",
+        "recommendation": "front_desk",
         "priority": "routine",
-        "confidence": 0.58,
+        "confidence": 0.92,
         "review_status": "resolved",
-        # A row from before `observed_label`, where an outcome overwrote the reviewer's label:
-        # the Task reads the chain, never this column.
-        "final_label": "front_desk",
+        "refused": 0,
+        # Not the reviewer's label in the chain: the Task reads the chain, never this column.
+        "final_label": "pharmacy",
         "human_override": True,
         "reviewer": "rn-1",
         "record": {
             "id": DECISION_ID,
             "outcome": "HUMAN_REVIEW",
-            "recommendation": "medical_assistant",
+            "recommendation": "front_desk",
             "priority": "routine",
-            "confidence": 0.58,
+            "confidence": 0.92,
             "primary": "destination",
-            "answers": {"destination": {"label": "medical_assistant", "confidence": 0.58}},
+            "answers": {"destination": {"label": "front_desk", "confidence": 0.92}},
             "reasons": [REASON],
             "fallback": None,  # set only under ABSTAIN and BLOCK
             "input": None,
@@ -91,7 +96,7 @@ def chain_item() -> dict[str, Any]:
                 12,
                 "outcome.recorded",
                 "15:00:00.000",
-                {"final_label": "front_desk", "source": "x", "recorded_by": "rn-9"},
+                {"final_label": "pharmacy", "source": "x", "recorded_by": "rn-9"},
             ),
         ],
     }
@@ -128,7 +133,10 @@ def test_versions_follow_the_events_that_change_the_result() -> None:
     ]
     assert "end" not in first["executionPeriod"]
     assert reviewed["executionPeriod"]["end"] == observed["executionPeriod"]["end"]
-    assert first["owner"]["identifier"] == {"system": PACK_ID_SYSTEM, "value": f"{PACK}@0.3.0"}
+    assert first["owner"]["identifier"] == {
+        "system": AGENT_ID_SYSTEM,
+        "value": f"{AGENT}@{VERSION}",
+    }
     assert reviewed["owner"] == {"display": "rn-1"}
     assert observed["relevantHistory"] == [
         {"reference": f"{BASE}/Provenance/{DECISION_ID}-p{seq}"} for seq in (2, 10, 12)
@@ -138,25 +146,24 @@ def test_versions_follow_the_events_that_change_the_result() -> None:
 
 def test_outputs_come_from_the_events_not_the_overwritten_column() -> None:
     first, reviewed, observed = task_fhir.task_versions(chain_item())
-    assert outputs(first) == {"recommendation": "medical_assistant"}
+    assert outputs(first) == {"recommendation": "front_desk"}
     assert outputs(reviewed) == {**outputs(first), "final-label": "billing", "human-override": True}
-    assert outputs(observed) == {**outputs(reviewed), "observed-label": "front_desk"}
-    system = davinci.question_system(PACK, "destination")
+    assert outputs(observed) == {**outputs(reviewed), "observed-label": "pharmacy"}
     codings = [o["valueCoding"] for o in observed["output"] if "valueCoding" in o]
-    assert {c["system"] for c in codings} == {system}
-    assert all("display" not in c for c in codings)  # the display is the pack's criteria
+    assert {c["system"] for c in codings} == {SYSTEM}
+    assert all("display" not in c for c in codings)  # the display is the agent's criteria
 
 
-def test_rendering_does_not_depend_on_which_packs_are_served() -> None:
-    """A decision of a pack this deployment no longer serves keeps its canonical codings."""
+def test_rendering_does_not_depend_on_which_agents_are_served() -> None:
+    """A decision of an agent this deployment no longer serves keeps its canonical codings."""
     item = chain_item()
-    item["pack_id"] = "someone/retired-pack"
+    item["agent_id"] = "someone/retired-agent"
     task = task_fhir.current_task(item)
     codings = [o["valueCoding"] for o in task["output"] if "valueCoding" in o]
     assert {c["system"] for c in codings} == {
-        "https://mendari.co/packs/someone/retired-pack/CodeSystem/destination"
+        "https://mendari.co/agents/someone/retired-agent/CodeSystem/destination"
     }
-    assert task["meta"]["tag"][0]["code"] == "someone/retired-pack@0.3.0"
+    assert task["meta"]["tag"][0]["code"] == f"someone/retired-agent@{VERSION}"
 
 
 def test_without_a_base_nothing_points_anywhere() -> None:
@@ -172,45 +179,24 @@ def test_a_decision_without_its_creation_event_is_an_error() -> None:
 
 
 @pytest.mark.parametrize(
-    ("outcome", "confidence", "review_status", "status"),
+    ("review_status", "refused", "status"),
     [
-        ("AUTO", 0.97, "not_required", "completed"),
-        ("HUMAN_REVIEW", 0.6, "pending", "requested"),
-        ("HUMAN_REVIEW", 0.6, "resolved", "completed"),
-        ("ABSTAIN", None, "pending", "requested"),  # a provider failed: no confidence
-        ("ABSTAIN", 0.2, "resolved", "completed"),
-        ("BLOCK", 0.8, "not_required", "completed"),  # a policy rule blocked it
-        ("BLOCK", None, "not_required", "failed"),  # the input was refused
+        ("not_required", 0, "completed"),  # automated, or a policy rule blocked it
+        ("pending", 0, "requested"),
+        ("resolved", 0, "completed"),
+        ("not_required", 1, "failed"),  # the input was refused before any provider ran
     ],
 )
-def test_status_is_a_function_of_three_columns(
-    outcome: str, confidence: float | None, review_status: str, status: str
-) -> None:
-    assert task_fhir.task_status(outcome, confidence, review_status) == status
-
-
-def test_every_shipped_block_rule_targets_the_primary_question() -> None:
-    """`failed` is `BLOCK` without a primary confidence. A BLOCK rule on another question could
-    match while the primary went unanswered: that policy BLOCK would render and search as a
-    refused input. No shipped pack has one; a pack that adds one needs a `rejected` column."""
-    blocks = 0
-    for manifest_path in sorted(
-        (ROOT / "tests" / "fixtures" / "reference-agents").glob("*/agent.yaml")
-    ):
-        policy = load_pack(manifest_path.parent).manifest.policy
-        for rule in policy.rules:
-            if rule.outcome is Outcome.BLOCK:
-                blocks += 1
-                assert rule.when.question == policy.primary, f"{manifest_path}: {rule.name}"
-    assert blocks  # ai-guard's possible-block
+def test_status_is_a_function_of_two_columns(review_status: str, refused: int, status: str) -> None:
+    assert task_fhir.task_status(review_status, refused) == status
 
 
 # -- from a real store ---------------------------------------------------------------------
 
 
-def decide(store: AuditStore, pack: Pack, body: str | None) -> DecisionResult:
+def decide(store: AuditStore, agent: Agent, body: str | None) -> DecisionResult:
     body_or_empty = message(body) if body is not None else {"message": {}}
-    return Decision(pack, providers=SCREENED, store=store)(body_or_empty)
+    return Decision(agent, providers=SCREEN_AGENT, store=store)(body_or_empty)
 
 
 def current(store: AuditStore, decision_id: str) -> dict[str, Any]:
@@ -219,11 +205,11 @@ def current(store: AuditStore, decision_id: str) -> dict[str, Any]:
     return task_fhir.current_task(item, BASE)
 
 
-def test_each_kind_of_decision_from_the_store(store: AuditStore, inbox_pack: Pack) -> None:
-    automated = decide(store, inbox_pack, ROUTINE)
-    waiting = decide(store, inbox_pack, EMERGENCY)
-    abstained = decide(store, inbox_pack, UNSURE)
-    refused = decide(store, inbox_pack, None)
+def test_each_kind_of_decision_from_the_store(store: AuditStore, triage_agent: Agent) -> None:
+    automated = decide(store, triage_agent, ROUTINE)
+    waiting = decide(store, triage_agent, EMERGENCY)
+    abstained = decide(store, triage_agent, UNSURE)
+    refused = decide(store, triage_agent, None)
     assert [r.outcome.value for r in (automated, waiting, abstained, refused)] == [
         "AUTO",
         "HUMAN_REVIEW",
@@ -234,7 +220,7 @@ def test_each_kind_of_decision_from_the_store(store: AuditStore, inbox_pack: Pac
 
     auto = current(store, automated.id)
     assert (auto["status"], auto["meta"]["versionId"]) == ("completed", "1")
-    assert auto["owner"]["identifier"]["system"] == PACK_ID_SYSTEM
+    assert auto["owner"]["identifier"]["system"] == AGENT_ID_SYSTEM
     assert "end" in auto["executionPeriod"]
     assert outputs(auto)["recommendation"] == automated.recommendation
 
@@ -244,7 +230,7 @@ def test_each_kind_of_decision_from_the_store(store: AuditStore, inbox_pack: Pac
 
     labelled = current(store, abstained.id)
     assert (labelled["status"], labelled["meta"]["versionId"]) == ("completed", "2")
-    assert outputs(labelled) == {"fallback": inbox_pack.manifest.policy.fallback} | {
+    assert outputs(labelled) == {"fallback": triage_agent.manifest.policy.fallback} | {
         "final-label": "front_desk"  # an abstention made no recommendation: no override
     }
 
@@ -255,24 +241,24 @@ def test_each_kind_of_decision_from_the_store(store: AuditStore, inbox_pack: Pac
 
 
 def test_the_latest_version_agrees_with_the_columns_search_reads(
-    store: AuditStore, inbox_pack: Pack
+    store: AuditStore, triage_agent: Agent
 ) -> None:
     """Search filters status in SQL over the same columns (`task_status`)."""
-    ids = [decide(store, inbox_pack, body).id for body in (ROUTINE, EMERGENCY, UNSURE, None)]
-    store.resolve_review(ids[1], final_label="physician", reviewer="rn-1")
+    ids = [decide(store, triage_agent, body).id for body in (ROUTINE, EMERGENCY, UNSURE, None)]
+    store.resolve_review(ids[1], final_label="billing", reviewer="rn-1")
     store.record_outcome(ids[1], final_label="nurse", source="ehr", recorded_by="rn-9")
     for decision_id in ids:
         item = store.item(decision_id)
         assert item is not None
-        columns = (item["outcome"], item["confidence"], item["review_status"])
+        columns = (item["review_status"], item["refused"])
         assert task_fhir.current_task(item)["status"] == task_fhir.task_status(*columns)
 
 
 def test_versions_match_the_provenances_of_the_audit_trail(
-    store: AuditStore, inbox_pack: Pack
+    store: AuditStore, triage_agent: Agent
 ) -> None:
-    result = decide(store, inbox_pack, EMERGENCY)
-    store.resolve_review(result.id, final_label="physician", reviewer="rn-1")
+    result = decide(store, triage_agent, EMERGENCY)
+    store.resolve_review(result.id, final_label="billing", reviewer="rn-1")
     store.record_feedback(result.id, rating="down", note=SECRET)
     store.record_outcome(result.id, final_label="nurse", source="ehr", recorded_by="rn-9")
     item = store.item(result.id)
@@ -292,14 +278,16 @@ def test_versions_match_the_provenances_of_the_audit_trail(
 
 
 @pytest.mark.parametrize("mode", ["off", "hash", "encrypt"])
-def test_no_case_text_or_notes_in_any_phi_mode(tmp_path: Path, inbox_pack: Pack, mode: str) -> None:
+def test_no_case_text_or_notes_in_any_phi_mode(
+    tmp_path: Path, triage_agent: Agent, mode: str
+) -> None:
     key = os.urandom(32) if mode == "encrypt" else b""
     store = AuditStore(tmp_path / "phi.db", phi=PhiPolicy(mode=mode, key=key))  # type: ignore[arg-type]
-    result = decide(store, inbox_pack, f"{EMERGENCY} {SECRET}")
+    result = decide(store, triage_agent, f"{EMERGENCY} {SECRET}")
     note = None if mode == "hash" else SECRET  # PHI mode hash refuses notes (tests/test_notes.py)
     store.resolve_review(result.id, final_label="nurse", reviewer="rn-1", note=note)
     store.record_feedback(result.id, rating="up", note=note)
-    refused = Decision(inbox_pack, store=store)({"message": {"body": 7, "x": SECRET}})
+    refused = Decision(triage_agent, store=store)({"message": {"body": 7, "x": SECRET}})
     for decision_id in (result.id, refused.id):
         item = store.item(decision_id)
         assert item is not None

@@ -2,7 +2,7 @@
 """Alerts to the operator's webhook (`MENDARI_ALERT_WEBHOOK`, LP-21): rendered, signed, sent,
 retried and recorded in one place, for the monitor and the quota alert alike.
 
-**What leaves.** Ids, counts and Mendari's own messages: a pack's id, an organization's id, an
+**What leaves.** Ids, counts and Mendari's own messages: an agent's id, an organization's id, an
 alert's kind, severity and message. Never case text, a remote error body, the webhook's URL or
 the signing secret.
 

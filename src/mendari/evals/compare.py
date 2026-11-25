@@ -1,17 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Local validation: compare an evaluation on local data with the pack's published benchmark,
-and say *where* performance degrades, not just by how much. A pack pulled from a registry is
+"""Local validation: compare an evaluation on local data with the agent's published benchmark,
+and say *where* performance degrades, not just by how much. An agent pulled from a registry is
 never compared with the benchmark it carries: that is its publisher's upload (ADR-0012)."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from mendari.evals.result import subgroup_labelled
-
 MIN_GROUP = 15  # smallest subgroup worth flagging; smaller ones are too noisy to act on
 MIN_LABEL_SUPPORT = 10
-# Why an evaluation of a pack from a registry is not compared with the benchmark it carries.
+# Why an evaluation of an agent from a registry is not compared with the benchmark it carries.
 FROM_REGISTRY = (
     "the agent is from a registry, and the benchmark it carries is its publisher's upload, "
     "never a reference"
@@ -32,7 +30,7 @@ def _number(value: Any, *, optional: bool = False) -> bool:
 
 
 def _baseline_problem(baseline: Any, primary: str) -> str | None:
-    """Why a baseline cannot be compared, or None. The baseline is the pack's published
+    """Why a baseline cannot be compared, or None. The baseline is the agent's published
     benchmark, written by its author: every figure `compare` reads is checked here first, so a
     malformed one says so instead of failing the evaluation."""
     question = baseline.get("questions", {}).get(primary) if isinstance(baseline, dict) else None
@@ -52,7 +50,7 @@ def _baseline_problem(baseline: Any, primary: str) -> str | None:
         and all(
             isinstance(m, dict)
             and _number(m.get("n"))
-            and _number(m.get("labelled"), optional=True)
+            and _number(m.get("labelled"))
             and _number(m.get("accuracy"), optional=True)
             for m in values.values()
         )
@@ -66,17 +64,11 @@ def _baseline_problem(baseline: Any, primary: str) -> str | None:
         return "the published benchmark's automation figures are malformed"
     if not (
         isinstance(baseline.get("dataset"), dict)
-        and isinstance(baseline.get("pack"), dict)
+        and isinstance(baseline.get("agent"), dict)
         and isinstance(baseline.get("primary"), str)
     ):
         return "the published benchmark does not say which agent, dataset and question it measured"
     return None
-
-
-def _labelled(members: dict[str, Any]) -> int:
-    """How many of a subgroup's members its accuracy is over, for the smallest group worth
-    flagging: its labelled members where the report says (since LP-10b), else its size."""
-    return int(members.get("labelled", members["n"]))
 
 
 def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -> dict[str, Any]:
@@ -119,18 +111,18 @@ def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -
         for value, local_m in values.items():
             # An accuracy is over the labelled members: a subgroup of 40 cases with 2 labelled is
             # two cases' luck, too few to flag, however many cases it has.
-            if local_m["accuracy"] is None or _labelled(local_m) < MIN_GROUP:
+            if local_m["accuracy"] is None or local_m["labelled"] < MIN_GROUP:
                 continue
             reference = base_values.get(value)
             own = bool(
                 reference
                 and reference["accuracy"] is not None
-                and _labelled(reference) >= MIN_GROUP
+                and reference["labelled"] >= MIN_GROUP
             )
             # Against the benchmark's own subgroup when it has one big enough, else its overall
             # accuracy, said as such. Each accuracy is over the labelled members.
             base_acc = reference["accuracy"] if own else base_q["accuracy"]
-            base_n = subgroup_labelled(baseline, reference) if own else base_q.get("n")
+            base_n = reference["labelled"] if own else base_q.get("n")
             drop = base_acc - local_m["accuracy"]
             if drop > 2 * tolerance:
                 findings.append(
@@ -142,7 +134,7 @@ def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -
                         "local": local_m["accuracy"],
                         "n": local_m["n"],
                         "baseline_n": base_n,
-                        "local_n": subgroup_labelled(local, local_m),
+                        "local_n": local_m["labelled"],
                         "drop": drop,
                     }
                 )
@@ -205,7 +197,7 @@ def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -
             "dataset": baseline["dataset"],
             "accuracy": base_q["accuracy"],
             "n": base_q.get("n"),
-            "pack_version": baseline["pack"]["version"],
+            "agent_version": baseline["agent"]["version"],
         },
         "local": {"dataset": local["dataset"], "accuracy": local_q["accuracy"], "n": local_q["n"]},
         "delta": delta,

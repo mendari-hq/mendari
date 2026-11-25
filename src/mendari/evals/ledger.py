@@ -4,7 +4,7 @@ report is computed from, so the figures can be recomputed byte for byte, compare
 between two runs (`mendari compare`), and re-graded. No input text and no case id is in it.
 
 JSON Lines, canonical (sorted keys, no spaces, ASCII, LF), its id the sha256 of its bytes. Line 1
-is the header: the pack, the dataset, the case-hash scheme, the questions with their labels in
+is the header: the agent, the dataset, the case-hash scheme, the questions with their labels in
 order, the critical labels, the subgroup attributes, the providers and the policy (a governance
 override as whether it allows AUTO and a hash of its reference, never who approved it). Then one
 line per case, in the dataset's order:
@@ -18,7 +18,7 @@ line per case, in the dataset's order:
 the predicted label or null, the confidence and the probabilities in the header's label order
 (rounded to 6 places, as an answer's record is, so the figures computed from them agree on every
 platform), the index of the answering model in the header's `models`, and an error code or null.
-`a` holds only the pack's declared subgroup attributes, each cut to 64 characters.
+`a` holds only the agent's declared subgroup attributes, each cut to 64 characters.
 
 The case hash is HMAC-SHA256 of the case's id (as canonical JSON), keyed by a key derived from
 the dataset file's own bytes, cut to 128 bits: whoever holds the dataset can match a hash to its
@@ -89,7 +89,7 @@ class Ledger:
             raise MendariError(f"{where}: not a {FORMAT} ledger")
         header, cases = lines[0], lines[1:]
         if not _shaped(header, _HEADER) or not (
-            isinstance(header["pack"].get("id"), str)
+            isinstance(header["agent"].get("id"), str)
             and isinstance(header["dataset"].get("sha256"), str)
             and header["primary"] in header["questions"]
         ):
@@ -114,7 +114,7 @@ class Ledger:
 
 # What every reader of a ledger relies on (mendari.evals.result, paired).
 _HEADER = {
-    "pack": dict, "dataset": dict, "cases": dict, "primary": str, "questions": dict,
+    "agent": dict, "dataset": dict, "cases": dict, "primary": str, "questions": dict,
     "critical": list, "subgroups": list, "providers": dict, "policy": dict, "models": list,
 }  # fmt: skip
 _CASE = {"c": str, "o": str, "q": dict, "k": list, "u": list, "a": dict}
@@ -199,8 +199,8 @@ def build(
     """The ledger of one run: `results` in the order of `dataset.records`."""
     if not getattr(dataset, "case_key", b""):  # an empty key would let the ids be recovered
         raise MendariError(f"{dataset.name}: no case key (load the dataset with load_dataset)")
-    pack = decision.pack
-    manifest = pack.manifest
+    agent = decision.agent
+    manifest = agent.manifest
     questions = {question: list(manifest.labels(question)) for question in manifest.questions}
     critical = [(item.question, item.label) for item in manifest.evaluation.critical]
     attributes = list(manifest.evaluation.subgroups)
@@ -252,7 +252,7 @@ def build(
     governance = decision.governance
     header = {
         "format": FORMAT,
-        "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
+        "agent": {"id": agent.id, "version": agent.version, "digest": agent.digest},
         "dataset": {
             "name": dataset.name,
             "sha256": dataset.sha256,

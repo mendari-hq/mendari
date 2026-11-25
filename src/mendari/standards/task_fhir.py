@@ -13,8 +13,8 @@ The Task Mendari serves is the decision itself, not the work item the decision r
 **Versions.** The events that change the decision's result make its versions, in chain order:
 `decision.created` is version 1, then each `review.resolved` and `outcome.recorded`
 (`audit_fhir.VERSION_EVENTS`: exactly the events that get a Provenance). `meta.versionId` is
-that ordinal and `meta.lastUpdated` the event's time. Feedback, input reads and purges, and PAS
-submissions stay in the chain and make no version. The ordinal, not the global `seq`, so a
+that ordinal and `meta.lastUpdated` the event's time. Feedback, and input reads and purges, stay
+in the chain and make no version. The ordinal, not the global `seq`, so a
 version number says nothing about how busy the rest of the deployment is.
 
 **From the chain, not the row.** The outputs come from event payloads: the reviewer's label from
@@ -26,10 +26,10 @@ feedback notes. `note` holds the decision's reasons, except for a refused input:
 before the Phase 2 privacy fix can quote the input in those. Reviewer names appear in `owner`, as
 they do in the audit export.
 
-**The same in every configuration.** Label codings are in the pack's question CodeSystem
-(`davinci.question_system`) whether or not this deployment still serves the pack, so a version
+**The same in every configuration.** Label codings are in the agent's question CodeSystem
+(`terminology.question_system`) whether or not this deployment still serves the agent, so a version
 renders the same wherever and whenever it is read. They carry no display: a label's display is
-its criteria (`fhir.display`), which only the pack holds.
+its criteria (`fhir.display`), which only the agent holds.
 
 **The derivation is code.** A release that changes what a version renders changes an existing
 version under the same versionId. Tests pin the JSON for a fixed chain; any change to it is a
@@ -41,38 +41,27 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
-from mendari.core.spec import Outcome
-from mendari.standards import audit_fhir, davinci
-from mendari.standards.fhir import DECISION_ID_SYSTEM, OUTCOME_SYSTEM, PACK_TAG_SYSTEM, narrative
+from mendari.standards import audit_fhir
+from mendari.standards.fhir import AGENT_TAG_SYSTEM, DECISION_ID_SYSTEM, OUTCOME_SYSTEM, narrative
+from mendari.standards.terminology import question_system
 
 
-def task_status(
-    outcome: str, confidence: float | None, review_status: str, flag: int | None = None
-) -> str:
-    """The Task status from `decisions` columns, and nothing else.
+def task_status(review_status: str, refused: int | bool) -> str:
+    """The Task status from two `decisions` columns, and nothing else.
 
     Search filters on status in SQL with the same predicate over the same columns, so what a
     Task renders and what `Task?status=` finds can never disagree; keep the two in step:
 
-    - `failed`: a refused input (`refused`).
+    - `failed`: a refused input (`refused`, recorded with the decision: the input was refused
+      before any provider ran).
     - `requested`: `review_status = 'pending'`, waiting in Mendari's review queue.
     - `completed`: everything else, a policy BLOCK included.
     """
-    if refused(outcome, confidence, flag):
+    if refused:
         return "failed"
     if review_status == "pending":
         return "requested"
     return "completed"
-
-
-def refused(outcome: str, confidence: float | None, flag: int | None = None) -> bool:
-    """Whether the input was refused before any provider ran: the `refused` column, recorded
-    with the decision. Rows from before that column have none; for them, a BLOCK without
-    confidence (no provider ran, so the primary question has no answer), which is exact for
-    every pack whose BLOCK rules target its primary question, as the shipped packs' do."""
-    if flag is not None:
-        return bool(flag)
-    return outcome == Outcome.BLOCK.value and confidence is None
 
 
 def task_versions(item: Mapping[str, Any], base: str | None = None) -> list[dict[str, Any]]:
@@ -100,13 +89,11 @@ def _version(
     reviewed = next((e for e in made if e["event"] == "review.resolved"), None)
     review = None if reviewed is None else reviewed["payload"]
     observed = [e["payload"] for e in made if e["event"] == "outcome.recorded"]
-    status = task_status(
-        item["outcome"], item["confidence"], _review_status(item, review), item.get("refused")
-    )
-    pack = f"{item['pack_id']}@{item['pack_version']}"
+    status = task_status(_review_status(item, review), item["refused"])
+    agent = f"{item['agent_id']}@{item['agent_version']}"
     version = str(len(made))
     summary = (
-        f"Decision {item['id']} by {pack}: {item['outcome']}, status {status}, version "
+        f"Decision {item['id']} by {agent}: {item['outcome']}, status {status}, version "
         f"{version} ({latest['event']}), recorded {latest['created_at']}."
     )
     period = {"start": item["created_at"]}
@@ -118,7 +105,7 @@ def _version(
         "meta": {
             "versionId": version,
             "lastUpdated": latest["created_at"],
-            "tag": [{"system": PACK_TAG_SYSTEM, "code": pack}],
+            "tag": [{"system": AGENT_TAG_SYSTEM, "code": agent}],
         },
         "text": narrative(summary),
         "identifier": [{"system": DECISION_ID_SYSTEM, "value": item["id"]}],
@@ -129,12 +116,12 @@ def _version(
         },
         "intent": "order",
         "priority": item["priority"],
-        "code": {"text": f"Decide with {pack}"},
+        "code": {"text": f"Decide with {agent}"},
         "authoredOn": item["created_at"],
         "executionPeriod": period,
         "owner": {"display": str(review["reviewer"])} if review else audit_fhir.engine(item),
     }
-    if record["reasons"] and not refused(item["outcome"], item["confidence"], item.get("refused")):
+    if record["reasons"] and not item["refused"]:
         task["note"] = [{"text": reason} for reason in record["reasons"]]
     outputs = list(_outputs(item, review, observed[-1] if observed else None))
     if outputs:
@@ -163,7 +150,7 @@ def _outputs(
     """Recommendation and fallback from the record; the reviewer's label and whether it
     overrode the recommendation from the review; the latest observed label."""
     record = item["record"]
-    system = davinci.question_system(item["pack_id"], record["primary"])
+    system = question_system(item["agent_id"], record["primary"])
     if record.get("recommendation") is not None:
         yield _output("recommendation", {"valueCoding": _label(system, record["recommendation"])})
     if record.get("fallback"):

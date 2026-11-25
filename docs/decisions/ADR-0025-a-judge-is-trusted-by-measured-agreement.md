@@ -5,7 +5,7 @@ Accepted
 
 Decided by the maintainer on 2026-11-24, before the repository was public, so no comment period ran; open to revision when it is.
 
-Specified in [agent manifest spec 0.4](../spec/agent-manifest-0.4.md), sections 16 to 20, and in
+Specified in [the agent manifest spec](../spec/agent-manifest.md), section 15, and in
 [evaluation reports](../spec/evaluation-reports.md) (`mendari.written/1`). Built after
 [ADR-0023](ADR-0023-an-agent-proposes-actions.md) (actions) and
 [ADR-0024](ADR-0024-a-checked-confidence-and-a-second-signal.md), on the same spec version.

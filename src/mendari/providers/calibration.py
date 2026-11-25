@@ -6,8 +6,8 @@ over-confident model and T < 1 sharpens an under-confident one, without changing
 wins. T is fitted on a held-out calibration split by minimising the negative log-likelihood
 over a log-spaced grid, which needs no optimiser and cannot diverge.
 
-Naive Bayes calibrates its log-posteriors this way; providers that report probabilities
-(such as LLMs) calibrate their log-probabilities with `rescale`.
+Providers that report probabilities (such as LLMs) calibrate their log-probabilities with
+`rescale`.
 """
 
 from __future__ import annotations

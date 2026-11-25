@@ -96,7 +96,7 @@ views.system = async (main, params) => {
   return landOn(root, params);
 };
 views.system.available = operator;
-views.system.packless = true; // it reads no agent's details
+views.system.agentless = true; // it reads no agent's details
 views.system.update = (params) => focusHeading(landOn($("#system-view"), params) ?? $("main h1"));
 
 // Where an address lands: a check ("#system/alerts"), or the erase form with a decision's id
@@ -176,10 +176,10 @@ const orgName = () => state.memberships.find((m) => m.org === state.me?.org)?.na
 
 function automationPanel(holds) {
   if (!may("approve")) return "";
-  const everything = holds.filter((h) => !h.pack_id);
-  const some = holds.filter((h) => h.pack_id);
+  const everything = holds.filter((h) => !h.agent_id);
+  const some = holds.filter((h) => h.agent_id);
   const listed = holds.map((h) => {
-    const covers = h.pack_id ? `<b>${esc(h.pack_id)}</b>` : "every agent";
+    const covers = h.agent_id ? `<b>${esc(h.agent_id)}</b>` : "every agent";
     // A hold of the deployment's (set from the command line, for every organization) is lifted
     // there; in memberships mode it comes without its reason (ADR-0008).
     if (!h.org) {
@@ -215,7 +215,7 @@ function holdText() {
 }
 
 function liftText(hold) {
-  return `<p>${hold?.pack_id ? `<b>${esc(hold.pack_id)}</b> decides` : "Every agent decides"} on its own again:
+  return `<p>${hold?.agent_id ? `<b>${esc(hold.agent_id)}</b> decides` : "Every agent decides"} on its own again:
       what a policy automates is no longer sent to a person because of this hold.</p>
     <p>Another hold, a recall by a registry, an approval an agent still needs and its risk level's
       limits keep applying. The lift is kept in the audit trail.</p>`;
@@ -322,7 +322,7 @@ function wireSystem(root, holds) {
     const notes = erased.notes?.length ?? 0;
     const what = [erased.input ? "its sealed input and evidence" : "", notes ? plural(notes, "note") : ""].filter(Boolean).join(" and ");
     out.innerHTML = `<div class="callout ok"><b>Erased:</b> ${esc(what || "what it kept")}.
-      ${erased.still_in_chain ? "Its record in the audit trail itself still holds text from before inputs were kept apart: nothing erases that without breaking the trail." : "Its record and the audit trail stay."}</div>`;
+      ${erased.still_in_chain ? "Its record in the audit trail itself still holds its input, kept there under PHI mode off: nothing erases that without breaking the trail." : "Its record and the audit trail stay."}</div>`;
     toast("Erased");
     $("#erase-decision").value = "";
   });

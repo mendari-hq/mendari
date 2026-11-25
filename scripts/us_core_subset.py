@@ -2,7 +2,7 @@
 """Generate `src/mendari/standards/us_core_6_1_0.json` from the official FHIR packages.
 
 The in-process US Core check (`mendari.standards.us_core`) reads that file. It holds, for each
-profile the packs' FHIR mappings read:
+profile the agents' FHIR mappings read:
 
 - `required`: element paths with a minimum cardinality of 1 (a child counts only where its parent
   is present);
@@ -42,7 +42,7 @@ PACKAGES = {
         "ebd7731df7d36b5b7d39d5fb6c9d77b44bb7fe5742f1a2e87f164738c3289d44",
     ),
 }
-# US Core profiles for the resources the packs read, and base R4 for the types US Core 6.1.0
+# US Core profiles for the resources the agents read, and base R4 for the types US Core 6.1.0
 # does not profile.
 US_CORE = [
     "us-core-patient",

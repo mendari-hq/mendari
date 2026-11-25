@@ -14,7 +14,7 @@ The tools:
 - `decide`: one decision by one agent: outcome, recommendation, priority, confidence, reasons,
   and each action the agent proposed with what may be done with it.
 - `authorize_action`: whether one action an agent declares may be run for a decision made here
-  (spec 0.4): released, held, blocked or denied. Mendari runs nothing.
+  (spec §13.8): released, held, blocked or denied. Mendari runs nothing.
 - `review_queue`: the decisions waiting for a person, most urgent first (ids and outcomes only,
   never the input).
 - `verify_audit`: whether the audit trail's hash chain is intact.
@@ -32,10 +32,10 @@ from typing import IO, Any
 
 from mendari import __version__
 from mendari.core import actions, tenancy
+from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision, DecisionResult
-from mendari.core.pack import Pack
-from mendari.core.registry import discover, resolve_pack
+from mendari.core.registry import discover, resolve_agent
 from mendari.errors import MendariError
 
 # The protocol revisions this server speaks, newest first. A client asking for one of them gets
@@ -43,7 +43,7 @@ from mendari.errors import MendariError
 PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 MAX_QUEUE = 100
 # What a review-queue item may show a tool caller: never the input, its record or a reviewer.
-QUEUE_FIELDS = ("id", "pack_id", "pack_version", "outcome", "recommendation", "priority",
+QUEUE_FIELDS = ("id", "agent_id", "agent_version", "outcome", "recommendation", "priority",
                 "confidence", "created_at")  # fmt: skip
 
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS = -32700, -32600, -32601, -32602
@@ -215,7 +215,7 @@ class McpServer:
 
     def _list_agents(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
         _no_arguments(arguments)
-        agents = [_describe(pack) for pack in sorted(discover().packs, key=lambda p: p.id)]
+        agents = [_describe(agent) for agent in sorted(discover().agents, key=lambda p: p.id)]
         return {"agents": agents}
 
     def _decide(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
@@ -250,7 +250,7 @@ class McpServer:
             raise ToolError("agent: an agent's id")
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_QUEUE:
             raise ToolError(f"limit: a whole number from 1 to {MAX_QUEUE}")
-        items = self.store.pending_reviews(pack_id=agent, limit=limit)
+        items = self.store.pending_reviews(agent_id=agent, limit=limit)
         return {"pending": [{key: item.get(key) for key in QUEUE_FIELDS} for item in items]}
 
     def _verify_audit(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
@@ -258,30 +258,30 @@ class McpServer:
         found = self.store.verify()
         return {"ok": bool(found["ok"]), "events": found["events"], "head": found.get("head")}
 
-    def _decision(self, agent: str) -> Decision:
-        if agent not in self._decisions:
-            pack = resolve_pack(agent)
+    def _decision(self, agent_id: str) -> Decision:
+        if agent_id not in self._decisions:
+            agent = resolve_agent(agent_id)
             store = self.store
 
-            def held(pack: Pack) -> str | None:
-                hold = store.hold_for(pack.id, pack.digest, tenancy.DEFAULT_ORG)
+            def held(agent: Agent) -> str | None:
+                hold = store.hold_for(agent.id, agent.digest, tenancy.DEFAULT_ORG)
                 return None if hold is None else f"hold {hold['id']}"
 
-            def approved(pack: Pack) -> bool:
-                found = store.registry_approval(pack.id, pack.digest, in_org=tenancy.DEFAULT_ORG)
+            def approved(agent: Agent) -> bool:
+                found = store.registry_approval(agent.id, agent.digest, in_org=tenancy.DEFAULT_ORG)
                 return found is not None
 
-            self._decisions[agent] = Decision(
-                pack, store=store, hold_source=held, origin_approval=approved
+            self._decisions[agent_id] = Decision(
+                agent, store=store, hold_source=held, origin_approval=approved
             )
-        return self._decisions[agent]
+        return self._decisions[agent_id]
 
 
-def _describe(pack: Pack) -> dict[str, Any]:
-    m = pack.manifest
+def _describe(agent: Agent) -> dict[str, Any]:
+    m = agent.manifest
     described: dict[str, Any] = {
-        "id": pack.id,
-        "version": pack.version,
+        "id": agent.id,
+        "version": agent.version,
         "name": m.name,
         "summary": m.summary,
         "risk_level": int(m.risk.level),
@@ -291,7 +291,7 @@ def _describe(pack: Pack) -> dict[str, Any]:
             for key, question in m.questions.items()
         },
     }
-    if m.actions:  # what it may ask to have done (spec 0.4): authorize_action takes these names
+    if m.actions:  # what it may ask to have done (spec §13): authorize_action takes these names
         described["actions"] = [
             {"name": name, "description": spec.description, "effect": spec.effect.value}
             for name, spec in m.actions.items()
@@ -304,8 +304,8 @@ def _shown(result: DecisionResult) -> dict[str, Any]:
     return {
         **proposed,
         "id": result.id,
-        "agent": result.pack_id,
-        "version": result.pack_version,
+        "agent": result.agent_id,
+        "version": result.agent_version,
         "outcome": result.outcome.value,
         "recommendation": result.recommendation,
         "priority": result.priority.value,

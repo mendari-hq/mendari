@@ -49,14 +49,13 @@ PAIRS = [
     ("color-on-solid", "color-danger-solid", TEXT),  # the stat chip
     *[("color-on-outcome", f"outcome-{o}", TEXT) for o in ("auto", "review", "abstain", "block")],
     ("color-warning", "color-warning-soft", TEXT),  # sandbox tag, review count
-    ("color-text", "outcome-review-soft", TEXT),  # criteria rows that change the decision
+    ("color-text", "outcome-review-soft", TEXT),  # a cell that needs attention
     ("color-text", "color-warning-soft", TEXT),  # an override waiting to be sent (Undo)
     ("color-accent", "color-warning-soft", TEXT),  # "Sign in again." when a session ended
     ("color-text", "outcome-block-soft", TEXT),  # confusion matrix: a mistake over a tenth of a row
     ("color-text-muted", "outcome-review-soft", TEXT),
     ("color-bg", "color-text", TEXT),  # toast
-    # Phase 4: numbers that need attention, rating counts, result headers and their links,
-    # criteria rows shaded by consequence.
+    # Phase 4: numbers that need attention, rating counts, result headers and their links.
     ("color-warning", "color-surface", TEXT),
     ("color-danger", "color-surface", TEXT),
     ("outcome-auto", "color-surface", TEXT),
@@ -81,11 +80,8 @@ PAIRS = [
     # chips the outcome pairs: all above. New: a copy button that has copied turns success.
     ("color-success", "color-surface", TEXT),
     ("color-text-muted", "color-bg", UI),  # the diagram's arrows
-    # Community packs: where a pack comes from, as a badge on the surface and the page, and the
-    # notice that a community pack is not clinically reviewed (text on the soft colour).
-    ("origin-community", "origin-community-soft", TEXT),
+    # Where an agent comes from, as a badge on the surface and the page.
     ("origin-other", "origin-other-soft", TEXT),
-    ("color-text", "origin-community-soft", TEXT),
 ]
 
 

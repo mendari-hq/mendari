@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """AI Agent provider: wrap any external HTTP AI agent inside Mendari's governance engine.
 
-An `agent` variant sends a pack's typed questions and (optionally filtered) input to an external
-agent service (OpenAI, Claude, LangGraph, or any custom HTTP agent) and validates the agent's
-structured answers against the pack's declared question schemas. Any HTTP error, timeout, or
-malformed response raises `ProviderError` so Mendari's deterministic policy engine fails closed
-(`HUMAN_REVIEW` / `ABSTAIN` / `BLOCK`) and records the failure in the audit trail.
+An `agent` variant sends the agent's typed questions and (optionally filtered) input to its
+service, an external HTTP agent (OpenAI, Claude, LangGraph, or any custom one), and validates the
+service's structured answers against the agent's declared question schemas. Any HTTP error,
+timeout, or malformed response raises `ProviderError` so Mendari's deterministic policy engine
+fails closed (`HUMAN_REVIEW` / `ABSTAIN` / `BLOCK`) and records the failure in the audit trail.
 
 Configuration & security:
 - Where a live call goes is decided in one place, `AgentProvider.live`: the organization's own
@@ -14,15 +14,15 @@ Configuration & security:
   and the variant answers from its canned examples.
 - `MENDARI_AGENT_URL`: deployment-configured agent HTTP endpoint (https, or http for localhost).
 - `MENDARI_AGENT_TOKEN`: optional bearer token sent ONLY when the endpoint comes from
-  `MENDARI_AGENT_URL`, never to a pack-specified `endpoint` URL. An organization's connection
+  `MENDARI_AGENT_URL`, never to an agent-specified `endpoint` URL. An organization's connection
   carries its own token, sent only to that connection's endpoint.
 - `MENDARI_PROVIDER_ALLOWED_ORIGINS`: when set, the agent endpoint's origin must be listed
   (`providers/http.py`). Without it, an organization's connection leads to the public internet
   only (`providers/reach.py`).
-- A pack the deployment does not own (`Pack.bounded`) must name `state_fields`, may not set
+- An agent the deployment does not own (`Agent.bounded`) must name `state_fields`, may not set
   `endpoint`, and has its `timeout_seconds` capped by the deployment (`core/origin.py`).
-- `mock_file`: optional pack-relative JSON or YAML fixture used offline when no live endpoint is
-  configured, so agent packs validate, test, and evaluate cleanly without network calls, and
+- `mock_file`: optional agent-relative JSON or YAML fixture used offline when no live endpoint is
+  configured, so agents validate, test, and evaluate cleanly without network calls, and
   switch to a real agent automatically when `MENDARI_AGENT_URL` is set. Its answers are canned
   (`CANNED`): on a server with sign-in, a decision on them never automates (HUMAN_REVIEW).
 """
@@ -42,16 +42,15 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from mendari.core import actions as proposals
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.core.spec import (
     ActionSpec,
-    PackManifest,
+    AgentManifest,
     Question,
     WrittenOutput,
-    at_least,
     deployment_env_problem,
 )
-from mendari.errors import MendariError, PackValidationError, ProviderError
+from mendari.errors import AgentValidationError, MendariError, ProviderError
 from mendari.providers import agent_calibration, deadline, fixture, reach
 from mendari.providers.base import (
     MAX_CALL_COST_USD,
@@ -117,7 +116,7 @@ class Live:
 
 
 # Same character class as `evals/share.py` `_MODEL_PART` so provenance ids are always shareable.
-AGENT_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$"
+SERVICE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$"
 MAX_QUESTIONS = 64
 MAX_REQUEST_CHARS = 100_000
 MAX_RESPONSE_BYTES = 65_536
@@ -133,18 +132,18 @@ class AgentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     endpoint: str | None = None
-    agent_id: str | None = Field(default=None, pattern=AGENT_ID_PATTERN)
+    service_id: str | None = Field(default=None, pattern=SERVICE_ID_PATTERN)
     system_prompt: str | None = Field(default=None, max_length=MAX_PROMPT_CHARS)
     instructions: str | None = Field(default=None, max_length=MAX_PROMPT_CHARS)
     timeout_seconds: float = Field(
         default=DEFAULT_TIMEOUT_SECONDS, gt=0.0, le=120.0, allow_inf_nan=False
     )
-    # Minimum necessary: when set, only these input fields are sent to the agent.
+    # Minimum necessary: when set, only these input fields are sent to the service.
     state_fields: list[str] | None = None
-    # Pack-relative JSON or YAML fixture for offline testing and evaluation.
+    # Agent-relative JSON or YAML fixture for offline testing and evaluation.
     mock_file: str | None = None
-    # Spec 0.4 (ADR-0024). Per-question temperatures fitted by `mendari calibrate` (a file in
-    # the agent), for the agent version its service reported then: `agent_calibration.py`.
+    # Spec §14.2 (ADR-0024). Per-question temperatures fitted by `mendari calibrate` (a file in
+    # the agent), for the version its service reported then: `agent_calibration.py`.
     calibration: str | None = None
     # Ask each case this many times and never automate when the runs disagree: `repeat.py`.
     repeat: int | None = Field(default=None, ge=MIN_RUNS, le=MAX_RUNS)
@@ -160,71 +159,67 @@ class AgentConfig(BaseModel):
 class AgentProvider(Provider):
     type = "agent"
     remote = True
+    proposes = True
 
     def __init__(self, *args: Any, client: httpx.Client | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
         settings, problems = self._settings(
-            self.info.slot, self.config, self.questions, bounded=self.pack.bounded
+            self.info.slot, self.config, self.questions, bounded=self.agent.bounded
         )
         if settings is None:
-            raise PackValidationError(self.pack.id, problems)
+            raise AgentValidationError(self.agent.id, problems)
         self.settings = settings
         self._client = client
         self._connection: ConnectionSource | None = None
         self._mock: dict[str, Any] | None = None
-        # Only a 0.4 agent's response may propose actions: an older agent's `actions` key is
-        # not read, as any key the contract does not name never was.
-        self.proposes = at_least(self.pack.manifest.spec_version, "0.4")
-        # What the manifest asks this slot's agent to write (spec 0.4 section 17). A composite's
+        # What the manifest asks this slot's agent to write (spec section 15.2). A composite's
         # member writes nothing: its response's `outputs` key is not read.
-        self.outputs = slot_outputs(self.pack.manifest, self.info.slot, self.info.variant)
+        self.outputs = slot_outputs(self.agent.manifest, self.info.slot, self.info.variant)
         if self.settings.mock_file is not None:
             self._mock = _load_fixture_file(
-                self.pack,
+                self.agent,
                 self.settings.mock_file,
                 self.questions,
                 self.info.slot,
                 actions=self.proposes,
                 outputs=self.outputs,
             )
-        if self.settings.agent_id is not None:
-            self.info = replace(self.info, model=self.settings.agent_id)
+        if self.settings.service_id is not None:
+            self.info = replace(self.info, model=self.settings.service_id)
         self.calibration: agent_calibration.Calibration | None = None
         if self.settings.calibration is not None:
             self.calibration = agent_calibration.load(
-                self.pack, self.info.slot, self.settings.calibration, self.questions
+                self.agent, self.info.slot, self.settings.calibration, self.questions
             )
 
     @classmethod
     def config_problems(
         cls,
-        pack: Pack,
+        agent: Agent,
         where: str,
         config: Mapping[str, Any],
         questions: Mapping[str, Question],
         *,
         bounded: bool,
-        trained: bool,
     ) -> list[str]:
         settings, problems = cls._settings(where, config, questions, bounded=bounded)
-        if settings is not None and settings.calibration is not None and trained:
-            problems = agent_calibration.file_problems(pack, where, settings.calibration)
+        if settings is not None and settings.calibration is not None:
+            problems = agent_calibration.file_problems(agent, where, settings.calibration)
             if problems:
                 return problems
         if settings is None or settings.mock_file is None:
             return problems
         mock_file = settings.mock_file
-        data, file_problems = read_problems(lambda: _read_pack_fixture(pack, mock_file))
+        data, file_problems = read_problems(lambda: _read_agent_fixture(agent, mock_file))
         if file_problems:
             return file_problems
-        proposes = at_least(pack.manifest.spec_version, "0.4")
         return _fixture_data_problems(
             where,
             mock_file,
             data,
             questions,
-            actions=proposes,
-            outputs=_outputs_at(pack.manifest, where),
+            actions=cls.proposes,
+            outputs=_outputs_at(agent.manifest, where),
         )
 
     @staticmethod
@@ -246,7 +241,7 @@ class AgentProvider(Provider):
         if settings.endpoint is not None:
             if bounded:
                 return None, [
-                    f"{where}: an `agent` variant of a community or registry agent may not set "
+                    f"{where}: an `agent` variant of a registry or store agent may not set "
                     f"endpoint; configure {ENDPOINT_ENV} in the deployment"
                 ]
             try:
@@ -279,7 +274,7 @@ class AgentProvider(Provider):
         connection, `MENDARI_AGENT_TOKEN` to `MENDARI_AGENT_URL`, none to a manifest's."""
         if self._connection is not None:
             try:
-                connection = self._connection(self.pack.id)
+                connection = self._connection(self.agent.id)
             except ProviderError:
                 raise
             except MendariError:
@@ -290,7 +285,7 @@ class AgentProvider(Provider):
                 return Live(
                     connection.endpoint, "organization", connection.token, connection.allowed
                 )
-        if not self.pack.bounded and self.settings.endpoint:
+        if not self.agent.bounded and self.settings.endpoint:
             return Live(self.settings.endpoint, "agent")
         env_url = os.environ.get(ENDPOINT_ENV, "").strip()
         if env_url:
@@ -360,7 +355,7 @@ class AgentProvider(Provider):
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         """The agent's answers as the policy sees them: each call's confidence calibrated
         (`agent_calibration.calibrated`), and the call repeated when the variant says so
-        (`repeat.repeated`). `answer_once` is one call, as the agent answered it."""
+        (`repeat.repeated`). `answer_once` is one call, as the service answered it."""
         return repeated(
             self, self.settings.repeat, lambda: self._calibrated(self.answer_once(inputs))
         )
@@ -369,7 +364,7 @@ class AgentProvider(Provider):
         if self.calibration is None:
             return output
         return agent_calibration.calibrated(
-            self.calibration, output, self.questions, self.settings.agent_id
+            self.calibration, output, self.questions, self.settings.service_id
         )
 
     def answer_once(self, inputs: Mapping[str, Any]) -> ProviderOutput:
@@ -384,15 +379,15 @@ class AgentProvider(Provider):
         deadline.refuse_if_past()
 
         body = request_body(
-            self.pack.id,
+            self.agent.id,
             self.info.slot,
             self.questions,
             inputs,
-            agent_id=self.settings.agent_id,
+            service_id=self.settings.service_id,
             system_prompt=self.settings.system_prompt,
             instructions=self.settings.instructions,
             state_fields=self.settings.state_fields,
-            actions=self.pack.manifest.actions,
+            actions=self.agent.manifest.actions,
             outputs=self.outputs,
         )
         if len(json.dumps(body)) > MAX_REQUEST_CHARS:
@@ -439,11 +434,11 @@ class AgentProvider(Provider):
 
     def _build_output(self, parsed: dict[str, Any], *, used_mock: bool) -> ProviderOutput:
         reported_model: str | None = parsed["model"]
-        agent_version: str | None = parsed["agent_version"]
+        service_version: str | None = parsed["service_version"]
         tool_calls: list[Any] = parsed["tool_calls"]
         usage: dict[str, Any] = parsed["usage"]
 
-        effective = _effective_model(reported_model, self.settings.agent_id, agent_version)
+        effective = _effective_model(reported_model, self.settings.service_id, service_version)
         answered_by = replace(self.info, model=effective or self.info.model)
 
         tool_evidence = tuple(_tool_evidence(tool_calls))
@@ -466,12 +461,12 @@ class AgentProvider(Provider):
             )
 
         extra: dict[str, Any] = {}
-        if self.settings.agent_id is not None:
-            extra["agent_id"] = self.settings.agent_id
+        if self.settings.service_id is not None:
+            extra["service_id"] = self.settings.service_id
         if reported_model is not None:
             extra["model"] = reported_model
-        if agent_version is not None:
-            extra["agent_version"] = agent_version
+        if service_version is not None:
+            extra["service_version"] = service_version
         if tool_calls:
             extra["tool_calls"] = tool_calls
         if used_mock and self.settings.mock_file is not None:
@@ -496,7 +491,7 @@ class AgentProvider(Provider):
         )
 
 
-def slot_outputs(manifest: PackManifest, slot: str, variant: str) -> dict[str, WrittenOutput]:
+def slot_outputs(manifest: AgentManifest, slot: str, variant: str) -> dict[str, WrittenOutput]:
     """The written outputs the manifest declares for `slot`, in its order, when `variant` is one
     of the slot's own variants and an `agent`; none otherwise (a composite's member, whose
     variant is named `<variant>.<member>`, writes nothing)."""
@@ -507,7 +502,7 @@ def slot_outputs(manifest: PackManifest, slot: str, variant: str) -> dict[str, W
     return {name: output for name, output in manifest.outputs.items() if output.slot == slot}
 
 
-def _outputs_at(manifest: PackManifest, where: str) -> dict[str, WrittenOutput]:
+def _outputs_at(manifest: AgentManifest, where: str) -> dict[str, WrittenOutput]:
     """`slot_outputs` for the variant a config problem names (`providers.<slot>.variants.<v>`)."""
     for slot, declared in manifest.providers.items():
         for variant in declared.variants:
@@ -517,12 +512,12 @@ def _outputs_at(manifest: PackManifest, where: str) -> dict[str, WrittenOutput]:
 
 
 def request_body(
-    pack_id: str,
+    agent_id: str,
     slot: str,
     questions: Mapping[str, Question],
     inputs: Mapping[str, Any],
     *,
-    agent_id: str | None = None,
+    service_id: str | None = None,
     system_prompt: str | None = None,
     instructions: str | None = None,
     state_fields: list[str] | None = None,
@@ -530,15 +525,15 @@ def request_body(
     outputs: Mapping[str, WrittenOutput] | None = None,
 ) -> dict[str, Any]:
     """The JSON payload POSTed to an external agent endpoint. `actions` are the actions the
-    agent's manifest declares (spec 0.4 section 4.1), sent in the manifest's order; an agent
+    agent's manifest declares (spec section 13.5), sent in the manifest's order; an agent
     that declares none gets no `actions` key, and its requests are what they always were.
-    `outputs` are the texts the manifest asks this slot's agent to write (section 17), each
+    `outputs` are the texts the manifest asks this slot's agent to write (section 15.2), each
     `{name, description, max_chars}`, likewise left out when there are none."""
     state = select_fields(inputs, state_fields) if state_fields is not None else dict(inputs)
     body: dict[str, Any] = {
-        "pack_id": pack_id,
-        "slot": slot,
         "agent_id": agent_id,
+        "slot": slot,
+        "service_id": service_id,
         "questions": [agent_question(key, question) for key, question in questions.items()],
         "input": state,
     }
@@ -554,7 +549,7 @@ def request_body(
 
 
 def agent_question(key: str, question: Question) -> dict[str, Any]:
-    """A pack question serialized for an external agent."""
+    """One of the agent's questions, serialized for its service."""
     item: dict[str, Any] = {
         "key": key,
         "type": question.type,
@@ -581,7 +576,7 @@ def validate_response(
     outputs: Mapping[str, WrittenOutput] | None = None,
 ) -> dict[str, Any]:
     """Strict validation of an external agent's JSON response. Raises `invalid_response`.
-    With `actions` (a spec 0.4 agent), the response's proposed `actions` are read and held to
+    With `actions` (an `agent` variant's), the response's proposed `actions` are read and held to
     the contract's shape (`_validate_actions`); without, the key is not read at all. With
     `outputs` (what the manifest asks this slot to write), the response's `outputs` are read
     and held to them (`_validate_outputs`); with none declared the key is not read either."""
@@ -599,14 +594,14 @@ def validate_response(
         validated_answers[key] = _validate_answer(key, question, answers[key])
 
     model = _optional_id(raw.get("model"), "model")
-    agent_version = _optional_id(raw.get("agent_version"), "agent_version")
+    service_version = _optional_id(raw.get("service_version"), "service_version")
     tool_calls = _validate_tool_calls(raw.get("tool_calls"))
     usage = _validate_usage(raw.get("usage"))
 
     validated = {
         "answers": validated_answers,
         "model": model,
-        "agent_version": agent_version,
+        "service_version": service_version,
         "tool_calls": tool_calls,
         "usage": usage,
     }
@@ -622,7 +617,7 @@ _OUTPUT_CTRL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]+")
 
 
 def _validate_outputs(raw: Any, declared: Mapping[str, WrittenOutput]) -> dict[str, str]:
-    """What a response wrote (spec 0.4 section 17), by name: an object of texts, each for an
+    """What a response wrote (spec section 15.2), by name: an object of texts, each for an
     output the manifest declares for this slot and no longer than its `max_chars`. Anything else
     is a malformed response (`invalid_response`), and the detail never echoes a text. Control
     characters other than the newline and the tab become a space; a text that is then blank is
@@ -655,7 +650,7 @@ def clean_output(text: str) -> str:
 
 
 def _validate_actions(raw: Any) -> list[dict[str, Any]]:
-    """The actions a response proposes (spec 0.4 section 4.2), each `{name, arguments}`: a list
+    """The actions a response proposes (spec section 13.6), each `{name, arguments}`: a list
     of at most `MAX_PROPOSED` objects with `name` and optional `arguments` (an object within
     the limits) and no other key. Anything else is a malformed response (`invalid_response`),
     and the detail never echoes a name or a value. Whether a name is declared, and whether its
@@ -743,7 +738,7 @@ def _validate_probabilities(key: str, question: Question, probabilities: Any) ->
 def _optional_id(value: Any, name: str) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str) or "://" in value or not re.fullmatch(AGENT_ID_PATTERN, value):
+    if not isinstance(value, str) or "://" in value or not re.fullmatch(SERVICE_ID_PATTERN, value):
         raise _invalid(f"malformed {name}")
     return value
 
@@ -801,15 +796,15 @@ def _validate_usage(raw: Any) -> dict[str, Any]:
 
 
 def _effective_model(
-    reported_model: str | None, agent_id: str | None, agent_version: str | None
+    reported_model: str | None, service_id: str | None, service_version: str | None
 ) -> str | None:
     if reported_model is not None:
         return reported_model
-    if agent_id is not None and agent_version is not None:
-        combined = f"{agent_id}@{agent_version}"
+    if service_id is not None and service_version is not None:
+        combined = f"{service_id}@{service_version}"
         if len(combined) <= 128:
             return combined
-    return agent_id or agent_version
+    return service_id or service_version
 
 
 _CTRL_CHARS = re.compile(r"[\x00-\x1f\x7f]+")
@@ -848,14 +843,14 @@ def _invalid(detail: str) -> ProviderError:
 # -- offline mock fixture ------------------------------------------------------------------------
 
 
-def _read_pack_fixture(pack: Pack, relative: str) -> Any:
+def _read_agent_fixture(agent: Agent, relative: str) -> Any:
     if relative.endswith((".yaml", ".yml")):
-        return pack.read_yaml(relative)
-    return pack.read_json(relative)
+        return agent.read_yaml(relative)
+    return agent.read_json(relative)
 
 
 def _load_fixture_file(
-    pack: Pack,
+    agent: Agent,
     relative: str,
     questions: Mapping[str, Question],
     where: str,
@@ -863,12 +858,12 @@ def _load_fixture_file(
     actions: bool = False,
     outputs: Mapping[str, WrittenOutput] | None = None,
 ) -> dict[str, Any]:
-    data = _read_pack_fixture(pack, relative)
+    data = _read_agent_fixture(agent, relative)
     problems = _fixture_data_problems(
         where, relative, data, questions, actions=actions, outputs=outputs
     )
     if problems:
-        raise PackValidationError(pack.id, problems)
+        raise AgentValidationError(agent.id, problems)
     assert isinstance(data, dict)
     return data
 
@@ -884,7 +879,7 @@ def _fixture_data_problems(
 ) -> list[str]:
     if not isinstance(data, dict):
         return [f"{where}: {relative}: mock file must be a mapping"]
-    allowed_keys = {"model", "agent_version", "cases", "default"}
+    allowed_keys = {"model", "service_version", "cases", "default"}
     extra = sorted(set(data) - allowed_keys)
     if extra:
         return [f"{where}: {relative}: unexpected mock file keys {extra}"]
@@ -892,7 +887,7 @@ def _fixture_data_problems(
         return [f"{where}: {relative}: mock file needs `cases` or `default`"]
 
     problems: list[str] = []
-    for key in ("model", "agent_version"):
+    for key in ("model", "service_version"):
         if data.get(key) is not None:
             try:
                 _optional_id(data[key], key)
@@ -935,8 +930,8 @@ def _merge_fixture_response(root: Mapping[str, Any], response: Any) -> Any:
     merged = dict(response)
     if "model" not in merged and root.get("model") is not None:
         merged["model"] = root["model"]
-    if "agent_version" not in merged and root.get("agent_version") is not None:
-        merged["agent_version"] = root["agent_version"]
+    if "service_version" not in merged and root.get("service_version") is not None:
+        merged["service_version"] = root["service_version"]
     return merged
 
 

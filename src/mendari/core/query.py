@@ -9,7 +9,7 @@ query is an AND of conditions, each an OR of atoms over named fields:
 - `Within(field, low, high)`: `low <= field < high` on a stored timestamp (a None side is open),
   or outside that range.
 
-Decision fields: `id`, `outcome`, `priority`, `pack` (`(pack_id, pack_version)` pairs), `state`,
+Decision fields: `id`, `outcome`, `priority`, `agent` (`(agent_id, agent_version)` pairs), `state`,
 `created` and `updated`. A decision's `state` is `refused` (a BLOCK with no primary confidence:
 the input was refused before any provider ran), else `pending` (waiting for review), else
 `final`. `updated` is when the last event that changed its result was chained

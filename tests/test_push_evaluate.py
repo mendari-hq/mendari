@@ -21,8 +21,8 @@ import yaml
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 
 from mendari.cli import _linkable, _publish_run, main
-from mendari.core.pack import load_pack
-from mendari.errors import HubError, MendariError
+from mendari.core.agent import load_agent
+from mendari.errors import MendariError
 from mendari.evals.harness import Evaluation
 from mendari.evals.ledger import Ledger
 from mendari.evals.result import ERROR
@@ -152,27 +152,6 @@ def test_a_run_in_which_a_provider_failed_says_on_how_many_cases(
     assert "note:" not in capsys.readouterr().err  # a run with no failure says nothing
 
 
-def test_a_registry_from_before_the_second_format_is_said_to_be_one(published: Registry) -> None:
-    said_before = "not a mendari.publisher-evaluation/1 record: format"
-
-    class Earlier:
-        def publish_evaluation(self, record: dict[str, Any]) -> dict[str, Any]:
-            raise HubError(f"the registry answered HTTP 422: {said_before}")
-
-    with pytest.raises(HubError) as earlier:
-        _publish_run(Earlier(), demo(), run("rules"), published.key, None)
-    assert said_before in str(earlier.value)
-    assert "a release before mendari.publisher-evaluation/2" in str(earlier.value)
-
-    class Refusing:
-        def publish_evaluation(self, record: dict[str, Any]) -> dict[str, Any]:
-            raise HubError("the registry answered HTTP 409: version: it is recalled", 409)
-
-    with pytest.raises(HubError) as refused:  # any other refusal, as it is
-        _publish_run(Refusing(), demo(), run("rules"), published.key, None)
-    assert str(refused.value).endswith("it is recalled") and refused.value.status == 409
-
-
 def test_the_command_line_prints_the_hub_s_page_when_the_registry_names_one(
     hub: Hub,  # noqa: F811
     tmp_path: Path,
@@ -256,20 +235,20 @@ def test_push_evaluate_says_when_the_version_is_another_build(
 def test_an_agent_with_many_configurations_is_asked_which_to_evaluate(tmp_path: Path) -> None:
     from mendari.cli import MAX_EVALUATED, _evaluated_configurations
 
-    pack = three_readers(tmp_path)
-    assert _evaluated_configurations(pack, []) == [
+    agent = three_readers(tmp_path)
+    assert _evaluated_configurations(agent, []) == [
         {"reader": "agent"},
         {"reader": "rules"},
         {"reader": "cautious"},
     ]
-    named = _evaluated_configurations(pack, ["reader=rules", "reader=cautious", "reader=rules"])
+    named = _evaluated_configurations(agent, ["reader=rules", "reader=cautious", "reader=rules"])
     assert named == [{"reader": "rules"}, {"reader": "cautious"}]  # once each
     root = tmp_path / "many"
-    shutil.copytree(pack.root, root)
+    shutil.copytree(agent.root, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text(encoding="utf-8"))
     variants = manifest["providers"]["reader"]["variants"]
     for index in range(MAX_EVALUATED):
         variants[f"more{index}"] = dict(variants["rules"])
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
     with pytest.raises(MendariError, match=r"has 11 configurations: name the ones to evaluate"):
-        _evaluated_configurations(load_pack(root), [])
+        _evaluated_configurations(load_agent(root), [])

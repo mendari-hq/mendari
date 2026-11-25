@@ -2,16 +2,16 @@
 // Feedback: the page, and the right / wrong controls with the optional right answer.
 
 import { ratingCell } from "./audit.js";
-import { criteriaTable, derivedPrimary, inputView } from "./pack.js";
+import { inputView } from "./manifest.js";
 import { render, views } from "./router.js";
 import { TABLES } from "./table.js";
-import { $, api, download, emptyState, esc, icon, outcomeBadge, packPath, priorityBadge, signedIn, stat, state, storageGet, storageSet, time, toastError, whileBusy } from "./ui.js";
+import { $, api, download, emptyState, esc, icon, outcomeBadge, agentPath, priorityBadge, signedIn, stat, state, storageGet, storageSet, time, toastError, whileBusy } from "./ui.js";
 
 views.feedback = async (main) => {
   const rating = storageGet("oh.feedback.rating", "down");
   const [items, stats] = await Promise.all([
-    api(`/api/feedback?pack_id=${encodeURIComponent(state.packId)}${rating ? `&rating=${rating}` : ""}&limit=200`),
-    api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
+    api(`/api/feedback?agent_id=${encodeURIComponent(state.agentId)}${rating ? `&rating=${rating}` : ""}&limit=200`),
+    api(`/api/stats?agent_id=${encodeURIComponent(state.agentId)}`),
   ]);
   const f = stats.feedback;
   main.innerHTML = `
@@ -29,7 +29,7 @@ views.feedback = async (main) => {
         <option value="" ${rating === "" ? "selected" : ""}>All (${f.up + f.down})</option>
       </select>
       <span class="grow"></span>
-      <a class="button" id="feedback-export" href="${packPath()}/feedback/export?rating=down" download>${icon("download")} Download the wrong cases (JSONL)</a>
+      <a class="button" id="feedback-export" href="${agentPath()}/feedback/export?rating=down" download>${icon("download")} Download the wrong cases (JSONL)</a>
     </div>
     ${items.length ? items.map(feedbackCard).join("") : emptyState({
       icon: "message", title: "Nothing rated yet",
@@ -71,7 +71,6 @@ function feedbackCard(item) {
       <span class="muted">(it said ${esc(r.answers[item.expected.question]?.label ?? "nothing")})</span></p>` : ""}
     ${noteText(item)}
     ${inputView(r.input, { restricted: item.input_restricted })}
-    ${criteriaTable(r.answers, { evidence: false })}
     <a class="action-link" href="#audit/${encodeURIComponent(item.decision_id)}">Open the decision <span class="mono">${esc(item.decision_id.slice(0, 8))}</span> ${icon("arrow-right")}</a>
   </article>`;
 }
@@ -89,11 +88,10 @@ export function myRating(events) {
   return last ? { rating: last.payload.rating, expected: last.payload.expected ?? null } : null;
 }
 
-// The questions a thumbs-down can correct: the decision itself first, then (for a derived decision)
-// each check. The choices are the labels the decision could have given, except the one it gave.
+// The question a thumbs-down can correct: the decision itself. The choices are the labels the
+// decision could have given, except the one it gave.
 function correctable(record) {
-  const derive = derivedPrimary();
-  const questions = [record.primary, ...(derive ? derive.from : [])].filter((q) => record.answers[q]);
+  const questions = [record.primary].filter((q) => record.answers[q]);
   return questions.map((q) => ({
     question: q,
     answer: record.answers[q].label,

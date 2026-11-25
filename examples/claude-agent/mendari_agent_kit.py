@@ -15,19 +15,19 @@ sides of that contract for the agent's author, so a handler only has to answer:
             "urgent_symptoms": {"yes": 0.9, "no": 0.1} if urgent else ("no", 0.95),
         })
 
-    app = create_app(handler, title="My agent", agent_version="1.0.0")
+    app = create_app(handler, title="My agent", service_version="1.0.0")
 
 `create_app` serves `POST /decide` (bearer token from `AGENT_TOKEN`) and `GET /health`; run it
 with any ASGI server (`uvicorn module:app`). The handler gets a parsed, checked `Case` and
 returns what `respond` builds; it may be a plain or an `async` function.
 
-An agent whose manifest declares actions (spec 0.4) gets them in `case.actions` and may propose
+An agent whose manifest declares actions (spec §13) gets them in `case.actions` and may propose
 some with its answers: `respond(case, answers, actions=[("assign_queue", {"queue": "refill"})])`.
 Proposing is asking: Mendari answers each with `released`, `held` or `blocked`, and runs none.
 The code that runs a tool calls `authorize` right before, and runs it only when
 `authorize(...).released`.
 
-An agent whose manifest asks it to write (spec 0.4: a draft reply, a summary) gets what is asked
+An agent whose manifest asks it to write (spec §15: a draft reply, a summary) gets what is asked
 in `case.outputs` and returns the texts with its answers:
 `respond(case, answers, outputs={"reply_draft": "Thank you for your message. ..."})`.
 
@@ -78,12 +78,12 @@ MAX_TOOL_NAME_CHARS = 128
 MAX_CALL_TOKENS = 10_000_000
 MAX_CALL_COST_USD = 1_000.0
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$")
-# Proposed actions (spec 0.4 section 4.2; the engine's `core/actions.py`).
+# Proposed actions (spec section 13.6; the engine's `core/actions.py`).
 MAX_ACTIONS = 16
 MAX_ARGUMENT_CHARS = 16_000
 MAX_ARGUMENT_DEPTH = 8
 ACTION_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}\Z")
-# Written outputs (spec 0.4 section 17; the engine's `core/spec.py`).
+# Written outputs (spec section 15.2; the engine's `core/spec.py`).
 MAX_OUTPUTS = 8
 MAX_OUTPUT_CHARS = 8_000
 # Where `authorize` asks, and with what key: the Mendari that made the decision.
@@ -115,7 +115,7 @@ class Question:
 
 @dataclass(frozen=True)
 class Action:
-    """One action the agent's manifest declares (spec 0.4): what the agent may propose."""
+    """One action the agent's manifest declares (spec §13): what the agent may propose."""
 
     name: str
     description: str
@@ -125,7 +125,7 @@ class Action:
 
 @dataclass(frozen=True)
 class Output:
-    """One text the agent's manifest asks it to write (spec 0.4): a draft reply, a summary."""
+    """One text the agent's manifest asks it to write (spec §15): a draft reply, a summary."""
 
     name: str
     description: str  # what to write, in the manifest's words
@@ -136,13 +136,13 @@ class Output:
 class Case:
     """One decision's request, parsed and checked (`Case.parse`)."""
 
-    agent: str | None  # the agent's id in Mendari (`pack_id`)
+    agent_id: str | None  # the agent's id in Mendari (`agent_id`)
     slot: str | None
-    agent_id: str | None  # the name the manifest gives this agent
+    service_id: str | None  # the name the manifest gives this service
     questions: tuple[Question, ...]
     input: dict[str, Any]  # only the fields the manifest's `state_fields` send
     instructions: str | None  # the manifest's `system_prompt` and `instructions`, joined
-    actions: tuple[Action, ...] = ()  # what the agent may propose; none for an older manifest
+    actions: tuple[Action, ...] = ()  # what the agent may propose; none unless declared
     outputs: tuple[Output, ...] = ()  # what the agent is asked to write; none unless declared
 
     @classmethod
@@ -179,9 +179,9 @@ class Case:
             if isinstance(body.get(name), str) and body[name].strip()
         ]
         return cls(
-            agent=_text(body.get("pack_id")),
-            slot=_text(body.get("slot")),
             agent_id=_text(body.get("agent_id")),
+            slot=_text(body.get("slot")),
+            service_id=_text(body.get("service_id")),
             questions=tuple(questions),
             input=body["input"],
             instructions="\n\n".join(said) or None,
@@ -218,7 +218,7 @@ def respond(
     *,
     rationales: Mapping[str, str] | None = None,
     model: str | None = None,
-    agent_version: str | None = None,
+    service_version: str | None = None,
     usage: Mapping[str, Any] | None = None,
     tool_calls: Sequence[str | Mapping[str, Any]] | None = None,
     actions: Sequence[tuple[str, Mapping[str, Any]] | Mapping[str, Any]] | None = None,
@@ -235,13 +235,13 @@ def respond(
     should never repeat personal details from the case. `usage` is `{input_tokens,
     output_tokens, cost_usd?}`; `tool_calls` are names or objects with a `name`.
 
-    `actions` are the actions the agent proposes (spec 0.4), each `(name, arguments)` or
+    `actions` are the actions the agent proposes (spec §13.6), each `(name, arguments)` or
     `{"name": ..., "arguments": ...}`, among those the case offers (`case.actions`). Proposing
     is asking: never run a proposed action that writes, contacts a patient or orders before
     Mendari releases it. The kit checks the name and the limits, not the action's schema:
     Mendari does, and blocks an action whose arguments do not match.
 
-    `outputs` are the texts the agent wrote (spec 0.4), by name, among those the case asks for
+    `outputs` are the texts the agent wrote (spec §15.2), by name, among those the case asks for
     (`case.outputs`), each no longer than its `max_chars`. One left out, or blank, is no output.
 
     An answer that cannot be given raises `AgentError` (502), which `create_app` returns, so
@@ -259,7 +259,7 @@ def respond(
         if isinstance(rationale, str) and rationale.strip():
             item["rationale"] = " ".join(rationale.split())[:MAX_RATIONALE_CHARS]
         body["answers"][question.key] = item
-    for name, value in (("model", model), ("agent_version", agent_version)):
+    for name, value in (("model", model), ("service_version", service_version)):
         if value is not None:
             if not isinstance(value, str) or "://" in value or not ID_PATTERN.match(value):
                 raise AgentError(502, f"the agent's {name} is not a valid id")
@@ -377,7 +377,7 @@ def create_app(
     handler: Handler,
     *,
     title: str = "Mendari agent",
-    agent_version: str | None = None,
+    service_version: str | None = None,
 ) -> FastAPI:
     """An HTTP service for `handler`: `POST /decide` and `GET /health`.
 
@@ -397,7 +397,7 @@ def create_app(
 
     @app.get("/health")
     def health() -> dict[str, Any]:
-        return {"status": "ok", "agent_version": agent_version}
+        return {"status": "ok", "service_version": service_version}
 
     @app.post("/decide")
     async def decide(request: Request) -> JSONResponse:
@@ -482,8 +482,8 @@ def _question(item: dict[str, Any], choices: list[str]) -> Question:
 
 
 def _actions(items: Any) -> tuple[Action, ...]:
-    """The request's declared actions; none when the key is absent (an older manifest). One
-    that is not as Mendari sends it is `AgentError` (400)."""
+    """The request's declared actions; none when the key is absent (the manifest declares
+    none). One that is not as Mendari sends it is `AgentError` (400)."""
     if items is None:
         return ()
     if not isinstance(items, list) or len(items) > MAX_ACTIONS:

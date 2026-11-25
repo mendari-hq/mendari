@@ -10,9 +10,8 @@ PHI key in mode `encrypt`, bound to their own row; kept in the clear in `off`, n
 protected database; refused in `hash`, which keeps no patient text.
 
 Each sampled item goes to one grader, and a seeded share of them (one in four unless said) also
-to a second, different grader. Graders hold the `labeller` role, and whoever manages the
-organization's sets is never assigned (`accounts.CURATING`), as for blind labelling
-(`core/evalsets.py`), whose rules, refusals and answers these are.
+to a second, different grader. Graders hold the `labeller` role, and whoever administers the
+organization is never assigned (`accounts.CURATING`: separation of duties).
 
 Blindness:
 
@@ -53,13 +52,12 @@ from typing import TYPE_CHECKING, Any
 
 from mendari.core import accounts
 from mendari.core.audit import AuditStore, _add_usage, _canonical, _now
-from mendari.core.evalsets import NO_ASSIGNMENT, labeller_in, labeller_membership, user_ids
 from mendari.errors import LabelError, MendariError, NoAssignment
 from mendari.evals import stats, written
 
 if TYPE_CHECKING:
+    from mendari.core.agent import Agent
     from mendari.core.db import Session
-    from mendari.core.pack import Pack
 
 OPEN, CLOSING, CLOSED = "open", "closing", "closed"
 MAX_ITEMS = 2_000  # the outputs one round keeps to grade
@@ -79,6 +77,62 @@ CLOSING_NOTE = (
     "round close` on it again to finish; until then it takes no assignment and no grade"
 )
 REPORT_MISMATCH = "its stored report does not match the audit trail, so it is not shown"
+# One refusal for an assignment that is unknown, another grader's, another organization's or no
+# longer open (`NoAssignment`, a `404` on a grader's route, as an id that names nothing is).
+NO_ASSIGNMENT = "no open assignment of this labeller has that id"
+
+
+def check_user_id(user: Any) -> str:
+    """`user` when it is a person's user id (`accounts.person_id`); a `MendariError` that never
+    repeats what was given otherwise."""
+    if not (isinstance(user, str) and accounts.USER_ID.fullmatch(user)):
+        raise MendariError(
+            "a labeller is named by their user id (user: and 16 hex digits), as the members "
+            "list shows it"
+        )
+    return user
+
+
+def user_ids(labellers: Sequence[str], *, at_least: int) -> list[str]:
+    """The labellers given, each a user id, sorted and each once; at least `at_least` of them."""
+    if isinstance(labellers, str):
+        labellers = [labellers]
+    users = sorted({check_user_id(user) for user in labellers})
+    if len(users) < at_least:
+        raise MendariError(f"give at least {at_least} different labellers (their user ids)")
+    return users
+
+
+def labeller_membership(db: Session, org: str, user_id: str) -> Mapping[str, Any] | None:
+    """`user_id`'s membership of `org` in force when it holds the `labeller` role and no role
+    that administers the organization (`accounts.CURATING`); None otherwise."""
+    row = db.one(
+        "SELECT id, roles FROM memberships WHERE org = ? AND user_id = ? AND removed_at IS NULL",
+        (org, user_id),
+    )
+    if row is None:
+        return None
+    roles = set(json.loads(row["roles"]))
+    if accounts.LABELLER not in roles or roles & set(accounts.CURATING):
+        return None
+    return row
+
+
+def labeller_in(db: Session, org: str, user: str) -> str:
+    """The id of the membership `user` grades `org`'s rounds on; a `MendariError` saying why not:
+    they administer `org` (separation of duties), or hold no labeller role there."""
+    row = db.one(
+        "SELECT id, roles FROM memberships WHERE org = ? AND user_id = ? AND removed_at IS NULL",
+        (org, user),
+    )
+    roles = set(json.loads(row["roles"])) if row is not None else set()
+    if roles & set(accounts.CURATING):
+        raise MendariError(
+            f"{user} administers {org}: who manages the organization is never assigned its items"
+        )
+    if row is None or accounts.LABELLER not in roles:
+        raise MendariError(f"{user} holds no labeller role on a membership in force in {org}")
+    return str(row["id"])
 
 
 def report_hash(report: Any) -> str | None:
@@ -166,10 +220,10 @@ def grade_ref(
     return hashlib.sha256(_GRADE_PREFIX + salt + _canonical(said).encode()).hexdigest()
 
 
-def rubric_header(pack: Pack, rubric_name: str) -> dict[str, Any]:
+def rubric_header(agent: Agent, rubric_name: str) -> dict[str, Any]:
     """What a round keeps of its rubric, in the clear: the manifest's own words, as a grader
     reads them (`next_item`), and the hash grades are bound to."""
-    manifest = pack.manifest
+    manifest = agent.manifest
     rubric = manifest.rubrics[rubric_name]
     output = manifest.outputs[rubric.output]
     return {
@@ -194,9 +248,8 @@ def rubric_header(pack: Pack, rubric_name: str) -> dict[str, Any]:
 
 def _grades_problem(values: Any, criteria: Mapping[str, Sequence[str]]) -> str | None:
     """Why `values` are not grades of a rubric with `criteria` (each with its levels): a
-    criterion it does not have, one ungraded, or a grade not among a criterion's levels. As
-    `evalsets.label_problem`, in a rubric's words: it names criteria (the manifest's own), never
-    a value given."""
+    criterion it does not have, one ungraded, or a grade not among a criterion's levels. It
+    names criteria (the manifest's own), never a value given."""
     if not isinstance(values, Mapping):
         return "grades are a mapping of each criterion to one of its levels"
     if any(key not in criteria for key in values):
@@ -234,7 +287,7 @@ class WrittenStore:
     def create_round(
         self,
         org: str,
-        pack: Pack,
+        agent: Agent,
         rubric_name: str,
         run: written.WrittenRun,
         *,
@@ -242,7 +295,7 @@ class WrittenStore:
         seed: int = 0,
         created_by: str,
     ) -> dict[str, Any]:
-        """A new open round of `org` from one run of `pack` on its rubric: `sample` of the run's
+        """A new open round of `org` from one run of `agent` on its rubric: `sample` of the run's
         outputs, drawn with `seed` and kept in the run's order, each with its context; the
         run's ledger whole. `seed` is the round's from then on, chained with its making: its
         assignments' draws and its report's bootstrap use it, so neither is chosen later. The
@@ -261,13 +314,13 @@ class WrittenStore:
             )
         if phi.mode == "off":
             self.store.refuse_plaintext()
-        if rubric_name not in pack.manifest.rubrics:
-            raise MendariError(f"{pack.id} has no rubric {rubric_name!r}")
+        if rubric_name not in agent.manifest.rubrics:
+            raise MendariError(f"{agent.id} has no rubric {rubric_name!r}")
         if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
             raise MendariError("the seed is a whole number, 0 or more")
-        header = {**rubric_header(pack, rubric_name), "seed": seed}
+        header = {**rubric_header(agent, rubric_name), "seed": seed}
         said = run.ledger.header
-        if said["pack"].get("digest") != pack.digest or said["rubric"].get("name") != rubric_name:
+        if said["agent"].get("digest") != agent.digest or said["rubric"].get("name") != rubric_name:
             raise MendariError("the run is of another agent or rubric than the round's")
         if said["rubric"].get("sha256") != header["rubric_sha256"]:
             raise MendariError("the run was made under another wording of the rubric")
@@ -300,14 +353,14 @@ class WrittenStore:
             else:
                 self.store._refuse_retired(db)
             db.all(
-                "INSERT INTO written_rounds (id, org, pack_id, pack_digest, rubric, "
+                "INSERT INTO written_rounds (id, org, agent_id, agent_digest, rubric, "
                 "rubric_sha256, header, ledger, state, created_by, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     round_id,
                     org,
-                    pack.id,
-                    pack.digest,
+                    agent.id,
+                    agent.digest,
                     rubric_name,
                     header["rubric_sha256"],
                     _canonical(header),
@@ -328,8 +381,8 @@ class WrittenStore:
             _add_usage(db, org, "evaluation", run.usage)
             payload = {
                 "round": round_id,
-                "pack_id": pack.id,
-                "pack_digest": pack.digest,
+                "agent_id": agent.id,
+                "agent_digest": agent.digest,
                 "rubric": rubric_name,
                 "rubric_sha256": header["rubric_sha256"],
                 "ledger": run.ledger.id,
@@ -368,7 +421,7 @@ class WrittenStore:
         `ceil(double x items)` seeded items a second, different one. Loads are balanced, ties by
         a seeded rank; the seed is the round's own (`create_round`). Each grader holds the
         `labeller` role on a membership in force in the round's organization and no role that
-        manages its sets; a second grader needs two graders. Open assignments whose membership
+        administers it; a second grader needs two graders. Open assignments whose membership
         no longer holds are withdrawn first, and their items given again. An item that already
         has its graders gets none. Returns ids and counts, never which items are graded twice."""
         if isinstance(double, bool) or not isinstance(double, int | float):
@@ -467,7 +520,8 @@ class WrittenStore:
 
     def _withdraw(self, db: Session, round_id: str, org: str) -> int:
         """End a round's open assignments whose membership no longer holds (ended, replaced, or
-        no longer a labeller's without a curating role): their items are then given to others."""
+        no longer a labeller's without an administrator's role): their items are then given to
+        others."""
         stale = [
             str(row["id"])
             for row in db.all(
@@ -591,18 +645,11 @@ class WrittenStore:
 
     # -- reads: ids and counts ---------------------------------------------------------------------
 
-    def _has_tables(self, db: Session) -> bool:
-        """Whether this database has the rounds' tables: one from before them, read as it is,
-        has none, and reads as holding no round."""
-        return bool(db.columns("written_rounds"))
-
     def progress(self, round_id: str, *, org: str | None = None) -> dict[str, Any]:
         """A round's labelling so far: its state, its items (and how many texts are erased), its
         assignments by state, and each grader's by user id. Counts only: no grade, and never
         which items have two graders."""
         with self.store._db.session(exclusive=False) as db:
-            if not self._has_tables(db):
-                raise NoRound(NO_ROUND)
             found = self._round(db, round_id, org)
             items = db.all("SELECT id, body FROM written_items WHERE round_id = ?", (round_id,))
             rows = db.all(
@@ -635,7 +682,7 @@ class WrittenStore:
             "graders": dict(sorted(graders.items())),
         }
 
-    def rounds(self, org: str | None, pack_id: str | None = None) -> list[dict[str, Any]]:
+    def rounds(self, org: str | None, agent_id: str | None = None) -> list[dict[str, Any]]:
         """`org`'s rounds (every organization's, if None: the command line), oldest first,
         optionally one agent's: ids, the rubric and its hash, the state, times, counts and,
         once closed, the stored report. Never a text, a context or a single grade.
@@ -646,17 +693,15 @@ class WrittenStore:
         served: `report` is null and `note` says why. A round left `closing` says so in `note`
         too, with how to finish it."""
         with self.store._db.session(exclusive=False) as db:
-            if not self._has_tables(db):
-                return []
             where, params = [], []
             if org is not None:
                 where.append("r.org = ?")
                 params.append(org)
-            if pack_id is not None:
-                where.append("r.pack_id = ?")
-                params.append(pack_id)
+            if agent_id is not None:
+                where.append("r.agent_id = ?")
+                params.append(agent_id)
             rows = db.all(
-                "SELECT r.id, r.org, r.pack_id, r.pack_digest, r.rubric, r.rubric_sha256, "
+                "SELECT r.id, r.org, r.agent_id, r.agent_digest, r.rubric, r.rubric_sha256, "
                 "r.state, r.created_by, r.created_at, r.closed_at, r.report, "
                 "(SELECT count(*) FROM written_items i WHERE i.round_id = r.id) AS items, "
                 "(SELECT count(*) FROM written_assignments a WHERE a.round_id = r.id "
@@ -688,8 +733,8 @@ class WrittenStore:
             {
                 "id": str(row["id"]),
                 "org": str(row["org"]),
-                "pack_id": str(row["pack_id"]),
-                "pack_digest": str(row["pack_digest"]),
+                "agent_id": str(row["agent_id"]),
+                "agent_digest": str(row["agent_digest"]),
                 "rubric": str(row["rubric"]),
                 "rubric_sha256": str(row["rubric_sha256"]),
                 "state": str(row["state"]),
@@ -852,8 +897,6 @@ class WrittenStore:
         if not (isinstance(user_id, str) and accounts.USER_ID.fullmatch(user_id)):
             return {"sets": [], "remaining": 0}
         with self.store._db.session(exclusive=False) as db:
-            if not self._has_tables(db):
-                return {"sets": [], "remaining": 0}
             membership = labeller_membership(db, org, user_id)
             if membership is None:
                 return {"sets": [], "remaining": 0}
@@ -887,8 +930,6 @@ class WrittenStore:
         if not _is_uuid(assignment_id):
             return None
         with self.store._db.session(exclusive=False) as db:
-            if not self._has_tables(db):
-                return None
             row = db.one(
                 "SELECT round_id FROM written_assignments WHERE id = ? AND user_id = ? AND org = ?",
                 (assignment_id, user_id, org),

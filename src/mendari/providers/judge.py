@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The model judge of a rubric (spec 0.4 section 18.2, ADR-0025): one object that grades a
+"""The model judge of a rubric (spec section 15.4, ADR-0025): one object that grades a
 written text against a rubric's criteria and raises nothing for an expected failure.
 
 The judge is the `llm` provider asked the rubric's criteria as its questions: the deployment's
@@ -25,10 +25,10 @@ from typing import Any, Literal
 
 import httpx
 
+from mendari.core.agent import Agent
 from mendari.core.origin import deployment_config
-from mendari.core.pack import Pack
 from mendari.core.spec import Rubric, RubricCriterion
-from mendari.errors import MendariError, PackValidationError, ProviderError
+from mendari.errors import AgentValidationError, MendariError, ProviderError
 from mendari.providers import fixture
 from mendari.providers.base import ProviderInfo, read_problems
 from mendari.providers.llm import MODEL_ENV, MODEL_PATTERN, LlmProvider, system_prompt
@@ -78,24 +78,23 @@ class _JudgeLlm(LlmProvider):
 
 
 class Judge:
-    """The judge of one rubric of one agent. `mode`: `auto` asks a model when one is set and the
-    agent is not a community agent, and reads the canned grades otherwise; `canned` and `live`
-    force either."""
+    """The judge of one rubric of one agent. `mode`: `auto` asks a model when one is set, and
+    reads the canned grades otherwise; `canned` and `live` force either."""
 
     def __init__(
         self,
-        pack: Pack,
+        agent: Agent,
         rubric_name: str,
         *,
         mode: Mode = "auto",
         client: httpx.Client | None = None,
         budget: Callable[[str], None] | None = None,
     ):
-        manifest = pack.manifest
+        manifest = agent.manifest
         rubric = manifest.rubrics.get(rubric_name)
         if rubric is None:
-            raise MendariError(f"{pack.id} has no rubric {rubric_name!r}")
-        self.pack = pack
+            raise MendariError(f"{agent.id} has no rubric {rubric_name!r}")
+        self.agent = agent
         self.name = rubric_name
         self.rubric: Rubric = rubric
         self.criteria: dict[str, RubricCriterion] = dict(rubric.criteria)
@@ -108,13 +107,13 @@ class Judge:
             "state_fields": ["written", "context"],
             "batch": False,
         }
-        if pack.bounded:
+        if agent.bounded:
             # An agent the deployment does not own: the deployment chooses the model, and its
             # caps hold the judge as they hold the agent's own `llm` variants.
-            config = deployment_config(config, store=pack.origin == "store")
+            config = deployment_config(config, store=agent.origin == "store")
         model = config.get("model") if isinstance(config.get("model"), str) else None
         info = ProviderInfo(slot=SLOT, variant=rubric_name, type=LlmProvider.type, model=model)
-        self._llm = _JudgeLlm(pack, info, self.criteria, config, client=client)
+        self._llm = _JudgeLlm(agent, info, self.criteria, config, client=client)
         self._llm.preamble = self.preamble
         if budget is not None:
             self._llm.use_budget(budget)
@@ -123,7 +122,7 @@ class Judge:
             raise ProviderError(
                 "not_configured", f"set {MODEL_ENV} or the rubric's judge.model: no judge model"
             )
-        self.canned = mode == "canned" or (mode == "auto" and (not configured or pack.community))
+        self.canned = mode == "canned" or (mode == "auto" and not configured)
         self._fixture: dict[str, Any] | None = None
         if self.canned:
             if rubric.judge.mock_file is None:
@@ -132,10 +131,10 @@ class Judge:
                     "rubric's judge.model) for a model judge, or give the rubric a judge.mock_file "
                     "of canned grades"
                 )
-            problems = fixture_problems(pack, rubric_name)
+            problems = fixture_problems(agent, rubric_name)
             if problems:
-                raise PackValidationError(pack.id, problems)
-            self._fixture = _read(pack, rubric.judge.mock_file)
+                raise AgentValidationError(agent.id, problems)
+            self._fixture = _read(agent, rubric.judge.mock_file)
 
     @property
     def model(self) -> str | None:
@@ -220,11 +219,11 @@ def configured_model(rubric: Rubric) -> str | None:
     return rubric.judge.model or os.environ.get(MODEL_ENV, "").strip() or None
 
 
-def _read(pack: Pack, relative: str) -> Any:
+def _read(agent: Agent, relative: str) -> Any:
     return (
-        pack.read_yaml(relative)
+        agent.read_yaml(relative)
         if relative.endswith((".yaml", ".yml"))
-        else pack.read_json(relative)
+        else agent.read_json(relative)
     )
 
 
@@ -233,25 +232,25 @@ def _grades(holder: Any) -> dict[str, str]:
     return dict(grades) if isinstance(grades, dict) else {}
 
 
-def rubric_problems(pack: Pack) -> list[str]:
-    """Why any rubric of `pack` could not be judged from its canned fixture, as far as its files
+def rubric_problems(agent: Agent) -> list[str]:
+    """Why any rubric of `agent` could not be judged from its canned fixture, as far as its files
     say: each `judge.mock_file` reads, has the fixture's shape, grades only the rubric's criteria
     with their levels, and its `default` grades every criterion. Each problem names
     `rubrics.<name>.judge.mock_file` first, never a text of the fixture."""
     problems: list[str] = []
-    for name in pack.manifest.rubrics:
-        problems += fixture_problems(pack, name)
+    for name in agent.manifest.rubrics:
+        problems += fixture_problems(agent, name)
     return problems
 
 
-def fixture_problems(pack: Pack, rubric_name: str) -> list[str]:
+def fixture_problems(agent: Agent, rubric_name: str) -> list[str]:
     """`rubric_problems` for one rubric; nothing for a rubric with no fixture."""
-    rubric = pack.manifest.rubrics[rubric_name]
+    rubric = agent.manifest.rubrics[rubric_name]
     relative = rubric.judge.mock_file
     if relative is None:
         return []
     where = f"rubrics.{rubric_name}.judge.mock_file: {relative}"
-    data, problems = read_problems(lambda: _read(pack, relative))
+    data, problems = read_problems(lambda: _read(agent, relative))
     if problems:
         return [f"{where}: {problem}" for problem in problems]
     if not isinstance(data, dict):

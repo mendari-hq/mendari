@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Signed pack archives (hub/archive.py): reproducible, tamper-evident, safe to open."""
+"""Signed agent archives (hub/archive.py): reproducible, tamper-evident, safe to open."""
 
 from __future__ import annotations
 
@@ -17,12 +17,13 @@ from pathlib import Path
 import pytest
 
 from mendari.cli import main
-from mendari.core.pack import PatternsRefused, load_pack
-from mendari.core.registry import resolve_pack
+from mendari.core.agent import PatternsRefused, load_agent
 from mendari.errors import HubError
 from mendari.hub import archive
+from tests.conftest import TRIAGE_DIR
+from tests.support.registry import ROUTER_RULES, with_lookahead
 
-REFERRAL = resolve_pack("mendari/referral-router")
+TRIAGE = load_agent(TRIAGE_DIR)  # a reference agent of the suite's release
 
 
 @pytest.fixture(scope="module")
@@ -39,7 +40,7 @@ def members(data: bytes) -> list[tuple[str, bytes]]:
         return [(m.name, tar.extractfile(m).read()) for m in tar if m.isreg()]  # type: ignore[union-attr]
 
 
-def repack(entries: list[tuple[str, bytes]], *, kind: bytes = tarfile.REGTYPE) -> bytes:
+def rearchive(entries: list[tuple[str, bytes]], *, kind: bytes = tarfile.REGTYPE) -> bytes:
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w") as tar:
         for name, data in entries:
@@ -50,106 +51,107 @@ def repack(entries: list[tuple[str, bytes]], *, kind: bytes = tarfile.REGTYPE) -
     return gzip.compress(raw.getvalue())
 
 
-def test_the_same_pack_gives_the_same_archive(key: archive.Ed25519PrivateKey) -> None:
-    assert archive.build(REFERRAL, key) == archive.build(REFERRAL, key)
+def test_the_same_agent_gives_the_same_archive(key: archive.Ed25519PrivateKey) -> None:
+    assert archive.build(TRIAGE, key) == archive.build(TRIAGE, key)
 
 
-def test_an_archive_verifies_and_extracts_to_the_same_pack(
+def test_an_archive_verifies_and_extracts_to_the_same_agent(
     key: archive.Ed25519PrivateKey, tmp_path: Path
 ) -> None:
-    verified = archive.verify(archive.build(REFERRAL, key), trusted(key))
-    assert verified.manifest["id"] == "mendari/referral-router"
+    verified = archive.verify(archive.build(TRIAGE, key), trusted(key))
+    assert verified.manifest["id"] == TRIAGE.id
     assert "DECISION_CARD.md" in verified.files  # attestations are signed too
-    pack = archive.extract(verified, tmp_path / "pack", origin="hub")
-    assert (pack.id, pack.version, pack.digest) == (REFERRAL.id, REFERRAL.version, REFERRAL.digest)
-    assert pack.origin == "hub" and not pack.bounded  # the reference pack of this release
+    agent = archive.extract(verified, tmp_path / "agent", origin="hub")
+    assert (agent.id, agent.version, agent.digest) == (TRIAGE.id, TRIAGE.version, TRIAGE.digest)
+    assert agent.origin == "hub" and not agent.bounded  # the reference agent of this release
 
 
 def test_extract_needs_an_origin(key: archive.Ed25519PrivateKey, tmp_path: Path) -> None:
     """No default: every caller names the engine an archive is checked on (LP-16, ADR-0009)."""
-    verified = archive.verify(archive.build(REFERRAL, key), trusted(key))
+    verified = archive.verify(archive.build(TRIAGE, key), trusted(key))
     with pytest.raises(TypeError, match="origin"):
-        archive.extract(verified, tmp_path / "pack")  # type: ignore[call-arg]
-    assert not (tmp_path / "pack").exists()
+        archive.extract(verified, tmp_path / "agent")  # type: ignore[call-arg]
+    assert not (tmp_path / "agent").exists()
 
 
-def changed_referral(tmp_path: Path, version: str | None = None) -> Path:
-    """The referral pack with one more line in its rules, at `version` (its own unless given)."""
+def changed_triage(tmp_path: Path, version: str | None = None) -> Path:
+    """The triage fixture with one more line in its router's rules, at `version` (its own unless
+    given)."""
     root = tmp_path / "changed"
-    shutil.copytree(REFERRAL.root, root)
-    rules = root / "logic" / "triage_rules.yaml"
+    shutil.copytree(TRIAGE.root, root)
+    rules = root / ROUTER_RULES
     rules.write_text(rules.read_text() + "# one more line\n")
     if version is not None:
         manifest = root / "agent.yaml"
         manifest.write_text(
-            manifest.read_text().replace(f"version: {REFERRAL.version}", f"version: {version}", 1)
+            manifest.read_text().replace(f"version: {TRIAGE.version}", f"version: {version}", 1)
         )
     return root
 
 
-def test_extract_on_the_hub_engine_refuses_a_changed_reference_pack(
+def test_extract_on_the_hub_engine_refuses_a_changed_reference_agent(
     key: archive.Ed25519PrivateKey, tmp_path: Path
 ) -> None:
-    """One changed byte makes the referral pack a pack the deployment does not own: on RE2 its
-    lookahead cannot run, so the archive (at a new version: at its own it is a shadow, refused
-    first) does not extract as a pack from a registry."""
-    root = changed_referral(tmp_path, "9.9.9")
-    changed = load_pack(root)
+    """A changed rule makes the triage fixture an agent the deployment does not own: on RE2 the
+    lookahead the change added cannot run, so the archive (at a new version: at its own it is a
+    shadow, refused first) does not extract as an agent from a registry."""
+    root = with_lookahead(changed_triage(tmp_path, "9.9.9"))
+    changed = load_agent(root)
     verified = archive.verify(archive.build(changed, key), trusted(key))
     with pytest.raises(PatternsRefused) as refused:
-        archive.extract(verified, tmp_path / "pack", origin="hub")
+        archive.extract(verified, tmp_path / "agent", origin="hub")
     assert any("lookahead" in problem for problem in refused.value.problems)
-    pack = archive.extract(verified, tmp_path / "local", origin="local")  # an operator's own
-    assert pack.digest == changed.digest and not pack.bounded
+    agent = archive.extract(verified, tmp_path / "local", origin="local")  # an operator's own
+    assert agent.digest == changed.digest and not agent.bounded
 
 
-def test_pack_verify_checks_an_archive_as_a_puller_loads_it(
+def test_agent_verify_checks_an_archive_as_a_puller_loads_it(
     key: archive.Ed25519PrivateKey, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`mendari pack verify` loads an archive on the engine a puller runs it on: a signed copy of
-    the referral pack with one changed byte (at a new version) fails, naming the lookahead and
-    why; the reference pack itself passes."""
-    root = changed_referral(tmp_path, "9.9.9")
+    """`mendari archive verify` loads an archive on the engine a puller runs it on: a signed copy of
+    the triage fixture with a lookahead added (at a new version) fails, naming the pattern and
+    why; the reference agent itself passes."""
+    root = with_lookahead(changed_triage(tmp_path, "9.9.9"))
     public = tmp_path / "publisher.pub"
     public.write_bytes(archive.public_pem(key.public_key()))
-    changed = tmp_path / "changed.ohpack"
-    changed.write_bytes(archive.build(load_pack(root), key))
-    assert main(["pack", "verify", str(changed), "--public-key", str(public)]) != 0
+    changed = tmp_path / "changed.mendari"
+    changed.write_bytes(archive.build(load_agent(root), key))
+    assert main(["archive", "verify", str(changed), "--public-key", str(public)]) != 0
     err = capsys.readouterr().err
-    assert "lookahead" in err and "not the copy of it in this release" in err
+    assert "a-refill-not-a-question" in err and "lookahead" in err
     assert "Traceback" not in err
-    reference = tmp_path / "reference.ohpack"
-    reference.write_bytes(archive.build(REFERRAL, key))
-    assert main(["pack", "verify", str(reference), "--public-key", str(public)]) == 0
-    assert f"OK {REFERRAL.id}@{REFERRAL.version} {REFERRAL.digest}" in capsys.readouterr().out
+    reference = tmp_path / "reference.mendari"
+    reference.write_bytes(archive.build(TRIAGE, key))
+    assert main(["archive", "verify", str(reference), "--public-key", str(public)]) == 0
+    assert f"OK {TRIAGE.id}@{TRIAGE.version} {TRIAGE.digest}" in capsys.readouterr().out
 
 
-def test_pack_verify_refuses_a_shadow_without_a_traceback(
+def test_agent_verify_refuses_a_shadow_without_a_traceback(
     key: archive.Ed25519PrivateKey, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """F: a signed copy of the referral pack with one changed byte at the reference pack's own
-    version would take its place where it is pulled: `mendari pack verify` fails, saying why."""
+    """F: a signed copy of the triage fixture with one changed byte at the reference agent's own
+    version would take its place where it is pulled: `mendari archive verify` fails, saying why."""
     public = tmp_path / "publisher.pub"
     public.write_bytes(archive.public_pem(key.public_key()))
-    shadow = tmp_path / "shadow.ohpack"
-    shadow.write_bytes(archive.build(load_pack(changed_referral(tmp_path)), key))
-    assert main(["pack", "verify", str(shadow), "--public-key", str(public)]) != 0
+    shadow = tmp_path / "shadow.mendari"
+    shadow.write_bytes(archive.build(load_agent(changed_triage(tmp_path)), key))
+    assert main(["archive", "verify", str(shadow), "--public-key", str(public)]) != 0
     err = capsys.readouterr().err
-    shadowed = f"{REFERRAL.id}@{REFERRAL.version}"
+    shadowed = f"{TRIAGE.id}@{TRIAGE.version}"
     assert f"{shadowed} has the id and version of an agent this release bundles" in err
     assert "never takes a bundled agent's place" in err and "remove" not in err
     assert "Traceback" not in err
 
 
 def test_a_changed_file_is_caught(key: archive.Ed25519PrivateKey) -> None:
-    entries = members(archive.build(REFERRAL, key))
-    entries = [(n, d + b"#" if n == "pack/agent.yaml" else d) for n, d in entries]
+    entries = members(archive.build(TRIAGE, key))
+    entries = [(n, d + b"#" if n == "agent/agent.yaml" else d) for n, d in entries]
     with pytest.raises(HubError, match=r"agent\.yaml does not match the manifest"):
-        archive.verify(repack(entries), trusted(key))
+        archive.verify(rearchive(entries), trusted(key))
 
 
 def test_a_changed_manifest_breaks_the_signature(key: archive.Ed25519PrivateKey) -> None:
-    entries = members(archive.build(REFERRAL, key))
+    entries = members(archive.build(TRIAGE, key))
     manifest = json.loads(entries[0][1])
     manifest["version"] = "9.9.9"
     entries[0] = (
@@ -157,42 +159,42 @@ def test_a_changed_manifest_breaks_the_signature(key: archive.Ed25519PrivateKey)
         json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode(),
     )
     with pytest.raises(HubError, match="signature does not match"):
-        archive.verify(repack(entries), trusted(key))
+        archive.verify(rearchive(entries), trusted(key))
 
 
 def test_an_untrusted_key_is_refused(key: archive.Ed25519PrivateKey) -> None:
     other = archive.load_private_key(archive.generate_key()[0])
     with pytest.raises(HubError, match="not trusted"):
-        archive.verify(archive.build(REFERRAL, other), trusted(key))
+        archive.verify(archive.build(TRIAGE, other), trusted(key))
 
 
 def test_a_file_the_manifest_does_not_list_is_refused(key: archive.Ed25519PrivateKey) -> None:
-    entries = [*members(archive.build(REFERRAL, key)), ("pack/extra.py", b"print('hi')")]
+    entries = [*members(archive.build(TRIAGE, key)), ("agent/extra.py", b"print('hi')")]
     with pytest.raises(HubError, match="not the files its manifest lists"):
-        archive.verify(repack(entries), trusted(key))
+        archive.verify(rearchive(entries), trusted(key))
 
 
 @pytest.mark.parametrize(
-    "name", ["/etc/passwd", "pack/../../evil", "other/file", "pack/.hidden", "pack\\\\x"]
+    "name", ["/etc/passwd", "agent/../../evil", "other/file", "agent/.hidden", "agent\\\\x"]
 )
-def test_paths_outside_the_pack_are_refused(key: archive.Ed25519PrivateKey, name: str) -> None:
-    entries = [*members(archive.build(REFERRAL, key)), (name, b"x")]
+def test_paths_outside_the_agent_are_refused(key: archive.Ed25519PrivateKey, name: str) -> None:
+    entries = [*members(archive.build(TRIAGE, key)), (name, b"x")]
     with pytest.raises(HubError, match="not a path inside the agent"):
-        archive.verify(repack(entries), trusted(key))
+        archive.verify(rearchive(entries), trusted(key))
 
 
 def signed_with(key: archive.Ed25519PrivateKey, name: str, data: bytes) -> bytes:
-    """The referral pack's archive plus one more entry `name`, listed in the manifest (as
+    """The triage fixture's archive plus one more entry `name`, listed in the manifest (as
     `verify` would read it) and signed: only the name check stands in the way."""
     return signed_with_all(key, [(name, data)])
 
 
 def signed_with_all(key: archive.Ed25519PrivateKey, extra: list[tuple[str, bytes]]) -> bytes:
-    entries = members(archive.build(REFERRAL, key))
+    entries = members(archive.build(TRIAGE, key))
     manifest = json.loads(entries[0][1])
     manifest["files"] += [
         {
-            "path": name.removeprefix("pack/"),
+            "path": name.removeprefix("agent/"),
             "sha256": hashlib.sha256(data).hexdigest(),
             "size": len(data),
         }
@@ -204,7 +206,7 @@ def signed_with_all(key: archive.Ed25519PrivateKey, extra: list[tuple[str, bytes
         "key_id": archive.key_id(key.public_key()),
         "signature": base64.b64encode(key.sign(manifest_bytes)).decode(),
     }
-    return repack(
+    return rearchive(
         [
             (archive.MANIFEST, manifest_bytes),
             (archive.SIGNATURE, json.dumps(signature).encode()),
@@ -217,11 +219,11 @@ def signed_with_all(key: archive.Ed25519PrivateKey, extra: list[tuple[str, bytes
 @pytest.mark.parametrize(
     "names",
     [
-        ["pack/AGENT.yaml"],
-        ["pack/LOGIC"],
-        ["pack/caf\u00e9.md", "pack/cafe\u0301.md"],
-        ["pack/A", "pack/a/x.yaml"],
-        ["pack/Stra\u00dfe.md", "pack/STRASSE.md"],
+        ["agent/AGENT.yaml"],
+        ["agent/LOGIC"],
+        ["agent/caf\u00e9.md", "agent/cafe\u0301.md"],
+        ["agent/A", "agent/a/x.yaml"],
+        ["agent/Stra\u00dfe.md", "agent/STRASSE.md"],
     ],
     ids=["case", "file-and-directory", "nfc-nfd", "file-then-directory", "casefold"],
 )
@@ -237,10 +239,10 @@ def test_names_that_are_one_file_where_case_is_not_significant_are_refused(
     data = signed_with_all(key, [(name, b"x: 1\n") for name in names])
     with pytest.raises(HubError, match="where case and Unicode normalization"):
         archive.verify(data, trusted(key))
-    built, public = tmp_path / "odd.ohpack", tmp_path / "publisher.pub"
+    built, public = tmp_path / "odd.mendari", tmp_path / "publisher.pub"
     built.write_bytes(data)
     public.write_bytes(archive.public_pem(key.public_key()))
-    assert main(["pack", "verify", str(built), "--public-key", str(public)]) == 1
+    assert main(["archive", "verify", str(built), "--public-key", str(public)]) == 1
     err = capsys.readouterr().err
     assert "where case and Unicode normalization" in err and "Traceback" not in err
 
@@ -249,19 +251,19 @@ def test_a_file_extract_cannot_write_is_a_hub_error(
     key: archive.Ed25519PrivateKey, tmp_path: Path
 ) -> None:
     """An OSError while writing (here a file where a directory goes) is a HubError naming the
-    file, which `mendari pull` and `pack verify` report, never a traceback."""
-    good = archive.verify(archive.build(REFERRAL, key), trusted(key))
+    file, which `mendari pull` and `agent verify` report, never a traceback."""
+    good = archive.verify(archive.build(TRIAGE, key), trusted(key))
     files = {**good.files, "A": b"x", "A/x.yaml": b"y"}
     odd = archive.Verified(good.manifest, files, good.key_id, good.sha256)
     with pytest.raises(HubError, match=r"A/x\.yaml: cannot be written \("):
-        archive.extract(odd, tmp_path / "pack", origin="hub")
+        archive.extract(odd, tmp_path / "agent", origin="hub")
 
 
-@pytest.mark.parametrize("name", ["pack/{outside}", "pack/a//b", "pack/./x", "pack/x/"])
+@pytest.mark.parametrize("name", ["agent/{outside}", "agent/a//b", "agent/./x", "agent/x/"])
 def test_names_with_empty_or_dot_segments_are_refused(
     key: archive.Ed25519PrivateKey, tmp_path: Path, name: str
 ) -> None:
-    # `pack//<absolute path>` once passed (a path library reads it as `pack/<path>`) and was
+    # `agent//<absolute path>` once passed (a path library reads it as `agent/<path>`) and was
     # written at the absolute path: a file anywhere on the registry host or a puller's machine.
     outside = tmp_path / "outside" / "pwned.txt"
     name = name.format(outside=outside.as_posix())
@@ -275,23 +277,23 @@ def test_extract_writes_nothing_outside_the_destination(
     key: archive.Ed25519PrivateKey, tmp_path: Path, path: str
 ) -> None:
     outside = tmp_path / "outside" / "pwned.txt"
-    good = archive.verify(archive.build(REFERRAL, key), trusted(key))
+    good = archive.verify(archive.build(TRIAGE, key), trusted(key))
     files = {**good.files, path.format(outside=outside.as_posix()): b"x"}
     evil = archive.Verified(good.manifest, files, good.key_id, good.sha256)
     with pytest.raises(HubError, match="not a path inside the agent"):
-        archive.extract(evil, tmp_path / "dest" / "pack", origin="hub")
+        archive.extract(evil, tmp_path / "dest" / "agent", origin="hub")
     assert not outside.exists() and not (tmp_path / "dest" / "escape.txt").exists()
-    assert not (tmp_path / "dest" / "pack" / "agent.yaml").exists()  # checked before any write
+    assert not (tmp_path / "dest" / "agent" / "agent.yaml").exists()  # checked before any write
 
 
 def test_links_are_refused(key: archive.Ed25519PrivateKey) -> None:
-    entries = [*members(archive.build(REFERRAL, key)), ("pack/link", b"")]
+    entries = [*members(archive.build(TRIAGE, key)), ("agent/link", b"")]
     with pytest.raises(HubError, match="only regular files"):
-        archive.verify(repack(entries, kind=tarfile.SYMTYPE), trusted(key))
+        archive.verify(rearchive(entries, kind=tarfile.SYMTYPE), trusted(key))
 
 
 def test_size_caps(key: archive.Ed25519PrivateKey, monkeypatch: pytest.MonkeyPatch) -> None:
-    data = archive.build(REFERRAL, key)
+    data = archive.build(TRIAGE, key)
     monkeypatch.setattr(archive, "MAX_FILE_BYTES", 1000)
     with pytest.raises(HubError, match="larger than 1000 bytes"):
         archive.verify(data, trusted(key))
@@ -311,9 +313,9 @@ def test_size_caps(key: archive.Ed25519PrivateKey, monkeypatch: pytest.MonkeyPat
     ids=["hard-link", "symlink", "character-device", "block-device", "fifo"],
 )
 def test_only_regular_files_are_read(key: archive.Ed25519PrivateKey, kind: bytes) -> None:
-    entries = [*members(archive.build(REFERRAL, key)), ("pack/special", b"")]
-    with pytest.raises(HubError, match="pack/special: only regular files"):
-        archive.verify(repack(entries, kind=kind), trusted(key))
+    entries = [*members(archive.build(TRIAGE, key)), ("agent/special", b"")]
+    with pytest.raises(HubError, match="agent/special: only regular files"):
+        archive.verify(rearchive(entries, kind=kind), trusted(key))
 
 
 def _sparse_archive(count: int, style: str) -> bytes:
@@ -323,13 +325,13 @@ def _sparse_archive(count: int, style: str) -> bytes:
     tar_format = tarfile.GNU_FORMAT if style == "gnu" else tarfile.PAX_FORMAT
     with tarfile.open(fileobj=raw, mode="w", format=tar_format) as tar:
         for i in range(count):
-            info = tarfile.TarInfo(f"pack/f{i}")
+            info = tarfile.TarInfo(f"agent/f{i}")
             data = b""
             if style == "pax-1.0":
                 info.pax_headers = {
                     "GNU.sparse.major": "1",
                     "GNU.sparse.minor": "0",
-                    "GNU.sparse.name": f"pack/f{i}",
+                    "GNU.sparse.name": f"agent/f{i}",
                     "GNU.sparse.realsize": real,
                 }
                 data = b"0\n".ljust(512, b"\0")  # a sparse map with no data blocks
@@ -349,7 +351,7 @@ def test_sparse_members_are_refused_before_anything_is_read(style: str) -> None:
     signature was checked)."""
     tracemalloc.start()
     try:
-        with pytest.raises(HubError, match="pack/f0: only regular files"):
+        with pytest.raises(HubError, match="agent/f0: only regular files"):
             archive.verify(_sparse_archive(20, style), {})
         peak = tracemalloc.get_traced_memory()[1]
     finally:
@@ -378,7 +380,7 @@ def _zeros_archive(count: int, mib: int) -> bytes:
 
     with tarfile.open(fileobj=Sink(), mode="w|", format=tarfile.USTAR_FORMAT) as tar:  # type: ignore[call-overload]
         for i in range(count):
-            info = tarfile.TarInfo(f"pack/zeros{i}")
+            info = tarfile.TarInfo(f"agent/zeros{i}")
             info.size = mib * 1024 * 1024
             tar.addfile(info, Zeros(info.size))
     return b"".join(out) + compressor.flush()
@@ -403,20 +405,20 @@ def test_a_gzip_bomb_is_refused_while_it_expands() -> None:
 def test_expansion_is_capped_by_ratio_and_in_all(
     key: archive.Ed25519PrivateKey, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    data = archive.build(REFERRAL, key)  # expands about 15 times
+    data = archive.build(TRIAGE, key)  # expands about 12 times, to about 220 KB
     monkeypatch.setattr(archive, "EXPANSION_FLOOR", 1024)
-    assert archive.verify(data, trusted(key)).manifest["id"] == REFERRAL.id
+    assert archive.verify(data, trusted(key)).manifest["id"] == TRIAGE.id
     monkeypatch.setattr(archive, "MAX_EXPANSION", 5)
     with pytest.raises(HubError, match="expands beyond the size cap"):
         archive.verify(data, trusted(key))
     monkeypatch.setattr(archive, "MAX_EXPANSION", 100)
-    monkeypatch.setattr(archive, "MAX_UNPACKED_BYTES", 1024 * 1024)
+    monkeypatch.setattr(archive, "MAX_UNPACKED_BYTES", 64 * 1024)
     with pytest.raises(HubError, match="expands beyond the size cap"):
         archive.verify(data, trusted(key))
 
 
 def test_a_truncated_archive_is_not_gzip(key: archive.Ed25519PrivateKey) -> None:
-    data = archive.build(REFERRAL, key)
+    data = archive.build(TRIAGE, key)
     with pytest.raises(HubError, match="not gzip"):
         archive.verify(data[: len(data) // 2], trusted(key))
 
@@ -427,8 +429,8 @@ def _signed_manifest(key: archive.Ed25519PrivateKey, manifest_bytes: bytes) -> b
         "key_id": archive.key_id(key.public_key()),
         "signature": base64.b64encode(key.sign(manifest_bytes)).decode(),
     }
-    entries = members(archive.build(REFERRAL, key))
-    return repack(
+    entries = members(archive.build(TRIAGE, key))
+    return rearchive(
         [
             (archive.MANIFEST, manifest_bytes),
             (archive.SIGNATURE, json.dumps(signature).encode()),
@@ -442,8 +444,8 @@ def _signed_manifest(key: archive.Ed25519PrivateKey, manifest_bytes: bytes) -> b
     [
         (b"[" * 100_000 + b"]" * 100_000, "not JSON"),
         (b"[]", "not a JSON object"),
-        (b'{"format": "mendari-pack/1", "files": {"a": 1}}', "does not list its files"),
-        (b'{"format": "mendari-pack/1", "files": [{"path": 1}]}', "does not list its files"),
+        (b'{"format": "mendari-agent/1", "files": {"a": 1}}', "does not list its files"),
+        (b'{"format": "mendari-agent/1", "files": [{"path": 1}]}', "does not list its files"),
     ],
     ids=["too-deep", "a-list", "files-not-a-list", "path-not-a-string"],
 )
@@ -469,27 +471,16 @@ def test_the_cli_generates_keys_builds_and_verifies(
     assert main(["keys", "generate", "--out", str(tmp_path)]) != 0  # never overwrites a key
     assert "not overwriting" in capsys.readouterr().err
     key = str(tmp_path / "publisher.key")
-    assert (
-        main(["pack", "build", "mendari/referral-router", "--key", key, "--out", str(tmp_path)])
-        == 0
-    )
+    assert main(["archive", "build", TRIAGE.id, "--key", key, "--out", str(tmp_path)]) == 0
     # An archive is written as `<namespace>-<name>-<version>.mendari`, and nothing else.
-    built = tmp_path / f"mendari-referral-router-{REFERRAL.version}.mendari"
-    assert archive.archive_name(REFERRAL) == built.name and archive.EXTENSION == ".mendari"
+    built = tmp_path / f"mendari-test-triage-{TRIAGE.version}.mendari"
+    assert archive.archive_name(TRIAGE) == built.name and archive.EXTENSION == ".mendari"
     assert [path.name for path in tmp_path.iterdir() if path.suffix not in (".key", ".pub")] == [
         built.name
     ]
     assert (
-        main(["pack", "verify", str(built), "--public-key", str(tmp_path / "publisher.pub")]) == 0
+        main(["archive", "verify", str(built), "--public-key", str(tmp_path / "publisher.pub")])
+        == 0
     )
-    shown = f"OK mendari/referral-router@{REFERRAL.version} {REFERRAL.digest}"
+    shown = f"OK {TRIAGE.id}@{TRIAGE.version} {TRIAGE.digest}"
     assert shown in capsys.readouterr().out
-    # One written before the rename, as `.ohpack`, is still read: the same bytes under the
-    # name they had verify the same (an archive is never read by its name).
-    former = built.with_suffix(archive.FORMER_EXTENSION)
-    assert former.name == f"mendari-referral-router-{REFERRAL.version}.ohpack"
-    former.write_bytes(built.read_bytes())
-    for command in ("archive", "pack"):
-        argv = [command, "verify", str(former), "--public-key", str(tmp_path / "publisher.pub")]
-        assert main(argv) == 0
-        assert shown in capsys.readouterr().out

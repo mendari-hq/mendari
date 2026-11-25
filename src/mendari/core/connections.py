@@ -48,7 +48,7 @@ from urllib.parse import urlsplit
 
 from mendari.core import accounts
 from mendari.core.audit import _now
-from mendari.core.spec import is_pack_id
+from mendari.core.spec import is_agent_id
 from mendari.errors import MendariError, ProviderError
 from mendari.providers import reach
 from mendari.providers.agent import Connection
@@ -204,10 +204,10 @@ def _org(org: str) -> str:
         raise ConnectionRefused(str(error)) from None
 
 
-def _agent(pack_id: str) -> str:
-    if not is_pack_id(pack_id):
+def _agent(agent_id: str) -> str:
+    if not is_agent_id(agent_id):
         raise ConnectionRefused("an agent is named namespace/name", 404)
-    return pack_id
+    return agent_id
 
 
 def _actor(by: str) -> str:
@@ -221,7 +221,7 @@ def _shown(row: Mapping[str, Any]) -> dict[str, Any]:
     """A connection as every read shows it: where it leads, who set it and when, and whether it
     carries a token (and who set that, and when). Never the token."""
     return {
-        "pack_id": row["pack_id"],
+        "agent_id": row["agent_id"],
         "endpoint": row["endpoint"],
         "origin": origin_of(str(row["endpoint"])),
         "token": "set" if row["token"] is not None else "none",
@@ -253,13 +253,13 @@ class ConnectionStore:
         """Whether this deployment can keep a token: it has a PHI key to seal it under."""
         return self.store.phi.mode == "encrypt" and bool(self.store.phi.key)
 
-    def get(self, org: str, pack_id: str) -> dict[str, Any] | None:
+    def get(self, org: str, agent_id: str) -> dict[str, Any] | None:
         """`org`'s connection for an agent, as it is shown; None when it has none (never set,
         or cleared). Never another organization's."""
         org = _org(org)
         with self.store._db.session(exclusive=False) as db:
             row = db.one(
-                "SELECT * FROM agent_connections WHERE org = ? AND pack_id = ?", (org, pack_id)
+                "SELECT * FROM agent_connections WHERE org = ? AND agent_id = ?", (org, agent_id)
             )
         return None if row is None or row["endpoint"] is None else _shown(row)
 
@@ -269,7 +269,7 @@ class ConnectionStore:
         with self.store._db.session(exclusive=False) as db:
             rows = db.all(
                 "SELECT * FROM agent_connections WHERE org = ? AND endpoint IS NOT NULL "
-                "ORDER BY pack_id",
+                "ORDER BY agent_id",
                 (org,),
             )
         return [_shown(row) for row in rows]
@@ -277,7 +277,7 @@ class ConnectionStore:
     def set(
         self,
         org: str,
-        pack_id: str,
+        agent_id: str,
         *,
         endpoint: str,
         by: str,
@@ -296,12 +296,12 @@ class ConnectionStore:
         not name it. Chained `agent_connection.origin_allowed` (the agent, the origin, who)
         before the connection's own event. Without it, an origin off the list is accepted only
         if one was allowed for this connection before and it is the same one."""
-        org, pack_id, by = _org(org), _agent(pack_id), _actor(by)
+        org, agent_id, by = _org(org), _agent(agent_id), _actor(by)
         with self.store._db.session(exclusive=False) as db:
             held = db.one(
-                "SELECT allowed_origin FROM agent_connections WHERE org = ? AND pack_id = ? "
+                "SELECT allowed_origin FROM agent_connections WHERE org = ? AND agent_id = ? "
                 "AND endpoint IS NOT NULL",
-                (org, pack_id),
+                (org, agent_id),
             )
         endpoint, origin, how = admitted(
             endpoint,
@@ -324,7 +324,7 @@ class ConnectionStore:
                 )
         with self.store._db.session(exclusive=True) as db:
             row = db.one(
-                "SELECT * FROM agent_connections WHERE org = ? AND pack_id = ?", (org, pack_id)
+                "SELECT * FROM agent_connections WHERE org = ? AND agent_id = ?", (org, agent_id)
             )
             connection_id = str(uuid.uuid4()) if row is None else str(row["id"])
             before = None if row is None else row["endpoint"]
@@ -342,7 +342,7 @@ class ConnectionStore:
                     self.store._refuse_retired(db)  # a retired key seals nothing more
                 except MendariError as error:
                     raise ConnectionRefused(str(error), 409) from None
-                sealed = self.store.phi.seal("connection", token, connection_id, org, pack_id)
+                sealed = self.store.phi.seal("connection", token, connection_id, org, agent_id)
                 set_by, set_at = by, now
             # What an operator allowed stays with its origin: kept while the connection is
             # still at it, given now, or gone. Read again under the lock: one allowed before,
@@ -368,10 +368,10 @@ class ConnectionStore:
                 assert row is not None
                 return _shown(row)
             db.all(
-                "INSERT INTO agent_connections (id, org, pack_id, endpoint, token, token_set_by, "
+                "INSERT INTO agent_connections (id, org, agent_id, endpoint, token, token_set_by, "
                 "token_set_at, changed_by, changed_at, allowed_origin, allowed_by, allowed_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT (org, pack_id) DO UPDATE SET endpoint = excluded.endpoint, "
+                "ON CONFLICT (org, agent_id) DO UPDATE SET endpoint = excluded.endpoint, "
                 "token = excluded.token, token_set_by = excluded.token_set_by, "
                 "token_set_at = excluded.token_set_at, changed_by = excluded.changed_by, "
                 "changed_at = excluded.changed_at, allowed_origin = excluded.allowed_origin, "
@@ -379,7 +379,7 @@ class ConnectionStore:
                 (
                     connection_id,
                     org,
-                    pack_id,
+                    agent_id,
                     endpoint,
                     sealed,
                     set_by,
@@ -390,7 +390,7 @@ class ConnectionStore:
                 ),
             )
             if how == ALLOWED and not kept:
-                granted = {"pack_id": pack_id, "origin": origin, "allowed_by": by}
+                granted = {"agent_id": agent_id, "origin": origin, "allowed_by": by}
                 self.store._append(
                     db,
                     f"agent_connection:{connection_id}",
@@ -398,7 +398,7 @@ class ConnectionStore:
                     self.store._bound("agent_connection.origin_allowed", granted, org),
                 )
             payload = {
-                "pack_id": pack_id,
+                "agent_id": agent_id,
                 "origin": origin,
                 "token": sealed is not None,
                 "changed_by": by,
@@ -411,16 +411,16 @@ class ConnectionStore:
         assert made is not None
         return _shown(made)
 
-    def clear(self, org: str, pack_id: str, *, by: str) -> None:
+    def clear(self, org: str, agent_id: str, *, by: str) -> None:
         """Clear `org`'s connection for an agent: its endpoint and its token are gone from the
         row (which stays: its events name it), with what an operator allowed for it, and the
         agent answers as it did before one was set. Chained `agent_connection.cleared`. A
         `ConnectionRefused` (404) when there is none."""
-        org, pack_id, by = _org(org), _agent(pack_id), _actor(by)
+        org, agent_id, by = _org(org), _agent(agent_id), _actor(by)
         with self.store._db.session(exclusive=True) as db:
             row = db.one(
-                "SELECT id, endpoint FROM agent_connections WHERE org = ? AND pack_id = ?",
-                (org, pack_id),
+                "SELECT id, endpoint FROM agent_connections WHERE org = ? AND agent_id = ?",
+                (org, agent_id),
             )
             if row is None or row["endpoint"] is None:
                 raise ConnectionRefused("this agent has no connection set here", 404)
@@ -431,13 +431,13 @@ class ConnectionStore:
                 (by, _now(), row["id"]),
             )
             chained = self.store._bound(
-                "agent_connection.cleared", {"pack_id": pack_id, "changed_by": by}, org
+                "agent_connection.cleared", {"agent_id": agent_id, "changed_by": by}, org
             )
             self.store._append(
                 db, f"agent_connection:{row['id']}", "agent_connection.cleared", chained
             )
 
-    def resolve(self, org: str, pack_id: str) -> Connection | None:
+    def resolve(self, org: str, agent_id: str) -> Connection | None:
         """What a live call of `org`'s for an agent uses: its endpoint and its token, opened;
         None when it has no connection. A token that does not open with this deployment's keys
         is a `MendariError`: the caller fails the call, and never falls back to another
@@ -445,15 +445,15 @@ class ConnectionStore:
         with self.store._db.session(exclusive=False) as db:
             row = db.one(
                 "SELECT id, endpoint, token, allowed_origin FROM agent_connections "
-                "WHERE org = ? AND pack_id = ?",
-                (org, pack_id),
+                "WHERE org = ? AND agent_id = ?",
+                (org, agent_id),
             )
         if row is None or row["endpoint"] is None:
             return None
         token = None
         if row["token"] is not None:
             opened, _ = self.store.phi.open(
-                "connection", str(row["token"]), str(row["id"]), org, pack_id
+                "connection", str(row["token"]), str(row["id"]), org, agent_id
             )
             token = str(opened)
         return Connection(endpoint=str(row["endpoint"]), token=token, allowed=_allowed(row))

@@ -33,7 +33,7 @@ registry's address and turns the rest on.
 | Step | Who |
 |---|---|
 | Find an agent and read its listing | Anyone who can read the console |
-| Add a version, evaluate it | An **Agent author** (the role `pack_author`) who can also read the console. An administrator gives the role under **Access, Members**, to themself too |
+| Add a version, evaluate it | An **Agent author** (the role `agent_author`) who can also read the console. An administrator gives the role under **Access, Members**, to themself too |
 | Start serving it | **Governance** or an **Administrator** who did not add it |
 | Connect its service | An **Administrator**. Where the deployment lists the addresses it may call and the service's is not one of them: an administrator of the organization that operates the deployment |
 | Approve it to act on its own | **Governance** or an **Administrator** who did not add it |
@@ -92,8 +92,8 @@ keeping anything, exactly as `mendari pull` does:
 4. it is the agent and the version that were asked for.
 
 Then it passes every check a version of the agent store passes: no file that reads as a
-person's details, it loads on the engine it will run on, the hidden-set check, the size limits
-and your organization's daily quota.
+person's details, it loads on the engine it will run on, the size limits and your
+organization's daily quota.
 
 **Nothing is added** when the registry does not answer, the version is recalled or deleted,
 the archive or the signature does not verify, the publisher's key was revoked, your
@@ -197,12 +197,12 @@ Every step is an event in your organization's audit chain, readable under **Acce
 
 | Step | Event |
 |---|---|
-| A version added | `pack_version.created`, with the registry, the namespace, the signing key and the archive's SHA-256 |
+| A version added | `store_version.created`, with the registry, the namespace, the signing key and the archive's SHA-256 |
 | An evaluation | `store_job.created`, `eval.recorded` |
-| Serving started, stopped | `pack_version.promoted`, `pack_version.retired` |
+| Serving started, stopped | `store_version.promoted`, `store_version.retired` |
 | A connection set or changed, cleared | `agent_connection.set` (the agent, the address's origin, whether it carries a token, who), `agent_connection.cleared` |
 | An address allowed that the deployment's list does not name | `agent_connection.origin_allowed` (the agent, the origin, who), just before the connection's own event |
-| The version approved | `registry_pack.approved` |
+| The version approved | `registry_agent.approved` |
 
 A connection's token is in none of them, and neither is the path of its address.
 
@@ -240,4 +240,3 @@ the same rate limit as labelling.
   for any organization but the one that operates the deployment.
 - Naming the organization that operates the deployment (`MENDARI_OPERATOR_ORG`), without which
   nobody allows an address from the console.
-- Answering a version the hidden-set check held ([The agent store](../operations/agent-store.md)).

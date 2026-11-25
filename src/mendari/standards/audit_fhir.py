@@ -3,7 +3,7 @@
 
 - **AuditEvent** for every event in the hash chain (`decision.created`, `review.resolved`,
   `outcome.recorded`, `feedback.recorded`, `card.feedback` and the others in `_EVENTS`):
-  - who acted: the engine running the pack, or the reviewer, reporter, reader, requester, or
+  - who acted: the engine running the agent, or the reviewer, reporter, reader, requester, or
     whoever recorded a downstream outcome (the signed-in person or API key); a decision made
     with sign-in on also names who asked for it (`requested_by`), as the requestor;
   - what it acted on: the decision, by the identifier its FHIR `Task` carries;
@@ -23,9 +23,9 @@ recorder (`recorded_by`), so its agent is "not recorded", and its source is show
 is an identifier.
 
 Like evaluation reports, the export carries identifiers and codes, never case text: notes
-(review, feedback, the payer's words) stay in the store, and inputs are referred to by hash. A
-note's erasure (`note.erased`) is exported with its reason, a code. Narratives are
-built from the same codes, ids and times.
+(review, feedback) stay in the store, and inputs are referred to by hash. A note's erasure
+(`note.erased`) is exported with its reason, a code. Narratives are built from the same codes,
+ids and times.
 
 Both are immutable entries with deterministic ids, so each is version `1`, last updated when it
 was recorded. The subtype stays a Mendari code (`terminology.py` publishes the CodeSystem): a
@@ -47,7 +47,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
 from mendari.core.audit import RESULT_EVENTS, SYSTEM_ID
-from mendari.standards.fhir import DECISION_ID_SYSTEM, PACK_ID_SYSTEM, narrative
+from mendari.standards.fhir import AGENT_ID_SYSTEM, DECISION_ID_SYSTEM, narrative
 
 EVENT_SYSTEM = "https://mendari.co/fhir/CodeSystem/audit-event"
 # The events on no decision (an organization's keys, clients, people, approvals, holds and
@@ -82,11 +82,10 @@ _EVENTS = {
     "input.read": ("R", "Encrypted input or notes read"),  # PHI mode: access logging
     "input.purged": ("D", "Encrypted input deleted by the retention policy"),
     "input.erased": ("D", "Encrypted input deleted on request"),
-    "pas.submitted": ("E", "Prior authorization requested (Da Vinci PAS)"),
     "note.erased": ("D", "Note erased, on request or by the retention policy"),
     "card.feedback": ("C", "Card feedback recorded (CDS Hooks)"),
     # An action an agent proposed or a caller asked about, and its release or denial by the
-    # decision's reviewer (spec 0.4): authorized and recorded here, run elsewhere.
+    # decision's reviewer (spec §13.9): authorized and recorded here, run elsewhere.
     "action.proposed": ("C", "Action proposed"),
     "action.resolved": ("U", "Action released or denied by review"),
 }
@@ -100,9 +99,6 @@ _DETAILS = {
     "review.resolved": ("final_label", "human_override"),
     "outcome.recorded": ("final_label",),
     "feedback.recorded": ("rating", "expected"),
-    # The payer's authorization number is a note now (it names one patient's request); events
-    # that chained it before keep it in the store, not in an export.
-    "pas.submitted": ("outcome",),
     "note.erased": ("reason",),
     "input.erased": ("reason",),
     # What a clinician did with a CDS Hooks card (LP-23f): codes and ids, never a comment.
@@ -129,7 +125,7 @@ def resources(
     versions: Mapping[int, int] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """AuditEvents and Provenances for chained events (each joined with its decision's
-    `pack_id`, `pack_version` and `record`, as `AuditStore.events` returns them). Served under
+    `agent_id`, `agent_version` and `record`, as `AuditStore.events` returns them). Served under
     the FHIR `base`, they refer to the Task by URL, a Provenance to the version its event made:
     `versions` maps each version-making event's `seq` to that number (`task_versions`)."""
     for event in events:
@@ -158,7 +154,7 @@ def decision_bundle(item: Mapping[str, Any]) -> dict[str, Any]:
 def joined(item: Mapping[str, Any]) -> list[dict[str, Any]]:
     """A decision's events (`AuditStore.get` or `item`), each joined with its decision as
     `AuditStore.events` returns them, ready for `resources`."""
-    decision = {key: item[key] for key in ("pack_id", "pack_version", "record")}
+    decision = {key: item[key] for key in ("agent_id", "agent_version", "record")}
     return [{**event, **decision, "decision_id": item["id"]} for event in item["events"]]
 
 
@@ -262,10 +258,11 @@ def _task(event: Mapping[str, Any], base: str | None, version: int | None = None
 
 
 def engine(event: Mapping[str, Any]) -> dict[str, Any]:
-    """The engine as an agent: the pack version (`pack_id`, `pack_version`) that decided."""
-    pack = f"{event['pack_id']}@{event['pack_version']}"
-    identifier = {"system": PACK_ID_SYSTEM, "value": pack}
-    return {"identifier": identifier, "display": f"Mendari engine · {pack}"}
+    """The engine as an AuditEvent `agent`: the agent version that decided (`agent_id`,
+    `agent_version`)."""
+    agent = f"{event['agent_id']}@{event['agent_version']}"
+    identifier = {"system": AGENT_ID_SYSTEM, "value": agent}
+    return {"identifier": identifier, "display": f"Mendari engine · {agent}"}
 
 
 def _requested(event: Mapping[str, Any], **shown: Any) -> list[dict[str, Any]]:
@@ -359,8 +356,8 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "client.keys_replaced": ("U", "Backend Services client's key set replaced", _CREDENTIALS),
     "governance.approved": ("C", "Automation approved", None),
     "governance.revoked": ("U", "Automation approval revoked", None),
-    "registry_pack.approved": ("C", "Agent from a registry approved", None),
-    "registry_pack.revoked": ("U", "Agent from a registry approval revoked", None),
+    "registry_agent.approved": ("C", "Agent from a registry approved", None),
+    "registry_agent.revoked": ("U", "Agent from a registry approval revoked", None),
     "automation.held": ("C", "Automation held", None),
     "automation.lifted": ("U", "Automation hold lifted", None),
     "eval.recorded": ("C", "Evaluation report recorded", None),
@@ -382,45 +379,18 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "sessions.ended": ("D", "Sessions ended", {}),
     "phi.rotated": ("U", "PHI key rotation batch", _CONFIGURATION),
     "input_hash.epoch": ("C", "Input hash key epoch", _CONFIGURATION),
-    # Hidden evaluation sets (LP-11e): the set and its organization only; the case hash and
-    # commitment a case's event chains are no detail here (`_ADMINISTRATIVE_DETAILS`).
-    "evalset.created": ("C", "Hidden evaluation set created", None),
-    "evalset.case_added": ("C", "Hidden evaluation case added", None),
-    "evalset.case_removed": ("D", "Hidden evaluation case removed", None),
-    "evalset_index.epoch": ("C", "Hidden-case index key epoch", _CONFIGURATION),
-    # Their keys' lifecycle (LP-11f), the deployment's: key ids and counts only.
-    "evalset.rotated": ("U", "Evaluation-set key rotation batch", _CONFIGURATION),
-    "evalset_index.rebuilt": ("U", "Hidden-case index rebuilt", _CONFIGURATION),
-    # Their blind labelling (LP-11h): the set and its organization; a labeller's read and label
-    # name the labeller (a user id) as the agent. The case hash, the assignment, the label's
-    # commitment, the round and the counts are no detail here (`_ADMINISTRATIVE_DETAILS`).
-    "evalset.sampled": ("U", "Hidden evaluation set sampled", None),
-    "evalset.assigned": ("C", "Hidden evaluation case assigned to a labeller", None),
-    "evalset.case_read": ("R", "Hidden evaluation case read by its labeller", None),
-    "evalset.labelled": ("C", "Hidden evaluation case labelled", None),
-    "evalset.measured": ("E", "Hidden evaluation set's agreement and coverage measured", None),
-    # Their lifecycle (LP-11i): the set and its organization, and the pack's digest a grading
-    # read is for; a grading read names its grading key as the agent. The commitment, the limits,
-    # the size and the run's number are no detail here (`_ADMINISTRATIVE_DETAILS`).
-    "evalset.frozen": ("U", "Hidden evaluation set frozen", None),
-    "evalset.activated": ("U", "Hidden evaluation set activated by its first grading read", None),
-    "evalset.graded": ("R", "Hidden evaluation set read to grade an agent", None),
-    "evalset.retired": ("U", "Hidden evaluation set retired", None),
-    # A pack store's versions (LP-20e): the digest and who acted, never a file.
-    "pack_version.created": ("C", "Agent store version added", None),
-    "pack_version.held": ("U", "Agent store version held for the operator's review", None),
-    "pack_version.released": ("U", "Agent store version released by the operator", None),
-    "pack_version.withdrawn": ("U", "Agent store version withdrawn", None),
+    # An agent store's versions (LP-20e): the digest and who acted, never a file.
+    "store_version.created": ("C", "Agent store version added", None),
+    "store_version.withdrawn": ("U", "Agent store version withdrawn", None),
     # Its authors' keys (LP-20f): the key's id and who acted.
     "store_key.added": ("C", "Agent store author key registered", None),
     "store_key.revoked": ("U", "Agent store author key revoked", None),
     # Its datasets and evaluation jobs (LP-20g): ids, a SHA-256 and counts, never a case.
     "store_dataset.created": ("C", "Agent store dataset added", None),
-    "store_dataset.held": ("U", "Agent store dataset held for the operator's review", None),
     "store_job.created": ("C", "Agent store evaluation job made", None),
     # Promotion (LP-20h): the digest, its authors, the approver and the reports relied on.
-    "pack_version.promoted": ("U", "Agent store version promoted to be served", None),
-    "pack_version.retired": ("U", "Agent store version's promotion retired", None),
+    "store_version.promoted": ("U", "Agent store version promoted to be served", None),
+    "store_version.retired": ("U", "Agent store version's promotion retired", None),
     # Proposed tests from reviewers' corrections (LP-20i): the dataset, the case and the digest.
     "store_dataset.proposal_accepted": (
         "U",
@@ -467,14 +437,10 @@ _ACTORS = (
     "user",
 )
 # A kind whose actor is under a key that means something else elsewhere (`replaced_by` is the
-# replacement key's id on `key.rotated`; `labeller` is who was assigned on `evalset.assigned`), or
-# under a key of its own (`grader`, the grading key a grading read was for, LP-11i): its agent,
-# never one of its details.
+# replacement key's id on `key.rotated`), or under a key of its own: its agent, never one of its
+# details.
 _ACTOR_KEY = {
     "client.keys_replaced": "replaced_by",
-    "evalset.case_read": "labeller",
-    "evalset.labelled": "labeller",
-    "evalset.graded": "grader",
     # Who was shown or graded an item is its grader; `grader` on `written.assigned` is who was
     # assigned, not who acted. A round is closed `by` someone.
     "written.item_read": "grader",
@@ -497,9 +463,9 @@ _ADMINISTRATIVE_DETAILS = (
     "replaces",
     "replaced_by",
     "outcome",
-    "pack_id",
-    "pack_version",
-    "pack_digest",
+    "agent_id",
+    "agent_version",
+    "agent_digest",
     "risk_level",
     "report",
     "result_sha256",
@@ -524,9 +490,9 @@ _ADMINISTRATIVE_DETAILS = (
     "kinds",
     "ended",
 )
-# The kinds whose details include mappings of counts (a key rotation's `from`, by key id, and an
-# evaluation-set rotation's `counts`, by table): each written `name=count`.
-_COUNTED = ("phi.rotated", "evalset.rotated")
+# The kinds whose details include mappings of counts (a key rotation's `from`, by key id): each
+# written `name=count`.
+_COUNTED = ("phi.rotated",)
 
 
 def administrative_resources(events: Iterable[Mapping[str, Any]]) -> Iterator[dict[str, Any]]:

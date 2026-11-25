@@ -88,17 +88,16 @@ server is open, as before (production sits behind Vercel Authentication). When c
 
 | Role | May |
 |---|---|
-| viewer (people and machines) | read (every role also holds `discover`: the lists of packs) |
+| viewer (people and machines) | read (every role also holds `discover`: the lists of agents) |
 | reviewer | read (inputs too, under PHI mode), decide, review, record outcomes, give feedback |
 | service (machines) | read, decide, record outcomes |
 | governance | read, approve automation |
-| admin | the rest: evaluations, exports; people only: keys, members, invitations, `curate` |
+| admin | the rest: evaluations, exports; people only: keys, members, invitations |
 | admin of the organization that operates the deployment (people only) | also `operate` |
-| labeller (people, memberships mode) | `label`: hidden evaluation sets, and written output |
+| labeller (people, memberships mode) | `label`: grading written output |
 | registry_reviewer (people, memberships mode, the review organization only) | `registry_review` |
-| a grading key (the operator's, not a role a person holds) | `grade`, and nothing else |
 
-An administrator holds neither `label` nor `grade` (hidden evaluation sets, LP-11).
+An administrator does not hold `label` (written output's graders, ADR-0025).
 
 **Operating the deployment** (`operate`: its readiness checks and its operator's actions,
 `/api/system/...`, and the deployment's own views) is an administrator's, signed in as a person,
@@ -153,7 +152,7 @@ from mendari.errors import (
     OrganizationChanged,
     ScopeError,
 )
-from mendari.server import paths, presets, scopes, security_log, sessions
+from mendari.server import presets, scopes, security_log, sessions
 from mendari.server.scopes import Grant
 from mendari.standards import oidc, smart
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers, origin_of
@@ -174,7 +173,7 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "viewer": frozenset({"read", "discover"}),
     "reviewer": frozenset({"read", "discover", "read_input", "decide", "review", "outcome"}),
     "service": frozenset({"read", "discover", "decide", "outcome"}),
-    # `promote` (LP-20h): signing off a pack store's version to be served to the organization,
+    # `promote` (LP-20h): signing off an agent store's version to be served to the organization,
     # people only; never its author (the store refuses one), and not the automation approval.
     "governance": frozenset({"read", "discover", "approve", "promote"}),
     "admin": frozenset(
@@ -189,42 +188,33 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "evaluate",
             "admin",
             "keys",
-            "curate",
             "promote",
             # The deployment's readiness and its operator's actions: an administrator's of the
             # organization that operates it, people only (`OPERATOR_ONLY`, `Principal.operator`).
             "operate",
         }
     ),
-    # Hidden evaluation sets (LP-11, ADR-0011). `labeller` is a reserved role a membership holds
-    # (memberships mode only, `GRANTING_RESERVED`); `grading` is held only by a grading key the
-    # operator mints (`mendari access grader-key`), never by a person or a membership.
+    # Written output's graders (ADR-0025): `labeller` is a reserved role a membership holds
+    # (memberships mode only, `GRANTING_RESERVED`).
     "labeller": frozenset({"label"}),
-    "grading": frozenset({"grade"}),
-    # The pack registry's reviewers (LP-19e, ADR-0015): a reserved role that counts only in the
+    # The agent registry's reviewers (LP-19e, ADR-0015): a reserved role that counts only in the
     # organization `MENDARI_REGISTRY_REVIEW_ORG` names (`Auth._member`), and nowhere else.
     accounts.REGISTRY_REVIEWER: frozenset({"registry_review"}),
-    # An organization's pack store (LP-20f, ADR-0016): a reserved role a membership holds, which
+    # An organization's agent store (LP-20f, ADR-0016): a reserved role a membership holds, which
     # an administrator gives, themself included; `admin` does not hold it (owner decision 4).
-    "pack_author": frozenset({"author"}),
+    "agent_author": frozenset({"author"}),
 }
 # Permissions only a person who signed in holds, whatever a key's (or a token's) role says:
-# managing keys, clients, members and invitations; managing hidden evaluation sets (`curate`)
-# and labelling their cases (`label`); reviewing the pack registry (`registry_review`).
-PEOPLE_ONLY = frozenset(
-    {"keys", "curate", "label", "registry_review", "author", "promote", "operate"}
-)
+# managing keys, clients, members and invitations; grading written output (`label`); reviewing
+# the agent registry (`registry_review`).
+PEOPLE_ONLY = frozenset({"keys", "label", "registry_review", "author", "promote", "operate"})
 # What only the deployment's operators hold: an administrator's role grants it where
 # `Principal.operator` says so (the organization `MENDARI_OPERATOR_ORG` names), and nowhere else.
 OPERATOR_ONLY = frozenset({"operate"})
-# What only a grading key holds (LP-11): reading a hidden set to grade against it. No person,
-# administrator, other key, token or EHR launch ever holds it (the mirror of EHR_ONLY).
-GRADING_ONLY = frozenset({"grade"})
-GRADING = "grading"
-# What open mode (no sign-in) never holds, though it holds everything else: hidden evaluation
-# sets need sign-in (core/evalset_keys.py refuses the keys without it), and so does reviewing
-# the pack registry (a reviewer is a person with a membership).
-NEVER_OPEN = frozenset({"grade", "label", "curate", "registry_review", "author", "promote"})
+# What open mode (no sign-in) never holds, though it holds everything else: grading written
+# output needs sign-in (a grader is a person with a membership), and so does reviewing the agent
+# registry (a reviewer is a person with a membership).
+NEVER_OPEN = frozenset({"label", "registry_review", "author", "promote"})
 # What an EHR launch may do, by its EHR's registered level; no other principal holds these (the
 # mirror of PEOPLE_ONLY), and an EHR launch holds nothing else.
 EHR_LEVELS: dict[str, frozenset[str]] = {
@@ -259,17 +249,11 @@ PERSON = "person"
 ORG_PIN = "x-mendari-org"
 auth_logger = logging.getLogger("mendari.auth")
 
-# Memberships mode's own paths: a person's own routes, an organization's people, a labeller's
-# and its curators' routes over hidden evaluation sets (LP-11j, LP-11k, mounted with the
-# evaluation-set keys too), and the grading rounds of written output (ADR-0025, mounted under
-# PHI mode `encrypt`). Not mounted in claims mode, where they read as any route no rule
-# lists, `admin` (`Auth.permission`). The grading route (LP-11l, `GRADING_PATH`) is under the
-# curators' path but mounted with the keys in both account modes: it is not one of them.
-GRADING_PATH = r"^/api/evalsets/[^/]+/runs$"
+# Memberships mode's own paths: a person's own routes, an organization's people, and the
+# grading rounds of written output (ADR-0025, mounted under PHI mode `encrypt`). Not mounted in
+# claims mode, where they read as any route no rule lists, `admin` (`Auth.permission`).
 _MEMBERSHIPS_ONLY = re.compile(
-    rf"^(?!{GRADING_PATH.removeprefix('^')})"
-    r"/api/(auth/(organization|access-requests|invitations|members)|labelling|evalsets|written)"
-    r"(/|$)"
+    r"^/api/(auth/(organization|access-requests|invitations|members)|written)(/|$)"
 )
 # The registry's paths (LP-19d): where it is mounted, and its people's routes. Without
 # `MENDARI_REGISTRY=on` nothing is mounted at either and their rules are skipped, so both read
@@ -279,10 +263,7 @@ REGISTRY_PEOPLE = r"^/api/registry/(namespaces|tokens|sites)(/|$)"  # sites: LP-
 # Its reviewers' routes (LP-19e): the queue, and the acts on any namespace a reviewer makes.
 REGISTRY_REVIEW = r"^/api/registry/review(/|$)"
 _REGISTRY_ONLY = frozenset({REGISTRY_MOUNT, REGISTRY_PEOPLE, REGISTRY_REVIEW})
-# (method, path pattern) -> permission, first match wins; unlisted routes need "admin". Each
-# pattern names a route's current path: a renamed route's former path (`/api/packs/...`) is read
-# as its current one before any rule is tried (`permission_for`, `server/paths.py`), so no rule
-# here names it and the two spellings never differ.
+# (method, path pattern) -> permission, first match wins; unlisted routes need "admin".
 _RULES: list[tuple[str, re.Pattern[str], str]] = [
     (method, re.compile(pattern), permission)
     for method, pattern, permission in [
@@ -328,17 +309,16 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/api/holds$", "approve"),
         ("DELETE", r"^/api/holds/[^/]+$", "approve"),
         ("POST", r"^/api/notice/acknowledge$", "decide"),  # what deciding asks first
-        ("POST", r"^/api/agents/[^/]+/[^/]+/(decide|guard|fhir/decide|pas|actions)$", "decide"),
+        ("POST", r"^/api/agents/[^/]+/[^/]+/(decide|fhir/decide|actions)$", "decide"),
         ("POST", r"^/cds-services/[^/]+$", "decide"),
         # CDS Hooks card feedback (LP-23f): what a clinician did with a card the caller asked for.
         ("POST", r"^/cds-services/[^/]+/feedback$", "decide"),
-        ("POST", r"^/fhir/Questionnaire/\$questionnaire-package$", "decide"),  # Da Vinci DTR
         ("POST", r"^/fhir/\$decide$", "decide"),
         # How to talk to this FHIR base: public, so clients can discover it. The SMART
         # configuration is mounted only when Backend Services is on (server/backend_services.py).
         ("GET", r"^/fhir/(metadata|OperationDefinition/[^/]+)$", "public"),
         ("GET", r"^/fhir/\.well-known/smart-configuration$", "public"),
-        # The terminology carries the packs' labels and criteria: read, like a pack's detail.
+        # The terminology carries the agents' labels and criteria: read, like an agent's detail.
         ("GET", r"^/fhir/(CodeSystem|NamingSystem)/[^/]+$", "read"),
         # Decisions and their audit trail: read, like /api/audit, and never public: without a
         # signed-in organization the store's scope is every organization's rows.
@@ -356,7 +336,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/api/audit/[^/]+/erase$", "admin"),  # a kept input, on request
         ("GET", r"^/api/agents/[^/]+/[^/]+/feedback/export$", "admin"),  # case inputs, in bulk
         ("*", r"^/api/auth/(keys|clients)", "keys"),
-        # The pack registry under the engine (LP-19d; `MENDARI_REGISTRY=on`, not mounted
+        # The agent registry under the engine (LP-19d; `MENDARI_REGISTRY=on`, not mounted
         # otherwise: `_REGISTRY_ONLY`). The mounted registry is public to the guard, which reads
         # no credential there: the registry checks its own publisher token (`ohr_`), and a
         # session cookie is never a publish credential.
@@ -373,27 +353,14 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("*", r"^/api/auth/(members|invitations)(/|$)", "keys"),
         ("GET", r"^/api/auth/access-requests$", "keys"),
         ("POST", r"^/api/auth/access-requests/[^/]+$", "keys"),
-        # Hidden evaluation sets (LP-11j; memberships mode with the evaluation-set keys, not
-        # mounted otherwise): a labeller's own counts, next case and label, people only. Every
-        # method and path under it, before the reads below: the next case is a hidden case.
-        ("*", r"^/api/labelling(/|$)", "label"),
         # Written output (ADR-0025; memberships mode under PHI mode `encrypt`, not mounted
-        # otherwise): a grader's own counts, next item and grades, people only, as a labeller's
-        # routes are. Every method and path under it, before the reads below: the next item is
-        # a text an agent wrote about a case. A round's report is any reader's (below).
+        # otherwise): a grader's own counts, next item and grades, people only. Every method and
+        # path under it, before the reads below: the next item is a text an agent wrote about a
+        # case. A round's report is any reader's (below).
         ("*", r"^/api/written/labelling(/|$)", "label"),
-        # A grading run over one of an organization's hidden sets (LP-11l; mounted with the
-        # evaluation-set keys in both account modes): its grading key only, which holds nothing
-        # else. Every method on its path, before the curators' rule below, which would take it.
-        ("*", GRADING_PATH, "grade"),
-        # And an organization's curators' (LP-11k, mounted likewise): its sets listed and read,
-        # their cases drawn, assigned and adjudicated, people only (an administrator). Every
-        # method and path under it, before the reads below: a set's answer names its strata,
-        # languages and labellers.
-        ("*", r"^/api/evalsets(/|$)", "curate"),
-        # An organization's pack store (LP-20f; `MENDARI_AGENT_STORE=on` in memberships mode, not
+        # An organization's agent store (LP-20f; `MENDARI_AGENT_STORE=on` in memberships mode, not
         # mounted otherwise): its authors' keys, managed by its administrators, and every other
-        # route of the store its authors' (`pack_author`), people only. Before the reads below:
+        # route of the store its authors' (`agent_author`), people only. Before the reads below:
         # a draft is not served to anyone but its organization's authors.
         ("*", r"^/api/store/keys(/|$)", "keys"),
         # Promotion (LP-20h): `governance` and `admin`, people only; before the authors' rule.
@@ -535,29 +502,20 @@ class Principal:
 
     def role_permissions(self) -> frozenset[str]:
         """What the roles grant; for a key (or a token), never a people-only permission. An EHR
-        launch has its level's permissions only, and nobody else ever has those; a grading key
-        has `grade` only, and nobody else ever has that; a CDS client has `discover` and
-        `decide` and nothing else. Open mode never holds `NEVER_OPEN`. `operate` is an
-        administrator's only where they operate the deployment (`operator`)."""
+        launch has its level's permissions only, and nobody else ever has those; a CDS client
+        has `discover` and `decide` and nothing else. Open mode never holds `NEVER_OPEN`.
+        `operate` is an administrator's only where they operate the deployment (`operator`)."""
         if self.kind == "ehr":
             return EHR_LEVELS.get(self.level or "", frozenset())
         if self.kind == CDS:
             return CDS_PERMISSIONS
-        if self.is_grading_key:
-            return GRADING_ONLY
         granted = frozenset().union(*(PERMISSIONS.get(role, frozenset()) for role in self.roles))
-        granted -= EHR_ONLY | GRADING_ONLY
+        granted -= EHR_ONLY
         if not self.operator:
             granted -= OPERATOR_ONLY
         if self.kind == "open":
             return granted - NEVER_OPEN
         return granted if self.kind == "user" else granted - PEOPLE_ONLY
-
-    @property
-    def is_grading_key(self) -> bool:
-        """A grading key: an API key of role `grading` and no other, unscoped (only the
-        operator mints one, `AuditStore.create_grading_key`)."""
-        return self.kind == "key" and self.roles == {GRADING} and self.grant is None
 
     def permissions(self) -> frozenset[str]:
         """The effective permissions: the role's, narrowed by the scopes (never widened)."""
@@ -565,7 +523,7 @@ class Principal:
         return granted if self.grant is None else granted & self.grant.permissions
 
     def to_dict(self, *, review_org: str | None = None) -> dict[str, Any]:
-        """As `/api/auth/me` shows a principal. `review_org` (the pack registry's review
+        """As `/api/auth/me` shows a principal. `review_org` (the agent registry's review
         organization, LP-19e): a person acting for it is told so (`registry_review_org`), so
         its administrators are offered the reviewer role, which is refused anywhere else."""
         shown: dict[str, Any] = {
@@ -792,11 +750,8 @@ async def read_body(request: Request, limit: int) -> bytes | None:
 def permission_for(method: str, path: str, *, registry: bool = True) -> str:
     """The permission a route needs. HEAD needs what GET needs: the static files (and any route
     that serves both) answer it as GET, and the rules name GET. `registry=False` (the registry
-    is not mounted here): without the registry's rules. A renamed route's former path needs
-    what its current one does: the path is read as it is called now (`paths.current`) before
-    any rule is tried."""
+    is not mounted here): without the registry's rules."""
     method = "GET" if method == "HEAD" else method
-    path = paths.current(path)
     for rule_method, pattern, permission in _RULES:
         if not registry and pattern.pattern in _REGISTRY_ONLY:
             continue
@@ -883,19 +838,19 @@ class OrganizationRequest(BaseModel):
 
 
 def _roles_field(**default: Any) -> Any:
-    """The roles a membership may be given: the server's, `pack_author` (`author`: the
-    organization's pack store, LP-20f) and `labeller` (`label` only, memberships mode), never
-    `grading`. Each model checks them
+    """The roles a membership may be given: the server's, `agent_author` (`author`: the
+    organization's agent store, LP-20f) and `labeller` (`label` only, memberships mode). Each
+    model checks them
     (`accounts.check_roles`: sorted, each once, a 422 otherwise)."""
     return Field(
         **default,
         min_length=1,
         max_length=len(accounts.MEMBERSHIP_ROLES),
-        description="Roles: viewer, reviewer, service, governance, admin, pack_author (writes "
-        "agents in the organization's agent store: author only), labeller (labels hidden "
-        "evaluation sets: label only) and "
+        description="Roles: viewer, reviewer, service, governance, admin, agent_author (writes "
+        "agents in the organization's agent store: author only), labeller (grades written "
+        "output: label only) and "
         "registry_reviewer (reviews the agent registry; given in its review organization only, "
-        "a 422 in any other). Never grading.",
+        "a 422 in any other).",
     )
 
 
@@ -967,14 +922,14 @@ class Auth:
         cds_open: CdsOpenMode | None = None,
         registry: bool = False,
         review_org: str | None = None,
-        pack_store: bool = False,
+        agent_store: bool = False,
         operator_org: str | None = None,
         first_admin: str | None = None,
         first_admin_org_name: str | None = None,
     ):
         self.settings = settings
-        self.registry = registry  # the pack registry is mounted here (`MENDARI_REGISTRY=on`)
-        self.pack_store = pack_store  # organizations' pack stores are served (LP-20f)
+        self.registry = registry  # the agent registry is mounted here (`MENDARI_REGISTRY=on`)
+        self.agent_store = agent_store  # organizations' agent stores are served (LP-20f)
         # The one organization whose `registry_reviewer` members review the registry
         # (`MENDARI_REGISTRY_REVIEW_ORG`, LP-19e); None: the role grants nothing anywhere.
         self.review_org = review_org
@@ -1012,8 +967,8 @@ class Auth:
     def permission(self, method: str, path: str) -> str:
         """The permission a request needs here: the route rules' (`permission_for`), except that
         in claims mode memberships mode's own routes (a person's own, `person`, an
-        organization's people, `keys`, a labeller's, `label`, and its curators', `curate`: none
-        mounted there) read as any route no rule lists, `admin`. The guard, the notice check and
+        organization's people, `keys`, and a grader's, `label`: none mounted there) read as any
+        route no rule lists, `admin`. The guard, the notice check and
         the rate limits all ask this, so they never disagree about a request."""
         permission = permission_for(method, path, registry=self.registry)
         if not self.memberships and (permission == PERSON or _MEMBERSHIPS_ONLY.match(path)):
@@ -1176,16 +1131,10 @@ class Auth:
             if sent:  # ended, expired or never made: a dashboard left open, or a guess
                 security_log.event("auth.credential.refused", outcome="refused", reason="session")
             return None
-        # Sessions from before the issuer was stored are of the issuer configured now.
-        issuer = str(session.get("iss") or self.settings.issuer)
+        issuer = str(session["iss"])
         person = person_id(issuer, str(session["sub"]))
-        claims = session.get("claims")
-        # The roles as the settings give them now; a session from before claims were kept has
-        # the roles of its sign-in, and ends within 8 hours of the deploy.
-        if isinstance(claims, dict):
-            roles = roles_from(claims, self.settings)
-        else:
-            roles = frozenset(session["roles"])
+        # The roles as the settings give them now, from the claims kept at sign-in.
+        roles = roles_from(session["claims"], self.settings)
         if not roles:  # taken out of the role map since signing in: access ends at once
             security_log.event(
                 "auth.credential.refused", outcome="refused", reason="no_role", actor=person
@@ -1197,7 +1146,7 @@ class Auth:
             roles=roles,
             org=session["org"],
             id=person,
-            actor=str(session.get("actor") or f"{issuer}|{session['sub']}"),
+            actor=str(session["actor"]),
             operator=self.operates(session["org"]),
         )
 
@@ -1207,8 +1156,8 @@ class Auth:
         cached). None for no session. Without that membership in force (none chosen, removed,
         or removed and given again: a new one is chosen anew) they act for no organization,
         with no role: never `default`, never another of their memberships. Of the reserved
-        roles, `labeller` grants `label` (LP-11); `registry_reviewer` grants `registry_review`
-        in the review organization only (LP-19e), nothing in any other; `pack_author` grants
+        roles, `labeller` grants `label` (ADR-0025); `registry_reviewer` grants `registry_review`
+        in the review organization only (LP-19e), nothing in any other; `agent_author` grants
         `author` (LP-20f)."""
         session, sent = sessions.resume(self.store, request, COOKIE, MEMBER, self.lifetime)
         if session is None:
@@ -1232,11 +1181,11 @@ class Auth:
         request.state.member_session = session  # what choosing an organization rewrites
         return Principal(
             kind="user",
-            name=str(session.get("name") or subject),
+            name=str(session["name"]),
             roles=roles,
             org=org,
             id=person,
-            actor=str(session.get("actor") or f"{issuer}|{subject}"),
+            actor=str(session["actor"]),
             operator=self.operates(org),
         )
 
@@ -1389,11 +1338,6 @@ class Auth:
                     403,
                     challenge=refused,
                 )
-            if permission in GRADING_ONLY and not principal.is_grading_key:
-                _refused_permission(principal, "grading_only")
-                raise AuthError(
-                    "only the deployment's grading key may do this", 403, challenge=refused
-                )
             _refused_permission(principal, permission)
             if principal.kind == "ehr":
                 raise AuthError(
@@ -1491,7 +1435,7 @@ def _within_scope(principal: Principal, method: str, path: str) -> None:
 
 def _refused_permission(principal: Principal, reason: str) -> None:
     """A security log line for a principal refused a route: the permission it lacks, or
-    `people_only`, `ehr_only`, `grading_only`, `operators_only` (an administrator who does not
+    `people_only`, `ehr_only`, `operators_only` (an administrator who does not
     operate the deployment), `out_of_scope`, `no_organization` (memberships
     mode: a person of none), `org_changed` (a window on another organization than the one
     chosen since), `not_a_member` (choosing an organization one holds no membership of),
@@ -1653,7 +1597,6 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
                 "name": name,
                 "actor": chain_name(options.issuer, claims),
                 "claims": kept_claims(claims, options),
-                "roles": sorted(roles),  # what the release before this one reads
                 "org": org,
             },
             int(time.time()),
@@ -1767,7 +1710,7 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         the dashboard knows whether to show one; absent otherwise."""
         principal = auth.principal(request)
         shown: dict[str, Any] = {"accounts": "memberships"} if auth.memberships else {}
-        if auth.pack_store:
+        if auth.agent_store:
             shown["store"] = True
         if principal is None:
             return {"mode": "sign-in", "signed_in": False, **shown}
@@ -2089,8 +2032,8 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         """Memberships mode: an invitation to this organization with `roles`, for whoever signs
         in with `email` verified, valid for `days` (7 unless asked, 30 at most). Mendari sends no
         e-mail: pass the `link` on yourself. Its token is in this response only (in `link`, a
-        path on this site to put after its address), stored hashed. `grading` is never given,
-        `pack_author` grants `author` (the agent store) and `labeller` grants `label` only.
+        path on this site to put after its address), stored hashed. `agent_author` grants
+        `author` (the agent store) and `labeller` grants `label` only.
         Recorded in the audit chain (`invitation.created`, with a digest of the address)."""
         principal = auth.acting(request)
         made = store.create_invitation(

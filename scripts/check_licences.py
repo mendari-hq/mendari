@@ -215,7 +215,7 @@ def python_licence(distribution: metadata.Distribution) -> str | None:
     return None
 
 
-def python_closure(root: str = "mendari", extras: tuple[str, ...] = ("server",)) -> list[Package]:
+def python_closure(root: str = "mendari", extras: tuple[str, ...] = ()) -> list[Package]:
     """The installed runtime closure of `root` with `extras`, each requirement's marker evaluated
     for this interpreter and the extras that asked for it."""
     wanted: dict[str, set[str]] = {}

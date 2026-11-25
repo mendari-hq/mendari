@@ -74,15 +74,15 @@ mendari eval my-agent --dataset test --provider reader=rules --publish --key key
 
 ## What is published, and what is not
 
-Each configuration's result is one signed record, `mendari.publisher-evaluation/2`:
+Each configuration's result is one signed record, `mendari.publisher-evaluation/1`:
 
 ```json
-{"format": "mendari.publisher-evaluation/2",
- "pack": {"id": "my-clinic/my-agent", "version": "0.3.0", "digest": "sha256:…"},
+{"format": "mendari.publisher-evaluation/1",
+ "agent": {"id": "my-clinic/my-agent", "version": "0.3.0", "digest": "sha256:…"},
  "configuration": {"reader": "rules"},
  "dataset": {"name": "test", "sha256": "<64 hex>", "n": 600,
              "provenance": "synthetic", "labelled_by": "The script that wrote the cases"},
- "report": {"format": "mendari.site-report/2", "…": "…"},
+ "report": {"format": "mendari.site-report/1", "…": "…"},
  "claimed": {"latency_ms_p50": 0.05, "latency_ms_p95": 0.07,
              "cost_usd_per_decision": 0.0, "failed_cases": 0},
  "models": ["rules@33463eddba9c"],
@@ -107,11 +107,6 @@ Never published: a case's text, a case's id, the ledger, calibration error and B
 subgroups, and anything about who approved a governance override (an evaluation measures the
 agent's own policy, and one run under an override is refused).
 
-`mendari.publisher-evaluation/1`, the format before this one, had no `provenance`,
-`labelled_by`, `failed_cases` or `engine`. A registry still takes it from an older client, and a
-record stored in it still verifies and is still shown: what it does not state reads "not
-stated".
-
 ## What the registry checks
 
 Before it stores a record: that one of your namespace's keys signed it and the key is not
@@ -119,10 +114,9 @@ revoked; that it is of a listed version and of that version's digest; that the c
 and every name in the counts are the agent's; that the dataset is the one in the archive; that
 the counts are whole and add up. Then:
 
-- A configuration whose providers all decide on the machine (`rules`, `criteria`, `dosing`,
-  `naive_bayes`) is **run again by the registry**, and refused unless it counts exactly what
-  you counted.
-- One that calls a model (`agent`, `llm`, `jev`) is not run again: the registry calls no model.
+- A configuration whose providers all decide on the machine (`rules`) is **run again by the
+  registry**, and refused unless it counts exactly what you counted.
+- One that calls a model (`agent`, `llm`) is not run again: the registry calls no model.
   Its counts rest on your signature, and the page says so on its row.
 
 Every time the page or the badge is asked for, each stored record is checked again: it must

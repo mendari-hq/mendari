@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """What makes two cases the same case (LP-11): one canonical form of a case's input, used wherever
-cases are compared, so the coverage report, the hidden-case index and the pack store's upload
-check (LP-20) agree on it.
+cases are compared, so the coverage report, the dataset checks (LP-20) and the probe agree on
+it.
 
 - `canonical_input`: the strict form, the ledger's canonical JSON (`ledger.canonical`: sorted
-  keys, no spaces, ASCII escapes) of a value that holds only JSON (`core.pack.not_json`). Two
+  keys, no spaces, ASCII escapes) of a value that holds only JSON (`core.agent.not_json`). Two
   inputs are the same case exactly when their strict forms are equal.
 - `normalised_input` (`NORM_VERSION`): the strict form after every string value is folded
   (`fold`: Unicode NFKC, case folded, NFKC again; invisible format characters such as zero-width
@@ -16,16 +16,16 @@ check (LP-20) agree on it.
   and "ER-" meet), invisible characters or Unicode form (full-width letters, or the "fi"
   ligature against "fi") are the same case under it; a vowel sign or an accent is a letter's.
 
-A change to either form changes what counts as the same case, and an index built with the old one
-stops matching, so their bytes are pinned (tests/test_canonical.py) and the normalised form names
-its version."""
+A change to either form changes what counts as the same case, and what was compared under the old
+one stops matching, so their bytes are pinned (tests/test_canonical.py) and the normalised form
+names its version."""
 
 from __future__ import annotations
 
 import unicodedata
 from typing import Any
 
-from mendari.core.pack import not_json
+from mendari.core.agent import not_json
 from mendari.errors import MendariError
 from mendari.evals.ledger import canonical
 

@@ -30,8 +30,8 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from mendari import AuditStore, Decision, load_pack
-from mendari.core.pack import Pack
+from mendari import AuditStore, Decision, load_agent
+from mendari.core.agent import Agent
 from mendari.core.written import WrittenStore
 from mendari.evals import resolve_dataset, written
 from mendari.evals.written import WrittenLedger, WrittenRun
@@ -48,8 +48,17 @@ from mendari.server.app import (
 from mendari.server.auth import ROLES, permission_for, person_id
 from tests.conftest import ROOT, encrypt_mode, encrypted_store, launched, member, signed_in
 from tests.test_auth import CLIENT, IDP, legacy_key
-from tests.test_evalset_store import CLINIC, chained
 from tests.test_security_log import logged
+
+CLINIC = "clinic-a"
+
+
+def chained(store: AuditStore) -> list[dict[str, Any]]:
+    """The audit chain's events, payloads parsed, in order."""
+    with store._db.session(exclusive=False) as db:
+        rows = db.all("SELECT seq, decision_id, event, payload FROM audit_events ORDER BY seq")
+    return [{**row, "payload": json.loads(row["payload"])} for row in rows]
+
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini"
 RUBRIC = "reply_quality"
@@ -68,18 +77,18 @@ JUDGE_MARK = "PLANTED-JUDGE-MODEL-9117"
 
 
 @pytest.fixture(scope="module")
-def pack() -> Pack:
-    return load_pack(MINI)
+def agent() -> Agent:
+    return load_agent(MINI)
 
 
 @pytest.fixture(scope="module")
-def the_run(pack: Pack) -> WrittenRun:
+def the_run(agent: Agent) -> WrittenRun:
     """A run of the fixture agent whose judge is named by a planted mark."""
     made = written.run(
-        Decision(pack, origin_cap=False),
-        resolve_dataset(pack, "written"),
+        Decision(agent, origin_cap=False),
+        resolve_dataset(agent, "written"),
         RUBRIC,
-        judge=Judge(pack, RUBRIC, mode="canned"),
+        judge=Judge(agent, RUBRIC, mode="canned"),
     )
     header = json.loads(json.dumps(made.ledger.header))
     header["judge"]["model"] = JUDGE_MARK
@@ -94,7 +103,7 @@ class World:
     client: TestClient
     store: AuditStore
     rounds: WrittenStore
-    pack: Pack
+    agent: Agent
     run: WrittenRun
     db: str
 
@@ -107,7 +116,7 @@ class World:
     ) -> str:
         """A round of `org`'s with `sample` items, each given to `users` (to both, unless said)."""
         made = self.rounds.create_round(
-            org, self.pack, RUBRIC, self.run, sample=sample, created_by="ops"
+            org, self.agent, RUBRIC, self.run, sample=sample, created_by="ops"
         )
         self.rounds.assign(str(made["round"]), users, double=double)
         return str(made["round"])
@@ -132,20 +141,20 @@ def memberships(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @contextmanager
-def started(db: str, pack: Pack, run: WrittenRun) -> Iterator[World]:
+def started(db: str, agent: Agent, run: WrittenRun) -> Iterator[World]:
     with (
         encrypted_store(db) as store,
         TestClient(create_app(db_path=db), base_url=HTTPS) as client,
     ):
-        yield World(client, store, WrittenStore(store), pack, run, db)
+        yield World(client, store, WrittenStore(store), agent, run, db)
 
 
 @pytest.fixture
 def world(
-    db_target: str, pack: Pack, the_run: WrittenRun, monkeypatch: pytest.MonkeyPatch
+    db_target: str, agent: Agent, the_run: WrittenRun, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[World]:
     memberships(monkeypatch)
-    with started(db_target, pack, the_run) as world:
+    with started(db_target, agent, the_run) as world:
         yield world
 
 
@@ -237,9 +246,9 @@ def test_no_report_exists_before_the_round_closes_and_a_planted_judge_reaches_no
     assert "Thank you" not in json.dumps(closed) and "written-0" not in json.dumps(closed)
     assert world.next(a).status_code == 204
     # Only this agent's, when asked; and never another organization's.
-    by_agent = {"pack_id": "mendari-test/written-mini"}
+    by_agent = {"agent_id": "mendari-test/written-mini"}
     assert len(world.client.get(ROUNDS, params=by_agent, headers=viewer).json()) == 1
-    assert world.client.get(ROUNDS, params={"pack_id": "other/agent"}, headers=viewer).json() == []
+    assert world.client.get(ROUNDS, params={"agent_id": "other/agent"}, headers=viewer).json() == []
     stranger = world.person("reader-b", "viewer", org=OTHER)[1]
     assert world.client.get(ROUNDS, headers=stranger).json() == []
 
@@ -363,13 +372,13 @@ def test_only_a_person_holding_label_reaches_a_graders_routes(
     assert keyed.status_code == 200 and len(keyed.json()) == 1
 
 
-def test_whoever_manages_the_sets_grades_nothing_and_is_never_assigned(world: World) -> None:
+def test_an_administrator_grades_nothing_and_is_never_assigned(world: World) -> None:
     (first, _), (second, _) = world.person("grader-a"), world.person("grader-b")
     curator, headers = world.person("lead", "admin", "labeller")
     made = world.rounds.create_round(
-        CLINIC, world.pack, RUBRIC, world.run, sample=2, created_by="o"
+        CLINIC, world.agent, RUBRIC, world.run, sample=2, created_by="o"
     )
-    with pytest.raises(Exception, match="manages hidden sets"):
+    with pytest.raises(Exception, match="administers clinic-a"):
         world.rounds.assign(str(made["round"]), [first, curator])
     world.rounds.assign(str(made["round"]), [first, second])
     assert world.next(headers).status_code == 204

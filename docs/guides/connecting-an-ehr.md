@@ -46,7 +46,7 @@ fictional):
 |---|---|---|
 | `id` | yes | Lower-case letters, digits and hyphens, at most 63. The client is the principal `cds:<id>`, and the audit chain names it `cds <id>`. |
 | `title` | yes | A name for people, at most 100 characters. |
-| `iss` | yes | Exactly what the EHR's tokens carry as `iss`. Some EHRs send their FHIR base; Inferno's CRD kit sends its suite's own URL, `<its host>/custom/crd_server_v221`, with `jku` that URL plus `/jwks.json` ([Conformance runs](#conformance-runs)). |
+| `iss` | yes | Exactly what the EHR's tokens carry as `iss`. Some EHRs send their FHIR base. |
 | `org` | yes | The organization its calls act for, and whose decisions they become. With sign-in off it must be `default`. In memberships mode it needs a record. |
 | `fhir_servers` | yes | The FHIR bases (1 to 20) the EHR may send as `fhirServer`. Each must have its origin on `MENDARI_FHIR_ALLOWED_SERVERS`, and if `MENDARI_SMART_EHRS` registers the same base for launches, it must be to the same organization. |
 | `jwks` or `jwks_uri` | one of the two | The EHR's public keys. `jwks` is a JWK Set by value. `jwks_uri` is the one URL Mendari fetches them from: https (plain http only for a loopback or single-label host), with its origin on `MENDARI_FHIR_ALLOWED_SERVERS`. |
@@ -226,9 +226,9 @@ read.
 
 ### Linked data
 
-An agent on spec 0.3 can read a note that is only a link to a Binary, and what a reference points
-to: the payer behind `Coverage.payor`, the drug behind `medicationReference`
-([the 0.3 mapping](../spec/agent-manifest-0.3.md)). When the record does not hold them, Mendari
+An agent can read a note that is only a link to a Binary, and what a reference points to: the
+payer behind `Coverage.payor`, the drug behind `medicationReference`
+([the mapping](../spec/agent-manifest.md#94-following-a-reference)). When the record does not hold them, Mendari
 reads them from the same `fhirServer`, with the same token:
 
 - one `GET` of one resource by `Type/id`, under the server's base URL, with
@@ -295,8 +295,7 @@ Each card is CDS Hooks 2.0's:
   confidence the card used to show as one is gone.
 - Every decision is recorded, but an agent may show a card for some recommendations only (its
   `cds_hooks.card.show`; a decision with no recommendation, an ABSTAIN or a BLOCK, is its
-  `none`, and since spec 0.3 one that refused its input is its `refused` where the agent names
-  that key). An agent may also show a card for a recommendation it otherwise leaves out when a
+  `none`, and one that refused its input is its `refused` where the agent names that key). An agent may also show a card for a recommendation it otherwise leaves out when a
   policy rule of its own matched, in that rule's words (`cds_hooks.card.also_show`). An input
   the agent refuses as invalid (BLOCK) gets its `refused` card, if the agent names one, saying
   it was not checked and why, each reason naming where in the input and which rule, never the
@@ -306,12 +305,6 @@ Each card is CDS Hooks 2.0's:
   shows for refused input, if any.
 - The demo agent's hook, `mendari-message-received`, is Mendari's own, not a standard one:
   the EHR sends the message (a `Communication`) and its sender as prefetch, and gets one card.
-- A service whose agent declares `coverage_information` is a Da Vinci CRD service. Its discovery
-  entry declares
-  `davinci-crd.version` (`2.2`) and one option, `coverage-info`, and each of its cards says it
-  is `coverage-info` in `source.topic`. A request with
-  `"extension": {"davinci-crd.configuration": {"coverage-info": false}}` gets no cards and no
-  system actions. Each order is still decided and recorded.
 
 The links on a card need `MENDARI_PUBLIC_URL`:
 
@@ -319,7 +312,7 @@ The links on a card need `MENDARI_PUBLIC_URL`:
 |---|---|---|
 | The audit trail (`absolute`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?agent=<agent id>#audit/<decision>`, the decision's record, which needs a Mendari sign-in with `read` in the organization. The engine's reasons move behind this link, but for a list read without a source your EHR does not offer (`<list> may be incomplete: …`, below), which stays in the detail, and for an input refused as invalid (an agent's `refused` card), whose reasons stay in its detail. |
 | The agent (`source.url`) | `MENDARI_PUBLIC_URL` is set | `<public URL>/?agent=<agent id>#card`, the agent's card. |
-| The launch (`smart`) | also SMART is on (`MENDARI_SMART_CLIENT_ID`), and the request's `fhirServer` is registered in `MENDARI_SMART_EHRS` to the caller's own organization | `<public URL>/smart/launch?pack=<agent id>` (the launch's own parameter keeps the name it had). The EHR adds `iss` and `launch`. |
+| The launch (`smart`) | also SMART is on (`MENDARI_SMART_CLIENT_ID`), and the request's `fhirServer` is registered in `MENDARI_SMART_EHRS` to the caller's own organization | `<public URL>/smart/launch?agent=<agent id>` (the launch's own parameter keeps the name it had). The EHR adds `iss` and `launch`. |
 
 Without `MENDARI_PUBLIC_URL`, a card has no links and the reasons stay in its detail, but for
 the confidence thresholds' reason (such as `confidence 0.94 is below the auto threshold 0.95`):
@@ -424,45 +417,34 @@ docker compose --profile signin run --rm --use-aliases cds-client
 
 **The standard hooks, on data shaped as an EHR returns it.** The demo agent's hook is its own
 (`mendari-message-received`). The standard hooks (`patient-view`, `order-sign`) are held by
-the test suite and CI on what the product does not bundle: the test fixtures' agents, and a
-vendor-shaped EHR profile (`tests/support/ehr_profile.py`). Its synthetic patients follow the
-shapes of Epic's and Oracle Health's public FHIR documentation, and hold none of their data:
+the test suite on what the product does not bundle: the chart-summary test fixture and its
+`order-sign` twin, on a vendor-shaped EHR (`tests/support/chart_ehr.py`) served inside the test,
+with no network. Its synthetic patients follow the shapes an EHR such as Epic returns, and hold
+none of its data:
 
-- a note is a DocumentReference that links to a Binary (`attachment.url`), as plain text, HTML or
-  RTF;
-- a Condition carries the site's own diagnosis code (a fictional system) and ICD-10-CM, the
-  site's coding first for some patients and second for others;
-- a medication is a MedicationRequest naming a Medication coded in RxNorm, with its dates in a
-  dosage `boundsPeriod`;
-- `Coverage.payor` refers to an Organization that holds the site's identifier for the payer;
-- a referral's category carries the site's order type beside the referral code;
+- a note is a DocumentReference whose attachments only link to Binaries, as plain text, HTML or
+  RTF, in one rendition or two (HTML with an RTF twin of the same note);
+- a Condition carries the site's own diagnosis code first, beside ICD-10-CM;
+- a medication is a MedicationRequest naming a Medication coded in RxNorm by reference, with its
+  dates in a dosage `boundsPeriod`;
 - no SNOMED CT anywhere.
 
-Each resource has an id of the profile's own, and none carries the sandbox's tag or a synthetic
-case id, as an EHR's data would not: the sandbox's worker, SMART launch and Bulk check never
-read it. In a checkout, `sandbox/fixtures.compose.yml` adds the fixtures to the compose
-sandbox: the engines serve the fixture agents too, and `cds-client` seeds the profile and
-calls every standard hook of the agents it has patients for, once per patient, with the same
-signed client. CI's `sandbox-e2e` runs that too:
+Each fixture decides through its own hook, as an EHR calls it (no prefetch, the FHIR server and
+its token named), the profile's server answering the engine's reads (`tests/test_ehr_profile.py`).
 
-```bash
-F="-f docker-compose.yml -f sandbox/fixtures.compose.yml"
-docker compose $F --profile signin up -d --wait engine launcher engine-signin
-docker compose $F --profile signin run --rm --use-aliases cds-client
-```
-
-**What an agent cannot read in these shapes.** An agent on spec 0.3 reads a note that is only a
-link from the FHIR server (its Binary, as text/plain or text/html); an RTF note is not read, so
-the decision abstains for a patient whose note is RTF (`could not read notes: unsupported_type`,
-an `info` card), the one unread thing that run allows. A payer's reference is followed to its
-Organization, but the Organization holds only the site's own payer id, which no site code map
-translates (a map translates codings only).
+**What an agent cannot read in these shapes.** An agent reads a note that is only a link from
+the FHIR server (its Binary, as text/plain or text/html, and of a note kept in two renditions
+the readable one); an RTF note alone is not read, so the decision abstains for a patient whose
+note is RTF (`could not read notes: unsupported_type`, an `info` card). And an EHR that keeps
+every medication as an active MedicationRequest, its dates in the dosage's bounds, gives a
+medication the patient's record ended as active, with the same dates. The test pins both, each
+with why.
 
 ## Site codes
 
 An EHR often codes things its own way: a local code system, or another code of a standard one.
-An agent at spec 0.3 names sets of its own codes (`code_sets`) and reads a field through one
-(`code_set`, [the spec](../spec/agent-manifest-0.3.md#25-code-sets-03)). `MENDARI_SITE_CODES`
+An agent names sets of its own codes (`code_sets`) and reads a field through one
+(`code_set`, [the spec](../spec/agent-manifest.md#96-code-sets)). `MENDARI_SITE_CODES`
 says how a site's codes translate into an agent's, one organization at a time. Off until you set
 it: unset, no code is translated and every decision is made as before.
 
@@ -606,40 +588,15 @@ person who attests it is named on every decision it applies to.
 
 ## Conformance runs
 
-Mendari's own repository runs Inferno's Da Vinci CRD test kit (v0.15.0, suite
-`crd_server_v221`) as an EHR's CDS client against a signed-in engine, weekly and by hand
-(`conformance.yml`; how to run it yourself, and every known gap with its reason, in
-[`sandbox/inferno/README.md`](https://github.com/mendari-hq/mendari/tree/main/sandbox/inferno)).
-It is registered as any EHR is: the entry below, in that sandbox only. The kit's signing keys
-are in its public repository, so never register it on a deployment.
-
-```json
-[
-  {
-    "id": "inferno-crd",
-    "title": "Inferno CRD test kit (sandbox only)",
-    "iss": "http://nginx/custom/crd_server_v221",
-    "org": "pilot",
-    "fhir_servers": ["http://nginx/custom/crd_server_v221/fhir"],
-    "jwks_uri": "http://nginx/custom/crd_server_v221/jwks.json"
-  }
-]
-```
-
-Each hook call carries a new ES384 token with exactly these header fields (`alg`, `kid`, `typ`,
-`jku`), and its `aud` is the engine's `MENDARI_PUBLIC_URL` plus the path called. The run proves,
-on synthetic data, that discovery and an agent's `order-sign` service answer a
-signed CRD client, read the record from the EHR's FHIR server with the token the hook carries,
-and abstain, saying what they could not read, when part of it cannot be read: with the EHR's
-FHIR server failing every read (the kit's Technical Issues group), the answer's coverage is
-`indeterminate` for a `technical` reason. With no Coverage to name, no coverage information is
-sent at all. It does not prove your
-deployment: TLS (the kit's test 1.01), your EHR's keys and their rotation, and your EHR's own
-requests are yours to check (`Check it`, above). The same weekly run has Inferno's SMART App
-Launch client suite against an EHR launch and the Bulk Data client suite against `mendari bulk
-export`, and `terminology.yml` runs the HL7 validator over Mendari's synthetic FHIR resources
-with a terminology server (tx.fhir.org). For an EHR that launches Mendari, `mendari smart check
-<its FHIR base>` also compares the scopes a launch asks for with the EHR's `scopes_supported`
+Mendari's own repository runs two of Inferno's test kits against an engine, weekly and by hand
+(`conformance.yml`; how to run them yourself, and every known gap with its reason, in
+[`sandbox/inferno/README.md`](https://github.com/mendari-hq/mendari/tree/main/sandbox/inferno)):
+the SMART App Launch client suite against an EHR launch, and the Bulk Data client suite against
+`mendari bulk export`. `terminology.yml` runs the HL7 validator over Mendari's synthetic FHIR
+resources with a terminology server (tx.fhir.org). None of them proves your deployment: TLS,
+your EHR's keys and their rotation, and your EHR's own requests are yours to check (`Check it`,
+above). For an EHR that launches Mendari, `mendari smart check <its FHIR base>` also compares the
+scopes a launch asks for with the EHR's `scopes_supported`
 ([Sign-in and roles](../deploying-with-phi.md#2-sign-in-and-roles)).
 
 ## Before a pilot
@@ -655,8 +612,8 @@ to a pilot:
   vendor's sandbox patients without a failed hook, and that `mendari smart check` passes against
   the vendor, is the pilot's first run (the named vendor is Epic, with Oracle Health as the
   backup). Until then the path is proven with test keys, the sandbox's client and Inferno only.
-- **Notes the agents may not read.** An agent on spec 0.3 that reads notes reads a note that is
-  only a link from the FHIR server, but as text only when it is text/plain or text/html: an RTF,
+- **Notes the agents may not read.** An agent that reads notes reads a note that is only a link
+  from the FHIR server, but as text only when it is text/plain or text/html: an RTF,
   PDF or CDA note abstains (`unsupported_type`). So do notes longer than the agent's input allows
   in all (`too_large`; the text is never cut) and more notes than a decision reads (50,
   `cap`), which a patient with many notes may reach. On an EHR that sends notes that way, or keeps

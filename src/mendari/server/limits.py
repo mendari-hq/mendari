@@ -14,20 +14,18 @@ costs: no body is read, no provider is called and nothing is chained for a refus
 | `token` | `POST /auth/token`, before its body is read | IP | 60/min |
 | `token_failures` | a refused assertion at `/auth/token` | IP and client | 10/10min |
 | `decide` | every decision entry point; a CDS draft order is one | principal | 600/min, burst 100 |
-| `guard` | `POST …/guard` (an LLM call) | principal | 60/min |
-| `evaluate` | `POST …/evals`, and a grading run (`POST …/runs`, LP-11l) | principal | 6/h |
+| `evaluate` | `POST …/evals` | principal | 6/h |
 | `export` | the audit FHIR export, the feedback export | principal | 10/h |
-| `label` | a labeller's routes (LP-11j; each case read is chained) | principal | 60/min, burst 30 |
+| `label` | a grader's routes (each item read is chained) | principal | 60/min, burst 30 |
 
 Reads are not limited here (the edge covers floods, and a read writes nothing permanent), but for
-a labeller's, which chain each case they are shown, and for the console's reads of the
+a grader's, which chain each item they are shown, and for the console's reads of the
 deployment's registry (a search, a listing: each is a request this server sends there), which
 count against `label` too, as a check of an agent's connection does. An EHR launch's decisions
 count against its `ehr` principal, like anyone's. An administrator's writes (keys, clients,
-people, and a hidden set's draws and assignments, LP-11k) have no class: a person's pace,
-chained, as every write. A registry reviewer's acts, and an operator's actions
-(`/api/system/...`: verifying the whole chain, a test alert, a check of an EHR's servers), count
-against `label` too: a person's pace.
+people) have no class: a person's pace, chained, as every write. A registry reviewer's acts,
+and an operator's actions (`/api/system/...`: verifying the whole chain, a test alert, a check
+of an EHR's servers), count against `label` too: a person's pace.
 
 **A daily cap per principal** (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set, sign-in only:
 `DailyCap`) counts the decisions each principal asks for, per local day (one per request that
@@ -73,7 +71,7 @@ from mendari.core import clock
 from mendari.core.audit import AuditStore
 from mendari.core.rate_buckets import RateBuckets
 from mendari.errors import MendariError
-from mendari.server import paths, security_log
+from mendari.server import security_log
 
 Mode = Literal["on", "log", "off"]
 _UNITS = {"s": 1, "min": 60, "h": 3600}
@@ -115,18 +113,14 @@ DEFAULT_RATES: dict[str, Rate] = {
     "token": Rate(60, 60, 60),
     "token_failures": Rate(10, 600, 10),
     "decide": Rate(600, 60, 100),
-    "guard": Rate(60, 60, 60),
     "evaluate": Rate(6, 3600, 6),
     "export": Rate(10, 3600, 10),
     "label": Rate(60, 60, 30),
-    # An author's acts on the pack store (LP-20f): an upload's parts, copies, edits, tests;
+    # An author's acts on the agent store (LP-20f): an upload's parts, copies, edits, tests;
     # per person. Each new version also counts against `store_uploads` a day.
     "store": Rate(240, 3600, 60),
 }
 
-# Each names a route's current path; `Limiter.classify` and `DailyCap.counts` read a renamed
-# route's former path as its current one first (`server/paths.py`), so both count alike.
-_GUARD = re.compile(r"^/api/agents/[^/]+/[^/]+/guard$")
 # What is made to be kept: the exports, and the committee packet (one document of every
 # aggregate read about an agent, made for a meeting and not for polling).
 _EXPORTS = re.compile(
@@ -257,9 +251,9 @@ class DailyCapReached(RateLimited):
 
 # The entry points that make decisions: each request one, but a CDS Hooks order hook one per
 # draft order (counted in its route, `DailyCap.charge`). Not what only needs the permission
-# (acknowledging the notice, a PAS submission or a DTR package, built from decisions made).
+# (acknowledging the notice, or asking about an action of a decision made).
 _DECIDES = re.compile(
-    r"^/(api/agents/[^/]+/[^/]+/(decide|guard|fhir/decide)|fhir/\$decide|api/smart/decide)$"
+    r"^/(api/agents/[^/]+/[^/]+/(decide|fhir/decide)|fhir/\$decide|api/smart/decide)$"
 )
 
 
@@ -284,7 +278,7 @@ class DailyCap:
     def counts(method: str, path: str) -> bool:
         """Whether the guard counts this request (one decision); a CDS Hooks request is counted
         in its route, which knows how many it makes."""
-        return method == "POST" and _DECIDES.match(paths.current(path)) is not None
+        return method == "POST" and _DECIDES.match(path) is not None
 
     def check(self, principal_id: str, org: str | None, cost: int = 1) -> DailyCapReached | None:
         """Count `cost` decisions, all or none; the refusal if they would pass the cap."""
@@ -339,7 +333,6 @@ class Limiter:
 
     def classify(self, method: str, path: str, permission: str) -> str | None:
         """The class a request counts against, or None (not limited here)."""
-        path = paths.current(path)
         if method == "GET" and path in ("/auth/login", "/smart/launch"):
             return "signin"
         if method == "POST" and permission == "person":
@@ -352,14 +345,14 @@ class Limiter:
         if method == "POST" and path == "/api/smart/decide":
             return "decide"
         if permission == "decide":
-            return "guard" if _GUARD.match(path) else "decide"
-        if permission in ("evaluate", "grade"):  # a grading run is an evaluation (LP-11l)
+            return "decide"
+        if permission == "evaluate":
             return "evaluate"
         if method == "GET" and _EXPORTS.match(path):
             return "export"
-        if permission == "label":  # a labeller's routes: a person's pace, each case read chained
+        if permission == "label":  # a grader's routes: a person's pace, each item read chained
             return "label"
-        if permission == "author" and method != "GET":  # the pack store's writes (LP-20f)
+        if permission == "author" and method != "GET":  # the agent store's writes (LP-20f)
             return "store"
         if _OUTBOUND.match(path):
             # What a person's click makes this server ask of another service, one request there

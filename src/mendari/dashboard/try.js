@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Try it: a message form or a record form generated from the input schema, or FHIR input where the
-// pack maps FHIR; an AI reply checked where the pack guards replies; the result, and under a
-// complete prior-authorization request, its Da Vinci PAS request Bundle.
+// agent maps FHIR; the result.
 
 import { feedbackControls } from "./feedback.js";
 import { schemaForm, wireSchemaForm } from "./form.js";
-import { codesToggle, communityNotice, criteriaTable, derivedPrimary, isMessagePack, labelName, named, plainReasons, questionName, statusNotice, wireCodes } from "./pack.js";
+import { codesToggle, isMessageAgent, labelName, named, plainReasons, questionName, statusNotice, wireCodes } from "./manifest.js";
 import { refreshReviewCount, views, wire } from "./router.js";
 import { guardrailTrace } from "./trace.js";
-import { $, api, copyText, emptyState, esc, focusHeading, icon, may, packPath, pct, PRIORITY_TEXT, saveFile, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
+import { $, api, copyText, emptyState, esc, focusHeading, icon, may, agentPath, pct, PRIORITY_TEXT, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
 
 const SAMPLES = [
   { label: "Refill", subject: "Refill request", body: "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks" },
@@ -27,16 +26,14 @@ views.try = async (main) => {
     })}`;
     return;
   }
-  return isMessagePack() ? tryMessage(main) : tryRecord(main);
+  return isMessageAgent() ? tryMessage(main) : tryRecord(main);
 };
 
-// What the chosen pack takes besides its own input, as the API reference offers it
-// (server/api_docs.py): FHIR where it has a FHIR mapping, an AI reply to check where it has a
-// `guard` section.
+// What the chosen agent takes besides its own input, as the API reference offers it
+// (server/api_docs.py): FHIR where it has a FHIR mapping.
 const takesFhir = () => Boolean(state.detail.manifest?.inputs?.fhir);
-const guardsReplies = () => Boolean(state.detail.manifest?.guard);
 
-// The input switch: each way the pack's input can be given, the one chosen last first.
+// The input switch: each way the agent's input can be given, the one chosen last first.
 const MODE_NAMES = { form: "Form", json: "JSON", fhir: "FHIR" };
 
 function rememberedMode(modes) {
@@ -83,35 +80,30 @@ function decideFhir(button) {
     return $("#fhir-json").focus();
   }
   fhirError("");
-  const targetPack = state.packId;
-  const endpoint = `${packPath()}/fhir/decide`;
+  const targetAgent = state.agentId;
+  const endpoint = `${agentPath()}/fhir/decide`;
   const shadow = shadowChecked();
   return whileBusy(button, "Deciding…", async () => {
     try {
       const answer = await api(endpoint, { method: "POST", headers: shadowHeaders(shadow), body: JSON.stringify(input) });
-      if (state.packId !== targetPack || !$("#result")) return;
-      showResult(answer.decision, { task: answer.task, fhir: input, request: { endpoint, body: input, shadow } });
+      if (state.agentId !== targetAgent || !$("#result")) return;
+      showResult(answer.decision, { task: answer.task, request: { endpoint, body: input, shadow } });
     } catch (error) {
-      if (state.packId === targetPack && $("#fhir-error")) fhirError(error.message);
+      if (state.agentId === targetAgent && $("#fhir-error")) fhirError(error.message);
     }
   });
 }
 
-// The pack's own input, decided, or (`guard`) checked as an AI reply.
-function send(button, input, guard = false) {
-  const targetPack = state.packId;
-  const endpoint = `${packPath()}/${guard ? "guard" : "decide"}`;
-  const shadow = !guard && shadowChecked();
-  return whileBusy(button, guard ? "Checking…" : "Deciding…", async () => {
+// The agent's own input, decided.
+function send(button, input) {
+  const targetAgent = state.agentId;
+  const endpoint = `${agentPath()}/decide`;
+  const shadow = shadowChecked();
+  return whileBusy(button, "Deciding…", async () => {
     try {
-      if (!guard) {
-        const decision = await api(endpoint, { method: "POST", headers: shadowHeaders(shadow), body: JSON.stringify(input) });
-        if (state.packId !== targetPack || !$("#result")) return;
-        return showResult(decision, { request: { endpoint, body: input, shadow } });
-      }
-      const checked = await api(endpoint, { method: "POST", body: JSON.stringify(input) });
-      if (state.packId !== targetPack || !$("#result")) return;
-      showResult(checked.decision, { guard: checked, request: { endpoint, body: input, shadow: false } });
+      const decision = await api(endpoint, { method: "POST", headers: shadowHeaders(shadow), body: JSON.stringify(input) });
+      if (state.agentId !== targetAgent || !$("#result")) return;
+      showResult(decision, { request: { endpoint, body: input, shadow } });
     } catch (error) {
       toastError(error.message);
     }
@@ -134,16 +126,14 @@ function curlCommand({ endpoint, body, shadow = false }) {
   return `curl -X POST '${url}' \\\n  -H 'Content-Type: application/json'${extra} \\\n  -d '${json}'`;
 }
 
-// Packs whose input is a structured record: edit JSON, starting from the pack's own examples.
+// Agents whose input is a structured record: edit JSON, starting from the agent's own examples.
 async function tryRecord(main) {
-  const examples = await api(`${packPath()}/examples`);
+  const examples = await api(`${agentPath()}/examples`);
   const expected = (e) => Object.entries(e.expect).filter(([k]) => k !== "answers").map(([k, v]) => `${k} ${Array.isArray(v) ? v.join("/") : v}`).join(", ");
   const modes = ["form", "json", ...(takesFhir() ? ["fhir"] : [])];
-  const guard = guardsReplies();
   main.innerHTML = `
     <h1>Try it</h1>
-    <p class="muted">Synthetic records only; decisions here are recorded. Start from one of the agent's tests and change any field.${guard ? " Check the AI reply says whether the draft may be sent to the patient as written." : ""}</p>
-    ${communityNotice(state.detail)}
+    <p class="muted">Synthetic records only; decisions here are recorded. Start from one of the agent's tests and change any field.</p>
     ${statusNotice(state.detail)}
     <div class="panel">
       <div class="row mb-3" id="example-row">
@@ -160,11 +150,10 @@ async function tryRecord(main) {
       <div class="row mt-3">
         <label class="shadow-toggle"><input type="checkbox" id="try-shadow"> <span>Shadow mode</span></label>
         <span class="grow"></span>
-        ${guard ? `<button type="button" class="primary" id="guard">Check the AI reply</button>` : ""}
-        <button type="button" ${guard ? "" : `class="primary" `}id="decide">Decide</button></div>
+        <button type="button" class="primary" id="decide">Decide</button></div>
     </div>
     <div id="result"></div>`;
-  // One record, two views: a form generated from the pack's input schema (form.js), or its JSON.
+  // One record, two views: a form generated from the agent's input schema (form.js), or its JSON.
   // Switching carries the record across; the choice is remembered. FHIR input is its own.
   const schema = state.detail.input_schema;
   const formBox = $("#record-form");
@@ -181,7 +170,6 @@ async function tryRecord(main) {
     if ($("#fhir-input")) $("#fhir-input").hidden = mode !== "fhir";
     $("#example-row").hidden = mode === "fhir";
     $("#expected").hidden = mode === "fhir";
-    if (guard) $("#guard").hidden = mode === "fhir"; // the guard takes the pack's input
     pressMode(main, mode);
   };
   const switchTo = (next) => {
@@ -212,7 +200,7 @@ async function tryRecord(main) {
     $("#record").value = JSON.stringify(example?.input ?? {}, null, 2);
     $("#expected").textContent = example && expected(example) ? `The agent's test expects: ${expected(example)}.` : "";
   };
-  const replayMeta = state.replayDraft?.packId === state.packId ? state.replayDraft : null;
+  const replayMeta = state.replayDraft?.agentId === state.agentId ? state.replayDraft : null;
   const replay = replayMeta?.input ?? null;
   state.replayDraft = null;
   if (replay && isObject(replay)) {
@@ -230,7 +218,7 @@ async function tryRecord(main) {
   }
   showMode();
   $("#example").addEventListener("change", (e) => choose(Number(e.target.value)));
-  const run = (button, asGuard) => {
+  const run = (button) => {
     if (mode === "fhir") return decideFhir(button);
     let input;
     if (mode === "form") {
@@ -243,12 +231,10 @@ async function tryRecord(main) {
         return toastError(`Not valid JSON: ${error.message}`);
       }
     }
-    return send(button, input, asGuard);
+    return send(button, input);
   };
-  $("#decide").addEventListener("click", (e) => run(e.currentTarget, false));
-  if (guard) $("#guard").addEventListener("click", (e) => run(e.currentTarget, true));
-  const submitPrimary = () => (guard && !$("#guard").hidden ? $("#guard").click() : $("#decide").click());
-  wireSubmitKey($("#record"), submitPrimary);
+  $("#decide").addEventListener("click", (e) => run(e.currentTarget));
+  wireSubmitKey($("#record"), () => $("#decide").click());
   wireSubmitKey($("#fhir-json"), () => $("#decide").click());
 }
 
@@ -256,8 +242,8 @@ async function tryRecord(main) {
 // `additionalProperties: false`). A schema not given (none for that object) is open.
 const takes = (schema, key) => !schema || Boolean(schema.properties?.[key]) || schema.additionalProperties !== false;
 
-// The message form's fields the pack's input schema takes: a closed schema refuses anything else
-// (the community scaffold's takes a message body and subject only), so the form shows and sends
+// The message form's fields the agent's input schema takes: a closed schema refuses anything else
+// (one may take a message body and subject only), so the form shows and sends
 // only these.
 function messageFields() {
   const root = state.detail.input_schema ?? {};
@@ -278,7 +264,6 @@ async function tryMessage(main) {
   main.innerHTML = `
     <h1>Try it</h1>
     <p class="muted">Synthetic messages only; decisions here are recorded.</p>
-    ${communityNotice(state.detail)}
     ${statusNotice(state.detail)}
     <div class="panel">
       ${modes.length > 1 ? modeSwitch(modes) : ""}
@@ -313,7 +298,7 @@ async function tryMessage(main) {
     storageSet("oh.try.mode", mode);
     showMode();
   }));
-  const replayMeta = state.replayDraft?.packId === state.packId ? state.replayDraft : null;
+  const replayMeta = state.replayDraft?.agentId === state.agentId ? state.replayDraft : null;
   const replay = replayMeta?.input ?? null;
   state.replayDraft = null;
   if (replay && isObject(replay)) {
@@ -355,75 +340,56 @@ async function tryMessage(main) {
   wireSubmitKey($("#fhir-json"), () => $("#decide").click());
 }
 
-// The outcome in words, with the priority when it isn't routine: "Blocked · urgent". A checked AI
-// reply leads with what to do with it (notes/ui-ux-review.md: "blocked, do this instead").
+// The outcome in words, with the priority when it isn't routine: "Blocked · urgent".
 const RESULT_WORDS = { AUTO: "Automated", HUMAN_REVIEW: "Sent to review", ABSTAIN: "Abstained: a person decides", BLOCK: "Blocked" };
 
 const RESULT_ICON = { AUTO: "check", HUMAN_REVIEW: "clock", ABSTAIN: "clock", BLOCK: "alert" };
 
-const GUARD_WORDS = { released: "Released: send the reply", held_for_review: "Held for review: send nothing yet", blocked: "Blocked: send nothing" };
-
-const GUARD_ICON = { released: "shield-check", held_for_review: "clock", blocked: "shield-x" };
-
-const resultHeadline = (r, guard) => `${guard ? GUARD_WORDS[guard.status] ?? guard.status : RESULT_WORDS[r.outcome] ?? r.outcome}${r.priority && r.priority !== "routine" ? ` · ${PRIORITY_TEXT[r.priority].toLowerCase()}` : ""}`;
+const resultHeadline = (r) => `${RESULT_WORDS[r.outcome] ?? r.outcome}${r.priority && r.priority !== "routine" ? ` · ${PRIORITY_TEXT[r.priority].toLowerCase()}` : ""}`;
 
 // Show a new result: scrolled into view, its headline focused (and so announced). `extra`: the
-// guard's answer (`guard`), the FHIR Task (`task`) and the FHIR input decided (`fhir`). Under a
-// decision the PAS route builds a request for (`pas_ready`), the form that builds it.
+// FHIR Task (`task`) and the request made (`request`).
 function showResult(result, extra = {}) {
   const box = $("#result");
   if (!box) return;
-  const pas = Boolean(state.detail.pas_ready) && result.recommendation === state.detail.pas_ready;
-  box.innerHTML = decisionView(result, extra) + (pas ? pasPanel(extra.fhir) : "");
+  box.innerHTML = decisionView(result, extra);
   wire(box);
   wireCodes(box.querySelector(".result"));
   if (extra.request) {
     box.querySelector("#copy-curl")?.addEventListener("click", () =>
       copyText(curlCommand(extra.request), "cURL copied"));
   }
-  if (pas) wirePas(result);
   focusHeading($("#result-title"));
   refreshReviewCount();
-}
-
-// What to do with a checked AI reply: the reply to send, or why nothing is sent yet (a blocked
-// one's fallback is the callout below it).
-function guardLead(guard) {
-  if (guard.status === "released") return `<h3>The reply to send</h3><div class="message">${esc(guard.reply)}</div>`;
-  if (guard.status === "held_for_review") return `<div class="callout neutral">A clinician reads the draft and the reasons below before anything is sent.</div>`;
-  return "";
 }
 
 // The result in words (LP-05b): names, not codes (the codes one click away), the reasons a person
 // reads, and each question's answer. The engine's detail (each label's probability, the
 // providers, thresholds and timings, the reasons as the engine gave them) is in the decision
 // record, one link away.
-function decisionView(r, { guard = null, task = null, request = null } = {}) {
+function decisionView(r, { task = null, request = null } = {}) {
   const urgent = r.outcome === "BLOCK" || r.priority === "stat";
   const why = plainReasons(r);
-  // Every question the pack asks: an answer by name, or that none came (a provider failed).
+  // Every question the agent asks: an answer by name, or that none came (a provider failed).
   const asked = [...new Set([...Object.keys(r.answers), ...Object.keys(r.errors ?? {})])];
-  const answers = derivedPrimary()
-    ? criteriaTable(r.answers, { plain: true })
-    : `<dl class="answers">${asked.map((q) => {
-      const a = r.answers[q];
-      return `<div>
-        <dt>${named(questionName(q), q)}</dt>
-        <dd>${a ? `<b>${named(labelName(q, a.label), a.label)}</b>${a.confidence !== null && a.confidence !== undefined ? ` <span class="muted">${pct(a.confidence)} sure</span>` : ""}` : `<span class="muted">no answer</span>`}</dd>
-      </div>`;
-    }).join("")}</dl>`;
+  const answers = `<dl class="answers">${asked.map((q) => {
+    const a = r.answers[q];
+    return `<div>
+      <dt>${named(questionName(q), q)}</dt>
+      <dd>${a ? `<b>${named(labelName(q, a.label), a.label)}</b>${a.confidence !== null && a.confidence !== undefined ? ` <span class="muted">${pct(a.confidence)} sure</span>` : ""}` : `<span class="muted">no answer</span>`}</dd>
+    </div>`;
+  }).join("")}</dl>`;
   // The confidence is the primary answer's: said only of the label the engine chose, not of one a
   // rule set instead.
   const chosen = r.recommendation && r.recommendation === r.answers[r.primary]?.label;
   const certainty = !r.recommendation ? "" : chosen && r.confidence !== null ? ` · ${pct(r.confidence)} sure` : r.rule ? " · set by the agent's rule" : "";
-  const headIcon = guard ? GUARD_ICON[guard.status] ?? RESULT_ICON[r.outcome] : RESULT_ICON[r.outcome];
+  const headIcon = RESULT_ICON[r.outcome];
   return `<section class="panel result" aria-labelledby="result-title">
     <div class="result-head ${urgent ? "tone-solid" : `tone-${esc(r.outcome)}`}">
-      <h2 id="result-title">${icon(headIcon)}${esc(resultHeadline(r, guard))}</h2>
+      <h2 id="result-title">${icon(headIcon)}${esc(resultHeadline(r))}</h2>
       <p>${r.recommendation ? `${named(questionName(r.primary), r.primary)}: <b>${named(labelName(r.primary, r.recommendation), r.recommendation)}</b>` : "No recommendation"}${certainty}</p>
     </div>
     ${guardrailTrace(r)}
-    ${guard ? guardLead(guard) : ""}
     ${r.fallback ? `<div class="callout ${r.outcome === "BLOCK" ? "danger" : "neutral"}"><b>Instead:</b> ${esc(r.fallback)}</div>` : ""}
     ${why.length ? `<h3>Why</h3><ul class="reasons">${why.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
     ${asked.length ? `<h3>Answers</h3>${answers}` : ""}
@@ -435,146 +401,3 @@ function decisionView(r, { guard = null, task = null, request = null } = {}) {
 }
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-
-// ---- Da Vinci PAS: the request Bundle for a complete prior-authorization request ----------------
-// The resources are the EHR's, pasted as FHIR (after a FHIR decision, those its input held are
-// filled in). The codes the payer needs are a site's settings, or given here: the dashboard holds
-// no code value, and a refusal naming a setting opens the fields that give it with the request.
-const PAS_RESOURCES = [
-  { key: "patient", label: "Patient", type: "Patient" },
-  { key: "coverage", label: "Coverage", type: "Coverage" },
-  { key: "insurer", label: "Payer", type: "Organization" },
-  { key: "requester", label: "Requesting organization", type: "Organization" },
-  { key: "order", label: "Order", type: "ServiceRequest" },
-];
-
-const PAS_CODES = [
-  { key: "service_type", label: "Service type", hint: "Else the order's category, else the setting MENDARI_PAS_SERVICE_TYPE.", max: 5 },
-  { key: "request_type", label: "Request type", hint: "Else the setting MENDARI_PAS_REQUEST_TYPE." },
-  { key: "certification_type", label: "Certification type", hint: "Else the setting MENDARI_PAS_CERTIFICATION_TYPE." },
-];
-
-// Every resource in FHIR input: a Bundle's entries, a resource, or a prefetch object's values
-// (walked with a stack: pasted input can nest deeply).
-function resourcesIn(input) {
-  const found = [];
-  const stack = [input];
-  while (stack.length) {
-    const value = stack.pop();
-    if (Array.isArray(value)) stack.push(...[...value].reverse());
-    else if (isObject(value)) {
-      if (value.resourceType === "Bundle") stack.push(...(value.entry ?? []).map((e) => e?.resource).reverse());
-      else if (typeof value.resourceType === "string") found.push(value);
-      else stack.push(...Object.values(value).reverse());
-    }
-  }
-  return found;
-}
-
-// What FHIR input gives the request: its patient, coverage and order, and the payer its coverage
-// names. The requesting organization is the EHR's to give.
-function pasGiven(fhir) {
-  const all = fhir ? resourcesIn(fhir) : [];
-  const first = (type) => all.find((r) => r.resourceType === type);
-  const coverage = first("Coverage");
-  const payer = coverage?.payor?.[0]?.reference;
-  return {
-    patient: first("Patient"),
-    coverage,
-    order: first("ServiceRequest"),
-    insurer: all.find((r) => r.resourceType === "Organization" && `Organization/${r.id}` === payer),
-  };
-}
-
-function pasPanel(fhir) {
-  const given = pasGiven(fhir);
-  return `<section class="panel" aria-labelledby="pas-title">
-    <h2 id="pas-title">Prior-authorization request</h2>
-    <p class="muted">The request is complete: build the Da Vinci PAS request Bundle for the payer from the EHR's resources, each as FHIR R4 JSON${fhir ? " (those your FHIR input held are filled in)" : ""}. Nothing is made up: what is missing is named. Nothing is sent to a payer from here.</p>
-    <form id="pas-form" class="sf">
-      <div class="sf-grid">
-        ${PAS_RESOURCES.map((x) => `<div class="sf-field wide"><label for="pas-${x.key}">${esc(x.label)} <span class="muted">(${esc(x.type)})</span></label>
-          <textarea id="pas-${x.key}" class="code sf-json" rows="4" spellcheck="false" required>${given[x.key] ? esc(JSON.stringify(given[x.key], null, 2)) : ""}</textarea></div>`).join("")}
-        <div class="sf-field"><label for="pas-place">Place of service</label>
-          <input id="pas-place" maxlength="5" aria-describedby="pas-place-hint"><span class="sf-hint" id="pas-place-hint">A CMS place-of-service code, when the order has none.</span></div>
-        <div class="sf-field"><label for="pas-diagnoses">Diagnoses</label>
-          <input id="pas-diagnoses" aria-describedby="pas-diagnoses-hint"><span class="sf-hint" id="pas-diagnoses-hint">ICD-10-CM codes, separated by commas.</span></div>
-      </div>
-      <details id="pas-codes"><summary>X12 codes</summary>
-        <p class="sf-hint">Each is taken from here, else from the site's setting named. Mendari ships none.</p>
-        <div class="sf-grid">${PAS_CODES.map((c) => `<div class="sf-field"><label for="pas-${c.key}">${esc(c.label)}</label>
-          <input id="pas-${c.key}" maxlength="${c.max ?? 3}"${c.max ? "" : ` pattern="[A-Z0-9]{1,3}" title="1 to 3 capital letters or digits"`} autocapitalize="characters" aria-describedby="pas-${c.key}-hint">
-          <span class="sf-hint" id="pas-${c.key}-hint">${esc(c.hint)}</span></div>`).join("")}</div>
-      </details>
-    </form>
-    <p class="error" id="pas-error" role="alert" hidden></p>
-    <div class="row mt-3"><span class="grow"></span><button type="button" class="primary" id="pas-build">Build the request</button></div>
-    <div id="pas-bundle"></div>
-  </section>`;
-}
-
-function wirePas(decision) {
-  const button = $("#pas-build");
-  const say = (message) => {
-    $("#pas-error").textContent = message;
-    $("#pas-error").hidden = !message;
-  };
-  $("#pas-form").addEventListener("submit", (event) => event.preventDefault());
-  button.addEventListener("click", () => {
-    say("");
-    if (!$("#pas-form").reportValidity()) return; // the browser points at the field to fix
-    const body = { decision_id: decision.id };
-    for (const x of PAS_RESOURCES) {
-      const box = $(`#pas-${x.key}`);
-      let resource;
-      let problem = "one FHIR resource, as a JSON object";
-      try {
-        resource = JSON.parse(box.value);
-      } catch (error) {
-        problem = `not valid JSON: ${error.message}`;
-      }
-      if (!isObject(resource)) {
-        box.setAttribute("aria-invalid", "true");
-        box.focus();
-        return say(`${x.label}: ${problem}.`);
-      }
-      box.removeAttribute("aria-invalid");
-      body[x.key] = resource;
-    }
-    const place = $("#pas-place").value.trim();
-    if (place) body.place_of_service = place;
-    body.diagnoses = $("#pas-diagnoses").value.split(",").map((d) => d.trim()).filter(Boolean);
-    for (const c of PAS_CODES) {
-      const value = $(`#pas-${c.key}`).value.trim();
-      if (value) body[c.key] = value;
-    }
-    const targetPack = state.packId;
-    return whileBusy(button, "Building…", async () => {
-      try {
-        const answer = await api(`${packPath()}/pas`, { method: "POST", body: JSON.stringify(body) });
-        if (state.packId !== targetPack || !$("#pas-bundle")) return;
-        showBundle(answer.bundle, decision);
-      } catch (error) {
-        if (state.packId !== targetPack || !$("#pas-bundle")) return;
-        $("#pas-bundle").innerHTML = "";
-        const message = /[.!?]$/.test(error.message) ? error.message : `${error.message}.`;
-        if (!/MENDARI_PAS_/.test(message)) return say(message);
-        $("#pas-codes").open = true;
-        say(`${message} Give them under "X12 codes" above, or ask an administrator to set them.`);
-      }
-    });
-  });
-}
-
-// The Bundle as JSON, to copy or save; its heading takes focus (and so is announced).
-function showBundle(bundle, decision) {
-  const text = JSON.stringify(bundle, null, 2);
-  $("#pas-bundle").innerHTML = `<h3 id="pas-bundle-title">PAS request Bundle</h3>
-    <div class="row mb-3"><button type="button" id="pas-copy">${icon("copy")} Copy</button>
-      <button type="button" id="pas-download">${icon("download")} Download</button></div>
-    <pre class="json" tabindex="0" aria-labelledby="pas-bundle-title">${esc(text)}</pre>`;
-  $("#pas-copy").addEventListener("click", () => copyText(text, "Bundle copied", "Copying isn't available here: select the Bundle and copy it"));
-  $("#pas-download").addEventListener("click", () =>
-    saveFile(new Blob([text], { type: "application/fhir+json" }), `pas-request-${decision.id.slice(0, 8)}.json`));
-  focusHeading($("#pas-bundle-title"));
-}

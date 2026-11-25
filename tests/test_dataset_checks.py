@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Dataset checks (LP-20c, `evals/dataset_checks.py`, `mendari data check`): schema and label
 problems by case id, each label's count with its exact interval, duplicates under both of
-LP-11's forms, overlap with the pack's training data; ids and counts, never an input."""
+LP-11's forms, overlap with the agent's training data; ids and counts, never an input."""
 
 from __future__ import annotations
 
@@ -14,9 +14,8 @@ import pytest
 from scipy.stats import beta
 
 from mendari.cli import main
+from mendari.core.agent import Agent, load_agent
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack, load_pack
-from mendari.core.reference import bundled_dir
 from mendari.evals import canonical, dataset_checks
 from mendari.evals.dataset_checks import (
     MIN_CASES,
@@ -27,19 +26,12 @@ from mendari.evals.dataset_checks import (
     schema_problems,
     training_overlap,
 )
-from mendari.evals.harness import Dataset, load_dataset, resolve_dataset
-from tests.conftest import INBOX_DIR, ROOT
+from mendari.evals.harness import Dataset, resolve_dataset
+from tests.conftest import DEMO_AGENT_DIR, FIXTURE_AGENTS, TRIAGE_DIR
 from tests.test_canonical import COMBINING_ACUTE, E_ACUTE, ELLIPSIS, EM_DASH, wide
 
 SECRET = "PLANTED-CASE-TEXT-5519"
-INBOX = load_pack(INBOX_DIR)
-EXAMPLES = {
-    "patient-inbox-router": "local-site-example.jsonl",
-    "ai-guard": "guard-local-site-example.jsonl",
-    "prior-auth-preflight": "prior-auth-local-site-example.jsonl",
-    "referral-router": "referral-local-site-example.jsonl",
-    "clinical-trial-prescreener": "trial-local-site-example.jsonl",
-}
+TRIAGE = load_agent(TRIAGE_DIR)
 
 
 def _case(id: str, body: str, **labels: str) -> dict[str, Any]:
@@ -53,13 +45,13 @@ def _dataset(records: list[dict[str, Any]], name: str = "planted") -> Dataset:
 
 def test_a_case_that_breaks_the_schema_is_named_by_id_and_never_by_text() -> None:
     records = [
-        _case("ok-1", "I need a refill.", destination="front_desk", urgency="routine"),
+        _case("ok-1", "I need a refill.", destination="front_desk", urgency="no"),
         {"id": "bad-1", "input": {"message": SECRET}, "labels": {}},
         {"id": "bad-2", "input": {"message": {"body": "x", "other": SECRET}}, "labels": {}},
     ]
-    found = schema_problems(Decision(INBOX), records)
+    found = schema_problems(Decision(TRIAGE), records)
     assert [problem["case"] for problem in found] == ["bad-1", "bad-2"]
-    report = check(INBOX, _dataset(records), training={})
+    report = check(TRIAGE, _dataset(records), training={})
     assert not report.passed and report.data["schema_problems"]["count"] == 2
     assert SECRET not in json.dumps(report.data)
 
@@ -71,11 +63,11 @@ def test_a_label_outside_the_declared_answers_is_a_problem() -> None:
         {**_case("c3", "Billing question."), "labels": {"no_such_question": "x"}},
         _case("c1", "Same id as the first."),
     ]
-    found = label_problems(INBOX.manifest, records)
+    found = label_problems(TRIAGE.manifest, records)
     assert [problem["case"] for problem in found] == ["c2", "c3", "c1"]
     assert "destination is not one of its labels" in found[0]["reason"]
     assert "another case has the same id" in found[2]["reason"]
-    report = check(INBOX, _dataset(records), training={})
+    report = check(TRIAGE, _dataset(records), training={})
     assert not report.passed and SECRET not in json.dumps(report.data)
 
 
@@ -84,7 +76,7 @@ def test_each_label_has_its_count_and_exact_interval() -> None:
     records = [_case(f"p{i}", f"refill {i}", destination="front_desk") for i in range(7)] + [
         _case(f"n{i}", f"nurse {i}", destination="nurse") for i in range(13)
     ]
-    counts = label_counts(INBOX.manifest, records)["destination"]
+    counts = label_counts(TRIAGE.manifest, records)["destination"]
     assert counts["labelled"] == 20
     for label, k in (("front_desk", 7), ("nurse", 13), ("billing", 0)):
         share = counts["labels"][label]["share"]
@@ -93,13 +85,13 @@ def test_each_label_has_its_count_and_exact_interval() -> None:
         high = 1.0 if k == 20 else beta.ppf(0.975, k + 1, 20 - k)
         assert share["low"] == pytest.approx(low, abs=1e-6)
         assert share["high"] == pytest.approx(high, abs=1e-6)
-    assert label_counts(INBOX.manifest, records)["urgency"]["labelled"] == 0
+    assert label_counts(TRIAGE.manifest, records)["urgency"]["labelled"] == 0
 
 
 def test_a_thin_label_is_marked_too_few_and_is_not_refused() -> None:
     records = [_case(f"c{i}", f"refill {i}", destination="front_desk") for i in range(MIN_CASES)]
     records.append(_case("lone", "a bill", destination="billing"))
-    report = check(INBOX, _dataset(records), training={})
+    report = check(TRIAGE, _dataset(records), training={})
     labels = report.data["labels"]["destination"]["labels"]
     assert labels["front_desk"]["too_few"] is False
     assert labels["billing"]["too_few"] is True and labels["billing"]["share"]["k"] == 1
@@ -125,7 +117,7 @@ def test_duplicates_are_found_exactly_and_under_norm_v1() -> None:
     found = duplicates(records)
     assert found["exact"] == [["a", "d"]]
     assert found["norm/v1"] == [["a", "b", "c", "d"], ["e", "f"]]
-    report = check(INBOX, _dataset(records), training={})
+    report = check(TRIAGE, _dataset(records), training={})
     assert report.passed and report.data["duplicates"]["norm/v1"]["count"] == 2
 
 
@@ -148,8 +140,8 @@ def test_the_checks_use_lp11s_canonical_functions() -> None:
     assert "unicodedata" not in Path(dataset_checks.__file__).read_text()
 
 
-def test_overlap_with_the_packs_training_data_is_found() -> None:
-    train = resolve_dataset(INBOX, "train").records
+def test_overlap_with_the_agents_training_data_is_found() -> None:
+    train = resolve_dataset(TRIAGE, "calibration").records
     copied = {**train[0], "id": "copy"}
     reworded = {
         **train[1],
@@ -160,12 +152,13 @@ def test_overlap_with_the_packs_training_data_is_found() -> None:
     records = [copied, reworded, fresh]
     found = training_overlap(records, train)
     assert found == {"exact": ["copy"], "norm/v1": ["copy", "reworded"]}
-    report = check(INBOX, _dataset(records))  # the pack's own `train` and `calibration`
-    assert report.data["training"] == ["calibration", "train"]
+    report = check(TRIAGE, _dataset(records))  # the agent's own `calibration` (no `train`)
+    assert report.data["training"] == ["calibration"]
     assert report.data["training_overlap"]["norm/v1"]["listed"] == ["copy", "reworded"]
     assert report.passed  # overlap is reported, never a failure
     # A set is not compared with itself.
-    assert "train" not in check(INBOX, resolve_dataset(INBOX, "train")).data["training"]
+    calibration = check(TRIAGE, resolve_dataset(TRIAGE, "calibration"))
+    assert "calibration" not in calibration.data["training"]
 
 
 def _shouted(value: dict[str, Any]) -> dict[str, Any]:
@@ -176,27 +169,30 @@ def _shouted(value: dict[str, Any]) -> dict[str, Any]:
     return copied
 
 
-def _shipped() -> list[tuple[Pack, Dataset]]:
-    root = bundled_dir()
-    assert root is not None
+def _agents() -> list[Path]:
+    """The bundled demo agent, and every agent of the test fixtures' folder."""
+    fixtures = sorted(
+        folder for folder in FIXTURE_AGENTS.iterdir() if (folder / "agent.yaml").is_file()
+    )
+    return [DEMO_AGENT_DIR, *fixtures]
+
+
+def _shipped() -> list[tuple[Agent, Dataset]]:
+    """Each dataset those agents declare."""
     found = []
-    for folder in sorted(root.iterdir()):
-        if not (folder / "agent.yaml").is_file():
-            continue
-        pack = load_pack(folder)
-        for name in pack.manifest.evaluation.datasets:
-            found.append((pack, resolve_dataset(pack, name)))
-        example = ROOT / "tests" / "fixtures" / "datasets" / EXAMPLES[folder.name]
-        found.append((pack, load_dataset(example)))
+    for folder in _agents():
+        agent = load_agent(folder)
+        for name in agent.manifest.evaluation.datasets:
+            found.append((agent, resolve_dataset(agent, name)))
     return found
 
 
 def test_every_shipped_dataset_is_checked_and_the_report_holds_no_input() -> None:
     shipped = _shipped()
-    assert len({pack.id for pack, _ in shipped}) == 5
-    for pack, dataset in shipped:
-        report = check(pack, dataset)
-        assert report.passed, (pack.id, dataset.name, report.data["schema_problems"])
+    assert {agent.id for agent, _ in shipped} == {load_agent(folder).id for folder in _agents()}
+    for agent, dataset in shipped:
+        report = check(agent, dataset)
+        assert report.passed, (agent.id, dataset.name, report.data["schema_problems"])
         assert report.data["cases"] == len(dataset.records)
         served = json.dumps(report.data) + dataset_checks.text(report)
         texts = {
@@ -205,7 +201,7 @@ def test_every_shipped_dataset_is_checked_and_the_report_holds_no_input() -> Non
             for value in _strings(record["input"])
             if len(value) > 12
         }
-        assert not [value for value in texts if value in served], (pack.id, dataset.name)
+        assert not [value for value in texts if value in served], (agent.id, dataset.name)
 
 
 def _strings(value: Any) -> list[str]:
@@ -222,15 +218,15 @@ def test_the_command_exits_1_on_a_schema_problem_and_0_on_duplicates(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     duplicated = tmp_path / "duplicated.jsonl"
-    case = _case("a", "A refill please.", destination="front_desk", urgency="routine")
+    case = _case("a", "A refill please.", destination="front_desk", urgency="no")
     duplicated.write_text(json.dumps(case) + "\n" + json.dumps({**case, "id": "b"}) + "\n")
-    assert main(["data", "check", str(INBOX_DIR), str(duplicated)]) == 0
+    assert main(["data", "check", str(TRIAGE_DIR), str(duplicated)]) == 0
     out = capsys.readouterr().out
     assert "duplicates (exact): 1 group(s)" in out and "  a, b" in out and out.endswith("passed\n")
 
     broken = tmp_path / "broken.jsonl"
     broken.write_text(json.dumps({"id": "x", "input": {"message": SECRET}, "labels": {}}) + "\n")
-    assert main(["data", "check", str(INBOX_DIR), str(broken), "--json"]) == 1
+    assert main(["data", "check", str(TRIAGE_DIR), str(broken), "--json"]) == 1
     printed = capsys.readouterr().out
     reports = json.loads(printed)
     assert [r["dataset"] for r in reports] == ["broken"]
@@ -238,6 +234,6 @@ def test_the_command_exits_1_on_a_schema_problem_and_0_on_duplicates(
     assert SECRET not in printed
 
     # Every declared dataset when no file is named.
-    assert main(["data", "check", str(INBOX_DIR), "--json"]) == 0
+    assert main(["data", "check", str(TRIAGE_DIR), "--json"]) == 0
     names = [r["dataset"] for r in json.loads(capsys.readouterr().out)]
-    assert names == list(INBOX.manifest.evaluation.datasets)
+    assert names == list(TRIAGE.manifest.evaluation.datasets)

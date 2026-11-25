@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """The Hub client: log in, push, pull, search.
 
-`pull` never uses a pack it has not verified:
+`pull` never uses an agent it has not verified:
 1. the archive's SHA-256 is the one the registry recorded;
 2. every file matches the signed manifest;
-3. the signature is by a key of the pack's namespace;
-4. the extracted pack loads with the signed digest, as a pack from a registry: on the community
+3. the signature is by a key of the agent's namespace;
+4. the extracted agent loads with the signed digest, as one from a registry: on the bounded
    engine (RE2, the caps, the input limits and a CPU budget per decision) unless it is a copy of
-   a bundled agent of this release (ADR-0009). A pack that does not load there is not cached.
+   a bundled agent of this release (ADR-0009). An agent that does not load there is not cached.
 
-Nothing the registry answers chooses where a pack is written: the namespace, name and version
-must be a pack id and a semantic version before any cache path is built, the path must stay
+Nothing the registry answers chooses where an agent is written: the namespace, name and version
+must be an agent id and a semantic version before any cache path is built, the path must stay
 inside the cache, and the signed manifest must name that id and version. A compromised registry
 can refuse service, never delete or write outside the cache.
 
@@ -24,25 +24,23 @@ A registry with a signing key counter-signs each version it accepts (a signed
 `mendari.registry-acceptance/1` record, `hub/acceptance.py`), and `pull` checks it before the
 archive is fetched. The registry's key is trusted when it is one shipped with this package
 (`registry_keys.json`) or the one pinned for that registry on first use. Then a version whose
-record is missing, does not verify, or names another pack, version, digest, archive or publisher
+record is missing, does not verify, or names another agent, version, digest, archive or publisher
 key is refused, and nothing is cached; so is a registry that published a key before and now
 publishes none, or another. A registry that has never published a key (a local one) is pulled
-from as before, and the marker beside the pack records `accepted: null`; unless
+from without that check, and the marker beside the agent records `accepted: null`; unless
 `MENDARI_REGISTRY_COUNTERSIGNATURE` is `required` (every pull is counter-signed by a shipped or
 pinned key) or `shipped` (by a shipped key only: nothing is trusted on first use).
 
-Namespace keys are pinned on first use (per registry). A pack signed by a key that isn't pinned
+Namespace keys are pinned on first use (per registry). An agent signed by a key that isn't pinned
 is refused, unless the user accepts the new key, the way SSH treats a changed host key. A key the
 registry lists as revoked (`revoked_at`) is trusted only for what was signed before then: a
 version the registry received before (its `published_at`), or a recall whose signed time is
 before; anything later, or with no time, is refused. The registry itself does the same: it takes
 nothing from a revoked key and still verifies what the key signed before (ADR-0020).
 
-Pulled packs are cached under `~/.cache/mendari/agents/<namespace>/<name>/<version>`, which is
-on the pack search path, so `mendari test`, `Decision.from_hub` and the server find them like
-any local pack. Until 2026-11 the folder was `packs/`: a version pulled then is still found
-there (`caches`), still recalled and removed there, and written under `agents/` when a pull
-has to fetch it again. Credentials and pinned keys live in `~/.config/mendari` (files mode 0600,
+Pulled agents are cached under `~/.cache/mendari/agents/<namespace>/<name>/<version>`, which is
+on the agent search path, so `mendari test`, `Decision.from_hub` and the server find them like
+any local agent. Credentials and pinned keys live in `~/.config/mendari` (files mode 0600,
 written whole and moved in). Pins are filed per registry address, scheme and host in lower
 case and without the default port; a pin file that is there and cannot be read is refused,
 never read as empty.
@@ -73,10 +71,10 @@ from typing import Any, Protocol
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from mendari.core.agent import Agent, load_agent
 from mendari.core.https_only import is_https_or_local
 from mendari.core.origin import MARKER, ORIGIN_FORMAT, pulled_record
-from mendari.core.pack import Pack, load_pack
-from mendari.core.spec import is_pack_id, is_version
+from mendari.core.spec import is_agent_id, is_version
 from mendari.errors import HubError, MendariError
 from mendari.hub import archive
 
@@ -104,22 +102,9 @@ def cache_dir() -> Path:
     return Path(os.environ.get("MENDARI_CACHE_DIR") or Path.home() / ".cache" / "mendari")
 
 
-def packs_cache() -> Path:
+def agents_cache() -> Path:
     """The registry cache: where `pull` writes an agent, `<namespace>/<name>/<version>`."""
     return cache_dir() / "agents"
-
-
-def former_cache() -> Path:
-    """The folder the registry cache had until 2026-11. Nothing is written there any more, and
-    what a pull left there is read as before (`caches`): an operator's cache outlives a rename."""
-    return cache_dir() / "packs"
-
-
-def caches() -> tuple[Path, Path]:
-    """The registry cache as it is read: its folder, then the one it had before. A version in
-    both is the first's (the search path lists them in this order, and the newest of an id is
-    the first found of its version)."""
-    return packs_cache(), former_cache()
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -167,7 +152,7 @@ _PINS: ContextVar[Pins | None] = ContextVar("mendari_hub_pins", default=None)
 @contextmanager
 def pinned_in(pins: Pins) -> Iterator[None]:
     """Within this block, keys are pinned in `pins` and read from there, never this machine's
-    file: a server pins for one organization in its database (`core/pack_store.py`), so a pin
+    file: a server pins for one organization in its database (`core/agent_store.py`), so a pin
     outlives the machine and one organization's is never another's."""
     token = _PINS.set(pins)
     try:
@@ -242,19 +227,8 @@ def _pin_url(url: str) -> str:
 
 
 def _pins_of(pins: dict[str, Any], url: str) -> dict[str, Any]:
-    """This registry's pins, filed under its address (`_pin_url`). Pins filed before under the
-    address as it was typed (another case, a default port) are read with them."""
-    filed = _pin_url(url)
-    found: dict[str, Any] = {}
-    for address in sorted(pins, key=lambda a: a != filed):  # the filed one first: it wins
-        if _pin_url(address) != filed:
-            continue
-        for name, held in pins[address].items():
-            if isinstance(held, list):
-                found[name] = sorted({*found.get(name, []), *held})
-            else:
-                found.setdefault(name, held)
-    return found
+    """This registry's pins, filed under its address (`_pin_url`)."""
+    return dict(pins.get(_pin_url(url), {}))
 
 
 def login(url: str, token: str | None) -> dict[str, Any]:
@@ -392,7 +366,7 @@ class RegistryClient:
 
         meta = self.version(namespace, name, version)
         record = yank.sign(
-            pack=f"{namespace}/{name}",
+            agent=f"{namespace}/{name}",
             version=version,
             digest=str(meta["digest"]),
             archive_sha256=str(meta["archive_sha256"]),
@@ -434,12 +408,12 @@ class RegistryClient:
 
         from mendari.hub.site_reports import Submission
 
-        try:  # the path is built from it: only a submission's own pack id and version
-            pack = Submission.model_validate(dict(submission)).report.pack
+        try:  # the path is built from it: only a submission's own agent id and version
+            agent = Submission.model_validate(dict(submission)).report.agent
         except ValidationError:
             raise MendariError("not a signed site submission (mendari eval --share-out)") from None
-        namespace, name = pack.id.split("/")
-        path = f"/v1/agents/{namespace}/{name}/{pack.version}/reports"
+        namespace, name = agent.id.split("/")
+        path = f"/v1/agents/{namespace}/{name}/{agent.version}/reports"
         response = self._http.post(
             path, json=dict(submission), headers={"authorization": f"Bearer {secret}"}
         )
@@ -454,8 +428,8 @@ class RegistryClient:
         response = self._http.post(f"/v1/tickets/{ticket_id}/withdraw", json={"record": record})
         return dict(self._json(response))
 
-    def pack_tickets(self, pack_id: str) -> list[dict[str, Any]]:
-        return list(self._get(f"/v1/agents/{pack_id}/tickets")["tickets"])
+    def agent_tickets(self, agent_id: str) -> list[dict[str, Any]]:
+        return list(self._get(f"/v1/agents/{agent_id}/tickets")["tickets"])
 
     def add_key(self, namespace: str, public_pem: bytes) -> str:
         body = {"public_pem": public_pem.decode()}
@@ -468,10 +442,10 @@ class RegistryClient:
         id and whether it re-ran it."""
         from mendari.hub.evaluations import parse
 
-        pack = parse(record).pack  # the path is built from it: only the record's own pack
-        namespace, name = pack.id.split("/")
+        agent = parse(record).agent  # the path is built from it: only the record's own agent
+        namespace, name = agent.id.split("/")
         response = self._http.post(
-            f"/v1/agents/{namespace}/{name}/{pack.version}/evaluations", json=dict(record)
+            f"/v1/agents/{namespace}/{name}/{agent.version}/evaluations", json=dict(record)
         )
         return dict(self._json(response))
 
@@ -484,7 +458,7 @@ class RegistryClient:
     ) -> dict[str, Any]:
         """One publisher evaluation as the registry stores it: the signed record, to check
         against the namespace's key (`evaluations.signature_holds`)."""
-        if not is_pack_id(f"{namespace}/{name}") or not is_version(version):
+        if not is_agent_id(f"{namespace}/{name}") or not is_version(version):
             raise HubError(f"{namespace}/{name}@{version} is not namespace/name@version")
         if len(evaluation_id) != 64 or not set(evaluation_id) <= set("0123456789abcdef"):
             raise HubError("an evaluation's id is 64 hex digits")
@@ -498,7 +472,7 @@ class RegistryClient:
 
     @staticmethod
     def _evaluation_path(namespace: str, name: str) -> str:
-        if not is_pack_id(f"{namespace}/{name}"):  # a path is built from it
+        if not is_agent_id(f"{namespace}/{name}"):  # a path is built from it
             raise HubError(f"{namespace}/{name} is not namespace/name")
         return f"/v1/agents/{namespace}/{name}/evaluation"
 
@@ -511,11 +485,11 @@ class RegistryClient:
         shows (`hub/badge.py`)."""
         return self.evaluation_url(namespace, name).removesuffix("/evaluation") + "/badge.svg"
 
-    def push(self, pack: Pack, key: Ed25519PrivateKey) -> dict[str, Any]:
-        namespace, name = pack.id.split("/")
-        data = archive.build(pack, key)
+    def push(self, agent: Agent, key: Ed25519PrivateKey) -> dict[str, Any]:
+        namespace, name = agent.id.split("/")
+        data = archive.build(agent, key)
         response = self._http.put(
-            f"/v1/agents/{namespace}/{name}/{pack.version}",
+            f"/v1/agents/{namespace}/{name}/{agent.version}",
             content=data,
             headers={"content-type": "application/octet-stream"},
         )
@@ -528,51 +502,44 @@ def pull(
     *,
     accept_new_key: bool = False,
     registry_keys: Path | None = None,
-) -> Pack:
-    """Download, verify and cache a pack (`namespace/name[@version]`); a verified copy in the
+) -> Agent:
+    """Download, verify and cache an agent (`namespace/name[@version]`); a verified copy in the
     cache is used as is. `registry_keys` is the file of registry keys trusted without first use
     (the one shipped with this package unless given)."""
-    pack_id, version, meta = _named(ref, client)
-    namespace = pack_id.split("/")[0]
-    target, former = (_cached_at(cache, pack_id, version) for cache in caches())
-    # The copy in use: this version in the cache, or, with none there, the one a pull left in
-    # the folder the cache had before (`former_cache`). It is the copy that is used as is,
-    # recalled or removed; a version fetched again is written to the cache, and replaces it.
-    held = former if former.is_dir() and not target.exists() else target
+    agent_id, version, meta = _named(ref, client)
+    namespace = agent_id.split("/")[0]
+    target = _cached_at(agents_cache(), agent_id, version)
     deleted = meta.get("deleted")
     if isinstance(deleted, Mapping):
-        # Deleted by the registry: never served, and every copy cached before is removed.
-        for copy in (target, former):
-            if copy.exists():
-                shutil.rmtree(copy)
+        # Deleted by the registry: never served, and the copy cached before is removed.
+        if target.exists():
+            shutil.rmtree(target)
         raise HubError(
-            f"{pack_id}@{version} was deleted from the registry: {deleted.get('reason')}", 410
+            f"{agent_id}@{version} was deleted from the registry: {deleted.get('reason')}", 410
         )
     # The registry's key is pinned on first contact, before any recall it signs is read; and the
     # version's counter-signature is checked before the archive is fetched or a cached copy used.
-    accepted = _accepted(client, pack_id, meta, registry_keys)
-    if pulled_record(held).get("archive_sha256") == meta["archive_sha256"]:
-        pack = load_pack(held, origin="hub")
-        if pack.digest == meta["digest"]:
+    accepted = _accepted(client, agent_id, meta, registry_keys)
+    if pulled_record(target).get("archive_sha256") == meta["archive_sha256"]:
+        agent = load_agent(target, origin="hub")
+        if agent.digest == meta["digest"]:
             # Cached: what the registry says of it now (a recall since) is written beside it.
-            _write_origin(held, client, namespace, meta, accepted)
-            return pack
-    verified = _verified(client, pack_id, version, meta, accepted, accept_new_key)
+            _write_origin(target, client, namespace, meta, accepted)
+            return agent
+    verified = _verified(client, agent_id, version, meta, accepted, accept_new_key)
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=target.parent) as scratch:
-        staged = Path(scratch) / "pack"
-        # On the engine it will run on: a pack it refuses is never cached, nor marked verified.
-        pack = archive.extract(verified, staged, origin="hub")
-        if accepted and pack.digest != meta["digest"]:
+        staged = Path(scratch) / "agent"
+        # On the engine it will run on: an agent it refuses is never cached, nor marked verified.
+        agent = archive.extract(verified, staged, origin="hub")
+        if accepted and agent.digest != meta["digest"]:
             raise HubError("the agent is not the build the registry counter-signed")
         marked = {**meta, "archive_sha256": verified.sha256}
         _write_origin(staged, client, namespace, marked, accepted)
         if target.exists():
             shutil.rmtree(target)
         staged.rename(target)
-    if held != target:
-        shutil.rmtree(held)  # the copy in the former folder, which this one replaces
-    return load_pack(target, origin="hub")
+    return load_agent(target, origin="hub")
 
 
 # What the registry's record of a version must hold for anything to be checked against it.
@@ -584,22 +551,22 @@ def _named(ref: str, client: RegistryClient) -> tuple[str, str, dict[str, Any]]:
     recalled without one) and the registry's record of it. Refused unless what the registry
     answers is that agent's own version, with the key, archive and digest everything else is
     checked against."""
-    pack_id, _, wanted = ref.partition("@")
-    if not is_pack_id(pack_id) or (wanted and not is_version(wanted)):
+    agent_id, _, wanted = ref.partition("@")
+    if not is_agent_id(agent_id) or (wanted and not is_version(wanted)):
         raise HubError(f"{ref!r} is not namespace/name[@version]")
-    namespace, name = pack_id.split("/")
+    namespace, name = agent_id.split("/")
     meta = client.version(namespace, name, wanted or None)
     version = meta.get("version")
     if not is_version(version) or (wanted and version != wanted):
-        raise HubError(f"the registry answered a version that is not one of {pack_id}")
+        raise HubError(f"the registry answered a version that is not one of {agent_id}")
     if not all(isinstance(meta.get(field), str) and meta[field] for field in _RECORDED):
-        raise HubError(f"the registry's record of {pack_id}@{version} is incomplete")
-    return pack_id, str(version), meta
+        raise HubError(f"the registry's record of {agent_id}@{version} is incomplete")
+    return agent_id, str(version), meta
 
 
 def _verified(
     client: RegistryClient,
-    pack_id: str,
+    agent_id: str,
     version: str,
     meta: Mapping[str, Any],
     accepted: bool | None,
@@ -609,7 +576,7 @@ def _verified(
     recorded, every file matches the signed manifest, the signature is by a key of its
     namespace this machine trusts, and it is the agent and version the registry named (and,
     where the registry counter-signed, signed by the key it counter-signed)."""
-    namespace, name = pack_id.split("/")
+    namespace, name = agent_id.split("/")
     # Signed when the registry received it (it takes nothing from a revoked key): a key revoked
     # since still verifies it, one revoked before does not.
     keys = _trusted_keys(
@@ -623,8 +590,8 @@ def _verified(
     if hashlib.sha256(data).hexdigest() != meta["archive_sha256"]:
         raise HubError("the downloaded archive is not the one the registry recorded")
     verified = archive.verify(data, keys)
-    if (verified.manifest.get("id"), verified.manifest.get("version")) != (pack_id, version):
-        raise HubError(f"the archive is not {pack_id}@{version}, which the registry named")
+    if (verified.manifest.get("id"), verified.manifest.get("version")) != (agent_id, version):
+        raise HubError(f"the archive is not {agent_id}@{version}, which the registry named")
     if accepted and verified.key_id != meta["key_id"]:
         raise HubError("the archive is not signed by the key the registry counter-signed")
     return verified
@@ -637,7 +604,7 @@ class Fetched:
     registry's counter-signature was checked (true, or None for a registry with no key), and
     the record of where it came from (`origin_record`)."""
 
-    pack_id: str
+    agent_id: str
     version: str
     meta: dict[str, Any]
     verified: archive.Verified
@@ -658,27 +625,27 @@ def fetch(
     registry deleted is refused (410), as `pull` refuses it; a recalled one is the caller's to
     refuse, from `meta` (`recall_of`). The caller still loads the agent on the engine it will
     run on and checks its digest against the signed manifest's and the registry's."""
-    pack_id, version, meta = _named(ref, client)
+    agent_id, version, meta = _named(ref, client)
     deleted = meta.get("deleted")
     if isinstance(deleted, Mapping):
         raise HubError(
-            f"{pack_id}@{version} was deleted from the registry: {deleted.get('reason')}", 410
+            f"{agent_id}@{version} was deleted from the registry: {deleted.get('reason')}", 410
         )
-    accepted = _accepted(client, pack_id, meta, registry_keys)
-    verified = _verified(client, pack_id, version, meta, accepted, accept_new_key)
+    accepted = _accepted(client, agent_id, meta, registry_keys)
+    verified = _verified(client, agent_id, version, meta, accepted, accept_new_key)
     marked = {**meta, "archive_sha256": verified.sha256}
-    origin = origin_record(client, pack_id.split("/")[0], marked, accepted)
-    return Fetched(pack_id, version, dict(meta), verified, accepted, origin)
+    origin = origin_record(client, agent_id.split("/")[0], marked, accepted)
+    return Fetched(agent_id, version, dict(meta), verified, accepted, origin)
 
 
-def _cached_at(cache: Path, pack_id: str, version: str) -> Path:
+def _cached_at(cache: Path, agent_id: str, version: str) -> Path:
     """Where `cache` keeps this version of an agent, `<namespace>/<name>/<version>`: refused
     unless it stays inside the agent's own folder there, whatever the registry answered."""
-    namespace, name = pack_id.split("/")
+    namespace, name = agent_id.split("/")
     root = cache.resolve() / namespace / name
     target = root / version
     if not target.resolve().is_relative_to(root):
-        raise HubError(f"the registry answered a version that is not one of {pack_id}")
+        raise HubError(f"the registry answered a version that is not one of {agent_id}")
     return target
 
 
@@ -733,10 +700,12 @@ def _shown_url(url: str) -> str:
     return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 
-def recall_of(meta: Mapping[str, Any], client: RegistryClient, pack: Pack) -> dict[str, Any] | None:
-    """What the registry says recalls `pack` (None: nothing): its yank's severity, reason, signer
+def recall_of(
+    meta: Mapping[str, Any], client: RegistryClient, agent: Agent
+) -> dict[str, Any] | None:
+    """What the registry says recalls `agent` (None: nothing): its yank's severity, reason, signer
     and time, and whether the record's signature holds with a key this machine pinned and names
-    exactly this pack, version and digest (`verified`, and `problem` when it does not); or that
+    exactly this agent, version and digest (`verified`, and `problem` when it does not); or that
     the version was deleted. A record that does not verify is still a recall: it only stops
     automation."""
     from mendari.hub import yank
@@ -758,16 +727,16 @@ def recall_of(meta: Mapping[str, Any], client: RegistryClient, pack: Pack) -> di
         return None
     shown = {name: record.get(name) for name in ("severity", "reason", "signer", "at")}
     problem = yank.shape_problem(record)
-    if problem is None and (record["pack"], record["version"], record["digest"]) != (
-        pack.id,
-        pack.version,
-        pack.digest,
+    if problem is None and (record["agent"], record["version"], record["digest"]) != (
+        agent.id,
+        agent.version,
+        agent.digest,
     ):
         problem = "it is about another agent, version or build"
     if problem is None:
         try:
             if record["signer"] == "publisher":
-                namespace = pack.id.split("/")[0]
+                namespace = agent.id.split("/")[0]
                 keys = _trusted_keys(
                     client,
                     namespace,
@@ -825,11 +794,11 @@ def _published_key(
 
 
 def _accepted(
-    client: RegistryClient, pack_id: str, meta: Mapping[str, Any], registry_keys: Path | None
+    client: RegistryClient, agent_id: str, meta: Mapping[str, Any], registry_keys: Path | None
 ) -> bool | None:
     """Check the registry's counter-signature on the version `meta` describes (LP-19i,
     `hub/acceptance.py`). True: the registry's key is trusted (shipped with this package, or
-    pinned for this registry) and its record verifies and names exactly this pack, version,
+    pinned for this registry) and its record verifies and names exactly this agent, version,
     digest, archive and publisher key. None: the registry publishes no key and none was ever
     pinned for it, so nothing is counter-signed. Anything else is refused: a record that is
     missing, does not verify or names something else, and a registry whose key is gone, is
@@ -837,7 +806,7 @@ def _accepted(
     from mendari.core.checkpoint import public_text
     from mendari.hub import acceptance
 
-    version = f"{pack_id}@{meta.get('version')}"
+    version = f"{agent_id}@{meta.get('version')}"
     mode = countersignature_mode()  # a value that is not one fails here, before any trust
     published, presented, key = _published_key(client)
     if published is None:
@@ -879,7 +848,7 @@ def _accepted(
     if problem is None:
         problem = acceptance.names_problem(
             record,
-            pack=pack_id,
+            agent=agent_id,
             version=meta.get("version"),
             digest=meta.get("digest"),
             archive_sha256=meta.get("archive_sha256"),

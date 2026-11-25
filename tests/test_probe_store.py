@@ -11,12 +11,12 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from mendari.core.pack import load_pack
-from mendari.evals.pack_tests import PROBE_TESTS
+from mendari.core.agent import load_agent
+from mendari.evals.behaviour_tests import PROBE_TESTS
 from mendari.hub import archive
 from mendari.server import store_routes
 from mendari.server.app import create_app
-from tests.conftest import DASHBOARD, encrypt_mode, encrypted_store, evalset_on, member
+from tests.conftest import DASHBOARD, encrypt_mode, encrypted_store, member
 from tests.probe_agents import MANIFEST, build_agent
 from tests.test_probe import found_test
 
@@ -33,7 +33,6 @@ def test_a_stored_version_runs_and_counts_the_probes_tests(
     encrypt_mode(monkeypatch)
     monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
     monkeypatch.setenv("MENDARI_AGENT_STORE", "on")
-    evalset_on(monkeypatch)
     root = build_agent(tmp_path / "agent", manifest={"id": f"{ORG}/probe-triage"})
     assert MANIFEST["id"] != f"{ORG}/probe-triage"
     (root / PROBE_TESTS).write_text(yaml.safe_dump([found_test()]), encoding="utf-8")
@@ -45,10 +44,10 @@ def test_a_stored_version_runs_and_counts_the_probes_tests(
         encrypted_store(db_target) as db,
     ):
         admin = member(db, org=ORG, roles=["admin"], sub="an-admin")
-        author = member(db, org=ORG, roles=["pack_author"], sub="an-author")
+        author = member(db, org=ORG, roles=["agent_author"], sub="an-author")
         added = client.post("/api/store/keys", json={"public_pem": public.decode()}, headers=admin)
         assert added.status_code == 201, added.text
-        data = archive.build(load_pack(root), archive.load_private_key(private))
+        data = archive.build(load_agent(root), archive.load_private_key(private))
         stored = client.post("/api/store/versions", content=data, headers=author)
         assert stored.status_code == 201, stored.text
         tests = f"/api/store/versions/{stored.json()['digest']}/tests"

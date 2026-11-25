@@ -8,7 +8,7 @@ organization and mints an owned publisher token. Then, over HTTP as that publish
 signing key and signs and pushes every bundled agent; then approves the claim, which lists the
 namespace, and records it as a verified publisher. Prints the token and key id; with `--key-out`
 it keeps the key pair for later pushes. With `--hostile-example` it also publishes, as a
-community publisher, a pack whose text tries to run a script and a `javascript:` link (the
+community publisher, an agent whose text tries to run a script and a `javascript:` link (the
 Hub's tests check it is shown as inert text, ADR-0012). With `--sites` two synthetic sites
 (LP-22) evaluate the demo agent on its synthetic test cases and share signed counts, so
 the Hub's Site evidence section has something to show. With `--evaluations` the publisher
@@ -31,8 +31,8 @@ from pathlib import Path
 
 import yaml
 
-from mendari.core.pack import load_pack
-from mendari.core.registry import discover, resolve_pack
+from mendari.core.agent import MANIFEST, load_agent
+from mendari.core.registry import discover, resolve_agent
 from mendari.errors import HubError
 from mendari.hub import archive
 from mendari.hub.client import RegistryClient
@@ -95,11 +95,11 @@ def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
     own words (a heading, a table, an image, a rule, a review claim) and a `javascript:` link."""
     private, public = archive.generate_key()
     key = archive.load_private_key(private)
-    inbox = resolve_pack(DEMO_AGENT)
+    inbox = resolve_agent(DEMO_AGENT)
     with tempfile.TemporaryDirectory() as scratch:
         root = Path(scratch) / "hostile"
         shutil.copytree(inbox.root, root)
-        manifest_file = root / inbox.manifest_file
+        manifest_file = root / MANIFEST
         manifest = yaml.safe_load(manifest_file.read_text(encoding="utf-8"))
         manifest["id"], manifest["version"] = HOSTILE_ID, "1.0.0"
         manifest["name"] = "Hostile Text Example"
@@ -116,7 +116,7 @@ def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
                 manifest["version"] = version
                 text = yaml.safe_dump(manifest, sort_keys=False)
                 manifest_file.write_text(text, encoding="utf-8")
-                published = client.push(load_pack(root), key)
+                published = client.push(load_agent(root), key)
                 print(f"published {published['id']}@{published['version']}")
             client.yank(
                 namespace,
@@ -127,7 +127,7 @@ def hostile_example(registry: str, token: str, store: RegistryStore) -> None:
                 key=key,
             )
     listed(store, namespace, "community")
-    # A registry review that found a higher risk level than the pack declares (risk 0).
+    # A registry review that found a higher risk level than the agent declares (risk 0).
     store.review(
         namespace,
         name,
@@ -154,7 +154,7 @@ def sites_example(registry: str, store: RegistryStore) -> None:
     from mendari.evals.share import shareable
     from mendari.hub import site_signing
 
-    pack = resolve_pack(DEMO_AGENT)
+    agent = resolve_agent(DEMO_AGENT)
     with tempfile.TemporaryDirectory() as scratch, RegistryClient(registry) as client:
         for org, name, cases in SITES:
             record = store.register_site(org=org, name=name, by=OPERATOR, reason="seeded")
@@ -167,13 +167,13 @@ def sites_example(registry: str, store: RegistryStore) -> None:
                 record["id"], verify=True, by=OPERATOR, note="a synthetic site", by_org=None
             )
             site = site_signing.Site(where)
-            dataset = resolve_dataset(pack, "test").head(cases)
+            dataset = resolve_dataset(agent, "test").head(cases)
             # The agent is a provider off the site's machines: the site consents to that.
-            report = shareable(evaluation(Decision(pack), dataset).ledger, remote_consent=True)
+            report = shareable(evaluation(Decision(agent), dataset).ledger, remote_consent=True)
             request = site.sign(
                 site_signing.TICKET_REQUEST,
                 {
-                    "pack": report["pack"],
+                    "agent": report["agent"],
                     "configuration": {s: p["variant"] for s, p in report["providers"].items()},
                     "remote_consent": True,
                     "commitment": site.commitment(f"{org}:{cases}".encode()),
@@ -199,12 +199,12 @@ def evaluations_example(registry: str, token: str, key: archive.Ed25519PrivateKe
     from mendari.evals.harness import evaluation
     from mendari.hub import evaluations
 
-    pack = resolve_pack(DEMO_AGENT)
+    agent = resolve_agent(DEMO_AGENT)
     with RegistryClient(registry, token) as client:
         for variant in EVALUATED:
-            decision = Decision(pack, providers={"reader": variant}, origin_cap=False)
-            run = evaluation(decision, resolve_dataset(pack, "test"))
-            published = client.publish_evaluation(evaluations.build(pack, run, key=key))
+            decision = Decision(agent, providers={"reader": variant}, origin_cap=False)
+            run = evaluation(decision, resolve_dataset(agent, "test"))
+            published = client.publish_evaluation(evaluations.build(agent, run, key=key))
             print(f"published evaluation reader={variant}: {published['rerun_words']}")
 
 
@@ -256,10 +256,10 @@ def seed(args: argparse.Namespace, store: RegistryStore) -> None:
     key = archive.load_private_key(private)
     with RegistryClient(args.registry, token) as registry:
         key_id = registry.add_key(args.namespace, public)
-        for pack in sorted(discover().packs, key=lambda p: p.id):
-            if pack.id.split("/")[0] != args.namespace:
+        for agent in sorted(discover().agents, key=lambda p: p.id):
+            if agent.id.split("/")[0] != args.namespace:
                 continue
-            published = registry.push(pack, key)
+            published = registry.push(agent, key)
             print(f"published {published['id']}@{published['version']}")
     listed(store, args.namespace, "verified")
     if hostile is not None:

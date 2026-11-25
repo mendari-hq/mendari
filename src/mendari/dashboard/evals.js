@@ -2,10 +2,10 @@
 // Evaluations: the sub-views (comparison, report, run, history) and the run confirmation.
 
 import { leaderboardView, wireLeaderboard } from "./leaderboard.js";
-import { providerWords, remoteModels } from "./pack.js";
-import { reportView, runOf } from "./report.js";
+import { providerWords, remoteModels } from "./manifest.js";
+import { reportView } from "./report.js";
 import { views, wire } from "./router.js";
-import { $, announce, api, emptyState, esc, may, packPath, reducedMotion, slotText, state, time, toastError, whileBusy } from "./ui.js";
+import { $, announce, api, emptyState, esc, may, agentPath, reducedMotion, slotText, state, time, toastError, whileBusy } from "./ui.js";
 import { roundsPanel } from "./written.js";
 
 const evalsState = { reports: [] };
@@ -24,7 +24,7 @@ const evalTabs = () => EVAL_TABS.filter(([key]) => (key !== "compare" || state.d
   && (key !== "written" || Object.keys(state.detail.manifest.rubrics ?? {}).length));
 
 views.evals = async (main, params) => {
-  evalsState.reports = await api(`/api/evals?pack_id=${encodeURIComponent(state.packId)}`);
+  evalsState.reports = await api(`/api/evals?agent_id=${encodeURIComponent(state.agentId)}`);
   main.innerHTML = `
     <h1>Evaluations</h1>
     <p class="muted">How the agent performs on labelled data, including your own.</p>
@@ -60,13 +60,13 @@ function showEvalsTab(requested) {
     });
   } else if (tab === "written") {
     body.innerHTML = empty("Loading the rounds…");
-    roundsPanel(body, state.packId);
+    roundsPanel(body, state.agentId);
   } else {
     const reports = evalsState.reports;
     body.innerHTML = reports.length ? `
       <div class="row toolbar">
         <label for="history">Report</label>
-        <select id="history">${reports.map((r, i) => `<option value="${i}">${esc(time(runOf(r).created_at))} · ${esc(r.dataset.name)} (n=${r.dataset.n})</option>`).join("")}</select>
+        <select id="history">${reports.map((r, i) => `<option value="${i}">${esc(time(r.run.created_at))} · ${esc(r.dataset.name)} (n=${r.dataset.n})</option>`).join("")}</select>
       </div>
       <div id="history-report">${reportView(reports[0])}</div>` : emptyState({
       icon: "history", title: "No evaluations run here yet",
@@ -86,7 +86,7 @@ async function showRunTab(body, empty) {
     body.innerHTML = empty("Running an evaluation is for administrators. The published benchmark and past runs are on the other tabs.");
     return;
   }
-  const datasets = await api(`${packPath()}/datasets`);
+  const datasets = await api(`${agentPath()}/datasets`);
   if (body.dataset.tab !== "run") return;
   if (!datasets.length) {
     body.innerHTML = empty("No datasets are available for this agent yet.");
@@ -111,14 +111,14 @@ async function showRunTab(body, empty) {
     // these elements are gone from the page (the History tab still lists the report).
     const box = $("#run-report");
     const picker = $("#dataset");
-    const runPackId = state.packId;
+    const runAgentId = state.agentId;
     const stopProgress = runProgress(box, dataset);
     picker.disabled = true;
     await whileBusy(button, "Running…", async () => {
       try {
-        const report = await api(`${packPath()}/evals`, { method: "POST", body: JSON.stringify({ dataset: dataset.name }) });
-        if (state.packId === runPackId) evalsState.reports.unshift(report);
-        if (!box.isConnected || state.packId !== runPackId) return;
+        const report = await api(`${agentPath()}/evals`, { method: "POST", body: JSON.stringify({ dataset: dataset.name }) });
+        if (state.agentId === runAgentId) evalsState.reports.unshift(report);
+        if (!box.isConnected || state.agentId !== runAgentId) return;
         box.innerHTML = reportView(report);
         wire(box);
       } catch (error) {
@@ -153,7 +153,7 @@ const elapsedText = (ms) => {
   return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${String(seconds % 60).padStart(2, "0")} s`;
 };
 
-// Slots whose deployed provider calls a remote model (Jev, an LLM), in words.
+// Slots whose deployed provider calls a remote model (an LLM, an agent), in words.
 const remoteSlots = () => Object.entries(state.detail.active_providers)
   .filter(([, p]) => remoteModels(p.model, p.type).length)
   .map(([slot, p]) => `${esc(slotText(slot))}: ${providerWords(p)}`);

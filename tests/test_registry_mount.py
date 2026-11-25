@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from mendari import AuditStore
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.errors import MendariError
 from mendari.hub import archive
 from mendari.hub.registry import HSTS, REGISTRY_HEADERS, REVIEWER, RegistryStore, _rate_class
@@ -34,7 +34,7 @@ from mendari.server.app import create_app
 from mendari.server.auth import person_id
 from tests.conftest import encrypt_mode, encrypted_store, member, security_lines
 from tests.test_backend_services import RSA_KEY, ask, assertion
-from tests.test_hub_client import copy_pack
+from tests.test_hub_client import copy_agent
 
 APP = "https://mendari.test"
 IDP = "https://idp.example.org"
@@ -111,26 +111,26 @@ class World:
         minted: dict[str, Any] = made.json()
         return minted
 
-    def pack(self, pack_id: str = "acme/inbox") -> Pack:
-        return copy_pack(self.tmp_path, pack_id)
+    def agent(self, agent_id: str = "acme/inbox") -> Agent:
+        return copy_agent(self.tmp_path, agent_id)
 
-    def publish(self, pack: Pack, key: Any, headers: dict[str, str]) -> Any:
-        namespace, name = pack.id.split("/")
+    def publish(self, agent: Agent, key: Any, headers: dict[str, str]) -> Any:
+        namespace, name = agent.id.split("/")
         return self.http.put(
-            f"/registry/v1/packs/{namespace}/{name}/{pack.version}",
-            content=archive.build(pack, key),
+            f"/registry/v1/agents/{namespace}/{name}/{agent.version}",
+            content=archive.build(agent, key),
             headers=headers,
         )
 
-    def published(self) -> tuple[str, Pack]:
+    def published(self) -> tuple[str, Agent]:
         """`acme` claimed, with a key, a token and its first version published: the token."""
         self.claim()
         key = self.key()
         token = str(self.mint()["token"])
-        pack = self.pack()
-        answer = self.publish(pack, key, bearer(token))
+        agent = self.agent()
+        answer = self.publish(agent, key, bearer(token))
         assert answer.status_code == 201, answer.text
-        return token, pack
+        return token, agent
 
     def events(self) -> list[dict[str, Any]]:
         with self.registry._db.session(exclusive=False) as db:
@@ -171,7 +171,7 @@ def test_without_the_switch_nothing_is_mounted_and_no_hub_table_is_made(
             nowhere = off.http.get("/nowhere/v1/health")
             mount = off.http.get("/registry/v1/health")
             assert (mount.status_code, mount.json()["detail"]) == (401, nowhere.json()["detail"])
-            assert off.http.put("/registry/v1/packs/a/b/1.0.0", content=b"x").status_code == 401
+            assert off.http.put("/registry/v1/agents/a/b/1.0.0", content=b"x").status_code == 401
             assert off.http.get("/registry/v1/health", headers=admin).status_code == 404
             for method, path in PEOPLE_ROUTES:
                 assert off.http.request(method, path, json={}).status_code == 401, path
@@ -218,12 +218,12 @@ def test_a_member_claims_mints_publishes_and_only_to_the_claimed_namespace(
     assert [t["id"] for t in listed] == [minted["id"]] and token not in json.dumps(listed)
     assert listed[0]["last_used_day"] is None
 
-    published = world.publish(world.pack(), key, bearer(token))
+    published = world.publish(world.agent(), key, bearer(token))
     assert published.status_code == 201, published.text
     # Only to the claimed namespace: another one, claimed by nobody or by someone else.
     world.claim("other", org="other")
     for elsewhere in ("other/inbox", "nobody/inbox"):
-        refused = world.publish(world.pack(elsewhere), key, bearer(token))
+        refused = world.publish(world.agent(elsewhere), key, bearer(token))
         assert refused.status_code == 403, refused.text
     (space,) = world.http.get("/api/registry/namespaces", headers=admin).json()
     assert space["status"] == "pending" and [k["key_id"] for k in space["keys"]] == [key_id(key)]
@@ -231,7 +231,7 @@ def test_a_member_claims_mints_publishes_and_only_to_the_claimed_namespace(
 
     revoked = world.http.delete(f"/api/registry/tokens/{minted['id']}", headers=admin)
     assert revoked.status_code == 204
-    again = copy_pack(world.tmp_path, "acme/inbox", "9.9.9")
+    again = copy_agent(world.tmp_path, "acme/inbox", "9.9.9")
     assert world.publish(again, key, bearer(token)).status_code == 403
 
     # The registry's chain names the person by id and the organization; never an address.
@@ -241,7 +241,7 @@ def test_a_member_claims_mints_publishes_and_only_to_the_claimed_namespace(
         "namespace.created",
         "namespace.claimed",
         "token.issued",
-        "pack.published",
+        "agent.published",
         "token.revoked",
     ]
     # Each by the person, but the publish: by the token, named by its id.
@@ -262,7 +262,7 @@ def test_a_member_claims_mints_publishes_and_only_to_the_claimed_namespace(
         assert (logged[event]["actor"], logged[event]["org"]) == (who, "acme"), event
     assert logged["admin.registry_token.created"]["ids"] == [minted["id"]]
     routes = {line.get("route") for line in lines if line["event"] == "request"}
-    assert "/registry/v1/packs/{namespace}/{name}/{version}" in routes
+    assert "/registry/v1/agents/{namespace}/{name}/{version}" in routes
     assert not [route for route in routes if route and "acme" in route]
 
 
@@ -273,9 +273,9 @@ def key_id(key: archive.Ed25519PrivateKey) -> str:
 def test_a_session_cookie_is_not_a_publish_credential(world: World) -> None:
     world.claim()
     key = world.key()
-    pack = world.pack()
+    agent = world.agent()
     for headers in (world.person(), {**world.person(), **SAME_ORIGIN}):
-        refused = world.publish(pack, key, headers)
+        refused = world.publish(agent, key, headers)
         assert refused.status_code == 403, refused.text
         added = world.http.post(
             "/registry/v1/namespaces/acme/keys",
@@ -285,7 +285,7 @@ def test_a_session_cookie_is_not_a_publish_credential(world: World) -> None:
         assert added.status_code == 403
         # Nor does it read what only the namespace's own token reads: a pending namespace.
         assert world.http.get("/registry/v1/namespaces/acme", headers=headers).status_code == 404
-    assert "pack.published" not in [e["event"] for e in world.events()]
+    assert "agent.published" not in [e["event"] for e in world.events()]
 
 
 def test_the_mounted_registry_has_no_administrator_token(
@@ -301,7 +301,7 @@ def test_the_mounted_registry_has_no_administrator_token(
         made = world.http.post("/registry/v1/namespaces", json={"name": "taken"}, headers=admin)
         assert made.status_code == 404  # no such route
         world.claim()
-        assert world.publish(world.pack(), world.key(), admin).status_code == 403
+        assert world.publish(world.agent(), world.key(), admin).status_code == 403
         assert world.http.get("/registry/v1/namespaces/acme", headers=admin).status_code == 404
 
 
@@ -314,13 +314,13 @@ def test_an_engine_key_is_refused_by_the_registry_and_a_publisher_token_by_the_e
     )
     assert made.status_code == 201, made.text
     engine_key = bearer(made.json()["key"])
-    assert world.http.get("/api/packs", headers=engine_key).status_code == 200
-    again = copy_pack(world.tmp_path, "acme/inbox", "9.9.9")
+    assert world.http.get("/api/agents", headers=engine_key).status_code == 200
+    again = copy_agent(world.tmp_path, "acme/inbox", "9.9.9")
     assert world.publish(again, world.key(), engine_key).status_code == 403
     # It reads as the public does: the pending namespace does not exist for it.
     assert world.http.get("/registry/v1/namespaces/acme", headers=engine_key).status_code == 404
     assert world.http.get("/registry/v1/namespaces/acme", headers=bearer(token)).status_code == 200
-    for path in ("/api/packs", "/api/audit", "/api/registry/tokens", "/api/auth/keys"):
+    for path in ("/api/agents", "/api/audit", "/api/registry/tokens", "/api/auth/keys"):
         refused = world.http.get(path, headers=bearer(token))
         assert refused.status_code == 401, path
     minted = world.http.post(
@@ -427,8 +427,8 @@ def carries_the_registrys_headers(answer: Any) -> None:
 
 
 def test_public_reads_need_no_sign_in_and_carry_the_registrys_headers(world: World) -> None:
-    token, pack = world.published()
-    version = f"/registry/v1/packs/acme/inbox/{pack.version}"
+    token, agent = world.published()
+    version = f"/registry/v1/agents/acme/inbox/{agent.version}"
     assert world.http.get(version).status_code == 404  # pending: invisible to the public
     world.registry.decide_claim("acme", approve=True, by="operator")
     # As the Hub's server reads (fetch metadata from another site), a browser with a session
@@ -438,7 +438,7 @@ def test_public_reads_need_no_sign_in_and_carry_the_registrys_headers(world: Wor
             "/registry/v1/health",
             "/registry/v1/search?q=inbox",
             "/registry/v1/namespaces/acme",
-            "/registry/v1/packs/acme/inbox",
+            "/registry/v1/agents/acme/inbox",
             version,
             "/registry/v1/yanks",
             "/registry/v1/chain/head",
@@ -447,7 +447,7 @@ def test_public_reads_need_no_sign_in_and_carry_the_registrys_headers(world: Wor
             assert answer.status_code == 200, (path, answer.text)
             assert answer.headers["content-type"] == "application/json"
             carries_the_registrys_headers(answer)
-    assert world.http.get("/registry/v1/health").json()["packs"] == 1
+    assert world.http.get("/registry/v1/health").json()["agents"] == 1
     data = world.http.get(f"{version}/archive", headers=CROSS_SITE)
     assert data.status_code == 200 and data.headers["content-type"] == "application/octet-stream"
     assert data.headers["content-disposition"] == "attachment"
@@ -455,13 +455,13 @@ def test_public_reads_need_no_sign_in_and_carry_the_registrys_headers(world: Wor
     # Every other kind of answer: unknown, invalid, refused, not allowed, and what the engine
     # itself answers under the mount (another site's write, refused before the registry).
     kinds = {
-        404: world.http.get("/registry/v1/packs/acme/none"),
+        404: world.http.get("/registry/v1/agents/acme/none"),
         422: world.http.get("/registry/v1/search?risk=high"),
         403: world.http.put(version, content=b"x", headers=bearer("ohr_made-up")),
         401: world.http.post(f"{version}/reports", json={}, headers=bearer("ohr_made-up")),
         405: world.http.delete("/registry/v1/health", headers=bearer(token)),
         409: world.http.put(
-            version, content=archive.build(pack, world.key()), headers=bearer(token)
+            version, content=archive.build(agent, world.key()), headers=bearer(token)
         ),
     }
     for status, answer in kinds.items():
@@ -506,7 +506,7 @@ def test_an_archive_over_the_engines_body_limit_is_a_413_that_names_it(
     with served(db_target, tmp_path) as world:
         world.claim()
         token = bearer(world.mint()["token"])
-        path = "/registry/v1/packs/acme/inbox/1.0.0"
+        path = "/registry/v1/agents/acme/inbox/1.0.0"
         large = b"\0" * (64 * 1024 + 1)
 
         def chunks() -> Iterator[bytes]:  # no declared length: counted as it arrives
@@ -520,7 +520,7 @@ def test_an_archive_over_the_engines_body_limit_is_a_413_that_names_it(
             assert answer.status_code == 413, answer.text
             assert answer.json()["detail"] == "a request body is 65536 bytes at most"
             carries_the_registrys_headers(answer)
-        assert "pack.published" not in [e["event"] for e in world.events()]
+        assert "agent.published" not in [e["event"] for e in world.events()]
 
 
 def test_the_registry_chain_and_the_audit_chain_both_verify_in_one_database(world: World) -> None:
@@ -699,7 +699,7 @@ def test_a_namespaces_tokens_share_one_write_budget(
     with served(db_target, tmp_path) as world:
         world.claim()
         world.claim("other", org="other")
-        path = "/registry/v1/packs/{}/inbox/1.0.0"
+        path = "/registry/v1/agents/{}/inbox/1.0.0"
         tokens = [bearer(world.mint()["token"]) for _ in range(3)]
         answers = [
             world.http.put(path.format("acme"), content=b"x", headers=token).status_code
@@ -729,8 +729,8 @@ def test_a_site_report_is_counted_as_one_under_the_mount() -> None:
         return _rate_class(Request(scope), lambda _: None)[0]
 
     for root in ("", "/registry"):
-        assert classed(root, "/v1/packs/acme/inbox/1.0.0/reports") == "registry_report"
-        assert classed(root, "/v1/packs/acme/inbox/1.0.0/yank") == "registry_write"
+        assert classed(root, "/v1/agents/acme/inbox/1.0.0/reports") == "registry_report"
+        assert classed(root, "/v1/agents/acme/inbox/1.0.0/yank") == "registry_write"
 
 
 def test_the_mounted_registry_counter_signs_and_a_malformed_key_is_a_clean_503(
@@ -739,8 +739,8 @@ def test_the_mounted_registry_counter_signs_and_a_malformed_key_is_a_clean_503(
     """LP-19i under the mount: with the registry's key, an approved namespace's publish is
     counter-signed and the key is served; a key that is set and is not one refuses the publish
     as the registry answers it, with the registry's headers, and stores nothing."""
-    token, pack = world.published()
-    version = f"/registry/v1/packs/acme/inbox/{pack.version}"
+    token, agent = world.published()
+    version = f"/registry/v1/agents/acme/inbox/{agent.version}"
     assert world.http.get("/registry/v1/registry-key").status_code == 404  # no key: none served
     monkeypatch.setenv("MENDARI_REGISTRY_SIGNING_KEY", base64.b64encode(bytes(range(32))).decode())
     world.registry.decide_claim("acme", approve=True, by="operator")
@@ -751,12 +751,12 @@ def test_the_mounted_registry_counter_signs_and_a_malformed_key_is_a_clean_503(
     carries_the_registrys_headers(first)
     assert first.json()["checked"]["accepted"]["key_id"] == shown.json()["key_id"]
     key = world.key()
-    later = world.publish(copy_pack(world.tmp_path, "acme/inbox", "9.9.8"), key, bearer(token))
+    later = world.publish(copy_agent(world.tmp_path, "acme/inbox", "9.9.8"), key, bearer(token))
     assert later.status_code == 201, later.text
     assert later.json()["checked"]["accepted"]["key_id"] == shown.json()["key_id"]
     monkeypatch.setenv("MENDARI_REGISTRY_SIGNING_KEY", "not-a-key")
     before = world.events()
-    refused = world.publish(copy_pack(world.tmp_path, "acme/inbox", "9.9.9"), key, bearer(token))
+    refused = world.publish(copy_agent(world.tmp_path, "acme/inbox", "9.9.9"), key, bearer(token))
     assert refused.status_code == 503, refused.text
     assert "not-a-key" not in refused.text
     carries_the_registrys_headers(refused)

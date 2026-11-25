@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// Phones: the theme and the pack sit in a sheet under the top bar, opened by the Settings button (a
-// disclosure: the sheet follows the button in the tab order). Escape, a click elsewhere or choosing a
-// pack (or an organization) closes it. Wider screens hide the button and show the controls in the bar.
+// Phones: the theme and the agent sit in a sheet under the top bar, opened by the Settings button (a
+// disclosure: the sheet follows the button in the tab order). Escape, a click elsewhere or choosing an
+// agent (or an organization) closes it. Wider screens hide the button and show the controls in the bar.
 
 import { $ } from "./ui.js";
 
@@ -22,6 +22,6 @@ export function setupSettings() {
   document.addEventListener("click", (event) => {
     if (isOpen() && !bar.contains(event.target)) setOpen(false);
   });
-  $("#pack-select").addEventListener("change", () => setOpen(false));
+  $("#agent-select").addEventListener("change", () => setOpen(false));
   $("#org-form").addEventListener("submit", () => setOpen(false));
 }

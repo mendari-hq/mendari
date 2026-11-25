@@ -54,7 +54,7 @@ def test_the_check_refuses_project_notes_and_configuration() -> None:
         "web/index.html",
         "deploy/onprem/.env.example",
         ".github/workflows/ci.yml",
-        "scripts/pack_gate.py",
+        "scripts/agent_gate.py",
         "uv.lock",
         # Many tests read the workflows, scripts, docs or lock above: from an sdist they would
         # fail at collection, so the tests run from a clone only.

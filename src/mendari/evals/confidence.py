@@ -80,7 +80,7 @@ def _fitted(leaf: Provider) -> tuple[dict[str, Any] | None, str | None]:
             "sha256": found.dataset_sha256,
             "cases": found.cases,
             "date": found.date,
-            "agent": {"id": found.agent_id, "version": found.agent_version},
+            "service": {"id": found.service_id, "version": found.service_version},
             "temperatures": {key: found.temperatures[key] for key in sorted(found.temperatures)},
             "not_fitted": dict(found.not_fitted),
         }, None
@@ -89,7 +89,7 @@ def _fitted(leaf: Provider) -> tuple[dict[str, Any] | None, str | None]:
             return None, None
         if not leaf.temperatures:
             return None, "its calibration was fitted on another model"
-        data = leaf.pack.read_json(leaf.settings.calibration)
+        data = leaf.agent.read_json(leaf.settings.calibration)
         on = data.get("fitted_on") if isinstance(data.get("fitted_on"), dict) else {}
         return {
             "dataset": on.get("dataset"),
@@ -175,7 +175,7 @@ def calibration(
 ) -> dict[str, Any]:
     """The run's calibration block: see the module docstring. `results` are in the order of
     `dataset.records`."""
-    manifest = decision.pack.manifest
+    manifest = decision.agent.manifest
     variants = []
     for slot, provider in decision.providers.items():
         answering = _answering(provider)
@@ -239,10 +239,10 @@ def _fitted_words(entry: Mapping[str, Any]) -> str:
     cases = fitted["cases"]
     counted = f"{cases:,} cases" if isinstance(cases, int) else "cases"
     when = f" ({fitted['date']})" if fitted.get("date") else ""
-    agent = fitted.get("agent")
-    if agent is not None:
-        name = f"{agent['id']} " if agent.get("id") else ""
-        whom = f" for {name}version {agent['version']}"
+    service = fitted.get("service")
+    if service is not None:
+        name = f"{service['id']} " if service.get("id") else ""
+        whom = f" for {name}version {service['version']}"
     else:
         whom = f" for {fitted['model']}" if fitted.get("model") else ""
     return f"calibrated on {counted} of {fitted['dataset']}{when}{whom}"
@@ -339,7 +339,7 @@ def second_signal(
 ) -> dict[str, Any]:
     """The run's second-signal block: see the module docstring. `ledger_cases` (for each
     case's critical labels) and `primary_truths` are in the order of `results`."""
-    manifest = decision.pack.manifest
+    manifest = decision.agent.manifest
     primary = manifest.policy.primary
     kinds: list[tuple[bool, bool, bool]] = []
     for line, result, truth in zip(ledger_cases, results, primary_truths, strict=True):
@@ -448,9 +448,9 @@ def _titled(title: str, lines: Sequence[str]) -> str:
 
 def text(run: Mapping[str, Any]) -> str:
     """Both blocks of a report's `run` as the terminal prints them under the report: what a
-    calibration did on these cases, and what a second signal did. "" for a run with neither
-    (and for a report from before them): whether a variant is calibrated at all is a row of
-    the report itself (`render.confidence_rows`)."""
+    calibration did on these cases, and what a second signal did. "" for a run with neither:
+    whether a variant is calibrated at all is a row of the report itself
+    (`render.confidence_rows`)."""
     parts = []
     found = run.get("calibration")
     if isinstance(found, Mapping) and found.get("lines"):

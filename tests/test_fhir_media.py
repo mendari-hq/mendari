@@ -11,8 +11,8 @@ from fastapi.testclient import TestClient
 
 from mendari.server.app import create_app
 
-INBOX = "/api/packs/mendari/patient-inbox-router"
-BUNDLE = (Path(__file__).parent / "fixtures" / "us-core" / "inbox.json").read_text()
+TRIAGE = "/api/agents/mendari-test/triage"  # the triage fixture: a message in
+BUNDLE = (Path(__file__).parent / "fixtures" / "us-core" / "triage.json").read_text()
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def client(tmp_path: Path) -> TestClient:
 
 def post(client: TestClient, content_type: str, **headers: str) -> int:
     response = client.post(
-        f"{INBOX}/fhir/decide",
+        f"{TRIAGE}/fhir/decide",
         content=BUNDLE,
         headers={"content-type": content_type, **headers},
     )
@@ -68,7 +68,7 @@ def test_the_answer_must_be_acceptable_as_json(
 @pytest.mark.parametrize(("value", "status"), [("json", 200), ("xml", 406), ("text/xml", 406)])
 def test_format_parameter(client: TestClient, value: str, status: int) -> None:
     response = client.post(
-        f"{INBOX}/fhir/decide",
+        f"{TRIAGE}/fhir/decide",
         params={"_format": value},
         content=BUNDLE,
         headers={"content-type": "application/fhir+json"},
@@ -80,7 +80,7 @@ def test_mendari_api_routes_are_not_negotiated(client: TestClient) -> None:
     """Only FHIR routes are bound by FHIR's rules; the JSON API answers as before."""
     body = json.dumps({"message": {"body": "Can I pay my bill online?"}})
     response = client.post(
-        f"{INBOX}/decide",
+        f"{TRIAGE}/decide",
         content=body,
         headers={"content-type": "application/json", "accept": "text/html"},
     )
@@ -98,7 +98,7 @@ FORM = "application/x-www-form-urlencoded"
         ("/fhir/AuditEvent/_search", FORM, 200),
         ("/fhir/Task/_search", "application/fhir+json", 415),  # a search's body is a form
         ("/fhir/Task/_search", "multipart/form-data; boundary=x", 415),
-        (f"{INBOX}/fhir/decide", FORM, 415),  # a form only where a search reads one
+        (f"{TRIAGE}/fhir/decide", FORM, 415),  # a form only where a search reads one
         ("/fhir/$decide", FORM, 415),
     ],
 )

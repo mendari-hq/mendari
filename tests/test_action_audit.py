@@ -1,41 +1,33 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Actions in the audit trail, and their review (spec 0.4 sections 6 and 7, ADR-0023).
+"""Actions in the audit trail, and their review (spec sections 13.8 and 13.9, ADR-0023).
 
 The chain records every proposal and its resolution: ids, the declared name, the effect, the
 disposition, a reason code and a hash of the arguments. It never holds the arguments, nor a name
 the manifest does not declare: both are the agent's text and are kept apart, as a decision's
 input is. Recognizable text is seeded in both and searched for in every table, under each PHI
-mode. A review releases or denies the held actions; a caller may ask again; and a database made
-before this change (`tests/fixtures/audit/before-actions.sqlite.gz`, written by the code of
-commit e40fcecc, wave 3's last, with `make_before_actions.py` beside it) verifies, unchanged,
-and takes the new events. SQLite and Postgres."""
+mode. A review releases or denies the held actions, and a caller may ask again. SQLite and
+Postgres."""
 
 from __future__ import annotations
 
-import gzip
 import json
 import shutil
-import sqlite3
 from collections.abc import Callable, Iterator
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.core import actions, tenancy
-from mendari.core.audit import BOUND_WHEN_MARKED, DECISION_KINDS
+from mendari.core.audit import DECISION_KINDS
 from mendari.core.phi import PhiPolicy
-from mendari.errors import MendariError, PackNotFoundError, ReviewError
+from mendari.errors import AgentNotFoundError, MendariError, ReviewError
 from mendari.standards import audit_fhir
-from tests.conftest import INBOX_DIR, INPUT_HASH_KEY, PHI_KEY, ROOT, message
+from tests.conftest import INPUT_HASH_KEY, PHI_KEY, ROOT, TRIAGE_DIR, message
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
-BEFORE = ROOT / "tests" / "fixtures" / "audit" / "before-actions.sqlite.gz"
-# The same decisions, written by `main` as it was before waves 3 and 4 (commit 1c8c87d2).
-MAIN = ROOT / "tests" / "fixtures" / "audit" / "main-1c8c87d2.sqlite.gz"
 REFILL = "Could you refill my lisinopril?"  # AUTO: a draft and a contact released
 ORDER = "Please renew my prescription."  # HUMAN_REVIEW: a read released, an order held
 QUEUE = "Put it in the queue, please."  # HUMAN_REVIEW: a write the manifest tightens, held
@@ -139,19 +131,17 @@ def test_each_proposal_is_chained_after_its_decision_in_order(store: AuditStore)
 def test_a_decision_without_proposals_chains_only_itself(store: AuditStore) -> None:
     quiet = agent(store)(message("Hello there."))
     assert [e["event"] for e in of(store, quiet.id)] == ["decision.created"]
-    inbox = Decision(load_pack(INBOX_DIR), store=store)(message("Crushing chest pain"))
-    assert [e["event"] for e in of(store, inbox.id)] == ["decision.created"]
-    found = store.get(inbox.id)
-    assert found is not None and "actions" not in found  # an older agent's record is as it was
+    triaged = Decision(load_agent(TRIAGE_DIR), store=store)(message("Crushing chest pain"))
+    assert [e["event"] for e in of(store, triaged.id)] == ["decision.created"]
+    found = store.get(triaged.id)
+    assert found is not None and "actions" not in found  # an agent that declares none: none
     assert all("actions" not in item for item in store.pending_reviews())
 
 
-def test_an_action_event_names_its_organization_on_an_unmarked_database_too(
+def test_an_action_event_names_its_organization_as_its_decision_s_events_do(
     store: AuditStore,
 ) -> None:
-    assert not store.binds_org
     assert {"action.proposed", "action.resolved"} <= DECISION_KINDS
-    assert not {"action.proposed", "action.resolved"} & BOUND_WHEN_MARKED
     with tenancy.acting_for("clinic-a"):
         result = agent(store)(message(ORDER))
         agent(store).authorize_action(result.id, "file_note", {"note": "asked"})
@@ -159,11 +149,7 @@ def test_an_action_event_names_its_organization_on_an_unmarked_database_too(
     events = of(store, result.id)
     kinds = [e["event"] for e in events]
     assert kinds.count("action.proposed") == 3 and kinds.count("action.resolved") == 2
-    for event in events:
-        if event["event"].startswith("action."):
-            assert event["payload"]["org"] == "clinic-a", event
-        else:  # the kinds of before name it only on a marked database
-            assert "org" not in event["payload"], event
+    assert {event["payload"]["org"] for event in events} == {"clinic-a"}
     assert store.verify()["ok"]
 
 
@@ -213,7 +199,7 @@ def test_no_argument_and_no_undeclared_name_is_in_the_chain_or_a_record(
                 assert (payload["note_ref"] is not None) is kept, event
                 keyed = payload["arguments_hash"].startswith("hmac-sha256:")
                 assert keyed is (mode != "off"), event  # keyed wherever the deployment has a key
-            assert payload["name"] in (None, *decision.pack.manifest.actions), event
+            assert payload["name"] in (None, *decision.agent.manifest.actions), event
         assert store.verify()["ok"]
         notes = store.verify(notes=True)
         assert notes["ok"] and (notes["notes"]["checked"] > 0) is kept
@@ -433,8 +419,8 @@ def test_a_review_with_nothing_held_answers_as_it_always_did(store: AuditStore) 
     answer = store.resolve_review(abstained.id, final_label="other", reviewer="rn-1")
     assert "actions" not in answer and answer["human_override"] is None
     assert of(store, abstained.id, "action.resolved") == []
-    inbox = Decision(load_pack(INBOX_DIR), store=store)(message("Crushing chest pain"))
-    plain = store.resolve_review(inbox.id, final_label="nurse", reviewer="rn-1", note="a note")
+    triaged = Decision(load_agent(TRIAGE_DIR), store=store)(message("Crushing chest pain"))
+    plain = store.resolve_review(triaged.id, final_label="nurse", reviewer="rn-1", note="a note")
     assert set(plain) == {
         "id", "resolved_at", "final_label", "human_override", "reviewer", "note", "note_ref",
     }  # fmt: skip
@@ -565,7 +551,7 @@ def test_an_undeclared_or_malformed_action_asked_for_is_blocked_and_stops_later_
 
 def test_a_hold_set_after_an_automated_decision_stops_new_releases(store: AuditStore) -> None:
     holds: list[str] = []
-    decision = agent(store, hold_source=lambda pack: holds[0] if holds else None)
+    decision = agent(store, hold_source=lambda agent: holds[0] if holds else None)
     result = decision(message(REFILL))
     assert ask(decision, result.id, "file_note", note="before") == ("released", "automated")
     holds.append("an operator's hold")
@@ -586,7 +572,7 @@ def test_a_decision_of_another_version_of_the_agent_gets_nothing(
     raw["actions"]["look_up_medications"]["description"] = "Read the medication list."
     (newer / "agent.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
     changed = Decision.from_path(newer, store=store)
-    assert changed.pack.id == agent(store).pack.id and changed.pack.digest != result.pack_digest
+    assert changed.agent.id == agent(store).agent.id and changed.agent.digest != result.agent_digest
     found = changed.authorize_action(result.id, "look_up_medications", {})
     assert (found["disposition"], found["reason"]) == ("blocked", "agent_changed")
     assert (found["name"], found["effect"]) == (None, None)  # what it declared is not this
@@ -598,11 +584,11 @@ def test_a_decision_that_is_unknown_anothers_or_another_agents_is_one_answer(
     decision = agent(store)
     with tenancy.acting_for("clinic-a"):
         theirs = decision(message(REFILL)).id
-    inbox = Decision(load_pack(INBOX_DIR), store=store)(message("Crushing chest pain")).id
+    triaged = Decision(load_agent(TRIAGE_DIR), store=store)(message("Crushing chest pain")).id
     before = chained(store)
     with tenancy.acting_for("clinic-b"):
-        for unknown in ("no-such-decision", theirs, inbox):
-            with pytest.raises(PackNotFoundError) as refused:
+        for unknown in ("no-such-decision", theirs, triaged):
+            with pytest.raises(AgentNotFoundError) as refused:
                 decision.authorize_action(unknown, "look_up_medications", {})
             assert str(refused.value) == f"no decision {unknown} of mendari-test/actions-mini"
     with tenancy.acting_for("clinic-a"):
@@ -623,148 +609,13 @@ def test_authorizing_needs_a_store_and_a_well_formed_question() -> None:
         assert len(of(store, result.id, "action.proposed")) == 2  # only the answer's own
 
 
-def test_an_agent_older_than_0_4_authorizes_nothing(store: AuditStore) -> None:
-    inbox = Decision(load_pack(INBOX_DIR), store=store)
-    result = inbox(message("Can you send a refill for metformin to my pharmacy?"))
-    found = inbox.authorize_action(result.id, "send_reply", {})
+def test_an_agent_that_declares_no_actions_authorizes_nothing(store: AuditStore) -> None:
+    """An agent that declares no actions (the triage fixture):
+    whatever is asked of it is blocked, as undeclared."""
+    triaged = Decision(load_agent(TRIAGE_DIR), store=store)
+    result = triaged(message("Can you send a refill for metformin to my pharmacy?"))
+    found = triaged.authorize_action(result.id, "send_reply", {})
     assert (found["disposition"], found["reason"], found["name"]) == ("blocked", "undeclared", None)
-
-
-# -- a database made before this change -----------------------------------------------------------
-
-
-@pytest.fixture
-def before(tmp_path: Path) -> Path:
-    """The fixture database, as the code of e40fcecc (wave 3's last commit) left it: five
-    decisions of the inbox agent, a review, a rating and a follow-up, each with a note."""
-    path = tmp_path / "before.sqlite"
-    path.write_bytes(gzip.decompress(BEFORE.read_bytes()))
-    return path
-
-
-# The tables wave 5 adds (grading rounds of written output, `core/written.py`): new tables
-# only, so opening an older database changes nothing it had.
-WRITTEN_TABLES = ("written_assignments", "written_items", "written_rounds")
-
-
-def named_in(made: list[tuple[Any, ...]]) -> set[tuple[Any, Any]]:
-    """Each table and index of a schema, by its kind and name."""
-    return {(kind, name) for kind, name, _, _ in made}
-
-
-def schema(path: Path) -> list[tuple[Any, ...]]:
-    with closing(sqlite3.connect(path)) as connection:
-        return connection.execute(
-            "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name"
-        ).fetchall()
-
-
-def rows(path: Path, table: str) -> list[tuple[Any, ...]]:
-    with closing(sqlite3.connect(path)) as connection:
-        return connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
-
-
-def test_a_database_made_before_actions_verifies_and_is_not_changed_by_opening_it(
-    before: Path,
-) -> None:
-    made, events, decisions = (
-        schema(before),
-        rows(before, "audit_events"),
-        rows(before, "decisions"),
-    )
-    assert len(events) == 10 and len(decisions) == 6
-    assert not [event for event in events if "action." in json.dumps(event)]
-    with AuditStore(before) as store:  # opened for writing: any migration would run here
-        assert not store.unmigrated
-        found = store.verify(notes=True)
-        assert found["ok"] and found["events"] == 10
-        assert found["notes"] == {"checked": 3, "erased": 0, "unchecked": 0}
-        assert found["head"] == "e5a6b48b06d9aa25820a231b2fe73929208bc99cadf066b2a124f7c8af8bec16"
-        for item in store.query(limit=50):  # read as before: no action on any of them
-            got = store.get(item["id"])
-            assert got is not None and "actions" not in got
-    # Nothing it had was changed, and no stored row was rewritten: actions (wave 4) added no
-    # table, column or index. What a start adds since is wave 5's and is listed here whole:
-    # three tables for grading rounds of written output, with their indexes, all empty.
-    after = schema(before)
-    assert [item for item in after if item in made] == made
-    added = [(kind, name) for kind, name, _, _ in after if (kind, name) not in named_in(made)]
-    assert sorted(name for kind, name in added if kind == "table") == list(WRITTEN_TABLES)
-    assert {table for kind, name, table, _ in after if (kind, name) in added} == set(WRITTEN_TABLES)
-    for table in WRITTEN_TABLES:
-        assert rows(before, table) == []
-    assert rows(before, "audit_events") == events and rows(before, "decisions") == decisions
-
-
-def test_that_database_takes_the_new_events_and_still_verifies(before: Path) -> None:
-    events = rows(before, "audit_events")
-    with AuditStore(before) as store:
-        decision = agent(store)
-        held = decision(message(VISIT))
-        decision.authorize_action(held.id, "renew_prescription", {})
-        store.resolve_review(held.id, final_label="appointment", reviewer="rn-1")
-        decision(message(UNDECLARED))
-        # A decision recorded before the change is reviewed as it always was.
-        (old,) = [item for item in store.pending_reviews(limit=50) if "actions" not in item][:1]
-        store.resolve_review(old["id"], final_label="nurse", reviewer="rn-1", note="a note")
-        found = store.verify(notes=True)
-        assert found["ok"] and found["events"] > 10
-    assert rows(before, "audit_events")[:10] == events  # what was chained is as it was
-    with AuditStore(before, read_only=True) as reading:
-        assert reading.verify()["ok"]
-
-
-def test_a_database_written_by_main_verifies_and_keeps_every_row(tmp_path: Path) -> None:
-    """A database `main` wrote (commit 1c8c87d2, before waves 3 and 4) still verifies once this
-    code has opened it, with the same chain head, and no row of any table it had is changed.
-    What a start adds to it is listed here whole: wave 3's three tables and one column, and
-    wave 5's three tables for grading rounds, all empty. Wave 4 adds nothing, as the database
-    of wave 3 above shows."""
-    path = tmp_path / "main.sqlite"
-    path.write_bytes(gzip.decompress(MAIN.read_bytes()))
-
-    def tables_of(found: list[tuple[Any, ...]]) -> dict[str, str]:
-        return {name: sql for kind, name, _, sql in found if kind == "table"}
-
-    before = tables_of(schema(path))
-    kept = {name: rows(path, name) for name in before}
-    assert len(kept["audit_events"]) == 10 and len(kept["decisions"]) == 6
-    with AuditStore(path) as store:  # opened for writing: its migrations run here
-        assert not store.unmigrated
-        found = store.verify(notes=True)
-        assert found["ok"] and found["events"] == 10
-        assert found["notes"] == {"checked": 3, "erased": 0, "unchecked": 0}
-        assert found["head"] == "b8edecb73704abf7e47183f7522f2131e5896ca7cb1db31cbedf2f845c38e2ef"
-        assert len(store.pending_reviews(limit=50)) == 4  # and it is read as it was written
-    after = tables_of(schema(path))
-    assert sorted(set(after) - set(before)) == [
-        "agent_connections",
-        "store_pins",
-        "system_runs",
-        *WRITTEN_TABLES,
-    ]
-    assert set(before) <= set(after)
-    assert [name for name in before if before[name] != after[name]] == ["store_versions"]
-    for name, was in kept.items():
-        assert rows(path, name) == was, name  # no stored row was rewritten, in any table
-    for added in ("agent_connections", "store_pins", "system_runs", "store_versions"):
-        assert rows(path, added) == []
-    for added in WRITTEN_TABLES:
-        assert rows(path, added) == []
-    # A second start changes nothing more.
-    with AuditStore(path) as store:
-        assert store.verify()["ok"]
-    assert tables_of(schema(path)) == after
-
-
-def test_no_table_or_column_was_added_for_actions() -> None:
-    """Two event kinds, and the notes table: nothing a start could refuse to migrate."""
-    from mendari.core import audit
-
-    for text in (audit._TABLES, repr(audit._ADDED_COLUMNS)):
-        assert "action" not in text.replace("accurate", "").replace("transaction", "")
-    with AuditStore(":memory:") as fresh:
-        assert not [name for name in tables(fresh) if "action" in name]
 
 
 # -- the FHIR export ------------------------------------------------------------------------------

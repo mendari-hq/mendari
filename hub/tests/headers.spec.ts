@@ -27,12 +27,6 @@ const PAGES = [
   "/agents/mendari/no-such-agent/evaluation",
   "/no-such-page",
 ];
-// Where an agent's page was before, and where its redirect leads.
-const MOVED = [
-  ["/packs/mendari/portal-message-agent", "/agents/mendari/portal-message-agent"],
-  ["/packs/hub-test/hostile-text", "/agents/hub-test/hostile-text"],
-] as const;
-
 // The policy's nonce, once every header of an answer is as expected.
 function checked(headers: Record<string, string>, path: string): string {
   for (const [name, value] of Object.entries(EXPECTED)) expect(headers[name], `${path} ${name}`).toBe(value);
@@ -55,15 +49,6 @@ test("every page and asset carries the headers, each nonce fresh", async ({ page
     nonces.add(checked(answer.headers(), path));
   }
   expect(nonces.size).toBe(PAGES.length + Math.min(assets.length, 3));
-});
-
-test("the redirect from the address an agent's page had before carries the headers too", async ({ request }) => {
-  for (const [before, now] of MOVED) {
-    const answer = await request.get(before, { maxRedirects: 0 });
-    expect(answer.status(), before).toBe(308);
-    expect(answer.headers()["location"], before).toBe(now);
-    checked(answer.headers(), before);
-  }
 });
 
 test("a page's scripts carry its nonce and nothing breaks the policy", async ({ page }) => {

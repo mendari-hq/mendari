@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """The data-coverage record (`standards/data_coverage.py`, `mendari.data-coverage/1`, LP-23d):
 every FHIR decision says, for each mapped field and list, what it looked for (paths, the code
-systems the pack declares, the pack's own codes) and what it found, as counts, with what could
+systems the agent declares, the agent's own codes) and what it found, as counts, with what could
 not be read by reason code. It never holds a value, an id, text, a patient's code or a system
-the pack does not declare; JSON decisions carry none; records from before still verify. A spec
-0.3 mapping (LP-23g) is counted against what the adapter says each field looks for."""
+the agent does not declare; JSON decisions carry none. A mapping (LP-23g) is counted
+against what the adapter says each field looks for. Shown on the chart fixture
+(`mendari-test/chart-summary`, a patient's record in) and copies of it with their mapping
+changed (`tests/support/chart_fixture.py`)."""
 
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import os
@@ -19,7 +22,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core.decision import DecisionResult
 from mendari.core.phi import PhiPolicy
@@ -29,20 +32,17 @@ from mendari.standards.data_coverage import FORMAT, OTHER
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import FhirClient
 from mendari.standards.linked import Linker
-from tests.conftest import INPUT_HASH_KEY, ROOT
-from tests.test_cds_unreadable import _bundle, prefetch_of
-from tests.test_fhir_linked import Ehr
-from tests.test_fhir_mapping_03 import MED, PAYER, adapter, b64, bundle
-from tests.test_prior_auth_pack import _order, _prefetch
-from tests.test_spec_03 import ICD as MINI_ICD
-from tests.test_spec_03 import PATIENT, mini
-from tests.test_trial_pack import _record as trial_record
+from tests.conftest import CHART_DIR, INPUT_HASH_KEY, ROOT
+from tests.support import chart_fixture
+from tests.support import fixture_records as records
+from tests.support.chart_ehr import ChartEhr
+from tests.support.fixture_records import Case, Condition, Medication, Note
 
 FIXTURES = ROOT / "tests" / "fixtures" / "us-core"
-REFERRAL = "mendari/referral-router"
-TRIAL = "mendari/clinical-trial-prescreener"
-PA = "mendari/prior-auth-preflight"
-ICD = "http://hl7.org/fhir/sid/icd-10-cm"
+CHART = "mendari-test/chart-summary"
+ICD = records.ICD10CM
+MED = records.RXNORM  # the chart fixture's drugs' system
+PAYER = "https://site.example/fhir/NamingSystem/payers"  # fictional: declared by a test's copy
 # A site's own code system and code (shaped like an EHR's OID, which names its customer), and
 # marks planted in a synthetic record: none may reach a data-coverage record.
 SITE_SYSTEM = "urn:oid:1.2.840.114350.1.13.90210.7.2.696580"
@@ -50,29 +50,44 @@ SITE_CODE = "SITE-CODE-77123"
 MRN = "MRN6627153"
 NOTE_MARK = "NOTEMARK-silver-heron"
 FILE_MARK = "LNK8842"  # a file name in a note's content type
-PATIENT_ICD = "E11.65"
+PATIENT_ICD = "E11.65"  # a patient's ICD-10-CM code, in no code set of the agent's
+PATIENT = {"resourceType": "Patient", "id": "p1", "birthDate": "1970-01-01", "gender": "female"}
+# A chart the patient-view hook shows a card for (a routine follow-up).
+ROUTINE = next(case for case in records.cases("test") if case.labels["follow_up"] == "routine")
 
 
 def fixture(name: str) -> dict[str, Any]:
     return dict(json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8")))
 
 
-def decided(pack_id: str, record: Any, **kwargs: Any) -> DecisionResult:
-    result, _ = Decision.from_hub(pack_id).decide_fhir(record, **kwargs)
+def bundle(*resources: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "resourceType": "Bundle",
+        "type": "collection",
+        "entry": [{"resource": resource} for resource in resources],
+    }
+
+
+def b64(text: str) -> str:
+    return base64.b64encode(text.encode()).decode()
+
+
+def decided(record: Any, **kwargs: Any) -> DecisionResult:
+    result, _ = Decision.from_hub(CHART).decide_fhir(record, **kwargs)
     return result
 
 
 def test_each_mapped_field_says_what_was_looked_for_and_found_as_counts() -> None:
-    result = decided(REFERRAL, fixture("referral"))
+    result = decided(fixture("chart"))
     coverage = result.data_coverage
     assert coverage is not None and coverage["format"] == FORMAT
-    adapter = FhirAdapter.for_pack(Decision.from_hub(REFERRAL).pack)
+    adapter = FhirAdapter.for_agent(Decision.from_hub(CHART).agent)
     assert list(coverage["fields"]) == sorted(adapter.mapping.fields)
     assert list(coverage["lists"]) == sorted(adapter.mapping.lists)
     assert coverage["focus"] == {
-        "codes": ["FR101"],  # the pack's own referral code (`focus_where`'s code set)
-        "paths": ["ServiceRequest.category.coding"],
-        "resource": "ServiceRequest",
+        "codes": [],
+        "paths": [],
+        "resource": "Patient",
         "resources": 1,
         "unreadable": {},
     }
@@ -86,39 +101,48 @@ def test_each_mapped_field_says_what_was_looked_for_and_found_as_counts() -> Non
         "values": 1,
     }
     assert coverage["fields"]["patient.sex"]["codes"] == ["female", "male", "other", "unknown"]
-    labs = coverage["lists"]["labs"]
-    assert (labs["resource"], labs["resources"], labs["items"]) == ("Observation", 1, 1)
-    code = labs["fields"]["code"]
-    assert code["paths"] == ["code.coding[0].code"] and code["values"] == 1
-    assert code["systems"] == [
-        "http://loinc.org",
-        "https://mendari.co/fhir/CodeSystem/fictional-referrals",
-    ]  # the pack's `code_systems`
-    assert coverage["unreadable"] == {}
-    trial = decided(TRIAL, _bundle(*trial_record("Seen for diabetes follow-up.")))
-    assert trial.data_coverage is not None
-    notes = trial.data_coverage["fields"]["notes"]
+    conditions = coverage["lists"]["conditions"]
+    assert (conditions["resource"], conditions["resources"], conditions["items"]) == (
+        "Condition",
+        2,
+        2,
+    )
+    code = conditions["fields"]["code"]
+    assert code["paths"] == [f"code.coding[system={ICD}].code", "code.coding[0].code"]
+    assert (code["values"], code["systems"]) == (2, [ICD])  # the system it selects on
+    flag = conditions["fields"]["flag"]
+    assert flag["codes"] == sorted(records.WATCH + records.LONG_TERM)  # its code set's
+    # A coded path that selects on no system: every system the agent declares (`code_systems`).
+    assert conditions["fields"]["status"]["systems"] == [ICD, MED]
+    notes = coverage["fields"]["notes"]
     assert notes["paths"] == ["DocumentReference.content.attachment"]  # `attachment_text`
     assert (notes["resources"], notes["values"], notes["unreadable"]) == (
-        {"DocumentReference": 1},
-        1,
+        {"DocumentReference": 2},
+        2,
         {},
     )
+    assert coverage["unreadable"] == {}
 
 
 def test_codings_are_counted_by_declared_system_and_others_only_as_a_number() -> None:
-    """A concept's codings are counted by the systems the pack declares; a site's own system,
-    and a coding without one, count only as `other`, so a site sees the pack looked at a coding
+    """A concept's codings are counted by the systems the agent declares; a site's own system,
+    and a coding without one, count only as `other`, so a site sees the agent looked at a coding
     from a system it does not know, never which."""
-    resources = trial_record("Seen for diabetes follow-up.")
-    conditions = [r for r in resources if r["resourceType"] == "Condition"]
-    conditions[0]["code"]["coding"] = [
+    case = Case(
+        id="cov-1",
+        age=56,
+        sex="female",
+        conditions=(Condition("E11.9", "2019-04-01"),),
+        notes=(Note(("Seen for diabetes follow-up.",)),),
+    )
+    resources = case.resources(records.TODAY)
+    condition = next(r for r in resources if r["resourceType"] == "Condition")
+    condition["code"]["coding"] = [
         {"system": SITE_SYSTEM, "code": SITE_CODE},
         {"system": ICD, "code": PATIENT_ICD},
         {"code": "no-system"},
     ]
-    resources = [r for r in resources if r not in conditions[1:]]  # one Condition left
-    coverage = decided(TRIAL, _bundle(*resources)).data_coverage
+    coverage = decided(bundle(*resources)).data_coverage
     assert coverage is not None
     code = coverage["lists"]["conditions"]["fields"]["code"]
     assert code["codings"] == {ICD: 1, OTHER: 2}
@@ -128,27 +152,35 @@ def test_codings_are_counted_by_declared_system_and_others_only_as_a_number() ->
         assert leak not in shown, leak
 
 
-def test_a_missing_list_and_an_empty_list_are_told_apart() -> None:
+def test_a_missing_list_and_an_empty_list_are_told_apart(tmp_path: Path) -> None:
     """Three lists with no items, each told apart: one whose read failed (unreadable, with its
     reason), one read and empty (the EHR has none), and one whose resources hold nothing the
-    mapping reads (resources counted, no item)."""
-    bundle = fixture("referral")
-    kept = [e for e in bundle["entry"] if e["resource"]["resourceType"] != "DiagnosticReport"]
+    mapping reads (resources counted, no item). On a copy of the chart fixture with two lists
+    more."""
+    lists = {
+        "labs": {"resource": "Observation", "fields": {"code": {"path": "code.coding[0].code"}}},
+        "documents": {
+            "resource": "DocumentReference",
+            "fields": {"type": {"path": "type.coding[0].code"}},
+        },
+    }
+
+    def allow(schema: dict[str, Any]) -> None:
+        schema["properties"].update(labs={"type": "array"}, documents={"type": "array"})
+
+    agent = load_agent(chart_fixture.chart_copy(tmp_path, {"lists": lists}, schema=allow))
     bare = {"resourceType": "DocumentReference", "id": "d9", "status": "current", "content": []}
-    for entry in kept:
-        if entry["resource"]["resourceType"] == "DocumentReference":
-            entry["resource"] = bare
-    bundle["entry"] = [e for e in kept if e["resource"]["resourceType"] != "Observation"]
-    result = decided(REFERRAL, bundle, unreadable={"labs": "timeout"})
+    record = bundle(PATIENT, bare)
+    result, _ = Decision(agent).decide_fhir(record, unreadable={"conditions": "timeout"})
     assert result.data_coverage is not None
-    lists = result.data_coverage["lists"]
+    found = result.data_coverage["lists"]
     shown = {
-        name: (lists[name]["resources"], lists[name]["items"], lists[name]["unreadable"])
-        for name in ("labs", "reports", "documents")
+        name: (found[name]["resources"], found[name]["items"], found[name]["unreadable"])
+        for name in ("conditions", "labs", "documents")
     }
     assert shown == {
-        "labs": (0, 0, {"timeout": 1}),  # could not be read
-        "reports": (0, 0, {}),  # read, and there are none
+        "conditions": (0, 0, {"timeout": 1}),  # could not be read
+        "labs": (0, 0, {}),  # read, and there are none
         "documents": (1, 0, {}),  # read, and nothing in it the mapping reads
     }
 
@@ -156,51 +188,28 @@ def test_a_missing_list_and_an_empty_list_are_told_apart() -> None:
 def test_the_record_is_the_same_bytes_every_run() -> None:
     """Canonical: sorted keys and lists, so the same record gives the same bytes on every run
     and in whatever order its resources came."""
-    bundle = fixture("prior-auth")
-    order = bundle["entry"]
-    first = decided(PA, bundle, unreadable={"notes": "timeout"}).data_coverage
-    shuffled = copy.deepcopy(bundle)
+    record = fixture("chart")
+    order = record["entry"]
+    first = decided(record, unreadable={"notes": "timeout"}).data_coverage
+    shuffled = copy.deepcopy(record)
     random.Random(7).shuffle(shuffled["entry"])
     assert shuffled["entry"] != order
-    again = decided(PA, shuffled, unreadable={"notes": "timeout"}).data_coverage
+    again = decided(shuffled, unreadable={"notes": "timeout"}).data_coverage
     assert json.dumps(first) == json.dumps(again)
     assert json.dumps(first) == json.dumps(first, sort_keys=True)
 
 
 def test_every_fhir_decision_carries_its_data_coverage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """CDS Hooks (the CRD order-sign whose decision DTR's package is built from), `fhir/decide`,
-    `$decide`, the SMART launch's decide, and `mendari decide --fhir`: each decision's answer
-    and its stored record carry the record."""
+    """CDS Hooks (the chart fixture's patient-view), `fhir/decide`, `$decide`, the SMART
+    launch's decide, and `mendari decide --fhir`: each decision's answer and its stored record
+    carry the record."""
     app = TestClient(create_app_for(tmp_path))
     ids = []
-    hook: dict[str, Any] = {
-        "hook": "order-sign",
-        "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
-        "context": {
-            "userId": "Practitioner/1",
-            "patientId": "p1",
-            "draftOrders": _bundle(_order("mri", "FX101")),
-        },
-        "prefetch": _prefetch("acme", "Back pain for two weeks."),
-    }
-    response = app.post("/cds-services/mendari.prior-auth-preflight", json=hook).json()
+    response = app.post(chart_fixture.SERVICE, json=chart_fixture.hook(ROUTINE)).json()
     ids.append(response["cards"][0]["extension"]["mendari.decision_id"])
-    [action] = response["systemActions"]
-    coverage = hook["prefetch"]["coverage"]["entry"][0]["resource"]
-    package = app.post(
-        "/fhir/Questionnaire/$questionnaire-package",
-        json={
-            "resourceType": "Parameters",
-            "parameter": [
-                {"name": "coverage", "resource": coverage},
-                {"name": "order", "resource": action["resource"]},
-            ],
-        },
-    )
-    assert package.status_code == 200 and "packagebundle" in package.text  # DTR: from it
-    answered = app.post(f"/api/packs/{REFERRAL}/fhir/decide", json=fixture("referral")).json()
+    answered = app.post(f"/api/agents/{CHART}/fhir/decide", json=fixture("chart")).json()
     assert answered["decision"]["data_coverage"]["format"] == FORMAT
     ids.append(answered["decision"]["id"])
     operation = app.post(
@@ -208,8 +217,8 @@ def test_every_fhir_decision_carries_its_data_coverage(
         json={
             "resourceType": "Parameters",
             "parameter": [
-                {"name": "pack", "valueString": REFERRAL},
-                {"name": "data", "resource": fixture("referral")},
+                {"name": "agent", "valueString": CHART},
+                {"name": "data", "resource": fixture("chart")},
             ],
         },
     )
@@ -219,27 +228,16 @@ def test_every_fhir_decision_carries_its_data_coverage(
     for decision_id in ids:
         record = app.get(f"/api/audit/{decision_id}").json()["record"]
         assert record["data_coverage"]["format"] == FORMAT, decision_id
-    # The SMART launch's decide (`/api/smart/decide` through a launch: test_cds_unreadable.py).
-    resources = [e["resource"] for e in fixture("referral")["entry"]]
-
-    def ehr(request: httpx.Request) -> httpx.Response:
-        path = request.url.path.removeprefix("/fhir/")
-        kind, _, rid = path.partition("/")
-        found = [r for r in resources if r["resourceType"] == kind and (not rid or r["id"] == rid)]
-        body = found[0] if rid else _bundle(*found)
-        return httpx.Response(200, json=body, headers={"content-type": "application/fhir+json"})
-
-    fhir = FhirClient(
-        "https://ehr.example.org/fhir",
-        allowed={"https://ehr.example.org"},
-        transport=httpx.MockTransport(ehr),
+    # The SMART launch's decide, against a vendor-shaped EHR of the chart.
+    ehr = ChartEhr.of(ROUTINE, statements="offered")
+    smart, _ = decide_for(
+        Decision.from_hub(CHART), ehr.client(), ROUTINE.id, f"Patient/{ROUTINE.id}"
     )
-    smart, _ = decide_for(Decision.from_hub(REFERRAL), fhir, "ref-p1", "ServiceRequest/ref-sr1")
     assert smart.data_coverage is not None and smart.data_coverage["format"] == FORMAT
-    case = tmp_path / "referral.json"
-    case.write_text(json.dumps(fixture("referral")), encoding="utf-8")
+    case = tmp_path / "chart.json"
+    case.write_text(json.dumps(fixture("chart")), encoding="utf-8")
     capsys.readouterr()
-    assert main(["decide", REFERRAL, "--fhir", "--input", str(case)]) == 0
+    assert main(["decide", CHART, "--fhir", "--input", str(case)]) == 0
     assert json.loads(capsys.readouterr().out)["decision"]["data_coverage"]["format"] == FORMAT
 
 
@@ -252,10 +250,16 @@ def create_app_for(tmp_path: Path) -> Any:
 def test_a_json_decision_carries_none(tmp_path: Path) -> None:
     app = TestClient(create_app_for(tmp_path))
     body = {"message": {"body": "Can you send a refill for metformin to my pharmacy?"}}
-    decision = app.post("/api/packs/mendari/patient-inbox-router/decide", json=body).json()
+    decision = app.post("/api/agents/mendari-test/triage/decide", json=body).json()
     assert "data_coverage" in decision and decision["data_coverage"] is None
     record = app.get(f"/api/audit/{decision['id']}").json()["record"]
     assert record["data_coverage"] is None
+
+
+def refusing(request: httpx.Request) -> httpx.Response:
+    """An EHR that refuses every read, its answer naming the patient."""
+    body = {"error": f"no access to {MRN}"}
+    return httpx.Response(403, json=body, headers={"content-type": "application/json"})
 
 
 def test_no_note_text_patient_code_or_id_reaches_the_record_or_the_chain(tmp_path: Path) -> None:
@@ -267,7 +271,15 @@ def test_no_note_text_patient_code_or_id_reaches_the_record_or_the_chain(tmp_pat
         tmp_path / "a.db",
         phi=PhiPolicy(mode="encrypt", key=os.urandom(32), hash_key=INPUT_HASH_KEY),
     )
-    resources = trial_record(f"Seen for diabetes follow-up. {NOTE_MARK}.")
+    case = Case(
+        id="cov-2",
+        age=56,
+        sex="female",
+        conditions=(Condition("E11.9", "2019-04-01"),),
+        medications=(Medication("6809", "2021-02-01"),),
+        notes=(Note((f"Seen for diabetes follow-up. {NOTE_MARK}.",)),),
+    )
+    resources = case.resources(records.TODAY)
     for resource in resources:
         if resource["resourceType"] == "Patient":
             resource["id"] = MRN
@@ -293,26 +305,27 @@ def test_no_note_text_patient_code_or_id_reaches_the_record_or_the_chain(tmp_pat
             }
         }
     ]
-    decision = Decision.from_hub(TRIAL, store=store)
+    decision = Decision.from_hub(CHART, store=store)
     # A prefetch key the EHR refused (403) and a linked read it refused, its answer naming the
     # patient: only the key, the reason and the status, a number, are kept (2026-11-08).
-    ehr = Ehr()
-    ehr.faults[f"Binary/{MRN}-note"] = lambda r: httpx.Response(
-        403, json={"error": f"no access to {MRN}"}, headers={"content-type": "application/json"}
+    ehr = FhirClient(
+        records.BASE,
+        allowed={"https://ehr.example.org"},
+        transport=httpx.MockTransport(refusing),
     )
     refused, _ = decision.decide_fhir(
-        _bundle(*resources, linked),
+        bundle(*resources, linked),
         unreadable={"medications": "unauthorized"},
         statuses={"medications": 403},
-        links=Linker.of(ehr.client()),
+        links=Linker.of(ehr),
     )
     assert refused.data_coverage is not None
     assert refused.data_coverage["prefetch"]["medications"]["status"] == 403
     assert refused.data_coverage["links"]["statuses"] == {"403": 1}
     results = [
-        decision.decide_fhir(_bundle(*resources))[0],
-        decision.decide_fhir(_bundle(*resources, linked))[0],
-        decision.decide_fhir(_bundle(*resources, rtf))[0],
+        decision.decide_fhir(bundle(*resources))[0],
+        decision.decide_fhir(bundle(*resources, linked))[0],
+        decision.decide_fhir(bundle(*resources, rtf))[0],
         refused,
     ]
     assert results[1].reasons == ("could not read notes: not_fetched",)
@@ -346,44 +359,14 @@ def test_no_note_text_patient_code_or_id_reaches_the_record_or_the_chain(tmp_pat
     store.close()
 
 
-def test_old_records_still_verify_beside_new_ones(
-    db_target: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A record chained before LP-23d has no `data_coverage`; one after has it (null for JSON).
-    The chain verifies across both, on both databases."""
-    store = AuditStore(db_target)
-    referral = Decision.from_hub(REFERRAL, store=store)
-    inbox = Decision.from_hub("mendari/patient-inbox-router", store=store)
-    original = DecisionResult.to_record
-
-    def before(self: DecisionResult) -> dict[str, Any]:
-        record = original(self)
-        del record["data_coverage"]  # the shape from before
-        return record
-
-    monkeypatch.setattr(DecisionResult, "to_record", before)
-    old, _ = referral.decide_fhir(fixture("referral"))
-    monkeypatch.setattr(DecisionResult, "to_record", original)
-    new, _ = referral.decide_fhir(fixture("referral"), unreadable={"labs": "timeout"})
-    plain = inbox.decide({"message": {"body": "Please call me about my bill."}})
-    shapes = {}
-    for result in (old, new, plain):
-        item = store.get(result.id)
-        assert item is not None
-        shapes[result.id] = item["record"].get("data_coverage", "absent")
-    assert shapes[old.id] == "absent"
-    assert isinstance(shapes[new.id], dict) and shapes[plain.id] is None
-    assert store.verify()["ok"] is True
-    store.close()
-
-
-def test_the_unreadable_notes_are_counted_by_reason() -> None:
-    """`unreadable_notes` counts each attachment of a 0.2 `base64_text` note once, by reason, and
-    leaves out a note that reads, an empty one and an attachment with neither data nor a link.
-    (The prescreen fixture's notes are `base64_text`; the trial pack's are `attachment_text`
-    since LP-23k, whose reasons `tests/test_fhir_mapping_03.py` counts.)"""
-    pack = load_pack(ROOT / "tests" / "fixtures" / "mini-agents" / "prescreen-mini")
-    adapter = FhirAdapter.for_pack(pack)
+def test_the_unreadable_notes_are_counted_by_reason(tmp_path: Path) -> None:
+    """`unreadable_notes` counts each attachment of a `base64_text` note (the transform
+    that decodes its data) once, by reason, and leaves out a note that reads, an empty one and an
+    attachment with neither data nor a link. (The chart fixture's own notes are
+    `attachment_text`, whose reasons `test_an_attachment_text_note_...` below counts.)"""
+    notes = {"path": "DocumentReference.content.attachment.data", "transform": "base64_text"}
+    agent = load_agent(chart_fixture.chart_copy(tmp_path, {"fields": {"notes": notes}}))
+    adapter = FhirAdapter.for_agent(agent)
     note = {
         "resourceType": "DocumentReference",
         "content": [
@@ -399,7 +382,6 @@ def test_the_unreadable_notes_are_counted_by_reason() -> None:
     assert data_coverage.unreadable_notes(adapter.mapping, indexed) == {
         "notes": {"not_fetched": 2, "undecodable": 1}
     }
-    assert prefetch_of(pack, [])["patient"] is None  # the helper's read of nothing
 
 
 # A Patient whose name and address arrays are padded, as R4 JSON allows a primitive array to be
@@ -420,11 +402,12 @@ def padded(given: list[Any]) -> dict[str, Any]:
 def test_a_primitive_array_s_null_padding_is_not_a_value(tmp_path: Path) -> None:
     """A null in a primitive array is R4 JSON's padding for its `_x` sibling, which the
     structure check passes: it is no value, and a `base64_text` null is no undecodable note, so a
-    0.2 pack's record counts what LP-23d counted and its decision does not ABSTAIN on it."""
+    record counts what LP-23d counted and its decision does not ABSTAIN on it."""
     lists = {"addresses": {"resource": "Patient", "fields": {"line": {"path": "address[0].line"}}}}
     fields = {"name": {"path": "Patient.name[0].given", "transform": "join"}}
-    pack = load_pack(mini(tmp_path / "join", {"fields": fields, "lists": lists}))
-    adapter = FhirAdapter.for_pack(pack)
+    changes = {"fields": fields, "lists": lists}
+    agent = load_agent(chart_fixture.chart_copy(tmp_path, changes, folder="join"))
+    adapter = FhirAdapter.for_agent(agent)
     record = bundle(padded(["Ann", None]))
     assert fhir_structure.blocking(fhir_structure.check(record)) == []  # R4 allows the nulls
     coverage = data_coverage.measure(adapter.mapping, adapter.index(record), unreadable={})
@@ -432,8 +415,9 @@ def test_a_primitive_array_s_null_padding_is_not_a_value(tmp_path: Path) -> None
     assert coverage["lists"]["addresses"]["fields"]["line"]["values"] == 1
 
     notes = {"notes": {"path": "Patient.name[0].given", "transform": "base64_text"}}
-    decision = Decision(load_pack(mini(tmp_path / "notes", {"fields": notes})))
-    adapter = FhirAdapter.for_pack(decision.pack)
+    copied = chart_fixture.chart_copy(tmp_path, {"fields": notes}, folder="notes")
+    decision = Decision(load_agent(copied))
+    adapter = FhirAdapter.for_agent(decision.agent)
     record = bundle(padded([b64("Ann"), None]))
     assert data_coverage.unreadable_notes(adapter.mapping, adapter.index(record)) == {}
     result, _ = decision.decide_fhir(record)
@@ -444,20 +428,22 @@ def test_a_primitive_array_s_null_padding_is_not_a_value(tmp_path: Path) -> None
 
 
 MARK = "ID7f3"  # in every id and text of the 0.3 record below: none may reach its coverage
-OUT_OF_SET = "I10"  # a patient's ICD-10-CM code the pack's code set does not list
+OUT_OF_SET = "J06.9"  # a patient's ICD-10-CM code the test's code set does not list
 
 
-def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Path) -> None:
-    """A spec 0.3 mapping (LP-23g) is counted against `FhirAdapter.looked_for`: a field's paths
+def test_a_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Path) -> None:
+    """A mapping (LP-23g) is counted against `FhirAdapter.looked_for`: a field's paths
     in the order it tries them, the systems it selects on and its code set's codes; what the
     paths it read found (in order, until one gave the field its value); a `follow`'s references
     and how many it reached, and (LP-23h) each link among them the record does not hold, as
     `not_fetched` with no linked reads; a list of several types by type (`sources`, a
     `medication_period`'s keys among a MedicationRequest's fields); and each `attachment_text`
     note that could not be read, by its reason, while one with nothing in it counts for nothing.
-    Never a value, an id, text, a patient's code or a site's own system."""
+    Never a value, an id, text, a patient's code or a site's own system. On a copy of the chart
+    fixture whose mapping holds these fields and lists, a payer's system declared beside its
+    own."""
     changes = {
-        "code_sets": {"t2d": {"system": MINI_ICD, "codes": ["E11.9", "E11.65"]}},
+        "code_sets": {"t2d": {"system": ICD, "codes": ["E11.9", "E11.65"]}},
         "fields": {
             "notes": {
                 "path": "DocumentReference.content.attachment",
@@ -496,7 +482,9 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
             },
         },
     }
-    mapped = adapter(tmp_path, changes)
+    mapped = FhirAdapter.for_agent(
+        load_agent(chart_fixture.chart_copy(tmp_path, changes, systems=(PAYER,)))
+    )
 
     def coded(*codings: tuple[str, str]) -> dict[str, Any]:
         return {"coding": [{"system": system, "code": code} for system, code in codings]}
@@ -524,9 +512,9 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
         {
             "resourceType": "Condition",
             "id": f"{MARK}-c1",
-            "code": coded((SITE_SYSTEM, SITE_CODE), (MINI_ICD, "E11.9")),
+            "code": coded((SITE_SYSTEM, SITE_CODE), (ICD, "E11.9")),
         },
-        {"resourceType": "Condition", "id": f"{MARK}-c2", "code": coded((MINI_ICD, OUT_OF_SET))},
+        {"resourceType": "Condition", "id": f"{MARK}-c2", "code": coded((ICD, OUT_OF_SET))},
         {
             "resourceType": "MedicationStatement",
             "id": f"{MARK}-s1",
@@ -582,7 +570,7 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
     assert data_coverage.unreadable_links(mapped.mapping, indexed) == {
         "medications.code": {"not_fetched": 1}
     }
-    systems = [use.url for use in mapped.pack.manifest.code_systems]
+    systems = [use.url for use in mapped.agent.manifest.code_systems]
     sources = {"meds": "Medication?patient={{context.patientId}}"}
     coverage = data_coverage.measure(
         mapped.mapping, indexed, unreadable={"meds": "timeout"}, systems=systems, sources=sources
@@ -609,9 +597,9 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
         "fields": {
             "code": {
                 "codes": ["E11.65", "E11.9"],  # the code set's
-                "codings": {MINI_ICD: 2, OTHER: 1},
+                "codings": {ICD: 2, OTHER: 1},
                 "paths": ["code.coding"],
-                "systems": [MINI_ICD],  # the code set's system, not every declared one
+                "systems": [ICD],  # the code set's system, not every declared one
                 "values": 3,
             }
         },
@@ -665,14 +653,11 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
     assert json.dumps(again) == shown
 
 
-def test_an_attachment_text_note_that_cannot_be_read_abstains_with_its_reason(
-    tmp_path: Path,
-) -> None:
+def test_an_attachment_text_note_that_cannot_be_read_abstains_with_its_reason() -> None:
     """As a `base64_text` note that cannot be read does (LP-23d), an `attachment_text` one
-    (spec 0.3) makes the decision ABSTAIN before any provider, with its reason; a note that
-    reads, or an attachment with nothing in it, does not."""
-    notes = {"path": "DocumentReference.content.attachment", "transform": "attachment_text"}
-    decision = Decision(load_pack(mini(tmp_path, {"fields": {"notes": notes}}, spec="0.3")))
+    (spec §9.5, the chart fixture's) makes the decision ABSTAIN before any provider, with its
+    reason; a note that reads, or an attachment with nothing in it, does not."""
+    decision = Decision(load_agent(CHART_DIR))
 
     def decided_on(**attachment: Any) -> DecisionResult:
         note = {

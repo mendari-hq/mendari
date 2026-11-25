@@ -2,7 +2,7 @@
 
 ## Status
 Accepted (2026-11-24), for wave 4 of the plan in `tasks/todo.md`. Specified in
-[agent manifest spec 0.4](../spec/agent-manifest-0.4.md).
+[the agent manifest spec](../spec/agent-manifest.md), section 13.
 
 Decided by the maintainer on 2026-11-24, before the repository was public, so no comment period
 ran; open to revision when it is.

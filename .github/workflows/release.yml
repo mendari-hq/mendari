@@ -321,7 +321,7 @@ jobs:
           done
           served=$(ls /tmp/served/*.whl)
           cmp "$served" "dist/$(basename "$served")"
-          uv export --frozen --no-dev --extra server --no-emit-project --format requirements-txt \
+          uv export --frozen --no-dev --no-emit-project --format requirements-txt \
             > /tmp/requirements.txt
           /tmp/clean/bin/pip install --quiet --require-hashes -r /tmp/requirements.txt
           /tmp/clean/bin/pip install --quiet --no-deps "$served"

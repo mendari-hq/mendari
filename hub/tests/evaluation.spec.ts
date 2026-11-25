@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // An agent's evaluation page (app/agents/[namespace]/[name]/evaluation), against the registry the
 // other tests run against: the demo agent with its publisher's signed evaluations of two
-// configurations, and a community agent with none (scripts/hub_seed.py --hostile-example
-// --evaluations). The states a seeded registry cannot be in are in evaluation-states.spec.ts.
+// configurations, and a community publisher's agent with none (scripts/hub_seed.py
+// --hostile-example --evaluations). The states a seeded registry cannot be in are in
+// evaluation-states.spec.ts.
 import { readFileSync } from "node:fs";
 
 import { expect, test, type Page } from "@playwright/test";
@@ -35,7 +36,7 @@ test("an evaluation page says what was evaluated and on what data, in words", as
   await page.goto(EVALUATION);
   await expect(page).toHaveTitle("Evaluation of mendari/portal-message-agent · Mendari Agent Hub");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Evaluation of Portal Message Agent");
-  await expect(page.locator(".pack-id-pill")).toHaveText(`mendari/portal-message-agent@${shippedVersion()}`);
+  await expect(page.locator(".agent-id-pill")).toHaveText(`mendari/portal-message-agent@${shippedVersion()}`);
   await expect(page.locator(".lead")).toHaveText(
     `Its publisher, Mendari, ran 2 configurations of version ${shippedVersion()} on 600 synthetic cases and ` +
       "published the results as signed counts. This page shows those counts, and what they do and do not tell you.",

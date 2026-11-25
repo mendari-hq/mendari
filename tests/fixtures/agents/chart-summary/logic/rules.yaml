@@ -1,0 +1,91 @@
+# Synthetic test fixture. Not clinically reviewed. Not for patient care.
+#
+# The `rules` variant: keyword rules over the chart's clinic notes only (`notes`), which run with
+# no service. A chart whose notes say nothing reads as nothing found: `routine` and `no`, each
+# with a low confidence, so a person sees it. Some charts on the watch list say so in words these
+# rules do not know (tests/support/fixture_records.py, `SOON_UNSAID`): the evaluation finds them,
+# and none of them is automated. Each pattern names a follow-up plan or a drug, never a word the
+# notes use for anything else ("review", "clinic"), so no plan is read where none is written.
+text_fields: [notes]
+negation_cues: ["no", "not", "without", "stopped", "denies"]
+negation_window: 30
+questions:
+  follow_up:
+    default: routine
+    labels:
+      soon:
+        - name: within-days-or-weeks
+          pattern: '\b(within|in) (a|one|1|two|2) (days?|weeks?)\b'
+          weight: 4
+        - name: within-a-few-days
+          pattern: '\bwithin (a few|two|three|several|2|3) days\b'
+          weight: 4
+        - name: this-week
+          pattern: '\b(this|the same) week\b'
+          weight: 4
+        - name: urgent-visit
+          pattern: '\b(urgent|same-week|early) (visit|appointment|follow-up|recheck)\b'
+          weight: 4
+        - name: come-back-soon
+          pattern: '\b(come back|return|be seen|recheck)\b[^.;\n]{0,20}\b(tomorrow|this week|in (a|one) week)\b'
+          weight: 4
+        - name: see-again-soon
+          pattern: '\b(see|review) (her|him|them|the patient) (again )?(tomorrow|this week|within (a|one) week)\b'
+          weight: 4
+        - name: follow-up-in-days
+          pattern: '\bfollow-up (visit )?(tomorrow|in (one|two|three|1|2|3) days?)\b'
+          weight: 4
+        - name: sooner-visit
+          pattern: '\b(needs|asked for|book) an? (earlier|sooner|urgent) (visit|appointment|review)\b'
+          weight: 4
+      routine:
+        - name: in-months
+          pattern: '\b(in|within|after) (three|four|six|twelve|3|4|6|12) months\b'
+          weight: 4
+        - name: yearly-visit
+          pattern: '\b(yearly|annual|routine) (visit|check-up|follow-up)\b'
+          weight: 4
+        - name: next-yearly
+          pattern: '\b(at|before) the next (yearly|annual|routine) (visit|check-up)\b'
+          weight: 4
+        - name: routine-follow-up
+          pattern: '\broutine follow-up\b'
+          weight: 4
+        - name: recheck-in-months
+          pattern: '\b(recheck|review) (labs|bloods|medicines|medications|blood pressure) (in|at) (three|six|twelve|3|6|12) months\b'
+          weight: 4
+        - name: keep-the-yearly-visit
+          pattern: '\bkeep (the )?(yearly|annual|routine) (visit|check-up|appointment)\b'
+          weight: 4
+      none:
+        - name: no-follow-up
+          pattern: '\bno (further )?follow-up (is )?(needed|required|planned)\b'
+          weight: 4
+        - name: as-needed
+          pattern: '\breturn (as needed|if (symptoms|it|they) (return|recur|persist))\b'
+          weight: 4
+        - name: nothing-planned
+          pattern: '\bnothing further (is )?planned\b'
+          weight: 4
+        - name: discharged
+          pattern: '\b(discharged|signed off) from (follow-up|the clinic|clinic follow-up)\b'
+          weight: 4
+        - name: no-need
+          pattern: '\bno (need for|routine) (follow-up|visits?|review)\b'
+          weight: 4
+  on_anticoagulant:
+    default: "no"
+    labels:
+      "yes":
+        - name: anticoagulant-named
+          pattern: '\b(warfarin|coumadin|jantoven|apixaban|eliquis|rivaroxaban|xarelto|edoxaban|savaysa|dabigatran|pradaxa)\b'
+          weight: 4
+          negatable: true
+        - name: on-an-anticoagulant
+          pattern: '\b(on|takes|taking) an? (anticoagulant|blood thinner)\b'
+          weight: 4
+          negatable: true
+        - name: anticoagulant-dose
+          pattern: '\b(warfarin|apixaban|rivaroxaban|edoxaban|dabigatran) \d+(\.\d+)? ?(mg|milligrams?)\b'
+          weight: 4
+          negatable: true

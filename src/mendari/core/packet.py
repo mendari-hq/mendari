@@ -51,16 +51,14 @@ from jsonschema import Draft202012Validator
 
 from mendari import __version__, notices
 from mendari.core import validation_brief
+from mendari.core.agent import Agent
 from mendari.core.audit import AuditStore
 from mendari.core.card import RISK_AUTOMATION, RISK_NAMES, read_benchmark
-from mendari.core.origin import COMMUNITY_AUTOMATION
-from mendari.core.pack import Pack
 from mendari.core.policy import GATE_TEXT, gate_of
 from mendari.core.spec import variant_configs
 from mendari.core.status import title as question_title
 from mendari.errors import MendariError
 from mendari.evals import figures, monitoring
-from mendari.evals.result import normalize
 
 FORMAT = "mendari.committee-packet/1"
 DEFAULT_DAYS = 90
@@ -142,7 +140,7 @@ STATUS_WORDS = {CONFIRMED: "Checked against the source", TO_VERIFY: "To verify"}
 _STATUS_SHORT = {CONFIRMED: "Checked", TO_VERIFY: "To verify"}  # in a table's cell
 WHO_WORDS = {"publisher": "The publisher", "site": "This site"}
 # Provider types that call a service off this deployment (`Provider.remote`).
-_CALLS_OUT = frozenset({"agent", "llm", "jev", "cql"})
+_CALLS_OUT = frozenset({"agent", "llm"})
 OUTCOMES = (
     ("AUTO", "The recommendation is acted on without a person, within the limits of its risk."),
     ("HUMAN_REVIEW", "A person decides. The recommendation and its reasons are shown to them."),
@@ -350,23 +348,24 @@ def _hex(digest: str, length: int = 12) -> str:
     return digest.removeprefix("sha256:")[:length]
 
 
-def _covering(holds: Sequence[Mapping[str, Any]], pack: Pack) -> list[Mapping[str, Any]]:
+def _covering(holds: Sequence[Mapping[str, Any]], agent: Agent) -> list[Mapping[str, Any]]:
     """The holds in force that cover this version of this agent."""
     return [
         hold
         for hold in holds
-        if hold.get("pack_id") in (None, pack.id) and hold.get("pack_digest") in (None, pack.digest)
+        if hold.get("agent_id") in (None, agent.id)
+        and hold.get("agent_digest") in (None, agent.digest)
     ]
 
 
-def _running(pack: Pack, deployment: Deployment | None) -> list[dict[str, Any]]:
+def _running(agent: Agent, deployment: Deployment | None) -> list[dict[str, Any]]:
     """Each slot as it runs here (or, where that is not known, as the agent sets it by
     default): its variant and type, its model where known, and whether it calls a service off
     this deployment, with the input fields an agent's own service is sent. Without a
     deployment (None) nothing is known to run: every slot is the agent's own default."""
     deployment = deployment or _NO_DEPLOYMENT
     slots = []
-    for slot, spec in pack.manifest.providers.items():
+    for slot, spec in agent.manifest.providers.items():
         known = deployment.providers is not None and slot in deployment.providers
         name = deployment.providers[slot] if deployment.providers and known else spec.use
         variant = spec.variants.get(name)
@@ -376,7 +375,7 @@ def _running(pack: Pack, deployment: Deployment | None) -> list[dict[str, Any]]:
         if isinstance(members, dict):
             kinds |= {str(m.get("type")) for m in members.values() if isinstance(m, dict)}
         fields = extra.get("state_fields")
-        agent = variant is not None and variant.type == "agent"
+        service = variant is not None and variant.type == "agent"
         slots.append(
             {
                 "slot": slot,
@@ -386,16 +385,16 @@ def _running(pack: Pack, deployment: Deployment | None) -> list[dict[str, Any]]:
                 "type": None if variant is None else variant.type,
                 "model": (deployment.models or {}).get(slot),
                 "calls_out": bool(kinds & _CALLS_OUT),
-                "sends": [str(f) for f in fields] if agent and isinstance(fields, list) else None,
+                "sends": [str(f) for f in fields] if service and isinstance(fields, list) else None,
                 # An agent's own service, when none is configured: its canned examples answer.
-                "canned": agent and deployment.agent_endpoint is False,
+                "canned": service and deployment.agent_endpoint is False,
             }
         )
     return slots
 
 
-def _identity(pack: Pack) -> dict[str, Any]:
-    m = pack.manifest
+def _identity(agent: Agent) -> dict[str, Any]:
+    m = agent.manifest
     critical: dict[str, list[str]] = {}
     for item in m.evaluation.critical:
         critical.setdefault(item.question, []).append(item.label)
@@ -403,12 +402,12 @@ def _identity(pack: Pack) -> dict[str, Any]:
         "name": m.name,
         "id": m.id,
         "version": m.version,
-        "digest": pack.digest,
+        "digest": agent.digest,
         "summary": m.summary,
-        "status": pack.status_label,
+        "status": agent.status_label,
         "publisher": {"name": m.publisher.name, "type": m.publisher.type, "url": m.publisher.url},
         "license": m.license,
-        "source": {"origin": pack.shown_origin, "label": pack.origin_label},
+        "source": {"origin": agent.origin, "label": agent.origin_label},
         "questions": [
             {
                 "key": key,
@@ -426,8 +425,8 @@ def _identity(pack: Pack) -> dict[str, Any]:
     }
 
 
-def _intended_use(pack: Pack) -> dict[str, Any]:
-    card = pack.manifest.card
+def _intended_use(agent: Agent) -> dict[str, Any]:
+    card = agent.manifest.card
     return {
         "intended_use": card.intended_use,
         "intended_users": list(card.intended_users),
@@ -437,17 +436,12 @@ def _intended_use(pack: Pack) -> dict[str, Any]:
     }
 
 
-def _risk(pack: Pack, deployment: Deployment | None) -> dict[str, Any]:
-    m = pack.manifest
+def _risk(agent: Agent, deployment: Deployment | None) -> dict[str, Any]:
+    m = agent.manifest
     deployment = deployment or _NO_DEPLOYMENT
     level = int(m.risk.level)
     enforced = []
-    if pack.community:
-        enforced.append(
-            "A community agent never decides alone, at any risk level: it recommends, and a "
-            "person confirms every decision."
-        )
-    elif level <= 1:
+    if level <= 1:
         enforced.append(
             f"At risk level {level} a decision may be automated when the agent's confidence "
             "reaches its threshold. The runtime asks nothing else of the organization first."
@@ -462,7 +456,7 @@ def _risk(pack: Pack, deployment: Deployment | None) -> dict[str, Any]:
         enforced.append(
             "At risk level 4 no decision is ever automated, and no approval changes that."
         )
-    if pack.origin == "hub":
+    if agent.origin == "hub":
         enforced.append(
             "It came from a registry: at every risk level it automates nothing until the "
             "organization approves this exact version, and it stops if the registry recalls it "
@@ -485,17 +479,17 @@ def _risk(pack: Pack, deployment: Deployment | None) -> dict[str, Any]:
         "category": m.risk.category,
         "rationale": m.risk.rationale,
         "declared_by": "publisher",
-        "automation": COMMUNITY_AUTOMATION if pack.community else RISK_AUTOMATION[level],
+        "automation": RISK_AUTOMATION[level],
         "enforced": enforced,
     }
 
 
-def _actions(pack: Pack) -> list[dict[str, Any]]:
-    """The actions the agent declares (spec 0.4), each with its effect and how the runtime
+def _actions(agent: Agent) -> list[dict[str, Any]]:
+    """The actions the agent declares (spec §13), each with its effect and how the runtime
     gates it (`policy.gate_of`, in `policy.GATE_TEXT`'s words). Empty: it declares none."""
     declared = []
-    for name, spec in pack.manifest.actions.items():
-        gate = gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=not pack.community)
+    for name, spec in agent.manifest.actions.items():
+        gate = gate_of(spec.effect, allow_auto=spec.allow_auto)
         schema = spec.json_schema
         declared.append(
             {
@@ -512,13 +506,13 @@ def _actions(pack: Pack) -> list[dict[str, Any]]:
     return declared
 
 
-def _written(pack: Pack) -> list[dict[str, Any]]:
-    """What the agent writes besides its answers (spec 0.4), from the manifest: each output,
+def _written(agent: Agent) -> list[dict[str, Any]]:
+    """What the agent writes besides its answers (spec §15), from the manifest: each output,
     where its text comes from, and each rubric it is graded against, with its criteria, whether
     a model judge is named, and the floors a judge is held to. Empty: it declares none."""
     from mendari.evals import written
 
-    manifest = pack.manifest
+    manifest = agent.manifest
     found = []
     for name, output in manifest.outputs.items():
         rubrics = [
@@ -555,7 +549,7 @@ def _written(pack: Pack) -> list[dict[str, Any]]:
     return found
 
 
-def _confidence(pack: Pack) -> list[dict[str, Any]]:
+def _confidence(agent: Agent) -> list[dict[str, Any]]:
     """Whether each `agent` variant's confidence (a composite's member too) is calibrated, from
     the manifest and the calibration file the digest covers: on how many cases of which set,
     when and for which version of the agent; or that it is not. Empty: no part of the agent is
@@ -563,7 +557,7 @@ def _confidence(pack: Pack) -> list[dict[str, Any]]:
     from mendari.providers import agent_calibration
 
     found = []
-    for slot, name, member, config in variant_configs(pack.manifest):
+    for slot, name, member, config in variant_configs(agent.manifest):
         if config.get("type") != "agent":
             continue
         entry: dict[str, Any] = {
@@ -571,7 +565,7 @@ def _confidence(pack: Pack) -> list[dict[str, Any]]:
             "variant": name if member is None else f"{name}.{member}",
             "calibrated": False,
         }
-        status = agent_calibration.status(pack, config)
+        status = agent_calibration.status(agent, config)
         if isinstance(status, str):
             entry["why_not"] = status
         else:
@@ -580,8 +574,8 @@ def _confidence(pack: Pack) -> list[dict[str, Any]]:
                 cases=status.cases,
                 dataset=status.dataset,
                 date=status.date,
-                agent_id=status.agent_id,
-                agent_version=status.agent_version,
+                service_id=status.service_id,
+                service_version=status.service_version,
                 questions=sorted(status.temperatures),
                 not_fitted=dict(status.not_fitted),
             )
@@ -589,11 +583,11 @@ def _confidence(pack: Pack) -> list[dict[str, Any]]:
     return found
 
 
-def _second_signal(pack: Pack) -> list[dict[str, Any]]:
+def _second_signal(agent: Agent) -> list[dict[str, Any]]:
     """Each second signal the manifest turns on: a variant asked more than once (`repeat`), or
     answered by one member and checked by another (`check`). Empty: none is on."""
     found = []
-    for slot, name, member, config in variant_configs(pack.manifest):
+    for slot, name, member, config in variant_configs(agent.manifest):
         variant = name if member is None else f"{name}.{member}"
         kind = config.get("type")
         runs = config.get("repeat")
@@ -615,19 +609,19 @@ def _second_signal(pack: Pack) -> list[dict[str, Any]]:
 
 
 def _oversight(
-    pack: Pack, stats: Mapping[str, Any] | None, holds: Sequence[Mapping[str, Any]] | None
+    agent: Agent, stats: Mapping[str, Any] | None, holds: Sequence[Mapping[str, Any]] | None
 ) -> dict[str, Any]:
     """`stats` and `holds` None: no deployment was read, so the review queue and the holds
     are null, not empty."""
-    policy = pack.manifest.policy
+    policy = agent.manifest.policy
     covering = []
-    for hold in _covering(holds or (), pack):
+    for hold in _covering(holds or (), agent):
         reason = str(hold.get("reason") or "")
-        covers = "this version" if hold.get("pack_digest") else "this agent"
+        covers = "this version" if hold.get("agent_digest") else "this agent"
         covering.append(
             {
                 "id": hold["id"],
-                "covers": covers if hold.get("pack_id") else "every agent",
+                "covers": covers if hold.get("agent_id") else "every agent",
                 "scope": "organization" if hold.get("org") else "deployment",
                 "set_at": hold.get("set_at"),
                 # None: the deployment operator's own, which an organization is not shown.
@@ -659,11 +653,11 @@ def _oversight(
         # What the agent may ask to have done and how each is gated, whether its confidence
         # was checked, and whether a second signal is on: each from the manifest, and empty
         # where the manifest says nothing of it.
-        "actions": _actions(pack),
-        "confidence": _confidence(pack),
-        "second_signal": _second_signal(pack),
-        # What it writes and how that is graded (spec 0.4): empty where it declares none.
-        "written": _written(pack),
+        "actions": _actions(agent),
+        "confidence": _confidence(agent),
+        "second_signal": _second_signal(agent),
+        # What it writes and how that is graded (spec §15): empty where it declares none.
+        "written": _written(agent),
         "review_queue": (
             None
             if stats is None
@@ -712,7 +706,9 @@ def _evaluated_calibration(run: Any) -> list[dict[str, Any]] | None:
             continue
         fitted = entry.get("fitted") if isinstance(entry.get("fitted"), Mapping) else None
         calibrated = entry.get("status") == "calibrated" and fitted is not None
-        agent = fitted.get("agent") if fitted and isinstance(fitted.get("agent"), Mapping) else {}
+        service = (
+            fitted.get("service") if fitted and isinstance(fitted.get("service"), Mapping) else {}
+        )
         questions = []
         asked = entry.get("questions")
         for key, figures_of in asked.items() if isinstance(asked, Mapping) else ():
@@ -737,7 +733,7 @@ def _evaluated_calibration(run: Any) -> list[dict[str, Any]] | None:
                 "calibrated": calibrated,
                 "cases": _count(fitted.get("cases")) if fitted else None,
                 "dataset": _name(fitted.get("dataset")) if fitted else None,
-                "agent_version": _name(agent.get("version")) if agent else None,
+                "service_version": _name(service.get("version")) if service else None,
                 # On the very cases it was fitted on, its figures after are optimistic.
                 "same_cases": entry.get("same_cases") is True,
                 "questions": questions,
@@ -782,13 +778,12 @@ def _evaluated_second_signal(run: Any) -> dict[str, Any] | None:
     }
 
 
-def _evaluation(report: Mapping[str, Any], pack: Pack) -> dict[str, Any] | None:
+def _evaluation(r: Mapping[str, Any], agent: Agent) -> dict[str, Any] | None:
     """An evaluation report as the packet shows it: counts with intervals, the critical cases
     and the configuration it ran on. None when it is not a report the figures can be read of."""
     try:
-        r = normalize(dict(report))
         shown = figures.report(r)
-        measured = r["pack"]
+        measured = r["agent"]
         return {
             "dataset": {
                 "name": str(r["dataset"]["name"]),
@@ -799,7 +794,7 @@ def _evaluation(report: Mapping[str, Any], pack: Pack) -> dict[str, Any] | None:
             "measured_on": {
                 "version": measured.get("version"),
                 "digest": measured.get("digest"),
-                "this_version": measured.get("digest") == pack.digest,
+                "this_version": measured.get("digest") == agent.digest,
             },
             "configuration": {
                 str(slot): {"variant": info.get("variant"), "model": info.get("model")}
@@ -824,27 +819,27 @@ def _evaluation(report: Mapping[str, Any], pack: Pack) -> dict[str, Any] | None:
         return None
 
 
-def _publisher_evidence(pack: Pack) -> dict[str, Any]:
-    m = pack.manifest
+def _publisher_evidence(agent: Agent) -> dict[str, Any]:
+    m = agent.manifest
     evaluation, reason, source = None, None, "agent_files"
-    registry = pack.pulled.get("registry") if pack.origin == "hub" else None
-    if pack.origin == "hub":
+    registry = agent.pulled.get("registry") if agent.origin == "hub" else None
+    if agent.origin == "hub":
         source = "registry"
         reason = (
             "This agent came from a registry. Its publisher's signed evaluations are published "
             "there, and this deployment shows no figure it did not compute itself, so none is "
             "copied here: read them on the agent's page at the registry."
         )
-    elif pack.origin == "store":
+    elif agent.origin == "store":
         source = "store"
         reason = (
             "This version comes from the organization's own store, which keeps no benchmark "
             "uploaded with an agent: its evaluations run here are in the next section."
         )
     else:
-        report, problem = read_benchmark(pack)
+        report, problem = read_benchmark(agent)
         if report is not None:
-            evaluation = _evaluation(report, pack)
+            evaluation = _evaluation(report, agent)
         if evaluation is None:
             reason = (
                 f"The benchmark the agent names could not be read ({problem})."
@@ -872,7 +867,7 @@ def _publisher_evidence(pack: Pack) -> dict[str, Any]:
 
 
 def _site_evidence(
-    pack: Pack,
+    agent: Agent,
     brief: Mapping[str, Any],
     stats: Mapping[str, Any],
     reports: Sequence[Mapping[str, Any]],
@@ -885,7 +880,7 @@ def _site_evidence(
     evaluations = [
         found
         for report in reports[:MAX_EVALUATIONS]
-        if (found := _evaluation(report, pack)) is not None
+        if (found := _evaluation(report, agent)) is not None
     ]
     empty = None
     if not total and not evaluations:
@@ -949,14 +944,14 @@ def _site_evidence(
 
 
 def _limits(
-    pack: Pack,
+    agent: Agent,
     running: Sequence[Mapping[str, Any]],
     publisher: Mapping[str, Any],
     *,
     deployed: bool = True,
 ) -> dict:
     """`deployed` False: the packet read no deployment, and says that first among its limits."""
-    m = pack.manifest
+    m = agent.manifest
     of_evidence = []
     if not deployed:
         of_evidence.append(
@@ -992,7 +987,7 @@ def _limits(
     return {
         "known_failure_modes": list(m.card.known_failure_modes),
         "stated_by": "publisher",
-        "status": pack.status_label,
+        "status": agent.status_label,
         "of_the_evidence": of_evidence,
     }
 
@@ -1113,7 +1108,7 @@ def _monitoring(mon: Mapping[str, Any], deployment: Deployment) -> dict[str, Any
 
 
 def _change_control(
-    pack: Pack,
+    agent: Agent,
     deployment: Deployment | None,
     running: Sequence[Mapping[str, Any]],
     records: Sequence[Mapping[str, Any]] | None,
@@ -1122,9 +1117,9 @@ def _change_control(
     """Without a deployment (None): nothing is known to run, and no registry was asked."""
     deployed = deployment is not None
     deployment = deployment or _NO_DEPLOYMENT
-    pulled = pack.pulled
+    pulled = agent.pulled
     signed = None
-    if pack.origin == "hub":
+    if agent.origin == "hub":
         signed = {
             "registry": pulled.get("registry"),
             "namespace": pulled.get("namespace"),
@@ -1149,7 +1144,7 @@ def _change_control(
         "models that run here. After a change the monitor says that none is comparable, and "
         "compares only decisions made since.",
     ]
-    if pack.origin == "hub":
+    if agent.origin == "hub":
         on_change += [
             "A version from a registry arrives as a signed archive: its hash, its publisher's "
             "signature and the registry's counter-signature are checked when it is pulled.",
@@ -1174,8 +1169,8 @@ def _change_control(
             "digest stays the same: only the monitor can show it."
         )
     return {
-        "version": pack.version,
-        "digest": pack.digest,
+        "version": agent.version,
+        "digest": agent.digest,
         "signed": signed,
         "running": list(running),
         "running_known": deployment.providers is not None,
@@ -1186,9 +1181,9 @@ def _change_control(
             else [
                 {
                     "started_at": record["started_at"],
-                    "version": record["pack_version"],
-                    "digest": record["pack_digest"],
-                    "this_version": record["pack_digest"] == pack.digest,
+                    "version": record["agent_version"],
+                    "digest": record["agent_digest"],
+                    "this_version": record["agent_digest"] == agent.digest,
                     "providers": dict(record["providers"]),
                     "environment": record.get("environment"),
                     "release": record.get("release"),
@@ -1215,12 +1210,12 @@ def _schema_fields(schema: Any, prefix: str = "") -> list[str]:
 
 
 def _data_handling(
-    pack: Pack, deployment: Deployment, running: Sequence[Mapping[str, Any]]
+    agent: Agent, deployment: Deployment, running: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:
-    m = pack.manifest
+    m = agent.manifest
     return {
         "inputs": {
-            "fields": _schema_fields(pack.input_schema),
+            "fields": _schema_fields(agent.input_schema),
             "fhir": m.inputs.fhir is not None,
             # "hash": the agent asks that its inputs are never kept, whatever the mode.
             "kept": m.audit.store_input,
@@ -1257,14 +1252,12 @@ def _data_handling(
     }
 
 
-def _approvals_required(pack: Pack, *, deployed: bool = True) -> list[str]:
+def _approvals_required(agent: Agent, *, deployed: bool = True) -> list[str]:
     """What this agent needs before it automates, by its risk level and where it came from: the
     runtime's rules, the same with or without a deployment to read."""
-    level = int(pack.manifest.risk.level)
+    level = int(agent.manifest.risk.level)
     required = []
-    if pack.community:
-        required.append("A community agent never automates. No approval changes that.")
-    elif level >= 4:
+    if level >= 4:
         required.append("At risk level 4 nothing is automated. No approval is possible.")
     elif level in (2, 3):
         required.append(
@@ -1277,7 +1270,7 @@ def _approvals_required(pack: Pack, *, deployed: bool = True) -> list[str]:
             + ("this deployment" if deployed else "a deployment")
             + " records none for it."
         )
-    if pack.origin == "hub":
+    if agent.origin == "hub":
         required.append(
             "An agent from a registry needs the organization's approval of its exact version "
             "before it automates anything."
@@ -1286,16 +1279,16 @@ def _approvals_required(pack: Pack, *, deployed: bool = True) -> list[str]:
 
 
 def _approvals(
-    pack: Pack,
+    agent: Agent,
     governance: Sequence[Mapping[str, Any]],
     registry: Sequence[Mapping[str, Any]],
     active: Mapping[str, Any] | None,
     registry_active: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    required = _approvals_required(pack)
+    required = _approvals_required(agent)
 
     def shown(row: Mapping[str, Any], *, expires: bool) -> dict[str, Any]:
-        this_version = row["pack_digest"] == pack.digest
+        this_version = row["agent_digest"] == agent.digest
         live = active if expires else registry_active
         return {
             "id": row["id"],
@@ -1305,7 +1298,7 @@ def _approvals(
             "expires_at": row.get("expires_at") if expires else None,
             "revoked_at": row.get("revoked_at"),
             "revoked_by": row.get("revoked_by"),
-            "digest": row["pack_digest"],
+            "digest": row["agent_digest"],
             "this_version": this_version,
             "in_force": live is not None and live["id"] == row["id"],
         }
@@ -1316,22 +1309,22 @@ def _approvals(
         "registry": [shown(row, expires=False) for row in registry],
         "in_force": {
             "governance": active is not None,
-            "registry": registry_active is not None if pack.origin == "hub" else None,
+            "registry": registry_active is not None if agent.origin == "hub" else None,
         },
     }
 
 
-def _publisher_stated(pack: Pack, publisher: Mapping[str, Any]) -> dict[str, bool | str]:
+def _publisher_stated(agent: Agent, publisher: Mapping[str, Any]) -> dict[str, bool | str]:
     """Which of the items a publisher can state it has stated, for the "Not stated" appendix:
     True, or why not (`_not_stated`)."""
     evaluation = publisher["evaluation"]
-    card = pack.manifest.card
+    card = agent.manifest.card
     return {
         "publisher_evaluation": (
             True
             if evaluation is not None
             else "Held by the registry, if its publisher published one: not read here."
-            if pack.origin == "hub"
+            if agent.origin == "hub"
             else False
         ),
         "evidence_cited": bool(card.evidence),
@@ -1350,7 +1343,7 @@ def _digest_of(packet: Mapping[str, Any]) -> str:
 
 def build(
     store: AuditStore,
-    pack: Pack,
+    agent: Agent,
     *,
     deployment: Deployment,
     days: int = DEFAULT_DAYS,
@@ -1360,7 +1353,7 @@ def build(
     recall: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """The packet for `pack` as served here, over the last `days` days (14 to 180, the
+    """The packet for `agent` as served here, over the last `days` days (14 to 180, the
     monitor's bounds), for the organization the store reads for.
 
     `holds` are the holds in force as that organization may see them; `records` the deployment
@@ -1371,47 +1364,47 @@ def build(
         raise MendariError(f"a packet covers {MIN_DAYS} to {MAX_DAYS} days, not {days}")
     now = now or datetime.now(UTC)
     mon = monitoring.monitor(
-        store, pack, days=days, now=now, providers=deployment.providers, models=deployment.models
+        store, agent, days=days, now=now, providers=deployment.providers, models=deployment.models
     )
-    active = store.active_approval(pack.id, pack.digest)
-    from_registry = pack.origin == "hub"
-    registry_active = store.registry_approval(pack.id, pack.digest) if from_registry else None
+    active = store.active_approval(agent.id, agent.digest)
+    from_registry = agent.origin == "hub"
+    registry_active = store.registry_approval(agent.id, agent.digest) if from_registry else None
     brief = validation_brief.build(
         store,
-        pack,
+        agent,
         days=days,
         holds=holds,
         governance_active=active,
         registry_approval={"active": registry_active} if from_registry else None,
         monitoring=mon,
     )
-    stats = store.stats(pack.id)
-    reports = store.reports(pack.id)
-    running = _running(pack, deployment)
-    publisher = _publisher_evidence(pack)
-    site = _site_evidence(pack, brief, stats, reports, days)
+    stats = store.stats(agent.id)
+    reports = store.reports(agent.id)
+    running = _running(agent, deployment)
+    publisher = _publisher_evidence(agent)
+    site = _site_evidence(agent, brief, stats, reports, days)
     approvals = _approvals(
-        pack,
-        store.approvals(pack.id),
-        store.registry_approvals(pack.id) if from_registry else [],
+        agent,
+        store.approvals(agent.id),
+        store.registry_approvals(agent.id) if from_registry else [],
         active,
         registry_active,
     )
     content = {
-        "identity": _identity(pack),
-        "intended_use": _intended_use(pack),
-        "risk": _risk(pack, deployment),
-        "oversight": _oversight(pack, stats, holds),
+        "identity": _identity(agent),
+        "intended_use": _intended_use(agent),
+        "risk": _risk(agent, deployment),
+        "oversight": _oversight(agent, stats, holds),
         "publisher_evidence": publisher,
         "site_evidence": site,
-        "limits": _limits(pack, running, publisher),
+        "limits": _limits(agent, running, publisher),
         "monitoring": _monitoring(mon, deployment),
-        "change_control": _change_control(pack, deployment, running, records, recall),
-        "data_handling": _data_handling(pack, deployment, running),
+        "change_control": _change_control(agent, deployment, running, records, recall),
+        "data_handling": _data_handling(agent, deployment, running),
         "approvals": approvals,
     }
     stated: dict[str, bool | str] = {
-        **_publisher_stated(pack, publisher),
+        **_publisher_stated(agent, publisher),
         "local_evidence": site["empty"] is None,
         "local_subgroups": any(found["subgroups"] for found in site["evaluations"]),
         "approval_record": (
@@ -1419,7 +1412,7 @@ def build(
             if active is not None or registry_active is not None
             else "This deployment records an approval only for risk level 2 or 3 and for an "
             "agent from a registry: it has no record for this one."
-            if int(pack.manifest.risk.level) < 2 and not from_registry
+            if int(agent.manifest.risk.level) < 2 and not from_registry
             else False
         ),
     }
@@ -1432,11 +1425,11 @@ def build(
         "organization": organization,
         "window_days": days,
         "agent": {
-            "id": pack.id,
-            "name": pack.manifest.name,
-            "version": pack.version,
-            "digest": pack.digest,
-            "status": pack.status_label,
+            "id": agent.id,
+            "name": agent.manifest.name,
+            "version": agent.version,
+            "digest": agent.digest,
+            "status": agent.status_label,
         },
         "sections": [
             {"key": key, "number": number, "title": title, "content": content[key]}
@@ -1448,8 +1441,8 @@ def build(
     return {**packet, "sha256": _digest_of(packet)}
 
 
-def build_alone(pack: Pack, *, now: datetime | None = None) -> dict[str, Any]:
-    """The packet for `pack` from its files alone, with no deployment to read: what a publisher
+def build_alone(agent: Agent, *, now: datetime | None = None) -> dict[str, Any]:
+    """The packet for `agent` from its files alone, with no deployment to read: what a publisher
     hands a hospital before any deployment exists.
 
     The sections the agent's own files fill (what it is, its intended use, its risk level and
@@ -1460,13 +1453,13 @@ def build_alone(pack: Pack, *, now: datetime | None = None) -> dict[str, Any]:
     `no_deployment` says it once for the whole document, and it names no organization and no
     window of days. Reads the agent's files only: no database, no setting of this machine."""
     now = now or datetime.now(UTC)
-    running = _running(pack, None)
-    publisher = _publisher_evidence(pack)
+    running = _running(agent, None)
+    publisher = _publisher_evidence(agent)
     content: dict[str, dict[str, Any]] = {
-        "identity": _identity(pack),
-        "intended_use": _intended_use(pack),
-        "risk": _risk(pack, None),
-        "oversight": _oversight(pack, None, None),
+        "identity": _identity(agent),
+        "intended_use": _intended_use(agent),
+        "risk": _risk(agent, None),
+        "oversight": _oversight(agent, None, None),
         "publisher_evidence": publisher,
         "site_evidence": {
             "empty": WITHOUT_DEPLOYMENT["site_evidence"],
@@ -1480,10 +1473,10 @@ def build_alone(pack: Pack, *, now: datetime | None = None) -> dict[str, Any]:
             "evaluations": None,
             "evaluations_saved": None,
         },
-        "limits": _limits(pack, running, publisher, deployed=False),
+        "limits": _limits(agent, running, publisher, deployed=False),
         "monitoring": {
             "days": None,
-            "checks": _checks(float(pack.manifest.evaluation.degradation_tolerance)),
+            "checks": _checks(float(agent.manifest.evaluation.degradation_tolerance)),
             "benchmark": None,
             "last_7_days": None,
             "weeks": None,
@@ -1492,12 +1485,12 @@ def build_alone(pack: Pack, *, now: datetime | None = None) -> dict[str, Any]:
             "alert_destination": None,
             "scheduled": None,
         },
-        "change_control": _change_control(pack, None, running, None, None),
+        "change_control": _change_control(agent, None, running, None, None),
         "data_handling": {
             "inputs": {
-                "fields": _schema_fields(pack.input_schema),
-                "fhir": pack.manifest.inputs.fhir is not None,
-                "kept": pack.manifest.audit.store_input,
+                "fields": _schema_fields(agent.input_schema),
+                "fhir": agent.manifest.inputs.fhir is not None,
+                "kept": agent.manifest.audit.store_input,
             },
             "phi_mode": None,
             "phi_mode_meaning": None,
@@ -1521,7 +1514,7 @@ def build_alone(pack: Pack, *, now: datetime | None = None) -> dict[str, Any]:
             "seen_from": "agent files",
         },
         "approvals": {
-            "required": _approvals_required(pack, deployed=False),
+            "required": _approvals_required(agent, deployed=False),
             "governance": None,
             "registry": None,
             "in_force": None,
@@ -1530,7 +1523,7 @@ def build_alone(pack: Pack, *, now: datetime | None = None) -> dict[str, Any]:
     for key, why in WITHOUT_DEPLOYMENT.items():
         content[key]["no_deployment"] = why
     stated: dict[str, bool | str] = {
-        **_publisher_stated(pack, publisher),
+        **_publisher_stated(agent, publisher),
         "local_evidence": _NOT_READ,
         "local_subgroups": _NOT_READ,
         "approval_record": _NOT_READ,
@@ -1545,11 +1538,11 @@ def build_alone(pack: Pack, *, now: datetime | None = None) -> dict[str, Any]:
         "organization": None,
         "window_days": None,
         "agent": {
-            "id": pack.id,
-            "name": pack.manifest.name,
-            "version": pack.version,
-            "digest": pack.digest,
-            "status": pack.status_label,
+            "id": agent.id,
+            "name": agent.manifest.name,
+            "version": agent.version,
+            "digest": agent.digest,
+            "status": agent.status_label,
         },
         "sections": [
             {"key": key, "number": number, "title": title, "content": content[key]}
@@ -2197,7 +2190,7 @@ def _html_confidence(
                 "and the automation threshold cuts on it as reported."
             )
             continue
-        agent = f"{_code(entry['agent_id'])} " if entry["agent_id"] else ""
+        service = f"{_code(entry['service_id'])} " if entry["service_id"] else ""
         fitted = ", ".join(_code(key) for key in entry["questions"]) or "none"
         left = "".join(
             f" {_code(key)} is not calibrated ({_e(why)})."
@@ -2205,8 +2198,8 @@ def _html_confidence(
         )
         items.append(
             f"{where}: calibrated on {entry['cases']:,} cases of "
-            f"{_code(entry['dataset'])} on {_e(entry['date'])}, for {agent}version "
-            f"{_code(entry['agent_version'])} (questions: {fitted}).{left} When the agent's "
+            f"{_code(entry['dataset'])} on {_e(entry['date'])}, for {service}version "
+            f"{_code(entry['service_version'])} (questions: {fitted}).{left} When the agent's "
             "service reports another version, no decision is automated until it is calibrated "
             "again."
         )
@@ -2259,7 +2252,9 @@ def _evaluated_confidence_words(found: Sequence[Mapping[str, Any]] | None) -> st
             cases = "" if entry["cases"] is None else f" on {entry['cases']:,} cases"
             of = f" of {_code(entry['dataset'])}" if entry["dataset"] else ""
             version = (
-                f", for version {_code(entry['agent_version'])}" if entry["agent_version"] else ""
+                f", for version {_code(entry['service_version'])}"
+                if entry["service_version"]
+                else ""
             )
             words = f"calibrated{cases}{of}{version}"
             if entry["same_cases"]:

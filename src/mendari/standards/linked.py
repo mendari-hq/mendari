@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Linked record data (LP-23h): what a spec 0.3 mapping reaches by a link the record does not
-hold, read from the EHR's FHIR server before the mapping runs.
+"""Linked record data (LP-23h): what a mapping reaches by a link the record does not hold, read
+from the EHR's FHIR server before the mapping runs.
 
 A CDS hook and the SMART launch's decide read a decision's record from the EHR (its prefetch,
-`cds_hooks.read_each`). A 0.3 mapping may reach more by a link: a note's attachment `url` to a
+`cds_hooks.read_each`). A mapping may reach more by a link: a note's attachment `url` to a
 Binary (`attachment_text`), and a reference a field follows (`follow`: the payer behind
 `Coverage.payor`, the drug behind `medicationReference`). What the record holds resolves inside
 it (`fhir.resolve`: contained, a Bundle entry, `Type/id`). What it does not, `Linker.read` reads
-and adds to the record (`Indexed.link`), as spec 0.3 §2.3 allows a runtime to; the mapping itself
+and adds to the record (`Indexed.link`), as spec §9.4 allows a runtime to; the mapping itself
 never fetches. Each read:
 
 - goes through `FhirClient`: to the request's `fhirServer` only (on the allow-list), under its
@@ -23,7 +23,7 @@ never fetches. Each read:
   (`attachment_text`) and `MAX_FOLLOW_READS` followed references (`follow`: the drug behind a
   MedicationRequest, the payer behind a Coverage), so a chart's notes never use up what its
   drugs need; a link past its purpose's budget is `cap`, not read. A note field whose text read
-  so far is already longer than the pack's input lets it be (`fhir.text_limits`) reads no more
+  so far is already longer than the agent's input lets it be (`fhir.text_limits`) reads no more
   of its notes: the decision abstains `too_large` whatever the rest hold, and each note left
   unread for it is `too_large` too. Each read is at most `MAX_BYTES` once decoded (a Binary's
   content, another resource's JSON as it arrives); an answer over the size is `too_large`, and
@@ -54,7 +54,7 @@ resource its list leaves out (`fhir.listed`: a MedicationRequest entered in erro
 or an order not to give the drug, when its source derives its period) is not an item, so nothing
 it links to is read. Without a linker
 (`fhir/decide`, `$decide`, `mendari decide --fhir`) nothing is fetched, and a link the record
-does not hold is `not_fetched`. A 0.1 or 0.2 mapping has no link: nothing is read for it.
+does not hold is `not_fetched`. A mapping that reaches nothing by a link reads nothing here.
 
 Nothing a link names reaches a reason, the data-coverage record or the chain: only the field's
 name and a reason code from the closed set (`errors.ReadReason`). What a decision's linked reads
@@ -117,7 +117,7 @@ def _now() -> float:
 
 def reads_links(mapping: FhirMapping) -> bool:
     """Whether a mapping can reach anything by a link: a `follow`, or an `attachment_text`
-    note (spec 0.3). A 0.1 or 0.2 mapping cannot."""
+    note (spec §9.5)."""
     return any(
         mapped.follow is not None or mapped.transform == "attachment_text"
         for _, _, mapped in located_fields(mapping)
@@ -176,7 +176,7 @@ class Linker:
         """Read what `mapping` reaches by a link `record` does not hold, into `record`: each
         field in the mapping's order, a `follow` before the paths it leads to, a field's paths in
         order until one gives a value, as the mapping reads them. `limits` gives a top-level note
-        field the most text the pack's input takes (`fhir.text_limits`): once its notes read are
+        field the most text the agent's input takes (`fhir.text_limits`): once its notes read are
         longer, the rest are not read. The resources read for this decision, each once, in
         order; each link not read is in `record.unread`, with why."""
         if not reads_links(mapping):

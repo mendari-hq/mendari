@@ -1,9 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Composite providers: several member providers answer the same slot, combined by a rule.
-
-- `any_of`: the most alarming answer wins (safety screens).
-- `cascade`: members in order; the first confident answer is accepted (cost control).
-- `vote`: a weighted average of the members' distributions (ensembles).
+The one composite is `check` (`providers/check.py`): its first member answers, its second
+checks, and a disagreement holds the decision for a person.
 
 Members are ordinary provider variants declared inline under `members`; they cannot be
 composites themselves. Budgets and batching reach every member. A member that fails is
@@ -20,9 +18,9 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core.actions import Proposed
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.core.spec import Question
-from mendari.errors import PackValidationError, ProviderError, ProviderErrorCode
+from mendari.errors import AgentValidationError
 from mendari.providers.base import Answer, Provider, ProviderInfo, ProviderOutput, prefixed
 from mendari.providers.signals import Signals, merged
 
@@ -45,7 +43,7 @@ class CompositeProvider(Provider):
         # Its own settings here; each member's are checked as it is built, below.
         settings, problems = self._settings(self.info.slot, self.config, self.questions)
         if settings is None or problems:
-            raise PackValidationError(self.pack.id, problems)
+            raise AgentValidationError(self.agent.id, problems)
         self.settings = settings
 
         self.members: dict[str, Provider] = {}
@@ -58,7 +56,7 @@ class CompositeProvider(Provider):
                 model=model,
             )
             self.members[name] = PROVIDER_TYPES[member["type"]](
-                self.pack, info, self.questions, member
+                self.agent, info, self.questions, member
             )
         self.remote = any(member.remote for member in self.members.values())
         self.info = replace(
@@ -71,13 +69,12 @@ class CompositeProvider(Provider):
     @classmethod
     def config_problems(
         cls,
-        pack: Pack,
+        agent: Agent,
         where: str,
         config: Mapping[str, Any],
         questions: Mapping[str, Question],
         *,
         bounded: bool,
-        trained: bool,
     ) -> list[str]:
         """Its own settings, then each member's (`where.members.<name>`), as each member's
         provider checks them."""
@@ -89,7 +86,7 @@ class CompositeProvider(Provider):
         for name, member in settings.members.items():
             at = f"{where}.members.{name}"
             found = PROVIDER_TYPES[str(member["type"])].config_problems(
-                pack, at, member, questions, bounded=bounded, trained=trained
+                agent, at, member, questions, bounded=bounded
             )
             problems += prefixed(at, found)
         return problems
@@ -160,7 +157,7 @@ class CompositeProvider(Provider):
         composite takes (a check's: its first member's); else none is taken."""
         costs = [output.cost_usd for output in outputs.values()]
         if actions is None:
-            # A member's proposals are not taken (spec 0.4 section 4.2): each is carried
+            # A member's proposals are not taken (spec section 14.4): each is carried
             # refused, so it is blocked and the decision goes to a person.
             actions = tuple(
                 replace(action, refused="composite_member")
@@ -182,7 +179,3 @@ class CompositeProvider(Provider):
             actions=actions,
             signals=merged(o.signals for o in outputs.values()) if signals is None else signals,
         )
-
-
-def all_failed(failed: Mapping[str, ProviderErrorCode]) -> ProviderError:
-    return ProviderError(next(iter(failed.values())), "every member failed")

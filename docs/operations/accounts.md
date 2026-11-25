@@ -23,31 +23,22 @@ claims mode too (for an administrator who signed in). Claims mode never reads or
   with `MENDARI_INPUT_HASH_KEY` when the deployment has one). An address here is ASCII, and
   matched without regard to the case of its letters; an internationalised one is refused.
 - A membership holds the server's roles (`viewer`, `reviewer`, `service`, `governance`,
-  `admin`), and may also hold `pack_author`, which grants `author` alone: writing agents in the
+  `admin`), and may also hold `agent_author`, which grants `author` alone: writing agents in the
   organization's agent store (LP-20f; memberships mode only, mounted with `MENDARI_AGENT_STORE=on`:
   the routes under `/api/store`, [agent store](agent-store.md); an administrator who writes agents
   gives themself the role), and `labeller`, which
-  grants `label` alone: labelling the cases of hidden evaluation sets (LP-11; memberships mode
-  only: a labeller's routes under `/api/labelling`, mounted only with both evaluation-set keys,
-  [evalsets](evalsets.md#how-a-labeller-labels)), and grading what an agent wrote against its
-  rubric (memberships mode under PHI mode `encrypt`: a grader's routes under
-  `/api/written/labelling`, [written output](../guides/written-output.md)). A member who only
-  labels sees a page saying
-  so, and no agents or review queue. It may also hold `registry_reviewer`, which
+  grants `label` alone: grading what an agent wrote against its rubric (memberships mode under
+  PHI mode `encrypt`: a grader's routes under `/api/written/labelling`, [written
+  output](../guides/written-output.md)). A member who only grades sees the grading screen once a
+  round holds work of theirs (before that, a page saying so), and no agents or review queue. It
+  may also hold `registry_reviewer`, which
   grants `registry_review` alone, and only in the one organization
   `MENDARI_REGISTRY_REVIEW_ORG` names: reviewing the agent registry served under the engine (its
   routes under `/api/registry/review`, [Running an agent
   registry](registry.md#registry-reviewers)). In any other organization the role is refused
   when an administrator gives it (`422` at an invitation, a role change and a granted request
-  to join), and grants nothing if a membership holds it anyway. An administrator manages the organization's hidden sets
-  (`curate`: its sets listed and read, their cases drawn, assigned and adjudicated, under
-  `/api/evalsets`, mounted likewise, [evalsets](evalsets.md#curating-from-the-dashboard-api))
-  and is never assigned their cases. `grading` is a machine's and is never held by a membership: an
-  organization's grading key is made by the operator, `mendari access grader-key --org <org>
-  --reason <why> [--days N]` (at most 365 days; its secret printed once), holds `grade` and
-  nothing else (a grading run over the organization's frozen hidden sets, aggregates only,
-  [evalsets](evalsets.md#grading-a-hidden-set)), and an administrator lists and revokes it in
-  the Access view, never rotates it. An organization always keeps an
+  to join), and grants nothing if a membership holds it anyway. An administrator is never
+  assigned a text to grade (separation of duties). An organization always keeps an
   administrator who has signed in: removing or demoting its last one is refused (a pending
   membership, not yet taken up, does not count).
 - An invitation is a link, valid once, for 7 days by default (at most 30), for whoever signs in
@@ -174,7 +165,7 @@ Then:
   request or organization.
 - What is the whole deployment's is the operator's, from the command line (owner decision 5):
   `GET /api/audit/verify` and `GET /api/deployments` answer `404`; `/api/health` leaves out
-  today's Jev and LLM calls and the last purge's counts (it keeps when and by what); and a
+  today's LLM calls and the last purge's counts (it keeps when and by what); and a
   hold set from the command line for every organization shows in `/api/holds` as what it
   covers and since when, without the operator's reason or name. The operator reads them with
   `mendari audit verify`, `mendari automation list` and `mendari usage` (today's calls against
@@ -269,8 +260,8 @@ client is "You", a member's name, or what the chain recorded (an e-mail address 
   membership given or bound at sign-in): it is chained as handled, outcome `joined`, and no
   longer counts against their five open requests. Granting one left open from before this,
   of someone who is a member already, is a `409`: refuse it to close it.
-- `grading` is never given (`422`); `pack_author` grants `author` only, and `labeller` grants
-  `label` only.
+- `agent_author` grants `author` only, and `labeller` grants `label` only; a role that is none of
+  these, or of the server's, is refused (`422`).
 - Inviting and handling a request to join give someone access, so they wait for the notice
   acknowledgement as creating a key does; accepting an invitation does not.
 - On the command line `mendari access members` and `mendari access requests` only read:

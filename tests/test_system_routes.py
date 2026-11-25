@@ -28,7 +28,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari import alerts as alerts_module
 from mendari.server import recalls, smart_check
 from mendari.server.app import create_app
@@ -111,7 +111,7 @@ def configure(monkeypatch: pytest.MonkeyPatch, *, webhook: bool = True) -> None:
 @pytest.fixture
 def site(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Site]:
     configure(monkeypatch)
-    app = create_app(db_path=db_target, packs_paths=[ROOT / "agents"])
+    app = create_app(db_path=db_target, agents_paths=[ROOT / "agents"])
     with (
         TestClient(app, base_url=HTTPS, headers=DASHBOARD) as client,
         encrypted_store(db_target) as store,
@@ -121,7 +121,7 @@ def site(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Site]:
 
 
 def decide(store: AuditStore, count: int = 2) -> None:
-    decision = Decision(load_pack(DEMO_AGENT_DIR), store=store)
+    decision = Decision(load_agent(DEMO_AGENT_DIR), store=store)
     for n in range(count):
         decision(message(f"Please refill my prescription, number {n}."))
 
@@ -195,7 +195,7 @@ def test_every_system_route_is_refused_to_a_role_without_the_right(site: Site) -
     client, store = site.client, site.store
     callers = {
         role: member(store, org="default", roles=[role], sub=f"p-{role}")
-        for role in ("viewer", "reviewer", "service", "governance", "labeller", "pack_author")
+        for role in ("viewer", "reviewer", "service", "governance", "labeller", "agent_author")
     }
     callers["another organization's administrator"] = member(
         store, org="clinic-b", roles=["admin"], sub="lead-b"
@@ -220,7 +220,7 @@ def test_every_system_route_is_refused_to_a_role_without_the_right(site: Site) -
     assert client.post("/api/holds", headers=callers["viewer"], json=hold).status_code == 403
     assert client.post("/api/holds", headers=callers["reviewer"], json=hold).status_code == 403
     held = client.post("/api/holds", headers=callers["governance"], json=hold)
-    assert held.status_code == 201 and held.json()["pack_id"] is None  # every agent
+    assert held.status_code == 201 and held.json()["agent_id"] is None  # every agent
     erase = {"reason": "request"}
     for role in ("viewer", "reviewer", "governance"):
         refused = client.post("/api/audit/d1/erase", headers=callers[role], json=erase)

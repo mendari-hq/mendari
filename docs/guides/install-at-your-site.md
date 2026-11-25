@@ -128,7 +128,7 @@ input's fingerprint (`MENDARI_INPUT_HASH_KEY`), the key that signs the daily che
 (`MENDARI_CHECKPOINT_KEY`), the scheduled jobs' secret (`CRON_SECRET`) and the secret that signs
 alerts (`MENDARI_ALERT_SECRET`).
 
-The defaults it set, which the template lacked before:
+The defaults it set:
 
 - **https only**, with your certificate; port 80 only redirects; a name that is not yours is
   not served.

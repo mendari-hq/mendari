@@ -12,7 +12,7 @@ pull request from a fork. It prints counts and case ids, never a case's text.
 
 !!! note "Before the first release"
     The action is in Mendari's repository (`action.yml`), and it is used by the repository's
-    name and a release's tag. Until the repository is public and its first release is tagged,
+    name and a release's tag. The repository is public; until its first release is tagged,
     the lines below cannot be resolved from another repository.
 
 ## The few lines
@@ -170,7 +170,7 @@ most 2.7%); false automation 9 of 600 labelled cases (at most 2.7%).
 No case's text is written to the summary, the log or the artifact. Case ids are: use ids that
 identify no person, since everyone who can read the repository's Actions can read them.
 
-The artifact holds `result.json` (the evaluation's result, format `mendari.eval/2`: counts,
+The artifact holds `result.json` (the evaluation's result, format `mendari.eval/1`: counts,
 with cases named by a hash), its ledger under `ledgers/`, and `summary.md`. The
 [report format](../spec/evaluation-reports.md) describes the first two.
 

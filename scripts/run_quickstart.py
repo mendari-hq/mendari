@@ -63,7 +63,7 @@ def static_files(page: str) -> list[str]:
 
 
 def _env(home: Path, venv: Path) -> dict[str, str]:
-    """A new machine's environment: no Mendari, Jev or model settings (`_clean_env`), no Python
+    """A new machine's environment: no Mendari or model settings (`_clean_env`), no Python
     path or environment of the clone's, a home nothing has written to, and the new environment's
     commands first on the path, as after activating it."""
     env = _clean_env()
@@ -112,8 +112,8 @@ def _served(mendari: Path, *, env: dict[str, str], cwd: Path) -> bool:
         if health is None:
             print("mendari serve did not answer /api/health")
             return False
-        # `packs`: the count of agents served, under the name the answer has had from the start.
-        if health.get("status") != "ok" or not health.get("packs"):
+        # `agents`: the count of agents served.
+        if health.get("status") != "ok" or not health.get("agents"):
             print(f"mendari serve answered, but serves no agent: {health.get('status')!r}")
             return False
         page = _get(f"{base}/")[1].decode("utf-8")
@@ -128,7 +128,7 @@ def _served(mendari: Path, *, env: dict[str, str], cwd: Path) -> bool:
                 print(f"the console's page names {path}, which the server does not serve: {error}")
                 return False
         print(
-            f"  /api/health ok, agents served: {health['packs']}; the console and "
+            f"  /api/health ok, agents served: {health['agents']}; the console and "
             f"{len(files)} files of its own ({time.monotonic() - start:.1f} s)",
             flush=True,
         )

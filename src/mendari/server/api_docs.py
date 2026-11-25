@@ -2,7 +2,7 @@
 """What `/docs/reference` and `/openapi.json` say about this deployment.
 
 The OpenAPI document is generated from the routes; this adds what generation cannot know: a
-description of the product, the tags, synthetic examples from the packs this deployment serves
+description of the product, the tags, synthetic examples from the agents this deployment serves
 (so "Try it out" starts from a request that works), and, only when sign-in is on, how to
 authenticate. Nothing is claimed that the deployment does not do. What Mendari is and its four
 outcomes are said once, here, for this page and the developer landing (`server/landing.py`).
@@ -14,12 +14,9 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from pydantic import BaseModel
-
 from mendari import notices
-from mendari.core.pack import Pack
-from mendari.evals.pack_tests import load_cases
-from mendari.evals.share import SharedPack
+from mendari.core.agent import Agent
+from mendari.evals.behaviour_tests import load_cases
 from mendari.server import scopes
 
 TAGS = [
@@ -28,9 +25,9 @@ TAGS = [
         "name": "FHIR and CDS Hooks",
         "description": "FHIR R4 in and out: the $decide operation and the CapabilityStatement "
         "(/fhir/metadata), deciding from a Bundle, CDS Hooks services, decisions as Tasks and "
-        "the audit trail as AuditEvent and Provenance (read and search), Mendari's CodeSystems, "
-        "Da Vinci DTR and PAS. Mendari is not a FHIR data server: it stores and serves no "
-        "clinical resources.",
+        "the audit trail as AuditEvent and Provenance (read and search) and Mendari's "
+        "CodeSystems. Mendari is not a FHIR data server: it stores and serves no clinical "
+        "resources.",
     },
     {
         "name": "Agents",
@@ -48,37 +45,12 @@ TAGS = [
         "and invitations.",
     },
     {
-        "name": "Labelling",
-        "description": "Hidden evaluation sets, labelled blind (memberships mode): a labeller's "
-        "next case, their label and their own counts. A labeller sees a case's input and the "
-        "questions, never another label, the case's attributes or a model's output.",
-    },
-    {
         "name": "Written output",
         "description": "What an agent wrote, graded blind against its rubric (memberships mode): "
         "a grader's next text, their grades and their own counts; and, for anyone who may read, "
         "each grading round's state and, once it is closed, its report. A grader sees the text, "
         "the context the rubric names and the rubric's own words, never a judge's grade or "
         "another grader's. A report holds counts, coefficients and hashes, never a text.",
-    },
-    {
-        "name": "Evaluation sets",
-        "description": "Hidden evaluation sets, managed by the organization's administrators "
-        "(memberships mode): its sets listed and read (state, labelling progress by user id, "
-        "and the coverage and rater agreement the key holder stored), and their cases drawn, "
-        "assigned and adjudicated. Ids and counts: never a case, an input or a label given.",
-    },
-    {
-        "name": "Grading",
-        "description": "An agent graded against one of the organization's hidden evaluation sets, "
-        "frozen and committed to, by its grading key only (which only the operator makes): each "
-        "run counted against the set's rotation rule and recorded in the audit chain, with "
-        "local providers only, answered with aggregates only (`mendari.hidden_result/1`): "
-        "never a case, its id or a missed case. A run that declares its arms (`arms`, with the "
-        "declaration's SHA-256 as `declared`) is the hidden-set scoreboard: every declared arm "
-        "decided on the same cases in that one run, answered `mendari.hidden_scoreboard/1`, each "
-        "arm's figures with their intervals, its attestations and the ranking, never cost, "
-        "latency, a subgroup or a case. Nothing is stored.",
     },
     {"name": "SMART on FHIR", "description": "Mendari launched as a SMART app from an EHR."},
     {"name": "Service", "description": "Health and settings of this deployment."},
@@ -123,8 +95,8 @@ FHIR_EXAMPLE: dict[str, Any] = {
         },
     ],
 }
-FHIR_EXAMPLE_PACK = "mendari/portal-message-agent"  # the bundled demo agent
-# A pack's example is in the reference only if its JSON is at most this (the shipped packs' are
+FHIR_EXAMPLE_AGENT = "mendari/portal-message-agent"  # the bundled demo agent
+# An agent's example is in the reference only if its JSON is at most this (the shipped agents' are
 # under 1 KB); a larger one is left out, as is one from tests that do not load.
 MAX_EXAMPLE_BYTES = 64 * 1024
 
@@ -146,14 +118,14 @@ OUTCOMES = (
 def description(
     *,
     sign_in: bool,
-    default_pack: str | None,
+    default_agent: str | None,
     token_url: str | None = None,
     rate_limits: Mapping[str, str] | None = None,
 ) -> str:
     """The page's introduction: what this is, a first request, how to authenticate (and, when
     SMART Backend Services is on, `token_url`: how machines get tokens), and, when they are on,
     the `rate_limits` (class: rate)."""
-    pack = default_pack or "{namespace}/{name}"
+    agent = default_agent or "{namespace}/{name}"
     auth = (
         "**Sign-in is on.** People sign in at `/auth/login`; the dashboard and these pages use "
         "that session, which ends after 30 minutes without a request or 8 hours (unless the "
@@ -197,8 +169,8 @@ in a hash-chained audit trail.
 ### A first request
 
 1. `GET /api/agents` lists the agents.
-2. `GET /api/agents/{pack}/examples` gives synthetic inputs.
-3. `POST /api/agents/{pack}/decide` with an example's `input` returns the decision; its `id`
+2. `GET /api/agents/{agent}/examples` gives synthetic inputs.
+3. `POST /api/agents/{agent}/decide` with an example's `input` returns the decision; its `id`
    opens the audit record at `GET /api/audit/{{id}}`.
 
 A request body is 4 MiB at most unless the deployment sets `MENDARI_MAX_BODY_BYTES`; a larger
@@ -209,7 +181,7 @@ one is a `413`. Every answer carries an `X-Request-Id`, and JSON errors on `/api
 ### FHIR
 
 The FHIR base is `/fhir`; [`GET /fhir/metadata`](/fhir/metadata) says what it does.
-`POST /fhir/$decide` takes `Parameters` (`pack`, `data` as a Bundle) and returns the decision as
+`POST /fhir/$decide` takes `Parameters` (`agent`, `data` as a Bundle) and returns the decision as
 a FHIR Bundle (a `GuidanceResponse` first; act on its `outcome`, not its `status`). To send a
 bare Bundle, one resource or CDS Hooks prefetch and get Mendari's JSON back, use
 `POST /api/agents/{{namespace}}/{{name}}/fhir/decide`. FHIR input first passes a structural R4
@@ -246,8 +218,8 @@ def _limits(rates: Mapping[str, str] | None) -> str:
         "\n\n**Rate limits.** Costly operations are limited per caller (an API key, a client, a "
         "person), counted across every instance of this deployment: decisions "
         f"{rates['decide']} (at every entry point; each draft order a CDS Hooks order hook "
-        f"decides is one, at most 50 a request), guard checks {rates['guard']}, evaluations "
-        f"{rates['evaluate']} (a grading run is one), exports {rates['export']} and a labeller's "
+        f"decides is one, at most 50 a request), evaluations "
+        f"{rates['evaluate']}, exports {rates['export']} and a labeller's "
         f"calls {rates['label']}; signing in {rates['signin']} and the token endpoint "
         f"{rates['token']} per address. Reads are not limited here, but for a labeller's. Over a "
         "limit the answer is a `429` with `Retry-After` (seconds) and `Cache-Control: "
@@ -281,8 +253,8 @@ def _backend_services(token_url: str) -> str:
 def document(
     schema: dict[str, Any],
     *,
-    packs: Mapping[str, Pack],
-    default_pack: str | None,
+    agents: Mapping[str, Agent],
+    default_agent: str | None,
     permission_for: Callable[[str, str], str] | None,
     token_url: str | None = None,
     limit_for: Callable[[str, str], str | None] | None = None,
@@ -295,18 +267,18 @@ def document(
     class of an operation or None), the `429` a limited operation can answer. `session_cookie`
     is the session cookie's name at the public URL (server/sessions.py), `launch_cookie` an EHR
     launch's."""
-    ordered = sorted(packs, key=lambda pack_id: (pack_id != default_pack, pack_id))
-    inputs = {pack_id: _example_input(packs[pack_id]) for pack_id in ordered}
+    ordered = sorted(agents, key=lambda agent_id: (agent_id != default_agent, agent_id))
+    inputs = {agent_id: _example_input(agents[agent_id]) for agent_id in ordered}
     for path, operations in schema.get("paths", {}).items():
-        fitting = [pack_id for pack_id in ordered if _fits(packs[pack_id], path)]
+        fitting = [agent_id for agent_id in ordered if _fits(agents[agent_id], path)]
         for method, operation in operations.items():
             for parameter in operation.get("parameters", []):
                 if parameter.get("in") == "path" and parameter["name"] in ("namespace", "name"):
                     part = 0 if parameter["name"] == "namespace" else 1
-                    values = dict.fromkeys(pack_id.split("/")[part] for pack_id in fitting)
+                    values = dict.fromkeys(agent_id.split("/")[part] for agent_id in fitting)
                     parameter["examples"] = {value: {"value": value} for value in values}
             body = operation.get("requestBody", {}).get("content", {}).get("application/json")
-            examples = _body_examples(path, inputs, packs)
+            examples = _body_examples(path, inputs, agents)
             if body is not None and examples:
                 body["examples"] = examples
             if permission_for is not None:
@@ -416,34 +388,6 @@ def mounted(schema: dict[str, Any], registry: Mapping[str, Any], *, prefix: str)
     schema["tags"] = [*schema.get("tags", []), *REGISTRY_TAGS]
 
 
-# Models an API description lists under the title they set (`model_config`'s `title`), in
-# place of their Python class's name. A class keeps its name until the records it is in change
-# (the JSON key it types is on the wire); what a reader of the description sees is the title.
-TITLED: tuple[type[BaseModel], ...] = (SharedPack,)
-
-
-def titled(schema: dict[str, Any]) -> dict[str, Any]:
-    """The document with each of `TITLED` listed under its title: its component renamed, and
-    every reference to it. One whose title another component already has is left as it is, so a
-    name never stands for two schemas."""
-    schemas = schema.get("components", {}).get("schemas", {})
-    renames = {
-        model.__name__: str(model.model_config["title"])
-        for model in TITLED
-        if model.__name__ in schemas and model.model_config.get("title") not in (None, *schemas)
-    }
-    if not renames:
-        return schema
-    text = json.dumps(schema)
-    for name, title in renames.items():
-        text = text.replace(f'{_SCHEMA_REF}{name}"', f'{_SCHEMA_REF}{title}"')
-    renamed: dict[str, Any] = json.loads(text)
-    renamed["components"]["schemas"] = {
-        renames.get(name, name): model for name, model in renamed["components"]["schemas"].items()
-    }
-    return renamed
-
-
 TOO_MANY = {
     "description": "Too many requests from this caller: retry after `Retry-After` seconds.",
     "headers": {"Retry-After": {"description": "Seconds to wait", "schema": {"type": "integer"}}},
@@ -460,30 +404,28 @@ _SCOPE_TEXT = {
 }
 
 
-def _fits(pack: Pack, path: str) -> bool:
-    """Whether "Try it out" should offer this pack on this path: the guard route needs a pack
-    with a guard, the FHIR route one with a FHIR mapping."""
-    if path.endswith("/guard"):
-        return pack.manifest.guard is not None
+def _fits(agent: Agent, path: str) -> bool:
+    """Whether "Try it out" should offer this agent on this path: the FHIR route needs an agent
+    with a FHIR mapping."""
     if path.endswith("/fhir/decide"):
-        return pack.manifest.inputs.fhir is not None
+        return agent.manifest.inputs.fhir is not None
     return True
 
 
-def _example_input(pack: Pack) -> tuple[str, dict[str, Any]] | None:
-    """The pack's first behaviour test that automates (the friendliest first try), or its
+def _example_input(agent: Agent) -> tuple[str, dict[str, Any]] | None:
+    """The agent's first behaviour test that automates (the friendliest first try), or its
     first one; None if it has none, its tests do not load, or the example is not JSON or is
-    over `MAX_EXAMPLE_BYTES` as JSON. Whatever one pack's tests hold is that pack's problem,
+    over `MAX_EXAMPLE_BYTES` as JSON. Whatever one agent's tests hold is that agent's problem,
     never the API reference's (which holds each example more than once, and in which a control
-    character is six bytes): anything raised choosing its example leaves the pack out."""
+    character is six bytes): anything raised choosing its example leaves the agent out."""
     try:
-        return _first_example(pack)
+        return _first_example(agent)
     except Exception:  # its tests do not load (named by `mendari validate` and …/examples)
         return None
 
 
-def _first_example(pack: Pack) -> tuple[str, dict[str, Any]] | None:
-    cases = load_cases(pack)  # each a mapping with an `input` mapping (or this raises)
+def _first_example(agent: Agent) -> tuple[str, dict[str, Any]] | None:
+    cases = load_cases(agent)  # each a mapping with an `input` mapping (or this raises)
     automated = [c for c in cases if c.get("expect", {}).get("outcome") == "AUTO"]
     if not (automated or cases):
         return None
@@ -497,36 +439,32 @@ def _first_example(pack: Pack) -> tuple[str, dict[str, Any]] | None:
 
 
 def _body_examples(
-    path: str, inputs: Mapping[str, tuple[str, dict[str, Any]] | None], packs: Mapping[str, Pack]
+    path: str, inputs: Mapping[str, tuple[str, dict[str, Any]] | None], agents: Mapping[str, Agent]
 ) -> dict[str, Any]:
     if path in ("/api/agents/{namespace}/{name}/fhir/decide", "/fhir/$decide"):
-        if FHIR_EXAMPLE_PACK not in packs:
+        if FHIR_EXAMPLE_AGENT not in agents:
             return {}
         value: dict[str, Any] = FHIR_EXAMPLE
         if path == "/fhir/$decide":
             value = {
                 "resourceType": "Parameters",
                 "parameter": [
-                    {"name": "pack", "valueString": FHIR_EXAMPLE_PACK},
+                    {"name": "agent", "valueString": FHIR_EXAMPLE_AGENT},
                     {"name": "data", "resource": FHIR_EXAMPLE},
                 ],
             }
         return {
             "message": {
-                "summary": f"{FHIR_EXAMPLE_PACK}: a patient's message (synthetic)",
+                "summary": f"{FHIR_EXAMPLE_AGENT}: a patient's message (synthetic)",
                 "value": value,
             }
         }
-    if path not in (
-        "/api/agents/{namespace}/{name}/decide",
-        "/api/agents/{namespace}/{name}/guard",
-    ):
+    if path != "/api/agents/{namespace}/{name}/decide":
         return {}
-    guards = path.endswith("/guard")
     return {
-        pack_id.split("/")[1]: {"summary": f"{pack_id}: {name}", "value": value}
-        for pack_id, example in inputs.items()
-        if example is not None and (packs[pack_id].manifest.guard is not None or not guards)
+        agent_id.split("/")[1]: {"summary": f"{agent_id}: {name}", "value": value}
+        for agent_id, example in inputs.items()
+        if example is not None
         for name, value in [example]
     }
 
@@ -567,23 +505,6 @@ def _secure(
             "a person who signed in holding the registry_reviewer role in the agent registry's "
             "review organization (`registry_review`, memberships mode; never a key, a token "
             "or an administrator of another organization)"
-        )
-        operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
-        return
-    if permission == "curate":  # people only, an administrator (server/auth.py)
-        operation["security"] = [{"session": []}]
-        needed = (
-            "a person who signed in as an administrator of the organization they act for "
-            "(`curate`, memberships mode; never a key, a token or a labeller)"
-        )
-        operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
-        return
-    if permission == "grade":  # an organization's grading key only (server/auth.py GRADING_ONLY)
-        operation["security"] = [{"apiKey": []}]
-        needed = (
-            "the organization's grading key (`grade`), which only the operator makes "
-            "(`mendari access grader-key`); never a person, an administrator, another key or a "
-            "token"
         )
         operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
         return

@@ -26,8 +26,8 @@ from playwright.sync_api import Browser, Page, Route, expect
 from mendari.core.checkpoint import KEY_ENV
 from mendari.server import app as app_module
 from tests.browser.access_site import Site, access, lead, memberships, person, row, running
+from tests.browser.conftest import TRIAGE
 from tests.browser.test_accessibility import violations
-from tests.browser.test_dashboard import INBOX
 
 pytestmark = pytest.mark.browser
 
@@ -154,7 +154,7 @@ def test_an_agent_store_s_events_are_named_in_words(site: Site) -> None:
     page = site.window(lead(site))
     now = datetime.now(UTC)
     kinds = [
-        ("pack_version.promoted", "pack_version:7", "Agent store version 7"),
+        ("store_version.promoted", "store_version:7", "Agent store version 7"),
         ("store_key.added", "store_key:3", "Agent store author key 3"),
         ("store_dataset.created", "store_dataset:5", "Agent store dataset 5"),
         ("store_job.created", "store_job:9", "Agent store evaluation job 9"),
@@ -203,15 +203,13 @@ def test_a_viewer_has_neither_the_activity_nor_the_audit_export(site: Site) -> N
     assert asked == []
 
 
-def test_an_administrator_exports_the_pack_s_trail_as_fhir(site: Site) -> None:
+def test_an_administrator_exports_the_agent_s_trail_as_fhir(site: Site) -> None:
     page = site.window(lead(site))
-    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
+    page.add_init_script(f"localStorage.setItem('oh.agent', {json.dumps(TRIAGE)})")
     audit(page)
     with page.expect_download() as saved:
         page.get_by_role("button", name="Export as FHIR").click()
-    assert saved.value.suggested_filename == (
-        f"audit-mendari-patient-inbox-router-{today()}.ndjson"
-    )
+    assert saved.value.suggested_filename == (f"audit-mendari-test-triage-{today()}.ndjson")
 
 
 def test_the_signed_checkpoint_is_shown_and_a_copy_can_be_kept(signing: Site) -> None:

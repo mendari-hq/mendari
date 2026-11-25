@@ -59,8 +59,7 @@ Each bullet is one control; the threat model names the row and the tests behind 
   `Authorization: Bearer ohk_…` and nowhere else: an `Authorization` header decides
   alone (no fallback to the session cookie), a credential in a URL or a form is refused, and
   refusals carry `WWW-Authenticate`. Only a signed-in person manages keys, never a key. A key is
-  a `viewer` or a `service`, expires (90 days unless asked, 365 at most; keys from before this
-  rule expire 30 days after the release that brought it first starts), and can be narrowed by
+  a `viewer` or a `service`, expires (90 days unless asked, 365 at most), and can be narrowed by
   scopes (SMART v2 `system/` reads, Mendari's decide and outcome URIs): a scoped key reaches
   only the routes its scopes name. Creating and revoking keys are recorded in the audit chain.
   `/api` answers are `Cache-Control: no-store`.
@@ -109,8 +108,7 @@ Each bullet is one control; the threat model names the row and the tests behind 
   `<issuer>|<subject>` (a launched clinician too, by the EHR's issuer); a key as `key <id>`, a
   client as `client <id>`. The plain
   cookie names are read on loopback and dotless hosts only: on any other host they name
-  nothing (sessions from before Phase 4b were read under them for one release, which ended
-  2026-11-22).
+  nothing.
 - **Requests from other sites.** A browser request that another site starts (`Sec-Fetch-Site`
   `cross-site` or `same-site`; in a browser without Fetch Metadata, an `Origin` that is `null`
   or not this site) reaches only public routes and pages, and only with GET or HEAD: a link to
@@ -168,8 +166,9 @@ Each bullet is one control; the threat model names the row and the tests behind 
 - **Rate limits and quotas.** Two layers. In the app (`MENDARI_RATE_LIMITS`: `on` by default
   with sign-in, `off` in open mode, `log` to count without refusing), the costly routes are
   limited per caller (decisions 600 a minute with bursts of 100 at every entry point, each
-  draft order of a CDS Hooks order hook one decision and at most 50 a request; the guard route
-  60 a minute, evaluations 6 an hour, exports 10 an hour), sign-in per address (300 a minute,
+  draft order of a CDS Hooks order hook one decision and at most 50 a request; evaluations 6 an
+  hour, exports 10 an hour, an author's work in an organization's agent store 240 an hour, in
+  bursts of 60), sign-in per address (300 a minute,
   bursts of 120, never below the edge's limit: a hospital signs in from one address), the token
   endpoint per address (60 a minute), and failed assertions per address and client (10 in 10
   minutes),
@@ -178,13 +177,13 @@ Each bullet is one control; the threat model names the row and the tests behind 
   and writes nothing to the chain. A `429` carries `Retry-After` and `no-store`. Buckets are
   named by class and an opaque id (`key:<id>`, `user:<hash>`, `ehr:<hash>`, `ip:<address>`), never a
   credential. Reads are not limited in the app, but for a labeller's (60 a minute, bursts of 30,
-  per person: each case shown is chained). The client address is Vercel's `X-Forwarded-For`,
+  per person: each text shown is chained). The client address is Vercel's `X-Forwarded-For`,
   or, self-hosted, the connection's unless the proxy is trusted
   (`mendari serve --forwarded-allow-ips`; the compose template trusts its network's fixed
   gateway, where a proxy on the host connects from). Signed in, `/api/health` shows the address
   seen on the request and whether `X-Forwarded-For` gave it. Per-organization daily quotas
   (`MENDARI_ORG_DAILY_LIMITS`) count decisions and their remote calls, and the organization's
-  evaluations' remote calls under their own `eval_jev` and `eval_llm` (unset: no limit), never
+  evaluations' remote calls under their own `eval_llm` (unset: no limit), never
   the decisions' quotas; over a decision quota, decisions fall back to human review, over an
   evaluation quota the evaluation's remote calls fail, and one alert goes to the webhook a day. A daily
   cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set) counts the decisions it
@@ -220,12 +219,10 @@ Each bullet is one control; the threat model names the row and the tests behind 
   the input hash is an HMAC-SHA256 under `MENDARI_INPUT_HASH_KEY` (`hmac-sha256:<key id>:<hex>`),
   without which the engine (and `mendari decide --db`) refuses to start: a plain SHA-256 of a short input can be found by
   guessing. The two keys must differ.
-- **Notes.** Review and rating notes and a payer's words are kept apart from the audit chain,
-  which keeps only a salted commitment to each: sealed with inputs under `encrypt`, refused
-  under `hash`, and readable as inputs are. Retention and `mendari notes erase` erase them, and
-  the chain still verifies (`mendari audit verify --notes` checks the commitments). Notes chained
-  by earlier releases are shown only to those who may read inputs. A payer's outcome and review
-  actions are chained only as codes; text in their place is dropped. A governance approval's
+- **Notes.** Review and rating notes are kept apart from the audit chain, which keeps only a
+  salted commitment to each: sealed with inputs under `encrypt`, refused under `hash`, and
+  readable as inputs are. Retention and `mendari notes erase` erase them, and the chain still
+  verifies (`mendari audit verify --notes` checks the commitments). A governance approval's
   `reference` (a pointer to minutes) stays chained.
 - **Headers and the API reference.** Every response has a strict CSP, pages and the API
   reference included: each page's own inline scripts by hash only, nothing from another origin.
@@ -242,32 +239,29 @@ Each bullet is one control; the threat model names the row and the tests behind 
 
 ## Remote providers
 
-The Jev adapter gets its key from a Vercel Connect connector (exchanged at runtime with the
-deployment's OIDC identity, cached in memory only) or, locally, from `JEV_API_KEY`. Remote
-providers:
-- send only an agent's declared `state_fields` (an agent the deployment does not own, a community
-  or registry agent, must declare them on every model variant, or it is refused at load; an owned
+Remote providers:
+- send only an agent's declared `state_fields` (an agent the deployment does not own, a registry
+  or store agent, must declare them on every model variant, or it is refused at load; an owned
   agent that omits them sends the whole input);
-- read their endpoint, model and key from fixed environment variables (`JEV_API_URL`,
-  `JEV_MODEL`, `JEV_API_KEY`, `JEV_CONNECTOR`; `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`,
-  `LLM_API_KEY`), which an agent cannot change;
+- read their endpoint, model and key from fixed environment variables (`LLM_BASE_URL`,
+  `LLM_MODEL`, `AI_GATEWAY_API_KEY`, `LLM_API_KEY`; `MENDARI_AGENT_URL`, `MENDARI_AGENT_TOKEN`),
+  which an agent cannot change;
 - require HTTPS (plain HTTP only for localhost);
 - reach only the origins on `MENDARI_PROVIDER_ALLOWED_ORIGINS` when a deployment sets it (the AI
-  Gateway's default and Vercel Connect included): any other request is refused before it is
-  opened (`invalid_endpoint`), and an `LLM_BASE_URL` or `JEV_API_URL` off the list stops startup;
+  Gateway's default included): any other request is refused before it is opened
+  (`invalid_endpoint`), and an `LLM_BASE_URL` or `MENDARI_AGENT_URL` off the list stops startup;
 - refuse redirects and cap response size;
-- share one wall-clock deadline per decision, the CQL engine included
+- share one wall-clock deadline per decision
   (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set): past it a call is not made, one under way
   is cut, and the decision records `timeout` and goes to a person; local providers still answer.
 
 Credentials and provider error bodies never reach audit records or error messages. The same
 outbound guard (allow-listed origins, no redirects, timeouts, size caps) covers every other
-call the engine makes: FHIR servers, the CQL engine, the identity provider, the payer and alert
-webhooks.
+call the engine makes: FHIR servers, the identity provider and alert webhooks.
 
 ## Agent supply chain
 
-Agents contain behaviour: patterns, models, CQL and policies. Review an agent like code before
+Agents contain behaviour: patterns, instructions and policies. Review an agent like code before
 running it: installing an agent means trusting its author, as with any plugin. The patterns of the
 agents a deployment owns (the agents bundled with the release, and its own local agents) run on
 Python `re` with no time limit, so such an agent can slow or stall a worker; on `re`, a crafted
@@ -275,10 +269,11 @@ Python `re` with no time limit, so such an agent can slow or stall a worker; on 
 limits bound how often). Their input schemas are bounded in shape at load instead of in time: nested at most 32
 deep, at most 16 `$ref`s in a chain, at most 1,000 schema objects applied to one value, and no
 reference back to itself but a recursive list's or tree's. Agents the deployment does not own run
-on the community engine instead
+on the bounded engine instead
 ([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md)):
-community agents, and agents pulled from a registry unless one is a copy of an agent bundled with
-the installed release, chosen by the digest of its files, never by its manifest or the registry.
+agents pulled from a registry or kept in an organization's agent store, unless one is a copy of an
+agent bundled with the installed release, chosen by the digest of its files, never by its
+manifest or the registry.
 An agent from a registry never takes a bundled agent's place: one with a bundled agent's id and
 version but other files is refused at publish, pull and load. Their patterns run on RE2, which
 never backtracks, within caps, input limits and a CPU budget per decision (below), in the
@@ -319,26 +314,27 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   inside the agent's directory; an agent whose directory holds a symbolic link that leads outside
   it is refused at load (hidden entries and `__pycache__` are not part of an agent, never digested,
   archived or read, so a `.venv` beside its files is fine). Whatever an agent decides or tests
-  with is inside its digest, the identity a governance approval covers: `load_pack` hashes the
-  agent first, and every file it or a provider then reads (`Pack.path`) must be one of the files
+  with is inside its digest, the identity a governance approval covers: `load_agent` hashes the
+  agent first, and every file it or a provider then reads (`Agent.path`) must be one of the files
   hashed, compared by the file on disk (device and inode), not by how the path is spelled. So
   a case variant on a case-insensitive filesystem (`EVALS/rules.yaml`, `__PYCACHE__/x.yaml`,
   `logic/decision_card.md` on macOS or Windows), a link, a file added after the load or a key
   the load does not list cannot reach a file the digest leaves out. Its content must still be
   the bytes hashed: each read takes the file's bytes once and checks them against the SHA-256
-  the load took of that file (`Pack.read_bytes`), and parses those bytes, so a file edited in
+  the load took of that file (`Agent.read_bytes`), and parses those bytes, so a file edited in
   place after the load, or while it runs, is refused naming the file (its decisions answer
   `422`), never used under a digest that does not describe it; loading the agent again picks the
   edit up under its new digest. The manifest fields naming
-  such a file (`inputs.schema`, `inputs.fhir`, `policy`, `tests`, `evaluation.datasets`, and a
-  provider's `config`, `library`, `model_file` and `calibration`) are checked at load, and a
+  such a file (`inputs.schema`, `inputs.fhir`, `tests`, `evaluation.datasets`,
+  `evaluation.grades`, a rubric judge's `mock_file`, and a provider's `config`, `calibration`
+  and `mock_file`) are checked at load, and a
   refusal names the field and why (through a hidden entry or `__pycache__`, in `evals/` or a
   `DECISION_CARD.md`, or not a file the digest covers). The attestations, left out of the
-  digest, are read only through a separate accessor (`Pack.attestation`) by their fixed names
-  (`evals/benchmark.json`, `evals/leaderboard.json`, `DECISION_CARD.md`) and
-  `evaluation.benchmark`, the one manifest path that names one, which must be in `evals/` (not
-  a `DECISION_CARD.md`); `mendari card --write` does not write through a link. A signed archive holds regular files only (no symbolic or hard
-  link, device, FIFO or sparse file), each named `pack/` and then plain path segments (none
+  digest, are read only through a separate accessor (`Agent.attestation`): the leaderboard by
+  its fixed name (`evals/leaderboard.json`), and the benchmark by `evaluation.benchmark`, the
+  one manifest path that names one, which must be in `evals/` (not a `DECISION_CARD.md`);
+  `mendari card --write` does not write through a link. A signed archive holds regular files only (no symbolic or hard
+  link, device, FIFO or sparse file), each named `agent/` and then plain path segments (none
   empty, `.`, `..` or hidden, no backslash), no two of them one file where case and Unicode
   normalization are not significant (`A` and `a/x.yaml`, `agent.yaml` and `AGENT.yaml`, NFC and
   NFD spellings), so it extracts to the same files on macOS, Windows and Linux, and extracting
@@ -355,13 +351,9 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   other files, is refused at load, so the registry refuses its publish (`422`), `mendari pull`
   refuses it before it is cached, and one cached before is listed under `/api/health`
   `invalid`, with the directory to remove, while the bundled agent is served.
-- An agent cannot reach another agent's CQL. The engine at `MENDARI_CQL_URL` is shared, so an agent's
-  library is uploaded under a resource id and a declared name that end in a hash of the agent id
-  and of the library's text: a library that declares another agent's library name and version
-  neither replaces nor shadows it. The declaration must be the library's first statement.
 - An agent's patterns are checked at load. Every rules pattern (of every variant and composite
   member) and every input-schema `pattern` and `patternProperties` key is compiled as it will
-  run (with `re`; a community agent's also for RE2, which must be able to run it), is at most
+  run (with `re`; a registry or store agent's also for RE2, which must be able to run it), is at most
   2,000 characters, and an agent holds at most 500, counted before any is compiled; one that
   fails makes the agent invalid, named by file and rule (`mendari validate` prints no
   traceback; a server lists the agent under `/api/health` `invalid`). This does not bound how
@@ -393,12 +385,12 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   not parse keeps the parser's message (what it expected, with the line around it). An agent's
   YAML and JSON hold only what a JSON response can carry: a string with a lone surrogate
   (`"\ud800"`, in YAML or JSON), `!!binary`, `!!set`, `!!omap`, `!!pairs`, and in JSON a number
-  that is not finite or an integer too large to be one, are refused when the file is read (the manifest, policy, input schema and
-  rules at load; a model, calibration, FHIR mapping or the tests when first read), named by the
+  that is not finite or an integer too large to be one, are refused when the file is read (the manifest, input schema and
+  rules at load; a calibration, FHIR mapping or the tests when first read), named by the
   file and, in YAML, the line and column, so no agent can make the list of agents, an agent's
   detail or a decision a `500`. A JSON file that is not JSON, holds an integer of more than
-  4,300 digits or nests too deep, a naive_bayes model of the wrong shape, a CQL library or
-  `CHANGELOG.md` that is not UTF-8 and a file that cannot be read are named the same way:
+  4,300 digits or nests too deep, a `CHANGELOG.md` that is not UTF-8 and a file that cannot
+  be read are named the same way:
   `mendari validate`, `test` and `card` print no traceback, and the server answers `422`. A
   behaviour test of the wrong shape (each is a mapping with an `input` mapping, an optional text
   `name` and an optional `expect` mapping whose `answers` is a mapping) or that is not JSON (a
@@ -422,51 +414,27 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   string). The validator retrieves nothing, so checking an input never fetches a URL or reads a
   file.
 
-## Community agents
+## Agents the deployment does not own
 
-Outside developers contribute agents by pull request, into `community-agents/<name>/` with the id
-`community/<name>` ([ADR-0007](docs/decisions/ADR-0007-community-agents-by-pull-request.md); the
-contributor's guide is [`docs/guides/contributing-an-agent.md`](docs/guides/contributing-an-agent.md)).
-They are not clinically reviewed, so the runtime limits what they can do, whatever their
-manifest says (threat model S13, T5, I12, D8, E10). Two of these limits, the input limits and
-the patterns on RE2 with their caps and budget, also hold every agent pulled from a registry
-that is not a copy of an agent bundled with the installed release
+An agent pulled from a registry, or a version in an organization's agent store, that is not a
+copy of an agent bundled with the installed release runs on the bounded engine, whatever its
+manifest says
 ([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md),
-threat model D8 and S15): they are the limits of community and registry agents. The others are
-the community agents' alone: a pulled agent is labelled "From a registry", and it automates
-under its own policy only once its organization approves its digest (above).
+threat model D8 and S15). It is labelled by origin, never by manifest ("From a registry"), and it
+automates under its own policy only once its organization approves its digest (above).
 
-- **Served only where a deployment turns them on** (`MENDARI_COMMUNITY_AGENTS=on`, default off,
-  one switch for all of them), and never shipped in the Python package or the images.
-- **Labelled by origin, never by manifest.** Every surface says "Community · not clinically
-  reviewed" (the review queue and the SMART patient view, where a person confirms, included);
-  `publisher.type` is shown only as self-declared. A community agent's id is
-  `community/<name>`, never one of the namespaces Mendari maintains (`mendari/`,
-  `openhealth/`), and a second claim to its id is refused and reported, never served in place
-  of the first. Its FHIR systems live under its own url
-  (`https://mendari.co/packs/community/<name>/`), published by its publisher as experimental and
-  labelled, never in a CodeSystem of Mendari's. CI refuses a name, CDS title or publisher that
-  copies a maintained agent's name or CDS title, or uses the word Mendari (or OpenHealth) as
-  whole words; a look-alike of either, or a word mixing alphabets, is a warning for the owner's
-  review (the look-alike tables are not complete; the label by origin is the protection).
-- **Recommend only.** A community agent never automates: the policy caps AUTO to HUMAN_REVIEW,
-  and a policy rule that blocks is refused (a block is final at once, and no person sees it).
-- **No spending without the owner.** Its default providers are local; unscoped provider settings
-  never reach it, only `community/<name>:slot=variant` runs it on a remote variant (an
-  evaluation request through the API included), and its pinned model and `max_tokens` give way
-  to the deployment's.
-- **The deployment's model, caps and provider configs** (community and registry agents). The
+- **The deployment's model, caps and provider configs.** The
   model is the deployment's; `max_tokens` and `timeout_ms` are held to the provider defaults
-  (LLM 4,096 tokens and 30 s, Jev 5 s; a lower value stands) and a `reasoning_effort` above
+  (LLM 4,096 tokens and 30 s, an agent's service 15 s; a lower value stands) and a `reasoning_effort` above
   `low` is dropped. Every variant and member is checked at load against its provider's closed
   config (`docs/spec/provider-configs.schema.json`): a key its provider does not read, or a value
   it refuses, refuses the agent. An owned agent loads with such problems as warnings (`mendari
-  list`, the start-up log, `/api/health` `pack_warnings`), and `mendari validate` refuses both.
-- **At most 10,000 characters of text** (community and registry agents), alone or together
+  list`, the start-up log, `/api/health` `agent_warnings`), and `mendari validate` refuses both.
+- **At most 10,000 characters of text**, alone or together
   (keys too, where its input schema runs patterns on them: `patternProperties`,
   `propertyNames`), and at most 10,000 values
   nested at most 32 deep: a larger input is refused before any pattern or schema check runs.
-- **Patterns on RE2** (community and registry agents). Its patterns (rules and input schema)
+- **Patterns on RE2.** Its patterns (rules and input schema)
   run on RE2 (`google-re2`), which never backtracks, so no pattern can backtrack for seconds:
   their time grows with the text's
   length times the pattern's size, held to RE2's 8 MiB a pattern. A pattern RE2
@@ -482,28 +450,12 @@ under its own policy only once its organization approves its digest (above).
   the schema had already found wrong is refused), so one decision runs them for at most the
   budget plus one step under way (about 3.5 s of CPU on 10,000 characters at worst; the
   bundled agent's rules take under a millisecond). Its schema uses only keywords whose work stays
-  within the budget (the guide lists them; `$ref` only to its own `$defs`, whose names a `$ref`
-  names exactly; short `required` and `enum` lists of short texts); `unevaluatedProperties`,
-  `unevaluatedItems`, `contains`, `uniqueItems` and the others jsonschema works out on its own
-  are refused. Turning
-  community agents on for the hosted
-  platform is the owner's step (`tasks/todo.md`, B9).
-- **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load
-  otherwise.
-- **Checked before review.** A CI job on every pull request (`pull_request`, no secrets, a
-  read-only token, never `pull_request_target`) runs `mendari community-check`: scope (the agent's own folder
-  only, no git submodule, a removal by the owner only), identity, manifest policy, tests,
-  evaluation floors and regressions against the base branch's benchmark and tolerance (on the
-  base's benchmark dataset too), a benchmark, card and models CI builds again and compares,
-  every pattern compiled on RE2 (none is timed in CI: RE2 never backtracks, and at run time the time budget bounds a decision), size limits, and warnings for text that
-  looks like a real person's details. Then the owner reads it, including its clinical content
-  and where that content comes from.
-- **Removal.** Revert the merge and deploy for a safety problem or real patient data (and
-  follow GitHub's sensitive-data removal; a public history cannot be fully cleaned), or set
-  `MENDARI_COMMUNITY_AGENTS=off` to remove them all. `MENDARI_AGENTS` is no kill switch: naming an
-  agent that is not installed stops the server from starting.
+  within the budget (the authoring guide lists them; `$ref` only to its own `$defs`, whose names
+  a `$ref` names exactly; short `required` and `enum` lists of short texts);
+  `unevaluatedProperties`, `unevaluatedItems`, `contains`, `uniqueItems` and the others
+  jsonschema works out on its own are refused.
 
-Report a vulnerability in a community agent (a pattern that stalls, content that leaks or harms)
+Report a vulnerability in such an agent (a pattern that stalls, content that leaks or harms)
 privately, as above; report a wrong clinical answer in a normal issue, with the issue form for an
 agent's content.
 
@@ -536,10 +488,9 @@ change that loosens it:
 - every image (CI services, `docker run`, the Dockerfile's bases, both compose files) is pinned
   by digest;
 - every file a workflow downloads is checked against a pinned sha256;
-- the HL7 validator loads only the FHIR packages `scripts/fhir_packages.lock` pins (US Core, the
-  Da Vinci guides and every package they need, each with its sha256), and runs with no HTTP
-  access, so it fetches nothing by version alone (`tests/test_fhir_packages.py`,
-  `tests/test_workflow_safety.py`);
+- the HL7 validator loads only the FHIR packages `scripts/fhir_packages.lock` pins (US Core and
+  every package it needs, each with its sha256), and runs with no HTTP access, so it fetches
+  nothing by version alone (`tests/test_fhir_packages.py`, `tests/test_workflow_safety.py`);
 - the Docker image installs exactly `uv.lock` (`uv sync --frozen`), and the build backend
   (hatchling) is pinned;
 - the vendored Swagger UI matches its pin: the npm integrity value in its lockfile, and each

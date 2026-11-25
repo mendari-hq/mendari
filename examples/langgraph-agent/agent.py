@@ -21,7 +21,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from mendari_agent_kit import Case, respond
 
-AGENT_VERSION = "0.1.0"
+SERVICE_VERSION = "0.1.0"
 
 
 class State(TypedDict, total=False):
@@ -84,7 +84,7 @@ def handler(case: Case) -> dict[str, Any]:
         case,
         {"request": final["request"], "urgent_symptoms": final["urgent"]},
         model="langgraph-keyword-rules",
-        agent_version=AGENT_VERSION,
+        service_version=SERVICE_VERSION,
         tool_calls=[{"name": step} for step in final["steps"]],
         usage={"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
     )

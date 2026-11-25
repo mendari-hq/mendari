@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// A case's input as a reader sees it, whatever pack it is for: a message as its text; any other
+// A case's input as a reader sees it, whatever agent it is for: a message as its text; any other
 // record as its fields (chips), its lists (a table when they hold records) and its long texts.
 // Everything in it is what someone wrote, so every value and key is escaped: shown as text, never
-// run as markup. The decision views show stored inputs with it (`inputView`, pack.js), and the
-// labelling screen a hidden case's (labelling.js).
+// run as markup. The decision views show stored inputs with it (`inputView`, manifest.js), and the
+// grading screen what an agent was given (labelling.js).
 
 import { esc } from "./ui.js";
 

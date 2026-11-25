@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from mendari.core.spec import PackManifest
+from mendari.core.spec import AgentManifest
 from mendari.errors import MendariError
 from mendari.evals.canonical import NORM_VERSION, canonical_input, normalised_input
 from mendari.evals.harness import Dataset, record_problems
@@ -31,10 +31,10 @@ UNKNOWN = "unknown"
 
 
 def coverage(
-    manifest: PackManifest, dataset: Dataset, *, pack: str, ids: bool = False
+    manifest: AgentManifest, dataset: Dataset, *, agent: str, ids: bool = False
 ) -> dict[str, Any]:
-    """The coverage report of `dataset` for the pack `manifest` describes (named `pack`). A
-    dataset whose records the pack cannot read (`record_problems`) is refused, as an evaluation
+    """The coverage report of `dataset` for the agent `manifest` describes (named `agent`). A
+    dataset whose records the agent cannot read (`record_problems`) is refused, as an evaluation
     refuses it."""
     problems = record_problems(manifest, dataset)
     if problems:
@@ -90,7 +90,7 @@ def coverage(
         warnings.append(f"{conflicting} groups of duplicate cases have labels that disagree")
     report: dict[str, Any] = {
         "format": FORMAT,
-        "pack": pack,
+        "agent": agent,
         "dataset": {"name": dataset.name, "sha256": dataset.sha256},
         "norm": NORM_VERSION,
         "cases": len(records),
@@ -129,7 +129,7 @@ def coverage_text(report: dict[str, Any]) -> str:
     """The report for a terminal: counts, labels and warnings, never a case's text."""
     distinct = report["distinct"]
     lines = [
-        f"Coverage of {report['dataset']['name']} for {report['pack']} "
+        f"Coverage of {report['dataset']['name']} for {report['agent']} "
         f"({report['format']}, duplicates under {report['norm']})",
         f"  {report['cases']} cases, {distinct['normalised']} distinct "
         f"({distinct['exact']} exactly), {report['duplicate_groups']} groups of duplicates, "

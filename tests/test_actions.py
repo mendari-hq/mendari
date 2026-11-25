@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The gate on actions (spec 0.4 sections 3 and 5, ADR-0023): `core/policy.py` says what each
+"""The gate on actions (spec sections 13.4 and 13.7, ADR-0023): `core/policy.py` says what each
 effect needs before an action is released, and `core/actions.py` checks a proposal against the
 manifest.
 
@@ -43,12 +43,12 @@ from mendari.core.policy import (
     risk_permits_auto,
     stricter,
 )
-from mendari.core.spec import ActionSpec, Effect, Outcome, PackManifest, RiskLevel
+from mendari.core.spec import ActionSpec, AgentManifest, Effect, Outcome, RiskLevel
 from mendari.providers.base import Answer, ProviderInfo
 from tests.conftest import INPUT_HASH_KEY
 from tests.test_spec_04 import raw_manifest
 
-MANIFEST = PackManifest.model_validate(raw_manifest())
+MANIFEST = AgentManifest.model_validate(raw_manifest())
 CHECKERS = actions.validators(MANIFEST)
 REVIEWS: tuple[Review, ...] = get_args(Review)
 DECISION, AUTO, PERSON = Gate.DECISION, Gate.AUTO, Gate.PERSON
@@ -150,7 +150,7 @@ def test_every_cell_of_the_table(
 
 
 def test_the_rows_the_spec_prints() -> None:
-    """Spec 0.4 section 5's own table, as a decision made with the answer reads it."""
+    """Spec section 13.7's own table, as a decision made with the answer reads it."""
 
     def cell(gate: Gate, outcome: Outcome, recommendation: str | None) -> Cell:
         review: Review = "pending" if outcome in (Outcome.HUMAN_REVIEW, Outcome.ABSTAIN) else "none"
@@ -267,7 +267,7 @@ def test_what_released_and_held_mean(gate: Gate, state: dict[str, Any]) -> None:
 def test_an_agent_nobody_vouched_for_gets_nothing_released_without_a_person(
     effect: Effect, allow_auto: bool, state: dict[str, Any]
 ) -> None:
-    """Such an agent never automates (`apply_policy`'s community and registry caps), so with
+    """Such an agent never automates (`apply_policy`'s registry cap), so with
     its decisions never AUTO nothing it proposes is released by the table."""
     gate = gate_of(effect, allow_auto=allow_auto, vouched=False)
     assert gate is not DECISION
@@ -281,7 +281,7 @@ def test_risk_permits_auto_is_what_the_risk_cap_decides(level: RiskLevel) -> Non
     `apply_policy` itself, with and without a governance approval."""
     raw = raw_manifest()
     raw["risk"]["level"] = int(level)
-    manifest = PackManifest.model_validate(raw)
+    manifest = AgentManifest.model_validate(raw)
     info = ProviderInfo("reader", "agent", "agent")
     answers = {
         "request": Answer("request", "refill", 0.95, {"refill": 0.95}, info),
@@ -484,7 +484,7 @@ def test_at_most_ten_problems_are_kept() -> None:
     }
     raw = raw_manifest()
     raw["actions"]["many"] = {"description": "Many.", "effect": "read", "schema": schema}
-    manifest = PackManifest.model_validate(raw)
+    manifest = AgentManifest.model_validate(raw)
     wrong = {f"p{n}": n for n in range(30)}
     found = actions.check(manifest, actions.validators(manifest), Proposed("many", wrong))
     assert found.refusal == "invalid_arguments" and len(found.problems) == actions.MAX_PROBLEMS

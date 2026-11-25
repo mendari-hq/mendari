@@ -17,11 +17,12 @@ import httpx
 import pytest
 from playwright.sync_api import Browser, Page, expect
 
-from mendari.core.registry import resolve_pack
+from mendari.core.registry import resolve_agent
 from mendari.hub import site_signing
 from mendari.hub.site_signing import Site as SiteFiles
 from mendari.hub.site_signing import init_site
 from tests.browser.access_site import Site, access, dialog, lead, memberships, row, running
+from tests.browser.conftest import TRIAGE
 from tests.browser.test_accessibility import violations
 from tests.browser.test_registry_accounts import reviewer
 from tests.test_registry_review import REVIEW_ORG, review_org
@@ -100,12 +101,12 @@ def test_a_revoked_key_says_so_and_gets_no_ticket(site: Site, tmp_path: Path) ->
     expect(dialog(admin)).to_have_count(0)
     expect(the_row).to_contain_text("revoked")
     expect(the_row).to_contain_text("as compromised")
-    referral = resolve_pack("mendari/referral-router")
+    agent = resolve_agent(TRIAGE)
     request = files.sign(
         site_signing.TICKET_REQUEST,
         {
-            "pack": {"id": referral.id, "version": referral.version, "digest": referral.digest},
-            "configuration": {"triage_screen": "rules"},
+            "agent": {"id": agent.id, "version": agent.version, "digest": agent.digest},
+            "configuration": {"router": "rules", "screen": "rules"},
             "remote_consent": False,
             "commitment": files.commitment(b"cases"),
             "n": 300,

@@ -3,12 +3,9 @@
 
 import { chartHtml } from "./charts.js";
 import { operatingPointView } from "./operatingpoint.js";
-import { criticalText } from "./pack.js";
+import { criticalText } from "./manifest.js";
 import { tableHtml } from "./table.js";
 import { copyText, esc, evidenceMark, figureHtml, icon, money, num, share, shown, slotText, stat, storageGet, time } from "./ui.js";
-
-// A report's run: its id, time and latency (mendari.eval/2), or a mendari.eval/1 report's own.
-export const runOf = (r) => r.run ?? r;
 
 // What a report says of its primary question when none of its cases is labelled for it.
 const UNLABELLED = { macro_f1: null, brier: null, calibration: { ece: null, bins: [] }, per_label: {}, confusion: {} };
@@ -30,8 +27,8 @@ export function reportView(r) {
     });
   }).join("");
   const small = (label, value, foot = "") => stat({ size: "small", label, value, html: true, foot });
-  const run = runOf(r);
-  const id = `${run.id ?? run.created_at}`.replace(/[^a-zA-Z0-9-]/g, "");
+  const run = r.run;
+  const id = `${run.id}`.replace(/[^a-zA-Z0-9-]/g, "");
   return `
     <div class="report-meta">
       <div class="row"><b>${esc(r.dataset.name)}</b><span class="muted">n=${r.dataset.n} · ${esc(time(run.created_at))} ·
@@ -168,8 +165,8 @@ function reliabilityChart(calibration, figures, id) {
 }
 
 // What each automation threshold would allow: how many cases are at or above it and how many of
-// those are right, with the pack's threshold marked. A what-if: risk-level caps and review rules
-// still apply, so at risk level 1-3 a pack may automate nothing at all.
+// those are right, with the agent's threshold marked. A what-if: risk-level caps and review rules
+// still apply, so at risk level 1-3 an agent may automate nothing at all.
 function sweepChart(sweep, figures, autoThreshold, nothingAutomated, id) {
   if (!sweep?.length) return `<div class="empty">No labelled decisions.</div>`;
   const rows = sweep.map((t, i) => ({ ...t, automated: figures[i]?.automated ?? null, correct: figures[i]?.correct ?? null }));
@@ -285,13 +282,13 @@ export function wireSimulators(root) {
   });
 }
 
-// Where the errors cluster: true label down the side, the pack's answer across the top. Only
+// Where the errors cluster: true label down the side, the agent's answer across the top. Only
 // mistakes are shaded (amber, red from a tenth of the row), so they stand out from the diagonal.
 function confusionView(confusion, figures, id) {
   const truths = Object.keys(confusion ?? {});
   if (!truths.length) return "";
   const answers = [...new Set([...truths, ...truths.flatMap((t) => Object.keys(confusion[t]))])];
-  // "none" is the evaluation's column for cases without an answer, unless the pack has a label of that name.
+  // "none" is the evaluation's column for cases without an answer, unless the agent has a label of that name.
   const answerLabel = (answer) => (answer === "none" && !truths.includes("none") ? `<span title="none">No answer</span>` : esc(answer));
   const rows = truths.map((truth) => ({ truth, counts: confusion[truth], total: Object.values(confusion[truth]).reduce((a, b) => a + b, 0) }));
   return `<details class="mt-3"><summary>Confusion matrix</summary>

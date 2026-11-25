@@ -27,10 +27,10 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.cli import main
 from mendari.core import packet
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.server.app import create_app
 from mendari.server.scopes import DECIDE
 from tests.conftest import (
@@ -66,8 +66,8 @@ URGENT = {"message": {"body": "I have chest pain and trouble breathing since las
 FRONT_DESK = {"message": {"body": "Where do I park when I come in?"}}
 
 
-def demo(origin: str = "maintained") -> Pack:
-    return load_pack(DEMO_AGENT_DIR, origin=origin)  # type: ignore[arg-type]
+def demo(origin: str = "maintained") -> Agent:
+    return load_agent(DEMO_AGENT_DIR, origin=origin)  # type: ignore[arg-type]
 
 
 def local_deployment(**changes: Any) -> packet.Deployment:
@@ -93,7 +93,7 @@ def section(built: dict[str, Any], key: str) -> dict[str, Any]:
 @pytest.fixture
 def open_client(db_target: str) -> Iterator[TestClient]:
     """A release as it starts: open mode, serving the bundled agent."""
-    with TestClient(create_app(db_path=db_target, packs_paths=[ROOT / "agents"])) as client:
+    with TestClient(create_app(db_path=db_target, agents_paths=[ROOT / "agents"])) as client:
         yield client
 
 
@@ -174,8 +174,8 @@ def test_a_fresh_deployments_packet_says_what_is_missing(open_client: TestClient
 def test_what_was_stated_leaves_the_not_stated_appendix(store: AuditStore) -> None:
     """An item is listed only while nobody has stated it; an item no field can hold yet is
     always listed, with who could state it and which framework asks."""
-    pack = demo()
-    fresh = packet.build(store, pack, deployment=local_deployment())
+    agent = demo()
+    fresh = packet.build(store, agent, deployment=local_deployment())
     before = {item["key"]: item for item in fresh["not_stated"]}
     # The manifest states its failure modes and out-of-scope uses: neither is listed.
     assert "local_evidence" in before
@@ -187,8 +187,8 @@ def test_what_was_stated_leaves_the_not_stated_appendix(store: AuditStore) -> No
         "HTI-1 source attributes",
     }
     assert before["staff_training"]["who"] == "site"
-    Decision(pack, store=store).decide(REFILL)
-    decided = packet.build(store, pack, deployment=local_deployment())
+    Decision(agent, store=store).decide(REFILL)
+    decided = packet.build(store, agent, deployment=local_deployment())
     after = {item["key"] for item in decided["not_stated"]}
     assert before.keys() - after == {"local_evidence"}
 
@@ -232,15 +232,15 @@ def test_an_evaluation_run_here_is_shown_as_counts_with_its_configuration(
 
 
 def test_the_packet_is_the_same_for_the_same_evidence(store: AuditStore) -> None:
-    pack = demo()
-    Decision(pack, store=store).decide(REFILL)
+    agent = demo()
+    Decision(agent, store=store).decide(REFILL)
     now = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
-    first = packet.build(store, pack, deployment=local_deployment(), now=now)
-    second = packet.build(store, pack, deployment=local_deployment(), now=now)
+    first = packet.build(store, agent, deployment=local_deployment(), now=now)
+    second = packet.build(store, agent, deployment=local_deployment(), now=now)
     assert first["sha256"] == second["sha256"] and first == second
     assert first["generated_at"] == "2026-11-23T12:00:00+00:00"
     with pytest.raises(Exception, match="14 to 180 days"):
-        packet.build(store, pack, deployment=local_deployment(), days=7)
+        packet.build(store, agent, deployment=local_deployment(), days=7)
 
 
 # -- what it never holds ---------------------------------------------------------------------------
@@ -303,7 +303,7 @@ def test_an_approval_is_shown_with_who_recorded_it(db_target: str, tmp_path: Pat
     """A risk level 2 agent: no approval, then one. The approver is the one person the packet
     names; the approval is for this exact version, and has its reference and its expiry."""
     agents = risky_copy(tmp_path, **{"risk.level": 2, "risk.category": "clinical support"})
-    with TestClient(create_app(db_path=db_target, packs_paths=[agents])) as client:
+    with TestClient(create_app(db_path=db_target, agents_paths=[agents])) as client:
         before = client.get(PACKET).json()
         assert packet.problems(before) == []
         assert section(before, "risk")["level"] == 2
@@ -313,7 +313,7 @@ def test_an_approval_is_shown_with_who_recorded_it(db_target: str, tmp_path: Pat
         approved = client.post(
             "/api/governance",
             json={
-                "pack_id": AGENT_ID,
+                "agent_id": AGENT_ID,
                 "reference": "AI committee minutes 2026-11",
                 "days": 90,
                 "approver": "cmio-okafor",  # open mode: who approves says so
@@ -347,7 +347,7 @@ def two_organizations(
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-tests")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
-    app = create_app(db_path=db_target, packs_paths=[ROOT / "agents"])
+    app = create_app(db_path=db_target, agents_paths=[ROOT / "agents"])
     with encrypted_store(db_target) as store:
         people = {
             "reviewer": member(store, org="acme", roles=["reviewer"], sub="acme-reviewer"),
@@ -375,7 +375,7 @@ def test_the_route_is_refused_without_sign_in_and_to_a_role_without_access(
         signed_out = client.get(f"{PACKET}{query}")
         assert signed_out.status_code == 401, signed_out.text
         assert "Committee packet" not in signed_out.text
-        # A labeller reads hidden cases to label them, and nothing of an agent's evidence.
+        # A labeller grades written output, and reads nothing of an agent's evidence.
         assert client.get(f"{PACKET}{query}", headers=people["labeller"]).status_code == 403
         # A person of no organization reads no organization's packet.
         assert client.get(f"{PACKET}{query}", headers=people["nobody"]).status_code in (401, 403)
@@ -395,7 +395,7 @@ def test_another_organization_sees_none_of_this_ones_evidence(
         decide(client, body, headers=people["reviewer"])
     held = client.post(
         "/api/holds",
-        json={"pack_id": AGENT_ID, "reason": "shadow pilot: acme compares with its nurses"},
+        json={"agent_id": AGENT_ID, "reason": "shadow pilot: acme compares with its nurses"},
         headers=people["governance"],
     )
     assert held.status_code == 201, held.text
@@ -553,8 +553,8 @@ def test_what_a_publisher_wrote_is_plain_text_on_the_page(
         summary=f"Routes messages. {hostile}",
         **{"card.intended_use": f"Routing. {hostile}"},
     )
-    pack = load_pack(agents / "portal-message-agent")
-    text = packet.render_html(packet.build(store, pack, deployment=local_deployment()))
+    agent = load_agent(agents / "portal-message-agent")
+    text = packet.render_html(packet.build(store, agent, deployment=local_deployment()))
     page = parsed(text)
     assert {tag for tag, _ in page.tags} <= ALLOWED_TAGS
     assert "<script" not in text and "<img" not in text
@@ -570,9 +570,9 @@ def test_an_agent_from_a_registry_shows_no_figure_it_carries_and_what_it_needs(
     shows no figure it did not compute), says where the publisher's are, and that nothing is
     automated until this organization approves the exact version. The approval, once recorded,
     is shown with who recorded it."""
-    pack = demo("hub")
+    agent = demo("hub")
     why = "its registry has not been checked for recalls yet"
-    before = packet.build(store, pack, deployment=local_deployment(), recall=why)
+    before = packet.build(store, agent, deployment=local_deployment(), recall=why)
     assert packet.problems(before) == []
     publisher = section(before, "publisher_evidence")
     assert (publisher["source"], publisher["evaluation"]) == ("registry", None)
@@ -590,17 +590,17 @@ def test_an_agent_from_a_registry_shows_no_figure_it_carries_and_what_it_needs(
     assert signed["held_now"] == why and signed["recall_checked"] is True
     assert f"its registry stops it automating now: {why}" in packet.render_html(before)
     # A command asks no registry: it says so, and never that no recall stands.
-    told = packet.build(store, pack, deployment=local_deployment(seen_from="command line"))
+    told = packet.build(store, agent, deployment=local_deployment(seen_from="command line"))
     assert "not checked from the command line" in packet.render_html(told)
     assert "none standing" not in packet.render_html(told)
-    store.approve_registry_pack(
-        pack_id=pack.id,
-        pack_digest=pack.digest,
+    store.approve_registry_agent(
+        agent_id=agent.id,
+        agent_digest=agent.digest,
         registry="https://registry.example.org",
         approver="cmio-okafor",
         reference="AI committee minutes 2026-11",
     )
-    after = packet.build(store, pack, deployment=local_deployment())
+    after = packet.build(store, agent, deployment=local_deployment())
     (shown,) = section(after, "approvals")["registry"]
     assert shown["approver"] == "cmio-okafor"
     assert shown["in_force"] is True and shown["this_version"] is True
@@ -763,34 +763,34 @@ def test_with_a_database_the_command_writes_what_the_deployment_holds_as_before(
 
     monkeypatch.setattr(packet, "datetime", _Noon)
     db = tmp_path / "audit.db"
-    pack = load_pack(DEMO_AGENT_DIR)
+    agent = load_agent(DEMO_AGENT_DIR)
     with AuditStore(db) as store:
         for body in (REFILL, URGENT, FRONT_DESK):
-            Decision(pack, store=store).decide(body)
+            Decision(agent, store=store).decide(body)
     phi = phi_policy()
     with AuditStore(db, read_only=True) as store:
         expected = packet.build(
             store,
-            pack,
+            agent,
             deployment=packet.Deployment(
                 phi_mode=phi.mode,
                 input_hash=phi.hash_kind,
                 retention_days=retention_days(),
                 provider_allowed_origins=provider_allow_list(),
                 agent_endpoint=False,
-                providers=recorded_providers(store, pack),
+                providers=recorded_providers(store, agent),
                 seen_from="command line",
             ),
             days=90,
             holds=store.holds(None),
-            records=store.deployments(pack.id, limit=20),
+            records=store.deployments(agent.id, limit=20),
         )
-    agent = str(DEMO_AGENT_DIR)
-    assert main(["packet", agent, "--db", str(db), "--json"]) == 0
+    folder = str(DEMO_AGENT_DIR)
+    assert main(["packet", folder, "--db", str(db), "--json"]) == 0
     printed = capsys.readouterr()
     assert printed.out == json.dumps(expected, indent=2) + "\n"
     assert "no --db" not in printed.err
-    assert main(["packet", agent, "--db", str(db)]) == 0
+    assert main(["packet", folder, "--db", str(db)]) == 0
     assert capsys.readouterr().out == packet.render_html(expected)
     # A deployment's packet says nothing of "no deployment", in its document or on its page.
     assert set(expected) == set(packet.SCHEMA["required"])
@@ -903,11 +903,11 @@ def test_a_packet_made_without_a_deployment_says_so_wherever_one_would_be_read(
     """From the agent's files alone: the publisher's sections are those of any packet, and
     every section that reads a deployment says in words that none was read. What it did not
     read is null, never a zero: a zero would say that nothing happened."""
-    pack = demo()
+    agent = demo()
     now = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
-    alone = packet.build_alone(pack, now=now)
+    alone = packet.build_alone(agent, now=now)
     assert packet.problems(alone) == []
-    assert alone == packet.build_alone(pack, now=now)  # the same files, the same packet
+    assert alone == packet.build_alone(agent, now=now)  # the same files, the same packet
     assert alone["no_deployment"] == packet.NO_DEPLOYMENT and alone["about"] == packet.ABOUT_ALONE
     assert alone["organization"] is None and alone["window_days"] is None
     assert [s["key"] for s in alone["sections"]] == SECTIONS
@@ -924,8 +924,8 @@ def test_a_packet_made_without_a_deployment_says_so_wherever_one_would_be_read(
         )
     assert section(alone, "site_evidence")["empty"] == packet.WITHOUT_DEPLOYMENT["site_evidence"]
     # What the agent's files say is what a deployment's packet says of the same agent.
-    Decision(pack, store=store).decide(REFILL)
-    served = packet.build(store, pack, deployment=local_deployment(), now=now)
+    Decision(agent, store=store).decide(REFILL)
+    served = packet.build(store, agent, deployment=local_deployment(), now=now)
     for key in ("identity", "intended_use", "publisher_evidence"):
         assert section(alone, key) == section(served, key)
     for name in ("outcomes", "primary", "thresholds", "never_automated", "rules", "fallback"):
@@ -935,7 +935,7 @@ def test_a_packet_made_without_a_deployment_says_so_wherever_one_would_be_read(
     assert section(alone, "data_handling")["inputs"] == section(served, "data_handling")["inputs"]
     # What runs is the agent's own default, known to no deployment; nothing is said to be canned.
     control = section(alone, "change_control")
-    assert control["running_known"] is False and control["digest"] == pack.digest
+    assert control["running_known"] is False and control["digest"] == agent.digest
     assert [(slot["slot"], slot["variant"], slot["known"]) for slot in control["running"]] == [
         ("reader", "agent", False)
     ]
@@ -960,8 +960,8 @@ def test_a_packet_made_without_a_deployment_says_so_wherever_one_would_be_read(
 
 
 def test_the_page_made_without_a_deployment_shows_no_figure_of_one(store: AuditStore) -> None:
-    pack = demo()
-    alone = packet.build_alone(pack)
+    agent = demo()
+    alone = packet.build_alone(agent)
     text = packet.render_html(alone)
     page = parsed(text)
     assert not [tag for tag, _ in page.tags if tag in ("script", "img", "link", "iframe")]
@@ -1003,32 +1003,29 @@ def test_the_page_made_without_a_deployment_shows_no_figure_of_one(store: AuditS
     ):
         assert words in said, words
     # A deployment's page keeps its own words.
-    Decision(pack, store=store).decide(REFILL)
-    served = html_text(packet.render_html(packet.build(store, pack, deployment=local_deployment())))
+    Decision(agent, store=store).decide(REFILL)
+    served = html_text(
+        packet.render_html(packet.build(store, agent, deployment=local_deployment()))
+    )
     assert "This site has not stated" in served and "Waiting for review now" in served
     assert "without a deployment" not in served
 
 
-@pytest.mark.parametrize("origin", ["community", "hub"])
-def test_a_packet_without_a_deployment_keeps_what_the_runtime_enforces(origin: str) -> None:
+def test_a_packet_without_a_deployment_keeps_what_the_runtime_enforces() -> None:
     """Where an agent came from still decides what the runtime enforces, with no deployment
-    read: a community agent never decides alone, and one from a registry needs approval."""
-    alone = packet.build_alone(demo(origin))
+    read: one from a registry needs approval."""
+    alone = packet.build_alone(demo("hub"))
     assert packet.problems(alone) == []
     enforced = " ".join(section(alone, "risk")["enforced"])
     needs = " ".join(section(alone, "approvals")["required"])
-    if origin == "community":
-        assert "A community agent never decides alone" in enforced
-        assert "A community agent never automates" in needs
-    else:
-        assert "It came from a registry" in enforced
-        assert "An agent from a registry needs the organization's approval" in needs
-        signed = section(alone, "change_control")["signed"]
-        assert signed["held_now"] is None and signed["recall_checked"] is False
-        assert "none standing" not in packet.render_html(alone)  # no registry was asked
+    assert "It came from a registry" in enforced
+    assert "An agent from a registry needs the organization's approval" in needs
+    signed = section(alone, "change_control")["signed"]
+    assert signed["held_now"] is None and signed["recall_checked"] is False
+    assert "none standing" not in packet.render_html(alone)  # no registry was asked
 
 
-# -- actions, a checked confidence and a second signal (spec 0.4) ----------------------------------
+# -- actions, a checked confidence and a second signal (spec §13, §14) -----------------------------
 
 
 def test_the_packet_says_what_the_agent_may_ask_to_have_done_and_how_each_is_gated() -> None:
@@ -1065,9 +1062,6 @@ def test_the_packet_says_what_the_agent_may_ask_to_have_done_and_how_each_is_gat
         "by a second model.",
     ):
         assert words in said, words
-    # A community agent's proposals are never released without a person, a read's included.
-    community = section(packet.build_alone(demo("community")), "oversight")["actions"]
-    assert [a["gate"] for a in community] == ["auto", "person"]
 
 
 def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Path) -> None:
@@ -1077,12 +1071,12 @@ def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Pa
     shutil.copytree(DEMO_AGENT_DIR, folder)
     manifest = yaml.safe_load((folder / "agent.yaml").read_text())
     del manifest["actions"]
-    # What it writes goes with its agent variant: only an agent writes (spec 0.4).
+    # What it writes goes with its agent variant: only an agent writes (spec §15.1).
     del manifest["outputs"], manifest["rubrics"], manifest["evaluation"]["grades"]
     manifest["providers"]["reader"]["use"] = "rules"
     del manifest["providers"]["reader"]["variants"]["agent"]
     (folder / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    alone = packet.build_alone(load_pack(folder))
+    alone = packet.build_alone(load_agent(folder))
     assert packet.problems(alone) == []
     oversight = section(alone, "oversight")
     assert oversight["actions"] == oversight["confidence"] == oversight["second_signal"] == []
@@ -1099,15 +1093,15 @@ def test_a_calibration_and_a_second_signal_are_read_from_the_manifest(tmp_path: 
         manifest["providers"]["reader"]["variants"]["checked"] = {
             "type": "check",
             "members": {
-                "agent": live_member(manifest, agent_id="first-agent"),
-                "second": live_member(manifest, agent_id="second-agent"),
+                "agent": live_member(manifest, service_id="first-agent"),
+                "second": live_member(manifest, service_id="second-agent"),
             },
         }
         variant(manifest).update({"repeat": 3, "calibration": "models/c.json"})
 
     root = scaffold(tmp_path, edit=add)
     calibration_file(root, {"request": 1.3}, relative="models/c.json")
-    alone = packet.build_alone(load_pack(root))
+    alone = packet.build_alone(load_agent(root))
     assert packet.problems(alone) == []
     oversight = section(alone, "oversight")
     calibrated, first, second = oversight["confidence"]
@@ -1118,8 +1112,8 @@ def test_a_calibration_and_a_second_signal_are_read_from_the_manifest(tmp_path: 
         "cases": 400,
         "dataset": "calibration",
         "date": "2026-11-24",
-        "agent_id": "starter-portal-agent",
-        "agent_version": "2.1.0",
+        "service_id": "starter-portal-agent",
+        "service_version": "2.1.0",
         "questions": ["request"],
         "not_fitted": {},
     }
@@ -1170,7 +1164,7 @@ def test_an_evaluation_says_what_it_found_of_confidence_and_of_a_second_signal(
         "calibrated": False,
         "cases": None,
         "dataset": None,
-        "agent_version": None,
+        "service_version": None,
         "same_cases": False,
     }
     assert {q["question"] for q in questions} == {"request", "urgent_symptoms"}
@@ -1205,7 +1199,7 @@ def test_a_reports_confidence_blocks_are_read_as_names_and_counts_and_nothing_el
                     "fitted": {
                         "cases": 400,
                         "dataset": "calibration",
-                        "agent": {"id": "portal-agent", "version": "2.1.0"},
+                        "service": {"id": "portal-agent", "version": "2.1.0"},
                         "note": f"<script>{SENTINEL}</script>",
                     },
                     "questions": {
@@ -1247,7 +1241,7 @@ def test_a_reports_confidence_blocks_are_read_as_names_and_counts_and_nothing_el
             "calibrated": True,
             "cases": 400,
             "dataset": "calibration",
-            "agent_version": "2.1.0",
+            "service_version": "2.1.0",
             "same_cases": True,
             "questions": [
                 {"question": "request", "n": 300, "ece_before": 0.142, "ece_after": 0.031}
@@ -1270,14 +1264,14 @@ def test_a_reports_confidence_blocks_are_read_as_names_and_counts_and_nothing_el
 
 def test_what_a_part_calls_is_said_in_words_that_read(store: AuditStore) -> None:
     """An agent's own service, never "a agent service"."""
-    pack = demo()
-    Decision(pack, store=store).decide(REFILL)
-    built = packet.build(store, pack, deployment=local_deployment(agent_endpoint=True))
+    agent = demo()
+    Decision(agent, store=store).decide(REFILL)
+    built = packet.build(store, agent, deployment=local_deployment(agent_endpoint=True))
     page = packet.render_html(built)
     said = reads(page)
     assert "a agent" not in said and "a agent" not in page
     assert "the agent's own service, model mock-portal-agent" in said
     assert packet._service("llm") == "a service of type <code>llm</code>"
     assert packet._service("check") == "the services of its members (<code>check</code>)"
-    canned = reads(packet.render_html(packet.build(store, pack, deployment=local_deployment())))
+    canned = reads(packet.render_html(packet.build(store, agent, deployment=local_deployment())))
     assert "nothing here: it answers from canned examples" in canned

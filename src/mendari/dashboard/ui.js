@@ -315,25 +315,23 @@ export function storageSet(key, value) {
 }
 
 // `launchOnly`: an EHR launch and no one signed in (sign-in on): the patient view is all there is,
-// the packs come from the launch's session, and nothing else is asked of the API. `launchPin`: the
+// the agents come from the launch's session, and nothing else is asked of the API. `launchPin`: the
 // launch this window is pinned to (dashboard/patient.js), kept when the address loses it.
 // `accounts`: "claims" or "memberships" (`/api/auth/me`); `memberships`: the person's own, in
 // memberships mode; `noAccess`: why they see the access page instead of the sections (access.js).
 // `backendServices`: `{token_endpoint}` when SMART Backend Services is on (`/api/health`, signed
 // in), else null. `checkpointKey`: the id of the key that signs the daily checkpoint (`/api/health`),
-// else null: the audit trail then asks for no checkpoint. `labelling`: the person holds `label` and
-// the deployment serves the labelling routes (labelling.js); `written`: likewise a grader's
-// routes over written output (written.js); `labelOnly`: and holds nothing else, so those screens
-// are all they see. `evalsets`: the deployment has the evaluation-set keys
-// (`/api/health` names their ids to a signed-in reader): in memberships mode, its administrators'
-// hidden sets screen is served (evalsets.js). `registry`: the pack registry is served here
+// else null: the audit trail then asks for no checkpoint. `written`: the person holds `label`, the
+// deployment serves a grader's routes over written output and a round holds work of theirs
+// (written.js); `labelOnly`: and holds nothing else, so that screen is all they see.
+// `registry`: the agent registry is served here
 // (MENDARI_REGISTRY=on; `/api/health` says so to a signed-in reader): the Access view adds its
 // namespaces and publisher tokens (registry.js). `reviewOnly`: the person holds nothing but
 // `registry_review`, so the registry's review screen is all they see.
 export const state = {
-  packs: [], packId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, launchPin: null, phiMode: "off",
-  accounts: "claims", memberships: [], noAccess: null, backendServices: null, checkpointKey: null, labelling: false, written: false, labelOnly: false,
-  evalsets: false, registry: false, reviewOnly: false, replayDraft: null, packQueue: new Map(),
+  agents: [], agentId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, launchPin: null, phiMode: "off",
+  accounts: "claims", memberships: [], noAccess: null, backendServices: null, checkpointKey: null, written: false, labelOnly: false,
+  registry: false, reviewOnly: false, replayDraft: null, agentQueue: new Map(),
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
 
@@ -349,10 +347,10 @@ export const MEMBERSHIP_ROLES = [
   { key: "reviewer", label: "Reviewer", text: "decides and reviews cases" },
   { key: "service", label: "Service", text: "decides and records outcomes, for a system" },
   { key: "governance", label: "Governance", text: "approves agents and holds automation" },
-  { key: "admin", label: "Administrator", text: "everything but labelling, and manages people" },
-  { key: "pack_author", label: "Agent author", text: "writes agents in the organization's agent store, where it is on" },
-  { key: "labeller", label: "Labeller", text: "labels the cases of hidden evaluation sets, blind" },
-  // Given in the pack registry's review organization only (a 422 in any other, LP-19e): offered
+  { key: "admin", label: "Administrator", text: "everything but grading, and manages people" },
+  { key: "agent_author", label: "Agent author", text: "writes agents in the organization's agent store, where it is on" },
+  { key: "labeller", label: "Labeller", text: "grades what agents write, blind" },
+  // Given in the agent registry's review organization only (a 422 in any other, LP-19e): offered
   // where the server says this organization is that one (`me.registry_review_org`).
   { key: "registry_reviewer", label: "Registry reviewer", text: "reviews the agent registry: namespace claims, recalls and deletions", reviewOrg: true },
 ];
@@ -385,30 +383,30 @@ export function docsLink(doc) {
   return url.href;
 }
 
-export const packPath = () => `/api/agents/${state.packId}`;
+export const agentPath = () => `/api/agents/${state.agentId}`;
 
-// A pack chosen while another was still loading wins: the older answer is dropped when it arrives.
-// The load in flight is kept: a view that reads the pack waits for it (`packLoaded`, router.js),
+// An agent chosen while another was still loading wins: the older answer is dropped when it arrives.
+// The load in flight is kept: a view that reads the agent waits for it (`agentLoaded`, router.js),
 // one that reads none (the Access view) does not.
-let packLoad = Promise.resolve();
-let packFailed = false;
+let agentLoad = Promise.resolve();
+let agentFailed = false;
 
-export function loadPack(packId) {
-  state.packId = packId;
-  packFailed = false;
-  if (state.launchOnly) return (packLoad = Promise.resolve()); // a launch reads no pack's details (the patient view needs none)
-  const load = api(`/api/agents/${packId}`).then((detail) => {
-    if (state.packId === packId) state.detail = detail;
+export function loadAgent(agentId) {
+  state.agentId = agentId;
+  agentFailed = false;
+  if (state.launchOnly) return (agentLoad = Promise.resolve()); // a launch reads no agent's details (the patient view needs none)
+  const load = api(`/api/agents/${agentId}`).then((detail) => {
+    if (state.agentId === agentId) state.detail = detail;
   });
   // Said by the view that waits for it, not as an unhandled rejection.
-  load.catch(() => { if (packLoad === load) packFailed = true; });
-  packLoad = load;
+  load.catch(() => { if (agentLoad === load) agentFailed = true; });
+  agentLoad = load;
   return load;
 }
 
-// The chosen pack's details, loaded. Once they failed (and the view said so), the next view
+// The chosen agent's details, loaded. Once they failed (and the view said so), the next view
 // shown, or its "Try again", asks for them again.
-export const packLoaded = () => (packFailed ? loadPack(state.packId) : packLoad);
+export const agentLoaded = () => (agentFailed ? loadAgent(state.agentId) : agentLoad);
 
 export function watchEdges(el) {
   const edges = () => {
@@ -524,7 +522,7 @@ export function actionDialog({ title, body, action, danger = false, run }) {
   });
 }
 
-// Which pack, how risky, and what is deployed, in words; the exact identifiers stay one line below
+// Which agent, how risky, and what is deployed, in words; the exact identifiers stay one line below
 // (decision 1 in notes/ui-ux-review.md: plain words first, codes one step away).
 export const slotText = (slot) => {
   const s = String(slot ?? "");

@@ -16,9 +16,9 @@ from typing import Any
 
 import pytest
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.core import validation_brief
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.evals.monitoring import MIN_FOR_OPERATIONS, monitor
 from tests.conftest import DEMO_AGENT_DIR
 
@@ -32,13 +32,13 @@ RUNNING = {"reader": "agent"}
 
 
 @pytest.fixture(scope="module")
-def pack() -> Pack:
-    return load_pack(DEMO_AGENT_DIR, origin="maintained")
+def agent() -> Agent:
+    return load_agent(DEMO_AGENT_DIR, origin="maintained")
 
 
-def brief(store: AuditStore, pack: Pack, **kwargs: Any) -> dict[str, Any]:
-    monitoring = monitor(store, pack, days=30, providers=RUNNING)
-    return validation_brief.build(store, pack, days=30, monitoring=monitoring, **kwargs)
+def brief(store: AuditStore, agent: Agent, **kwargs: Any) -> dict[str, Any]:
+    monitoring = monitor(store, agent, days=30, providers=RUNNING)
+    return validation_brief.build(store, agent, days=30, monitoring=monitoring, **kwargs)
 
 
 def states(found: dict[str, Any]) -> dict[str, str]:
@@ -50,9 +50,9 @@ def gate(found: dict[str, Any], key: str) -> dict[str, Any]:
     return dict(one)
 
 
-def test_with_no_decisions_no_gate_that_measures_passes(store: AuditStore, pack: Pack) -> None:
-    found = brief(store, pack)
-    assert found["format"] == "mendari.validation-brief/2"
+def test_with_no_decisions_no_gate_that_measures_passes(store: AuditStore, agent: Agent) -> None:
+    found = brief(store, agent)
+    assert found["format"] == "mendari.validation-brief/1"
     assert states(found) == {
         "volume": "no_data",
         "safety": "no_data",
@@ -67,7 +67,7 @@ def test_with_no_decisions_no_gate_that_measures_passes(store: AuditStore, pack:
         "1 of 5 gates pass; 4 without enough data"
     )
     # Without the monitor's report the drift gate has nothing to read, and says that.
-    unread = validation_brief.build(store, pack, days=30)
+    unread = validation_brief.build(store, agent, days=30)
     assert gate(unread, "drift") == {
         "key": "drift",
         "label": "Calibration & operational drift",
@@ -76,20 +76,20 @@ def test_with_no_decisions_no_gate_that_measures_passes(store: AuditStore, pack:
     }
 
 
-def test_a_shadow_pilot_never_passes_the_safety_gate(store: AuditStore, pack: Pack) -> None:
+def test_a_shadow_pilot_never_passes_the_safety_gate(store: AuditStore, agent: Agent) -> None:
     """In a shadow pilot nothing is automated, so nothing shows how the agent does alone: the
     gate used to pass on "0 automated decisions rated wrong"."""
     hold = store.hold_automation(
         org=None,
-        pack_id=pack.id,
-        pack_digest=None,
+        agent_id=agent.id,
+        agent_digest=None,
         reason="shadow pilot: 7-day validation against clinicians",
         set_by="cmio-1",
     )
-    decide = Decision(pack, store=store, hold_source=lambda _: f"hold {hold['id']}")
+    decide = Decision(agent, store=store, hold_source=lambda _: f"hold {hold['id']}")
     for _ in range(4):
         assert decide.decide(REFILL).outcome.value == "HUMAN_REVIEW"
-    found = brief(store, pack, holds=store.holds(None))
+    found = brief(store, agent, holds=store.holds(None))
     assert found["shadow_pilot"]["active"] is True
     assert found["volume"]["automated"] == 0 and found["volume"]["would_automate"] == 4
     safety = gate(found, "safety")
@@ -102,16 +102,18 @@ def test_a_shadow_pilot_never_passes_the_safety_gate(store: AuditStore, pack: Pa
     assert found["ready_for_live"] is False
 
 
-def test_automated_decisions_nobody_looked_at_are_not_a_pass(store: AuditStore, pack: Pack) -> None:
-    decide = Decision(pack, store=store)
+def test_automated_decisions_nobody_looked_at_are_not_a_pass(
+    store: AuditStore, agent: Agent
+) -> None:
+    decide = Decision(agent, store=store)
     made = [decide.decide(REFILL) for _ in range(3)]
     assert {result.outcome.value for result in made} == {"AUTO"}
-    unseen = gate(brief(store, pack), "safety")
+    unseen = gate(brief(store, agent), "safety")
     assert unseen["status"] == "no_data"
     assert unseen["detail"].startswith("3 decisions automated in the last 30 days, and nobody")
     # One of them rated right: the gate has something to pass on, and says how much.
     store.record_feedback(made[0].id, rating="up", reporter="rn-1")
-    seen = gate(brief(store, pack), "safety")
+    seen = gate(brief(store, agent), "safety")
     assert seen["status"] == "pass"
     assert seen["detail"] == (
         "0 rated wrong of 3 automated decisions (1 rating, 0 recorded outcomes), and no "
@@ -119,22 +121,22 @@ def test_automated_decisions_nobody_looked_at_are_not_a_pass(store: AuditStore, 
     )
     # One rated wrong: it fails, as before.
     store.record_feedback(made[1].id, rating="down", reporter="rn-2")
-    wrong = gate(brief(store, pack), "safety")
+    wrong = gate(brief(store, agent), "safety")
     assert wrong["status"] == "fail"
     assert wrong["detail"].startswith("1 rating of wrong on 3 automated decisions")
 
 
 def test_the_drift_gate_passes_only_when_the_monitor_could_compare(
-    store: AuditStore, pack: Pack
+    store: AuditStore, agent: Agent
 ) -> None:
-    decide = Decision(pack, store=store)
+    decide = Decision(agent, store=store)
     for _ in range(MIN_FOR_OPERATIONS - 1):
         decide.decide(REFILL)
-    few = gate(brief(store, pack), "drift")
+    few = gate(brief(store, agent), "drift")
     assert few["status"] == "no_data"
     assert few["detail"].startswith(f"{MIN_FOR_OPERATIONS - 1} decisions in the last 7 days")
     decide.decide(REFILL)
-    enough = gate(brief(store, pack), "drift")
+    enough = gate(brief(store, agent), "drift")
     assert enough["status"] == "pass"
     # It says what was compared, and what was not: the demo agent carries no benchmark.
     assert enough["detail"] == (
@@ -143,25 +145,25 @@ def test_the_drift_gate_passes_only_when_the_monitor_could_compare(
     )
     # An alert is a finding, with or without enough decisions.
     alerting = {"alerts": [{"kind": "drift", "severity": "medium", "message": "PSI 0.31"}]}
-    found = validation_brief.build(store, pack, days=30, monitoring=alerting)
+    found = validation_brief.build(store, agent, days=30, monitoring=alerting)
     assert gate(found, "drift")["status"] == "warn"
     alerting["alerts"][0]["severity"] = "high"
-    found = validation_brief.build(store, pack, days=30, monitoring=alerting)
+    found = validation_brief.build(store, agent, days=30, monitoring=alerting)
     assert gate(found, "drift")["status"] == "fail" and gate(found, "safety")["status"] == "fail"
 
 
-def test_the_agreement_gate_needs_a_label(store: AuditStore, pack: Pack) -> None:
-    held = Decision(pack, store=store).decide(URGENT)
+def test_the_agreement_gate_needs_a_label(store: AuditStore, agent: Agent) -> None:
+    held = Decision(agent, store=store).decide(URGENT)
     assert held.outcome.value == "HUMAN_REVIEW" and held.recommendation
-    assert gate(brief(store, pack), "agreement")["status"] == "no_data"
+    assert gate(brief(store, agent), "agreement")["status"] == "no_data"
     store.resolve_review(held.id, final_label=held.recommendation, reviewer="rn-1")
-    agreed = gate(brief(store, pack), "agreement")
+    agreed = gate(brief(store, agent), "agreement")
     assert agreed["status"] == "pass"
     assert agreed["detail"].startswith("1 of 1 [")  # what it is out of, with its interval
 
 
-def test_the_brief_says_it_is_not_signed(store: AuditStore, pack: Pack) -> None:
-    found = brief(store, pack)
+def test_the_brief_says_it_is_not_signed(store: AuditStore, agent: Agent) -> None:
+    found = brief(store, agent)
     assert found["signed"] is False
     assert found["about"] == validation_brief.ABOUT and "It is not signed" in found["about"]
     text = validation_brief.render_markdown(found)

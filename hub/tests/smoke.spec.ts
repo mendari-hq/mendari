@@ -148,19 +148,6 @@ test("an unknown agent is a 404 page", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Not found" })).toBeVisible();
 });
 
-// An agent's page was at /packs/<namespace>/<name> before: a link made then still opens it, and a
-// name is only ever a name in the address it leads to.
-test("the address an agent's page had before leads to the page", async ({ page, request }) => {
-  const moved = await request.get("/packs/mendari/portal-message-agent", { maxRedirects: 0 });
-  expect(moved.status()).toBe(308);
-  expect(moved.headers()["location"]).toBe(DEMO);
-  const odd = await request.get("/packs/%2F%2Fexample.org/a%3Fb", { maxRedirects: 0 });
-  expect(odd.headers()["location"]).toBe("/agents/%2F%2Fexample.org/a%3Fb");
-  await page.goto("/packs/mendari/portal-message-agent");
-  await expect(page).toHaveURL(/\/agents\/mendari\/portal-message-agent$/);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Portal Message Agent");
-});
-
 test("pages fit a phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const pages = ["/", DEMO, `${DEMO}/evaluation`, "/agents/hub-test/hostile-text", "/agents/hub-test/hostile-text/evaluation", "/publishers/mendari"];
@@ -178,7 +165,7 @@ test("an agent page shows site evidence in its own section: sites, cases, a plot
   await page.goto(DEMO);
   const section = page.getByRole("region", { name: /^Site evidence/ });
   await expect(section.getByRole("heading", { level: 2 })).toHaveText("Site evidence: 2 sites, 900 cases");
-  await expect(section).toContainText("not part of any hidden-set result or rank");
+  await expect(section).toContainText("They are not part of any rank");
   await expect(section.getByRole("heading", { level: 3 }).first()).toHaveText(
     "2 sites, 900 cases (a configuration with remote providers, consented)",
   );
@@ -218,7 +205,7 @@ test("an agent page shows the publisher's evaluations side by side, one row per 
   await expect(section.getByRole("heading", { level: 2 })).toHaveText("Published evaluations");
   await expect(section).toContainText("own public dataset: test (600 cases)");
   await expect(section).toContainText("can be tuned to a set its publisher chose");
-  await expect(section).toContainText("site evidence and hidden sets are stronger evidence");
+  await expect(section).toContainText("site evidence is stronger evidence");
   const table = section.getByRole("table");
   await expect(table.getByRole("columnheader")).toHaveText([
     "Configuration (latency and cost as reported by the publisher)",

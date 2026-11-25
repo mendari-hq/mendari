@@ -11,7 +11,6 @@ dictionary of guesses cannot match.
 from __future__ import annotations
 
 import base64
-import datetime as dt
 import hashlib
 import hmac
 import itertools
@@ -21,49 +20,75 @@ import re
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack, load_pack
+from mendari import Agent, AuditStore, Decision, load_agent
 from mendari.core.phi import PhiMode, PhiPolicy, key_id, phi_policy
 from mendari.errors import MendariError
+from mendari.providers.agent import AgentProvider
 from mendari.sandbox import pilot_check
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir
 from mendari.standards.terminology import NAMING_SYSTEMS
-from tests.conftest import HASH_KEY_B64, INPUT_HASH_KEY, ROOT, message
+from tests.conftest import CHART_DIR, HASH_KEY_B64, INPUT_HASH_KEY, message
+from tests.support.fixture_records import CONDITIONS, Case, Condition
+from tests.support.platform import TRIAGE_API
 
-FIXTURES = ROOT / "tests" / "fixtures" / "us-core"
-TRIAL = "mendari/clinical-trial-prescreener"
+CHART = "mendari-test/chart-summary"  # the fixture that reads a patient's FHIR record
 PHI_KEY = os.urandom(32)
-# Marks planted in a synthetic case: a Patient id shaped like a medical record number, and an
-# HbA1c value and date no other part of a record could hold. The date is 30 days before today,
-# inside the trial pack's 90-day HbA1c window: a fixed date ages out of it, and the HbA1c
-# criterion then answers "unknown" and shows no evidence (the fixed 2026-07-29 aged out in
-# late October 2026).
+# Marks planted in a synthetic chart: a Patient id shaped like a medical record number, and a
+# condition's onset date no other part of a record could hold. An agent service's rationale may
+# quote what it read (`quoting_agent`): an answer's evidence then holds a value of the record
+# (the condition as the record names it, `NAMED`) and its date, as `QUOTED`.
 MRN = "MRN4821937"
-LAB_VALUE = "8.37"
-LAB_DATE = (dt.datetime.now(dt.UTC).date() - dt.timedelta(days=30)).isoformat()
+CODE = "E11.9"
+NAMED = CONDITIONS[CODE][0]
+ONSET = "2019-03-14"
+QUOTED = f"{NAMED} since {ONSET}"
 KEYED = re.compile(r"^hmac-sha256:[0-9a-f]{16}:[0-9a-f]{64}$")
 
 
 @pytest.fixture(scope="module")
-def trial() -> Pack:
-    return load_pack(
-        ROOT / "tests" / "fixtures" / "reference-agents" / "clinical-trial-prescreener"
-    )
+def chart() -> Agent:
+    return load_agent(CHART_DIR)
 
 
 def marked_bundle(*, conforming: bool = True) -> dict[str, Any]:
-    """The trial fixture with the marks planted; without `gender`, the Patient breaks US Core."""
-    text = (FIXTURES / "trial.json").read_text(encoding="utf-8").replace("tr-p1", MRN)
-    bundle: dict[str, Any] = json.loads(text)
-    lab = bundle["entry"][2]["resource"]
-    lab["valueQuantity"]["value"] = float(LAB_VALUE)
-    lab["effectiveDateTime"] = LAB_DATE
+    """A synthetic chart with the marks planted: the Patient's id is `MRN`, and its one
+    condition (`CODE`) began on `ONSET`. Without `gender`, the Patient breaks US Core."""
+    case = Case(id=MRN, age=57, sex="female", conditions=(Condition(CODE, ONSET),))
+    bundle = case.bundle()
     if not conforming:
         bundle["entry"][0]["resource"].pop("gender")
     return bundle
+
+
+def quoting_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The chart-summary fixture's agent as a live service (`MENDARI_AGENT_URL`), answered in
+    place of the network, whose rationale quotes the chart's first condition and its onset, as an
+    agent's may: each answer's evidence then holds values of the record (`QUOTED`)."""
+    monkeypatch.setenv("MENDARI_AGENT_URL", "https://agent.test/v1/decide")
+    monkeypatch.delenv("MENDARI_AGENT_TOKEN", raising=False)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        first = json.loads(request.content)["input"]["conditions"][0]
+        quoted = f"{first['text']} since {first['onset']}"
+        answers = {
+            "follow_up": {"value": "routine", "confidence": 0.95, "rationale": quoted},
+            "on_anticoagulant": {"value": "no", "confidence": 0.96, "rationale": quoted},
+        }
+        body = {"model": "chart-reader", "service_version": "1.0.0", "answers": answers}
+        return httpx.Response(200, json=body)
+
+    original = AgentProvider.__init__
+
+    def init(self: AgentProvider, *args: Any, **kwargs: Any) -> None:
+        kwargs["client"] = httpx.Client(transport=httpx.MockTransport(handler))
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(AgentProvider, "__init__", init)
 
 
 def planted(mark: str, text: str) -> bool:
@@ -92,15 +117,16 @@ def evidence(record: dict[str, Any]) -> str:
 
 @pytest.mark.parametrize("mode", ["hash", "encrypt"])
 def test_no_lab_value_date_or_patient_id_is_stored(
-    db_target: str, trial: Pack, mode: PhiMode
+    db_target: str, chart: Agent, mode: PhiMode, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    quoting_agent(monkeypatch)
     store = AuditStore(db_target, phi=policy(mode))
-    decide = Decision(trial, store=store, fhir_validation="warn")
+    decide = Decision(chart, store=store, fhir_validation="warn")
     result, _ = decide.decide_fhir(marked_bundle(conforming=False))
     answered = json.dumps(result.to_dict())  # what the caller gets back is unchanged
-    assert LAB_VALUE in answered and LAB_DATE in answered and f"Patient/{MRN}" in answered
+    assert QUOTED in answered and f"Patient/{MRN}" in answered
     kept = stored_text(store)
-    for mark in (LAB_VALUE, LAB_DATE, MRN):
+    for mark in (NAMED, ONSET, MRN):
         assert not planted(mark, kept), mark
     item = store.item(result.id)
     assert item is not None
@@ -109,34 +135,40 @@ def test_no_lab_value_date_or_patient_id_is_stored(
     # The data-coverage record (LP-23d) counts what the mapping found, in every mode: the same
     # for the caller and the trail, and never a value, a date or an id.
     coverage = item["record"]["data_coverage"]
-    assert coverage == result.data_coverage and coverage["lists"]["observations"]["resources"] == 1
-    for mark in (LAB_VALUE, LAB_DATE, MRN):
+    assert coverage == result.data_coverage and coverage["lists"]["conditions"]["resources"] == 1
+    for mark in (NAMED, ONSET, MRN):
         assert not planted(mark, json.dumps(coverage)), mark
     assert store.verify()["ok"] is True
     store.close()
 
 
-def test_a_reviewer_sees_the_evidence_under_encrypt(db_target: str, trial: Pack) -> None:
+def test_a_reviewer_sees_the_evidence_under_encrypt(
+    db_target: str, chart: Agent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    quoting_agent(monkeypatch)
     store = AuditStore(db_target, phi=policy("encrypt"))
-    result, _ = Decision(trial, store=store).decide_fhir(marked_bundle())
+    result, _ = Decision(chart, store=store).decide_fhir(marked_bundle())
     hidden = store.get(result.id)
     assert hidden is not None and hidden["input_restricted"] is True
-    assert LAB_VALUE not in evidence(hidden["record"])
+    assert NAMED not in evidence(hidden["record"])
     shown = store.get(result.id, reader="Nurse Kim")
-    assert shown is not None and f"{LAB_VALUE} % on {LAB_DATE}" in evidence(shown["record"])
+    assert shown is not None and QUOTED in evidence(shown["record"])
     given = {q: list(a.evidence) for q, a in result.answers.items()}
     assert {q: a["evidence"] for q, a in shown["record"]["answers"].items()} == given
     assert shown["events"][-1]["event"] == "input.read"
     assert store.purge_inputs(0) == 1  # retention deletes the evidence with the input
     purged = store.get(result.id, reader="Nurse Kim")
-    assert purged is not None and LAB_VALUE not in evidence(purged["record"])
+    assert purged is not None and NAMED not in evidence(purged["record"])
     assert store.verify()["ok"] is True
     store.close()
 
 
-def test_sealed_details_open_only_for_their_own_decision(tmp_path: Path, trial: Pack) -> None:
+def test_sealed_details_open_only_for_their_own_decision(
+    tmp_path: Path, chart: Agent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    quoting_agent(monkeypatch)
     store = AuditStore(tmp_path / "a.db", phi=policy("encrypt"))
-    decide = Decision(trial, store=store)
+    decide = Decision(chart, store=store)
     first, _ = decide.decide_fhir(marked_bundle())
     second, _ = decide.decide_fhir(marked_bundle())
     with store._db.session(exclusive=True) as db:
@@ -152,34 +184,20 @@ def test_sealed_details_open_only_for_their_own_decision(tmp_path: Path, trial: 
         PhiPolicy(mode="encrypt", key=PHI_KEY).decrypt(first.id, stolen["details"])
 
 
-def test_off_mode_keeps_evidence_unless_the_pack_keeps_only_the_hash(
-    tmp_path: Path, trial: Pack
+def test_off_mode_keeps_evidence_unless_the_agent_keeps_only_the_hash(
+    tmp_path: Path, chart: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    quoting_agent(monkeypatch)
     store = AuditStore(tmp_path / "a.db")
-    result, _ = Decision(trial, store=store).decide_fhir(marked_bundle())
+    result, _ = Decision(chart, store=store).decide_fhir(marked_bundle())
     kept = store.item(result.id)
-    assert kept is not None and f"{LAB_VALUE} % on {LAB_DATE}" in evidence(kept["record"])
+    assert kept is not None and QUOTED in evidence(kept["record"])
     assert kept["record"]["input"] is not None  # as before
-    hashed, _ = Decision(trial).decide_fhir(marked_bundle())
+    hashed, _ = Decision(chart).decide_fhir(marked_bundle())
     store.record(hashed, {"case": "synthetic"}, store_input="hash")
     dropped = store.item(hashed.id)
     assert dropped is not None and dropped["record"]["input"] is None
-    assert LAB_VALUE not in evidence(dropped["record"])
-
-
-def test_an_older_database_gets_the_details_column(db_target: str, trial: Pack) -> None:
-    """Inputs kept before this release have no details: they still open, with no evidence."""
-    with AuditStore(db_target, phi=policy("encrypt")) as store:
-        result, _ = Decision(trial, store=store).decide_fhir(marked_bundle())
-        with store._db.session(exclusive=True) as db:
-            db.all("ALTER TABLE decision_inputs DROP COLUMN details")
-    for _ in range(2):  # the second start finds nothing to do
-        with AuditStore(db_target, phi=policy("encrypt")) as store:
-            with store._db.session(exclusive=False) as db:
-                assert "details" in db.columns("decision_inputs")
-            shown = store.get(result.id, reader="Nurse Kim")
-            assert shown is not None and shown["record"]["input"] is not None
-            assert LAB_VALUE not in evidence(shown["record"])
+    assert NAMED not in evidence(dropped["record"])
 
 
 @pytest.mark.parametrize("validation", ["warn", "enforce"])
@@ -191,7 +209,7 @@ def test_issues_name_a_resource_by_position_in_the_record_and_by_id_to_the_calle
     parameters = {
         "resourceType": "Parameters",
         "parameter": [
-            {"name": "pack", "valueString": TRIAL},
+            {"name": "agent", "valueString": CHART},
             {"name": "data", "resource": marked_bundle(conforming=False)},
         ],
     }
@@ -230,15 +248,15 @@ def test_the_hash_is_keyed_named_and_stable_under_one_key() -> None:
 
 
 def test_a_decision_records_the_keyed_hash_and_provenance_carries_it(
-    db_target: str, trial: Pack
+    db_target: str, chart: Agent
 ) -> None:
     store = AuditStore(db_target, phi=policy("hash"))
-    result, _ = Decision(trial, store=store).decide_fhir(marked_bundle())
+    result, _ = Decision(chart, store=store).decide_fhir(marked_bundle())
     assert KEYED.match(result.input_hash)
     item = store.item(result.id)
     assert item is not None and item["record"]["input_hash"] == result.input_hash
     created = {**item["events"][0], "decision_id": result.id, "record": item["record"]}
-    created |= {"pack_id": result.pack_id, "pack_version": result.pack_version}
+    created |= {"agent_id": result.agent_id, "agent_version": result.agent_version}
     provenance = audit_fhir.provenance(created)
     assert provenance["entity"][0]["what"]["identifier"]["value"] == result.input_hash
     store.close()
@@ -318,9 +336,7 @@ def test_health_names_the_hash_kind_and_key_id(
     keyed = TestClient(create_app(db_path=tmp_path / "b.db"))
     kind = f"hmac-sha256:{key_id(INPUT_HASH_KEY)}"
     assert keyed.get("/api/health").json()["input_hash"] == kind
-    decided = keyed.post(
-        "/api/packs/mendari/patient-inbox-router/decide", json=message("refill please")
-    ).json()
+    decided = keyed.post(f"{TRIAGE_API}/decide", json=message("refill please")).json()
     assert decided["input_hash"].startswith(kind + ":")
 
 

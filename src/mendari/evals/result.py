@@ -1,19 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-"""An evaluation report's result (`mendari.eval/2`, LP-10), computed only from its ledger and
+"""An evaluation report's result (`mendari.eval/1`, LP-10), computed only from its ledger and
 seeds, so two runs on the same cases give byte-identical results and anyone holding the ledger can
 recompute them. What changes from run to run (its id, when it ran, how long decisions took) is in
 the report's separate `run` block, outside the result; so is the run's operating point
 (mendari.evals.operating_point), which depends on the run's options and on what each decision
 kept in memory, never on the ledger alone.
 
-Over `mendari.eval/1`, the result keeps every figure and adds: each proportion as k of n with its
-exact Clopper-Pearson interval (`proportions`, and `proportion` beside each question's accuracy and
-each critical label's detection), a seeded bootstrap interval for each Brier score, an equal-mass
+The result holds every figure and, with them, each proportion as k of n with its exact
+Clopper-Pearson interval (`proportions`, and `proportion` beside each question's accuracy and each
+critical label's detection), a seeded bootstrap interval for each Brier score, an equal-mass
 calibration error beside the equal-width one ("not estimable" on small bins), the answering models,
 and the ledger it came from. Cases are named by their ledger hash, never their id.
-
-`normalize` reads a report of either format as this one: a `mendari.eval/1` report's id, time and
-latency are lifted into its `run` block (it has no ledger, so no intervals).
 """
 
 from __future__ import annotations
@@ -27,8 +24,7 @@ from typing import Any
 from mendari.evals import metrics, stats
 from mendari.evals.ledger import Ledger, canonical
 
-FORMAT = "mendari.eval/2"
-FORMATS_READ = ("mendari.eval/1", "openhealth.eval/1", FORMAT)
+FORMAT = "mendari.eval/1"
 SEED = 0
 # A critical label's evidence floor: fewer positives than this, and its figure says "insufficient
 # evidence" and ranks nothing (LP-10).
@@ -48,7 +44,7 @@ def result_sha256(result: Mapping[str, Any]) -> str:
 
 
 def result_of(report: Mapping[str, Any]) -> dict[str, Any]:
-    """A `mendari.eval/2` report's result block: the report without its run."""
+    """A `mendari.eval/1` report's result block: the report without its run."""
     return {key: value for key, value in report.items() if key not in RUN_KEYS}
 
 
@@ -145,7 +141,7 @@ def result_from_ledger(
     primary_accuracy = questions.get(primary, {}).get("proportion")
     return {
         "format": FORMAT,
-        "pack": header["pack"],
+        "agent": header["agent"],
         "providers": header["providers"],
         "policy": {
             "risk_level": header["policy"]["risk_level"],
@@ -276,7 +272,7 @@ def counted(rate: Any, n: Any) -> stats.Proportion | None:
     """k of n, with its interval, for a rate a report states over n cases (k = rate x n: exact
     for any n a report holds). None when that is not known: n missing or not a whole count (up
     to MAX_N), the rate missing over some cases, or not a share of those n cases (outside
-    [0, 1], or rate x n not a whole number). A report can be someone else's file (a pack's
+    [0, 1], or rate x n not a whole number). A report can be someone else's file (an agent's
     benchmark, a registry upload): what it says is checked before it is multiplied."""
     if isinstance(n, bool) or not isinstance(n, int) or not 0 <= n <= MAX_N:
         return None
@@ -292,55 +288,8 @@ def counted(rate: Any, n: Any) -> stats.Proportion | None:
     return stats.proportion(k, n)
 
 
-def false_automation(report: Mapping[str, Any]) -> stats.Proportion | None:
+def false_automation(report: Mapping[str, Any]) -> stats.Proportion:
     """Automated with a wrong recommendation, over every case labelled for the primary question:
-    stored in a mendari.eval/2 report, worked out from a mendari.eval/1 one."""
-    stored = (report.get("proportions") or {}).get("false_automation")
-    if stored is not None:
-        return stats.proportion(stored["k"], stored["n"])
-    automation = report["decisions"]["automation"]
-    wrong = counted(automation["false_automation_rate"], automation["n"])
-    labelled = report["questions"].get(report["primary"], {}).get("n")
-    return None if wrong is None or labelled is None else stats.proportion(wrong.k, labelled)
-
-
-def sweep(report: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """The threshold sweep with the counts each row is of (`scored` cases, `chosen` at or above
-    the threshold): stored since LP-10b; for an earlier report, `scored` is the primary
-    question's calibration bins, which hold exactly the cases the sweep is over, and `chosen`
-    follows from the coverage."""
-    question = report["questions"].get(report["primary"]) or {}
-    bins = (question.get("calibration") or {}).get("bins")
-    scored = sum(b["n"] for b in bins) if bins is not None else None
-    rows = []
-    for row in report.get("threshold_sweep", []):
-        if "chosen" not in row:
-            coverage = row.get("coverage")
-            if scored == 0:  # nothing scored: nothing at or above any threshold
-                chosen: int | None = 0
-            else:
-                chosen = None if scored is None or coverage is None else round(coverage * scored)
-            row = {**row, "scored": scored, "chosen": chosen}
-        rows.append(dict(row))
-    return rows
-
-
-def subgroup_labelled(report: Mapping[str, Any], members: Mapping[str, Any]) -> int | None:
-    """How many of a subgroup's members are labelled for the primary question, which its
-    accuracy is over: stored since LP-10b; for an earlier report, known only when every case
-    is labelled."""
-    if "labelled" in members:
-        return int(members["labelled"])
-    question = report["questions"].get(report["primary"]) or {}
-    every = question.get("n") is not None and question.get("n") == report["dataset"].get("n")
-    return int(members["n"]) if every else None
-
-
-def normalize(report: Mapping[str, Any]) -> dict[str, Any]:
-    """A report of either format, as `mendari.eval/2` reads: v1's id, created_at and latency_ms
-    in a `run` block. A v2 report is returned as it is."""
-    data = dict(report)
-    if "run" in data:
-        return data
-    run = {key: data.pop(key) for key in ("id", "created_at", "latency_ms") if key in data}
-    return {**data, "run": run}
+    the count the report stores (`proportions`)."""
+    stored = report["proportions"]["false_automation"]
+    return stats.proportion(stored["k"], stored["n"])

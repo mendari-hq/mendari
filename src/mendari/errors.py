@@ -22,11 +22,8 @@ ProviderErrorCode = Literal[
     "timeout",
     "unavailable",
 ]
-# A derived question whose inputs failed (core/derive.py): not a provider error, but recorded
-# among them.
-DERIVED_INPUT_UNAVAILABLE = "derived_input_unavailable"
 # Every code a decision may record a question's failure under.
-FAILURE_CODES = frozenset({*get_args(ProviderErrorCode), DERIVED_INPUT_UNAVAILABLE})
+FAILURE_CODES = frozenset(get_args(ProviderErrorCode))
 # Why part of a FHIR record could not be read (LP-23d): a closed set, held by its type, so a
 # decision's reasons and its data-coverage record (`standards/data_coverage.py`) name one of
 # these and never a URL, a query or what a server answered.
@@ -51,18 +48,18 @@ class MendariError(Exception):
     """Base class for Mendari errors."""
 
 
-class PackValidationError(MendariError):
+class AgentValidationError(MendariError):
     """An agent is malformed, inconsistent, or violates its risk-level rules."""
 
-    def __init__(self, pack: str, problems: list[str]):
-        self.pack = pack
+    def __init__(self, agent: str, problems: list[str]):
+        self.agent = agent
         self.problems = problems
         detail = "\n".join(f"  - {problem}" for problem in problems)
-        super().__init__(f"Agent {pack!r} is invalid:\n{detail}")
+        super().__init__(f"Agent {agent!r} is invalid:\n{detail}")
 
 
-class PackNotFoundError(MendariError):
-    """A pack reference could not be resolved from any search path."""
+class AgentNotFoundError(MendariError):
+    """An agent reference could not be resolved from any search path."""
 
 
 class ProviderError(MendariError):
@@ -85,39 +82,19 @@ class NoteError(MendariError):
 
 
 class NoAssignment(MendariError):
-    """A label for an assignment that is unknown, another labeller's, another organization's or
-    closed (answered, withdrawn, in a set no longer a draft, or on a membership no longer a
-    labeller's): one refusal for them all (`core/evalsets.py` `NO_ASSIGNMENT`), a `404` on the
-    labelling route, as an id that names nothing is (LP-11j)."""
+    """Grades for an assignment that is unknown, another grader's, another organization's or
+    closed (graded, withdrawn, in a round no longer open, or on a membership no longer a
+    labeller's): one refusal for them all (`core/written.py` `NO_ASSIGNMENT`), a `404` on a
+    grader's route, as an id that names nothing is."""
 
 
 class LabelError(MendariError):
-    """A label that does not answer its set's questions, each with one of its labels: names the
-    question, never a value given (a `422` on the labelling route, LP-11j)."""
-
-
-class NoEvalset(MendariError):
-    """A hidden evaluation set that is unknown, or another organization's to a route acting for
-    one: one refusal for both (`core/evalsets.py` `NO_SET`, naming no id), a `404` on the
-    set-management routes (LP-11k), as an id that names nothing is."""
-
-
-class GradingRefused(MendariError):
-    """A grading read of a hidden evaluation set refused (`core/evalsets.py` `grade_read`), or a
-    grading run refused before it reads one (LP-11l), with the fixed `reason` the grading route
-    answers and logs in place of the message: from the store `no_set`, `not_gradable`,
-    `no_runs_left`, `expired`, `set_changed` and `set_unavailable`; the route adds its own
-    (`server/app.py` `GRADING_REFUSALS`). The store's message names the set, for the key holder
-    and the tests; the route never repeats it. Retiring a set raises it too (`set_changed`,
-    `set_unavailable`), as the key holder's command's error."""
-
-    def __init__(self, reason: str, message: str):
-        self.reason = reason
-        super().__init__(message)
+    """Grades that do not answer a rubric's criteria, each with one of its levels: names the
+    criterion, never a value given (a `422` on a grader's route)."""
 
 
 class FhirError(MendariError):
-    """FHIR input is missing required resources or cannot be mapped to the pack input, or a
+    """FHIR input is missing required resources or cannot be mapped to the agent input, or a
     FHIR server could not be read. `status` is the HTTP status the server answered with, when
     it answered with one (a `401`: the token it was sent no longer works); `reason` why a read
     failed, when it is one (`standards/fhir_client.py` sets it at each raise)."""
@@ -153,21 +130,13 @@ class FhirRequestError(FhirStructureError):
     parameter of the wrong type (a `400`, like the structure errors it extends)."""
 
 
-class FhirSourceNotFound(FhirError):
-    """A FHIR operation's source data names nothing here: Da Vinci DTR's `$questionnaire-package`
-    with a `context` id or orders that name no decision of the caller's organization, so no
-    package can be built. Unknown and another organization's are one answer, which never repeats
-    the id: a `422` OperationOutcome with issue type `not-found` (DTR spec-130 asks for a 4xx; the
-    operation exists and the request is well formed, so not a `404` or a `400`)."""
-
-
 class CdsHooksError(MendariError):
     """A CDS Hooks request Mendari will not answer as sent: more draft orders to decide than
     one request may hold (a `400`; the EHR can send them in several requests)."""
 
 
 class UnknownCard(MendariError):
-    """CDS Hooks card feedback naming a card that is not a decision of the service's pack in the
+    """CDS Hooks card feedback naming a card that is not a decision of the service's agent in the
     caller's organization, or, when the caller is named (sign-in on, or a CDS client's token),
     one another caller asked for: one refusal for them all (a `404`), whichever it is, and
     nothing is recorded (`AuditStore.record_card_feedback`, LP-23f)."""
@@ -185,7 +154,7 @@ class SmartError(MendariError):
 
 
 class HubError(MendariError):
-    """A pack archive, signature, registry request or pull failed a check. `status` is the HTTP
+    """An agent archive, signature, registry request or pull failed a check. `status` is the HTTP
     status the registry answers with (404 unknown, 409 conflict, 410 deleted, 422 invalid)."""
 
     def __init__(self, message: str, status: int = 422):

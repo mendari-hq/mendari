@@ -75,10 +75,10 @@ The gate is the runtime's, like the risk caps: a manifest can tighten it (`allow
 and nothing loosens it. An action the agent never declared is blocked.
 
 The confidence the thresholds cut on can be checked: `mendari calibrate` fits an external
-agent's confidence on labelled cases, for the version of the agent it was fitted on, and when
-the agent changes nothing is automated until it is calibrated again. A second signal (each case
-asked several times, or a second model that checks the first) sends a decision to a person
-when the answers disagree, and never raises automation
+agent's confidence on labelled cases, for the version its service reported then, and when the
+service reports another version nothing is automated until it is calibrated again. A second
+signal (each case asked several times, or a second model that checks the first) sends a
+decision to a person when the answers disagree, and never raises automation
 ([Calibration and a second signal](https://github.com/mendari-hq/mendari/blob/main/docs/guides/calibration-and-a-second-signal.md)).
 
 ## Install
@@ -86,7 +86,7 @@ when the answers disagree, and never raises automation
 Mendari is not on PyPI yet. Install it from a clone of this repository; you need Python 3.11+
 and, for development, [uv](https://docs.astral.sh/uv/):
 
-<!-- check: skip private-repo: CI's checkout is this clone, and the quickstart job runs uv sync in it -->
+<!-- check: skip ci: CI's checkout is this clone, and the quickstart job runs uv sync in it -->
 ```bash
 git clone https://github.com/mendari-hq/mendari.git
 cd mendari
@@ -171,20 +171,22 @@ my-agent/
 ```
 
 The manifest declares **questions, not models**: each question has a fixed set of answers with
-criteria written in words, and the policy is written against those answers. Edit them for your
-own task: `mendari validate` says what is wrong, by file and field, and `mendari eval` gives
+criteria written in words, and the policy is written against those answers. A slot answers
+them, and each of its variants is one of four types: `rules` (weighted patterns), `llm` (a model
+behind a prompt), `agent` (your service, over HTTP) or `check` (one variant answers, a second
+checks it, and a person decides where they disagree). Edit the questions and the policy for
+your own task: `mendari validate` says what is wrong, by file and field, and `mendari eval` gives
 each figure as k of n with its exact 95% interval (twelve cases are a smoke test, not an
 estimate). The
 [authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md)
 explains every section, and
-[the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest-0.2.md)
+[the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest.md)
 specifies it.
 
 **In CI.** The workflow uses Mendari's GitHub Action: on a pull request or a push to `main` it
 validates, tests and evaluates the agent, writes the figures and the operating point to the
 job's summary, and fails the job when a limit you state is not met or the result is worse than
-a baseline. It needs no secret, and resolves once this repository is public and a release is
-tagged
+a baseline. It needs no secret, and resolves once a release is tagged (none is yet)
 ([Evaluating an agent on every change](https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md)).
 
 ### 3. Put a real model behind it
@@ -250,9 +252,8 @@ curl -sS -X POST http://127.0.0.1:8000/api/agents/mendari/portal-message-agent/d
 The answer is the decision (`"outcome": "HUMAN_REVIEW"`, `"priority": "urgent"`): the rule
 `same-day-symptoms` sends a refill request that mentions chest pain to a nurse. It is now in the
 review queue (`GET /api/review`) and the audit trail (`GET /api/audit/{id}`). The JSON names the
-agent under `pack`, the word Mendari used before: stored and signed records hold that key, so it
-keeps its name. The server is open by default, for local use, and documents its API at `/docs`;
-with sign-in on, canned answers never automate.
+agent under `agent`: its id, version and digest. The server is open by default, for local use,
+and documents its API at `/docs`; with sign-in on, canned answers never automate.
 
 The same decision from Python:
 
@@ -376,10 +377,14 @@ uv run mendari card agents/portal-message-agent      # the Decision Card: intend
 uv run mendari --version
 ```
 
-The server also speaks FHIR R4 (`POST /fhir/$decide`, decisions as `Task`, the trail as
-`AuditEvent` and `Provenance`) and CDS Hooks 2.0; the demo agent maps a FHIR `Communication` and
-declares a hook, so both answer for it
-([Using the API](https://github.com/mendari-hq/mendari/blob/main/docs/guides/api.md)).
+The server also speaks an EHR's standards: FHIR R4 (`POST /fhir/$decide`, decisions as `Task`,
+the trail as `AuditEvent` and `Provenance`), checking the FHIR it is given against US Core
+6.1.0; CDS Hooks 2.0; SMART App Launch, for a clinician the EHR launches into the console, and
+SMART Backend Services, for machines; and Bulk Data, whose export `mendari bulk` turns into a
+local dataset. The demo agent maps a FHIR `Communication` and declares a hook, so `$decide` and
+CDS Hooks both answer for it
+([Using the API](https://github.com/mendari-hq/mendari/blob/main/docs/guides/api.md),
+[Connecting an EHR](https://github.com/mendari-hq/mendari/blob/main/docs/guides/connecting-an-ehr.md)).
 
 ## Documentation
 
@@ -391,9 +396,8 @@ hosted yet.
 |---|---|
 | write an agent's manifest | [the authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md) |
 | find an agent's failures, set its threshold, check every change | [Finding failures](https://github.com/mendari-hq/mendari/blob/main/docs/guides/finding-failures.md), [Choosing an automation threshold](https://github.com/mendari-hq/mendari/blob/main/docs/guides/choosing-a-threshold.md), [Evaluating an agent on every change](https://github.com/mendari-hq/mendari/blob/main/docs/guides/evaluate-in-ci.md) |
-| check an agent's confidence, add a second signal, gate what it does | [Calibration and a second signal](https://github.com/mendari-hq/mendari/blob/main/docs/guides/calibration-and-a-second-signal.md), [Governing actions](https://github.com/mendari-hq/mendari/blob/main/docs/guides/governing-actions.md), [spec 0.4](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest-0.4.md) |
+| check an agent's confidence, add a second signal, gate what it does | [Calibration and a second signal](https://github.com/mendari-hq/mendari/blob/main/docs/guides/calibration-and-a-second-signal.md), [Governing actions](https://github.com/mendari-hq/mendari/blob/main/docs/guides/governing-actions.md), [the spec](https://github.com/mendari-hq/mendari/blob/main/docs/spec/agent-manifest.md) |
 | grade what an agent writes, with clinicians and a judge whose agreement is measured | [Evaluating written output](https://github.com/mendari-hq/mendari/blob/main/docs/guides/written-output.md) |
-| contribute an agent to this repository | [Contributing an agent](https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-an-agent.md) |
 | call Mendari over REST or FHIR | [Using the API](https://github.com/mendari-hq/mendari/blob/main/docs/guides/api.md) |
 | read an evaluation report | [Evaluation reports and ledgers](https://github.com/mendari-hq/mendari/blob/main/docs/spec/evaluation-reports.md) |
 | publish an agent's evaluations, with a page and a badge | [Publishing an agent's evaluations](https://github.com/mendari-hq/mendari/blob/main/docs/guides/publishing-evaluations.md) |
@@ -411,25 +415,24 @@ agents/           the bundled demo agent (portal-message-agent)
 examples/         three starters for the service behind an agent: HTTP, LangGraph, Claude
 src/mendari/
 ├── core/         manifest spec and loading, digest, runtime, policy, audit, Decision Card, committee packet
-├── providers/    what can fill an agent's slot: agent (HTTP), llm, jev, rules, naive_bayes, criteria, cql, dosing; the judge
+├── providers/    what can fill an agent's slot: rules, llm, agent (HTTP), check; repeated runs, calibration; the judge
 ├── evals/        metrics, the evaluation harness, the operating point, the probe, written output, behaviour tests, reports
-├── standards/    FHIR R4, CDS Hooks, SMART on FHIR, Da Vinci
+├── standards/    FHIR R4 and US Core, reading an EHR's records, CDS Hooks, SMART on FHIR, Bulk Data
 ├── server/       the FastAPI app: REST, FHIR, CDS Hooks, review, audit, sign-in
 ├── dashboard/    the Governance Console: HTML, CSS and ES modules, no build step
 ├── hub/          the registry service and its client (push, pull, verify)
-├── community/    the checks a contributed agent must pass
 ├── sandbox/      `mendari demo` and the `mendari sandbox` commands, on the demo agent
 ├── templates/    what `mendari new` writes
 ├── agent_kit.py  the kit the starters answer the agent contract with
 └── mcp.py        governed decisions as MCP tools
-tests/            the test suite (tests/fixtures/ holds synthetic fixtures only; tests/support/ makes them)
+tests/            the test suite (tests/fixtures/ holds synthetic fixtures only, the agents it decides with among them; tests/support/ makes them)
 docs/             guides, spec, operations, security, decision records (the documentation site)
 hub/              the Agent Hub website (Next.js), a front end to a registry
 web/              the public page, mendari.co (static HTML and CSS)
-deploy/           the one-machine install (site/), and on-premises, Kubernetes and Vercel templates
+deploy/           the one-machine install (site/), on-premises, Kubernetes and Vercel templates, a status page's checks
 scripts/          checks and generators that CI runs
 action.yml        the GitHub Action that checks an agent in its own repository's CI
-sandbox/          Inferno conformance kits against the engine (inferno/); CI's compose file for the test fixtures
+sandbox/          Inferno conformance kits against the engine (inferno/)
 licenses/         licence texts and notices for what the images and NOTICE carry
 notes/, tasks/    project notes, plans and lessons
 ```
@@ -440,7 +443,7 @@ notes/, tasks/    project notes, plans and lessons
 ```bash
 uv sync
 uv run pytest                             # the full suite; warnings are errors
-uv run pytest -m core                     # the edit loop, about 20 s: loading, decisions, policy, audit
+uv run pytest -m core                     # the edit loop, about a minute: loading, decisions, policy, audit
 uv run pytest tests/test_agent_provider.py   # and the file for what you changed
 uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
 uv run mypy src tests
@@ -454,7 +457,8 @@ and how to report a vulnerability in
 
 ## Status and limits
 
-- **Research preview.** The package is 0.1.0 and not released yet: it is not on PyPI.
+- **Research preview.** The package is 0.1.0 and not released: it is not on PyPI yet, so it
+  installs from a clone ([Install](#install)).
 - **Synthetic data only.** Every agent, dataset and figure here is synthetic: the figures show
   that the evaluation works, not how an agent does on real patients.
 - **Not a medical device**, and not for emergencies: patients should call 911.

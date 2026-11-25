@@ -32,7 +32,7 @@ criterion a clinician-failed output it could not grade counts as a failure it di
 the report counts, per criterion, the outputs it could not grade among those clinicians graded
 and among the rest.
 
-**The gate**, per criterion, has three states, as a grade's attestations do (`evals/grade.py`):
+**The gate**, per criterion, has three states:
 
 - *insufficient evidence* when any holds: fewer than `MIN_PAIRED` outputs graded by both; fewer
   than `MIN_EACH_SIDE` clinician verdicts on either side of the pass line; either kappa or its
@@ -79,7 +79,7 @@ from mendari.core.spec import (
     AGREEMENT_FLOOR,
     MAX_JUDGE_ERRORS,
     MUST_PASS_RECALL_FLOOR,
-    PackManifest,
+    AgentManifest,
 )
 from mendari.errors import MendariError, ProviderError
 from mendari.evals import stats
@@ -89,8 +89,8 @@ from mendari.evals.rater_agreement import measured, weighted_kappa
 from mendari.providers.base import METER, Meter, Metered, get_path, select_fields
 
 if TYPE_CHECKING:
+    from mendari.core.agent import Agent
     from mendari.core.decision import Decision
-    from mendari.core.pack import Pack
     from mendari.providers.judge import Judge
 
 __all__ = [
@@ -177,7 +177,7 @@ def item_id(key: bytes, case_id: Any, output: str, text: str) -> str:
     return hmac.new(key, message, hashlib.sha256).hexdigest()[:32]
 
 
-def rubric_view(manifest: PackManifest, rubric_name: str) -> dict[str, Any]:
+def rubric_view(manifest: AgentManifest, rubric_name: str) -> dict[str, Any]:
     """What a grader of `rubric_name` reads, and nothing else of the rubric: the output's name
     and description, the context fields, and per criterion its type, instructions, levels (each
     its label, score and anchor, lowest first), pass line and whether it must not fail. Not the
@@ -202,14 +202,14 @@ def rubric_view(manifest: PackManifest, rubric_name: str) -> dict[str, Any]:
     }
 
 
-def rubric_sha256(manifest: PackManifest, rubric_name: str) -> str:
+def rubric_sha256(manifest: AgentManifest, rubric_name: str) -> str:
     """SHA-256 of `rubric_view` as canonical JSON: what grades are bound to. A reworded
     instruction or anchor, another pass line or another context is another rubric."""
     return hashlib.sha256(canonical(rubric_view(manifest, rubric_name)).encode()).hexdigest()
 
 
 def written_text(
-    manifest: PackManifest,
+    manifest: AgentManifest,
     output_name: str,
     inputs: Mapping[str, Any],
     outputs: Mapping[str, str],
@@ -312,7 +312,7 @@ class WrittenLedger:
 
 
 _HEADER = {
-    "pack": dict, "dataset": dict, "cases": dict, "rubric": dict, "floors": dict,
+    "agent": dict, "dataset": dict, "cases": dict, "rubric": dict, "floors": dict,
     "providers": dict, "judge": dict, "models": list,
 }  # fmt: skip
 _FLOORS = ("agreement", "must_pass_recall", "max_judge_errors", "min_paired", "min_each_side")
@@ -333,7 +333,7 @@ def _header_ok(header: Mapping[str, Any]) -> bool:
         and isinstance(rubric.get("output"), dict)
         and isinstance(criteria, dict)
         and criteria
-        and isinstance(header["pack"].get("id"), str)
+        and isinstance(header["agent"].get("id"), str)
         and isinstance(header["dataset"].get("sha256"), str)
         and all(isinstance(model, str) for model in header["models"])
         and all(_number(floors.get(name)) for name in _FLOORS)
@@ -407,7 +407,7 @@ class WrittenRun:
     usage: dict[str, Metered] = field(default_factory=dict)
 
 
-def floors_of(manifest: PackManifest, rubric_name: str) -> dict[str, float | int]:
+def floors_of(manifest: AgentManifest, rubric_name: str) -> dict[str, float | int]:
     """The floors a run of `rubric_name` is decided on: the engine's, or the rubric's own where
     it raises one."""
     rubric = manifest.rubrics[rubric_name]
@@ -437,12 +437,12 @@ def run(
     from mendari.parallel import parallel_map
     from mendari.providers.deadline import decision_deadline
 
-    pack = decision.pack
-    manifest = pack.manifest
+    agent = decision.agent
+    manifest = agent.manifest
     rubric = manifest.rubrics.get(rubric_name)
     if rubric is None:
         known = ", ".join(manifest.rubrics) or "none"
-        raise MendariError(f"{pack.id} has no rubric {rubric_name!r} (its rubrics: {known})")
+        raise MendariError(f"{agent.id} has no rubric {rubric_name!r} (its rubrics: {known})")
     output = manifest.outputs[rubric.output]
     if output.slot is not None:
         info = decision.provider_info[output.slot]
@@ -541,7 +541,7 @@ def run(
             usage.setdefault(kind, Metered()).add(metered)
     header = {
         "format": LEDGER_FORMAT,
-        "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
+        "agent": {"id": agent.id, "version": agent.version, "digest": agent.digest},
         "dataset": {
             "name": dataset.name,
             "sha256": dataset.sha256,
@@ -578,7 +578,7 @@ def run(
 
 
 def grades_header(
-    manifest: PackManifest, rubric_name: str, dataset: Any, *, simulated: bool = False
+    manifest: AgentManifest, rubric_name: str, dataset: Any, *, simulated: bool = False
 ) -> dict[str, Any]:
     """Line 1 of a grades file for `rubric_name` over `dataset` (a `harness.Dataset`).
     `simulated`: its graders are no clinicians, which the file then says in its first line."""
@@ -670,14 +670,14 @@ def _grade_problem(values: Mapping[str, str], scales: Mapping[str, Sequence[str]
     return None
 
 
-def grades_problems(pack: Pack) -> list[str]:
+def grades_problems(agent: Agent) -> list[str]:
     """Why any grades file the agent declares (`evaluation.grades`) could not be used: it does
     not read as one, its grades are not of the rubric's criteria and levels, or it names another
     rubric wording or another dataset than the agent's now. Each problem names the file."""
-    from mendari.errors import PackValidationError
+    from mendari.errors import AgentValidationError
     from mendari.evals.harness import resolve_dataset
 
-    manifest = pack.manifest
+    manifest = agent.manifest
     problems: list[str] = []
     for name, declared in manifest.evaluation.grades.items():
         where = declared.file
@@ -687,9 +687,9 @@ def grades_problems(pack: Pack) -> list[str]:
             for key, criterion in rubric.criteria.items()
         }
         try:
-            header, _ = load_grades(pack.read_bytes(where), where=where, scales=scales)
-            dataset = resolve_dataset(pack, declared.dataset)
-        except PackValidationError as error:
+            header, _ = load_grades(agent.read_bytes(where), where=where, scales=scales)
+            dataset = resolve_dataset(agent, declared.dataset)
+        except AgentValidationError as error:
             problems += [f"{where}: {problem}" for problem in error.problems]
             continue
         except MendariError as error:
@@ -822,7 +822,7 @@ def report(
     )
     found = {
         "format": FORMAT,
-        "pack": header["pack"],
+        "agent": header["agent"],
         "dataset": header["dataset"],
         "providers": header["providers"],
         "rubric": {"name": rubric["name"], "sha256": rubric["sha256"], "output": rubric["output"]},

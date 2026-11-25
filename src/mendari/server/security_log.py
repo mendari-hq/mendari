@@ -11,8 +11,8 @@ client or an approval) is in the hash chain already; this is for incident respon
 template, `/api/audit/{decision_id}`: never the raw path or its query), `status`, `actor` (a
 `Principal.id`: `user:<hash>`, `key:<id>`, `client:<id>`, `ehr:<hash>` (an EHR launch),
 `cds:<id>` (a CDS client's verified token), `open` or `anonymous`), `org`, `ip`,
-`ids` (decision, key, client or approval ids; a hidden evaluation set's id only, never a
-case's, an assignment's or a label's), `count`, `latency_ms`, and for an unhandled
+`ids` (decision, key, client or approval ids; a grading round's id only, never an item's, an
+assignment's or a grade's), `count`, `latency_ms`, and for an unhandled
 exception its `error` type and `frames` (file, line, function). Never a credential, a token, an
 assertion, a query value, a body, a header, an exception's message or case text: none of them is
 a field. Values are JSON-escaped, so a newline in a claim cannot start a forged line.
@@ -24,7 +24,7 @@ a person can quote it and the line be found.
 
 **Access lines** (`event: request`): one per `/api`, `/fhir`, `/cds-services`, `/auth` and
 `/smart` request, refused ones included, but not `/api/health` and `/api/health/ready`
-(probes) or static files. Where the pack registry is mounted (`MENDARI_REGISTRY=on`, LP-19d),
+(probes) or static files. Where the agent registry is mounted (`MENDARI_REGISTRY=on`, LP-19d),
 one per `/registry/` request too, with the registry's own route template under the mount
 (`/registry/v1/agents/{namespace}/{name}`) and `anonymous` as its actor: the engine reads no
 credential there, and a publisher token is never a field.
@@ -54,25 +54,17 @@ daily cap, reason `principal_decisions`, once a day per principal per instance),
 `admin.key.created|rotated|revoked` (a rotation names the old key and its
 replacement), `auth.key.replaced_used` (a rotated key used during its overlap, once per instance),
 `admin.registry_namespace.claimed`, `admin.registry_key.added` and
-`admin.registry_token.created|revoked` (an organization's administrators in the pack registry
+`admin.registry_token.created|revoked` (an organization's administrators in the agent registry
 under the engine, LP-19d: the namespace, the key's id or the token's id, never a token),
 `admin.registry_claim.approved|refused`, `admin.registry_namespace.publisher_type_set` and
-`admin.registry_pack.reviewed|recalled|deleted` (the registry's reviewers, LP-19e: the
+`admin.registry_agent.reviewed|recalled|deleted` (the registry's reviewers, LP-19e: the
 reviewer's id, the review organization, and the namespace or `namespace/name@version`),
 `admin.client.registered|keys_replaced|revoked`, `governance.approved|revoked`,
-`registry_pack.approved|revoked`, `eval.run`,
+`registry_agent.approved|revoked`, `eval.run`,
 `export.audit|audit.administrative|feedback`, `phi.inputs.read` (decision ids and a count),
-`evalset.case.read` (a labeller shown their next case of a hidden evaluation set, LP-11j: the
-set's id) and `evalset.labelled` (their label recorded: the set's id; or refused as
-`no_assignment`, with no id), `written.item.read` (a grader shown their next text of a grading
-round of written output, ADR-0025: the round's id) and `written.graded` (their grades recorded:
-the round's id; or refused as `no_assignment`, with no id), `evalset.sampled`,
-`evalset.assigned` and
-`evalset.adjudication.assigned` (an organization's curator drawing a set's cases, assigning them
-and adjudicating disputes, LP-11k: the set's id and how many were drawn or assigned; or refused
-as `no_set`, an unknown set or another organization's, with no id), `evalset.graded` (a grading
-key's run over a hidden set, LP-11l: the set's id and how many cases were graded; or refused with
-its fixed reason, `no_set` with no id, any other with the set's id), `store.pull.added|refused`
+`written.item.read` (a grader shown their next text of a grading round of written output,
+ADR-0025: the round's id) and `written.graded` (their grades recorded: the round's id; or
+refused as `no_assignment`, with no id), `store.pull.added|refused`
 (a version added to an organization's agent store from the deployment's registry,
 `server/hub_routes.py`: its digest; or refused as `not_listed`, `key_changed`, `verification`,
 `unreachable`, `registry_answer`, `phi` or `checks`, with no id and never the registry's words),

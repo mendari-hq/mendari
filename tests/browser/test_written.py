@@ -23,12 +23,13 @@ import shutil
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 from playwright.sync_api import Browser, Locator, Page, expect
 
-from mendari import Decision, load_pack
-from mendari.core.pack import Pack
+from mendari import AuditStore, Decision, load_agent
+from mendari.core.agent import Agent
 from mendari.core.written import CLOSING_NOTE, REPORT_MISMATCH, WrittenStore
 from mendari.evals import written
 from mendari.evals.harness import load_dataset
@@ -39,7 +40,13 @@ from tests.browser.access_site import Site, memberships, person, running
 from tests.browser.test_accessibility import violations
 from tests.conftest import ROOT, encrypted_store
 from tests.test_auth import IDP
-from tests.test_evalset_store import tamper
+
+
+def tamper(store: AuditStore, sql: str, params: tuple[Any, ...] = ()) -> None:
+    """Edit the database behind the store's back, as someone with the database could."""
+    with store._db.session(exclusive=True) as db:
+        db.all(sql, params)
+
 
 pytestmark = pytest.mark.browser
 
@@ -55,7 +62,7 @@ MESSAGES = (f"{MARKUP} Where do I park on Tuesday?", "Could you refill my lisino
 class Grading:
     site: Site
     rounds: WrittenStore
-    pack: Pack
+    agent: Agent
     run: WrittenRun
 
     def grader(self, sub: str, *roles: str) -> dict[str, str]:
@@ -66,7 +73,7 @@ class Grading:
 
     def round(self, subs: list[str]) -> str:
         made = self.rounds.create_round(
-            CLINIC, self.pack, RUBRIC, self.run, sample=2, created_by="o"
+            CLINIC, self.agent, RUBRIC, self.run, sample=2, created_by="o"
         )
         self.rounds.assign(str(made["round"]), [person_id(IDP, sub) for sub in subs], double=1.0)
         return str(made["round"])
@@ -78,16 +85,16 @@ def grading(browser: Browser, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     agents = tmp_path / "agents"
     shutil.copytree(MINI, agents / "written-mini")
     monkeypatch.setenv("MENDARI_AGENTS_PATH", str(agents))
-    pack = load_pack(agents / "written-mini")
+    agent = load_agent(agents / "written-mini")
     lines = [
         {"id": f"case-{n}", "input": {"message": {"body": body}}} for n, body in enumerate(MESSAGES)
     ]
     raw = "".join(json.dumps(line) + "\n" for line in lines).encode()
     made = written.run(
-        Decision(pack, origin_cap=False),
+        Decision(agent, origin_cap=False),
         load_dataset("written.jsonl", name="written", raw=raw),
         RUBRIC,
-        judge=Judge(pack, RUBRIC, mode="canned"),
+        judge=Judge(agent, RUBRIC, mode="canned"),
     )
     header = json.loads(json.dumps(made.ledger.header))
     header["judge"]["model"] = JUDGE_MARK
@@ -95,7 +102,7 @@ def grading(browser: Browser, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     run = WrittenRun(WrittenLedger(header, made.ledger.cases), made.items)
     db = tmp_path / "a.db"
     with running(browser, db) as site, encrypted_store(db) as store:
-        yield Grading(site, WrittenStore(store), pack, run)
+        yield Grading(site, WrittenStore(store), agent, run)
 
 
 def case(page: Page) -> Locator:
@@ -120,7 +127,7 @@ def test_a_grader_grades_text_after_text_blind_until_nothing_waits(grading: Grad
     page.goto("/")
     expect(page.locator("main h1")).to_have_text("Written output")
     # A grader and nothing else: the grading screen alone.
-    expect(page.locator(".pack-picker")).to_be_hidden()
+    expect(page.locator(".agent-picker")).to_be_hidden()
     expect(page.locator(".nav a[data-view]:visible")).to_have_text(["Written output"])
     sets = page.locator("#label-sets")
     expect(sets.locator("h2")).to_have_text("Your rounds")
@@ -134,7 +141,7 @@ def test_a_grader_grades_text_after_text_blind_until_nothing_waits(grading: Grad
     assert page.evaluate("window.pwned") is None
     assert page.locator("#label-case img").count() == 0
     # The rubric's own words: each criterion's instructions, each level's anchor.
-    rubric = grading.pack.manifest.rubrics[RUBRIC]
+    rubric = grading.agent.manifest.rubrics[RUBRIC]
     safe = criterion(page, "Safe to send")
     expect(safe).to_contain_text(rubric.criteria["safe_to_send"].instructions)
     expect(safe).to_contain_text(rubric.criteria["safe_to_send"].criteria["no"])

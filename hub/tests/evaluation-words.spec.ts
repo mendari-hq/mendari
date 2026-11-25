@@ -26,7 +26,7 @@ function configuration(changes: Partial<EvaluatedConfiguration>): EvaluatedConfi
     providers: { reader: { variant: "agent", type: "agent", model: "a-model" } },
     models: ["a-model"],
     engine: "0.1.0",
-    record_format: "mendari.publisher-evaluation/2",
+    record_format: "mendari.publisher-evaluation/1",
     signed: { key_id: "ed25519:0000000000000000", at: "2026-11-23T12:00:00Z", verified: true },
     rerun: "calls_a_model",
     figures: { format: "mendari.figures/1", n: 600, primary: "request", critical: [], accuracy: null, false_automation: null, outcomes: {} },
@@ -93,13 +93,6 @@ test("a configuration is named as having done best only when the registry names 
   expect(several.detail).toContain("The two intervals overlap: with this many cases, the difference could be chance.");
   expect(several.detail.join(" ")).not.toContain("still not named");
 
-  // A registry from before it said which did best sends neither field: none is named, even
-  // where the first two are apart, and nothing is said of a band it did not give.
-  const silent = comparisonWords(ordered({}));
-  expect(silent.headline).toBe("No configuration is named as best on this dataset: reader=a is listed first.");
-  expect(silent.best).toBeNull();
-  expect(silent.tone).toBe("neutral");
-
   // The registry's word is taken only for the configuration it lists first.
   expect(comparisonWords(ordered({ first_band: ["a"], best: "b" })).best).toBeNull();
 });
@@ -151,7 +144,7 @@ test("what the publisher measured, and what it did not report", () => {
   expect(claimedWords({ latency_ms_p50: 0.049, latency_ms_p95: null, cost_usd_per_decision: 0 })).toBe(
     "half of the decisions took under 0.05 ms; USD 0.0000 per decision",
   );
-  expect(failedWords({}, 600)).toBeNull(); // a record that does not state it says nothing of it
+  expect(failedWords({}, 600)).toBeNull(); // nothing claimed: nothing said
   expect(failedWords({ failed_cases: 0 }, 600)).toBe("No provider failure in the 600 cases.");
   expect(failedWords({ failed_cases: 1 }, 1)).toContain("A provider failed on 1 of 1 case:");
   expect(modelWords(configuration({ models: [] }))).toBe("No model reported");

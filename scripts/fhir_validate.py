@@ -14,11 +14,10 @@
   so the in-process checks never reject what R4 and US Core accept (which
   `MENDARI_FHIR_VALIDATION=enforce` would turn into a block).
 
-`--ig` loads more implementation guides next to US Core: a package tarball, e.g. the Da Vinci
-guides for the prior authorization samples (`var/fhir-packages/hl7.fhir.us.davinci-crd-2.2.1.tgz`),
-a package by name (`hl7.fhir.us.davinci-crd#2.2.1`), or a folder of resources, e.g. Mendari's
-terminology (`scripts/fhir_terminology.py`), so a code Mendari emits that its CodeSystem lacks is an
-error. By default the validator runs without a terminology
+`--ig` loads more implementation guides next to US Core: a package tarball the lock pins
+(`var/fhir-packages/<name>-<version>.tgz`), a package by name (`<name>#<version>`), or a folder of
+resources, e.g. Mendari's terminology (`scripts/fhir_terminology.py`), so a code Mendari emits that
+its CodeSystem lacks is an error. By default the validator runs without a terminology
 server (`-tx n/a`), so the result does not depend on a remote service. Java comes from the PATH,
 or from the eclipse-temurin image with `--docker`. Set `FHIR_VALIDATOR_JAR` to the jar (default
 `var/validator/validator_cli.jar`).
@@ -30,8 +29,8 @@ each `--ig` package) and every package they need, from the tarballs `scripts/fhi
 pins, each checked against its sha256 (`scripts/fhir_packages.py install`). That is how CI runs
 it: a package by name then resolves to the locked one, a package the lock lacks fails the run,
 and so does one the validator put in its cache while it ran. A resource that cites a canonical
-of a guide the run does not load (a Da Vinci operation in the US Core run) cannot pull that
-guide in, with another US Core it needs, for the files after it.
+of a guide the run does not load cannot pull that guide in, with another US Core it needs, for
+the files after it.
 
 `--tx URL` runs the validator with that terminology server in place of `-tx n/a` (the scheduled
 workflow `terminology.yml` uses `https://tx.fhir.org/r4`). It needs HTTP, so it cannot go with
@@ -86,15 +85,15 @@ class Expected:
         return bool(re.search(self.message, issue["text"]) and re.search(self.path, issue["where"]))
 
 
-# What Mendari narrates (dom-6); inputs and the Da Vinci resources have no narrative yet.
+# What Mendari narrates (dom-6); inputs have no narrative.
 NARRATED = "Task|AuditEvent|Provenance|CodeSystem|NamingSystem"
 NO_TERMINOLOGY_SERVER = "CI runs the validator without a terminology server (-tx n/a)"
 EXPECTED_WARNINGS = (
     Expected(
         r"^Constraint failed: dom-6:",
         rf"^(?!({NARRATED})$)(?!.*/\*({NARRATED})/)",
-        "inputs (US Core fixtures, sandbox records, the record Bundle) and the Da Vinci resources "
-        "carry no narrative; what Mendari decides and records, and its terminology, do",
+        "inputs (US Core fixtures, sandbox records) carry no narrative; what Mendari decides "
+        "and records, and its terminology, do",
     ),
     Expected(
         r"^The Coding provided \(https://mendari\.co/fhir/CodeSystem/audit-event#[\w.]+\) was "
@@ -114,20 +113,13 @@ EXPECTED_WARNINGS = (
         r"/\*ServiceRequest/[^*]*\*/\.reasonCode\[\d+\]$",
         "synthetic referrals give their reason as text (an extensible binding)",
     ),
-    Expected(
-        r"^None of the codings provided are in the value set 'US Core Procedure Codes' .*"
-        r"\(codes = https://mendari\.co/fhir/CodeSystem/fictional-referrals#FR\d{3}\)$",
-        r"/\*ServiceRequest/[^*]*\*/\.code$",
-        "a synthetic referral's code is the fictional referral code (LP-14: SNOMED CT, whose "
-        "codes the value set's referrals are in, is in no package), an extensible binding",
-    ),
     Expected(r"CodeSystem 'urn:ietf:bcp:47'.* could not be found", "", NO_TERMINOLOGY_SERVER),
     Expected(
         r"^A definition for CodeSystem 'http://www\.cms\.gov/Medicare/Coding/ICD10'( version "
         r"'null')? could not be found, so the code cannot be validated",
-        r"\.(code|productOrService)\.coding\[\d+\]\.system$",
-        "ICD-10-PCS, the public-domain code a synthetic order also carries for the payer (LP-14), "
-        "is in no FHIR package; " + NO_TERMINOLOGY_SERVER,
+        r"\.code\.coding\[\d+\]\.system$",
+        "ICD-10-PCS, the public-domain code of the test fixtures' synthetic orders, is in no FHIR "
+        "package; " + NO_TERMINOLOGY_SERVER,
     ),
     Expected(
         r"^Unable to validate code .* in system 'http://unitsofmeasure\.org' because the "
@@ -136,46 +128,10 @@ EXPECTED_WARNINGS = (
         NO_TERMINOLOGY_SERVER,
     ),
     Expected(
-        r"matches the reference Patient/record-patient by type and id but its fullUrl "
-        r"urn:mendari:Patient/record-patient does not match",
-        r"\.subject$",
-        "the record Bundle (standards/record_fhir.py) refers to its Patient by type and id, "
-        "which is how CQL engines read it",
-    ),
-    Expected(
-        r"(CodeSystem|code system) 'https://codesystem\.x12\.org/|"
-        r"^ValueSet 'https://valueset\.x12\.org/",
-        "",
-        "Da Vinci PAS uses X12 code systems, which are licensed and in no FHIR package",
-    ),
-    Expected(
-        r"^No code provided, and a code should be provided from the value set "
-        r"'CRD Coverage Assertion Reasons Value Set'",
-        r"^ServiceRequest\.extension\[\d+\]\.extension\[\d+\]",
-        "an agent gives its coverage reason as text (an extensible binding)",
-    ),
-    Expected(
-        r"^None of the codings provided are in the value set 'IdentifierType'",
-        r"/\*Coverage/[^*]*\*/\.identifier\[\d+\]\.type$",
-        "the PAS member id is typed MB (v2-0203), which PAS uses and R4's value set lacks",
-    ),
-    Expected(
-        r"^The questionnaire 'https://mendari\.co/packs/[^']+' could not be resolved",
-        r"^Parameters\.parameter\[\d+\]\.resource",
-        "the DTR package carries its Questionnaire, but the validator resolves canonicals only "
-        "from loaded packages",
-    ),
-    Expected(
-        r"^The questionnaire 'https://mendari\.co/packs/[^']+' could not be resolved",
-        r"^Bundle\.entry\[\d+\]\.resource/\*QuestionnaireResponse/",
-        "a PAS request that needs attention carries the completed DTR QuestionnaireResponse; its "
-        "Questionnaire is the one the DTR package carries, and the validator resolves canonicals "
-        "only from loaded packages",
-    ),
-    Expected(
-        r"^URN reference is not locally contained within the bundle urn:uuid:",
-        r"/\*ClaimResponse/[^*]*\*/\.request$",
-        "the PAS response refers to the Claim in the request Bundle",
+        r"^UCUM Codes that contain human readable annotations like \{INR\} can be misleading",
+        r"/\*Observation/[^*]*\*/\.value\.ofType\(Quantity\)$",
+        "an INR is unitless, and UCUM writes it `{INR}`, as LOINC's examples do: the annotation "
+        "is the unit",
     ),
 )
 

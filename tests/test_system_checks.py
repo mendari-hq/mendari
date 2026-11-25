@@ -34,8 +34,8 @@ def health(**changes: Any) -> dict[str, Any]:
         "status": "ok",
         "version": "9.9.9",
         "sign_in": True,
-        "packs": 2,
-        "packs_by_origin": {"maintained": 1, "hub": 1},
+        "agents": 2,
+        "agents_by_origin": {"maintained": 1, "hub": 1},
         "invalid": {},
         "storage": "postgres",
         "timezone": "Europe/Paris",
@@ -65,7 +65,7 @@ def healthy(**changes: Any) -> Deployment:
     """Everything set up: each check `ok` or `not_applicable`."""
     deployment = Deployment(
         health=health(),
-        ready={"status": "ready", "version": "9.9.9", "checks": {"database": "ok", "packs": "ok"}},
+        ready={"status": "ready", "version": "9.9.9", "checks": {"database": "ok", "agents": "ok"}},
         now=NOW,
         accounts="memberships",
         operator_org="default",

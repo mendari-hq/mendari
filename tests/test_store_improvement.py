@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The improvement dataset from reviewers' corrections, and proposed behaviour tests (LP-20i,
 `evals/corrections.py`): each label with its provenance, sealed in the organization's store,
-never returned by a route, never in a pack's files, never another organization's."""
+never returned by a route, never in an agent's files, never another organization's."""
 
 from __future__ import annotations
 
@@ -13,11 +13,12 @@ from typing import Any
 
 import pytest
 
-from mendari.core.pack_store import PackStore
+from mendari.core.agent_store import AgentStore
 from tests.conftest import member
+from tests.support.registry import TRIAGE
 from tests.test_store_uploads import ORG_A, ORG_B, Store, store_world
 
-INBOX = "mendari/patient-inbox-router"
+SERVED = TRIAGE.id  # an agent this deployment serves from disk: the triage fixture
 BODIES = [
     "I need to move my appointment next week to Friday morning please",
     "Is there a charge for the forms my employer asked you to fill in",
@@ -33,12 +34,12 @@ def world(db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> It
 def _corrected(
     world: Store, org: str = ORG_A, labels: tuple[str, ...] = ("front_desk", "billing", "nurse")
 ) -> list[str]:
-    """Decisions of the inbox pack in `org`, each resolved by a reviewer with a label."""
+    """Decisions of the triage fixture in `org`, each resolved by a reviewer with a label."""
     reviewer = world.as_(org, "reviewer")
     made = []
     for body, label in zip(BODIES, labels, strict=True):
         decided = world.client.post(
-            f"/api/packs/{INBOX}/decide",
+            f"/api/agents/{SERVED}/decide",
             json={"message": {"body": f"{body} ({org})"}},
             headers=reviewer,
         ).json()
@@ -53,12 +54,12 @@ def _corrected(
 
 
 def _author_reader(world: Store, org: str = ORG_A) -> dict[str, str]:
-    return member(world.db, org=org, roles=["pack_author", "reviewer"], sub=f"reader-{org}")
+    return member(world.db, org=org, roles=["agent_author", "reviewer"], sub=f"reader-{org}")
 
 
 def _draft(world: Store, headers: dict[str, str]) -> str:
     made = world.client.post(
-        "/api/store/copies", json={"pack": INBOX, "name": "inbox-router"}, headers=headers
+        "/api/store/copies", json={"agent": SERVED, "name": "inbox-router"}, headers=headers
     )
     assert made.status_code == 201, made.text
     return str(made.json()["digest"])
@@ -66,7 +67,7 @@ def _draft(world: Store, headers: dict[str, str]) -> str:
 
 def _build(world: Store, headers: dict[str, str], digest: str, org: str = ORG_A) -> Any:
     return world.client.post(
-        f"/api/store/packs/{org}/inbox-router/improvement",
+        f"/api/store/agents/{org}/inbox-router/improvement",
         json={"version": digest},
         headers=headers,
     )
@@ -81,8 +82,8 @@ def test_each_label_names_the_decision_the_reviewer_and_whether_it_overrode(
     made = _build(world, reader, digest)
     assert made.status_code == 201, made.text
     assert (made.json()["kind"], made.json()["cases"]) == ("improvement", 3)
-    packs: PackStore = world.client.app.state.pack_store  # type: ignore[attr-defined]
-    records = {r["id"]: r for r in packs.dataset_records(ORG_A, made.json()["id"])}
+    agents: AgentStore = world.client.app.state.agent_store  # type: ignore[attr-defined]
+    records = {r["id"]: r for r in agents.dataset_records(ORG_A, made.json()["id"])}
     assert set(records) == set(decided)
     for decision_id, record in records.items():
         provenance = record["provenance"]["destination"]
@@ -102,7 +103,7 @@ def test_a_hashed_input_is_skipped_and_counted(world: Store) -> None:
         db.all("DELETE FROM decision_inputs WHERE decision_id = ?", (first["decision_id"],))
     with tenancy.acting_for(ORG_A):
         records, skipped = corrections_dataset(
-            world.db, org=ORG_A, pack_ids=[INBOX], reader="reviewer@clinic-a"
+            world.db, org=ORG_A, agent_ids=[SERVED], reader="reviewer@clinic-a"
         )
     assert (len(records), skipped) == (2, 1)
 
@@ -128,7 +129,7 @@ def test_the_dataset_is_sealed_and_no_route_returns_its_cases(world: Store) -> N
 
 def test_an_author_who_may_not_read_inputs_cannot_build_it(world: Store) -> None:
     _corrected(world)
-    author = world.as_(ORG_A, "pack_author")
+    author = world.as_(ORG_A, "agent_author")
     digest = _draft(world, author)
     refused = _build(world, author, digest)
     assert refused.status_code == 403 and "read" in refused.text
@@ -139,23 +140,23 @@ def test_another_organizations_corrections_are_never_in_it(world: Store) -> None
     theirs = _corrected(world, org=ORG_B)
     reader = _author_reader(world)
     made = _build(world, reader, _draft(world, reader)).json()
-    packs: PackStore = world.client.app.state.pack_store  # type: ignore[attr-defined]
-    ids = {r["id"] for r in packs.dataset_records(ORG_A, made["id"])}
+    agents: AgentStore = world.client.app.state.agent_store  # type: ignore[attr-defined]
+    ids = {r["id"] for r in agents.dataset_records(ORG_A, made["id"])}
     assert ids == set(mine) and not ids & set(theirs)
     # And clinic-b's author cannot read clinic-a's.
     other = _author_reader(world, ORG_B)
     assert world.client.get(f"/api/store/datasets/{made['id']}", headers=other).status_code == 404
 
 
-def test_a_proposed_test_runs_against_the_draft_and_is_not_in_the_packs_files(
+def test_a_proposed_test_runs_against_the_draft_and_is_not_in_the_agents_files(
     world: Store,
 ) -> None:
     _corrected(world)
     reader = _author_reader(world)
     digest = _draft(world, reader)
     made = _build(world, reader, digest).json()
-    packs: PackStore = world.client.app.state.pack_store  # type: ignore[attr-defined]
-    files_before = packs.version(ORG_A, digest)["files"]
+    agents: AgentStore = world.client.app.state.agent_store  # type: ignore[attr-defined]
+    files_before = agents.version(ORG_A, digest)["files"]
     shown = world.client.get(
         f"/api/store/versions/{digest}/proposed-tests",
         params={"dataset": made["id"]},
@@ -164,8 +165,8 @@ def test_a_proposed_test_runs_against_the_draft_and_is_not_in_the_packs_files(
     assert len(shown["cases"]) == 3
     assert {c["state"] for c in shown["cases"]} == {"proposed"}
     assert all(set(c) == {"case", "expect", "passed", "failures", "state"} for c in shown["cases"])
-    assert packs.version(ORG_A, digest)["files"] == files_before
-    assert packs.version(ORG_A, digest)["digest"] == digest
+    assert agents.version(ORG_A, digest)["files"] == files_before
+    assert agents.version(ORG_A, digest)["digest"] == digest
 
 
 def test_an_accepted_proposal_runs_with_the_drafts_tests(world: Store) -> None:

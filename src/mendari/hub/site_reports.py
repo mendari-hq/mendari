@@ -3,15 +3,15 @@
 
 A site shares one evaluation as a `mendari.site-submission/1` record it signs with one of its
 live keys (`hub/site_signing.py`): `{format, site, key_id, nonce, at, ticket, report,
-signature}`, `report` the `mendari.site-report/2` payload (whole counts, suppressed). It answers
+signature}`, `report` the `mendari.site-report/1` payload (whole counts, suppressed). It answers
 one ticket (LP-22e), and the ticket's one-time secret is its bearer credential: the registry
 finds the ticket by the secret's SHA-256 before it reads a byte of the body.
 
 Then, in order: at most `MAX_REPORT_BYTES` read; the body parsed and validated (a closed model,
 nothing it refuses echoed); the ticket is the one the record names and the route's version,
 still open (not expired, withdrawn or reported); the key is a live key of the ticket's verified
-site; the signature over the record's exact fields; the nonce is new; the report's pack, version,
-digest, configuration, n and remote consent are the ticket's; its names are the pack's; and
+site; the signature over the record's exact fields; the nonce is new; the report's agent, version,
+digest, configuration, n and remote consent are the ticket's; its names are the agent's; and
 `suppress` changes nothing. The report and the ticket's `reported` status are written in one
 transaction. There is no clock check: a submission may be read first and sent later, by hand,
 within its ticket's 30 days (`mendari eval --share-out`, `mendari site submit`).
@@ -21,10 +21,9 @@ the report it supersedes (`supersedes`, LP-22e's request); the old report stays 
 listed as superseded, and leaves the pool (LP-22g). Reports signed with a key later revoked as
 compromised are listed as such.
 
-`hub_reports` (unsigned reports, `/1` or `/2`, from before) is never altered and no longer
-served: `reports()` lists signed reports only, each `verified: true` with its site, key id and
-ticket, and `GET …/reports/{id}` serves the signed record, so anyone can check it against the
-site's public key (`GET /v1/sites/{id}`).
+`reports()` lists the signed reports, each `verified: true` with its site, key id and ticket, and
+`GET …/reports/{id}` serves the signed record, so anyone can check it against the site's public
+key (`GET /v1/sites/{id}`).
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.errors import HubError
 from mendari.evals import figures
-from mendari.evals.share import SiteReportV2, composite_members, unchanged_by_suppression
+from mendari.evals.share import SiteReportV1, composite_members, unchanged_by_suppression
 from mendari.hub import archive, site_signing
 from mendari.hub.sites import NOT_A_SITE_KEY, _canonical_text, _iso, _recall_free, _status
 
@@ -87,7 +86,7 @@ class Submission(BaseModel):
     at: str
     signature: str
     ticket: Annotated[str, Field(pattern=r"^[0-9a-f]{16}$")]
-    report: SiteReportV2
+    report: SiteReportV1
 
 
 def secret_sha256(secret: str) -> str:
@@ -129,8 +128,6 @@ class SiteReportStore:
             return None
         wanted = secret_sha256(secret)
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_tickets"):
-                return None
             row = db.one("SELECT * FROM hub_tickets WHERE submit_sha256 = ?", (wanted,))
         if row is None or not hmac.compare_digest(str(row["submit_sha256"]), wanted):
             return None
@@ -161,7 +158,7 @@ class SiteReportStore:
         except ValidationError:
             raise HubError(
                 f"not a {site_signing.SUBMISSION} record: its fields are the ticket and a "
-                "mendari.site-report/2 report (whole counts, as `mendari eval --share-out` "
+                "mendari.site-report/1 report (whole counts, as `mendari eval --share-out` "
                 "writes it)"
             ) from None
         if ticket_id is not None and submission.ticket != ticket_id:
@@ -198,8 +195,8 @@ class SiteReportStore:
             raise HubError("the record's signature does not hold", 403)
         configuration = {slot: p.variant for slot, p in report.providers.items()}
         if (
-            (report.pack.id, report.pack.version) != (f"{namespace}/{name}", version)
-            or report.pack.digest != ticket["digest"]
+            (report.agent.id, report.agent.version) != (f"{namespace}/{name}", version)
+            or report.agent.digest != ticket["digest"]
             or _canonical_text(configuration) != ticket["configuration"]
             or report.dataset.n != int(ticket["n"])
             or report.remote_consent != bool(ticket["remote_consent"])
@@ -215,7 +212,7 @@ class SiteReportStore:
         if not unchanged_by_suppression(report):
             raise HubError(
                 "the report shares a cell its suppression rule hides, or counts that do not add "
-                "up (mendari.site-report/2: cells of 1 to 9 and their complements are null)"
+                "up (mendari.site-report/1: cells of 1 to 9 and their complements are null)"
             )
         shown = figures.site(report.model_dump(mode="json"))  # before anything is written
         body = json.dumps(dict(record), sort_keys=True, separators=(",", ":"))
@@ -228,12 +225,9 @@ class SiteReportStore:
             if signer is None or signer["site"] != ticket["site"]:
                 raise HubError(NOT_A_SITE_KEY, 403)
             # The version may have been recalled, deleted or unlisted since the ticket.
-            if not _recall_free(db, namespace, name, version) or (
-                db.columns("hub_claims")
-                and db.one(
-                    "SELECT namespace FROM hub_claims WHERE namespace = ? AND status <> 'approved'",
-                    (namespace,),
-                )
+            if not _recall_free(db, namespace, name, version) or db.one(
+                "SELECT namespace FROM hub_claims WHERE namespace = ? AND status <> 'approved'",
+                (namespace,),
             ):
                 raise HubError("that version is recalled or not listed: it takes no report", 409)
             if db.one(
@@ -279,7 +273,7 @@ class SiteReportStore:
                 subject,
                 {
                     "report_id": report_id,
-                    "pack": f"{namespace}/{name}",
+                    "agent": f"{namespace}/{name}",
                     "version": version,
                     "site": ticket["site"],
                     "org": signer["org"],
@@ -322,12 +316,10 @@ class SiteReportStore:
             raise HubError(f"the ticket is {status}: it takes no report", 409)
 
     def site_reports(self, namespace: str, name: str) -> list[dict[str, Any]]:
-        """A pack's signed reports, oldest first, for anyone who reads the pack: each with its
+        """An agent's signed reports, oldest first, for anyone who reads the agent: each with its
         site, key, ticket, whether it was superseded (and by which) and whether its key was
         revoked as compromised, and its figures, worked out from its counts."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_site_reports"):
-                return []
             rows = db.all(
                 "SELECT r.*, s.name AS site_name FROM hub_site_reports r JOIN hub_sites s "
                 "ON s.id = r.site WHERE r.namespace = ? AND r.name = ? "
@@ -348,12 +340,10 @@ class SiteReportStore:
         """One signed report as it was received: the site's signed record, to check against
         the site's key (`GET /v1/sites/{id}`), and its body's SHA-256."""
         with self._db.session(exclusive=False) as db:
-            row = None
-            if db.columns("hub_site_reports"):
-                row = db.one(
-                    "SELECT * FROM hub_site_reports WHERE id = ? AND namespace = ? AND name = ?",
-                    (report_id, namespace, name),
-                )
+            row = db.one(
+                "SELECT * FROM hub_site_reports WHERE id = ? AND namespace = ? AND name = ?",
+                (report_id, namespace, name),
+            )
         if row is None:
             raise HubError("no such report", 404)
         return {
@@ -367,9 +357,7 @@ class SiteReportStore:
     ) -> dict[str, Any]:
         """The report a correction's ticket names: the site's own live report for the same
         digest and configuration, not already superseded nor named by another correction."""
-        row = None
-        if db.columns("hub_site_reports"):
-            row = db.one("SELECT * FROM hub_site_reports WHERE id = ?", (supersedes,))
+        row = db.one("SELECT * FROM hub_site_reports WHERE id = ?", (supersedes,))
         if row is None or row["site"] != site:
             raise HubError("no such report of this site to supersede", 404)
         if row["digest"] != digest or row["configuration"] != configuration:

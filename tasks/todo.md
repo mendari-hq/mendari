@@ -115,6 +115,44 @@ README or the front ends, outside an explicit list of those names.
   are erased when it closes); a better interval than the percentile bootstrap, which is slightly
   liberal on small samples (ADR-0025, Consequences).
 - [ ] **Wave 6 (the owner's go).** The wire and storage names, as a versioned format change.
+  **Widened by the owner (2026-11-24):** packs and everything only they used go, the
+  infrastructure agents need stays, nothing pre-release stays compatible, old data is replaced
+  by new synthetic data. The plan, the decisions (G1 to G16, which win) and the inventory are in
+  `notes/wave6/`; one integration branch, `wave6/packs-gone`, one pull request, one production
+  wipe and refill after it merges.
+  - [x] Phase 1: synthetic fixture agents (`tests/fixtures/agents/{triage, clinical-review,
+    chart-summary}`), the storage baseline and the refusal of pre-release databases, every
+    compatibility name out, the threat model without what wave 6 removes.
+  - [x] Phase 2: the tests on the new fixtures (2A to 2F).
+  - [x] Phase 3.1: the former agents, their data, generators, support and scripts out; the
+    fixtures folder is `tests/fixtures/agents` (`9dda7607`).
+  - [x] Phase 3.2: the removed features out, one engineer per feature group, everywhere
+    (`notes/wave6/phase32-slices.md`): S1 hidden sets and the scoreboard, S2 the removed
+    providers and the training commands, S3 Da Vinci, PAS, X12, OMOP and the fictional code
+    systems, S4 the community path, S5 one spec version with guard, derive and the policy file
+    (merged `0c15dab9` to `fa400124`, about 30,000 lines out).
+  - [x] Phase 3.3: what the removals left (`90b3a80b`, `2bab0b1d`): Jev, Naive Bayes and the
+    Vercel Connect exchange, `server/paths.py`, the trained-model plumbing, orphaned names.
+    With it, two fixes found on the way: the console's agent picker dropped store agents
+    (`c044df33`), and NOTICE named code systems no package carries any more (`38979547`).
+    Whole suite 8,459 passed, browser 419.
+  - [x] Phase 4.1: the rename codemod, rehearsed on `9dda7607`, run on the final tree with one
+    hand edit (`61599b6d`, `2ee44bc4`): whole suite (SQLite and Postgres) 8,455 passed, browser
+    419, the Hub's lint, typecheck, build and 48 end-to-end tests, `mendari demo`.
+  - [x] Review of the code (an engineer who did not build it): no high finding; fixed a recall
+    feed item that was skipped instead of failing the read (`92630d07`), the console's registry
+    detail on a failed evaluations read (`fe21c3b9`), and a setting under the former
+    `OPENHEALTH_` name now stops startup (`1594a110`).
+  - [x] Phase 4.2 and 5, the words, four engineers (`notes/wave6/phaseW-roles.md`): W1 prose in
+    code, W2 the root files (README, CLAUDE.md, CHANGELOG 0.1.0), W3 the docs site and one spec
+    page (`docs/spec/agent-manifest.md`), W4 ADR-0026 and one vocabulary rule
+    (`tests/test_vocabulary.py`, no offence in the repository).
+  - [x] Phase 3.4: the last paths that read a shape only a pre-release Mendari wrote
+    (`notes/wave6/phase34-brief.md`); `decisions.org` and `eval_reports.org` are NOT NULL.
+  - [x] Vercel settings of the engine's project cleaned (2026-11-25, the owner's go): the former
+    name's and Jev's settings out of Production and Preview.
+  - [ ] Phase 6: full verification, the pull request, the merge, the production wipe and
+    refill, the demo agent's service redeployed with the new kit.
 - [x] **Last.** The README and the docs caught up with every wave; the grade taken again.
   **Grade, 2026-11-24, against the north star: B-** (it was C+ on 2026-11-23). Measured, not
   assumed: the repository is private with no stars or forks, `mendari` is not on PyPI, the live

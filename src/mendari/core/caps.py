@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Caps on what multiplies the work of the patterns of a pack on the community engine (plan B11):
-a community pack, or one from a registry that is not a bundled agent of this release
-(`Pack.bounded`, ADR-0009). Below, "a community pack" stands for either.
+"""Caps on what multiplies the work of the patterns of an agent on the bounded engine (plan B11):
+one from a registry or a store that is not a bundled agent of this release (`Agent.bounded`,
+ADR-0009). Below, "a bounded agent" stands for it.
 
-A community pack's patterns run on RE2 (`core/patterns.py`), which never backtracks: a pattern's
+A bounded agent's patterns run on RE2 (`core/patterns.py`), which never backtracks: a pattern's
 time is the text's length times its compiled size, never more. So the work one decision takes
 is bounded once every number that multiplies it is: the text (`origin.long_text`, at most
-`MAX_COMMUNITY_TEXT_CHARS`), how many patterns run on it, and how often. A community pack is
+`MAX_BOUNDED_TEXT_CHARS`), how many patterns run on it, and how often. A bounded agent is
 refused at load, in words saying what to write instead, when
 
 - a provider's `text_fields` (or a question's own) names a field twice: a field named ten times
@@ -18,29 +18,29 @@ refused at load, in words saying what to write instead, when
   (two `$ref`s to a schema holding two `$ref`s... double it at each step), and a reference cycle
   that reaches a pattern runs it more times the deeper the input;
 - its rules (each pattern once for each question it answers and each composite member holding
-  it, `rules_runs`) and its schema's runs on one value come to more than `MAX_PACK_PATTERNS`;
+  it, `rules_runs`) and its schema's runs on one value come to more than `MAX_AGENT_PATTERNS`;
 - the same runs, each weighed by its pattern's size (`re2_syntax.size`: the characters,
   classes and `.`s it holds, each as often as a count repeats it), come to more than
-  `MAX_PACK_PATTERN_SIZE` (`pack_size`). RE2 runs a pattern's copies side by side, so its time
+  `MAX_AGENT_PATTERN_SIZE` (`agent_size`). RE2 runs a pattern's copies side by side, so its time
   on a character grows with the size: 500 patterns of `.{0,999}a.{0,999}b` (2,001 each), within
-  every other cap, took 148 s on 10,000 characters. The shipped packs' patterns (about 1,200 to
+  every other cap, took 148 s on 10,000 characters. The shipped agents' patterns (about 1,200 to
   2,600 each) take milliseconds.
 
 The caps do not make a hard bound alone: on 10,000 characters of emoji or Chinese text, where
 RE2's automaton runs out of memory and steps through a pattern's copies one by one, one search
-can take about 2.5 s, and a crafted pack within every cap took 5.5 s, or 17.5 s with negated
+can take about 2.5 s, and a crafted agent within every cap took 5.5 s, or 17.5 s with negated
 patterns rescanned at each match; typo tolerance's keyword list, the negation check's work on
 each negated match and a schema whose keywords fan out (`$ref`s that double, an `enum` on many
-items) add more. So a community pack's patterns and schema checks also share one time budget
+items) add more. So a bounded agent's patterns and schema checks also share one time budget
 per decision, in the CPU time of the decision's thread (`patterns.time_budget`,
-`COMMUNITY_TIME_BUDGET_S`): checked before each search, at each match, at each word typo
+`BOUNDED_TIME_BUDGET_S`): checked before each search, at each match, at each word typo
 correction looks at, at each schema applied and after each error a schema check finds, it
-stops the pack's rules or its schema check, and the decision abstains, for a person (an input
-the schema had already found wrong is refused). One decision runs a community pack's
+stops the agent's rules or its schema check, and the decision abstains, for a person (an input
+the schema had already found wrong is refused). One decision runs a bounded agent's
 patterns and schema for at most the budget plus one step under way (about 3.5 s of CPU at
 worst).
 
-Every other pack (a bundled agent, a pulled copy of one, an operator's local pack) is not
+Every other agent (a bundled one, a pulled copy of one, an operator's own) is not
 capped: its patterns run on `re`, and installing it means trusting its author (SECURITY.md).
 """
 
@@ -53,14 +53,14 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from mendari.core import re2_syntax
-from mendari.core.patterns import MAX_PACK_PATTERNS, RULES_FLAGS
+from mendari.core.patterns import MAX_AGENT_PATTERNS, RULES_FLAGS
 from mendari.core.schema_graph import Weight, _components, _graph, _once
-from mendari.core.spec import PackManifest
+from mendari.core.spec import AgentManifest
 
-MAX_NEGATION_WINDOW = 200  # characters; the shipped packs use 30 to 40
-MAX_NEGATION_CUES = 50  # the shipped packs have 7 to 23
+MAX_NEGATION_WINDOW = 200  # characters; the shipped agents use 30 to 40
+MAX_NEGATION_CUES = 50  # the shipped agents have 7 to 23
 MAX_SCHEMA_RUNS = 50  # patterns run on one value or key of an input
-MAX_PACK_PATTERN_SIZE = 3_000  # the shipped packs' come to about 1,200 to 2,600
+MAX_AGENT_PATTERN_SIZE = 3_000  # the shipped agents' come to about 1,200 to 2,600
 _INT = TypeAdapter(int)  # as the providers read a number (`"200"` is 200)
 
 
@@ -78,7 +78,7 @@ def schema_size(pattern: str) -> int:
 
 
 def rules_problems(relative: str, rules: Any) -> list[str]:
-    """Why a community pack's `rules` config (`relative`, as read) multiplies its work: a text
+    """Why a bounded agent's `rules` config (`relative`, as read) multiplies its work: a text
     field named twice, a longer negation window or more negation cues than the caps."""
     if not isinstance(rules, Mapping):
         return []  # the provider says what is wrong with it
@@ -92,23 +92,16 @@ def rules_problems(relative: str, rules: Any) -> list[str]:
     window = _number(rules.get("negation_window"))
     if window is not None and window > MAX_NEGATION_WINDOW:
         problems.append(
-            f"{relative}: negation_window is {window}; a community or registry agent's is at most "
+            f"{relative}: negation_window is {window}; a registry or store agent's is at most "
             f"{MAX_NEGATION_WINDOW} characters (30 to 40 is usual)"
         )
     cues = rules.get("negation_cues")
     if isinstance(cues, list) and len(cues) > MAX_NEGATION_CUES:
         problems.append(
-            f"{relative}: {len(cues)} negation_cues; a community or registry agent has at most "
+            f"{relative}: {len(cues)} negation_cues; a registry or store agent has at most "
             f"{MAX_NEGATION_CUES} (7 to 23 is usual)"
         )
     return problems
-
-
-def dosing_problems(relative: str, table: Any) -> list[str]:
-    """Why a community pack's `dosing` table multiplies its work: a text field named twice."""
-    if not isinstance(table, Mapping):
-        return []
-    return _repeated(relative, "text_fields", table.get("text_fields"))
 
 
 def _repeated(relative: str, where: str, fields: Any) -> list[str]:
@@ -131,7 +124,7 @@ def _number(value: Any) -> int | None:
     return number
 
 
-def rules_runs(manifest: PackManifest, configs: Mapping[str, Any], weight: Weight = _once) -> int:
+def rules_runs(manifest: AgentManifest, configs: Mapping[str, Any], weight: Weight = _once) -> int:
     """How many rules patterns one decision runs, at most: for each provider slot, the variant
     that runs the most (the deployment may choose any), each rules config (the variant's, or a
     composite member's) counting the patterns of every question the slot answers, as often as
@@ -172,10 +165,10 @@ def _question_patterns(rules: Any, question: str, weight: Weight) -> int:
     )
 
 
-def pack_size(manifest: PackManifest, configs: Mapping[str, Any], schema: Any) -> int:
+def agent_size(manifest: AgentManifest, configs: Mapping[str, Any], schema: Any) -> int:
     """The size of the patterns one decision runs on each character, at most: the rules' runs
     and the input schema's on one value, each weighed by its pattern's size. Its patterns must
-    have compiled (`load_pack` checks them first)."""
+    have compiled (`load_agent` checks them first)."""
     return rules_runs(manifest, configs, rules_size) + schema_runs(schema, schema_size)
 
 
@@ -191,15 +184,15 @@ class SchemaCycle(Exception):
 
 
 def schema_problems(schema: Any, rules_runs: int, rules_size: int = 0) -> list[str]:
-    """Why a community pack's input schema multiplies its patterns' work (module docstring), with
+    """Why a bounded agent's input schema multiplies its patterns' work (module docstring), with
     `rules_runs` (`rules_runs`) and their size (`rules_runs` with `rules_size`) counted toward
-    the pack's totals."""
+    the agent's totals."""
     try:
         runs = schema_runs(schema)
     except SchemaCycle as cycle:
         return [
             f"input schema: {cycle.where}: a $ref leads back to a schema holding it, and "
-            "patterns run there or below it; a community or registry agent's schema may not refer "
+            "patterns run there or below it; a registry or store agent's schema may not refer "
             "back to itself where its patterns run"
         ]
     if runs > MAX_SCHEMA_RUNS:
@@ -212,25 +205,25 @@ def schema_problems(schema: Any, rules_runs: int, rules_size: int = 0) -> list[s
             else ""
         )
         return [
-            f"input schema: its patterns can run {shown} times on one value; a community or "
-            f"registry agent's schema runs at most {MAX_SCHEMA_RUNS} on any value or key "
+            f"input schema: its patterns can run {shown} times on one value; a registry or "
+            f"store agent's schema runs at most {MAX_SCHEMA_RUNS} on any value or key "
             f"({tripled}a $ref, allOf, anyOf or oneOf that reaches the same pattern more than "
             "once multiplies it)"
         ]
-    if rules_runs + runs > MAX_PACK_PATTERNS:
+    if rules_runs + runs > MAX_AGENT_PATTERNS:
         return [
             f"the rules run {rules_runs} patterns on each input (each pattern once for each "
             "question it answers and each composite member holding it) and the input schema up "
-            f"to {runs} on one value: {rules_runs + runs} together; a community or registry agent "
-            f"runs at most {MAX_PACK_PATTERNS}"
+            f"to {runs} on one value: {rules_runs + runs} together; a registry or store agent "
+            f"runs at most {MAX_AGENT_PATTERNS}"
         ]
     size = schema_runs(schema, schema_size)
-    if rules_size + size > MAX_PACK_PATTERN_SIZE:
+    if rules_size + size > MAX_AGENT_PATTERN_SIZE:
         return [
             f"its patterns' size comes to {rules_size + size:,} on each input: the rules' "
             f"{rules_size:,} (each pattern's once for each question it answers and each "
             f"composite member holding it) and the input schema's {size:,} on one value or key; a "
-            f"community or registry agent's comes to at most {MAX_PACK_PATTERN_SIZE:,}, as RE2's "
+            f"registry or store agent's comes to at most {MAX_AGENT_PATTERN_SIZE:,}, as RE2's "
             "time on each character grows with it. A pattern's size is the characters, classes "
             "and .s it holds, each as often as a count repeats it (.{0,999} is 999, \\w+ is 1): "
             "use smaller counts, or fewer patterns"

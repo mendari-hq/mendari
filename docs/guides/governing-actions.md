@@ -11,8 +11,8 @@ channel. Your caller, the code that runs the agent's tools, runs an action, and 
 was released.
 
 This guide walks through it with the bundled demo agent, `agents/portal-message-agent`. The
-rules are in [agent manifest spec 0.4](../spec/agent-manifest-0.4.md), and the reasons in
-[ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md).
+rules are in [the agent manifest spec](../spec/agent-manifest.md#13-actions), section 13, and
+the reasons in [ADR-0023](../decisions/ADR-0023-an-agent-proposes-actions.md).
 
 ## See it in a minute
 
@@ -36,11 +36,9 @@ reviewer confirmed the decision. An action the agent never declared was blocked.
 
 ## 1. Declare what the agent may do
 
-Add an `actions` section to `agent.yaml`, and set `spec_version: "0.4"`. The demo agent's:
+Add an `actions` section to `agent.yaml`. The demo agent's:
 
 ```yaml
-spec_version: "0.4"
-# ...
 actions:
   assign_queue:
     description: Put the message in the refill, scheduling or front-desk queue.
@@ -123,8 +121,8 @@ Two more rules:
 - **What the agent never declared is blocked**, and so are arguments that do not match the
   action's schema. Either one also sends the decision to a person: an agent that proposes what
   it never declared is not trusted to automate.
-- **An agent your deployment has not vouched for gets nothing released without a person**: a
-  community agent, or one from a registry before your organization approves its digest. Its
+- **An agent your deployment has not vouched for gets nothing released without a person**: one
+  from a registry before your organization approves its digest. Its
   declared effects are claims nobody here checked, so even its reads wait for a reviewer.
 - **An action the agent was not sure of is held, never released.** Where the agent is asked
   each case several times, or checked by a second agent
@@ -286,8 +284,6 @@ event. `mendari audit verify --notes` checks each kept set against the commitmen
 chained. The audit view of the console lists a decision's actions above its events, and the
 FHIR export carries both event kinds, as codes only.
 
-No table or column was added for any of this: a database from before verifies as it did.
-
 ## 8. On the Decision Card
 
 An agent that declares actions has an **Actions** section on its Decision Card: each action,
@@ -308,8 +304,6 @@ This is the first phase. Planned for the second:
   for releasing orders;
 - `expect.actions` in behaviour tests, and action figures in evaluation reports (how often a
   proposal is refused or held);
-- proposals from a member of a `vote`, `cascade` or `any_of` composite, which are blocked
-  today (a `check` takes its first member's);
 - actions in CDS Hooks answers, in `$decide`, and on the FHIR Task;
 - the full input-schema keyword set for arguments, and schemas in files;
 - a deployment's own tightening per effect.

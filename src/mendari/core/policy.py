@@ -4,20 +4,19 @@
 Order of evaluation:
 1. Policy rules, first match wins (e.g. "possible emergency -> stat nurse review").
 2. Otherwise, confidence thresholds on the primary question.
-3. Caps that can only make a decision *less* automated: a community pack (never AUTO, and a
-   rule's BLOCK goes to a person instead, since a block is final at once), per-label limits,
-   provider failures, and the pack's risk level. A deploying organisation may
+3. Caps that can only make a decision *less* automated: per-label limits, provider failures,
+   and the agent's risk level. A deploying organisation may
    lift the risk cap for levels 2-3 with a named, recorded governance approval; level 4 can
-   never run autonomously, nor can a community pack at any level.
+   never run autonomously.
 4. The `site_code` cap (LP-23i): an input that took a value through a site's translation of its
    own code (`core/site_codes.py`) never automates, and a rule's BLOCK on it goes to a person
    (a block is final at once). Nothing lifts it, governance included: a site's configuration
-   never makes AUTO, or a final BLOCK, that the pack alone could not. A decision already going
+   never makes AUTO, or a final BLOCK, that the agent alone could not. A decision already going
    to a person (HUMAN_REVIEW, ABSTAIN) keeps its outcome and gets the same reason.
 5. The `not_offered` cap, alike: a list read without a source the site declared its EHR does
    not offer (`standards/ehr_declarations.py`) may be incomplete, so the decision never
    automates and its rule's BLOCK goes to a person, the limitation a reason whatever the
-   outcome. Without the declaration the pack alone abstains, so nothing lifts this one either.
+   outcome. Without the declaration the agent alone abstains, so nothing lifts this one either.
 6. The `canned` cap: on a server with sign-in, answers an agent read from its `mock_file`
    (`MENDARI_AGENT_URL` unset, `providers/agent.py`) never automate: AUTO and a rule's BLOCK
    (final at once) become HUMAN_REVIEW, and the reason says so whatever the outcome. Nothing
@@ -32,7 +31,7 @@ Order of evaluation:
    ABSTAIN) keeps its outcome and gets the same reason; a BLOCK stands, with the cap as a note
    (a block is final: no person decides). Nothing lifts one, governance included, and no
    manifest switches one off.
-8. The `actions` cap (spec 0.4, ADR-0023), last: what the agent asks to do, once what it
+8. The `actions` cap (spec §13.7, ADR-0023), last: what the agent asks to do, once what it
    answered is settled. A proposed action that could not be released with an AUTO decision (one
    the manifest does not declare, arguments that do not match their schema, a composite
    member's proposal, or an action never released without a person) turns AUTO into
@@ -68,7 +67,7 @@ from enum import StrEnum
 from typing import Literal
 
 from mendari.core.actions import Checked, Disposition, Reason
-from mendari.core.spec import Condition, Effect, Outcome, PackManifest, Priority, RiskLevel
+from mendari.core.spec import AgentManifest, Condition, Effect, Outcome, Priority, RiskLevel
 from mendari.providers.base import Answer
 
 # Highest risk level at which AUTO is permitted without a governance override.
@@ -87,7 +86,7 @@ def threshold_reason(reason: str) -> bool:
 
 @dataclass(frozen=True)
 class GovernanceOverride:
-    """A deploying organisation's recorded decision to allow AUTO for a level 2-3 pack."""
+    """A deploying organisation's recorded decision to allow AUTO for a level 2-3 agent."""
 
     approved_by: str
     reference: str
@@ -111,13 +110,12 @@ class PolicyResult:
 
 
 def apply_policy(
-    manifest: PackManifest,
+    manifest: AgentManifest,
     answers: Mapping[str, Answer],
     failures: Mapping[str, str],
     governance: GovernanceOverride | None = None,
     variants: Mapping[str, str] | None = None,
     *,
-    community: bool = False,
     hold: str | None = None,
     blocks_to_person: str | None = None,
     site_code: Sequence[str] = (),
@@ -127,10 +125,9 @@ def apply_policy(
     actions: Sequence[str] = (),
 ) -> PolicyResult:
     """`variants` is the running variant of each provider slot, for `automation_requires`;
-    without it, a pack that sets `automation_requires` never automates. A `community` pack
-    (`core/origin.py`) recommends and never automates, whatever its rules or confidence. A
+    without it, an agent that sets `automation_requires` never automates. A
     `hold` (why automation is stopped: an operator's hold, a used-up quota) turns AUTO into
-    HUMAN_REVIEW and changes nothing else. `blocks_to_person` (why a pack from a registry may
+    HUMAN_REVIEW and changes nothing else. `blocks_to_person` (why an agent from a registry may
     not act alone) turns its own rule's BLOCK into HUMAN_REVIEW as well. `site_code` names the
     code sets a site's translation gave the input a value through (LP-23i): with any, AUTO and
     a rule's BLOCK become HUMAN_REVIEW, the reasons name the code sets whatever the outcome, and
@@ -191,16 +188,9 @@ def apply_policy(
 
     was_block = rule_name is not None and outcome is Outcome.BLOCK
     if blocks_to_person and was_block:
-        # A pack from a registry not approved here, or recalled (`core/decision.py`): its own
+        # An agent from a registry not approved here, or recalled (`core/decision.py`): its own
         # rule's BLOCK, final at once and seen by nobody, goes to a person too.
         reasons.append(f"{blocks_to_person}: a person decides instead of its rule's BLOCK")
-        outcome = Outcome.HUMAN_REVIEW
-    if community and was_block:
-        # A block is final at once and no person sees it; a community pack's rule never decides
-        # alone (its load refuses such a rule; this covers a pack loaded by path).
-        reasons.append(
-            "a community agent (not clinically reviewed) never blocks on its own: a person decides"
-        )
         outcome = Outcome.HUMAN_REVIEW
     if translated and was_block:
         # A rule's BLOCK on an input read through a site's translation (LP-23i): a wrong
@@ -230,7 +220,6 @@ def apply_policy(
             governance,
             variants or {},
             reasons,
-            community,
             hold,
             translated,
             limits,
@@ -265,7 +254,6 @@ class PolicyInputs:
     failures: Mapping[str, str]
     governance: GovernanceOverride | None = None
     variants: Mapping[str, str] | None = None
-    community: bool = False
     hold: str | None = None
     blocks_to_person: str | None = None
     site_code: Sequence[str] = ()
@@ -277,14 +265,13 @@ class PolicyInputs:
     # Why each proposed action could not be released with an AUTO decision (`action_stops`).
     actions: Sequence[str] = ()
 
-    def apply(self, manifest: PackManifest) -> PolicyResult:
+    def apply(self, manifest: AgentManifest) -> PolicyResult:
         return apply_policy(
             manifest,
             self.answers,
             self.failures,
             self.governance,
             self.variants,
-            community=self.community,
             hold=self.hold,
             blocks_to_person=self.blocks_to_person,
             site_code=self.site_code,
@@ -329,7 +316,7 @@ def _action_capped(result: PolicyResult, stops: Sequence[str]) -> PolicyResult:
     return replace(result, outcome=outcome, reasons=(*result.reasons, *added))
 
 
-# -- actions (spec 0.4, ADR-0023) -----------------------------------------------------------------
+# -- actions (spec §13, ADR-0023) -----------------------------------------------------------------
 # What a declared action needs before it is released. The runtime's, as the risk caps are
 # (ADR-0002): a manifest names an action's effect and may tighten its gate (`allow_auto:
 # false`); nothing in a manifest, and nothing an agent proposes, loosens one.
@@ -372,8 +359,8 @@ def gate_of(
 ) -> Gate:
     """A declared action's gate: its effect's (`EFFECT_GATES`), and never looser. The manifest
     tightens it with `allow_auto: false` (never without a person). For an agent the deployment
-    has not `vouched` for (a community agent, or one from a registry whose digest its
-    organization has not approved, or that is recalled), an effect is a claim nobody here
+    has not `vouched` for (one from a registry whose digest its organization has not approved,
+    or that is recalled), an effect is a claim nobody here
     checked: nothing it proposes is released without a person, so `read` and `draft` take the
     gate of `write`. A proposal its second signal did not agree on (`agreed` false: only some
     repeated runs proposed it, or a check's second member proposed another; `Proposed.disputed`)
@@ -431,7 +418,7 @@ def disposition(
     refused_before: bool = False,
 ) -> tuple[Disposition, Reason]:
     """What may be done with a declared, well-formed action, by its gate and its decision's
-    state (the table of spec 0.4 section 5, its rules in this order):
+    state (the table of spec section 13.7, its rules in this order):
 
     1. A BLOCK decision blocks every action.
     2. The gate `decision` needs nothing more: released.
@@ -500,13 +487,12 @@ def matches(condition: Condition, answer: Answer | None) -> bool:
 
 
 def _cap(
-    manifest: PackManifest,
+    manifest: AgentManifest,
     recommendation: str | None,
     failures: Mapping[str, str],
     governance: GovernanceOverride | None,
     variants: Mapping[str, str],
     reasons: list[str],
-    community: bool,
     hold: str | None = None,
     site_code: Sequence[str] = (),
     not_offered: Sequence[str] = (),
@@ -514,7 +500,7 @@ def _cap(
 ) -> Outcome:
     """AUTO, or HUMAN_REVIEW with why. The site code, not-offered and canned caps and a hold
     keep the reason the other caps would give too."""
-    outcome = _caps(manifest, recommendation, failures, governance, variants, reasons, community)
+    outcome = _caps(manifest, recommendation, failures, governance, variants, reasons)
     if site_code:
         reasons.append(f"site code translated ({', '.join(site_code)}): a person decides")
         outcome = Outcome.HUMAN_REVIEW
@@ -531,17 +517,13 @@ def _cap(
 
 
 def _caps(
-    manifest: PackManifest,
+    manifest: AgentManifest,
     recommendation: str | None,
     failures: Mapping[str, str],
     governance: GovernanceOverride | None,
     variants: Mapping[str, str],
     reasons: list[str],
-    community: bool,
 ) -> Outcome:
-    if community:
-        reasons.append("a community agent (not clinically reviewed) recommends and never automates")
-        return Outcome.HUMAN_REVIEW
     label_policy = manifest.policy.labels.get(recommendation or "")
     if label_policy is not None and not label_policy.allow_auto:
         reasons.append(f"policy never automates {recommendation!r}")

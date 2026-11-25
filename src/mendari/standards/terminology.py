@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Mendari's own code systems and identifier systems as FHIR R4 CodeSystem and NamingSystem
-resources, generated from the code and the packs a deployment serves, so they cannot drift from
+resources, generated from the code and the agents a deployment serves, so they cannot drift from
 what Mendari emits. The server serves them and CI loads them into the HL7 validator
 (`scripts/fhir_terminology.py`), so a code Mendari emits that its CodeSystem lacks is an error.
 
@@ -8,22 +8,19 @@ what Mendari emits. The server serves them and CI loads them into the HL7 valida
 |---|---|---|
 | `…/fhir/CodeSystem/decision-outcome` | `Outcome` | Task.businessStatus |
 | `…/fhir/CodeSystem/audit-event` | events chained on a decision | AuditEvent.subtype |
-| `…/fhir/CodeSystem/decision-pack` | `id@version` of the packs served | Task.meta.tag |
+| `…/fhir/CodeSystem/agent-version` | `id@version` of the agents served | Task.meta.tag |
 | `…/fhir/CodeSystem/card-override-reasons` | why a card was overridden | `overrideReasons` |
-| a pack's `task.performer_system` | what `FhirAdapter.to_task` routes to | Task.performerType |
-| `…/packs/{pack}/CodeSystem/{question}` | labels, defined by their criteria | Da Vinci DTR |
+| an agent's `task.performer_system` | what `FhirAdapter.to_task` routes to | Task.performerType |
+| `…/agents/{agent}/CodeSystem/{question}` | labels, by their criteria | Task.output, `$decide` |
 
-The decision-pack system is a `fragment`: decisions made by packs no longer served keep their
-codes. Packs that share a performer system share one CodeSystem, with the union of their codes;
-a community pack never shares one with another pack (its systems live under its own url,
-`core/origin.py`). A community pack's systems are published by its publisher, experimental, and
-say "Community · not clinically reviewed".
-The NamingSystems are for decision ids, input hashes, and pack versions acting as the engine.
+The agent-version system is a `fragment`: decisions made by agents no longer served keep their
+codes. Agents that share a performer system share one CodeSystem, with the union of their codes.
+The NamingSystems are for decision ids, input hashes, and agent versions acting as the engine.
 
 **Versions.** One `url|version` must never name two contents, in any deployment. The fixed
 systems carry the Mendari version (a test pins their content to it). A system whose content
-depends on the packs served carries, after the Mendari version, a digest of those packs' ids and
-digests; a pack's question systems carry the pack's version and its digest prefix.
+depends on the agents served carries, after the Mendari version, a digest of those agents' ids and
+digests; an agent's question systems carry the agent's version and its digest prefix.
 """
 
 from __future__ import annotations
@@ -35,32 +32,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from mendari import __version__
-from mendari.core.origin import COMMUNITY_LABEL
-from mendari.core.pack import Pack
+from mendari.core.agent import Agent
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError
-from mendari.sandbox.code_systems import (
-    CHANNEL_SYSTEM,
-    CHANNELS,
-    CONDITION_SYSTEM,
-    CONDITIONS,
-    PROCEDURE_SYSTEM,
-    PROCEDURES,
-    REFERRAL_SYSTEM,
-    REFERRALS,
-    SANDBOX_TAG,
-    SITE_DIAGNOSES,
-    SITE_DIAGNOSIS_SYSTEM,
-    SITE_ORDER_TYPE_SYSTEM,
-    SITE_ORDER_TYPES,
-)
-from mendari.standards import audit_fhir, davinci
+from mendari.sandbox.code_systems import CHANNEL_SYSTEM, CHANNELS, SANDBOX_TAG
+from mendari.standards import audit_fhir
 from mendari.standards.fhir import (
+    AGENT_ID_SYSTEM,
+    AGENT_TAG_SYSTEM,
     DECISION_ID_SYSTEM,
     MANUAL_TRIAGE,
     OUTCOME_SYSTEM,
-    PACK_ID_SYSTEM,
-    PACK_TAG_SYSTEM,
     FhirAdapter,
     display,
     narrative,
@@ -70,6 +52,8 @@ PUBLISHER = "Mendari"
 NAMING_SYSTEMS_DATE = "2026-10-02"  # when their definitions last changed (pinned by a test)
 _OWN = "https://mendari.co/fhir/CodeSystem/"
 _ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}\Z")
+# Where an agent's own CodeSystems live, one per question (`question_system`).
+AGENTS = "https://mendari.co/agents"
 
 OUTCOMES: dict[Outcome, tuple[str, str]] = {
     Outcome.AUTO: (
@@ -130,50 +114,48 @@ NAMING_SYSTEMS = (
         "Mendari audit subject",
         "What an administrative AuditEvent is about, by its chain id: a kind of record and "
         "its id, joined by a colon (`key:`, `client:`, `governance:`, `hold:`, `eval:`, "
-        "`org:`, `membership:`, `invitation:`, `access:` or `evalset:`, then the id), or one of "
-        "the deployment's own chain ids.",
+        "`org:`, `membership:`, `invitation:` or `access:`, then the id), or one of the "
+        "deployment's own chain ids.",
     ),
     (
-        "decision-pack",
-        PACK_ID_SYSTEM,
+        "agent-version",
+        AGENT_ID_SYSTEM,
         "Mendari agent version",
         "An agent version (`namespace/name@version`) acting as the engine, in "
         "AuditEvent.agent and Provenance.agent. In Task.meta.tag the same value is a code of "
-        f"{PACK_TAG_SYSTEM}.",
+        f"{AGENT_TAG_SYSTEM}.",
     ),
 )
 
 
 @dataclass(frozen=True)
 class Terminology:
-    """The terminology resources for the packs a deployment serves, found by id or by url."""
+    """The terminology resources for the agents a deployment serves, found by id or by url."""
 
     resources: tuple[dict[str, Any], ...]
 
     @classmethod
-    def for_packs(cls, packs: Iterable[Pack]) -> Terminology:
-        return cls(tuple(resources(packs)))
+    def for_agents(cls, agents: Iterable[Agent]) -> Terminology:
+        return cls(tuple(resources(agents)))
 
     @classmethod
-    def serving(cls, packs: Iterable[Pack]) -> tuple[Terminology, dict[str, str]]:
-        """The terminology for every pack that can have one, and why the others cannot (a FHIR
-        mapping that does not load, an id or url another pack already uses). A server skips
-        such a pack's terminology and reports it, rather than not starting."""
-        kept: list[Pack] = []
+    def serving(cls, agents: Iterable[Agent]) -> tuple[Terminology, dict[str, str]]:
+        """The terminology for every agent that can have one, and why the others cannot (a FHIR
+        mapping that does not load, an id or url another agent already uses). A server skips
+        such an agent's terminology and reports it, rather than not starting."""
+        kept: list[Agent] = []
         problems: dict[str, str] = {}
-        # Every other pack before any community pack, so a community pack's terminology never
-        # costs another pack its own.
-        for pack in sorted(packs, key=lambda p: (p.community, p.id)):
+        for agent in sorted(agents, key=lambda p: p.id):
             try:
-                resources([*kept, pack])
+                resources([*kept, agent])
             except MendariError as error:
-                problems[pack.id] = f"terminology: {error}"
+                problems[agent.id] = f"terminology: {error}"
                 continue
-            except Exception as error:  # the pack's content, not Mendari's: named, not quoted
-                problems[pack.id] = f"terminology: {type(error).__name__}"
+            except Exception as error:  # the agent's content, not Mendari's: named, not quoted
+                problems[agent.id] = f"terminology: {type(error).__name__}"
                 continue
-            kept.append(pack)
-        return cls.for_packs(kept), problems
+            kept.append(agent)
+        return cls.for_agents(kept), problems
 
     def get(self, resource_type: str, resource_id: str) -> dict[str, Any] | None:
         return next(
@@ -196,11 +178,11 @@ class Terminology:
         return None
 
 
-def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
-    """Every CodeSystem and NamingSystem for these packs (one version of each, as served)."""
-    served = sorted(packs, key=lambda pack: pack.id)
-    ids = [pack.id for pack in served]
-    repeated = sorted({pack_id for pack_id in ids if ids.count(pack_id) > 1})
+def resources(agents: Iterable[Agent]) -> list[dict[str, Any]]:
+    """Every CodeSystem and NamingSystem for these agents (one version of each, as served)."""
+    served = sorted(agents, key=lambda agent: agent.id)
+    ids = [agent.id for agent in served]
+    repeated = sorted({agent_id for agent_id in ids if ids.count(agent_id) > 1})
     if repeated:
         raise MendariError(f"terminology for one version of each agent, not several of {repeated}")
     found = [
@@ -208,9 +190,9 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
         _audit_events(),
         _administrative_events(),
         _override_reasons(),
-        _decision_packs(served),
+        _agent_versions(served),
         *_performers(served),
-        *(system for pack in served for system in _questions(pack)),
+        *(system for agent in served for system in _questions(agent)),
         *(_naming_system(*spec) for spec in NAMING_SYSTEMS),
     ]
     _check(found)
@@ -219,11 +201,8 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
 
 def sandbox_resources() -> list[dict[str, Any]]:
     """The sandbox's own systems (`sandbox/code_systems.py`), experimental and never served:
-    its synthetic-data tag, its Communications' message channel, the fictional codes synthetic
-    examples are written in (prior-authorization procedures, a local site's conditions, a
-    specialty referral), and a vendor-shaped EHR site's own codes (its diagnoses and its
-    referral's order type, LP-23e). CI loads them so the sandbox and Da Vinci samples
-    validate."""
+    its synthetic-data tag and its Communications' message channel. CI loads them so the
+    sandbox's samples validate."""
     return [
         _code_system(
             SANDBOX_TAG["system"],
@@ -243,58 +222,13 @@ def sandbox_resources() -> list[dict[str, Any]]:
             [_concept(code, shown) for code, shown in CHANNELS.items()],
             experimental=True,
         ),
-        _code_system(
-            PROCEDURE_SYSTEM,
-            "fictional-procedures",
-            "Mendari fictional procedure codes",
-            "Procedure codes invented for synthetic prior-authorization data. Not CPT or any "
-            "real code system; never for billing. A site maps its own codes.",
-            __version__,
-            [_concept(code, shown) for code, shown in PROCEDURES.items()],
-            experimental=True,
-        ),
-        _code_system(
-            CONDITION_SYSTEM,
-            "fictional-conditions",
-            "Mendari fictional condition codes",
-            "Condition codes invented for a synthetic local site's patient records. Not SNOMED "
-            "CT or any real code system. A site maps its own codes.",
-            __version__,
-            [_concept(code, shown) for code, shown in CONDITIONS.items()],
-            experimental=True,
-        ),
-        _code_system(
-            REFERRAL_SYSTEM,
-            "fictional-referrals",
-            "Mendari fictional referral codes",
-            "The code that marks a synthetic order as a specialty referral. Not SNOMED CT or "
-            "any real code system. A site maps its own referral code.",
-            __version__,
-            [_concept(code, shown) for code, shown in REFERRALS.items()],
-            experimental=True,
-        ),
-        _code_system(
-            SITE_DIAGNOSIS_SYSTEM,
-            "fictional-site-diagnoses",
-            "Mendari fictional site diagnosis codes",
-            "A synthetic EHR site's own diagnosis codes, which the sandbox's vendor-shaped profile "
-            "sends beside ICD-10-CM. Not SNOMED CT or any real code system.",
-            __version__,
-            [_concept(code, shown) for code, shown in sorted(SITE_DIAGNOSES.values())],
-            experimental=True,
-        ),
-        _code_system(
-            SITE_ORDER_TYPE_SYSTEM,
-            "fictional-site-order-types",
-            "Mendari fictional site order types",
-            "A synthetic EHR site's own order types, which the sandbox's vendor-shaped profile "
-            "sends as a referral's category beside the fictional referral code. Not SNOMED CT or "
-            "any real code system.",
-            __version__,
-            [_concept(code, shown) for code, shown in SITE_ORDER_TYPES.items()],
-            experimental=True,
-        ),
     ]
+
+
+def question_system(agent_id: str, question: str) -> str:
+    """The CodeSystem of a question's labels (`_questions` generates it): what a Task's outputs
+    (`task_fhir.py`) and `$decide`'s answers (`decide_op.py`) code a label in."""
+    return f"{AGENTS}/{agent_id}/CodeSystem/{question}"
 
 
 def resource_id(text: str) -> str:
@@ -372,67 +306,57 @@ def _administrative_events() -> dict[str, Any]:
         "audit-administrative-event",
         "Mendari administrative audit event",
         "The events of Mendari's audit trail that are on no decision (an organization's keys, "
-        "clients, people, approvals, holds, reports and hidden evaluation sets, and the "
-        "deployment's own), as AuditEvent.subtype.",
+        "clients, people, approvals, holds and reports, and the deployment's own), as "
+        "AuditEvent.subtype.",
         __version__,
         concepts,
     )
 
 
-def _decision_packs(served: list[Pack]) -> dict[str, Any]:
+def _agent_versions(served: list[Agent]) -> dict[str, Any]:
     return _code_system(
-        PACK_TAG_SYSTEM,
-        "decision-pack",
+        AGENT_TAG_SYSTEM,
+        "agent-version",
         "Mendari agent",
         "Agent versions (`namespace/name@version`), as Task.meta.tag. Lists the agents "
         "this deployment serves; decisions made by other agents or versions keep their codes, so "
         "this is a fragment.",
         _served_version(served),
         [
-            _concept(pack.ref, f"{pack.manifest.name} {pack.version}", pack.manifest.summary)
-            for pack in served
+            _concept(agent.ref, f"{agent.manifest.name} {agent.version}", agent.manifest.summary)
+            for agent in served
         ],
         content="fragment",
     )
 
 
-def _performers(served: list[Pack]) -> Iterator[dict[str, Any]]:
+def _performers(served: list[Agent]) -> Iterator[dict[str, Any]]:
     systems: dict[str, list[FhirAdapter]] = {}
-    for pack in served:
-        if pack.manifest.inputs.fhir is not None:
-            adapter = FhirAdapter.for_pack(pack)
+    for agent in served:
+        if agent.manifest.inputs.fhir is not None:
+            adapter = FhirAdapter.for_agent(agent)
             systems.setdefault(adapter.mapping.task.performer_system, []).append(adapter)
     for url, adapters in sorted(systems.items()):
-        if len({adapter.pack.community for adapter in adapters}) > 1:
-            shared = ", ".join(adapter.pack.id for adapter in adapters)
-            raise MendariError(
-                f"the performer system {url} is used by a community agent and another agent "
-                f"({shared}); a community agent's systems are its own"
-            )
-        community = adapters[0].pack.community
         concepts: dict[str, dict[str, str]] = {}
         for adapter in adapters:
             for code, values in adapter.performer_codes().items():
-                concepts.setdefault(code, _performer(adapter.pack, code, values))
-        refs = ", ".join(f"`{adapter.pack.ref}`" for adapter in adapters)
+                concepts.setdefault(code, _performer(adapter.agent, code, values))
+        refs = ", ".join(f"`{adapter.agent.ref}`" for adapter in adapters)
         shown = _human(url.rstrip("/").rsplit("/", 1)[-1])
         yield _code_system(
             url,
             resource_id(url.removeprefix(_OWN) if url.startswith(_OWN) else url.split("//")[-1]),
-            f"{adapters[0].pack.manifest.name} performer: {shown}"
-            if community
-            else f"Mendari performer: {shown}",
+            f"Mendari performer: {shown}",
             f"Who handles a decision, as Task.performerType: the codes {refs} can route to "
             "(fhir/mapping.yaml, `task.performer`).",
-            _served_version([adapter.pack for adapter in adapters]),
+            _served_version([adapter.agent for adapter in adapters]),
             list(concepts.values()),
-            **(_community(adapters[0].pack) if community else {}),
         )
 
 
-def _performer(pack: Pack, code: str, values: Mapping[str, str]) -> dict[str, str]:
+def _performer(agent: Agent, code: str, values: Mapping[str, str]) -> dict[str, str]:
     """A performer code, defined by the answer that routes to it."""
-    manifest = pack.manifest
+    manifest = agent.manifest
     if not values:
         return _concept(code, _human(code), f"Every {manifest.name} decision goes here.")
     if len(values) > 1:
@@ -448,27 +372,20 @@ def _performer(pack: Pack, code: str, values: Mapping[str, str]) -> dict[str, st
     return _concept(code, _human(code), question.criteria[label])
 
 
-def _questions(pack: Pack) -> Iterator[dict[str, Any]]:
-    version = f"{pack.version}+{pack.digest.removeprefix('sha256:')[:8]}"
-    for key, question in pack.manifest.questions.items():
+def _questions(agent: Agent) -> Iterator[dict[str, Any]]:
+    version = f"{agent.version}+{agent.digest.removeprefix('sha256:')[:8]}"
+    for key, question in agent.manifest.questions.items():
         yield _code_system(
-            davinci.question_system(pack.id, key),
-            resource_id(f"{pack.id}-{key}"),
-            f"{pack.manifest.name}: {key}",
+            question_system(agent.id, key),
+            resource_id(f"{agent.id}-{key}"),
+            f"{agent.manifest.name}: {key}",
             question.instructions,
             version,
             [
                 _concept(label, question.criteria[label], question.criteria[label])
                 for label in question.labels
             ],
-            **(_community(pack) if pack.community else {}),
         )
-
-
-def _community(pack: Pack) -> dict[str, Any]:
-    """How a community pack's systems are published: by its publisher (self-declared), as
-    experimental, labelled as not clinically reviewed."""
-    return {"publisher": pack.manifest.publisher.name, "experimental": True, "community": True}
 
 
 def _code_system(
@@ -481,17 +398,9 @@ def _code_system(
     *,
     content: str = "complete",
     experimental: bool = False,
-    publisher: str = PUBLISHER,
-    community: bool = False,
 ) -> dict[str, Any]:
     rows = [(concept["code"], concept["display"]) for concept in concepts]
     name = _name(title)
-    if community:
-        title = f"{title} ({COMMUNITY_LABEL})"
-        description = (
-            f"{description} {COMMUNITY_LABEL}: an outside developer contributed this agent, and "
-            "Mendari has not clinically reviewed it."
-        )
     resource: dict[str, Any] = {
         "resourceType": "CodeSystem",
         "id": id_,
@@ -502,7 +411,7 @@ def _code_system(
         "title": title,
         "status": "active",
         "experimental": experimental,
-        "publisher": publisher,
+        "publisher": PUBLISHER,
         "description": " ".join(description.split()),
         "caseSensitive": True,
         "content": content,
@@ -535,9 +444,9 @@ def _concept(code: str, shown: str, definition: str | None = None) -> dict[str, 
     return concept
 
 
-def _served_version(packs: Iterable[Pack]) -> str:
-    """The Mendari version and a digest of the packs (ids and digests) a system is made from."""
-    listed = "\n".join(sorted(f"{pack.id} {pack.digest}" for pack in packs))
+def _served_version(agents: Iterable[Agent]) -> str:
+    """The Mendari version and a digest of the agents (ids and digests) a system is made from."""
+    listed = "\n".join(sorted(f"{agent.id} {agent.digest}" for agent in agents))
     return f"{__version__}+{hashlib.sha256(listed.encode()).hexdigest()[:8]}"
 
 
@@ -552,7 +461,7 @@ def _human(code: str) -> str:
 
 
 def _check(found: list[dict[str, Any]]) -> None:
-    """Ids are valid, and no two resources share an id or a url (e.g. a pack whose performer
+    """Ids are valid, and no two resources share an id or a url (e.g. an agent whose performer
     system is one of Mendari's fixed systems)."""
     seen: set[tuple[str, str]] = set()
     for resource in found:

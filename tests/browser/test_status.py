@@ -18,7 +18,7 @@ READY = "**/api/health/ready"
 OUTAGE = {
     "status": "unready",
     "version": "0.1.0",
-    "checks": {"database": "unreachable", "packs": "ok"},
+    "checks": {"database": "unreachable", "agents": "ok"},
 }
 
 
@@ -34,7 +34,7 @@ def test_the_status_page_shows_a_working_deployment(page: Page) -> None:
     expect(page.locator("[data-status]")).to_have_attribute("data-status", "ready")
     expect(page.locator("#status-body")).to_contain_text("Working.")
     expect(page.locator('[data-check="database"]')).to_have_text("Answering")
-    expect(page.locator('[data-check="packs"]')).to_have_text("Loaded")
+    expect(page.locator('[data-check="agents"]')).to_have_text("Loaded")
 
 
 def test_the_status_view_shows_a_database_outage(page: Page) -> None:
@@ -43,7 +43,7 @@ def test_the_status_view_shows_a_database_outage(page: Page) -> None:
     expect(page.locator("[data-status]")).to_have_attribute("data-status", "unready")
     expect(page.locator(".callout.danger")).to_contain_text("Not working.")
     expect(page.locator('[data-check="database"]')).to_have_text("Not answering")
-    expect(page.locator('[data-check="packs"]')).to_have_text("Loaded")
+    expect(page.locator('[data-check="agents"]')).to_have_text("Loaded")
 
 
 def test_the_status_view_says_when_nothing_answers(page: Page) -> None:

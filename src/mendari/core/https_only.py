@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Which addresses may be reached without TLS: this machine, and nothing else.
 
-A registry token, a pack archive and a recall list cross the network. Over plain http anyone on
+A registry token, an agent archive and a recall list cross the network. Over plain http anyone on
 the path reads the token and swaps the answer, so a registry is reached over https. A registry on
 this machine (a developer's, a test's, the docker sandbox's published port) has no certificate,
 and its traffic never leaves the machine, so http is allowed there.

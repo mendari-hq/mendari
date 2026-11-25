@@ -7,6 +7,7 @@ work, and no request body passes MENDARI_MAX_BODY_BYTES."""
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import threading
 import time
@@ -24,15 +25,15 @@ from mendari.core import db as db_module
 from mendari.core.audit import _CHAIN_LOCK, SESSION_PURGE_BATCH, AuditStore
 from mendari.errors import FhirError, MendariError
 from mendari.server.app import create_app
-from mendari.server.auth import Auth, AuthSettings, Principal, person_id
+from mendari.server.auth import Auth, Principal, person_id
 from mendari.server.scopes import DECIDE
 from mendari.standards import oidc
 from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import message, run_async, without_request_id
+from tests.support.platform import BUNDLE, TRIAGE_API
 from tests.test_auth import IDP, FakeIdp, key_for, sign_in, signing_in_with
 
-FIXTURE = Path(__file__).parent / "fixtures" / "us-core" / "inbox.json"
-INBOX = "/api/packs/mendari/patient-inbox-router"
+INBOX = TRIAGE_API  # the agent these tests decide with
 PUBLIC_HEALTH = {"status", "version", "sign_in"}
 SMALL = 64 * 1024  # the smallest cap a deployment may set
 
@@ -200,7 +201,7 @@ def test_the_sign_in_check_runs_off_the_event_loop(
         return check(self, request)
 
     monkeypatch.setattr(Auth, "check", spy)
-    assert TestClient(create_app(db_path=tmp_path / "a.db")).get("/api/packs").status_code == 200
+    assert TestClient(create_app(db_path=tmp_path / "a.db")).get("/api/agents").status_code == 200
     assert on_the_loop == [False]
 
 
@@ -232,23 +233,6 @@ def test_each_principal_has_a_stable_id_that_names_nobody(
     signing_in.get("/api/audit", headers={"authorization": f"Bearer {created['key']}"})
     key = seen[-1]
     assert key is not None and key.id == f"key:{created['id']}"
-
-
-def test_a_session_from_before_the_issuer_was_stored_is_of_the_configured_issuer(
-    tmp_path: Path,
-) -> None:
-    settings = AuthSettings(IDP, "c", None, "roles", {}, None, None)
-    with AuditStore(tmp_path / "a.db") as store:
-        old = {"sub": "u1", "name": "Nurse Kim", "roles": ["viewer"], "org": "default"}
-        store.smart_put("sid", "user", old, int(time.time()) + 60)
-        scope = {
-            "type": "http",
-            "method": "GET",
-            "path": "/",
-            "headers": [(b"cookie", b"mendari_session=sid")],
-        }
-        principal = Auth(settings, store).authenticate(Request(scope))
-    assert principal is not None and principal.id == person_id(IDP, "u1")
 
 
 def test_an_id_token_without_a_subject_signs_nobody_in(
@@ -287,7 +271,7 @@ def test_the_settings_in_health_need_the_read_permission(
     with signing_in_with(idp, tmp_path, monkeypatch) as client:
         sign_in(client, idp, roles=["viewer"])
         details = client.get("/api/health").json()
-        assert {"phi_mode", "packs", "providers", "jev", "llm"} <= set(details)
+        assert {"phi_mode", "agents", "providers", "llm"} <= set(details)
         assert details["sign_in"] is True and details["phi_mode"] == "encrypt"  # never off
         viewer = {"authorization": f"Bearer {key_for(client, idp, role='viewer')}"}
         assert "phi_mode" in client.get("/api/health", headers=viewer).json()
@@ -388,7 +372,7 @@ def test_a_chunked_body_is_refused_once_it_passes_the_cap(capped: Any) -> None:
 
 
 def test_a_three_mebibyte_bundle_is_taken_by_default(tmp_path: Path) -> None:
-    bundle = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    bundle = copy.deepcopy(BUNDLE)  # a synthetic message, as an EHR sends it
     padding = {"resourceType": "Basic", "code": {"text": "x" * 1000}}
     bundle["entry"] += [
         {"fullUrl": f"urn:uuid:pad-{i}", "resource": {**padding, "id": f"pad-{i}"}}

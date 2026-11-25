@@ -20,16 +20,10 @@ from starlette.routing import Route as ServedRoute
 
 import mendari
 from mendari.hub.registry import create_registry_app
-from mendari.sandbox.payer import create_payer_app
 from mendari.server.app import create_app
 from tests.conftest import (
-    ENGINE_FORMER_ROUTES,
-    REGISTRY_FORMER_ROUTES,
     encrypt_mode,
     encrypted_store,
-    evalset_on,
-    evalsets_are_on,
-    member,
 )
 from tests.test_spdx import COMMENTS, IDENTIFIER, NOT_OURS, VERBATIM
 
@@ -101,8 +95,8 @@ def test_the_scan_sees_each_way_to_import_a_mock(source: str) -> None:
     assert any(n in MOCK_MODULES or n.startswith("unittest.mock") for n in _imports(node))
 
 
-# §4. No vendor or model name in product code outside src/mendari/providers/. `jev` and `llm`
-# are provider types (mendari.providers), not vendors.
+# §4. No vendor or model name in product code outside src/mendari/providers/. `llm` is a
+# provider type (mendari.providers), not a vendor.
 
 # Distinctive names match as the start of a word (gpt-4o, llama3, OPENAI_API_KEY, ClaudeClient);
 # names that begin ordinary words (coherent, grokking) only as whole words; the o-series alone.
@@ -140,7 +134,7 @@ NAMES_ONE = (
     "gpt-4o", "gpt4o", "gpt-35-turbo", "llama3.1:8b", "qwen2.5", "gemma3", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "ClaudeClient", "geminiPro", "opus", '"o1"', "o3-mini",
 )  # fmt: skip
-NAMES_NONE = ("0o600", "coherent", "grokking", "jev-1.13.0", "llm")
+NAMES_NONE = ("0o600", "coherent", "grokking", "llm")
 
 
 @pytest.mark.parametrize(
@@ -168,32 +162,29 @@ def test_no_vendor_or_model_name_in_product_code_outside_the_providers() -> None
 
 ENGINE = "engine"
 REGISTRY = "registry"
-PAYER = "payer"
 Route = tuple[str, str, str]  # (app, method, path)
 
 CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/notice/acknowledge"): ("notice.acknowledged",),
     (ENGINE, "POST", "/api/agents/{namespace}/{name}/decide"): ("decision.created",),
-    (ENGINE, "POST", "/api/agents/{namespace}/{name}/guard"): ("decision.created",),
     (ENGINE, "POST", "/api/agents/{namespace}/{name}/fhir/decide"): ("decision.created",),
     (ENGINE, "POST", "/fhir/$decide"): ("decision.created",),
     (ENGINE, "POST", "/cds-services/{service_id}"): ("decision.created",),
     (ENGINE, "POST", "/cds-services/{service_id}/feedback"): ("card.feedback",),
     (ENGINE, "POST", "/api/smart/decide"): ("decision.created",),
-    (ENGINE, "POST", "/api/agents/{namespace}/{name}/pas"): ("pas.submitted",),  # on submit
-    # A caller's question about one action for a recorded decision (spec 0.4): chained the
+    # A caller's question about one action for a recorded decision (spec §13.8): chained the
     # first time it is asked; asking again answers how it stands and chains nothing.
     (ENGINE, "POST", "/api/agents/{namespace}/{name}/actions"): ("action.proposed",),
     # The registry's own chain (`hub_events`, LP-18b): only a namespace's publisher writes over
     # its routes (LP-19g); every other act is a reviewer's, below, or the operator's commands.
     (REGISTRY, "POST", "/v1/namespaces/{namespace}/keys"): ("key.added",),
-    (REGISTRY, "PUT", "/v1/agents/{namespace}/{name}/{version}"): ("pack.published",),
+    (REGISTRY, "PUT", "/v1/agents/{namespace}/{name}/{version}"): ("agent.published",),
     # A verified site's signed report, sent with its ticket's secret (LP-22f).
     (REGISTRY, "POST", "/v1/agents/{namespace}/{name}/{version}/reports"): (
         "report.shared",
         "site.ticket_reported",
     ),
-    (REGISTRY, "POST", "/v1/agents/{namespace}/{name}/{version}/yank"): ("pack.yanked",),
+    (REGISTRY, "POST", "/v1/agents/{namespace}/{name}/{version}/yank"): ("agent.yanked",),
     # A publisher's signed evaluation of a listed version (ADR-0020); a later one supersedes.
     (REGISTRY, "POST", "/v1/agents/{namespace}/{name}/{version}/evaluations"): (
         "evaluation.published",
@@ -222,17 +213,17 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     ),
     (ENGINE, "POST", "/api/registry/review/sites/{site_id}"): ("site.verified", "site.refused"),
     (ENGINE, "POST", "/api/registry/review/agents/{namespace}/{name}/{version}"): (
-        "pack.reviewed",
+        "agent.reviewed",
     ),
     (ENGINE, "POST", "/api/registry/review/agents/{namespace}/{name}/{version}/recall"): (
-        "pack.yanked",
+        "agent.yanked",
     ),
     (ENGINE, "POST", "/api/registry/review/agents/{namespace}/{name}/{version}/delete"): (
-        "pack.deleted",
+        "agent.deleted",
     ),
     (ENGINE, "POST", "/api/governance"): ("governance.approved",),
-    (ENGINE, "POST", "/api/registry-approvals"): ("registry_pack.approved",),
-    (ENGINE, "DELETE", "/api/registry-approvals/{approval_id}"): ("registry_pack.revoked",),
+    (ENGINE, "POST", "/api/registry-approvals"): ("registry_agent.approved",),
+    (ENGINE, "DELETE", "/api/registry-approvals/{approval_id}"): ("registry_agent.revoked",),
     (ENGINE, "DELETE", "/api/governance/{approval_id}"): ("governance.revoked",),
     (ENGINE, "POST", "/api/holds"): ("automation.held",),
     (ENGINE, "DELETE", "/api/holds/{hold_id}"): ("automation.lifted",),
@@ -269,40 +260,25 @@ CHAINED: dict[Route, tuple[str, ...]] = {
         "membership.created",
     ),
     (ENGINE, "POST", "/api/agents/{namespace}/{name}/evals"): ("eval.recorded",),
-    # Memberships mode with the evaluation-set keys: a labeller's label, as its commitment.
-    (ENGINE, "POST", "/api/labelling/{assignment_id}"): ("evalset.labelled",),
     # Memberships mode under PHI mode encrypt: a grader's grades of a written output, as their
     # commitment (ADR-0025).
     (ENGINE, "POST", "/api/written/labelling/{assignment_id}"): ("written.graded",),
-    # And an organization's curators' (LP-11k): a draw (counts and the seed), each assignment.
-    (ENGINE, "POST", "/api/evalsets/{set_id}/sample"): ("evalset.sampled",),
-    (ENGINE, "POST", "/api/evalsets/{set_id}/assignments"): ("evalset.assigned",),
-    (ENGINE, "POST", "/api/evalsets/{set_id}/adjudication"): ("evalset.assigned",),
-    # A grading run (LP-11l): each read of the set chained before its run receives the cases,
-    # and a frozen set's first activates it. The run itself stores nothing.
-    (ENGINE, "POST", "/api/evalsets/{set_id}/runs"): ("evalset.graded", "evalset.activated"),
-    # An organization's pack store (LP-20f; MENDARI_PACK_STORE=on, memberships mode): each new
-    # version, and held at once when it holds a hidden case; a draft withdrawn; authors' keys.
-    (ENGINE, "POST", "/api/store/versions"): ("pack_version.created", "pack_version.held"),
-    (ENGINE, "POST", "/api/store/uploads/{upload_id}/complete"): (
-        "pack_version.created",
-        "pack_version.held",
-    ),
-    (ENGINE, "POST", "/api/store/copies"): ("pack_version.created", "pack_version.held"),
-    (ENGINE, "POST", "/api/store/versions/{digest}/edits"): (
-        "pack_version.created",
-        "pack_version.held",
-    ),
-    (ENGINE, "DELETE", "/api/store/versions/{digest}"): ("pack_version.withdrawn",),
+    # An organization's agent store (LP-20f; MENDARI_AGENT_STORE=on, memberships mode): each new
+    # version; a draft withdrawn; authors' keys.
+    (ENGINE, "POST", "/api/store/versions"): ("store_version.created",),
+    (ENGINE, "POST", "/api/store/uploads/{upload_id}/complete"): ("store_version.created",),
+    (ENGINE, "POST", "/api/store/copies"): ("store_version.created",),
+    (ENGINE, "POST", "/api/store/versions/{digest}/edits"): ("store_version.created",),
+    (ENGINE, "DELETE", "/api/store/versions/{digest}"): ("store_version.withdrawn",),
     (ENGINE, "POST", "/api/store/keys"): ("store_key.added",),
     (ENGINE, "DELETE", "/api/store/keys/{key_id}"): ("store_key.revoked",),
     # Its datasets and evaluation jobs (LP-20g): a job's last slice records its report.
-    (ENGINE, "POST", "/api/store/datasets"): ("store_dataset.created", "store_dataset.held"),
+    (ENGINE, "POST", "/api/store/datasets"): ("store_dataset.created",),
     (ENGINE, "POST", "/api/store/jobs"): ("store_job.created",),
     (ENGINE, "POST", "/api/store/jobs/{job_id}/advance"): ("eval.recorded",),
     # Promotion (LP-20h): the version served, and the one it replaced retired with it.
-    (ENGINE, "POST", "/api/store/promotions"): ("pack_version.promoted", "pack_version.retired"),
-    (ENGINE, "POST", "/api/store/promotions/{promotion_id}/retire"): ("pack_version.retired",),
+    (ENGINE, "POST", "/api/store/promotions"): ("store_version.promoted", "store_version.retired"),
+    (ENGINE, "POST", "/api/store/promotions/{promotion_id}/retire"): ("store_version.retired",),
     # The improvement dataset (LP-20i): each input read chained, the dataset with counts only;
     # a proposed test accepted or dismissed.
     (ENGINE, "POST", "/api/store/agents/{namespace}/{name}/improvement"): (
@@ -315,7 +291,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     ),
     # A version added from the deployment's registry (MENDARI_REGISTRY_URL, with the store on):
     # verified, then kept as any new version is.
-    (ENGINE, "POST", "/api/store/pulls"): ("pack_version.created", "pack_version.held"),
+    (ENGINE, "POST", "/api/store/pulls"): ("store_version.created",),
     # An agent's connection for an organization (ADR-0021): set or changed, and cleared.
     # An operator may allow its origin too, where the deployment's list does not name it.
     (ENGINE, "PUT", "/api/connections/{namespace}/{name}"): (
@@ -326,7 +302,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
 # stored input is chained is checked over every GET route by tests/test_hosted_data.py
-# (test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained); a pack's first
+# (test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained); an agent's first
 # use on a deployment chains `deployment.recorded` on whichever route meets it.
 CHAINED_READS: dict[Route, tuple[str, ...]] = {
     (ENGINE, "GET", "/api/internal/retention"): ("input.purged", "note.erased", "retention.purged"),
@@ -346,8 +322,6 @@ CHAINED_READS: dict[Route, tuple[str, ...]] = {
     (ENGINE, "GET", "/api/review"): ("input.read",),
     (ENGINE, "GET", "/api/feedback"): ("input.read",),
     (ENGINE, "GET", "/api/agents/{namespace}/{name}/feedback/export"): ("input.read",),
-    # A labeller shown their next hidden case, each time, before it is sent (LP-11j).
-    (ENGINE, "GET", "/api/labelling/next"): ("evalset.case_read",),
     # A grader shown their next written output, each time, before it is sent (ADR-0025).
     (ENGINE, "GET", "/api/written/labelling/next"): ("written.item_read",),
 }
@@ -362,16 +336,10 @@ NOT_CHAINED: dict[Route, str] = {
         "a five-minute access token for a registered client, like a session; the client's "
         "registration and revocation are chained (security log: auth.token.issued)"
     ),
-    (
-        ENGINE,
-        "POST",
-        "/fhir/Questionnaire/$questionnaire-package",
-    ): "a read: builds, stores nothing",
     (ENGINE, "POST", "/fhir/Task/_search"): "a read: FHIR search by POST carries the query",
     (ENGINE, "POST", "/fhir/AuditEvent/_search"): "a read: FHIR search by POST",
     (ENGINE, "POST", "/fhir/Provenance/_search"): "a read: FHIR search by POST",
     (ENGINE, "POST", "/fhir/CodeSystem/_search"): "a read: FHIR search by POST",
-    (PAYER, "POST", "/Claim/$submit"): "the sandbox's synthetic payer: no store, writes nothing",
     (ENGINE, "POST", "/api/store/uploads"): (
         "an archive begun in parts, kept until it is joined or a day old; the version it makes "
         "is chained (LP-20f)"
@@ -416,19 +384,12 @@ def _routes(app: FastAPI, name: str, mounted: set[Route] | None = None) -> set[R
     """Every route by its methods (an APIRoute is a starlette Route). Anything else, a mount, a
     websocket or a host, would hide its routes here: only the dashboard's /static is allowed,
     and the registry under the engine (LP-19d), whose routes must be the registry's own
-    (`mounted`), which are listed as the registry's. A renamed route is one route: the path it
-    had before is the same handler (`server/paths.py`; tests/test_legacy_routes.py holds the
-    two to that), so it is listed once, at its current path."""
-    former = {**ENGINE_FORMER_ROUTES, **REGISTRY_FORMER_ROUTES}
+    (`mounted`), which are listed as the registry's."""
     found: set[Route] = set()
     for route in app.routes:
         if isinstance(route, ServedRoute):
             methods = route.methods if route.methods is not None else UNSAFE | {"GET"}
-            found |= {
-                (name, method, route.path)
-                for method in methods
-                if (method, route.path) not in former
-            }
+            found |= {(name, method, route.path) for method in methods}
         elif isinstance(route, Mount) and route.path == "/registry" and mounted is not None:
             assert isinstance(route.app, FastAPI), route
             within = {(method, path) for _, method, path in _routes(route.app, name)}
@@ -442,8 +403,8 @@ def _routes(app: FastAPI, name: str, mounted: set[Route] | None = None) -> set[R
 
 @pytest.fixture
 def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
-    """Every route of every app, the engine with sign-in, Backend Services, memberships mode and
-    hidden evaluation sets on (its most)."""
+    """Every route of every app, the engine with sign-in, Backend Services and memberships mode
+    on (its most)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
@@ -452,21 +413,16 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_REGISTRY", "on")  # the registry mounted, with its people's routes
     monkeypatch.setenv("MENDARI_REGISTRY_REVIEW_ORG", "registry-review")  # and its reviewers'
-    monkeypatch.setenv("MENDARI_PACK_STORE", "on")  # organizations' pack stores (LP-20f)
+    monkeypatch.setenv("MENDARI_AGENT_STORE", "on")  # organizations' agent stores (LP-20f)
     # A registry to add agents from (never reached here: no route is called).
     monkeypatch.setenv("MENDARI_REGISTRY_URL", "https://hub.example.org")
     with encrypted_store(tmp_path / "engine.db") as before:
         before.create_organization(org="registry-review", name="Registry review", created_by="t")
-    evalset_on(monkeypatch)
     found: set[Route] = set()
     apps = {
         ENGINE: create_app(db_path=tmp_path / "engine.db"),
         REGISTRY: create_registry_app(tmp_path / "registry.db"),
-        PAYER: create_payer_app(),
     }
-    with encrypted_store(tmp_path / "engine.db") as served:
-        reader = member(served, org="default", roles=["viewer"], sub="evalsets-reader")
-    evalsets_are_on(TestClient(apps[ENGINE], base_url="https://mendari.test"), reader)
     with TestClient(apps[REGISTRY]):  # runs the app's lifespan, which closes its store
         registrys = _routes(apps[REGISTRY], REGISTRY)
     for name, app in apps.items():

@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from playwright.sync_api import Browser, Page, expect
 
-from mendari import AuditStore, Decision, load_pack
+from mendari import AuditStore, Decision, load_agent
 from mendari.evals.harness import evaluation, load_dataset
 from mendari.evals.operating_point import Targets
 from mendari.server.app import create_app
@@ -33,9 +33,9 @@ def _reports() -> list[dict[str, Any]]:
     critical misses at most 1%, which no threshold meets; one whose block recommends a
     threshold, with markup where a sentence should be (the block is written here: only how one
     is shown is checked on it); and one as a run wrote it before it worked a block out."""
-    pack = load_pack(DEMO_AGENT_DIR)
-    dataset = load_dataset(pack.path("data/test.jsonl"), name="test")
-    decision = Decision(pack, origin_cap=False)
+    agent = load_agent(DEMO_AGENT_DIR)
+    dataset = load_dataset(agent.path("data/test.jsonl"), name="test")
+    decision = Decision(agent, origin_cap=False)
     plain = evaluation(decision, dataset).report
     held = evaluation(decision, dataset, targets=Targets(critical_miss=0.01)).report
     recommends = copy.deepcopy(held)
@@ -62,7 +62,7 @@ def served(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     with AuditStore(db) as store:
         for report in _reports():
             store.save_report(report)
-    with serving(create_app(db_path=db, packs_paths=[ROOT / "agents"])) as port:
+    with serving(create_app(db_path=db, agents_paths=[ROOT / "agents"])) as port:
         yield f"http://127.0.0.1:{port}"
 
 

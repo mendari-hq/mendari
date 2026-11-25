@@ -107,8 +107,8 @@ class GuardedHttp:
     ) -> dict[str, Any]:
         """A JSON answer to a GET. `max_bytes` caps this answer below `MAX_BYTES` (a linked read's,
         LP-23h): past it, the answer stops arriving and is a `FhirError` (`too_large`). `timeout`
-        and `stop` are `send_json`'s: what remains of a decision's clocks, and a check that ends
-        an answer still arriving once they have run out (`FhirError`, `timeout`)."""
+        and `stop` are what remains of a decision's clocks (seconds, each step), and a check that
+        ends an answer still arriving once they have run out (`FhirError`, `timeout`)."""
         extra: dict[str, Any] = {} if max_bytes is None else {"max_bytes": max_bytes}
         if timeout is not None:
             extra["timeout"] = timeout
@@ -120,29 +120,6 @@ class GuardedHttp:
         self, url: str, data: Mapping[str, str], headers: Mapping[str, str] | None = None
     ) -> dict[str, Any]:
         return self._send("POST", url, headers=headers, data=data)
-
-    def send_json(
-        self,
-        method: str,
-        url: str,
-        body: Mapping[str, Any],
-        headers: Mapping[str, str] | None = None,
-        *,
-        timeout: float | None = None,
-        stop: Callable[[], bool] | None = None,
-    ) -> dict[str, Any]:
-        """A FHIR JSON request (a CQL `$evaluate`, a Library upload); its JSON answer. A
-        `timeout` (seconds, each step) replaces the client's `TIMEOUT` for this request: what
-        remains of a decision's deadline (`providers/deadline.py`). `stop`, asked before each
-        part of the answer is read, ends an answer still arriving (`FhirError`): the deadline's
-        `past`, so an engine sending a little at a time cannot outlast it."""
-        sent = {"content-type": "application/fhir+json", "accept": "application/fhir+json"}
-        extra: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
-        if stop is not None:
-            extra["stop"] = stop
-        return self._send(
-            method, url, headers={**sent, **(headers or {})}, json=dict(body), **extra
-        )
 
     def raw(
         self, method: str, url: str, headers: Mapping[str, str] | None = None, **kwargs: Any

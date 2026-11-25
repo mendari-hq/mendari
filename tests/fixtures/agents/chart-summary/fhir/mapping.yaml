@@ -1,0 +1,134 @@
+# Synthetic test fixture. Not clinically reviewed. Not for patient care.
+#
+# FHIR R4 -> the agent's input: one Patient and their chart, as a patient-view hook, `$decide`,
+# the SMART launch or a Bulk export gives it. Built to read a record the way an EHR writes one,
+# with plain fields (an age from a birth date, a mapped code, texts joined) and the spec's record
+# reading (docs/spec/agent-manifest.md, section 9): a coding found by its
+# code system wherever it sits (`[system=...]`), fallback `paths`, one reference followed
+# (`follow`), clinic notes as plain text or HTML, inline or in a Binary (`attachment_text`), the
+# agent's own codes (`code_sets`, which a site code map may feed), one list read from two
+# resource types (`resources`) and a MedicationRequest's period (`medication_period`). Its
+# records are made by tests/support/fixture_records.py.
+fhir_version: R4
+focus: Patient
+
+resources:
+  Patient:
+    required: true
+  # Read by a field (the notes) and through a reference (a request's drug): named here so that a
+  # Bulk export asks for them too (`mendari bulk`, `bulk.export_types`).
+  DocumentReference:
+    required: false
+  Medication:
+    required: false
+
+# The agent's own codes. A site's own codes for the same conditions translate into these through
+# its site code map (MENDARI_SITE_CODES), which changes no file here; a decision whose input took
+# a value through a translation is never automated.
+code_sets:
+  # The conditions that call for a follow-up visit: the synthetic watch list (soon), then the
+  # long-term conditions (routine). A rule for test data, not clinical guidance.
+  follow_up_conditions:
+    system: http://hl7.org/fhir/sid/icd-10-cm
+    codes:
+      - I50.9
+      - N18.4
+      - I26.99
+      - D68.32
+      - R79.1
+      - E11.9
+      - I10
+      - E78.5
+      - I48.91
+      - E03.9
+      - J45.909
+      - Z86.718
+
+fields:
+  patient.age:
+    path: Patient.birthDate
+    transform: age_years
+  patient.sex:
+    path: Patient.gender
+    map: {female: female, male: male, other: other, unknown: unknown}
+  problems:
+    # The problem list as text, a condition a line, in the record's order.
+    path: Condition.code.text
+    transform: join
+  notes:
+    # Plain text and HTML, inline or in the Binary the attachment's url names; an RTF, PDF or
+    # CDA note cannot be read, and the decision abstains (spec §9.5).
+    path: DocumentReference.content.attachment
+    transform: attachment_text
+
+lists:
+  conditions:
+    resource: Condition
+    fields:
+      code:
+        # ICD-10-CM wherever it sits among the codings, else the first coding as the EHR sends it.
+        paths:
+          - "code.coding[system=http://hl7.org/fhir/sid/icd-10-cm].code"
+          - code.coding[0].code
+      flag:
+        # A condition of the follow-up code set, as one word the agent reads.
+        path: code.coding
+        code_set: follow_up_conditions
+        map:
+          I50.9: flag-soon
+          N18.4: flag-soon
+          I26.99: flag-soon
+          D68.32: flag-soon
+          R79.1: flag-soon
+          E11.9: flag-routine
+          I10: flag-routine
+          E78.5: flag-routine
+          I48.91: flag-routine
+          E03.9: flag-routine
+          J45.909: flag-routine
+          Z86.718: flag-routine
+      text:
+        path: code.text
+      status:
+        path: clinicalStatus.coding[0].code
+      onset:
+        path: onsetDateTime
+  medications:
+    resources:
+      MedicationStatement:
+        fields:
+          code:
+            path: "medicationCodeableConcept.coding[system=http://www.nlm.nih.gov/research/umls/rxnorm].code"
+          name:
+            path: medicationCodeableConcept.text
+          status:
+            path: status
+          start:
+            path: effectivePeriod.start
+          end:
+            path: effectivePeriod.end
+      MedicationRequest:
+        # The drug's code from the Medication its reference names (read from the EHR on a hook or
+        # the SMART launch when the record does not hold it), else from the request's own
+        # concept; its name from the request itself. When the drug is taken is the spec's stated
+        # rule (§9.8): the first dosage instruction's bounds, else when the request was written.
+        fields:
+          code:
+            follow: medicationReference
+            paths:
+              - "Medication.code.coding[system=http://www.nlm.nih.gov/research/umls/rxnorm].code"
+              - "MedicationRequest.medicationCodeableConcept.coding[system=http://www.nlm.nih.gov/research/umls/rxnorm].code"
+          name:
+            paths:
+              - medicationCodeableConcept.text
+              - medicationReference.display
+          status:
+            path: status
+        medication_period: {start: start, end: end}
+
+# Decision -> FHIR Task for the care team's follow-up queue.
+task:
+  code_text: Review the chart summary (synthetic test fixture)
+  performer_system: https://mendari.co/fhir/CodeSystem/fixture-chart-team
+  performer: care-team
+  description: "Synthetic chart summary: follow-up {recommendation}; anticoagulant listed: {on_anticoagulant}"

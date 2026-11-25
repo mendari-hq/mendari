@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Decisions that carry proposed actions (spec 0.4 sections 4 and 5): the first way in.
+"""Decisions that carry proposed actions (spec sections 13.5 to 13.7): the first way in.
 
 The fixture agent `tests/fixtures/mini-agents/actions-mini` declares one action of each effect,
 and its canned agent proposes them. Here each proposal is followed to its disposition, under
 every outcome; a proposal that cannot be released lowers the decision and never raises it; a
 response that is not of the contract's shape fails closed; an agent the deployment does not
-vouch for gets nothing released without a person; and an agent older than 0.4 decides exactly
-as it did, whatever its agent says about actions."""
+vouch for gets nothing released without a person; and an agent that declares no action
+decides as an answer alone, until its agent proposes one."""
 
 from __future__ import annotations
 
@@ -20,14 +20,14 @@ import httpx
 import pytest
 import yaml
 
-from mendari import AuditStore, Decision, GovernanceOverride, load_pack
+from mendari import AuditStore, Decision, GovernanceOverride, load_agent
 from mendari.cli import main
 from mendari.core import actions
 from mendari.core.decision import DecisionResult
 from mendari.core.spec import Outcome
-from mendari.errors import PackValidationError
+from mendari.errors import AgentValidationError
 from mendari.providers.agent import ENDPOINT_ENV, validate_response
-from tests.conftest import DEMO_AGENT_DIR, ROOT, fixture_agents, message
+from tests.conftest import DEMO_AGENT_DIR, ROOT, message
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 URL = "https://actions-agent.test/decide"
@@ -250,40 +250,10 @@ def test_no_reason_record_or_problem_holds_an_argument_or_an_undeclared_name(
     for sentinel in SENTINELS:
         assert sentinel not in kept, sentinel
     # A reason names an action only when the manifest declares it.
-    declared = set(agent.pack.manifest.actions)
+    declared = set(agent.agent.manifest.actions)
     for reason in result.reasons:
         if reason.startswith("action '"):
             assert reason.split("'")[1] in declared
-
-
-def test_a_composites_member_may_not_propose(tmp_path: Path) -> None:
-    def composite(raw: dict[str, Any]) -> None:
-        member = {
-            "type": "agent",
-            "agent_id": "actions-mini-agent",
-            "state_fields": ["message.body"],
-            "mock_file": "fixtures/mock_agent.json",
-        }
-        raw["providers"]["reader"]["variants"]["both"] = {
-            "type": "any_of",
-            "escalate": {"request": "other", "abusive": "yes"},
-            "members": {"first": member, "second": dict(member)},
-        }
-        raw["providers"]["reader"]["use"] = "both"
-
-    decision = Decision.from_path(copy_of(tmp_path, manifest=composite))
-    result = decision(message("Could you refill my lisinopril?"))
-    assert (result.outcome, result.recommendation) == (Outcome.HUMAN_REVIEW, "refill")
-    assert shown(result) == [  # declared, and still not taken: named with their effects
-        ("draft_reply", "draft", "blocked", "composite_member"),
-        ("send_reply", "contact", "blocked", "composite_member"),
-    ]
-    assert result.reasons[-1] == (
-        "a composite's member proposed an action, which this version does not take; "
-        "a person decides"
-    )
-    # A composite whose members propose nothing decides as it did.
-    assert decision(message("Hello there.")).outcome is Outcome.AUTO
 
 
 def test_a_provider_failure_proposes_nothing_and_nothing_automates(tmp_path: Path) -> None:
@@ -350,7 +320,7 @@ def test_a_well_formed_live_response_is_gated_as_a_canned_one_is(
     # The request carried the declared actions, in the manifest's order, each as declared.
     (request,) = seen
     assert [a["name"] for a in request["actions"]] == list(
-        Decision.from_path(MINI).pack.manifest.actions
+        Decision.from_path(MINI).agent.manifest.actions
     )
     assert request["actions"][0] == {
         "name": "look_up_medications",
@@ -367,7 +337,7 @@ def test_a_mock_file_whose_response_proposes_what_the_contract_does_not_allow_is
         mock["default"]["actions"] = [{"name": "Send Reply", "arguments": {}}]
 
     folder = copy_of(tmp_path, mock=malformed)
-    with pytest.raises(PackValidationError, match="default: an action's name must match"):
+    with pytest.raises(AgentValidationError, match="default: an action's name must match"):
         Decision.from_path(folder)
     assert main(["validate", str(folder)]) != 0
     assert "an action's name must match" in capsys.readouterr().err
@@ -376,8 +346,8 @@ def test_a_mock_file_whose_response_proposes_what_the_contract_does_not_allow_is
 # -- an agent the deployment does not vouch for ---------------------------------------------------
 
 
-def community(raw: dict[str, Any]) -> None:
-    raw["policy"]["rules"] = []  # a community agent's rule may not BLOCK
+def unblocked(raw: dict[str, Any]) -> None:
+    raw["policy"]["rules"] = []  # no rule BLOCKs: what is held is held by the gate alone
     raw["questions"].pop("abusive")
     raw["providers"]["reader"]["answers"] = ["request"]
 
@@ -387,35 +357,13 @@ def one_question(mock: dict[str, Any]) -> None:
         response["answers"].pop("abusive")
 
 
-def test_a_community_agent_gets_nothing_released_without_a_person(tmp_path: Path) -> None:
-    folder = copy_of(tmp_path, manifest=community, mock=one_question)
-    owned = Decision(load_pack(folder))
-    unowned = Decision(load_pack(folder, origin="community"))
-    assert owned.vouched() and not unowned.vouched()
-    assert unowned.automation_stopped() == "a community agent never automates"
-    body = message("I need to move my appointment.")  # goes to a person either way
-    assert shown(owned(body))[0] == ("look_up_medications", "read", "released", "with_decision")
-    assert shown(unowned(body)) == [
-        ("look_up_medications", "read", "held", "awaiting_review"),
-        ("file_note", "write", "held", "awaiting_review"),
-        ("send_reply", "contact", "held", "awaiting_review"),
-    ]
-    # What would be automated is not, and so nothing is released: its effects are claims.
-    refill = unowned(message("Could you refill my lisinopril?"))
-    assert refill.outcome is Outcome.HUMAN_REVIEW
-    assert {disposition for _, _, disposition, _ in shown(refill)} == {"held"}
-    assert owned(message("Could you refill my lisinopril?")).outcome is Outcome.AUTO
-    for text in ("It is unclear what I want.", "Please renew my prescription."):
-        assert "released" not in {d for _, _, d, _ in shown(unowned(message(text)))}, text
-
-
 def test_a_registry_agent_is_vouched_for_once_its_organization_approves_its_digest(
     tmp_path: Path,
 ) -> None:
-    folder = copy_of(tmp_path, manifest=community, mock=one_question)
-    pulled = load_pack(folder, origin="hub")
+    folder = copy_of(tmp_path, manifest=unblocked, mock=one_question)
+    pulled = load_agent(folder, origin="hub")
     unapproved = Decision(pulled)
-    approved = Decision(pulled, origin_approval=lambda pack: True)
+    approved = Decision(pulled, origin_approval=lambda agent: True)
     assert not unapproved.vouched() and approved.vouched()
     assert unapproved.automation_stopped() is not None and approved.automation_stopped() is None
     body = message("Could you refill my lisinopril?")
@@ -427,7 +375,7 @@ def test_a_registry_agent_is_vouched_for_once_its_organization_approves_its_dige
     assert {disposition for _, _, disposition, _ in shown(released)} == {"released"}
     # Recalled by its registry: held again, whatever the approval says.
     recalled = Decision(
-        pulled, origin_approval=lambda pack: True, recall_source=lambda pack: "recalled"
+        pulled, origin_approval=lambda agent: True, recall_source=lambda agent: "recalled"
     )
     assert not recalled.vouched()
     assert {disposition for _, _, disposition, _ in shown(recalled(body))} == {"held"}
@@ -443,10 +391,10 @@ def test_write_and_contact_are_released_only_where_the_risk_level_allows_auto(
     def risky(raw: dict[str, Any]) -> None:
         raw["risk"]["level"] = level
 
-    pack = load_pack(copy_of(tmp_path, manifest=risky))
+    agent = load_agent(copy_of(tmp_path, manifest=risky))
     approval = GovernanceOverride(approved_by="CMIO", reference="AI-committee-2026-11")
     body = message("Could you refill my lisinopril?")
-    plain, governed = Decision(pack)(body), Decision(pack, governance=approval)(body)
+    plain, governed = Decision(agent)(body), Decision(agent, governance=approval)(body)
     automated = [
         ("draft_reply", "draft", "released", "with_decision"),
         ("send_reply", "contact", "released", "automated"),
@@ -460,19 +408,19 @@ def test_write_and_contact_are_released_only_where_the_risk_level_allows_auto(
     # nothing lets a level 4 agent.
     assert shown(governed) == (automated if level <= 3 else held)
     assert (governed.outcome is Outcome.AUTO) is (level <= 3)
-    assert Decision(pack).automation_stopped() == (
+    assert Decision(agent).automation_stopped() == (
         None if level <= 1 else f"risk level {level} requires human review"
     )
-    assert (Decision(pack, governance=approval).automation_stopped() is None) is (level <= 3)
+    assert (Decision(agent, governance=approval).automation_stopped() is None) is (level <= 3)
     # An order waits for a person at every level, approval or not.
-    for decision in (Decision(pack), Decision(pack, governance=approval)):
+    for decision in (Decision(agent), Decision(agent, governance=approval)):
         order = decision(message("Please renew my prescription."))
         assert order.outcome is Outcome.HUMAN_REVIEW
         assert shown(order)[1] == ("renew_prescription", "order", "held", "awaiting_review")
 
 
 def test_a_hold_stops_releases_as_it_stops_automation(agent: Decision) -> None:
-    held = Decision(agent.pack, hold_source=lambda pack: "an operator's hold")
+    held = Decision(agent.agent, hold_source=lambda agent: "an operator's hold")
     result = held(message("Could you refill my lisinopril?"))
     assert result.outcome is Outcome.HUMAN_REVIEW
     assert shown(result) == [
@@ -485,77 +433,19 @@ def test_a_hold_stops_releases_as_it_stops_automation(agent: Decision) -> None:
     assert shown(shadow)[1] == ("send_reply", "contact", "held", "awaiting_review")
 
 
-# -- an agent older than 0.4 decides exactly as it did --------------------------------------------
+# -- an agent that declares no action ----------------------------------------------------------
 
 
-def comparable(result: DecisionResult) -> dict[str, Any]:
-    """A decision without what differs from run to run: its id, its time and how long it took."""
-    record = result.to_dict()
-    for key in ("id", "created_at", "latency_ms"):
-        record.pop(key)
-    return record
-
-
-@pytest.mark.parametrize("version", ["0.2", "0.3"])
-def test_an_older_agents_actions_key_is_ignored(tmp_path: Path, version: str) -> None:
-    """A 0.2 or 0.3 copy of the agent whose canned answers propose actions: its result has no
-    `actions`, and equals, key for key, the result of the same agent with no proposals at all.
-    Nothing is proposed, released or lowered."""
-
-    def older(raw: dict[str, Any]) -> None:
-        raw["spec_version"] = version
-        raw.pop("actions")
-
-    def silent(mock: dict[str, Any]) -> None:
-        for response in (*(case["response"] for case in mock["cases"]), mock["default"]):
-            response.pop("actions", None)
-
-    proposing = Decision.from_path(copy_of(tmp_path, manifest=older, name="proposing"))
-    quiet = Decision.from_path(copy_of(tmp_path, manifest=older, mock=silent, name="quiet"))
-    current = Decision.from_path(MINI)
-    for body in (
-        "Could you refill my lisinopril?",
-        "Please renew my prescription.",
-        "Try an undeclared thing.",
-        "Send malformed arguments.",
-        "I need to move my appointment.",
-        "It is unclear what I want.",
-        "This message is abusive.",
-        "Hello there.",
-    ):
-        with_proposals, without = proposing(message(body)), quiet(message(body))
-        assert with_proposals.actions is None and "actions" not in with_proposals.to_dict()
-        left, right = comparable(with_proposals), comparable(without)
-        left["pack"].pop("digest"), right["pack"].pop("digest")  # two copies, two digests
-        assert left == right, body
-        assert with_proposals.to_record().keys() == without.to_record().keys()
-        # And it is what the 0.4 agent decides, but where a proposal lowered an AUTO.
-        now = current(message(body))
-        assert now.recommendation == with_proposals.recommendation
-        if now.outcome is not with_proposals.outcome:
-            assert with_proposals.outcome is Outcome.AUTO
-            assert now.outcome is Outcome.HUMAN_REVIEW
-            assert any("a person decides" in reason for reason in now.reasons)
-
-
-def test_an_older_agents_request_and_response_are_as_they_were(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def older(raw: dict[str, Any]) -> None:
-        raw["spec_version"] = "0.3"
-        raw.pop("actions")
-
+def test_a_response_proposes_actions_only_where_they_are_read() -> None:
+    """`validate_response` reads a response's `actions` only for a variant that may propose
+    them (an `agent`'s): without, the key is not read, whatever it holds."""
+    questions = Decision.from_path(MINI).agent.manifest.questions
     malformed = answers(actions="anything at all, even this")
-    seen = live(monkeypatch, lambda _: malformed)
-    result = Decision.from_path(copy_of(tmp_path, manifest=older))(message("A refill, please."))
-    assert result.outcome is Outcome.AUTO and result.actions is None  # the key is not read
-    assert "actions" not in seen[0]
-    questions = Decision.from_path(MINI).pack.manifest.questions
     assert "actions" not in validate_response(malformed, questions)
     assert validate_response(answers(), questions, actions=True)["actions"] == []
 
 
-def test_a_0_4_agent_that_declares_nothing_is_as_it_was_until_its_agent_proposes(
+def test_an_agent_that_declares_no_actions_holds_what_its_service_proposes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def undeclaring(raw: dict[str, Any]) -> None:
@@ -577,34 +467,11 @@ def test_a_0_4_agent_that_declares_nothing_is_as_it_was_until_its_agent_proposes
     assert shown(proposing) == [("send_reply", None, "blocked", "undeclared")]
 
 
-def test_every_fixture_agent_of_before_decides_without_actions() -> None:
-    """Each 0.1 to 0.3 agent the tests decide with, on its own behaviour tests' inputs: no
-    `actions` in any result, and no reason an action could have added."""
-    checked = 0
-    for folder in fixture_agents():
-        pack = load_pack(
-            folder, origin="community" if "community-agents" in folder.parts else "local"
-        )
-        if pack.manifest.spec_version == "0.4":
-            continue
-        assert not pack.manifest.actions
-        if pack.manifest.tests is None:
-            continue
-        decision = Decision(pack)
-        for case in pack.read_yaml(pack.manifest.tests)[:5]:
-            result = decision(case["input"])
-            assert result.actions is None and "actions" not in result.to_dict(), folder.name
-            assert result.policy_inputs is None or result.policy_inputs.actions == ()
-            assert not [r for r in result.reasons if "action" in r and "a person decides" in r]
-            checked += 1
-    assert checked >= 20
-
-
 # -- the bundled agent ----------------------------------------------------------------------------
 
 
 def test_the_bundled_agent_proposes_what_the_demo_shows() -> None:
-    demo = Decision(load_pack(DEMO_AGENT_DIR))
+    demo = Decision(load_agent(DEMO_AGENT_DIR))
     refill = demo(message("Can you send a refill of my metformin to the pharmacy?"))
     assert refill.outcome is Outcome.AUTO
     assert shown(refill) == [("assign_queue", "write", "released", "automated")]
@@ -624,7 +491,7 @@ def test_the_bundled_agent_proposes_what_the_demo_shows() -> None:
     assert (urgent.outcome, urgent.priority.value) == (Outcome.HUMAN_REVIEW, "urgent")
     assert shown(urgent) == [("assign_queue", "write", "held", "awaiting_review")]
     # Its rules variant proposes nothing: only an agent proposes.
-    rules = Decision(load_pack(DEMO_AGENT_DIR), providers={"reader": "rules"})
+    rules = Decision(load_agent(DEMO_AGENT_DIR), providers={"reader": "rules"})
     assert rules(message("Can you send a refill of my metformin to the pharmacy?")).actions == ()
 
 

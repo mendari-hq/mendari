@@ -1,0 +1,134 @@
+{
+  "model": "mock-triage-screen",
+  "service_version": "2.0.0",
+  "cases": [
+    {
+      "match": {
+        "contains_any": [
+          "chest pain", "chest pressure", "trouble breathing", "slurred", "drooping",
+          "elephant", "catch my breath", "words are coming out", "lips look blue"
+        ],
+        "contains_all": ["useless"],
+        "exclude_any": ["no chest pain", "not have chest pain", "not short of breath"]
+      },
+      "response": {
+        "answers": {
+          "urgency": {"value": "yes", "confidence": 0.95, "rationale": "Same-day symptoms (canned answer of a test fixture)."},
+          "abusive": {"value": "yes", "confidence": 0.95, "rationale": "An insult (canned answer of a test fixture)."}
+        }
+      }
+    },
+    {
+      "match": {
+        "contains_any": [
+          "chest pain", "chest pressure", "trouble breathing", "slurred", "drooping",
+          "elephant", "catch my breath", "words are coming out", "lips look blue"
+        ],
+        "contains_all": ["idiots"],
+        "exclude_any": ["no chest pain", "not have chest pain", "not short of breath"]
+      },
+      "response": {
+        "answers": {
+          "urgency": {"value": "yes", "confidence": 0.95, "rationale": "Same-day symptoms (canned answer of a test fixture)."},
+          "abusive": {"value": "yes", "confidence": 0.95, "rationale": "An insult (canned answer of a test fixture)."}
+        }
+      }
+    },
+    {
+      "match": {
+        "contains_any": [
+          "chest pain", "chest pressure", "trouble breathing", "slurred", "drooping",
+          "elephant", "catch my breath", "words are coming out", "lips look blue"
+        ],
+        "contains_all": ["incompetent"],
+        "exclude_any": ["no chest pain", "not have chest pain", "not short of breath"]
+      },
+      "response": {
+        "answers": {
+          "urgency": {"value": "yes", "confidence": 0.95, "rationale": "Same-day symptoms (canned answer of a test fixture)."},
+          "abusive": {"value": "yes", "confidence": 0.95, "rationale": "An insult (canned answer of a test fixture)."}
+        }
+      }
+    },
+    {
+      "match": {
+        "contains_any": [
+          "chest pain", "chest pressure", "trouble breathing", "slurred", "drooping",
+          "elephant", "catch my breath", "words are coming out", "lips look blue"
+        ],
+        "contains_all": ["fools"],
+        "exclude_any": ["no chest pain", "not have chest pain", "not short of breath"]
+      },
+      "response": {
+        "answers": {
+          "urgency": {"value": "yes", "confidence": 0.95, "rationale": "Same-day symptoms (canned answer of a test fixture)."},
+          "abusive": {"value": "yes", "confidence": 0.95, "rationale": "An insult (canned answer of a test fixture)."}
+        }
+      }
+    },
+    {
+      "match": {
+        "contains_any": [
+          "chest pain", "chest pressure", "trouble breathing", "slurred", "drooping",
+          "elephant", "catch my breath", "words are coming out", "lips look blue"
+        ],
+        "contains_all": ["morons"],
+        "exclude_any": ["no chest pain", "not have chest pain", "not short of breath"]
+      },
+      "response": {
+        "answers": {
+          "urgency": {"value": "yes", "confidence": 0.95, "rationale": "Same-day symptoms (canned answer of a test fixture)."},
+          "abusive": {"value": "yes", "confidence": 0.95, "rationale": "An insult (canned answer of a test fixture)."}
+        }
+      }
+    },
+    {
+      "match": {
+        "contains_any": [
+          "chest pain", "chest pressure", "trouble breathing", "slurred", "drooping",
+          "elephant", "catch my breath", "words are coming out", "lips look blue"
+        ],
+        "exclude_any": ["no chest pain", "not have chest pain", "not short of breath"]
+      },
+      "response": {
+        "answers": {
+          "urgency": {"value": "yes", "confidence": 0.95, "rationale": "Same-day symptoms (canned answer of a test fixture)."},
+          "abusive": {"value": "no", "confidence": 0.95, "rationale": "No insult (canned answer of a test fixture)."}
+        }
+      }
+    },
+    {
+      "match": ["useless", "idiots", "incompetent", "fools", "morons"],
+      "response": {
+        "answers": {
+          "urgency": {"value": "no", "confidence": 0.95, "rationale": "No same-day symptom (canned answer of a test fixture)."},
+          "abusive": {"value": "yes", "confidence": 0.95, "rationale": "An insult (canned answer of a test fixture)."}
+        }
+      }
+    },
+    {
+      "match": ["dizzy"],
+      "response": {
+        "answers": {
+          "urgency": {"value": "yes", "confidence": 0.75, "rationale": "Dizziness may need attention today (canned answer of a test fixture)."},
+          "abusive": {"value": "no", "confidence": 0.95, "rationale": "No insult (canned answer of a test fixture)."}
+        }
+      }
+    },
+    {
+      "match": ["feel off"],
+      "response": {
+        "answers": {
+          "urgency": {"value": "no", "confidence": 0.6, "rationale": "Probably nothing urgent, though it is unclear (canned answer of a test fixture)."},
+          "abusive": {"value": "no", "confidence": 0.95, "rationale": "No insult (canned answer of a test fixture)."}
+        }
+      }
+    }
+  ],
+  "default": {
+    "answers": {
+      "urgency": {"value": "no", "confidence": 0.95, "rationale": "No same-day symptom (canned answer of a test fixture)."},
+      "abusive": {"value": "no", "confidence": 0.95, "rationale": "No insult (canned answer of a test fixture)."}
+    }
+  }
+}

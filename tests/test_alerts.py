@@ -20,7 +20,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack
+from mendari import Agent, AuditStore, Decision
 from mendari import alerts as alerts_module
 from mendari.alerts import (
     AlertSettings,
@@ -34,13 +34,16 @@ from mendari.alerts import (
 from mendari.cli import main
 from mendari.errors import MendariError
 from mendari.server.app import create_app
-from tests.conftest import SCREENED, message
+from tests.conftest import message
 
 ROOT = Path(__file__).parents[1]
 SECRET = "s3cret-" + "x" * 40
 HOOK = "https://hooks.example.org/services/T000/B000/WebhookSecretToken"
-DECIDE = "/api/packs/mendari/patient-inbox-router/decide"
-ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
+DECIDE = "/api/agents/mendari-test/triage/decide"
+ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO
+# The triage fixture's providers that automate (its policy's `automation_requires`): its
+# screen's canned agent, which automates without sign-in, as a live one does.
+SCREENED = {"screen": "agent"}
 
 
 class Webhook:
@@ -81,7 +84,7 @@ def one(**overrides: Any) -> dict[str, Any]:
     return {
         "event": "monitor.alerts",
         "org": "clinic-a",
-        "alerts": [{"pack": {"id": "mendari/x"}, "alerts": [{"kind": "drift"}]}],
+        "alerts": [{"agent": {"id": "mendari/x"}, "alerts": [{"kind": "drift"}]}],
         "lines": ["mendari/x: [medium] drift: PSI 0.31"],
         **overrides,
     }
@@ -258,7 +261,6 @@ def test_no_url_or_secret_reaches_a_record_or_the_log(
 def test_a_quota_alert_is_signed_recorded_and_tried_once_on_the_decision(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    screened: dict[str, str],
     no_waiting: list[float],
 ) -> None:
     monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=1")
@@ -266,7 +268,7 @@ def test_a_quota_alert_is_signed_recorded_and_tried_once_on_the_decision(
     monkeypatch.setenv("MENDARI_ALERT_SECRET", SECRET)
     slow = Webhook(httpx.ReadTimeout("slow"))
     monkeypatch.setattr(alerts_module.httpx, "post", slow)
-    client = TestClient(create_app(db_path=tmp_path / "a.db", providers=screened))
+    client = TestClient(create_app(db_path=tmp_path / "a.db", providers=SCREENED))
     assert client.post(DECIDE, json=message(ROUTINE)).json()["outcome"] == "AUTO"
     (sent,) = slow.sent
     assert sent["timeout"] == 5.0 and no_waiting == []  # one try, never a wait on the decision
@@ -285,15 +287,14 @@ def test_monitor_exit_codes_tell_alerts_from_a_failed_delivery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    inbox_pack: Pack,
-    screened: dict[str, str],
+    triage_agent: Agent,
     no_waiting: list[float],
 ) -> None:
     db = tmp_path / "a.db"
-    args = ["monitor", "--db", str(db), "--pack", inbox_pack.id, "--webhook", HOOK]
+    args = ["monitor", "--db", str(db), "--agent", triage_agent.id, "--webhook", HOOK]
     with AuditStore(db) as store:
         assert main(args) == 0  # nothing to say
-        decided = Decision(inbox_pack, providers=SCREENED, store=store)(message(ROUTINE))
+        decided = Decision(triage_agent, providers=SCREENED, store=store)(message(ROUTINE))
         expected = {"question": "destination", "label": "billing"}
         store.record_feedback(decided.id, rating="down", expected=expected)
     down = Webhook(*[httpx.ConnectError("down")] * 3)
@@ -333,19 +334,18 @@ def test_a_webhook_the_client_cannot_parse_fails_at_startup_never_on_a_decision(
 def test_the_format_setting_reaches_what_is_posted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    inbox_pack: Pack,
-    screened: dict[str, str],
+    triage_agent: Agent,
     no_waiting: list[float],
 ) -> None:
     db = tmp_path / "a.db"
     with AuditStore(db) as store:
-        decided = Decision(inbox_pack, providers=SCREENED, store=store)(message(ROUTINE))
+        decided = Decision(triage_agent, providers=SCREENED, store=store)(message(ROUTINE))
         expected = {"question": "destination", "label": "billing"}
         store.record_feedback(decided.id, rating="down", expected=expected)
     hook = Webhook(204)
     monkeypatch.setattr(alerts_module.httpx, "post", hook)
     monkeypatch.setenv("MENDARI_ALERT_FORMAT", "slack")
-    args = ["monitor", "--db", str(db), "--pack", inbox_pack.id, "--webhook", HOOK]
+    args = ["monitor", "--db", str(db), "--agent", triage_agent.id, "--webhook", HOOK]
     assert main(args) == 1
     posted = json.loads(hook.sent[0]["content"])
     assert set(posted) == {"text"} and "automated_wrong" in posted["text"]

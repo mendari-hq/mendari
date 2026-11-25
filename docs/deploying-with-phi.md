@@ -32,8 +32,8 @@ The public sandbox and the project's own Vercel deployment are **synthetic only*
   and reports the agents as start-up found them: `200` with `status` `ready`, or `degraded` while
   an agent did not load or build (signed-in `/api/health` lists it under `invalid`); `503`
   `unready` when the database does not answer within about 3.5 seconds or no agent is served. It
-  names fixed codes only (under `checks`, `database`: `ok` or `unreachable`; and `packs`, the
-  agents under the key's former name: `ok`, `degraded` or `none`), never an error's text. Use it
+  names fixed codes only (under `checks`, `database`: `ok` or `unreachable`; and `agents`: `ok`,
+  `degraded` or `none`), never an error's text. Use it
   for readiness (Kubernetes' `readinessProbe`, a load balancer's target health) and for status
   pages and uptime checks.
   Each instance reads the database at most once every 5 seconds whoever asks and keeps the
@@ -187,7 +187,7 @@ Give each key the least it needs:
   else. FHIR reads use SMART v2 scopes for what is served (`system/Task.rs`,
   `system/AuditEvent.rs`, `system/Provenance.rs`, `system/CodeSystem.rs`,
   `system/NamingSystem.r`, or `system/*.rs`); deciding, at every entry point (`$decide`, CDS
-  Hooks, DTR, PAS and the REST routes), needs `https://mendari.co/fhir/scope/decide`, and
+  Hooks and the REST routes), needs `https://mendari.co/fhir/scope/decide`, and
   recording an outcome `https://mendari.co/fhir/scope/outcome`. An EHR that only calls CDS
   Hooks services needs `{"role": "service", "preset": "cds-hooks"}` (below).
   Deciding implies finding what to decide with: a decide-scoped key also reads the two lists of
@@ -211,7 +211,6 @@ Give each key the least it needs:
 | `rest` | REST API | `service` | none: the role's own | `GET /api/agents`<br>`POST /api/agents/{namespace}/{name}/decide`<br>`GET /api/audit/{decision_id}` |
 | `fhir` | FHIR in, FHIR out | `service` | `https://mendari.co/fhir/scope/decide system/AuditEvent.rs system/Provenance.rs system/Task.rs` | `POST /fhir/$decide`<br>`GET /fhir/Task`<br>`GET /fhir/Task/{resource_id}`<br>`GET /fhir/Task/{resource_id}/_history/{version_id}`<br>`GET /fhir/AuditEvent`<br>`GET /fhir/Provenance` |
 | `cds-hooks` | CDS Hooks | `service` | `https://mendari.co/fhir/scope/decide` | `GET /cds-services`<br>`POST /cds-services/{service_id}`<br>`POST /cds-services/{service_id}/feedback` |
-| `da-vinci` | Da Vinci CRD, DTR and PAS | `service` | `https://mendari.co/fhir/scope/decide` | `POST /cds-services/{service_id}`<br>`POST /fhir/Questionnaire/$questionnaire-package`<br>`POST /api/agents/{namespace}/{name}/pas` |
 | `outcomes` | Outcomes | `service` | `https://mendari.co/fhir/scope/outcome` | `POST /api/audit/{decision_id}/outcome` |
 | `fhir-reader` | FHIR reader | `viewer` | `system/AuditEvent.rs system/Provenance.rs system/Task.rs` | `GET /fhir/Task`<br>`GET /fhir/Task/{resource_id}`<br>`GET /fhir/AuditEvent`<br>`GET /fhir/Provenance` |
 <!-- presets:end -->
@@ -277,8 +276,8 @@ MENDARI_CDS_CLIENTS='[{"id": "ehr", "title": "Our EHR", "iss": "https://ehr.exam
 - Each field, the token's rules and the log's reasons are in
   [Connecting an EHR](guides/connecting-an-ehr.md).
 
-**A site's own codes (optional, off by default).** An agent on spec 0.3 may read a field through a
-set of its own codes; `MENDARI_SITE_CODES` says how your EHR's codes translate into them, one
+**A site's own codes (optional, off by default).** An agent may read a field through a set of
+its own codes; `MENDARI_SITE_CODES` says how your EHR's codes translate into them, one
 map per organization, read and checked at startup. Each FHIR decision records its
 organization's map by version and SHA-256, and a decision that read a value through a
 translation never automates: it goes to a person, and so does an agent rule's BLOCK on it, until
@@ -297,13 +296,6 @@ source not offered, and never automates. Declaring a type is a clinical claim: t
 other sources hold everything the agent should see. Check what
 [Connecting an EHR](guides/connecting-an-ehr.md#what-your-ehr-does-not-offer) lists before you
 set it.
-
-**Upgrading from a release without key expiry (before Phase 4).** The first start of this
-release gives every existing key an expiry 30 days later, once (`GET /api/auth/keys` shows it).
-Existing keys keep their role until then, even `reviewer`, `governance` or `admin`, but no key
-may manage keys. Replace them with `viewer` or `service` keys, with scopes, before they expire,
-and revoke any you no longer need now. A key written by an older instance still running during
-the rollout has no expiry and is refused until the next start gives it one.
 
 **EHR launches (SMART on FHIR, optional, off by default).** With sign-in on, a clinician the
 EHR launches Mendari for is named by the EHR's own sign-in, in the organization you register
@@ -370,9 +362,8 @@ MENDARI_SMART_EHRS=https://ehr.example.org/fhir/r4=default:decide   # <FHIR base
 - Signed in, `/api/health` lists your organization's registrations (`smart_ehrs`): an empty
   list there means the EHR is registered to another organization than yours.
 
-**SMART Backend Services (optional, off by default).** For an EHR, an integration engine or a
-Da Vinci client that expects SMART Backend Services instead of an API key, turn on Mendari's
-own token endpoint. It needs sign-in (above) and the public URL, or the server refuses to start:
+**SMART Backend Services (optional, off by default).** For an EHR or an integration engine that
+expects SMART Backend Services instead of an API key, turn on Mendari's own token endpoint. It needs sign-in (above) and the public URL, or the server refuses to start:
 
 ```bash
 MENDARI_BACKEND_SERVICES=on
@@ -386,7 +377,7 @@ granted (the same scopes as keys; left out, everything the role can use):
 ```bash
 curl -X POST https://mendari.example.org/api/auth/clients \
   -H 'cookie: __Host-mendari_session=…' -H 'content-type: application/json' \
-  -d '{"name": "ehr-crd", "role": "service",
+  -d '{"name": "ehr-hooks", "role": "service",
        "scope": "https://mendari.co/fhir/scope/decide system/Task.rs",
        "jwks": {"keys": [{"kty": "RSA", "kid": "ehr-2026", "n": "…", "e": "AQAB"}]}}'
 ```
@@ -449,20 +440,11 @@ logged as `auth.origin.refused` (§7), with a reason code and the request id
 (`no_fetch_metadata` for a read without the header).
 
 Sessions and pending sign-ins are server-side rows keyed by their kind and value. A release
-that changes how they are keyed (Phase 4 did) ends every session: people sign in again, and an
-EHR launches the app again. Phase 4b signed nobody out: sessions from before it kept their
-8 hours (and took up the idle limit at their next request), their old cookie name was read for
-them for one release, and a sign-in in flight at the deploy completed once without the browser
-cookie. Since 2026-11-22 neither is accepted: on a host that uses `__Host-` names the plain
-`mendari_session` and `mendari_smart` are never read, and a pending sign-in without the browser
-cookie's digest is refused.
-
-The release that seals EHR launch rows (ADR-0006) signs nobody out either: people's sessions
-and sign-ins are untouched. An EHR launch in flight at the upgrade, or a launch session from
-before it, does not open and ends: the clinician launches once more from the EHR. Rolling back
-past that release leaves rows the older code cannot read, which breaks only `/api/smart/*`;
-delete them after the rollback, `DELETE FROM smart_sessions WHERE kind IN ('session',
-'pending')`, and EHR launches start again.
+that changes how they are keyed ends every session: people sign in again, and an EHR launches
+the app again. On a host that uses `__Host-` names, the plain `mendari_session` and
+`mendari_smart` are never read, and a pending sign-in without the browser cookie's digest is
+refused. An EHR launch's rows are sealed under the browser's own cookie (ADR-0006): a row that
+does not open ends its launch, and the clinician launches once more from the EHR.
 
 ## 3. PHI mode
 
@@ -526,11 +508,9 @@ Under `encrypt`:
 - viewers, services and governance see that an input exists, not what it says;
 - the audit trail's list never carries inputs;
 - a decision recorded under `off`, before the switch, kept its input (and its evidence) inside
-  its chained record, and every record written before 2026-10-02 kept its evidence there, in any
-  mode. Under `hash` and `encrypt` these are shown as a sealed input is: to reviewers and admins
-  only, each read chained. Nothing can delete them without breaking the chain, so retention and
-  erasure leave them (those older records' input issues and reasons can also name a resource by
-  its logical id, which is withheld the same way). Choose one: keep that database, read-gated as
+  its chained record. Under `hash` and `encrypt` these are shown as a sealed input is: to
+  reviewers and admins only, each read chained. Nothing can delete them without breaking the
+  chain, so retention and erasure leave them. Choose one: keep that database, read-gated as
   described, or retire it: note the chain's head hash (`mendari audit verify`), keep an ids-only
   FHIR export if you want the history (`/api/audit/export/fhir`), and start a new, empty database
   under `encrypt`;
@@ -648,12 +628,6 @@ never a key); decisions and the chain itself are never touched. In this order:
 With Neon preview branches, each branch is a copy: run steps 4 and 5 on any branch a deployment
 still uses, or recreate the branches afterwards.
 
-*The evaluation-set keys* (`mendari evalset rotate`, `mendari evalset reindex`). Hidden
-evaluation sets have keys of their own (section 8), rotated the same way: reader first, swap,
-re-seal, check, drop. A new index key means rebuilding the hidden-case index at once. The steps
-are in [the hidden evaluation sets' runbook](operations/evalsets.md#rotating-the-evaluation-set-key);
-a PHI rotation never touches the sets, nor theirs a kept input.
-
 *The input hash key.* Set the new `MENDARI_INPUT_HASH_KEY` and redeploy. The first record
 hashed under it starts a new epoch, chained (`input_hash.epoch`, with the key id before it).
 Hashes are never re-keyed: a keyed hash cannot be recomputed without its input, and the chain
@@ -684,19 +658,15 @@ new one; the chain has each step (`client.keys_replaced`, with the keys before a
 thumbprint and how many tokens were dropped). A leaked private key: replace with the new key
 alone at once, or revoke the client.
 
-**Notes.** A reviewer's or a rater's note, and a payer's answer to a prior authorization (its
-authorization number and disposition), are free text. They are kept in a `notes` table, never in
-the audit chain:
+**Notes.** A reviewer's or a rater's note is free text. Notes are kept in a `notes` table, never
+in the audit chain:
 - the chain keeps `note: null` and a `note_ref`: the note's id and a salted SHA-256 commitment.
   The salt is only in the note's row, so the commitment says nothing about the text;
 - under `encrypt` a note is sealed with the same key as inputs (AES-256-GCM, bound to the note
   and its decision). Like inputs, it opens only for **reviewers** and **admins**, and each read
   is chained (`input.read` names the notes read);
 - under `hash`, a review or rating with a note is refused (`422`): `hash` keeps no free text.
-  The dashboard offers no note field there, and a payer's words are not kept;
-- in every mode, the chain keeps a payer's outcome and review actions only as codes (R4's
-  `queued`, `complete`, `error` or `partial`; the payer's X12 306 code, 1 to 3 capital letters
-  or digits): text in their place is dropped;
+  The dashboard offers no note field there;
 - under `off`, notes are kept in the clear for whoever may read the decision;
 - notes written into the chain by earlier releases stay there (the chain is never rewritten),
   but are shown only to those who may read inputs.
@@ -727,11 +697,10 @@ written: JSON on `/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth
 | Signing in (`/auth/login`, the SMART launch) | client address | 300 a minute, 120 at once |
 | The token endpoint, before its body is read | client address | 60 a minute |
 | Failed assertions at the token endpoint | client address and client | 10 in 10 minutes |
-| Decisions, at every entry point (REST, FHIR `$decide`, CDS Hooks, DTR, PAS, SMART); each draft order a CDS Hooks order hook decides is one | API key, client or person | 600 a minute, 100 at once |
-| The guard route (an LLM call) | API key, client or person | 60 a minute |
+| Decisions, at every entry point (REST, FHIR `$decide`, CDS Hooks, SMART); each draft order a CDS Hooks order hook decides is one | API key, client or person | 600 a minute, 100 at once |
 | Evaluations | caller | 6 an hour |
 | Exports (the audit FHIR export, the feedback export) | caller | 10 an hour |
-| A labeller's calls (`/api/labelling`, memberships mode with the evaluation-set keys; each case shown is chained), and a grader's over written output (`/api/written/labelling`, memberships mode under PHI mode `encrypt`; each text shown is chained) | person | 60 a minute, 30 at once |
+| A labeller's calls grading written output (`/api/written/labelling`, memberships mode under PHI mode `encrypt`; each text shown is chained) | person | 60 a minute, 30 at once |
 | An agent author's writes to the agent store (`/api/store`, with `MENDARI_AGENT_STORE=on`: an upload's parts, copies, edits, tests, jobs' slices) | person | 240 an hour, 60 at once |
 
 `MENDARI_RATE_LIMITS` is `on` (the default with sign-in), `log` (count and log what would be
@@ -756,15 +725,14 @@ the agent is about, each one a decision against the decide limit, all counted be
 made. One request decides at most 50 (or the decide burst, if you set it lower); more is a
 `400`, and the EHR sends them in several requests.
 
-**Daily quotas per organization.** `MENDARI_ORG_DAILY_LIMITS=decisions=5000,jev=2000,llm=200`
-caps what each organization uses a day: decisions, and the remote model calls they make. Unset,
-there is none, and each one left out has no limit. An organization's evaluations (run on the
-server) count against their own quotas, `eval_jev` and `eval_llm`
-(`...,eval_jev=100,eval_llm=20`), never the decisions' ones. They still spend the deployment's
-daily budgets (`MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT`), which live decisions share:
-once those run out, every organization's live decisions go to people (`budget_exhausted`) until
-midnight. So set each evaluation quota well below them (the server warns at startup when one is
-not), and the quotas of all organizations together below them too. Over an evaluation quota the
+**Daily quotas per organization.** `MENDARI_ORG_DAILY_LIMITS=decisions=5000,llm=200` caps what
+each organization uses a day: decisions, and the remote model calls they make. Unset, there is
+none, and each one left out has no limit. An organization's evaluations (run on the server)
+count against their own quota, `eval_llm` (`...,eval_llm=20`), never the decisions' ones. They
+still spend the deployment's daily budget (`MENDARI_LLM_DAILY_LIMIT`), which live decisions
+share: once it runs out, every organization's live decisions go to people (`budget_exhausted`)
+until midnight. So set the evaluation quota well below it (the server warns at startup when it
+is not), and the quotas of all organizations together below it too. Over an evaluation quota the
 evaluation's remote calls fail (`quota_exhausted`) and its report shows it. Over a quota a decision is still
 made and recorded, but no provider runs and it goes to the review queue (`ABSTAIN` or
 `HUMAN_REVIEW`, with `quota_exhausted` in its errors), as over a daily budget: a quota never
@@ -775,8 +743,8 @@ its limit; no case data). Quotas start over at local midnight (`MENDARI_TIMEZONE
 **A daily cap per principal.** `MENDARI_PRINCIPAL_DAILY_LIMIT=1000` caps the decisions each
 principal asks for a day: a person, an API key, a Backend Services client, an EHR launch. Each
 request that decides counts one, and a CDS Hooks order hook one per draft order, whatever the
-answer; acknowledging the notice, a PAS submission and a DTR package do not count, and neither
-does a request the rate limits refuse. Unlike a quota, it refuses: past it the request is
+answer; acknowledging the notice does not count, and neither does a request the rate limits
+refuse. Unlike a quota, it refuses: past it the request is
 answered `429` with `Retry-After` (until local midnight) before any work, so one leaked key, or
 one runaway integration, cannot spend its organization's day. Like a rate limit, the refusal
 covers every message, an emergency included: an integration must send what Mendari refuses to a
@@ -785,14 +753,13 @@ principals). `/api/health` shows a principal that may read its own cap and what 
 and each instance logs the first refusal of the day per principal (`quota.reached`, reason
 `principal_decisions`).
 
-**What was used: the usage ledger.** Each decision's remote model calls (Jev, an LLM) are counted
+**What was used: the usage ledger.** Each decision's remote model calls (an LLM, an agent) are counted
 in the database in the decision's own transaction, by local day, organization, provider type and
 purpose: `decision`, or `evaluation` for an evaluation run on the server (or `mendari eval
 --db`), counted for the organization that ran it. Each row holds the calls sent, how many of
 them answered with a price, the tokens the answered ones reported, and the cost of the priced
-ones. A cost is shown only when every call was priced (Jev's published price, unless a variant
-sets another, at most $1 per 1,000 tokens; an LLM's when its gateway reports one, believed up to
-$1,000 a call); otherwise it is unknown, never a partial sum and never zero. A call that a
+ones. A cost is shown only when every call was priced (an LLM's when its gateway reports one,
+believed up to $1,000 a call); otherwise it is unknown, never a partial sum and never zero. A call that a
 budget, a quota, the deadline or the request's size stops is never sent, so it is not counted; a
 call sent that then failed, or whose answer was refused, is counted, without a price and without
 tokens. The ledger holds no case data. Providers never write to the database. An
@@ -800,7 +767,7 @@ organization's administrators see theirs in the dashboard's Access view (**Usage
 `GET /api/usage?days=30` (1 to 366 local days, with totals by provider and purpose); the operator
 sees every organization's with `mendari usage --db "$DATABASE_URL" --days 30` (`--org` for one).
 
-**A deadline per decision.** A decision's remote calls (Jev, an LLM, the CQL engine) share one
+**A deadline per decision.** A decision's remote calls (an LLM, an agent's service) share one
 wall-clock deadline, `MENDARI_DECISION_DEADLINE_S` (whole seconds, 10 to 270; 120 unless set):
 a call that would start after it is not made (no key fetched, no budget used), and one under
 way, its retry included, waits only for what remains. Either is recorded as `timeout`, so the
@@ -808,9 +775,8 @@ decision goes to a person; the local providers still answer, so a keyword safety
 flags a possible emergency. Keep it below your platform's limit on a request, with room for the
 audit write: on Vercel, `maxDuration` is 300 s (`vercel.json`). A request that makes several
 decisions (a CDS Hooks order hook's draft orders) gives each its own deadline. On a CDS hook or a
-SMART launch, a spec 0.3 agent's linked reads from the EHR (a note's Binary, a followed
-reference) use the same deadline first, and the remote calls get what they leave: set it with
-both in mind.
+SMART launch, an agent's linked reads from the EHR (a note's Binary, a followed reference) use
+the same deadline first, and the remote calls get what they leave: set it with both in mind.
 
 **At the edge.** A per-address limit in front of Mendari takes floods before they reach it, on
 `/auth/` and `/smart/` only: your proxy (§1), or on Vercel one firewall rule, 120 requests a
@@ -825,45 +791,18 @@ By default, nothing. Each of these is off until you configure it:
 
 | What | Setting | Leaves with it |
 |---|---|---|
-| Jev | Jev's settings (`JEV_API_URL`, `JEV_MODEL` and `JEV_API_KEY`; `JEV_CONNECTOR` works on Vercel only): an agent listed in the Jev defaults (none in a release) then runs Mendari + Jev in every slot `MENDARI_PROVIDERS` chooses nothing for | The agent's declared `state_fields` only (an agent you own that declares none sends the whole input; a community or registry agent must declare them) |
-| Other remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The agent's declared `state_fields` only (as for Jev) |
+| Remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The agent's declared `state_fields` only (an agent you own that declares none sends the whole input; an agent from a registry or a store must declare them) |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Agent ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
-| Shared evaluation reports | `mendari eval --share` (manual) | Whole counts only (`mendari.site-report/2`, checked by the registry): no cases, ids, dataset name, approver, subgroups or rates; cells of 1 to 9 suppressed with their complements, critical counts exact, nothing under 100 cases; `--share-out FILE` writes it to read first |
-| Da Vinci PAS submissions (`submit` on `POST /api/agents/{id}/pas`) | `MENDARI_PAS_PAYER_URL`, also on `MENDARI_FHIR_ALLOWED_SERVERS` | The PAS request Bundle: the patient, Coverage, payer, requesting organization and order the request gives, with its codes; for a request that needs attention, also the completed DTR QuestionnaireResponse it gives (the clinician's answers) |
-
-**Da Vinci PAS codes.** A PAS request carries X12 codes, and Mendari ships none of their values
-(X12's code lists are under X12's terms; the owner's decision of 2026-10-07). Set your own, from
-the X12 implementation guide you are licensed for and as your payer expects them. A request (or
-`mendari pas build`'s flags) may give its own, and a service type in the order wins over the
-setting:
-
-| Setting | X12 element | In PAS |
-|---|---|---|
-| `MENDARI_PAS_REQUEST_TYPE` | 1525, each item's request type | Required: without it (or `request_type`), building the request is refused (`422`) naming the setting |
-| `MENDARI_PAS_CERTIFICATION_TYPE` | 1322, each item's certification type | Required, as above (`certification_type`) |
-| `MENDARI_PAS_SERVICE_TYPE` | 1365, the service type, when neither the request nor the order's category gives one | Required, as above (`service_type`) |
-| `MENDARI_PAS_REPORT_TYPE` | 755, the report type of the completed DTR QuestionnaireResponse a request that needs attention attaches | Required once a response is attached, as above (`report_type`); not asked for otherwise |
-| `MENDARI_PAS_SELF_RELATIONSHIP` | 1069, the Coverage's code for self, beside FHIR's `self` | Optional: unset, it is left out, and the Coverage names the patient as its subscriber (PAS's rule `self-beneficiary`) |
-| `MENDARI_PAS_PAYER_ENTITY`, `MENDARI_PAS_REQUESTER_ENTITY` | 98, the payer's and the requesting organization's entity codes | Optional: unset, the organizations go untyped |
-
-Each is 1 to 3 capital letters or digits; anything else is refused naming the setting. The
-sandbox's mock payer answers with `MENDARI_SANDBOX_PAYER_REVIEW_ACTION` (an X12 306 code), or
-with no review action code when it is unset or empty. The compose sandbox sets all of these for
-synthetic requests except the service type: synthetic orders are not all one kind of service, so
-each request there gives its own (`service_type`). Nor does it set the report type: a request
-there that attaches a QuestionnaireResponse gives its own (`report_type`). The product bundles
-no prior-authorization agent, so a request there is for one you serve beside the demo agent
-(`docker-compose.yml` says how to mount it).
+| Shared evaluation reports | `mendari eval --share` (manual) | Whole counts only (`mendari.site-report/1`, checked by the registry): no cases, ids, dataset name, approver, subgroups or rates; cells of 1 to 9 suppressed with their complements, critical counts exact, nothing under 100 cases; `--share-out FILE` writes it to read first |
 
 To hold remote models to the places your agreements cover, set
 `MENDARI_PROVIDER_ALLOWED_ORIGINS` to the origins they may be called at, comma-separated as for
 `MENDARI_FHIR_ALLOWED_SERVERS` (for example `https://models.internal.example.org` for a model
-server on your network; add `https://ai-gateway.vercel.sh` for the AI Gateway, and
-`https://api.vercel.com` for `JEV_CONNECTOR`). A Jev, LLM or Vercel Connect request to any other
-origin is then refused before it is sent (`invalid_endpoint`: the question fails and the decision
-goes to a person), and an `LLM_BASE_URL` or `JEV_API_URL` off the list stops the server at
-start-up. Unset, there is no such list. Signed in, `/api/health` shows it
+server on your network; add `https://ai-gateway.vercel.sh` for the AI Gateway). An LLM or agent
+request to any other origin is then refused before it is sent (`invalid_endpoint`: the question
+fails and the decision goes to a person), and an `LLM_BASE_URL` or `MENDARI_AGENT_URL` off the
+list stops the server at start-up. Unset, there is no such list. Signed in, `/api/health` shows it
 (`provider_allowed_origins`).
 
 **An agent's own connection** is the one call the list can be widened for without editing it.
@@ -879,21 +818,16 @@ and when, and is chained (`agent_connection.origin_allowed`). Nothing set in the
 reaches this machine or your own network: only an origin on the list does. To hold every
 agent to the deployment's own endpoint, set `MENDARI_AGENT_CONNECTIONS=off`.
 
-For PHI, prefer local providers (rules, naive Bayes, criteria, dosing), or a local model server
-(an OpenAI-compatible `base_url` on your network). Use a remote model only under an agreement
-that covers PHI. A release names no agent in the Jev defaults, so setting up Jev turns on no
-slot by itself: a slot calls Jev only where its agent's default variant, or `MENDARI_PROVIDERS`,
-chooses a Jev variant (README, "Jev"). To keep a slot on site, set it there (for example
-`reader=rules`).
+For PHI, prefer local providers (rules), or a local model server (an OpenAI-compatible
+`base_url` on your network). Use a remote model only under an agreement that covers PHI. To
+keep a slot on site, set it in `MENDARI_PROVIDERS` (for example `reader=rules`).
 
 An agent whose policy's `automation_requires` names the variants a slot must run (a model beside
 the keyword rules, say) automates nothing while that slot runs another: every case goes to a
 person, and each decision's reasons say what is missing.
-Signed in, `/api/health` shows which variant each slot runs (`providers`), whether the Jev
-defaults are on (`jev.defaults`) and the slots that run no model at all (`without_model`); that
-Jev actually answers shows in `jev.calls_today` (in memberships mode, `mendari usage`) and in
-the decisions' errors. The server also
-logs, at startup, each slot the Jev defaults turn on.
+Signed in, `/api/health` shows which variant each slot runs (`providers`) and the slots that run
+no model at all (`without_model`); that a model actually answers shows in `llm.calls_today` (in
+memberships mode, `mendari usage`) and in the decisions' errors.
 
 ## 6. Monitoring and governance
 
@@ -906,7 +840,7 @@ logs, at startup, each slot the Jev defaults turn on.
   `other_providers`, `providers_unknown` or `other_policy`), and only the checks that need no
   benchmark run: automated decisions rated wrong, overrides that doubled against the week
   before, and operational health. A deployment that runs other providers than the benchmark
-  did (Jev where it measured `naive_bayes`, say), or automates a risk level 2 or 3 agent under an
+  did (an LLM where it measured `rules`, say), or automates a risk level 2 or 3 agent under an
   approval the benchmark was measured without, gets only those: the benchmark says nothing about
   how that configuration should do. An agent pulled from a registry gets only those too, whatever
   benchmark it carries (`from_registry`): that is its publisher's upload, never a reference
@@ -1008,19 +942,10 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   `admin.membership.roles_changed|removed` and `admin.access.granted|refused` (an
   organization's administrators managing its people), `smart.launch.ok|refused` (an EHR
   launch that started a session, or did not: `state_unknown`, `browser`, `token`, `id_token`,
-  `issuer`, `pack`, `ehr_error` and the like), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
+  `issuer`, `agent`, `ehr_error` and the like), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
   again), `quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
   `governance.approved|revoked`, `admin.key.rotated`, `auth.key.replaced_used` (a rotated key
   still in use during its overlap, once per instance), `eval.run`, `export.audit|feedback`,
-  `evalset.case.read` and `evalset.labelled` (in memberships mode with the evaluation-set keys:
-  a labeller shown their next hidden case, and their label, each with the set's id only; a label
-  refused as `no_assignment`, with no id), `evalset.sampled`, `evalset.assigned` and
-  `evalset.adjudication.assigned` (likewise: an organization's administrator drawing a hidden
-  set's cases, assigning them and adjudicating disputes, each with the set's id and how many; one
-  refused as `no_set`, an unknown set or another organization's, with no id), `evalset.graded`
-  (with the evaluation-set keys, in either account mode: an organization's grading key running an
-  agent over one of its hidden sets, with the set's id and how many cases were graded; or refused
-  with its fixed reason, such as `set_changed`, with the set's id, and `no_set` with no id),
   `input.erased`,
   `retention.purged|refused` (the scheduled purge, with the count deleted), `phi.inputs.read` (under
   `hash` or `encrypt`: the decisions whose input or notes a reader was shown, and how many, as
@@ -1060,9 +985,9 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   a POST form (`/fhir/{type}/_search`).
 - **What must last** is in the audit chain as well: every input or note read, and key, client
   and governance changes. The log is for finding what happened around them. The chain's
-  events for what the console's Agents view does are `pack_version.created` (a version added
+  events for what the console's Agents view does are `store_version.created` (a version added
   from the registry, with the registry, the namespace, the signing key and the archive's
-  SHA-256), `pack_version.promoted|retired`, `registry_pack.approved`, and for an agent's
+  SHA-256), `store_version.promoted|retired`, `registry_agent.approved`, and for an agent's
   connection `agent_connection.set` (the agent, the address's origin, whether it carries a
   token, who), `agent_connection.cleared` and `agent_connection.origin_allowed` (an operator
   allowed that origin for that agent: the agent, the origin, who). Never a token, nor an
@@ -1095,7 +1020,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_SMART_EHRS` | none: with sign-in on, every launch refused | The EHRs that may launch: `<FHIR base>=<org>:view` or `:decide`, comma-separated; `<org>` is one your people sign in to (`default` without `MENDARI_OIDC_ORG_CLAIM`); read at startup | 2 |
 | `MENDARI_CDS_CLIENTS` | unset: no JWT accepted anywhere | The EHRs that call CDS Hooks with their own signed tokens: a JSON list of clients, each its `id`, `title`, `iss`, `org` (`default` with sign-in off), `fhir_servers` (on the FHIR allow-list), and its keys by value (`jwks`) or one `jwks_uri` on the FHIR allow-list; optionally `sub`, `tenant`, `iss_is_fhir_server` and `origins` (the browser origins its pages call from: CORS on `/cds-services` only, never with credentials). Needs `MENDARI_PUBLIC_URL`; read at startup, and anything wrong stops the server ([Connecting an EHR](guides/connecting-an-ehr.md)) | 2 |
 | `MENDARI_CDS_SANDBOX` | unset: with sign-in off, CDS Hooks answer this machine only | `1`: with sign-in off, the CDS services answer from any host, for a synthetic sandbox reached over a network (the compose sandbox's open engine; a warning at startup). Any other value but `0`, and `1` on Vercel or with sign-in on, stops the server | 2 |
-| `MENDARI_SITE_CODES` | unset: no code is translated | A site's own codes, translated into the codes a spec 0.3 agent's code sets declare, per organization: inline JSON or the path of a JSON file, `{"<org>": {"version": ..., "sets": {"<code set>": [{"system", "code", "as"}]}}}` (`default` alone with sign-in off). Read at startup and checked against the agents found: a translation must land on a code its set declares, and anything wrong stops the server. Each FHIR decision the server makes records its organization's map by version and SHA-256 (the command line, `mendari decide --fhir` and `mendari bulk dataset`, reads no map), and a decision made through a translation never automates, nor does an agent rule's BLOCK on it stand without a person ([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)) | 2 |
+| `MENDARI_SITE_CODES` | unset: no code is translated | A site's own codes, translated into the codes an agent's code sets declare, per organization: inline JSON or the path of a JSON file, `{"<org>": {"version": ..., "sets": {"<code set>": [{"system", "code", "as"}]}}}` (`default` alone with sign-in off). Read at startup and checked against the agents found: a translation must land on a code its set declares, and anything wrong stops the server. Each FHIR decision the server makes records its organization's map by version and SHA-256 (the command line, `mendari decide --fhir` and `mendari bulk dataset`, reads no map), and a decision made through a translation never automates, nor does an agent rule's BLOCK on it stand without a person ([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)) | 2 |
 | `MENDARI_EHR_DECLARATIONS` | unset: every source is read, and a refused one abstains | What each registered EHR does not offer, per FHIR base: inline JSON or the path of a JSON file, `{"<FHIR base>": {"org", "version", "attested_by", "reference", "not_offered": ["<R4 type>"]}}` (`default` the one organization with sign-in off). Read at startup and checked: each base on `MENDARI_FHIR_ALLOWED_SERVERS` and registered (`MENDARI_SMART_EHRS`, or a CDS client's `fhir_servers`) to its organization, each type one an agent found here reads as one of several sources of a list beside a source not declared; anything wrong stops the server. A SMART launch's decide, or a CDS hook, from that base and organization does not read a declared type for such an agent, records the declaration by version and SHA-256 on the decision, and never automates it ([Connecting an EHR](guides/connecting-an-ehr.md#what-your-ehr-does-not-offer)) | 2 |
 | `MENDARI_FHIR_VALIDATION` | `warn` | The US Core and base R4 checks on FHIR input: `warn` decides input that is R4 JSON but breaks R4's other rules, with its issues recorded on the decision; `enforce` blocks it before any provider runs; `off` skips the checks. Input that is not R4 JSON is refused in every mode. Choose it for an EHR pilot before go-live | 9 |
 | `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch. `mendari smart check` compares each with the EHR's `scopes_supported` (`unknown` when it publishes none) | 2 |
@@ -1106,9 +1031,6 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_RETENTION_DAYS` | 30 (1 to 36500) | How long kept inputs and notes are kept, by `mendari phi purge` and the scheduled purge | 3 |
 | `CRON_SECRET` | unset: no scheduled purge, checkpoint or monitor | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention`, `/api/internal/checkpoint` and `/api/internal/monitor` (otherwise unused, with a warning: they stay off) | 3 |
 | `MENDARI_CHECKPOINT_KEY` | unset: nothing signed or published | 32 random bytes in base64, the Ed25519 key that signs the daily checkpoint (`GET /api/audit/checkpoint`); a malformed one stops the server | 3 |
-| `MENDARI_EVALSET_KEY` | unset: hidden evaluation sets off | 32 random bytes in base64: seals hidden evaluation sets (LP-11, [ADR-0011](decisions/ADR-0011-hidden-evaluation-sets.md)); set with `MENDARI_EVALSET_INDEX_KEY` or not at all, unlike every other key here; the server then needs sign-in and, on Vercel, Production only (with Vercel's system variables exposed, so `VERCEL_ENV` reads `production`). A malformed, half-set or reused key stops the server | 3 |
-| `MENDARI_EVALSET_INDEX_KEY` | unset: hidden evaluation sets off | 32 random bytes in base64, unlike `MENDARI_EVALSET_KEY`: keys the hidden-case index and the chained case hashes, never a label | 3 |
-| `MENDARI_EVALSET_READ_KEYS` | none | Up to 4 keys (base64, comma-separated) hidden sets open with but never seal: the previous key during a rotation; only with `MENDARI_EVALSET_KEY` | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
 | `MENDARI_REGISTRY_URL` | unset: the console offers no registry | The agent registry the console's Agents view searches and adds from, and the one `mendari pull` reads: https (plain http to this machine only), with no user or password in it; anything else stops the server, naming the setting and never its value. Adding a version from it also needs `MENDARI_AGENT_STORE=on` ([Adopting an agent](guides/adopting-an-agent.md)) | 5 |
 | `MENDARI_AGENT_CONNECTIONS` | `on` | `off`: no organization sets its agents' connections in the console; what was set before is neither shown nor called, and every agent answers through the deployment's own `MENDARI_AGENT_URL`, or from its canned examples. Anything but `on` or `off` stops the server ([ADR-0021](decisions/ADR-0021-an-agents-connection-set-in-the-console.md)) | 5 |
@@ -1117,11 +1039,10 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |
-| `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…`, and its evaluations' calls `eval_jev=…,eval_llm=…` | 4 |
+| `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,llm=…`, and its evaluations' calls `eval_llm=…` | 4 |
 | `MENDARI_PRINCIPAL_DAILY_LIMIT` | unset: none | Decisions each principal may ask for a day (an order hook's draft orders each); past it `429` until midnight (sign-in only) | 4 |
-| `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY` | unset: no Jev | All three set: an agent listed in the Jev defaults (none in a release) sends its `state_fields` to Jev in every slot `MENDARI_PROVIDERS` chooses nothing for; a model id or an endpoint Jev cannot be called with stops startup | 5 |
-| `MENDARI_PROVIDERS` | unset: each agent's default, or the Jev defaults | The provider variant of each slot it applies to: `slot=variant`, or `<agent id>:slot=variant` for one agent | 5 |
-| `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT` | 500 each; `none`: no limit, still counted | The deployment's daily remote calls, evaluations included; every agent's Jev calls share one budget | 4 |
+| `MENDARI_PROVIDERS` | unset: each agent's default | The provider variant of each slot it applies to: `slot=variant`, or `<agent id>:slot=variant` for one agent | 5 |
+| `MENDARI_LLM_DAILY_LIMIT` | 500; `none`: no limit, still counted | The deployment's daily remote calls, evaluations included; every agent's LLM calls share one budget | 4 |
 | `mendari serve --proxy-headers` | on | Read the client address from `X-Forwarded-For` | 1 |
 | `--forwarded-allow-ips`, `FORWARDED_ALLOW_IPS` | `127.0.0.1` (the compose template: its gateway, `172.30.0.1`) | The proxies trusted for `X-Forwarded-For`, as the engine sees them | 1 |
 | `MENDARI_ALERT_WEBHOOK` | unset: no alerts posted | Where the monitor's and the quota alerts go (https; keep it as a secret) | 6 |
@@ -1139,18 +1060,17 @@ In this order: the build, the settings as the server reports them, the browser, 
 reads of PHI, then operations. Keep the answers with your go-live record.
 
 - [ ] Validate the agent on your own data, with the providers your server runs:
-      `mendari eval <agent> --dataset local.jsonl --provider <slot>=<variant> ...` (with Jev set
-      up, name its Jev variants, e.g. `--provider <slot>=<jev variant>`; the command alone runs
-      the agent's offline defaults, and `--provider reader=rules` runs the demo agent's rules),
-      or run it from the dashboard's Evaluations view, which uses the deployed providers. With Jev, the dataset goes to Jev.
+      `mendari eval <agent> --dataset local.jsonl --provider <slot>=<variant> ...` (the command
+      alone runs the agent's offline defaults, and `--provider reader=rules` runs the demo
+      agent's rules), or run it from the dashboard's Evaluations view, which uses the deployed
+      providers. With a remote model, the dataset goes to it.
       Bulk FHIR: `mendari bulk export` then `bulk dataset`. Compare with the benchmark.
 - [ ] The engine image is deployed by digest (`<image>:<tag>@sha256:…`), not by tag alone.
 - [ ] `MENDARI_PHI_KEY` and `MENDARI_INPUT_HASH_KEY` come from your secret manager, and they
       differ.
 - [ ] Without signing in, `/api/health` shows only `status`, `version` and `sign_in: true`.
 - [ ] Signed in, `/api/health` `providers` names, for every agent, only remote readers your
-      agreements cover (`jev.defaults: true` means Jev's settings are set), and
-      `without_model` lists the slots you meant to keep without a model.
+      agreements cover, and `without_model` lists the slots you meant to keep without a model.
 - [ ] Signed in as an admin, `/api/health` shows:
       `phi_mode: encrypt`; `input_hash: hmac-sha256:<key id>` (keyed, not `sha256`);
       `rate_limits.mode: on`; `rate_limits.client_ip` equal to your browser's own public
@@ -1159,8 +1079,7 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       address); the `sessions` policy you chose; `smart_launch: false` unless you
       need it, and then `smart_ehrs` listing exactly the EHRs you registered (§2); and only the
       providers and FHIR servers you expect.
-- [ ] Daily budgets and quotas are set and visible there (`jev.daily_limit`,
-      `llm.daily_limit`, `org_quotas`). Choose them from a week of your traffic.
+- [ ] Daily budgets and quotas are set and visible there (`llm.daily_limit`, `org_quotas`). Choose them from a week of your traffic.
 - [ ] Only if you turn on EHR launches: each EHR is registered in `MENDARI_SMART_EHRS` (§2),
       to the organization your people's sign-in gives them (`default` without
       `MENDARI_OIDC_ORG_CLAIM`), and `mendari smart check <base>`, run with the server's
@@ -1186,18 +1105,17 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       runs.
 - [ ] Only if an EHR calls Mendari or launches it: in the first days, read the data-coverage
       record of the decisions it makes (the audit view's "What it read"). An agent reads a note
-      that is only a link to a Binary only on spec 0.3, and then only as text/plain or text/html,
+      that is only a link to a Binary only as text/plain or text/html,
       so on an EHR that sends notes as links, or as RTF, an agent that reads notes may abstain for
       most patients with one, each decision going to a person with an `info` card
       ([threat model](security/threat-model.md#residual-risks-and-assumptions)).
-- [ ] Only if an EHR calls with its own tokens, or launches Mendari, or you export with Bulk
-      FHIR: know what Mendari's own conformance runs prove and what they leave to you. Weekly,
-      on synthetic data, Inferno's test kits play the other side against Mendari's engines
+- [ ] Only if an EHR launches Mendari, or you export with Bulk FHIR: know what Mendari's own
+      conformance runs prove and what they leave to you. Weekly, on synthetic data, Inferno's
+      test kits play the other side against Mendari's engines
       ([`sandbox/inferno/README.md`](https://github.com/mendari-hq/mendari/tree/main/sandbox/inferno),
-      `conformance.yml`): the Da Vinci CRD kit as a signed CDS client, the SMART App Launch
-      client suite as the EHR of a launch, the Bulk Data client suite as the export's server,
-      and the DTR kit as a DTR client. Each test's result is pinned, every known gap with its
-      reason and requirement id. They run over plain HTTP inside Docker, so TLS (CRD 1.01, SMART
+      `conformance.yml`): the SMART App Launch client suite as the EHR of a launch, and the Bulk
+      Data client suite as the export's server. Each test's result is pinned, every known gap
+      with its reason and requirement id. They run over plain HTTP inside Docker, so TLS (SMART
       3.01's https registration) is your deployment's to show, as are your EHR's keys, its
       requests and its own conformance; the sign-in SMART profile (`openid fhirUser`) is not
       run against Inferno (the README says why), so check a launch from your EHR as above.
@@ -1249,10 +1167,9 @@ For the project's own public deployment (synthetic data, Vercel), the owner's la
 order:
 
 - [ ] All of Phase 4b, then the external security review and its fixes.
-- [x] `MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
-      `MENDARI_ORG_DAILY_LIMITS=decisions=5000`, set for Production (2026-11-22; until then
-      they were stored under the project's old `OPENHEALTH_*` names, which nothing reads);
-      still to confirm in `/api/health` signed in.
+- [x] `MENDARI_LLM_DAILY_LIMIT=200` and `MENDARI_ORG_DAILY_LIMITS=decisions=5000`, set for
+      Production (2026-11-22; until then they were stored under the project's old
+      `OPENHEALTH_*` names, which nothing reads); still to confirm in `/api/health` signed in.
 - [ ] The firewall rule in [`deploy/vercel/`](https://github.com/mendari-hq/mendari/tree/main/deploy/vercel)
       added in log mode (2026-11-22), its findings read for 7 days, then enforced (from
       2026-11-29).

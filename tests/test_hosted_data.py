@@ -27,30 +27,35 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack, load_pack
+from mendari import Agent, AuditStore, Decision, load_agent
 from mendari import cli as cli_module
 from mendari.cli import main
 from mendari.core import audit as audit_module
-from mendari.core.decision import DecisionResult
 from mendari.core.phi import PhiMode, PhiPolicy
 from mendari.errors import MendariError, NoteError
 from mendari.server.app import create_app, mounted_routes
 from mendari.settings import retention_days
 from mendari.standards import audit_fhir
 from tests.conftest import (
-    HASH_KEY_B64,
+    CHART_DIR,
     INPUT_HASH_KEY,
     PHI_KEY,
     ROOT,
     encrypt_mode,
-    evalset_on,
-    evalsets_are_on,
     hosted,
     message,
     security_lines,
     signed_in,
 )
-from tests.test_record_hygiene import LAB_DATE, LAB_VALUE, MRN, evidence, marked_bundle
+from tests.test_record_hygiene import (
+    MRN,
+    NAMED,
+    ONSET,
+    QUOTED,
+    evidence,
+    marked_bundle,
+    quoting_agent,
+)
 
 SECRET = "my neighbour Rosalind Q. Example has chest pain"
 URGENT = "Crushing chest pain since an hour, " + SECRET
@@ -58,10 +63,18 @@ CRON = "a-cron-secret-of-some-length-0123456789"
 
 
 @pytest.fixture(scope="module")
-def trial() -> Pack:
-    return load_pack(
-        ROOT / "tests" / "fixtures" / "reference-agents" / "clinical-trial-prescreener"
-    )
+def chart() -> Agent:
+    """The fixture that reads a patient's FHIR record: decided with `quoting_agent`, whose
+    answers' evidence quotes the record."""
+    return load_agent(CHART_DIR)
+
+
+def service(compose: str, name: str) -> str:
+    """A service's block of docker-compose.yml: from its name to the next service's, or to the
+    next top-level key."""
+    found = re.search(rf"^  {name}:\n.*?(?=^  [a-z][\w-]*:\n|^\S)", compose, re.M | re.S)
+    assert found is not None, name
+    return found[0]
 
 
 def policy(mode: PhiMode) -> PhiPolicy:
@@ -75,14 +88,6 @@ def sign_in_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def chained(item: dict[str, Any], event: str) -> list[dict[str, Any]]:
     return [e for e in item["events"] if e["event"] == event]
-
-
-def as_before_october(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Record as releases before 2026-10-02 did: each answer's evidence stays in the chained
-    record, whatever the PHI mode (nothing is sealed beside it), and input issues and the
-    reasons that refuse over them name a resource by its logical id."""
-    monkeypatch.setattr(audit_module, "_take_evidence", lambda record: {})
-    monkeypatch.setattr(DecisionResult, "to_record", DecisionResult.to_dict)
 
 
 # -- the start-up guard ----------------------------------------------------------------------
@@ -113,7 +118,7 @@ def test_the_hosted_site_refuses_plaintext_and_runs_encrypt_by_default(
 
 def test_sign_in_refuses_plaintext_whatever_the_database(
     db_target: str,
-    inbox_pack: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -122,7 +127,7 @@ def test_sign_in_refuses_plaintext_whatever_the_database(
     2026-10-07): people bring other people's cases, and an input kept in plaintext is never
     erased. Even a database only `off` has kept (an open sandbox's) is refused, before it is
     opened; `hash` or `encrypt` starts on it, without the plaintext warning."""
-    Decision(inbox_pack, store=AuditStore(db_target, phi=policy("off")))(message("refill please"))
+    Decision(triage_agent, store=AuditStore(db_target, phi=policy("off")))(message("refill please"))
     sign_in_env(monkeypatch)
     for chosen, launch in ((None, False), ("off", False), (" Off ", False), ("off", True)):
         if chosen is None:
@@ -206,39 +211,39 @@ def test_an_open_local_sandbox_still_starts_without_a_mode(
 
 def test_a_protected_database_never_takes_plaintext_again(
     tmp_path: Path,
-    inbox_pack: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     db = tmp_path / "a.db"
     assert AuditStore(db, phi=policy("off")).protected is None  # only `off` so far
-    sealed = Decision(inbox_pack, store=AuditStore(db, phi=policy("encrypt")))(message(SECRET))
+    sealed = Decision(triage_agent, store=AuditStore(db, phi=policy("encrypt")))(message(SECRET))
     assert AuditStore(db, phi=policy("hash")).protected == "encrypt"  # the first mode stays
     off = AuditStore(db, phi=policy("off"))
     with pytest.raises(MendariError, match="first kept under PHI mode encrypt"):
-        Decision(inbox_pack, store=off)(message(SECRET))
+        Decision(triage_agent, store=off)(message(SECRET))
     with pytest.raises(MendariError, match="never takes plaintext again"):
         off.record_feedback(sealed.id, rating="down", reporter="rn-2", note=SECRET)
     off.record_feedback(sealed.id, rating="up", reporter="rn-2")  # no text: allowed
-    hashed = Decision(inbox_pack).decide(message(SECRET))
+    hashed = Decision(triage_agent).decide(message(SECRET))
     off.record(hashed, message(SECRET), store_input="hash")  # nothing of the input kept
     assert off.get(sealed.id) is not None and off.verify()["ok"] is True  # reading is fine
     assert SECRET not in json.dumps(off.query())
     monkeypatch.setenv("MENDARI_PHI_MODE", "off")
     with pytest.raises(MendariError, match="first kept under PHI mode encrypt"):
         create_app(db_path=db)
-    decide = ["decide", "mendari/patient-inbox-router", "--db", str(db), "--text", SECRET]
+    decide = ["decide", triage_agent.id, "--db", str(db), "--text", SECRET]
     assert main(decide) == 1  # a command run without the deployment's settings
     assert "first kept under PHI mode encrypt" in capsys.readouterr().err
     assert SECRET not in json.dumps(AuditStore(db, phi=policy("encrypt")).query())
 
 
 def test_the_refusal_comes_before_any_provider_and_sees_a_later_mark(
-    tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     db = tmp_path / "a.db"
     early = AuditStore(db, phi=policy("off"))  # a long-running store, opened before the mark
-    Decision(inbox_pack, store=early)(message("refill please"))  # synthetic, allowed: unmarked
+    Decision(triage_agent, store=early)(message("refill please"))  # synthetic, allowed: unmarked
     AuditStore(db, phi=policy("encrypt"))  # another process protects the database
 
     def ran(*args: object, **kwargs: object) -> None:
@@ -246,7 +251,7 @@ def test_the_refusal_comes_before_any_provider_and_sees_a_later_mark(
 
     monkeypatch.setattr(Decision, "validate", ran)
     with pytest.raises(MendariError, match="first kept under PHI mode encrypt"):
-        Decision(inbox_pack, store=early)(message(SECRET))
+        Decision(triage_agent, store=early)(message(SECRET))
     assert SECRET not in json.dumps(early.query())
 
 
@@ -255,8 +260,7 @@ def test_the_signed_in_templates_choose_a_mode() -> None:
     reads its keys from the shell or `.env` (never committed, never `${VAR:?}`, which would stop
     a plain `docker compose up` too). Only the open sandbox, with the EHR launch, runs `off`."""
     compose = (ROOT / "docker-compose.yml").read_text()
-    engine = compose[compose.index("  engine:") : compose.index("  engine-signin:")]
-    signin = compose[compose.index("  engine-signin:") : compose.index("  payer:")]
+    engine, signin = service(compose, "engine"), service(compose, "engine-signin")
     assert "MENDARI_OIDC_ISSUER" not in engine and 'MENDARI_PHI_MODE: "off"' in engine
     assert "MENDARI_OIDC_ISSUER" in signin and "MENDARI_PHI_MODE: encrypt" in signin
     assert "MENDARI_PHI_KEY: ${MENDARI_PHI_KEY:-}" in signin
@@ -271,7 +275,7 @@ def test_the_signed_in_templates_choose_a_mode() -> None:
 
 def test_the_signed_in_sandbox_resets_alone() -> None:
     """Starting the signed-in sandbox over removes its engine and volume only: `down -v` would
-    also remove `mendari-data`, the open engine's database and the registry's packs. The volume's
+    also remove `mendari-data`, the open engine's database and the registry's agents. The volume's
     name follows the compose project's."""
     compose = (ROOT / "docker-compose.yml").read_text()
     assert "\nname: mendari\n" in compose and "  mendari-signin-data:\n" in compose
@@ -286,98 +290,31 @@ def test_the_signed_in_sandbox_resets_alone() -> None:
 
 
 def test_a_legacy_input_opens_only_for_a_reader_and_the_read_is_chained(
-    db_target: str, trial: Pack
+    db_target: str, chart: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    quoting_agent(monkeypatch)
     before = AuditStore(db_target, phi=policy("off"))
-    result, _ = Decision(trial, store=before).decide_fhir(marked_bundle())
+    result, _ = Decision(chart, store=before).decide_fhir(marked_bundle())
     before.close()
     store = AuditStore(db_target, phi=policy("encrypt"))
     hidden = store.get(result.id)
     assert hidden is not None and hidden["input_restricted"] is True
-    assert hidden["record"]["input"] is None and LAB_VALUE not in evidence(hidden["record"])
+    assert hidden["record"]["input"] is None and NAMED not in evidence(hidden["record"])
     assert not chained(hidden, "input.read")
     shown = store.get(result.id, reader="Nurse Kim")
     assert shown is not None and shown["input_restricted"] is False
-    assert shown["record"]["input"] is not None and LAB_VALUE in evidence(shown["record"])
+    assert shown["record"]["input"] is not None and QUOTED in evidence(shown["record"])
     assert [e["payload"]["reader"] for e in chained(shown, "input.read")] == ["Nurse Kim"]
     listed = store.withhold_inputs(store.query())
     assert listed[0]["input_restricted"] is True and listed[0]["record"]["input"] is None
-    assert LAB_VALUE not in evidence(listed[0]["record"])
+    assert NAMED not in evidence(listed[0]["record"])
     assert store.verify()["ok"] is True  # nothing stored was changed
     store.close()
 
 
-@pytest.mark.parametrize("mode", ["hash", "encrypt"])
-def test_evidence_an_older_record_kept_opens_only_for_a_reader(
-    tmp_path: Path, trial: Pack, monkeypatch: pytest.MonkeyPatch, mode: PhiMode
-) -> None:
-    store = AuditStore(tmp_path / "a.db", phi=policy(mode))
-    with monkeypatch.context() as before:
-        as_before_october(before)
-        result, _ = Decision(trial, store=store).decide_fhir(marked_bundle())
-    hidden = store.get(result.id)
-    assert hidden is not None and hidden["input_restricted"] is True
-    assert LAB_VALUE not in evidence(hidden["record"]) and not chained(hidden, "input.read")
-    shown = store.get(result.id, reader="Nurse Kim")
-    assert shown is not None and LAB_VALUE in evidence(shown["record"])
-    assert [e["payload"]["reader"] for e in chained(shown, "input.read")] == ["Nurse Kim"]
-    listed = store.withhold_inputs(store.query())
-    assert LAB_VALUE not in evidence(listed[0]["record"]) and listed[0]["input_restricted"]
-    assert store.verify()["ok"] is True
-
-
-@pytest.mark.parametrize("validation", ["warn", "enforce"])
-def test_an_older_records_resource_ids_open_only_for_a_reader(
-    tmp_path: Path, trial: Pack, monkeypatch: pytest.MonkeyPatch, validation: str
-) -> None:
-    store = AuditStore(tmp_path / "a.db", phi=policy("encrypt"))
-    with monkeypatch.context() as october:
-        as_before_october(october)
-        decide = Decision(trial, store=store, fhir_validation=validation)  # type: ignore[arg-type]
-        result, _ = decide.decide_fhir(marked_bundle(conforming=False))
-    hidden = store.get(result.id)
-    assert hidden is not None and MRN not in json.dumps(hidden["record"])
-    assert hidden["record"]["input_issues"][0]["resource"] == "Patient"
-    listed = store.withhold_inputs(store.query())
-    assert MRN not in json.dumps(listed)
-    shown = store.get(result.id, reader="Nurse Kim")
-    assert shown is not None and MRN in json.dumps(shown["record"]["input_issues"])
-    assert chained(shown, "input.read")
-    if validation == "enforce":  # the refusal named it too
-        assert MRN in " ".join(shown["record"]["reasons"])
-        assert "Patient Patient.gender" in " ".join(hidden["record"]["reasons"])
-    erased = store.erase_input(result.id, erased_by="dpo@example.org", reason="request")
-    assert erased["still_in_chain"] is True
-    assert store.verify()["ok"] is True
-
-
-def test_under_off_or_hash_an_older_records_evidence_follows_the_reader(
-    tmp_path: Path, trial: Pack, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A record sealed under encrypt before 2026-10-02 (its evidence also in itself), read
-    later under `off` (as before: nothing withheld) and under `hash` (a reader sees what the
-    record holds, and the read is chained; the sealed input stays sealed)."""
-    db = tmp_path / "a.db"
-    with monkeypatch.context() as october:
-        as_before_october(october)
-        result, _ = Decision(trial, store=AuditStore(db, phi=policy("encrypt"))).decide_fhir(
-            marked_bundle()
-        )
-    off = AuditStore(db, phi=policy("off")).get(result.id)
-    assert off is not None and LAB_VALUE in evidence(off["record"])
-    assert not chained(off, "input.read")
-    hashed = AuditStore(db, phi=policy("hash"))
-    seen = hashed.get(result.id, reader="Nurse Kim")
-    assert seen is not None and LAB_VALUE in evidence(seen["record"])
-    assert seen["input_restricted"] is True and seen["record"]["input"] is None
-    assert [e["payload"]["reader"] for e in chained(seen, "input.read")] == ["Nurse Kim"]
-    hidden = hashed.get(result.id)
-    assert hidden is not None and LAB_VALUE not in evidence(hidden["record"])
-
-
-def test_under_off_a_record_still_carries_its_input(tmp_path: Path, trial: Pack) -> None:
+def test_under_off_a_record_still_carries_its_input(tmp_path: Path, chart: Agent) -> None:
     store = AuditStore(tmp_path / "a.db", phi=policy("off"))
-    result, _ = Decision(trial, store=store).decide_fhir(marked_bundle())
+    result, _ = Decision(chart, store=store).decide_fhir(marked_bundle())
     item = store.get(result.id)
     assert item is not None and item["record"]["input"] is not None
     assert "input_restricted" not in item and not chained(item, "input.read")
@@ -385,10 +322,10 @@ def test_under_off_a_record_still_carries_its_input(tmp_path: Path, trial: Pack)
 
 
 def test_the_server_gates_legacy_inputs_by_role(
-    tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     db = tmp_path / "a.db"
-    decided = Decision(inbox_pack, store=AuditStore(db, phi=policy("off")))(message(URGENT))
+    decided = Decision(triage_agent, store=AuditStore(db, phi=policy("off")))(message(URGENT))
     encrypt_mode(monkeypatch)
     sign_in_env(monkeypatch)
     client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
@@ -407,13 +344,13 @@ def test_the_server_gates_legacy_inputs_by_role(
 
 def test_exporting_older_inputs_under_hash_is_logged_as_a_read(
     tmp_path: Path,
-    inbox_pack: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     db = tmp_path / "a.db"
     before = AuditStore(db, phi=policy("off"))
-    rated = Decision(inbox_pack, store=before)(message(URGENT))
+    rated = Decision(triage_agent, store=before)(message(URGENT))
     before.record_feedback(rated.id, rating="down", reporter="rn-2")
     hosted(monkeypatch)
     monkeypatch.setenv("MENDARI_PHI_MODE", "hash")  # as the hosted site may run it
@@ -421,14 +358,15 @@ def test_exporting_older_inputs_under_hash_is_logged_as_a_read(
     client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
     admin = signed_in(AuditStore(db, phi=policy("hash")), role="admin")
     capsys.readouterr()
-    exported = client.get(f"/api/packs/{inbox_pack.id}/feedback/export", headers=admin)
+    exported = client.get(f"/api/agents/{triage_agent.id}/feedback/export", headers=admin)
     assert exported.status_code == 200 and "Rosalind" in exported.text
     lines = security_lines(capsys.readouterr().out)
     assert [line["ids"] for line in lines if line["event"] == "phi.inputs.read"] == [[rated.id]]
 
 
-# Marks planted in stored cases: an input's words, a note's, an answer's evidence (a lab value
-# and its date) and a resource's logical id (a medical record number).
+# Marks planted in stored cases: an input's words, a note's, a record's date (a condition's
+# onset), an answer's evidence (what the agent quoted of the record: `QUOTED`) and a resource's
+# logical id (a medical record number).
 INPUT_MARK = "ZZINPUTMARK"
 NOTE_MARK = "ZZNOTEMARK"
 READERS = {"person:reviewer", "person:admin"}  # who may read inputs (`read_input`)
@@ -438,7 +376,6 @@ NOT_SWEPT = {
     "/api/internal/monitor": "the scheduled monitor: its own tests (test_monitor_cron.py)",
     "/api/internal/checkpoint": "the scheduled checkpoint: its own tests, with its secret",
     "/api/audit/checkpoint": "the signed checkpoint: a hash and a day (test_signed_checkpoint.py)",
-    "/api/providers/jev/models": "Jev's model list: needs Jev set up",
 }
 # Ids for the routes that read one fixed resource.
 FIXED_IDS = {
@@ -449,8 +386,8 @@ FIXED_IDS = {
 
 
 def marks(text: str) -> list[str]:
-    found = [mark for mark in (INPUT_MARK, NOTE_MARK, MRN) if mark in text]
-    if re.search(rf"(?<![\d.]){re.escape(LAB_VALUE)} % on {LAB_DATE}", text):
+    found = [mark for mark in (INPUT_MARK, NOTE_MARK, ONSET, MRN) if mark in text]
+    if QUOTED in text:
         found.append("evidence")
     return found
 
@@ -463,45 +400,36 @@ def input_reads(store: AuditStore) -> int:
 
 def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
     db_target: str,
-    trial: Pack,
-    inbox_pack: Pack,
+    chart: Agent,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Every read route (and FHIR search) but `NOT_SWEPT`, as every kind of principal that can
     read (people in each role, keys in each role, and no one; a Backend Services client holds a
     key's roles, and an EHR launch reads none of these), under `encrypt` with sign-in on, over
-    decisions recorded under `off` before the switch, one sealed before 2026-10-02 (evidence and
-    a resource's id in its record) and one sealed now, with notes. Each read a reader is shown is
-    chained and logged. Hidden evaluation sets are on, so the routes they mount are swept too
-    (LP-11g); a labeller's (LP-11j) and an organization's curators' (LP-11k) are memberships
-    mode's and take no placeholder a GET here fills: their hidden cases are swept in
-    tests/test_evalset_leaks.py, their chained reads checked in tests/test_labelling_routes.py,
-    and the curators' answers, which show no stored case, in tests/test_evalset_routes.py."""
+    decisions recorded under `off` before the switch and one sealed after it, with notes. Each
+    read a reader is shown is chained and logged."""
+    quoting_agent(monkeypatch)  # the chart's answers quote its record
     before = AuditStore(db_target, phi=policy("off"))
-    message_off = Decision(inbox_pack, store=before)(message(f"Crushing chest pain, {INPUT_MARK}"))
+    off = Decision(triage_agent, store=before)
+    message_off = off(message(f"Crushing chest pain, {INPUT_MARK}"))
     before.record_feedback(message_off.id, rating="down", reporter="rn-2", note=NOTE_MARK)
-    lab_off, _ = Decision(trial, store=before).decide_fhir(marked_bundle())
+    lab_off, _ = Decision(chart, store=before).decide_fhir(marked_bundle())
     before.close()
     store = AuditStore(db_target, phi=policy("encrypt"))
-    with monkeypatch.context() as october:
-        as_before_october(october)
-        decide = Decision(trial, store=store, fhir_validation="enforce")
-        lab_october, _ = decide.decide_fhir(marked_bundle(conforming=False))
-    sealed = Decision(inbox_pack, store=store)(message(f"Crushing chest pain, {INPUT_MARK} now"))
+    sealed = Decision(triage_agent, store=store)(message(f"Crushing chest pain, {INPUT_MARK} now"))
     store.resolve_review(sealed.id, final_label="nurse", reviewer="rn-1", note=NOTE_MARK)
-    decisions = [message_off.id, lab_off.id, lab_october.id, sealed.id]
+    decisions = [message_off.id, lab_off.id, sealed.id]
 
     encrypt_mode(monkeypatch)
     sign_in_env(monkeypatch)
-    evalset_on(monkeypatch)
     app = create_app(db_path=db_target)
     client = TestClient(app, base_url="https://mendari.test")
     who: dict[str, dict[str, str]] = {
         f"person:{role}": signed_in(store, role=role)
         for role in ("viewer", "governance", "reviewer", "admin")
     }
-    evalsets_are_on(client, who["person:viewer"])
     keys: dict[str, dict[str, Any]] = {}
     for role in ("viewer", "service"):
         key = store.create_api_key(name=f"k-{role}", role=role, org="default", created_by="t")
@@ -525,7 +453,7 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
             continue
         filled = [path.replace("{resource_id}", FIXED_IDS.get(path, "{resource_id}"))]
         if path == "/api/monitoring":
-            filled = [f"{path}?pack_id={pack.id}" for pack in (inbox_pack, trial)]
+            filled = [f"{path}?agent_id={agent.id}" for agent in (triage_agent, chart)]
         if "{key_id}" in path:  # a key's history: one of the keys above
             filled = [path.replace("{key_id}", keys["service"]["id"])]
         if "{decision_id}" in path or "/Task/{resource_id}" in path:
@@ -535,8 +463,8 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
         for kind, ids in found.items():
             if f"/{kind}/{{resource_id}}" in path:
                 filled = [path.replace("{resource_id}", i) for i in ids[:6]]
-        for pack in (inbox_pack, trial):
-            namespace, name = pack.id.split("/")
+        for agent in (triage_agent, chart):
+            namespace, name = agent.id.split("/")
             if "{namespace}" in path:
                 filled += [
                     p.replace("{namespace}", namespace).replace("{name}", name) for p in filled
@@ -580,43 +508,15 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
     store.close()
 
 
-def test_under_hash_a_read_of_what_an_older_sealed_record_holds_is_logged_too(
-    tmp_path: Path,
-    trial: Pack,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Sealed under `encrypt` before 2026-10-02 (its evidence in itself too), read under `hash`:
-    the sealed input stays sealed, the evidence is shown to a reviewer, and the read is both
-    chained and logged."""
-    db = tmp_path / "a.db"
-    with monkeypatch.context() as october:
-        as_before_october(october)
-        result, _ = Decision(trial, store=AuditStore(db, phi=policy("encrypt"))).decide_fhir(
-            marked_bundle()
-        )
-    monkeypatch.setenv("MENDARI_PHI_MODE", "hash")
-    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
-    sign_in_env(monkeypatch)
-    client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
-    reviewer = signed_in(AuditStore(db, phi=policy("hash")), role="reviewer")
-    capsys.readouterr()
-    read = client.get(f"/api/audit/{result.id}", headers=reviewer).json()
-    assert LAB_VALUE in evidence(read["record"]) and read["input_restricted"] is True
-    assert read["input_read"] is True and chained(read, "input.read")
-    lines = security_lines(capsys.readouterr().out)
-    assert [line["ids"] for line in lines if line["event"] == "phi.inputs.read"] == [[result.id]]
-
-
 def test_a_decision_rated_twice_is_logged_as_read_once(
     tmp_path: Path,
-    inbox_pack: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     db = tmp_path / "a.db"
     store = AuditStore(db, phi=policy("encrypt"))
-    rated = Decision(inbox_pack, store=store)(message(URGENT))
+    rated = Decision(triage_agent, store=store)(message(URGENT))
     store.record_feedback(rated.id, rating="down", reporter="rn-1", note=SECRET)
     store.record_feedback(rated.id, rating="up", reporter="rn-2")
     encrypt_mode(monkeypatch)
@@ -635,11 +535,12 @@ def test_a_decision_rated_twice_is_logged_as_read_once(
 
 
 def test_erasing_a_kept_input_and_its_notes_keeps_the_chain(
-    db_target: str, trial: Pack, inbox_pack: Pack
+    db_target: str, chart: Agent, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    quoting_agent(monkeypatch)  # the chart's answers quote its record: sealed beside its input
     store = AuditStore(db_target, phi=policy("encrypt"))
-    result, _ = Decision(trial, store=store).decide_fhir(marked_bundle())
-    urgent = Decision(inbox_pack, store=store)(message(URGENT))
+    result, _ = Decision(chart, store=store).decide_fhir(marked_bundle())
+    urgent = Decision(triage_agent, store=store)(message(URGENT))
     store.resolve_review(urgent.id, final_label="nurse", reviewer="rn-1", note=SECRET)
     for decision_id in (result.id, urgent.id):
         erased = store.erase_input(decision_id, erased_by="dpo@example.org", reason="request")
@@ -651,9 +552,10 @@ def test_erasing_a_kept_input_and_its_notes_keeps_the_chain(
     assert chained(shown, "input.erased")[0]["payload"] == {
         "reason": "request",
         "erased_by": "dpo@example.org",
+        "org": "default",
     }
     lab = store.get(result.id, reader="Nurse Kim")
-    assert lab is not None and LAB_VALUE not in evidence(lab["record"])
+    assert lab is not None and NAMED not in evidence(lab["record"])
     with store._db.session(exclusive=False) as db:
         assert db.all("SELECT * FROM decision_inputs") == []
     assert store.verify(notes=True)["ok"] is True
@@ -662,35 +564,28 @@ def test_erasing_a_kept_input_and_its_notes_keeps_the_chain(
     store.close()
 
 
-def test_what_the_chain_holds_is_said_to_remain(
-    tmp_path: Path, trial: Pack, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_what_the_chain_holds_is_said_to_remain(tmp_path: Path, triage_agent: Agent) -> None:
     db = tmp_path / "a.db"
     before = AuditStore(db, phi=policy("off"))
-    legacy = Decision(inbox_pack, store=before)(message(URGENT))
-    noted = Decision(inbox_pack, store=before)(message(URGENT))
+    legacy = Decision(triage_agent, store=before)(message(URGENT))
+    noted = Decision(triage_agent, store=before)(message(URGENT))
     before.resolve_review(noted.id, final_label="nurse", reviewer="rn-1", note=SECRET)
     store = AuditStore(db, phi=policy("encrypt"))
     with pytest.raises(NoteError, match="keeps nothing apart from the chain"):
         store.erase_input(legacy.id, erased_by="dpo@example.org", reason="request")
     erased = store.erase_input(noted.id, erased_by="dpo@example.org", reason="request")
     assert (erased["input"], len(erased["notes"]), erased["still_in_chain"]) == (False, 1, True)
-    with monkeypatch.context() as october:
-        as_before_october(october)
-        older, _ = Decision(trial, store=store).decide_fhir(marked_bundle())
-    erased = store.erase_input(older.id, erased_by="dpo@example.org", reason="error")
-    assert (erased["input"], erased["still_in_chain"]) == (True, True)  # its evidence remains
-    fresh = Decision(inbox_pack, store=store)(message(SECRET))
+    fresh = Decision(triage_agent, store=store)(message(SECRET))
     erased = store.erase_input(fresh.id, erased_by="dpo@example.org", reason="request")
     assert erased["still_in_chain"] is False
     assert store.verify(notes=True)["ok"] is True
 
 
-def test_what_cannot_be_erased_is_refused(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_what_cannot_be_erased_is_refused(tmp_path: Path, triage_agent: Agent) -> None:
     store = AuditStore(tmp_path / "a.db", phi=policy("encrypt"))
     with pytest.raises(NoteError, match="no decision"):
         store.erase_input("nope", erased_by="dpo@example.org", reason="request")
-    kept = Decision(inbox_pack, store=store)(message(SECRET))
+    kept = Decision(triage_agent, store=store)(message(SECRET))
     with pytest.raises(NoteError, match="the reason is one of"):
         store.erase_input(kept.id, erased_by="dpo@example.org", reason="because")
     with pytest.raises(NoteError, match="who erases"):
@@ -698,9 +593,9 @@ def test_what_cannot_be_erased_is_refused(tmp_path: Path, inbox_pack: Pack) -> N
     assert store.verify()["ok"] is True
 
 
-def test_the_export_says_an_input_was_erased(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_the_export_says_an_input_was_erased(tmp_path: Path, triage_agent: Agent) -> None:
     store = AuditStore(tmp_path / "a.db", phi=policy("encrypt"))
-    decided = Decision(inbox_pack, store=store)(message(SECRET))
+    decided = Decision(triage_agent, store=store)(message(SECRET))
     store.erase_input(decided.id, erased_by="dpo@example.org", reason="error")
     exported = list(audit_fhir.resources(store.iter_events()))
     erased = next(
@@ -713,7 +608,7 @@ def test_the_export_says_an_input_was_erased(tmp_path: Path, inbox_pack: Pack) -
 
 
 def test_admins_erase_through_the_api(
-    tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     encrypt_mode(monkeypatch)
     sign_in_env(monkeypatch)
@@ -722,7 +617,7 @@ def test_admins_erase_through_the_api(
     people = AuditStore(db, phi=policy("encrypt"))
     admin, reviewer = signed_in(people, role="admin"), signed_in(people, role="reviewer")
     decided = client.post(
-        f"/api/packs/{inbox_pack.id}/decide", json=message(SECRET), headers=admin
+        f"/api/agents/{triage_agent.id}/decide", json=message(SECRET), headers=admin
     ).json()
     path = f"/api/audit/{decided['id']}/erase"
     assert client.post(path, json={"reason": "request"}, headers=reviewer).status_code == 403
@@ -740,13 +635,13 @@ def test_admins_erase_through_the_api(
 
 def test_the_cli_erases(
     tmp_path: Path,
-    inbox_pack: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     encrypt_mode(monkeypatch)
     db = tmp_path / "a.db"
-    decided = Decision(inbox_pack, store=AuditStore(db, phi=policy("encrypt")))(message(SECRET))
+    decided = Decision(triage_agent, store=AuditStore(db, phi=policy("encrypt")))(message(SECRET))
     erase = ["phi", "erase", "--db", str(db), "--decision", decided.id, "--reason", "request"]
     assert main([*erase, "--by", "a person"]) == 1  # an identifier, as for notes
     assert main([*erase, "--by", "dpo@example.org"]) == 0
@@ -771,14 +666,14 @@ def test_retention_keeps_30_days_unless_told_and_never_0_from_a_setting(
 
 def test_purging_everything_is_asked_for_on_the_command_line(
     tmp_path: Path,
-    inbox_pack: Pack,
+    triage_agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     encrypt_mode(monkeypatch)
     db = tmp_path / "a.db"
     store = AuditStore(db, phi=policy("encrypt"))
-    urgent = Decision(inbox_pack, store=store)(message(URGENT))
+    urgent = Decision(triage_agent, store=store)(message(URGENT))
     store.resolve_review(urgent.id, final_label="nurse", reviewer="rn-1", note=SECRET)
     purge = ["phi", "purge", "--db", str(db)]
     monkeypatch.setenv("MENDARI_RETENTION_DAYS", "0")
@@ -798,12 +693,12 @@ def test_purging_everything_is_asked_for_on_the_command_line(
 
 
 def test_retention_purges_in_batches_and_chains_a_summary(
-    db_target: str, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    db_target: str, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(audit_module, "PURGE_BATCH", 2)
     store = AuditStore(db_target, phi=policy("encrypt"))
     assert store.last_purge() is None
-    decide = Decision(inbox_pack, store=store)
+    decide = Decision(triage_agent, store=store)
     for n in range(5):
         urgent = decide(message(f"{URGENT} ({n})"))
         store.resolve_review(urgent.id, final_label="nurse", reviewer="rn-1", note=SECRET)
@@ -831,14 +726,14 @@ def cron_client(
 
 
 def test_the_scheduled_purge_runs_with_the_cron_secret_only(
-    tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = cron_client(tmp_path, monkeypatch)
     store = AuditStore(tmp_path / "a.db", phi=policy("encrypt"))
-    old = Decision(inbox_pack, store=store)(message(SECRET))
+    old = Decision(triage_agent, store=store)(message(SECRET))
     with store._db.session(exclusive=True) as db:
         db.all("UPDATE decision_inputs SET created_at = '2020-01-01T00:00:00+00:00'")
-    new = Decision(inbox_pack, store=store)(message(SECRET))
+    new = Decision(triage_agent, store=store)(message(SECRET))
     route = "/api/internal/retention"
     assert client.get(route).status_code == 401  # no session, no secret
     wrong = {"authorization": "Bearer " + CRON[:-1] + "x"}

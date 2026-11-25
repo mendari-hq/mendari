@@ -14,12 +14,6 @@ Every function is deterministic; the random ones take a seed, written into what 
 - `equal_mass_ece`: calibration error over equal-count bins, "not estimable" when they are small.
 - `gamma_q` and `chi2_sf`: the regularized upper incomplete gamma function and the chi-square
   tail it gives, for the homogeneity test of pooled site evidence (LP-22, `evals.pooling`).
-
-For the scoreboard (LP-17), used by no format yet:
-
-- `stratified_bootstrap`: the percentile interval over seeded resamples within each stratum.
-- `weighted_proportion`: a share of weighted cases, with Kish's effective n and the
-  Korn-Graubard interval (`WeightedProportion`).
 - `brier_reliability`: Murphy's reliability term of the Brier score, over equal-mass bins.
 """
 
@@ -27,9 +21,8 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from fractions import Fraction
 from functools import lru_cache
 from statistics import NormalDist
 from typing import Any, TypeVar
@@ -495,51 +488,6 @@ def paired_bootstrap(
     return estimate, percentile(diffs, tail), percentile(diffs, 1.0 - tail), p_value
 
 
-def stratified_resample_indices(
-    strata: Sequence[Hashable], resamples: int, seed: int
-) -> Iterator[list[int]]:
-    """The stratified bootstrap's index matrix, one row (resample) at a time: row r, column i
-    is pool[floor(U * m)], where pool holds the m cases of case i's stratum in input order and U
-    is the (r*n + i)-th draw of random.Random(seed).random(), as in `resample_indices`. Each
-    column keeps its case's stratum, so every stratum keeps its size and its places; with one
-    stratum the rows are `resample_indices`'s. Strata are told apart by equality."""
-    if isinstance(seed, bool) or not isinstance(seed, int):
-        raise TypeError("seed must be an integer")
-    members: dict[Hashable, list[int]] = {}
-    for i, stratum in enumerate(strata):
-        members.setdefault(stratum, []).append(i)
-    pools = [members[stratum] for stratum in strata]
-    draw = random.Random(seed).random
-    for _ in range(resamples):
-        yield [pool[int(draw() * len(pool))] for pool in pools]
-
-
-def stratified_bootstrap(
-    records: Sequence[T],
-    strata: Sequence[Hashable],
-    statistic: Callable[[Sequence[T]], float],
-    resamples: int = 2000,
-    seed: int = 0,
-    level: float = 0.95,
-) -> tuple[float, float, float]:
-    """(estimate, low, high): `bootstrap` with each case resampled within its stratum
-    (`stratified_resample_indices`; strata[i] is records[i]'s). A statistic that needs every
-    stratum, as macro-F1 needs each true label's support, stays defined on every resample. With
-    one stratum it is `bootstrap`."""
-    n = len(records)
-    if n == 0:
-        raise ValueError("no records")
-    if len(strata) != n:
-        raise ValueError("records and strata differ in length")
-    tail = _tail(resamples, level)
-    estimate = statistic(records)
-    values = sorted(
-        statistic([records[i] for i in row])
-        for row in stratified_resample_indices(strata, resamples, seed)
-    )
-    return estimate, percentile(values, tail), percentile(values, 1.0 - tail)
-
-
 # --------------------------------------------------------------------------------------------
 # Equal-mass ECE
 # --------------------------------------------------------------------------------------------
@@ -725,78 +673,6 @@ def proportion(k: int, n: int, level: float = LEVEL) -> Proportion:
         return Proportion(k, n, None, None, level)
     low, high = clopper_pearson(k, n, level)
     return Proportion(k, n, low, high, level)
-
-
-@dataclass(frozen=True)
-class WeightedProportion:
-    """A share of weighted cases (`weighted_proportion`): the Hájek estimate, Kish's effective n
-    and the Korn-Graubard interval, all None when there are no cases. It is shown beside the
-    unweighted k of n, never in its place."""
-
-    n: int
-    estimate: float | None
-    effective_n: float | None
-    low: float | None
-    high: float | None
-    level: float = LEVEL
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "n": self.n,
-            "estimate": _stored(self.estimate),
-            "effective_n": _stored(self.effective_n),
-            "low": _stored(self.low),
-            "high": _stored(self.high),
-        }
-
-
-def weighted_proportion(
-    hits: Sequence[bool], weights: Sequence[float], level: float = LEVEL
-) -> WeightedProportion:
-    """The share of hits among cases drawn with unequal probabilities, each case weighted (a
-    hidden set's sampling weight, N_h / n_h).
-
-    - estimate: Hájek's ratio, sum(w * hit) / sum(w);
-    - effective_n: Kish's, sum(w)^2 / sum(w^2);
-    - low, high: Korn & Graubard's (1998) interval, Clopper-Pearson at the effective counts,
-      x = estimate * effective_n hits and effective_n - x misses, with Kish's n as the effective
-      sample size (no degrees-of-freedom factor): low is the Beta(x, misses + 1) quantile at
-      alpha/2 and high the Beta(x + 1, misses) quantile at 1 - alpha/2, at the real counts.
-      `beta_ppf` takes shapes of 1 or more only, so where a count is under 1 its bound is
-      clamped: low is 0 when x < 1, and high is 1 when misses < 1. A clamped bound is wider than
-      Korn-Graubard's, never narrower, and every other bound is Korn-Graubard's, at no hits and
-      at all hits too.
-
-    The sums are exact (fractions of the weights' binary values) and each figure and shape is
-    rounded once, so unit weights, or one weight for every case, give clopper_pearson(k, n)
-    exactly.
-    """
-    n = len(hits)
-    if len(weights) != n:
-        raise ValueError("hits and weights differ in length")
-    if not 0.0 < level < 1.0:
-        raise ValueError("level must be in (0, 1)")
-    if not all(isinstance(hit, bool) for hit in hits):
-        raise TypeError("each hit must be a bool")
-    exact: list[Fraction] = []
-    for weight in weights:
-        if isinstance(weight, bool) or not isinstance(weight, (int, float)):
-            raise TypeError("each weight must be a number")
-        if not (math.isfinite(weight) and weight > 0):
-            raise ValueError("each weight must be finite and positive")
-        exact.append(Fraction(weight))
-    if n == 0:
-        return WeightedProportion(0, None, None, None, None, level)
-    total = sum(exact, Fraction(0))
-    hit_total = sum((w for w, hit in zip(exact, hits, strict=True) if hit), Fraction(0))
-    squares = sum((w * w for w in exact), Fraction(0))
-    effective_n = total * total / squares
-    x = total * hit_total / squares  # estimate * effective_n, exactly
-    misses = effective_n - x
-    tail = (1.0 - level) / 2.0
-    low = beta_ppf(float(x), float(misses + 1), tail) if x >= 1 else 0.0
-    high = beta_ppf(float(x + 1), float(misses), 1.0 - tail) if misses >= 1 else 1.0
-    return WeightedProportion(n, float(hit_total / total), float(effective_n), low, high, level)
 
 
 def holm_family(p_values: Mapping[str, float], alpha: float = 0.05) -> dict[str, dict[str, Any]]:
