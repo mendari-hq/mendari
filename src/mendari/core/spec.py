@@ -67,13 +67,6 @@ MUST_PASS_RECALL_FLOOR = 0.80
 MAX_JUDGE_ERRORS = 0.05
 
 
-def at_least(version: str, wanted: str) -> bool:
-    """Whether a manifest of spec `version` has what spec `wanted` (any version up to
-    `SPEC_VERSION`) added: one this engine loads is always `SPEC_VERSION`, which has every
-    feature. Only `providers/criteria.py` still asks; this goes with it in wave 6 (G1)."""
-    return version == SPEC_VERSION
-
-
 _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 _KEY = re.compile(r"^[a-z][a-z0-9_]*$")

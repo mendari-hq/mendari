@@ -14,14 +14,3 @@ CASE_SYSTEM = "https://mendari.co/fhir/synthetic-case"
 # How a synthetic patient message arrived (Communication.medium).
 CHANNEL_SYSTEM = "https://mendari.co/fhir/CodeSystem/message-channel"
 CHANNELS = {"portal": "Patient portal", "sms": "Text message (SMS)", "email": "Email"}
-# The conditions a synthetic local site codes in its own system. A record's condition code names
-# no system: `standards/record_fhir.py` reads one of these as this system's. Each display is
-# ours. (LP-14: they replaced the SNOMED CT codes.)
-CONDITION_SYSTEM = "https://mendari.co/fhir/CodeSystem/fictional-conditions"
-CONDITIONS = {
-    "FC101": "Type 2 diabetes mellitus",
-    "FC102": "Type 1 diabetes mellitus",
-    "FC201": "Myocardial infarction",
-    "FC202": "Stroke (cerebrovascular accident)",
-    "FC203": "Cerebral infarction",
-}

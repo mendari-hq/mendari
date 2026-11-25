@@ -6,10 +6,9 @@ SNOMED CT's url or OID only in the modules that must name the system (`NAMES_THE
 holding a code). A concept id is any id the repository has used (`CONCEPT_IDS`), in any file, and
 in Mendari's own files (src/mendari and the bundled agents) any other number written as one:
 6 to 18 digits ending in a concept's partition and SNOMED CT's check digit. A bare id names no
-system, which is how the codes once came into the packs. The agents, their data and the
-sandbox use fictional codes instead. The tests keep SNOMED CT (the US Core fixtures code
-procedures and referrals in it) and ship in no package. Exit 1, naming each file and what it
-carries.
+system, which is how the codes once came in. The bundled agent and the sandbox carry none. The
+tests keep SNOMED CT (the US Core fixtures code procedures and referrals in it) and ship in no
+package. Exit 1, naming each file and what it carries.
 
     uv run python scripts/check_snomed.py dist/mendari-*.tar.gz dist/*.whl
 
@@ -86,8 +85,6 @@ NAMES_THE_SYSTEM = {
     "to refuse an agent that carries them undeclared",
     "mendari/standards/us_core.py": "US Core's rule us-core-4, which asks for SNOMED CT in an "
     "Observation's coded value",
-    "mendari/standards/record_fhir.py": "reads a site's own condition codes (neither ICD-10-CM "
-    "nor fictional) as SNOMED CT when it turns a record into FHIR",
 }
 
 
