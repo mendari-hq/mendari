@@ -41,7 +41,6 @@ CHECKED = frozenset({"bash", "sh", "shell", "zsh", "console", "python", "py", "p
 ALLOWED = CHECKED | {"text", "json", "yaml", "toml", "html", "http", "jsonc", "mermaid"}
 RUNNERS = ("quickstart", "cli", "python", "install", "server-db")
 SKIP_REASONS = {
-    "private-repo": "the repository is not public yet",
     "docker": "needs the Docker sandbox",
     "ehr": "needs an EHR's FHIR server and credentials",
     "database": "needs an outside database",
