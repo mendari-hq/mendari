@@ -111,7 +111,7 @@ def test_the_marker_records_where_a_pull_came_from(
 
 
 def _served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, str, Any]:
-    """A server whose search path holds a pulled pack (an outside publisher's agent), which
+    """A server whose search path holds a pulled agent (an outside publisher's), which
     automates `BILL` under its own policy."""
     agent = outside_sorter(tmp_path / "source")
     target = agents_cache() / OUTSIDE_ID / agent.version

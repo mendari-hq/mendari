@@ -295,7 +295,7 @@ def test_audit_verify_passes_after_a_promotion(world: Store) -> None:
 def test_what_the_security_review_found_is_closed(world: Store) -> None:
     """LP-20h's adversarial review: a promotion to recommend only never automates; the author of
     a version is refused its automation approval; a promoted version that no longer loads leaves
-    its organization's other packs served."""
+    its organization's other agents served."""
     from mendari.core.registry import resolve_agent
     from tests.conftest import member
 

@@ -32,7 +32,7 @@ jobs:
       - run: uv sync --locked
       - name: Find the changed agents
         # An agent's directory is named by the pull request, so it is data, never code: it comes
-        # NUL-separated from scripts/changed_packs.py (git diff -z), stays one quoted shell word,
+        # NUL-separated from scripts/changed_agents.py (git diff -z), stays one quoted shell word,
         # and reaches Python only through argv.
         env:
           BASE: ${{ github.event.pull_request.base.sha }}

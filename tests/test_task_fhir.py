@@ -155,7 +155,7 @@ def test_outputs_come_from_the_events_not_the_overwritten_column() -> None:
 
 
 def test_rendering_does_not_depend_on_which_agents_are_served() -> None:
-    """A decision of a pack this deployment no longer serves keeps its canonical codings."""
+    """A decision of an agent this deployment no longer serves keeps its canonical codings."""
     item = chain_item()
     item["agent_id"] = "someone/retired-agent"
     task = task_fhir.current_task(item)

@@ -485,8 +485,8 @@ def test_an_example_over_64_kb_as_json_is_left_out_of_the_api_reference(tmp_path
 
 
 def test_an_unused_variant_cannot_carry_an_expanding_manifest(tmp_path: Path) -> None:
-    """The same in agent.yaml (an unused variant's extra key, dumped by the pack's detail page):
-    the pack is refused at load and every other pack is served."""
+    """The same in agent.yaml (an unused variant's extra key, dumped by the agent's detail page):
+    the agent is refused at load and every other agent is served."""
     outside = tmp_path / "outside"
     agent = _outsider(outside, _append("agent.yaml", long_text_laughs(3, 100_000))).resolve()
     client = TestClient(create_app(db_path=tmp_path / "m.db", agents_paths=[outside, AGENTS]))

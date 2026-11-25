@@ -1640,7 +1640,7 @@ LAYOUT_SHIFT = """window.__cls = 0; new PerformanceObserver((list) => {
 
 
 def test_nothing_shifts_while_a_tablet_page_loads(browser: Browser, base_url: str) -> None:
-    """The pack picker used to fill in after first paint, wrap the top bar at 768 px and shift the
+    """The agent picker used to fill in after first paint, wrap the top bar at 768 px and shift the
     whole page (a layout shift of 0.50)."""
     context = browser.new_context(base_url=base_url, viewport={"width": 768, "height": 900})
     page = context.new_page()

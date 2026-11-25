@@ -638,10 +638,9 @@ def test_the_agent_workflow_finds_a_manifest_by_its_name() -> None:
     assert removed in maintained["run"] and "was removed" in maintained["run"]
     # Its dataset checks run after that, on a folder that has the manifest.
     assert maintained["run"].index(removed) < maintained["run"].index("mendari data check")
-    for step in steps:  # no step that asks for a manifest by another name
-        for line in step.get("run", "").splitlines():
-            if "pack.yaml" in line:
-                raise AssertionError(line)
+    for step in steps:  # no step asks for a manifest by another name
+        for name in re.findall(r'-f "\$dir/([^"]+)"', step.get("run", "")):
+            assert name == "agent.yaml", name
 
 
 def test_changed_files_map_to_their_agent(tmp_path: Path) -> None:

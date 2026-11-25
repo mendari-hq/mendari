@@ -226,7 +226,7 @@ def test_a_running_server_holds_a_copy_its_registry_never_counter_signed(
     db_target: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """On SQLite and Postgres: pulled while its registry has no key, the pack automates once
+    """On SQLite and Postgres: pulled while its registry has no key, the agent automates once
     approved; when the registry gets a key, the running server holds it with a reason that
     says to pull it again; pulled again, counter-signed, it automates as before."""
     monkeypatch.delenv(yank.KEY_ENV, raising=False)

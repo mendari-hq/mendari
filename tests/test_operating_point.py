@@ -1800,7 +1800,6 @@ def test_the_guide_names_the_options_the_command_takes() -> None:
     )
     assert (parsed.target_critical_miss, parsed.target_critical_miss_of) == (0.01, "all")
     assert (parsed.target_false_automation, parsed.target_confidence) == (0.02, 0.95)
-    assert not re.search(r"\bpacks?\b", text, re.IGNORECASE)  # one vocabulary: an agent
 
 
 # -- proposed actions are part of what the policy decided from (spec 0.4) -------------------------

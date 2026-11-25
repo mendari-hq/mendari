@@ -433,8 +433,8 @@ def test_a_card_links_to_the_launch_view_only_for_a_registered_ehr_of_the_same_o
 ) -> None:
     """A `smart` link to the agent's launch, only when SMART is on and the request's `fhirServer`
     is registered for launches (`MENDARI_SMART_EHRS`) to the caller's own organization: open
-    mode's is `default`. It names the agent by the launch route's own parameter, `pack`, which
-    stays (a name on the wire: `GET /smart/launch?pack=`)."""
+    mode's is `default`. It names the agent by the launch route's parameter, `agent`
+    (`GET /smart/launch?agent=`)."""
     _launch_setup(monkeypatch, smart=False)
     assert _launch_links(served(tmp_path, "off.db"), EHR_A) == []  # SMART off
     _launch_setup(monkeypatch)

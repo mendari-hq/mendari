@@ -338,7 +338,7 @@ def test_the_push_command_refuses_it_and_sends_nothing(
 def test_a_learned_case_is_found_in_whatever_file_of_the_agent_holds_it(
     exported: bytes, tmp_path: Path, key: archive.Ed25519PrivateKey
 ) -> None:
-    """An archive holds every file of a pack, so every file is read, whatever it is called and
+    """An archive holds every file of an agent, so every file is read, whatever it is called and
     however it is laid out: a copy kept beside the datasets that the manifest does not name,
     one cut short, the same cases as one indented JSON document or written without spaces, in
     a folder of their own. A hidden file is no part of an agent."""

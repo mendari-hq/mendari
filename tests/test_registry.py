@@ -412,7 +412,7 @@ def test_the_registry_publishes_the_reference_agents_of_its_own_release(
     registry: Registry,
 ) -> None:
     """`scripts/hub_seed.py` and CI's `hub-e2e` publish the release's bundled agents unchanged
-    (in the suite, the test fixtures' agents stand where they are): each is a reference pack of
+    (in the suite, the test fixtures' agents stand where they are): each is a reference agent of
     the registry's release, checked on the maintained engine."""
     root = bundled_dir()
     assert root is not None
@@ -526,7 +526,7 @@ def test_publisher_text_in_the_registrys_card_is_plain_text(tmp_path: Path) -> N
     """The adversarial review of LP-18a: a newline or Markdown in a manifest string (or the
     changelog) made headings, tables, rules, images and bold review claims in the card the
     registry renders, beside its own lines. In the registry's card every publisher string is one
-    line of plain text: the card has the structure of the same pack's card with plain words."""
+    line of plain text: the card has the structure of the same agent's card with plain words."""
     hostile = load_agent(_hostile_copy(tmp_path), origin="hub")
     plain = tmp_path / "plain"
     shutil.copytree(_hostile_copy(tmp_path / "again"), plain)

@@ -9,7 +9,7 @@ label, its automation and its policy are a registry agent's. Maintained and loca
 `re`, unchanged.
 
 In the suite the test fixtures' agents stand where a release's bundled agents do (`conftest.py`),
-so they are its reference packs: the triage fixture, whose patterns all run on RE2, and the
+so they are its reference agents: the triage fixture, whose patterns all run on RE2, and the
 others beside it.
 """
 
@@ -281,7 +281,7 @@ def test_the_engine_follows_the_bytes_not_the_manifest(tmp_path: Path) -> None:
         load_agent(same, origin="hub")
 
 
-# -- a pulled pack never takes a bundled agent's place (F) ---------------------------------------
+# -- a pulled agent never takes a bundled agent's place (F) --------------------------------------
 
 
 def shadow(base: Path, version: str | None = None) -> Path:
@@ -422,7 +422,7 @@ def test_a_registry_agent_refuses_an_input_too_large_before_its_schema_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """At decide, as every agent on that engine: more than 10,000 values, nesting past 32 or texts
-    past 10,000 characters are refused, in the registry pack's words, before its schema check
+    past 10,000 characters are refused, in the registry agent's words, before its schema check
     (`Decision.validate`) runs. Called alone, its check holds to them too."""
     root = copied(tmp_path, TRIAGE_DIR.name, version="9.9.9")
     hub = Decision(load_agent(root, origin="hub"))
@@ -512,9 +512,9 @@ def test_a_registry_agents_schema_errors_stop_at_100_with_short_reasons(tmp_path
 
 
 def test_mendari_test_stops_a_registry_agent_at_the_budget(tmp_path: Path) -> None:
-    """`mendari test` holds a registry pack to the budget as a decision does: checking its test
+    """`mendari test` holds a registry agent to the budget as a decision does: checking its test
     inputs against a schema whose keywords fan out stops, and a case its rules run out of time
-    on says why, in the registry pack's words. Checked alone, outside a decision, the schema
+    on says why, in the registry agent's words. Checked alone, outside a decision, the schema
     check stops too."""
 
     def noted(schema: dict[str, Any]) -> None:
@@ -650,8 +650,8 @@ def test_the_reference_index_is_each_bundled_agents_id_version_and_digest() -> N
 
 
 def test_owned_agents_stay_on_re(tmp_path: Path) -> None:
-    """Reference packs, and an operator's local packs (a changed copy included), run on `re` as
-    before: no caps, no budget, and a pattern that backtracks still loads."""
+    """Reference agents, and an operator's own agents (a changed copy included), run on `re`: no
+    caps, no budget, and a pattern that backtracks loads."""
     for directory in bundled():
         agent = load_agent(directory, origin="maintained")
         assert not agent.bounded
