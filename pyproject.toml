@@ -12,6 +12,11 @@ classifiers = [
     "Intended Audience :: Healthcare Industry",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    # The versions CI tests (ci.yml's matrix).
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 dependencies = [
@@ -31,6 +36,15 @@ dependencies = [
 
 [project.scripts]
 mendari = "mendari.cli:main"
+
+# The links beside the package on PyPI. A release's metadata can never change, so each one must
+# keep working (tests/test_packaging.py).
+[project.urls]
+Homepage = "https://mendari.co"
+Documentation = "https://github.com/mendari-hq/mendari/tree/main/docs"
+Source = "https://github.com/mendari-hq/mendari"
+Issues = "https://github.com/mendari-hq/mendari/issues"
+Changelog = "https://github.com/mendari-hq/mendari/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
