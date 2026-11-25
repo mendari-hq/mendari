@@ -3505,7 +3505,7 @@ class Group(NamedTuple):
     more: tuple[str, ...]  # the rest, which `mendari help all` shows after them
 
 
-# Every command is in exactly one group (tests/test_cli_vocabulary.py), so `mendari help all`
+# Every command is in exactly one group (tests/test_cli_help.py), so `mendari help all`
 # misses none. A new command goes in `more`, unless most people need it in their first hour.
 GROUPS = (
     Group("Start", ("demo", "new"), ("help",)),

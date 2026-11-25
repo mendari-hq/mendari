@@ -99,7 +99,7 @@ def test_what_the_watch_holds_and_when(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "unread",
     [
-        {"pack": "a/b", "version": "1.0.0", "yank": {"severity": "high"}},  # another format's key
+        {"id": "a/b", "version": "1.0.0", "yank": {"severity": "high"}},  # a key it does not read
         {"agent": "a/b", "yank": {"severity": "high"}},
         "a/b@1.0.0",
     ],
