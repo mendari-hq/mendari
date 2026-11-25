@@ -10,19 +10,19 @@ from fastapi.testclient import TestClient
 
 from mendari import notices
 from mendari.server.app import create_app
-from tests.conftest import LOCAL_DATASET
 
-INBOX_URL = "/api/agents/mendari/patient-inbox-router"
-INBOX_ID = "mendari/patient-inbox-router"
-REFERRAL_URL = "/api/agents/mendari/referral-router"
-REFERRAL_ID = "mendari/referral-router"
+# The triage fixture, and another agent beside it (the clinical review fixture).
+INBOX_URL = "/api/agents/mendari-test/triage"
+INBOX_ID = "mendari-test/triage"
+REFERRAL_URL = "/api/agents/mendari-test/clinical-review"
+REFERRAL_ID = "mendari-test/clinical-review"
 
 pytestmark = pytest.mark.core
 
 
 @pytest.fixture
 def client(db_target: str) -> TestClient:
-    return TestClient(create_app(db_path=db_target, datasets_dir=LOCAL_DATASET.parent))
+    return TestClient(create_app(db_path=db_target))
 
 
 def test_shadow_mode_header_and_query_hold_for_comparison(client: TestClient) -> None:
@@ -82,7 +82,7 @@ def test_validation_brief_json_markdown_gates_shadow_pilot_and_overrides(
     assert res1.status_code == 200 and res1.json()["human_override"] is False
 
     routine_label = routine_dec["recommendation"]
-    override_label = "billing" if routine_label != "billing" else "scheduling"
+    override_label = "billing" if routine_label != "billing" else "front_desk"
     res2 = client.post(
         f"/api/review/{routine_dec['id']}",
         json={"final_label": override_label, "reviewer": "rn-1"},
@@ -160,7 +160,7 @@ def test_feedback_export_overrides_source_excludes_confirmed_reviews(client: Tes
     ).json()
     d2 = client.post(
         f"{INBOX_URL}/decide",
-        json={"message": {"body": "Question about my co-pay invoice from last visit"}},
+        json={"message": {"body": "Question about the charges on my bill from last visit"}},
         headers={"X-Mendari-Shadow": "1"},
     ).json()
 
@@ -170,7 +170,7 @@ def test_feedback_export_overrides_source_excludes_confirmed_reviews(client: Tes
         json={"final_label": d1["recommendation"], "reviewer": "rn-1"},
     )
     assert r1.status_code == 200
-    other = "billing" if d2["recommendation"] != "billing" else "scheduling"
+    other = "billing" if d2["recommendation"] != "billing" else "front_desk"
     r2 = client.post(
         f"/api/review/{d2['id']}",
         json={"final_label": other, "reviewer": "rn-1"},

@@ -25,19 +25,23 @@ from mendari.evals.harness import load_dataset
 from mendari.evals.pack_tests import load_cases
 from mendari.server import api_docs
 from mendari.server.app import create_app
+from tests.conftest import TRIAGE_DIR
+from tests.support.engine import published
 from tests.test_pack_isolation import (
     PACKS,
-    TRIAL_DIR,
+    TRIAGE_ID,
     _append,
     _outsider,
     _set_key,
     _set_line,
+    _shipped,
     _with_schema_property,
 )
 
-REFERRAL_DIR = PACKS / "referral-router"
-REFERRAL = "outsider/referral-router"
-INPUT = "{as_of: '2026-01-01', referral: {reason: hi}}"
+# An outsider's copy of the triage fixture (`_outsider`), and an input of its shape.
+SOURCE = TRIAGE_DIR
+OUTSIDER = "outsider/triage"
+INPUT = "{message: {body: hi}}"
 
 
 def _no_traceback(capsys: pytest.CaptureFixture[str], *argv: str) -> str:
@@ -129,8 +133,8 @@ def test_a_behaviour_test_of_the_wrong_shape_is_named_never_a_500(
     the example) and `mendari validate` print a traceback; `- 5` and `expect: {answers: 5}`
     made `mendari test` print one."""
     outside = tmp_path / "outside"
-    count = len(yaml.safe_load((REFERRAL_DIR / "tests" / "cases.yaml").read_text()))
-    pack = _outsider(outside, _append("tests/cases.yaml", "\n" + case), REFERRAL_DIR)
+    count = len(yaml.safe_load((SOURCE / "tests" / "cases.yaml").read_text()))
+    pack = _outsider(outside, _append("tests/cases.yaml", "\n" + case), SOURCE)
     with pytest.raises(PackValidationError) as raised:
         load_cases(load_pack(pack))
     [found] = raised.value.problems
@@ -144,8 +148,8 @@ def test_a_behaviour_test_of_the_wrong_shape_is_named_never_a_500(
     assert reference.status_code == 200
     decide = reference.json()["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
-    assert "patient-inbox-router" in examples
-    assert client.get(f"/api/agents/{REFERRAL}/examples").status_code == 422
+    assert examples["triage"]["summary"].startswith(f"{TRIAGE_ID}: ")  # the fixture's own
+    assert client.get(f"/api/agents/{OUTSIDER}/examples").status_code == 422
 
 
 def test_one_packs_tests_can_never_fail_the_api_reference(
@@ -156,7 +160,7 @@ def test_one_packs_tests_can_never_fail_the_api_reference(
     real = api_docs.load_cases
 
     def odd(pack: object) -> object:
-        if getattr(pack, "id", "") == "mendari/referral-router":
+        if getattr(pack, "id", "") == "mendari-test/clinical-review":
             return [{"input": {}, "expect": [1]}]
         return real(pack)  # type: ignore[arg-type]
 
@@ -166,7 +170,7 @@ def test_one_packs_tests_can_never_fail_the_api_reference(
     assert reference.status_code == 200
     decide = reference.json()["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
-    assert "patient-inbox-router" in examples and "referral-router" not in examples
+    assert "triage" in examples and "clinical-review" not in examples
 
 
 # -- values JSON cannot hold, anywhere in a pack's YAML or JSON (finding 2) ---------------------
@@ -181,14 +185,13 @@ def _tagged(tag: str) -> str:
 @pytest.mark.parametrize(
     ("relative", "line", "column", "reason"),
     [
-        ("agent.yaml", 'name: "Referral \\ud800"', 7, SURROGATE),
+        ("agent.yaml", 'name: "Triage \\ud800"', 7, SURROGATE),
         ("agent.yaml", '"x_\\udfff": 1', 1, SURROGATE),
         ("agent.yaml", "x_blob: !!binary /w==", 9, _tagged("binary")),
         ("agent.yaml", "x_set: !!set {a}", 8, _tagged("set")),
         ("agent.yaml", "x_omap: !!omap [a: 1]", 9, _tagged("omap")),
         ("agent.yaml", "x_pairs: !!pairs [a: 1]", 10, _tagged("pairs")),
-        ("policy.yaml", 'x_note: "\\ud800"', 9, SURROGATE),
-        ("logic/triage_rules.yaml", 'x_name: "\\ud800"', 9, SURROGATE),
+        ("logic/router_rules.yaml", 'x_name: "\\ud800"', 9, SURROGATE),
     ],
     ids=[
         "manifest-name",
@@ -197,7 +200,6 @@ def _tagged(tag: str) -> str:
         "set",
         "omap",
         "pairs",
-        "policy",
         "rules",
     ],
 )
@@ -213,7 +215,7 @@ def test_a_yaml_value_json_cannot_hold_is_refused_at_load_with_its_place(
     pack failed; a variant's `!!binary` extra and a rule's surrogate name made the pack's detail
     and decisions 500. `mendari validate` said ok. Refused at load, by file and place."""
     outside = tmp_path / "outside"
-    pack = _outsider(outside, _set_line(relative, line), REFERRAL_DIR)
+    pack = _outsider(outside, _set_line(relative, line), SOURCE)
     at = (pack / relative).read_text(encoding="utf-8").splitlines().index(line) + 1
     problem = f"{relative}: {reason} (line {at}, column {column})"
     with pytest.raises(PackValidationError) as raised:
@@ -223,7 +225,8 @@ def test_a_yaml_value_json_cannot_hold_is_refused_at_load_with_its_place(
     client = _client(tmp_path, outside)
     listed = client.get("/api/agents")
     assert listed.status_code == 200
-    assert REFERRAL not in [p["id"] for p in listed.json()] and len(listed.json()) >= 5
+    assert OUTSIDER not in [p["id"] for p in listed.json()]
+    assert len(listed.json()) == len(_shipped())  # every fixture's agent, not the outsider
     assert problem in client.get("/api/health").json()["invalid"][str(pack.resolve())]
 
 
@@ -231,10 +234,10 @@ def test_a_yaml_value_json_cannot_hold_is_refused_at_load_with_its_place(
     ("relative", "text"),
     [
         ("agent.yaml", "risk:\n  level: 3\n  category: x\n  rationale: a second risk\n"),
-        ("policy.yaml", "primary: next_step\n"),
+        ("logic/router_rules.yaml", "negation_window: 40\n"),
         ("fhir/mapping.yaml", "focus: ServiceRequest\n"),
     ],
-    ids=["manifest", "policy", "mapping"],
+    ids=["manifest", "rules", "mapping"],
 )
 def test_a_key_given_twice_is_refused_at_load_with_both_places(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], relative: str, text: str
@@ -243,7 +246,7 @@ def test_a_key_given_twice_is_refused_at_load_with_both_places(
     near its top and be decided by a second `risk:` further down, and a reviewer reading the
     first was misled. Refused, by file and the line and column of both."""
     key = text.split(":", 1)[0]
-    pack = _outsider(tmp_path, _append(relative, "\n" + text), REFERRAL_DIR)
+    pack = _outsider(tmp_path, _append(relative, "\n" + text), SOURCE)
     lines = (pack / relative).read_text(encoding="utf-8").splitlines()
     first, second = [n + 1 for n, line in enumerate(lines) if line.startswith(f"{key}:")]
     problem = (
@@ -304,7 +307,7 @@ def test_a_json_value_json_cannot_send_is_refused_at_load(
     """`"x-d": "\\ud800"` in the input schema (json.load accepts the escape) made the pack's
     detail answer 500."""
     outside = tmp_path / "outside"
-    pack = _outsider(outside, edit, REFERRAL_DIR)
+    pack = _outsider(outside, edit, SOURCE)
     with pytest.raises(PackValidationError) as raised:
         load_pack(pack)
     [problem] = raised.value.problems
@@ -312,16 +315,25 @@ def test_a_json_value_json_cannot_send_is_refused_at_load(
     assert problem in _no_traceback(capsys, "validate", str(pack))
     client = _client(tmp_path, outside)
     assert client.get("/api/agents").status_code == 200
-    assert client.get(f"/api/agents/{REFERRAL}").status_code == 404
+    assert client.get(f"/api/agents/{OUTSIDER}").status_code == 404
 
 
 # -- provider files: malformed, of the wrong shape, unreadable (finding 3) ----------------------
 
-MODEL = "models/specialty-nb.json"
+# The canned answers of the triage fixture's router `agent` variant, which these copies make the
+# default, so every caller builds it.
+MODEL = "fixtures/router.json"
+
+
+def _router_agent(pack: Path) -> None:
+    manifest = yaml.safe_load((pack / "agent.yaml").read_text())
+    manifest["providers"]["router"]["use"] = "agent"
+    (pack / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
 
 
 def _model(change: Callable[[dict[str, object]], object]) -> Callable[[Path], None]:
     def edit(pack: Path) -> None:
+        _router_agent(pack)
         path = pack / MODEL
         model = json.loads(path.read_text())
         path.write_text(json.dumps(change(model)))
@@ -331,6 +343,7 @@ def _model(change: Callable[[dict[str, object]], object]) -> Callable[[Path], No
 
 def _raw_model(text: str) -> Callable[[Path], None]:
     def edit(pack: Path) -> None:
+        _router_agent(pack)
         (pack / MODEL).write_text(text)
 
     return edit
@@ -344,28 +357,13 @@ def _raw_model(text: str) -> Callable[[Path], None]:
         (_raw_model("[" * 100_000), f"{MODEL}: not a JSON document (RecursionError)"),
         (_raw_model('"\\ud800"'), f"{MODEL}: not JSON, it holds a string with a lone surrogate"),
         (
-            _model(lambda m: {**m, "temperature": 10**400}),
+            _model(lambda m: {**m, "x_count": 10**400}),
             f"{MODEL}: not JSON, it holds an integer too large to be a number",
         ),
-        (_raw_model("[]"), f"{MODEL}: not a naive_bayes model (expected a mapping)"),
-        (_model(lambda m: {**m, "labels": 5}), f"{MODEL}: not a naive_bayes model (labels)"),
-        (_model(lambda m: {**m, "tokens": [1]}), f"{MODEL}: not a naive_bayes model (tokens)"),
-        (
-            _model(lambda m: {**m, "tokens": {"a": ["x"]}}),
-            f"{MODEL}: not a naive_bayes model (tokens)",
-        ),
-        (
-            _model(lambda m: {**m, "log_prior": [0.0]}),
-            f"{MODEL}: not a naive_bayes model (log_prior)",
-        ),
-        (
-            _model(lambda m: {**m, "temperature": 0}),
-            f"{MODEL}: not a naive_bayes model (temperature)",
-        ),
-        (
-            _model(lambda m: {**m, "text_fields": "referral.reason"}),
-            f"{MODEL}: not a naive_bayes model (text_fields)",
-        ),
+        (_raw_model("[]"), f"{MODEL}: mock file must be a mapping"),
+        (_model(lambda m: {**m, "x_extra": 1}), f"{MODEL}: unexpected mock file keys"),
+        (_model(lambda m: {"model": m["model"]}), f"{MODEL}: mock file needs `cases` or `default`"),
+        (_model(lambda m: {**m, "cases": 5}), f"{MODEL}: `cases` must be a list"),
     ],
     ids=[
         "not-json",
@@ -374,12 +372,9 @@ def _raw_model(text: str) -> Callable[[Path], None]:
         "surrogate",
         "huge-integer",
         "list",
-        "labels",
-        "tokens-list",
-        "tokens-text",
-        "log-prior-length",
-        "temperature",
-        "text-fields",
+        "extra-key",
+        "no-answers",
+        "cases-not-list",
     ],
 )
 def test_a_malformed_model_file_is_named_never_a_traceback(
@@ -388,30 +383,16 @@ def test_a_malformed_model_file_is_named_never_a_traceback(
     edit: Callable[[Path], None],
     problem: str,
 ) -> None:
-    """The naive_bayes model as `{`, `[]`, a 5,000-digit integer or 100,000 nested `[` made
-    `mendari validate` and `mendari test` print a traceback."""
+    """An agent variant's canned answers (its mock file) as `{`, `[]`, a 5,000-digit integer or
+    100,000 nested `[`: named by `mendari validate`, `mendari test` and the agent's detail, never
+    a traceback (the naive Bayes model files these once were made both print one)."""
     outside = tmp_path / "outside"
-    pack = _outsider(outside, edit, REFERRAL_DIR)
+    pack = _outsider(outside, edit, SOURCE)
     assert problem in _no_traceback(capsys, "validate", str(pack))
     assert problem in _no_traceback(capsys, "test", str(pack))
     client = _client(tmp_path, outside)
-    detail = client.get(f"/api/agents/{REFERRAL}")
+    detail = client.get(f"/api/agents/{OUTSIDER}")
     assert detail.status_code == 422 and problem in detail.text
-
-
-def test_a_cql_library_that_is_not_utf8_is_named(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Byte 0xff in the trial pack's CQL library gave a UnicodeDecodeError traceback."""
-    outside = tmp_path / "outside"
-
-    def edit(pack: Path) -> None:
-        path = pack / "logic" / "criteria.cql"
-        path.write_bytes(path.read_bytes() + b"\xff")
-
-    pack = _outsider(outside, edit, TRIAL_DIR)
-    err = _no_traceback(capsys, "validate", str(pack))
-    assert "logic/criteria.cql: not UTF-8 text" in err
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
@@ -421,7 +402,7 @@ def test_an_unreadable_file_while_hashing_is_named(
     """A mode-000 file in the pack made `mendari validate` print a PermissionError traceback
     from the digest."""
     outside = tmp_path / "outside"
-    pack = _outsider(outside, lambda p: None, REFERRAL_DIR)
+    pack = _outsider(outside, lambda p: None, SOURCE)
     locked = pack / "logic" / "notes.txt"
     locked.write_text("x")
     locked.chmod(0)
@@ -449,39 +430,41 @@ def _edit_in_place(path: Path, old: str, new: str) -> None:
     assert path.stat().st_ino == before  # the same file on disk: only its content changed
 
 
-CHANGED = "logic/checklist.yaml: changed since the agent's digest was computed"
+CHANGED = "logic/screen_rules.yaml: changed since the agent's digest was computed"
+# The screen's chest pain pattern, and the same misspelled, so it no longer matches.
+CHEST, CHEST_MISSPELLED = "chest (pain|pressure|tightness)", "chest (pian|pressure|tightness)"
 
 
 def test_a_file_edited_in_place_after_the_load_is_refused_not_used(tmp_path: Path) -> None:
-    """Rewriting logic/checklist.yaml in place (same inode) between load and first use changed
+    """Rewriting a rules file in place (same inode) between load and first use changed
     decisions while they carried the digest computed at load. Every read of a pack file checks
     its content against the digest's hash of that file, so a pack edited after its load is
     refused when it is built; the server builds every pack at start-up (LP-16d), so a file
     edited after that is never read, and its decisions stay the digested content's."""
     outside = tmp_path / "outside"
-    pack_dir = _outsider(outside, lambda p: None, REFERRAL_DIR)
+    pack_dir = _outsider(outside, lambda p: None, SOURCE)
     pack = load_pack(pack_dir)
-    _edit_in_place(pack_dir / "logic" / "checklist.yaml", "within_days: 180", "within_days: 1")
+    _edit_in_place(pack_dir / "logic" / "screen_rules.yaml", CHEST, CHEST_MISSPELLED)
     with pytest.raises(PackValidationError) as raised:
         Decision(pack)
     assert raised.value.problems[0].startswith(CHANGED)
     # The server: built at start, edited before the next request. The edit would change this
     # case's decision for a pack built from it; the server keeps deciding as it loaded it.
     client = _client(tmp_path, outside)
-    case = yaml.safe_load((REFERRAL_DIR / "tests" / "cases.yaml").read_text())[0]
+    case = yaml.safe_load((SOURCE / "tests" / "cases.yaml").read_text())[0]
 
     def decided() -> Any:
-        response = client.post(f"/api/agents/{REFERRAL}/decide", json=case["input"])
+        response = client.post(f"/api/agents/{OUTSIDER}/decide", json=case["input"])
         assert response.status_code == 200, response.text
         body = response.json()
         return body["outcome"], body["answers"], body["pack"]["digest"]
 
     before = decided()
-    _edit_in_place(pack_dir / "logic" / "checklist.yaml", "within_days: 1", "within_days: 180")
+    _edit_in_place(pack_dir / "logic" / "screen_rules.yaml", CHEST_MISSPELLED, CHEST)
     rebuilt = Decision(load_pack(pack_dir)).decide(case["input"]).to_dict()
     assert (rebuilt["outcome"], rebuilt["answers"]) != before[:2]  # the edit would matter
     assert decided() == before  # and is not used
-    unedited = client.post("/api/agents/mendari/referral-router/decide", json=case["input"])
+    unedited = client.post(f"/api/agents/{TRIAGE_ID}/decide", json=case["input"])
     assert unedited.status_code == 200
 
 
@@ -489,10 +472,10 @@ def test_a_rules_file_edited_in_place_is_refused_though_its_parse_is_kept(tmp_pa
     """A rules file is parsed at load; its fingerprint is read later. Both must be the digested
     bytes, or the provider's recorded model would describe other rules."""
     pack_dir = tmp_path / "pack"
-    shutil.copytree(REFERRAL_DIR, pack_dir)
+    shutil.copytree(SOURCE, pack_dir)
     pack = load_pack(pack_dir)
-    _edit_in_place(pack_dir / "logic" / "triage_rules.yaml", "# Keyword", "# keyword")
-    with pytest.raises(PackValidationError, match=r"triage_rules\.yaml: changed since"):
+    _edit_in_place(pack_dir / "logic" / "router_rules.yaml", "# Keyword", "# keyword")
+    with pytest.raises(PackValidationError, match=r"router_rules\.yaml: changed since"):
         Decision(pack)
 
 
@@ -503,16 +486,16 @@ def test_a_file_edited_while_the_pack_loads_is_refused(
     from mendari.core import pack as pack_module
 
     pack_dir = tmp_path / "pack"
-    shutil.copytree(REFERRAL_DIR, pack_dir)
+    shutil.copytree(SOURCE, pack_dir)
     real = pack_module._digest
 
     def digest_then_edit(root: Path, label: str = "") -> object:
         found = real(root, label)
-        _edit_in_place(pack_dir / "policy.yaml", "primary:", "primary: ")
+        _edit_in_place(pack_dir / "agent.yaml", "primary:", "primary: ")
         return found
 
     monkeypatch.setattr(pack_module, "_digest", digest_then_edit)
-    with pytest.raises(PackValidationError, match=r"policy\.yaml: changed since"):
+    with pytest.raises(PackValidationError, match=r"agent\.yaml: changed since"):
         load_pack(pack_dir)
 
 
@@ -525,7 +508,7 @@ def test_the_benchmark_must_be_in_evals(tmp_path: Path, capsys: pytest.CaptureFi
     pack = _outsider(
         tmp_path,
         _set_key("agent.yaml", "evaluation", {"benchmark": "DECISION_CARD.md"}),
-        REFERRAL_DIR,
+        SOURCE,
     )
     problem = "evaluation.benchmark: path 'DECISION_CARD.md' is not in evals/"
     with pytest.raises(PackValidationError) as raised:
@@ -609,11 +592,13 @@ def test_a_malformed_attestation_is_absent_with_its_problem_noted(
 ) -> None:
     """A benchmark or leaderboard that is not JSON, holds NaN or has the wrong shape made the
     pack's detail answer 500 and `mendari card` print a traceback. Like the registry, Mendari
-    now treats it as absent, and the card says why."""
+    now treats it as absent, and the card says why. The outsider is a copy of the triage fixture
+    published with its benchmark and a board (`published`)."""
     outside = tmp_path / "outside"
-    pack = _outsider(outside, edit, REFERRAL_DIR)
+    source = published(TRIAGE_DIR, tmp_path / "published", runs=[{"router": "agent"}]).root
+    pack = _outsider(outside, edit, source)
     client = _client(tmp_path, outside)
-    detail = client.get(f"/api/agents/{REFERRAL}")
+    detail = client.get(f"/api/agents/{OUTSIDER}")
     assert detail.status_code == 200, detail.text
     assert detail.json()[absent] is None
     assert f"evals/{absent}.json is not shown: " in detail.json()["card_markdown"]
@@ -631,9 +616,9 @@ def test_a_changelog_that_is_not_utf8_is_a_422_never_a_500(
     def edit(pack: Path) -> None:
         (pack / "CHANGELOG.md").write_bytes(b"# Changes\n\xff\n")
 
-    pack = _outsider(outside, edit, REFERRAL_DIR)
+    pack = _outsider(outside, edit, SOURCE)
     client = _client(tmp_path, outside)
-    detail = client.get(f"/api/agents/{REFERRAL}")
+    detail = client.get(f"/api/agents/{OUTSIDER}")
     assert detail.status_code == 422 and "CHANGELOG.md: not UTF-8 text" in detail.text
     assert "CHANGELOG.md: not UTF-8 text" in _no_traceback(capsys, "card", str(pack))
 
@@ -663,13 +648,13 @@ def test_a_bad_dataset_line_is_named_by_file_and_line(
         path = pack / "data" / "test.jsonl"
         path.write_bytes(path.read_bytes() + line + b"\n")
 
-    pack = _outsider(outside, edit, REFERRAL_DIR)
+    pack = _outsider(outside, edit, SOURCE)
     number = (pack / "data" / "test.jsonl").read_bytes().count(b"\n")
     where = f"data/test.jsonl:{number}: {problem}"
     with pytest.raises(MendariError, match=f"{number}: "):
         load_dataset(pack / "data" / "test.jsonl")
     client = _client(tmp_path, outside)
-    datasets = client.get(f"/api/agents/{REFERRAL}/datasets")
+    datasets = client.get(f"/api/agents/{OUTSIDER}/datasets")
     assert datasets.status_code in (400, 422) and where in datasets.text
     err = _no_traceback(capsys, "eval", str(pack), "--dataset", "test", "--baseline", "none")
     assert where in err

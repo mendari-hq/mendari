@@ -26,14 +26,15 @@ from mendari.evals.pack_tests import load_cases
 from mendari.server.api_docs import MAX_EXAMPLE_BYTES
 from mendari.server.app import create_app
 from mendari.standards import terminology as terminology_module
-from tests.conftest import INBOX_DIR, cpu_time
+from tests.conftest import FIXTURE_AGENTS, TRIAGE_DIR, cpu_time
 
-PACKS = INBOX_DIR.parent
-TRIAL_DIR = PACKS / "clinical-trial-prescreener"
+# The test fixtures' agents, served as a release's bundled agents are.
+PACKS = FIXTURE_AGENTS
+TRIAGE_ID = "mendari-test/triage"
 
 
-def _outsider(root: Path, edit: Callable[[Path], None], source: Path = INBOX_DIR) -> Path:
-    """An outside copy of a shipped pack (its own id) under `root`, changed by `edit`."""
+def _outsider(root: Path, edit: Callable[[Path], None], source: Path = TRIAGE_DIR) -> Path:
+    """An outside copy of a fixture's agent (its own id) under `root`, changed by `edit`."""
     pack = root / "outsider" / source.name
     shutil.copytree(source, pack)
     manifest_path = pack / "agent.yaml"
@@ -109,14 +110,27 @@ def laughs(levels: int, leaf: str = "{a: 1}") -> str:
     return "\n" + "\n".join(lines) + "\n"
 
 
+def _shipped() -> list[tuple[str, Path]]:
+    """Every agent in the fixtures' folder, by the id its manifest gives (never its folder's
+    name), with its folder."""
+    return [
+        (yaml.safe_load((folder / "agent.yaml").read_text())["id"], folder)
+        for folder in sorted(PACKS.iterdir())
+        if (folder / "agent.yaml").is_file()
+    ]
+
+
 def _shipped_packs_all_decide(client: TestClient) -> None:
+    """Health answers, counting every fixture's agent, and each one decides its first behaviour
+    test's input."""
     health = client.get("/api/health")
     assert health.status_code == 200, health.text
-    assert health.json()["packs"] >= 5
-    for pack_dir in sorted(PACKS.iterdir()):
-        case = yaml.safe_load((pack_dir / "tests" / "cases.yaml").read_text())[0]
-        response = client.post(f"/api/agents/mendari/{pack_dir.name}/decide", json=case["input"])
-        assert response.status_code == 200, (pack_dir.name, response.text)
+    shipped = _shipped()
+    assert shipped and health.json()["packs"] >= len(shipped)
+    for pack_id, folder in shipped:
+        case = yaml.safe_load((folder / "tests" / "cases.yaml").read_text())[0]
+        response = client.post(f"/api/agents/{pack_id}/decide", json=case["input"])
+        assert response.status_code == 200, (pack_id, response.text)
 
 
 DEEP = 5000  # nested deeper than the YAML, JSON and jsonschema readers recurse
@@ -208,44 +222,43 @@ def test_an_unexpected_error_building_terminology_is_named_and_the_pack_still_se
 
     def resources(packs: Any) -> Any:
         packs = list(packs)
-        if any(pack.id == "mendari/referral-router" for pack in packs):
+        if any(pack.id == TRIAGE_ID for pack in packs):
             raise KeyError("text from the pack")
         return real(packs)
 
     monkeypatch.setattr(terminology_module, "resources", resources)
     client = TestClient(create_app(db_path=tmp_path / "t.db", packs_paths=[PACKS]))
-    assert client.get("/api/health").json()["invalid"] == {
-        "mendari/referral-router": "terminology: KeyError"
-    }
+    assert client.get("/api/health").json()["invalid"] == {TRIAGE_ID: "terminology: KeyError"}
     _shipped_packs_all_decide(client)
 
 
-def _cql_default(change: Callable[[Path], None]) -> Callable[[Path], None]:
+def _agent_default(change: Callable[[Path], None]) -> Callable[[Path], None]:
+    """The router answered by its `agent` variant (canned answers from a mock file), which is
+    built when the server starts, then `change`."""
+
     def edit(pack: Path) -> None:
-        manifest = (pack / "agent.yaml").read_text()
-        assert "    use: criteria" in manifest
-        (pack / "agent.yaml").write_text(manifest.replace("    use: criteria", "    use: cql", 1))
+        manifest = yaml.safe_load((pack / "agent.yaml").read_text())
+        assert manifest["providers"]["router"]["variants"]["agent"]["type"] == "agent"
+        manifest["providers"]["router"]["use"] = "agent"
+        (pack / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
         change(pack)
 
     return edit
 
 
-def _cql_extra_key(pack: Path) -> None:
+def _agent_extra_key(pack: Path) -> None:
     manifest = yaml.safe_load((pack / "agent.yaml").read_text())
-    for slot in manifest["providers"].values():
-        for variant in slot["variants"].values():
-            if variant.get("type") == "cql":
-                variant["bogus"] = 1
+    manifest["providers"]["router"]["variants"]["agent"]["bogus"] = 1
     (pack / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
 
 
 @pytest.mark.parametrize(
     ("change", "problem"),
     [
-        (_cql_extra_key, "Extra inputs are not permitted"),
+        (_agent_extra_key, "Extra inputs are not permitted"),
         (
-            lambda pack: (pack / "logic" / "criteria.cql").write_bytes(b"\xff\xfe library"),
-            "logic/criteria.cql: not UTF-8 text",
+            lambda pack: (pack / "fixtures" / "router.json").write_bytes(b"\xff\xfe {}"),
+            "fixtures/router.json: not a JSON document (UnicodeDecodeError)",
         ),
     ],
     ids=["extra-key", "not-utf8"],
@@ -253,32 +266,30 @@ def _cql_extra_key(pack: Path) -> None:
 def test_a_pack_whose_providers_cannot_be_built_never_fails_health(
     tmp_path: Path, change: Callable[[Path], None], problem: str
 ) -> None:
-    """T9: /api/health built every served pack's providers, and one pack whose default `cql`
-    variant could not be built made it a 422 or a 500 for every reader. Providers are built at
-    start-up now (LP-16d), and health reads that: such a pack is listed under `invalid`, its
-    decisions answer 422 naming the problem, and every other pack is reported and decides."""
+    """T9: /api/health built every served pack's providers, and one pack whose default variant
+    could not be built made it a 422 or a 500 for every reader. Providers are built at start-up
+    now (LP-16d), and health reads that: such a pack is listed under `invalid`, its decisions
+    answer 422 naming the problem, and every other pack is reported and decides."""
     outside = tmp_path / "outside"
-    _outsider(outside, _cql_default(change), source=TRIAL_DIR)
+    _outsider(outside, _agent_default(change))
     client = TestClient(create_app(db_path=tmp_path / "c.db", packs_paths=[outside, PACKS]))
     health = client.get("/api/health")
     assert health.status_code == 200, health.text
     body = health.json()
-    assert list(body["invalid"]) == ["outsider/clinical-trial-prescreener"]
-    assert problem in body["invalid"]["outsider/clinical-trial-prescreener"]
-    assert "outsider/clinical-trial-prescreener" not in body["providers"]
-    assert "mendari/clinical-trial-prescreener" in body["providers"]
-    case = yaml.safe_load((TRIAL_DIR / "tests" / "cases.yaml").read_text())[0]
-    refused = client.post(
-        "/api/agents/outsider/clinical-trial-prescreener/decide", json=case["input"]
-    )
+    pack_id = "outsider/triage"
+    assert list(body["invalid"]) == [pack_id]
+    assert problem in body["invalid"][pack_id]
+    assert pack_id not in body["providers"]
+    assert TRIAGE_ID in body["providers"]
+    case = yaml.safe_load((TRIAGE_DIR / "tests" / "cases.yaml").read_text())[0]
+    refused = client.post(f"/api/agents/{pack_id}/decide", json=case["input"])
     assert refused.status_code == 422, refused.text
     # As README says: such a pack stays listed, counted and offered to EHRs, answering 422.
-    pack_id = "outsider/clinical-trial-prescreener"
     assert client.get(f"/api/agents/{pack_id}").status_code == 422
     assert pack_id in [item["id"] for item in client.get("/api/agents").json()]
-    assert body["packs"] == 6
+    assert body["packs"] == len(_shipped()) + 1
     services = [s["id"] for s in client.get("/cds-services").json()["services"]]
-    assert "outsider.clinical-trial-prescreener" in services
+    assert "outsider.triage" in services
     _shipped_packs_all_decide(client)
 
 
@@ -297,7 +308,7 @@ def test_an_over_long_version_is_refused_at_load_and_never_stops_startup(tmp_pat
     (`int()` refuses more than 4,300 digits) raised outside every isolation, so the server never
     started."""
     huge = "1" + "0" * 5000 + ".0.0"
-    shipped = f"version: {load_pack(INBOX_DIR).version}"
+    shipped = f"version: {load_pack(TRIAGE_DIR).version}"
     outside = tmp_path / "outside"
     pack = _outsider(
         outside, lambda pack: _replace(pack / "agent.yaml", shipped, f"version: '{huge}'")
@@ -329,11 +340,11 @@ def test_a_billion_laughs_in_a_rules_file_is_refused_in_milliseconds(tmp_path: P
     """T7: a rules file of a few KB whose aliases expand to 10**8 patterns took 15 s and 1.25 GB
     to walk. The expanded size is counted on the composed graph, each node once."""
     root = tmp_path / "pack"
-    shutil.copytree(INBOX_DIR, root)
-    _append("logic/red_flags.yaml", laughs(8, "{pattern: x}"))(root)
+    shutil.copytree(TRIAGE_DIR, root)
+    _append("logic/screen_rules.yaml", laughs(8, "{pattern: x}"))(root)
     with (
         cpu_time() as spent,
-        pytest.raises(PackValidationError, match=r"logic/red_flags\.yaml: expands to more than"),
+        pytest.raises(PackValidationError, match=r"logic/screen_rules\.yaml: expands to more than"),
     ):
         load_pack(root)
     assert spent() < 0.5
@@ -341,9 +352,9 @@ def test_a_billion_laughs_in_a_rules_file_is_refused_in_milliseconds(tmp_path: P
 
 def test_anchors_within_the_cap_still_load(tmp_path: Path) -> None:
     root = tmp_path / "pack"
-    shutil.copytree(INBOX_DIR, root)
-    _append("logic/red_flags.yaml", laughs(4))(root)  # 10**4 leaves: well within the cap
-    rules = load_pack(root).read_yaml("logic/red_flags.yaml")
+    shutil.copytree(TRIAGE_DIR, root)
+    _append("logic/screen_rules.yaml", laughs(4))(root)  # 10**4 leaves: well within the cap
+    rules = load_pack(root).read_yaml("logic/screen_rules.yaml")
     assert len(rules["x_junk"]["l4"]) == 10 and rules["questions"]
     assert MAX_YAML_NODES == 1_000_000
 
@@ -424,7 +435,7 @@ def test_a_tests_file_that_expands_past_the_cap_never_reaches_the_api_reference(
     client = TestClient(create_app(db_path=tmp_path / "e.db", packs_paths=[outside, PACKS]))
     reference = client.get("/openapi.json")
     assert reference.status_code == 200 and len(reference.content) < 5_000_000
-    examples = client.get(f"/api/agents/outsider/{INBOX_DIR.name}/examples")
+    examples = client.get("/api/agents/outsider/triage/examples")
     assert examples.status_code == 422, examples.status_code
 
 
@@ -464,8 +475,9 @@ def test_an_example_over_64_kb_as_json_is_left_out_of_the_api_reference(tmp_path
         e["summary"]
         for e in decide["requestBody"]["content"]["application/json"]["examples"].values()
     ]
-    assert len(summaries) >= 5 and not any(s.startswith("outsider/") for s in summaries)
-    examples = client.get(f"/api/agents/outsider/{INBOX_DIR.name}/examples")
+    assert len(summaries) == len(_shipped())
+    assert not any(s.startswith("outsider/") for s in summaries)
+    examples = client.get("/api/agents/outsider/triage/examples")
     assert examples.status_code == 200 and examples.json()[0]["name"] == "nul"
     assert MAX_EXAMPLE_BYTES == 64 * 1024
 
@@ -509,7 +521,7 @@ def test_a_yaml_value_python_cannot_build_is_the_packs_problem(
     error's type and the value's line and column (it had no position), never the value (the
     error's text)."""
     root = tmp_path / "pack"
-    shutil.copytree(INBOX_DIR, root)
+    shutil.copytree(TRIAGE_DIR, root)
     _append("agent.yaml", f"\n{line}\n")(root)
     error = error.format(line=(root / "agent.yaml").read_text().count("\n"))
     with pytest.raises(PackValidationError) as raised:
@@ -559,7 +571,7 @@ def test_a_number_is_bounded_before_it_is_built_in_every_base(
     binary or base-60 one was built (a base-60 one in quadratic time), and a long hexadecimal
     integer in a test input made `mendari validate` print a traceback."""
     root = tmp_path / "pack"
-    shutil.copytree(INBOX_DIR, root)
+    shutil.copytree(TRIAGE_DIR, root)
     _append("agent.yaml", f"\nx_count: {value}\n")(root)
     lines = (root / "agent.yaml").read_text().count("\n")
     started = time.perf_counter()
@@ -594,7 +606,7 @@ def test_a_constructor_error_names_its_type_and_place_never_the_value(tmp_path: 
     a snippet of the file; it is now named by type, line and column, like any other value the
     constructor cannot build."""
     root = tmp_path / "pack"
-    shutil.copytree(INBOX_DIR, root)
+    shutil.copytree(TRIAGE_DIR, root)
     _append("agent.yaml", "\nx_secret: !canary-tag canary-value\n")(root)
     lines = (root / "agent.yaml").read_text().count("\n")
     with pytest.raises(PackValidationError) as raised:
@@ -628,7 +640,7 @@ def test_a_test_input_that_is_not_json_is_a_validation_problem(
     one. Such an input is the pack's validation problem, named by type (and, for what the YAML
     loader refuses in any pack file, by place), never a 500 or a traceback."""
     outside = tmp_path / "outside"
-    count = len(yaml.safe_load((INBOX_DIR / "tests" / "cases.yaml").read_text()))
+    count = len(yaml.safe_load((TRIAGE_DIR / "tests" / "cases.yaml").read_text()))
     case = (
         f"\n- name: odd\n  input: {{message: {{body: hello}}, x_odd: {value}}}\n"
         "  expect: {outcome: AUTO}\n"
@@ -645,8 +657,8 @@ def test_a_test_input_that_is_not_json_is_a_validation_problem(
     err = capsys.readouterr().err
     assert problem in err and "Traceback" not in err
     client = TestClient(create_app(db_path=tmp_path / "e.db", packs_paths=[outside, PACKS]))
-    examples = client.get(f"/api/agents/outsider/{INBOX_DIR.name}/examples")
+    examples = client.get("/api/agents/outsider/triage/examples")
     assert examples.status_code == 422
     assert problem in examples.text
     assert client.get("/openapi.json").status_code == 200
-    assert client.get(f"/api/agents/mendari/{INBOX_DIR.name}/examples").status_code == 200
+    assert client.get(f"/api/agents/{TRIAGE_ID}/examples").status_code == 200

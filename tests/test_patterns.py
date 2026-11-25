@@ -18,24 +18,25 @@ from mendari.cli import main
 from mendari.core import patterns
 from mendari.errors import PackValidationError
 from mendari.server.app import create_app
-from tests.conftest import INBOX_DIR, cpu_time, message
+from tests.conftest import FIXTURE_AGENTS, TRIAGE_DIR, cpu_time, message
 
-RED_FLAGS = "logic/red_flags.yaml"
+# The triage fixture's screen: same-day symptoms, under the label "yes".
+RED_FLAGS = "logic/screen_rules.yaml"
 
 
 @pytest.fixture
-def inbox(tmp_path: Path) -> Path:
-    """A copy of the inbox pack to edit."""
+def triage_copy(tmp_path: Path) -> Path:
+    """A copy of the triage fixture to edit."""
     root = tmp_path / "pack"
-    shutil.copytree(INBOX_DIR, root)
+    shutil.copytree(TRIAGE_DIR, root)
     return root
 
 
 def with_pattern(root: Path, pattern: str, *, name: str = "author") -> Path:
-    """The copied inbox pack with one more `urgent` pattern in its safety screen."""
+    """The copied triage fixture with one more same-day symptom pattern in its screen."""
     path = root / RED_FLAGS
     rules = yaml.safe_load(path.read_text())
-    urgent = rules["questions"]["urgency"]["labels"]["urgent"]
+    urgent = rules["questions"]["urgency"]["labels"]["yes"]
     urgent.append({"name": name, "pattern": pattern, "weight": 1})
     path.write_text(yaml.safe_dump(rules, sort_keys=False, allow_unicode=True))
     return root
@@ -43,7 +44,7 @@ def with_pattern(root: Path, pattern: str, *, name: str = "author") -> Path:
 
 def urgent_count(root: Path) -> int:
     rules = yaml.safe_load((root / RED_FLAGS).read_text())
-    return len(rules["questions"]["urgency"]["labels"]["urgent"])
+    return len(rules["questions"]["urgency"]["labels"]["yes"])
 
 
 def with_schema_pattern(root: Path, pattern: str) -> Path:
@@ -67,15 +68,15 @@ def with_schema_pattern(root: Path, pattern: str) -> Path:
     ids=["re-error", "overflow", "too-long"],
 )
 def test_a_rules_pattern_that_is_not_a_pack_pattern_names_the_pack_file_and_rule(
-    inbox: Path, pattern: str, detail: str
+    triage_copy: Path, pattern: str, detail: str
 ) -> None:
-    root = with_pattern(inbox, pattern)
+    root = with_pattern(triage_copy, pattern)
     index = urgent_count(root) - 1
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
-    assert raised.value.pack == "mendari/patient-inbox-router"
+    assert raised.value.pack == "mendari-test/triage"
     assert raised.value.problems == [
-        f"{RED_FLAGS}: questions.urgency.labels.urgent[{index}] (author): {detail}"
+        f"{RED_FLAGS}: questions.urgency.labels.yes[{index}] (author): {detail}"
     ]
 
 
@@ -89,11 +90,11 @@ def test_a_rules_pattern_that_is_not_a_pack_pattern_names_the_pack_file_and_rule
     ids=["re-error", "overflow", "too-deep"],
 )
 def test_a_schema_pattern_that_is_not_a_pack_pattern_fails_at_load(
-    inbox: Path, pattern: str, detail: str
+    triage_copy: Path, pattern: str, detail: str
 ) -> None:
     # `a{99999999999}` raised OverflowError from jsonschema's own schema check: a traceback in
     # `mendari validate`, and once a server that did not start.
-    root = with_schema_pattern(inbox, pattern)
+    root = with_schema_pattern(triage_copy, pattern)
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
     (problem,) = raised.value.problems
@@ -101,84 +102,85 @@ def test_a_schema_pattern_that_is_not_a_pack_pattern_fails_at_load(
 
 
 def test_a_pack_holds_at_most_500_patterns_counted_before_any_is_compiled(
-    inbox: Path, monkeypatch: pytest.MonkeyPatch
+    triage_copy: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = inbox / RED_FLAGS
+    path = triage_copy / RED_FLAGS
     rules = yaml.safe_load(path.read_text())
-    urgent = rules["questions"]["urgency"]["labels"]["urgent"]
+    urgent = rules["questions"]["urgency"]["labels"]["yes"]
     urgent += [{"name": f"p{i}", "pattern": f"word{i}", "weight": 1} for i in range(500)]
     path.write_text(yaml.safe_dump(rules, sort_keys=False))
     compiled: list[str] = []
     monkeypatch.setattr(patterns, "problem", lambda text, flags=0: compiled.append(text))
     with pytest.raises(PackValidationError, match="at most 500 patterns"):
-        load_pack(inbox)
+        load_pack(triage_copy)
     assert compiled == []
 
 
-def test_rules_patterns_compile_as_the_provider_runs_them(inbox: Path) -> None:
+def test_rules_patterns_compile_as_the_provider_runs_them(triage_copy: Path) -> None:
     # Case ignored, as the rules provider compiles them: `(?-i:...)` and inline flags behave the
     # same at load and in a decision.
-    root = with_pattern(inbox, r"(?-i:ZQSTAT)\b")
-    decision = Decision(load_pack(root), providers={"safety_screen": "rules"})
-    assert "urgent:author" in decision.decide(message("please ZQSTAT")).answers["urgency"].evidence
-    assert "urgent:author" not in decision.decide(message("zqstat")).answers["urgency"].evidence
+    root = with_pattern(triage_copy, r"(?-i:ZQSTAT)\b")
+    decision = Decision(load_pack(root), providers={"screen": "rules"})
+    assert "yes:author" in decision.decide(message("please ZQSTAT")).answers["urgency"].evidence
+    assert "yes:author" not in decision.decide(message("zqstat")).answers["urgency"].evidence
 
 
 def test_a_pattern_used_by_a_non_default_variant_or_a_member_is_checked_too(
-    inbox: Path,
+    triage_copy: Path,
 ) -> None:
-    manifest = yaml.safe_load((inbox / "agent.yaml").read_text())
-    (inbox / "logic" / "extra.yaml").write_text(
-        (inbox / RED_FLAGS).read_text().replace("weight: 1", "weight: 1", 1)
+    manifest = yaml.safe_load((triage_copy / "agent.yaml").read_text())
+    (triage_copy / "logic" / "extra.yaml").write_text(
+        (triage_copy / RED_FLAGS).read_text().replace("weight: 1", "weight: 1", 1)
     )
-    rules = yaml.safe_load((inbox / "logic" / "extra.yaml").read_text())
-    rules["questions"]["urgency"]["labels"]["urgent"][0]["pattern"] = "(bad"
-    (inbox / "logic" / "extra.yaml").write_text(yaml.safe_dump(rules, sort_keys=False))
-    screen = manifest["providers"]["safety_screen"]["variants"]
+    rules = yaml.safe_load((triage_copy / "logic" / "extra.yaml").read_text())
+    rules["questions"]["urgency"]["labels"]["yes"][0]["pattern"] = "(bad"
+    (triage_copy / "logic" / "extra.yaml").write_text(yaml.safe_dump(rules, sort_keys=False))
+    screen = manifest["providers"]["screen"]["variants"]
     screen["extra"] = {
-        "type": "any_of",
+        "type": "check",
         "members": {
             "a": {"type": "rules", "config": RED_FLAGS},
             "b": {"type": "rules", "config": "logic/extra.yaml"},
         },
     }
-    (inbox / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (triage_copy / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     with pytest.raises(PackValidationError) as raised:
-        load_pack(inbox)
+        load_pack(triage_copy)
     (problem,) = raised.value.problems
-    assert problem.startswith("logic/extra.yaml: questions.urgency.labels.urgent[0]")
+    assert problem.startswith("logic/extra.yaml: questions.urgency.labels.yes[0]")
 
 
 def test_validate_reports_an_invalid_pattern_without_a_traceback(
-    inbox: Path, capsys: pytest.CaptureFixture[str]
+    triage_copy: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    root = with_pattern(inbox, "a{99999999999}")
+    root = with_pattern(triage_copy, "a{99999999999}")
     assert main(["validate", str(root)]) == 1
     err = capsys.readouterr().err
     assert "the repetition number is too large" in err and "Traceback" not in err
 
 
 def test_an_invalid_pattern_lists_the_pack_and_never_fails_health(
-    inbox: Path, tmp_path: Path
+    triage_copy: Path, tmp_path: Path
 ) -> None:
-    root = with_pattern(inbox, "(unclosed")
+    root = with_pattern(triage_copy, "(unclosed")
     manifest = (root / "agent.yaml").read_text()
     (root / "agent.yaml").write_text(
-        manifest.replace("id: mendari/patient-inbox-router", "id: outsider/inbox", 1)
+        manifest.replace("id: mendari-test/triage", "id: outsider/triage", 1)
     )
     client = TestClient(
-        create_app(db_path=tmp_path / "p.db", packs_paths=[root.parent, INBOX_DIR.parent])
+        create_app(db_path=tmp_path / "p.db", packs_paths=[root.parent, FIXTURE_AGENTS])
     )
     health = client.get("/api/health")
     assert health.status_code == 200
     (problem,) = health.json()["invalid"].values()
     assert "missing ), unterminated subpattern" in problem
-    assert health.json()["packs"] == 5
+    served = [d for d in FIXTURE_AGENTS.iterdir() if (d / "agent.yaml").is_file()]
+    assert health.json()["packs"] == len(served)  # every fixture's agent, not the outsider
 
 
 def test_the_shipped_patterns_load_and_compile_cheaply() -> None:
     with cpu_time() as spent:
-        for root in sorted(INBOX_DIR.parent.iterdir()):
+        for root in sorted(FIXTURE_AGENTS.iterdir()):
             if (root / "agent.yaml").is_file():
                 re.purge()
                 load_pack(root)
@@ -205,28 +207,28 @@ def with_pattern_properties(root: Path, keys: list[str]) -> Path:
     return root
 
 
-def test_pattern_properties_keys_are_pack_patterns_counted_and_checked(inbox: Path) -> None:
+def test_pattern_properties_keys_are_pack_patterns_counted_and_checked(triage_copy: Path) -> None:
     """jsonschema runs every `patternProperties` key with `re.search` on each validation, but
     only `pattern` values were counted and length-checked: 1,000 keys of 3,000 characters
     loaded, and thrashing `re`'s cache cost every decision over a second."""
-    shipped = load_pack(inbox)
+    shipped = load_pack(triage_copy)
     existing = len(list(patterns.schema_patterns(shipped.input_schema))) + sum(
         len(list(patterns.rules_patterns(data))) for data in shipped.parsed.values()
     )
     with pytest.raises(PackValidationError, match="501 patterns; an agent holds at most 500"):
-        load_pack(with_pattern_properties(inbox, [f"^k{i}$" for i in range(501 - existing)]))
+        load_pack(with_pattern_properties(triage_copy, [f"^k{i}$" for i in range(501 - existing)]))
     long = "^z" + "a" * 2000
     with pytest.raises(PackValidationError) as raised:
-        load_pack(with_pattern_properties(inbox, ["^ok$", long]))
+        load_pack(with_pattern_properties(triage_copy, ["^ok$", long]))
     assert raised.value.problems == [
         f"input schema: properties/probe/patternProperties/{long[:40]}...: "
         "longer than 2000 characters"
     ]
     with pytest.raises(PackValidationError) as raised:
-        load_pack(with_pattern_properties(inbox, ["(bad"]))
+        load_pack(with_pattern_properties(triage_copy, ["(bad"]))
     (problem,) = raised.value.problems
     assert problem.startswith("input schema: properties/probe/patternProperties/(bad: invalid")
-    assert load_pack(with_pattern_properties(inbox, ["^x-[a-z]+$"])).id
+    assert load_pack(with_pattern_properties(triage_copy, ["^x-[a-z]+$"])).id
 
 
 def test_schema_patterns_lists_pattern_properties_keys_where_they_are() -> None:

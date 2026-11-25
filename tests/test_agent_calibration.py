@@ -44,7 +44,7 @@ from mendari.providers.calibration import (
     temperature_grid,
 )
 from mendari.server.app import create_app
-from tests.conftest import INBOX_DIR
+from tests.conftest import TRIAGE_DIR
 from tests.support.confidence_agents import (
     AGENT_ID,
     LABELS,
@@ -60,8 +60,36 @@ from tests.support.confidence_agents import (
     serve,
     variant,
 )
-from tests.test_cds_cards import inbox_request
-from tests.test_fhir import BUNDLE
+from tests.support.engine import sorter
+
+# A synthetic portal message as the triage fixture's FHIR mapping and CDS hook read it.
+COMMUNICATION: dict[str, Any] = {
+    "resourceType": "Communication",
+    "id": "msg-1",
+    "status": "in-progress",
+    "subject": {"reference": "Patient/pat-1"},
+    "topic": {"text": "Refill"},
+    "medium": [{"coding": [{"system": "x", "code": "portal"}]}],
+    "sent": "2026-09-25T10:00:00Z",
+    "payload": [{"contentString": "Please renew my prescription for metformin."}],
+}
+PATIENT: dict[str, Any] = {"resourceType": "Patient", "id": "pat-1", "birthDate": "1950-03-02"}
+BUNDLE: dict[str, Any] = {
+    "resourceType": "Bundle",
+    "type": "collection",
+    "entry": [{"resource": COMMUNICATION}, {"resource": PATIENT}],
+}
+
+
+def message_request() -> dict[str, Any]:
+    """The triage fixture's CDS hook, with the message and its sender as prefetch."""
+    return {
+        "hook": "mendari-message-received",
+        "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
+        "context": {"communicationId": "msg-1", "patientId": "pat-1"},
+        "prefetch": {"communication": COMMUNICATION, "patient": PATIENT},
+    }
+
 
 # One step of the search grid: the fitted temperature is within it of the best one.
 GRID_STEP = temperature_grid()[1] / temperature_grid()[0] - 1
@@ -143,8 +171,8 @@ TEMPERATURE = st.floats(min_value=0.25, max_value=200.0, allow_nan=False)
 
 
 @cache
-def inbox_manifest() -> Any:
-    return load_pack(INBOX_DIR).manifest  # any question with five labels will do
+def triage_manifest() -> Any:
+    return load_pack(TRIAGE_DIR).manifest  # any question with three labels or more will do
 
 
 @settings(max_examples=300, deadline=None)
@@ -167,7 +195,7 @@ def test_a_temperature_keeps_the_order_of_the_labels(weights: list[float], t: fl
 def test_a_calibrated_answer_is_the_answer_the_agent_gave(weights: list[float], t: float) -> None:
     """Whatever the temperature and whatever the agent reported: the label is the agent's, its
     confidence is its calibrated probability, and no other label has more."""
-    manifest = inbox_manifest()
+    manifest = triage_manifest()
     labels = manifest.labels("destination")[: len(weights)]
     total = sum(weights)
     stated = dict(zip(labels, (w / total for w in weights), strict=True))
@@ -356,22 +384,6 @@ def test_nothing_is_written_when_no_question_has_the_cases(
 # -- the manifest ----------------------------------------------------------------------------------
 
 
-def test_an_agents_calibration_needs_spec_0_4(tmp_path: Path) -> None:
-    root = calibrated_agent(tmp_path, {"request": 2.0})
-    assert load_pack(root).manifest.spec_version == "0.4"
-
-    def earlier(manifest: dict[str, Any]) -> None:
-        manifest["spec_version"] = "0.3"
-
-    edit_manifest(root, earlier)
-    with pytest.raises(PackValidationError) as refused:
-        load_pack(root)
-    assert (
-        "['providers.reader.variants.agent.calibration'] use spec 0.4 features; "
-        "set spec_version: '0.4'"
-    ) in str(refused.value)
-
-
 @pytest.mark.parametrize(
     ("content", "problem"),
     [
@@ -538,18 +550,15 @@ def test_canned_answers_are_left_alone(tmp_path: Path, monkeypatch: pytest.Monke
 
 # -- on every path a decision is made by -----------------------------------------------------------
 
-DESTINATIONS = ("front_desk", "medical_assistant", "nurse", "physician", "billing")
+DESTINATIONS = ("front_desk", "nurse", "pharmacy", "billing")  # the triage fixture's
 CALIBRATED_AT = 0.97
 
 
-def inbox_with_an_agent(pack_copy: Callable[..., Path]) -> Path:
-    """The inbox fixture (JSON, FHIR and a CDS hook), its router an `agent` variant with a
+def triage_with_an_agent(agent_copy: Callable[..., Path]) -> Path:
+    """The triage fixture (JSON, FHIR and a CDS hook), its router an `agent` variant with a
     calibration: every answer to `destination` is stated at 0.97 and worth less."""
 
     def manifest(data: dict[str, Any]) -> None:
-        data["spec_version"] = "0.4"
-        for left_out in ("red_flags", "red_flags_holdout"):  # the copy holds three small sets
-            del data["evaluation"]["datasets"][left_out]
         data["providers"]["router"]["use"] = "agent"
         data["providers"]["router"]["variants"]["agent"] = {
             "type": "agent",
@@ -561,32 +570,32 @@ def inbox_with_an_agent(pack_copy: Callable[..., Path]) -> Path:
     def policy(data: dict[str, Any]) -> None:
         data.pop("automation_requires")
 
-    root = pack_copy(manifest, policy)
+    root = agent_copy(manifest, policy)
     calibration_file(root, {"destination": 2.0}, relative="models/router-agent-calibration.json")
     return root
 
 
 def routed(body: dict[str, Any]) -> dict[str, Any]:
     return {
-        "answers": {"destination": {"value": "medical_assistant", "confidence": CALIBRATED_AT}},
+        "answers": {"destination": {"value": "pharmacy", "confidence": CALIBRATED_AT}},
         "agent_version": VERSION,
     }
 
 
 def is_calibrated(said: dict[str, Any]) -> None:
-    expected = rescale(implied(CALIBRATED_AT, "medical_assistant", DESTINATIONS), 2.0)
-    assert said["label"] == "medical_assistant"
-    assert said["confidence"] == pytest.approx(expected["medical_assistant"], abs=1e-6)
+    expected = rescale(implied(CALIBRATED_AT, "pharmacy", DESTINATIONS), 2.0)
+    assert said["label"] == "pharmacy"
+    assert said["confidence"] == pytest.approx(expected["pharmacy"], abs=1e-6)
     if "evidence" in said:  # an MCP tool's answer is the label and its confidence
         assert "calibrated T=2.00" in said["evidence"]
 
 
 def test_the_calibration_is_applied_on_every_path(
-    pack_copy: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    agent_copy: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A decision made in Python, over REST, from FHIR, by a CDS hook, by an MCP tool and by an
     evaluation all ask the same provider: each sees the calibrated confidence, never 0.97."""
-    root = inbox_with_an_agent(pack_copy)
+    root = triage_with_an_agent(agent_copy)
     serve(monkeypatch, routed)
     routine = {"message": {"body": "A synthetic question about a refill."}}
     pack = load_pack(root)
@@ -596,14 +605,14 @@ def test_the_calibration_is_applied_on_every_path(
     # The server: REST, FHIR, and a CDS hook (its decision is in the audit trail).
     agents = tmp_path / "served"
     agents.mkdir()
-    shutil.copytree(root, agents / "patient-inbox-router")
+    shutil.copytree(root, agents / "triage")
     db = tmp_path / "served.db"
     client = TestClient(create_app(db_path=db, packs_paths=[agents]))
-    route = "/api/agents/mendari/patient-inbox-router"
+    route = f"/api/agents/{pack.id}"
     is_calibrated(client.post(f"{route}/decide", json=routine).json()["answers"]["destination"])
     over_fhir = client.post(f"{route}/fhir/decide", json=BUNDLE).json()
     is_calibrated(over_fhir["decision"]["answers"]["destination"])
-    hook = client.post("/cds-services/mendari.patient-inbox-router", json=inbox_request())
+    hook = client.post(f"/cds-services/{pack.id.replace('/', '.')}", json=message_request())
     assert hook.status_code == 200
     (card,) = hook.json()["cards"]
     with AuditStore(db) as store:
@@ -625,7 +634,7 @@ def test_the_calibration_is_applied_on_every_path(
     run = evaluation(Decision(pack, origin_cap=False), load_dataset(root / "data" / "test.jsonl"))
     for case in run.ledger.cases:
         _, predicted, confidence, _, _, _ = case["q"]["destination"]
-        assert predicted == "medical_assistant" and confidence < 0.9
+        assert predicted == "pharmacy" and confidence < 0.9
 
 
 # -- what the evaluation says ----------------------------------------------------------------------
@@ -747,5 +756,6 @@ def test_the_card_says_whether_the_agents_confidence_is_calibrated(tmp_path: Pat
         "the agent's service reports another version, no decision is automated until it is "
         "calibrated again."
     ) in card
-    # An agent with no agent variant has no such section.
-    assert "## Confidence" not in render_card(load_pack(INBOX_DIR))
+    # An agent with no agent variant (the synthetic sorter: rules and an llm) has no such
+    # section.
+    assert "## Confidence" not in render_card(load_pack(sorter(tmp_path / "sorter")))

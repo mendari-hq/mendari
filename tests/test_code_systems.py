@@ -1,51 +1,34 @@
 # SPDX-License-Identifier: Apache-2.0
 """What code systems the repository's data carries (LP-14). CPT, whose codes the American Medical
-Association licenses, appears in no tracked pack, dataset or fixture: the prior-authorization
-pack's procedure codes, everywhere it or its data uses one, are fictional. Nothing a package or
-an image is built from (src/, packs/, datasets/, NOTICE, licenses/image) carries SNOMED CT: the
-trial prescreener's condition codes, its local-site example's and the referral router's referral
-code are fictional too, and SNOMED CT's url or OID is named only where Mendari's code must name
-the system (scripts/check_snomed.py, which CI also runs on the built wheel and sdist). A
-licensed system (`LICENSED_CODE_SYSTEMS`)
-named by its url or OID appears only in a pack that declares it with its licence terms
-(`code_systems`, checked at load) or in a US Core fixture listed here with why. Whether the
-repository's tests may keep SNOMED CT is recorded for counsel (tasks/todo.md, LP-14)."""
+Association licenses, appears in no tracked agent, dataset or fixture. Nothing a package or an
+image is built from (src/, agents/, NOTICE, licenses/image) carries SNOMED CT, and SNOMED CT's url
+or OID is named only where Mendari's code must name the system (scripts/check_snomed.py, which CI
+also runs on the built wheel and sdist). A licensed system (`LICENSED_CODE_SYSTEMS`) named by its
+url or OID appears only in an agent that declares it with its licence terms (`code_systems`,
+checked at load), or, for SNOMED CT alone, in a US Core test input (US Core binds some codes to
+it). Whether the repository's tests may keep SNOMED CT is recorded for counsel (tasks/todo.md,
+LP-14)."""
 
 from __future__ import annotations
 
 import importlib.util
-import json
-import re
 import subprocess
 import zipfile
 from pathlib import Path
 from types import ModuleType
 
 import pytest
-import yaml
 
 from mendari.core.pack import load_pack
-from mendari.core.spec import LICENSED_CODE_SYSTEMS, licensed_systems
-from mendari.sandbox.code_systems import (
-    CONDITION_SYSTEM,
-    CONDITIONS,
-    PROCEDURES,
-    REFERRAL,
-    REFERRAL_SYSTEM,
-    REFERRALS,
-)
-from mendari.sandbox.code_systems import PROCEDURE_SYSTEM as FICTIONAL_PROCEDURES
-from mendari.standards import record_fhir
-from mendari.standards.record_fhir import _ICD10_CODE
-from mendari.standards.terminology import sandbox_resources
-from tests.support import synthetic_prior_auth, synthetic_trial
+from mendari.core.spec import licensed_systems
+from tests.conftest import FIXTURE_AGENTS
 
 ROOT = Path(__file__).resolve().parents[1]
 TREES = ("agents", "community-agents", "tests/fixtures")
-# What the wheel, the sdist and the images are built from: the wheel from src/, packs/ and
-# datasets/; the sdist adds README.md, LICENSE, NOTICE and pyproject.toml; the images copy the
-# same trees and carry /licenses (#180): LICENSE, NOTICE and what the build writes from
-# licenses/image (its SOURCE.md, the components' and crates' licence texts).
+# What the wheel, the sdist and the images are built from: the wheel from src/ and agents/; the
+# sdist adds README.md, LICENSE, NOTICE and pyproject.toml; the images copy the same trees and
+# carry /licenses (#180): LICENSE, NOTICE and what the build writes from licenses/image (its
+# SOURCE.md, the components' and crates' licence texts).
 SHIPPED = (
     "src",
     "agents",
@@ -57,17 +40,8 @@ SHIPPED = (
 )
 CPT = "http://www.ama-assn.org/go/cpt"
 SNOMED = "http://snomed.info/sct"
-TRIAL = ROOT / "tests" / "fixtures" / "reference-agents" / "clinical-trial-prescreener"
 # Test inputs in US Core, which codes procedures and referrals in SNOMED CT. None is in a package.
-FIXTURE_ALLOWANCES = {
-    "tests/fixtures/us-core/referral.json": "the referral router's input: the referral's code "
-    "(US Core binds ServiceRequest.code to procedure codes)",
-    "tests/fixtures/us-core/invalid/referral.json": "the same referral, made invalid on purpose",
-    "tests/fixtures/us-core/prior-auth.json": "the physical therapy the patient had, a US Core "
-    "Procedure the prior-auth pack never reads the system of",
-    "tests/fixtures/us-core/invalid/records.json": "a Procedure and a ServiceRequest made invalid "
-    "on purpose, as US Core codes them",
-}
+US_CORE_INPUTS = "tests/fixtures/us-core/"
 
 
 def tracked(trees: tuple[str, ...] = TREES) -> list[Path]:
@@ -96,104 +70,42 @@ def named() -> dict[str, set[str]]:
     return found
 
 
+def agent_of(relative: str) -> Path | None:
+    """The folder of the agent a tracked file is part of (the nearest folder above it holding an
+    `agent.yaml`, within the trees scanned), or None."""
+    path = (ROOT / relative).parent
+    while path != ROOT and path.is_relative_to(ROOT):
+        if (path / "agent.yaml").is_file():
+            return path
+        path = path.parent
+    return None
+
+
 def test_cpt_is_in_no_pack_dataset_or_fixture() -> None:
     assert [path for path, systems in named().items() if CPT in systems] == []
 
 
 def test_a_licensed_system_is_only_where_it_is_declared_or_allowed() -> None:
-    found = named()
-    assert found  # the US Core fixtures still code in SNOMED CT
-    for path, systems in found.items():
-        if path.startswith("tests/fixtures/us-core/"):
-            assert path in FIXTURE_ALLOWANCES, f"{path} names {systems}: allow it here with why"
-            assert systems == {SNOMED}, path
+    for path, systems in named().items():
+        if path.startswith(US_CORE_INPUTS):
+            assert systems == {SNOMED}, path  # a US Core input may code in SNOMED CT, only
             continue
-        # A reference or community pack may carry one it declares (CONTRIBUTING.md); a dataset
-        # or a fixture outside a pack may not.
-        assert path.startswith(("packs/", "community-agents/")), f"{path} names {systems}"
-        manifest = load_pack(ROOT / "/".join(path.split("/")[:2])).manifest
+        # An agent may carry one it declares (CONTRIBUTING.md); a dataset or a fixture outside an
+        # agent may not.
+        root = agent_of(path)
+        assert root is not None, f"{path} names {systems}"
+        manifest = load_pack(root).manifest
         declared = {use.url: use.licence_note for use in manifest.code_systems}
         for system in systems:
             assert declared.get(system), f"{path}: {system} without a licence_note"
-    assert set(FIXTURE_ALLOWANCES) <= set(found), "an allowance no file needs: drop it"
 
 
-@pytest.mark.parametrize(
-    "pack",
-    sorted(
-        p.parent.name
-        for p in (ROOT / "tests" / "fixtures" / "reference-agents").glob("*/agent.yaml")
-    ),
-)
+@pytest.mark.parametrize("pack", sorted(p.parent.name for p in FIXTURE_AGENTS.glob("*/agent.yaml")))
 def test_every_reference_pack_says_its_licence_and_loads(pack: str) -> None:
-    manifest = load_pack(ROOT / "tests" / "fixtures" / "reference-agents" / pack).manifest
+    manifest = load_pack(FIXTURE_AGENTS / pack).manifest
     assert manifest.license == "Apache-2.0"
     for use in manifest.code_systems:
         assert (use.licence_note is not None) == bool(licensed_systems(use.url)), use
-
-
-def test_the_prior_auth_codes_are_fictional_and_complete() -> None:
-    """Every procedure code the pack, its data and its tests use is in the fictional system, and
-    the system is declared, named as fictional, and published to the validator."""
-    pack = load_pack(ROOT / "tests" / "fixtures" / "reference-agents" / "prior-auth-preflight")
-    (fictional,) = [use for use in pack.manifest.code_systems if use.url == FICTIONAL_PROCEDURES]
-    assert "fictional" in fictional.name and "not CPT" in fictional.name
-    text = "\n".join(
-        (
-            ROOT / "tests" / "fixtures" / "reference-agents" / "prior-auth-preflight" / name
-        ).read_text()
-        for name in ("logic/structured.yaml", "fhir/mapping.yaml", "tests/cases.yaml")
-    )
-    used = set(re.findall(r"\bFX\d{3}\b", text))
-    assert used and used <= set(PROCEDURES)
-    assert all(re.fullmatch(r"FX\d{3}", code) for code in PROCEDURES)
-    assert not set(LICENSED_CODE_SYSTEMS) & {FICTIONAL_PROCEDURES}
-
-
-def test_every_procedure_code_the_prior_auth_pack_or_its_data_uses_is_fictional() -> None:
-    """Read as values, not spellings: every order and prior-procedure code in the pack's data,
-    the local-site dataset and the behaviour tests, every code its rules and FHIR mapping list,
-    and every code the generator writes is one of the fictional codes. A CPT code coming back
-    (a bare `72148`, which names no system) fails here."""
-    pack = ROOT / "tests" / "fixtures" / "reference-agents" / "prior-auth-preflight"
-    found: set[str] = set()
-    for path in [
-        *sorted((pack / "data").glob("*.jsonl")),
-        ROOT / "tests" / "fixtures" / "datasets" / "prior-auth-local-site-example.jsonl",
-    ]:
-        for line in path.read_text().splitlines():
-            record = json.loads(line).get("input", {})
-            found.add(record["order"]["code"])
-            found |= {procedure["code"] for procedure in record.get("procedures", [])}
-    for case in yaml.safe_load((pack / "tests" / "cases.yaml").read_text()):
-        found.add(case["input"]["order"]["code"])
-        found |= {procedure["code"] for procedure in case["input"].get("procedures", [])}
-    rules = yaml.safe_load((pack / "logic" / "structured.yaml").read_text())
-    for question in rules["questions"].values():
-        for check in question["checks"]:
-            for kind in ("value", "exists"):
-                if kind in check and check[kind].get("field") == "order.code":
-                    found |= set(check[kind]["in"])
-                if kind in check and check[kind].get("in") == "procedures":
-                    found |= set(check[kind]["codes"])
-            when = check.get("when", {})
-            if when.get("field") == "order.code":
-                found |= set(when["in"])
-    found |= set(yaml.safe_load((pack / "fhir" / "mapping.yaml").read_text())["focus_where"]["in"])
-    generated = [code for orders in synthetic_prior_auth.ORDERS.values() for code, _ in orders]
-    generated += [code for code, _ in synthetic_prior_auth.IMAGING.values()]
-    generated.append(synthetic_prior_auth.LOCAL_LUMBAR_XRAY[0])
-    found |= set(generated)
-    assert len(found) >= 15
-    assert found <= set(PROCEDURES), sorted(found - set(PROCEDURES))
-    # The manifest's words (criteria, Jev instructions) name no five-digit procedure code, as
-    # 0.1.3's "MRI of the lumbar spine (CPT 72148, ...)" did, and neither it nor the input schema
-    # calls a code CPT.
-    manifest = (pack / "agent.yaml").read_text()
-    assert re.findall(r"(?<![\d.])\d{5}(?![\d.])", manifest) == []
-    for name in ("agent.yaml", "schemas/input.schema.json"):
-        text = (pack / name).read_text()
-        assert len(re.findall(r"\bCPT\b", text)) == len(re.findall(r"\bnot CPT\b", text)), name
 
 
 def test_nothing_a_package_is_built_from_carries_snomed_ct() -> None:
@@ -273,87 +185,3 @@ def test_a_concept_id_is_told_by_its_partition_and_check_digit() -> None:
         assert not check.is_concept_id(number), number
     for number, why in check.NOT_CONCEPT_IDS.items():
         assert check.is_concept_id(number) and why, f"{number}: not needed, drop it"
-
-
-def test_the_condition_and_referral_codes_are_fictional_and_complete() -> None:
-    """Every condition code the trial pack's rules, CQL, generator and local-site example use
-    that is not ICD-10-CM is a fictional condition code, and the referral router's FHIR focus is
-    the fictional referral code; both systems are declared, named as fictional and not SNOMED
-    CT, and published to the validator."""
-    declared: dict[str, str] = {}
-    for pack in (TRIAL, ROOT / "tests" / "fixtures" / "reference-agents" / "referral-router"):
-        declared |= {use.url: use.name for use in load_pack(pack).manifest.code_systems}
-    for system in (CONDITION_SYSTEM, REFERRAL_SYSTEM):
-        assert "fictional" in declared[system] and "not SNOMED CT" in declared[system]
-        assert system not in LICENSED_CODE_SYSTEMS
-    assert all(re.fullmatch(r"FC\d{3}", code) for code in CONDITIONS)
-    assert all(re.fullmatch(r"FR\d{3}", code) for code in REFERRALS)
-    rules = yaml.safe_load((TRIAL / "logic" / "criteria.yaml").read_text())
-    listed = {
-        code
-        for question in rules["questions"].values()
-        for check in question["checks"]
-        for code in check.get("condition", {}).get("codes", [])
-        if not code.endswith("*")
-    }
-    cql = set(re.findall(r"'(FC\d{3})'", (TRIAL / "logic" / "criteria.cql").read_text()))
-    assert listed == cql == set(CONDITIONS)
-    used = {
-        condition["code"]
-        for line in (ROOT / "tests" / "fixtures" / "datasets" / "trial-local-site-example.jsonl")
-        .read_text()
-        .splitlines()
-        for condition in json.loads(line)["input"].get("conditions", [])
-    }
-    generated = {code for codes in synthetic_trial.LOCAL.values() for code in codes}
-    assert {code for code in used if not _ICD10_CODE.match(code)} == generated
-    assert generated <= set(CONDITIONS)
-    mapping = yaml.safe_load(
-        (
-            ROOT
-            / "tests"
-            / "fixtures"
-            / "reference-agents"
-            / "referral-router"
-            / "fhir"
-            / "mapping.yaml"
-        ).read_text()
-    )
-    # The referral router's FHIR focus is its code set `referral_category` (spec 0.3, LP-23k).
-    assert mapping["focus_where"]["code_set"] == "referral_category"
-    category = mapping["code_sets"]["referral_category"]
-    assert category == {"system": REFERRAL_SYSTEM, "codes": [REFERRAL["code"]]}
-    assert REFERRAL["code"] in REFERRALS
-    published = {r["url"]: {c["code"] for c in r["concept"]} for r in sandbox_resources()}
-    assert published[CONDITION_SYSTEM] == set(CONDITIONS)
-    assert published[REFERRAL_SYSTEM] == set(REFERRALS)
-
-
-def test_each_local_condition_code_says_what_its_record_says() -> None:
-    """A record's condition text becomes its FHIR coding's display (record_fhir), so each
-    fictional code the local site writes has, in the published CodeSystem, the display its text
-    says: the generator's codes, and every coding of the local-site example as FHIR."""
-    for event, codes in synthetic_trial.LOCAL.items():
-        for code in codes:
-            assert CONDITIONS[code] == synthetic_trial.TEXT[event], (event, code)
-    (published,) = [r for r in sandbox_resources() if r["url"] == CONDITION_SYSTEM]
-    display = {concept["code"]: concept["display"] for concept in published["concept"]}
-    codings = [
-        coding
-        for line in (ROOT / "tests" / "fixtures" / "datasets" / "trial-local-site-example.jsonl")
-        .read_text()
-        .splitlines()
-        for entry in record_fhir.bundle(json.loads(line)["input"], synthetic_trial.AS_OF)["entry"]
-        if entry["resource"]["resourceType"] == "Condition"
-        for coding in entry["resource"].get("code", {}).get("coding", [])
-        if coding["system"] == CONDITION_SYSTEM
-    ]
-    assert len(codings) >= 150
-    assert [c for c in codings if c.get("display") != display[c["code"]]] == []
-
-
-def test_a_code_with_a_trailing_line_break_is_not_read_as_icd10() -> None:
-    """`$` matches before a final newline: `E11.9\\n` was coded as ICD-10-CM, a code no system
-    holds, in a Condition the record builds."""
-    assert record_fhir.condition_system("E11.9") == record_fhir.ICD10
-    assert record_fhir.condition_system("E11.9\n") != record_fhir.ICD10

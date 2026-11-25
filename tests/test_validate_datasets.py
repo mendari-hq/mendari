@@ -15,20 +15,20 @@ import pytest
 import yaml
 
 from mendari.cli import main
-from tests.conftest import INBOX_DIR
+from tests.conftest import FIXTURE_AGENTS, TRIAGE_DIR
 
 SECRET = "Jane Example, born 1950"  # case text: never in a message
 
 
 @pytest.fixture
 def pack(tmp_path: Path) -> Path:
-    root = tmp_path / "inbox"
-    shutil.copytree(INBOX_DIR, root)
+    root = tmp_path / "triage"
+    shutil.copytree(TRIAGE_DIR, root)
     return root
 
 
 def add_row(pack: Path, row: str) -> None:
-    dataset = pack / "data" / "red_flags_holdout.jsonl"
+    dataset = pack / "data" / "critical.jsonl"  # 40 cases
     dataset.write_text(dataset.read_text() + row + "\n")
 
 
@@ -38,21 +38,21 @@ VALID = {"message": {"body": SECRET}}
 @pytest.mark.parametrize(
     ("row", "problem"),
     [
-        ("{not json", "data/red_flags_holdout.jsonl:31: invalid JSON"),
+        ("{not json", "data/critical.jsonl:41: invalid JSON"),
         (
             json.dumps({"id": "r1", "input": {"message": {"body": 5, "x": SECRET}}}),
             "case r1: input",
         ),
         (
             json.dumps({"id": "r2", "input": VALID, "labels": {"urgency": SECRET}}),
-            "case r2: labels.urgency is not one of its labels (urgent, routine)",
+            "case r2: labels.urgency is not one of its labels (yes, no)",
         ),
         (
             json.dumps({"id": "r3", "input": VALID, "labels": {SECRET: "calm"}}),
             "case r3: labels name a question the agent does not have",
         ),
         (
-            json.dumps({"id": "r4", "input": VALID, "labels": ["urgent"]}),
+            json.dumps({"id": "r4", "input": VALID, "labels": ["yes"]}),
             "case r4: `labels` must be a mapping of question to label",
         ),
         (
@@ -82,7 +82,7 @@ def test_validate_reads_every_declared_dataset(
 
 
 def test_every_shipped_dataset_validates() -> None:
-    for manifest in sorted(Path(INBOX_DIR).parent.glob("*/agent.yaml")):
+    for manifest in sorted(FIXTURE_AGENTS.glob("*/agent.yaml")):
         assert main(["validate", str(manifest.parent)]) == 0, manifest.parent.name
 
 
@@ -93,10 +93,10 @@ def test_eval_refuses_labels_the_pack_does_not_have(
     AttributeError: now one line, before any decision is made."""
     site = tmp_path / "site.jsonl"
     site.write_text(json.dumps({"id": "s1", "input": VALID, "labels": {"urgency": SECRET}}) + "\n")
-    assert main(["eval", "mendari/patient-inbox-router", "--dataset", str(site)]) == 1
+    assert main(["eval", "mendari-test/triage", "--dataset", str(site)]) == 1
     (line,) = capsys.readouterr().err.splitlines()
     # The label's value is the site's own text: never repeated, only what the pack defines.
-    assert line == "error: site case s1: labels.urgency is not one of its labels (urgent, routine)"
+    assert line == "error: site case s1: labels.urgency is not one of its labels (yes, no)"
 
 
 def test_a_pack_with_no_behaviour_tests_fails_its_test_run(
@@ -115,25 +115,25 @@ def test_a_pack_with_no_behaviour_tests_fails_its_test_run(
 @pytest.mark.parametrize(
     "argv",
     [
-        ["test", "mendari/patient-inbox-router", "--provider", "routr=llm"],
-        ["decide", "mendari/patient-inbox-router", "--text", "hi", "--provider", "routr=llm"],
+        ["test", "mendari-test/triage", "--provider", "routr=llm"],
+        ["decide", "mendari-test/triage", "--text", "hi", "--provider", "routr=llm"],
         [
             "eval",
-            "mendari/patient-inbox-router",
+            "mendari-test/triage",
             "--dataset",
-            "red_flags",
+            "critical",
             "--provider",
             "routr=llm",
         ],
         [
             "leaderboard",
-            "mendari/patient-inbox-router",
+            "mendari-test/triage",
             "--run",
             "routr=llm",
             "--dataset",
-            "red_flags",
+            "critical",
         ],
-        ["test", "mendari/patient-inbox-router", "--provider", "mendari/ai-guard:router=llm"],
+        ["test", "mendari-test/triage", "--provider", "mendari-test/clinical-review:reader=rules"],
     ],
     ids=["test", "decide", "eval", "leaderboard", "another-packs-setting"],
 )
@@ -144,5 +144,5 @@ def test_a_typed_provider_setting_that_applies_to_nothing_is_an_error(
         argv = [*argv, "--out", str(tmp_path / "leaderboard.json")]
     assert main(argv) == 1
     err = capsys.readouterr().err
-    assert "error: mendari/patient-inbox-router: provider setting" in err
+    assert "error: mendari-test/triage: provider setting" in err
     assert "Traceback" not in err

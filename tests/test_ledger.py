@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import sqlite3
 from contextlib import closing
 from copy import deepcopy
@@ -17,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from mendari import Decision, Pack, load_pack
 from mendari.cli import main
@@ -32,18 +32,17 @@ from mendari.evals.result import (
     result_from_ledger,
     result_of,
     result_sha256,
-    subgroup_labelled,
 )
-
-ROOT = Path(__file__).resolve().parents[1]
-V1 = json.loads((ROOT / "tests" / "fixtures" / "eval-v1-inbox.json").read_text())
+from tests.conftest import TRIAGE_DIR
+from tests.support.engine import published
 
 
 @pytest.fixture(scope="module")
 def runs() -> tuple[Any, Any, Any]:
+    """Two runs of the triage fixture on its `test` set (300 cases), and the set."""
     from mendari.core.registry import resolve_pack
 
-    pack = resolve_pack("mendari/patient-inbox-router")
+    pack = resolve_pack("mendari-test/triage")
     dataset = resolve_dataset(pack, "test")
     return evaluation(Decision(pack), dataset), evaluation(Decision(pack), dataset), dataset
 
@@ -65,29 +64,6 @@ def test_the_result_is_recomputed_from_the_parsed_ledger(runs: Any) -> None:
     assert run.report["format"] == FORMAT
 
 
-def test_every_figure_of_the_v1_report_is_kept(runs: Any) -> None:
-    """The committed mendari.eval/1 benchmark, recomputed from a ledger: the same figures (case
-    ids aside, which are hashes now), to rounding of the probabilities to 6 places."""
-    run, _, _ = runs
-
-    def same(old: Any, new: Any, where: str) -> None:
-        if isinstance(old, dict):
-            for key, value in old.items():
-                if key not in ("missed_ids",):
-                    same(value, new[key], f"{where}.{key}")
-        elif isinstance(old, list):
-            assert len(old) == len(new), where
-            for i, (a, b) in enumerate(zip(old, new, strict=True)):
-                same(a, b, f"{where}[{i}]")
-        elif isinstance(old, float):
-            assert new == pytest.approx(old, abs=1e-6), where
-        else:
-            assert old == new, where
-
-    for key in ("questions", "decisions", "threshold_sweep", "cost", "errors", "subgroups"):
-        same(V1[key], run.report[key], key)
-
-
 def test_proportions_carry_their_exact_intervals(runs: Any) -> None:
     run, _, _ = runs
     report = run.report
@@ -97,7 +73,7 @@ def test_proportions_carry_their_exact_intervals(runs: Any) -> None:
     assert accuracy["n"] == question["n"] and accuracy["k"] / accuracy["n"] == question["accuracy"]
     assert accuracy["low"] < question["accuracy"] < accuracy["high"]
     (critical,) = report["decisions"]["critical"]
-    assert report["proportions"]["critical"]["urgency=urgent"] == critical["proportion"]
+    assert report["proportions"]["critical"]["urgency=yes"] == critical["proportion"]
     assert critical["proportion"]["k"] == critical["detected"]
     assert (
         question["brier_interval"]["low"] <= question["brier"] <= question["brier_interval"]["high"]
@@ -119,27 +95,19 @@ def test_the_ledger_holds_no_case_text_and_no_case_id(runs: Any) -> None:
 
 
 def test_a_case_hash_is_keyed_by_the_datasets_own_bytes(tmp_path: Path) -> None:
-    raw = (
-        ROOT
-        / "tests"
-        / "fixtures"
-        / "reference-agents"
-        / "patient-inbox-router"
-        / "data"
-        / "test.jsonl"
-    ).read_bytes()
-    one = case_hash(case_key(raw), "pub-01800")
-    assert one == case_hash(case_key(raw), "pub-01800")
-    assert one != case_hash(case_key(raw + b"\n"), "pub-01800")  # another file, another key
-    assert one != case_hash(case_key(raw), 1800) != case_hash(case_key(raw), "1800")
+    raw = (TRIAGE_DIR / "data" / "test.jsonl").read_bytes()
+    one = case_hash(case_key(raw), "triage-0018")
+    assert one == case_hash(case_key(raw), "triage-0018")
+    assert one != case_hash(case_key(raw + b"\n"), "triage-0018")  # another file, another key
+    assert one != case_hash(case_key(raw), 18) != case_hash(case_key(raw), "18")
 
 
 def test_two_cases_with_one_id_are_refused_before_any_decision(
-    tmp_path: Path, inbox_pack: Pack
+    tmp_path: Path, triage_agent: Pack
 ) -> None:
     line = json.dumps({"id": "x", "input": {"message": {"body": "Refill please."}}})
     (tmp_path / "twice.jsonl").write_text(f"{line}\n{line}\n")
-    decision = Decision(inbox_pack)
+    decision = Decision(triage_agent)
     calls: list[int] = []
     decide = decision.decide
 
@@ -153,10 +121,10 @@ def test_two_cases_with_one_id_are_refused_before_any_decision(
     assert calls == []  # refused before a provider is asked
 
 
-def test_a_dataset_without_its_case_key_is_refused(runs: Any, inbox_pack: Pack) -> None:
+def test_a_dataset_without_its_case_key_is_refused(runs: Any, triage_agent: Pack) -> None:
     _, _, dataset = runs
     with pytest.raises(MendariError, match="no case key"):
-        evaluation(Decision(inbox_pack), replace(dataset.head(3), case_key=b""))
+        evaluation(Decision(triage_agent), replace(dataset.head(3), case_key=b""))
 
 
 @pytest.mark.parametrize(
@@ -226,28 +194,21 @@ def test_a_case_entry_a_reader_would_index_wrongly_is_refused(runs: Any, change:
 
 
 def test_a_benchmark_of_the_same_version_is_never_called_an_earlier_one(tmp_path: Path) -> None:
-    copy = tmp_path / "patient-inbox-router"
-    shutil.copytree(ROOT / "tests" / "fixtures" / "reference-agents" / "patient-inbox-router", copy)
+    """The triage fixture published with its benchmark, then its summary changed."""
+    copy = published(TRIAGE_DIR, tmp_path).root
     manifest = copy / "agent.yaml"
-    changed = manifest.read_text().replace("summary: >-\n", "summary: >-\n  Changed.\n", 1)
-    manifest.write_text(changed)
+    changed = yaml.safe_load(manifest.read_text())
+    changed["summary"] = f"Changed. {changed['summary']}"
+    manifest.write_text(yaml.safe_dump(changed, sort_keys=False, allow_unicode=True))
     pack = load_pack(copy)
     card = render_card(pack)  # a new digest, the version unchanged
     assert f"This benchmark was measured on version {pack.version} before its last change" in card
     assert f"earlier version {pack.version}" not in card
 
 
-def test_a_v1_subgroup_is_k_of_n_only_when_its_labelled_members_are_known() -> None:
-    every = {"primary": "q", "questions": {"q": {"n": 40}}, "dataset": {"n": 40}}
-    some = {"primary": "q", "questions": {"q": {"n": 30}}, "dataset": {"n": 40}}
-    assert subgroup_labelled(every, {"n": 12, "accuracy": 0.5}) == 12
-    assert subgroup_labelled(some, {"n": 12, "accuracy": 0.5}) is None  # not "6 of 12"
-    assert subgroup_labelled(some, {"n": 12, "labelled": 8, "accuracy": 0.5}) == 8
-
-
 def test_evaluating_again_keeps_exactly_one_ledger(tmp_path: Path) -> None:
     out = tmp_path / "evals" / "report.json"
-    argv = ["eval", "mendari/ai-guard", "--dataset", "test", "--baseline", "none"]
+    argv = ["eval", "mendari-test/triage", "--dataset", "test", "--baseline", "none"]
     assert main([*argv, "--limit", "20", "--out", str(out)]) == 0
     assert main([*argv, "--limit", "30", "--out", str(out)]) == 0  # another ledger
     report = json.loads(out.read_text())
@@ -259,7 +220,9 @@ def test_evaluating_again_keeps_exactly_one_ledger(tmp_path: Path) -> None:
 def test_an_out_that_is_not_a_file_gets_the_report_and_no_ledger(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    argv = ["eval", "mendari/ai-guard", "--dataset", "test", "--limit", "5", "--baseline", "none"]
+    argv = [
+        "eval", "mendari-test/triage", "--dataset", "test", "--limit", "5", "--baseline", "none"
+    ]  # fmt: skip
     assert main([*argv, "--out", os.devnull]) == 0
     assert "no ledger is written beside it" in capsys.readouterr().err
 
@@ -267,7 +230,7 @@ def test_an_out_that_is_not_a_file_gets_the_report_and_no_ledger(
 def test_a_stored_report_keeps_its_ledger_and_is_chained(tmp_path: Path) -> None:
     db = tmp_path / "audit.db"
     out = tmp_path / "evals" / "report.json"
-    argv = ["eval", "mendari/patient-inbox-router", "--dataset", "red_flags_holdout"]
+    argv = ["eval", "mendari-test/triage", "--dataset", "critical"]
     assert main([*argv, "--baseline", "none", "--db", str(db), "--out", str(out)]) == 0
     report = json.loads(out.read_text())
     ledger_file = out.parent / "ledgers" / (report["ledger"]["id"][7:] + ".jsonl")
@@ -283,7 +246,7 @@ def test_a_stored_report_keeps_its_ledger_and_is_chained(tmp_path: Path) -> None
         "report": report["run"]["id"],
         "result_sha256": report["result_sha256"],
         "ledger": report["ledger"]["id"],
-        "pack_id": "mendari/patient-inbox-router",
+        "pack_id": "mendari-test/triage",
         "pack_digest": report["pack"]["digest"],
         "dataset_sha256": report["dataset"]["sha256"],
         "org": "default",
@@ -317,12 +280,12 @@ def test_a_paired_comparison_counts_the_cases_that_changed(runs: Any) -> None:
     assert accuracy["a"]["k"] - accuracy["b"]["k"] == 12
     assert accuracy["p"] == pytest.approx(2 * 0.5**12) and accuracy["different"] is True
     assert result["holm_family"] == [f["figure"] for f in result["figures"]]
-    assert len(result["changed"]) == 12 and result["dataset"]["paired"] == 600
+    assert len(result["changed"]) == 12 and result["dataset"]["paired"] == 300
     assert result["brier"]["a_minus_b"] < 0  # A is better calibrated than the made-worse B
     words = paired.text(
         result, {case_hash(dataset.case_key, r["id"]): r["id"] for r in dataset.records}
     )
-    assert "accuracy: A 596 of 600" in words and "pub-" in words
+    assert "accuracy: A 266 of 300" in words and "triage-" in words
     assert "different" in words and "k of n [exact 95% interval, Clopper-Pearson]" in words
     assert "1.0000" not in words  # bounds as percentages, never raw fractions
 

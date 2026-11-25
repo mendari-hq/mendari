@@ -2,16 +2,15 @@
 """The provider egress allow-list (LP-16e, conflict 20): `MENDARI_PROVIDER_ALLOWED_ORIGINS`.
 
 Unset (the default), nothing changes: every provider endpoint comes only from the deployment's
-own variables. Set, a server whose LLM or Jev endpoint variable names an origin it leaves out
+own variables. Set, a server whose LLM or agent endpoint variable names an origin it leaves out
 does not start, and every request a remote provider would make to another origin (the AI
-Gateway's default, Jev's model list and Vercel Connect included) is refused before a connection
-or a credential (`invalid_endpoint`), so the decision goes to a person. Requests are answered by
-the transport every httpx client uses, and no socket opens."""
+Gateway's default included) is refused before a connection or a credential
+(`invalid_endpoint`), so the decision goes to a person. Requests are answered by the transport
+every httpx client uses, and no socket opens. The decisions are the triage fixture's, its
+router an agent service and its screen an LLM."""
 
 from __future__ import annotations
 
-import functools
-import itertools
 import json
 import socket
 from pathlib import Path
@@ -24,29 +23,24 @@ from fastapi.testclient import TestClient
 from mendari import AuditStore, CallBudget, Decision, Pack
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError, ProviderError
-from mendari.providers import credentials, http, jev, llm
+from mendari.providers import http, llm
+from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
+from mendari.providers.agent import TOKEN_ENV as AGENT_TOKEN_ENV
 from mendari.providers.base import Provider
-from mendari.providers.credentials import ConnectorToken
 from mendari.server.app import create_app
 from mendari.settings import default_providers
 from tests.conftest import message
 
 ALLOW = "MENDARI_PROVIDER_ALLOWED_ORIGINS"
 GATEWAY = "https://ai-gateway.vercel.sh"
-JEV = "https://jev.test"
-CONNECT = "https://api.vercel.com"
+AGENT = "https://agent.test"
 TEXT = "Can I get a refill of my blood pressure tablets?"
-_connectors = itertools.count()
+# What the screen's failure records: its two questions, each.
+SCREEN_REFUSED = {"urgency": "invalid_endpoint", "abusive": "invalid_endpoint"}
 
 
 def answer(request: httpx.Request) -> httpx.Response:
-    """What an LLM, Jev, Jev's model list or Vercel Connect answers: every label equally
-    likely, one model, one key."""
-    path = request.url.path
-    if path.endswith("/v1/models"):
-        return httpx.Response(200, json={"models": [{"name": "jev-1", "release_date": "2026"}]})
-    if "/connect/token/" in path:
-        return httpx.Response(200, json={"token": "k-connect", "expiresAt": 4_102_444_800_000})
+    """What an LLM or an agent service answers: every label equally likely."""
     body = json.loads(request.content)
     if "messages" in body:
         asked = body["response_format"]["json_schema"]["schema"]["properties"]
@@ -61,23 +55,17 @@ def answer(request: httpx.Request) -> httpx.Response:
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1},
             },
         )
-    answers = {}
-    for key, question in body["questions"].items():
-        labels = list(question["criteria"])
-        answers[key] = {
-            "type": "choice",
-            "choice": labels[0],
-            "confidence": 1 / len(labels),
-            "probabilities": {label: 1 / len(labels) for label in labels},
-        }
-    usage = {"input_tokens": 1, "output_tokens": 0}
-    return httpx.Response(200, json={"model": "jev-1", "answers": answers, "usage": usage})
+    answers = {
+        question["key"]: {"value": question["choices"][0], "confidence": 0.5}
+        for question in body["questions"]
+    }
+    return httpx.Response(200, json={"model": "agent-1", "answers": answers})
 
 
 @pytest.fixture
 def sent(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
     """Every request any httpx client sends, answered by `answer`; a socket refuses to open.
-    The deployment has an AI Gateway key and Jev (an endpoint, a model and a key)."""
+    The deployment has an AI Gateway key and an agent service (an endpoint and a token)."""
     requests: list[httpx.Request] = []
 
     def handle(self: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
@@ -91,9 +79,8 @@ def sent(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
     monkeypatch.setattr(socket.socket, "connect", no_socket)
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "k-gateway")
     monkeypatch.setenv(llm.MODEL_ENV, "provider/model-1")  # the deployment's (no built-in default)
-    monkeypatch.setenv(jev.ENDPOINT_ENV, f"{JEV}/v1/decide")
-    monkeypatch.setenv(jev.MODEL_ENV, "jev-1")
-    monkeypatch.setenv(jev.API_KEY_ENV, "k-jev")
+    monkeypatch.setenv(AGENT_ENDPOINT_ENV, f"{AGENT}/v1/decide")
+    monkeypatch.setenv(AGENT_TOKEN_ENV, "k-agent")
     return requests
 
 
@@ -116,13 +103,13 @@ def origins(requests: list[httpx.Request]) -> list[str]:
 
 
 def remote(pack: Pack) -> Decision:
-    """The inbox with an LLM screen (on the AI Gateway unless LLM_BASE_URL says otherwise) and a
-    Jev router."""
-    return Decision(pack, providers={"safety_screen": "llm", "router": "jev"})
+    """The triage fixture with its agent service for a router (asked first) and an LLM screen
+    (on the AI Gateway unless LLM_BASE_URL says otherwise)."""
+    return Decision(pack, providers={"router": "agent", "screen": "llm"})
 
 
 def test_no_allow_list_keeps_todays_endpoints(
-    sent: list[httpx.Request], inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    sent: list[httpx.Request], triage_agent: Pack, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Conflict 20's default: unset, or blank, the calls go where they went before, and the
     server starts whatever endpoint the deployment set."""
@@ -132,44 +119,45 @@ def test_no_allow_list_keeps_todays_endpoints(
         else:
             monkeypatch.setenv(ALLOW, unset)
         before = len(sent)
-        result = remote(inbox_pack).decide(message(TEXT))
+        result = remote(triage_agent).decide(message(TEXT))
         assert result.errors == {}
-        assert origins(sent[before:]) == [GATEWAY, JEV]
-        assert jev.list_models() == [{"name": "jev-1", "description": None, "release_date": "2026"}]
+        assert origins(sent[before:]) == [AGENT, GATEWAY]
     monkeypatch.setenv(llm.BASE_URL_ENV, "https://models.test/v1")
     app = create_app(db_path=tmp_path / "a.db", default_providers=default_providers())
     assert TestClient(app).get("/api/health").json()["provider_allowed_origins"] is None
 
 
 def test_a_call_outside_the_allow_list_is_refused_before_it_leaves(
-    sent: list[httpx.Request], inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    sent: list[httpx.Request],
+    charged: list[str],
+    triage_agent: Pack,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The AI Gateway's default is not on the list: the LLM screen is refused before its key is
-    read or anything is sent, recorded as `invalid_endpoint`, and nothing is automated. Jev,
-    listed, still answers. An endpoint a command finds set after start-up, Jev off the list
-    (before its key comes from Vercel Connect), and a list a command cannot read, likewise."""
-    monkeypatch.setenv(ALLOW, JEV)
-    result = remote(inbox_pack).decide(message(TEXT))
-    assert result.errors == {"urgency": "invalid_endpoint"}
+    read or anything is sent, recorded as `invalid_endpoint`, and nothing is automated. The
+    agent service, listed, still answers. An endpoint a command finds set after start-up, the
+    agent service off the list (before its token is sent or a call charged), and a list a
+    command cannot read, likewise."""
+    monkeypatch.setenv(ALLOW, AGENT)
+    result = remote(triage_agent).decide(message(TEXT))
+    assert result.errors == SCREEN_REFUSED
     assert result.outcome is not Outcome.AUTO
-    assert origins(sent) == [JEV]
+    assert origins(sent) == [AGENT]
 
-    screen = Decision(inbox_pack, providers={"safety_screen": "llm"})
+    screen = Decision(triage_agent, providers={"screen": "llm"})
     monkeypatch.setenv(llm.BASE_URL_ENV, "https://models.test/v1")
     monkeypatch.setenv(llm.LOCAL_KEY_ENV, "k-models")
-    assert screen.decide(message(TEXT)).errors == {"urgency": "invalid_endpoint"}
+    assert screen.decide(message(TEXT)).errors == SCREEN_REFUSED
 
     monkeypatch.setenv(ALLOW, GATEWAY)
     monkeypatch.delenv(llm.BASE_URL_ENV)
-    monkeypatch.delenv(jev.API_KEY_ENV)
-    monkeypatch.setenv(jev.CONNECTOR_ENV, f"jev/egress-{next(_connectors)}")
-    result = remote(inbox_pack).decide(message(TEXT))
+    result = remote(triage_agent).decide(message(TEXT))
     assert result.errors == {"destination": "invalid_endpoint"}
-    assert origins(sent) == [JEV, GATEWAY]  # the screen's call, and nothing to Jev or Vercel
+    assert origins(sent) == [AGENT, GATEWAY]  # the screen's call, and nothing to the agent's
 
     monkeypatch.setenv(ALLOW, "ai-gateway.vercel.sh")  # no scheme: not an origin
     result = screen.decide(message(TEXT))
-    assert result.errors == {"urgency": "invalid_endpoint"}
+    assert result.errors == SCREEN_REFUSED
     assert result.outcome is not Outcome.AUTO
 
     monkeypatch.setenv(ALLOW, GATEWAY)  # the last guard, below every provider's own check
@@ -177,50 +165,13 @@ def test_a_call_outside_the_allow_list_is_refused_before_it_leaves(
         http.post_json(None, "https://elsewhere.test/v1", {}, headers={}, timeout_s=1)
     assert refused.value.code == "invalid_endpoint"
     assert len(sent) == 2
-
-
-def test_jev_off_the_allow_list_reads_no_connector_key_and_spends_no_budget(
-    sent: list[httpx.Request],
-    charged: list[str],
-    inbox_pack: Pack,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Jev's key from Vercel Connect, whose origin is listed, and Jev's endpoint, not listed:
-    Jev's own check refuses the call before the connector is asked for a key (no identity token
-    read, nothing sent to Vercel) and before the day's Jev budget is charged. `post_json`'s
-    last guard would refuse the request too, but only after all of that. Listed, the same
-    decision reads the token, fetches the key, charges one call and asks Jev."""
-    identities: list[str] = []
-
-    def identity() -> str:
-        identities.append("read")
-        return "oidc-token"
-
-    monkeypatch.setattr(credentials, "vercel_oidc_token", identity)
-    monkeypatch.delenv(jev.API_KEY_ENV)
-    monkeypatch.setenv(jev.CONNECTOR_ENV, f"jev/egress-{next(_connectors)}")
-    monkeypatch.setenv(ALLOW, f"{GATEWAY},{CONNECT}")
-    with AuditStore(":memory:") as store:
-        router = Decision(
-            inbox_pack, providers={"router": "jev"}, budget=CallBudget(store, {"jev": None})
-        )
-        result = router.decide(message(TEXT))
-        assert result.errors == {"destination": "invalid_endpoint"}
-        assert result.outcome is not Outcome.AUTO
-        assert sent == [] and identities == [] and charged == []
-        assert store.usage("jev") == 0
-
-        monkeypatch.setenv(ALLOW, f"{GATEWAY},{CONNECT},{JEV}")
-        assert router.decide(message(TEXT)).errors == {}
-        assert origins(sent) == [CONNECT, JEV]
-        assert identities == ["read"] and charged == ["jev"]
-        assert store.usage("jev") == 1
+    assert charged == ["agent", "llm"]  # a call refused is never charged
 
 
 def test_an_llm_off_the_allow_list_reads_no_key_and_spends_no_budget(
     sent: list[httpx.Request],
     charged: list[str],
-    inbox_pack: Pack,
+    triage_agent: Pack,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The list names nothing for the LLM, at the AI Gateway's default or at an `LLM_BASE_URL`
@@ -236,18 +187,18 @@ def test_an_llm_off_the_allow_list_reads_no_key_and_spends_no_budget(
 
     monkeypatch.setattr(llm.LlmProvider, "_token", key)
     monkeypatch.setenv(llm.LOCAL_KEY_ENV, "k-models")
-    monkeypatch.setenv(ALLOW, f"{JEV},{CONNECT}")
+    monkeypatch.setenv(ALLOW, AGENT)
     with AuditStore(":memory:") as store:
         screen = Decision(
-            inbox_pack,
-            providers={"safety_screen": "llm"},
+            triage_agent,
+            providers={"screen": "llm"},
             budget=CallBudget(store, {"llm": None}),
         )
         for base_url in (None, "https://models.test/v1"):
             if base_url is not None:
                 monkeypatch.setenv(llm.BASE_URL_ENV, base_url)
             result = screen.decide(message(TEXT))
-            assert result.errors == {"urgency": "invalid_endpoint"}
+            assert result.errors == SCREEN_REFUSED
             assert result.outcome is not Outcome.AUTO
             assert sent == [] and keys == [] and charged == []
             assert store.usage("llm") == 0
@@ -260,37 +211,7 @@ def test_an_llm_off_the_allow_list_reads_no_key_and_spends_no_budget(
         assert store.usage("llm") == 1
 
 
-def test_jev_models_and_vercel_connect_follow_the_allow_list(
-    sent: list[httpx.Request], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Jev's model list is read from Jev's origin, and a key from a Vercel Connect connector
-    from Vercel's: each only when the list names it. Off it, no identity token is read and
-    nothing is sent."""
-    monkeypatch.setenv(ALLOW, "https://other.test")
-    with pytest.raises(ProviderError) as refused:
-        jev.list_models()
-    assert refused.value.code == "invalid_endpoint"
-    identities: list[str] = []
-
-    def identity() -> str:
-        identities.append("read")
-        return "oidc-token"
-
-    token = ConnectorToken(f"jev/egress-{next(_connectors)}", oidc=identity)
-    with pytest.raises(ProviderError) as refused:
-        token.get()
-    assert refused.value.code == "invalid_endpoint"
-    assert "Vercel Connect" in refused.value.detail
-    assert sent == [] and identities == []
-
-    monkeypatch.setenv(ALLOW, f"{JEV},{CONNECT}")
-    assert [model["name"] for model in jev.list_models()] == ["jev-1"]
-    assert token.get() == "k-connect"
-    assert [str(r.url).partition("/v1/")[0] for r in sent] == [JEV, CONNECT]
-    assert sent[1].headers["authorization"] == "Bearer oidc-token"
-
-
-@pytest.mark.parametrize("variable", [llm.BASE_URL_ENV, jev.ENDPOINT_ENV])
+@pytest.mark.parametrize("variable", [llm.BASE_URL_ENV, AGENT_ENDPOINT_ENV])
 def test_a_provider_endpoint_outside_the_allow_list_stops_the_start(
     variable: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -313,21 +234,6 @@ def test_a_provider_endpoint_outside_the_allow_list_stops_the_start(
     create_app(db_path=tmp_path / "d.db")
 
 
-def test_jev_set_up_off_the_allow_list_stops_the_server_before_its_defaults(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`mendari serve` and the Vercel app read the Jev defaults before they build the app: Jev
-    set up at an origin the list leaves out stops them there, naming JEV_API_URL."""
-    monkeypatch.setenv(jev.ENDPOINT_ENV, f"{JEV}/v1/decide")
-    monkeypatch.setenv(jev.MODEL_ENV, "jev-1")
-    monkeypatch.setenv(jev.API_KEY_ENV, "k-jev")
-    monkeypatch.setenv(ALLOW, GATEWAY)
-    with pytest.raises(MendariError, match=f"{jev.ENDPOINT_ENV} is not on {ALLOW}"):
-        default_providers()
-    monkeypatch.setenv(ALLOW, f"{GATEWAY},{JEV}")
-    assert default_providers() == {}  # it starts: a release names no Jev defaults (JEV_DEFAULTS)
-
-
 def test_health_reports_the_provider_allow_list(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -339,23 +245,3 @@ def test_health_reports_the_provider_allow_list(
     monkeypatch.delenv(ALLOW)
     health = TestClient(create_app(db_path=tmp_path / "b.db")).get("/api/health").json()
     assert health["provider_allowed_origins"] is None
-
-
-@pytest.mark.parametrize("body", ["<html>maintenance</html>", "[]", "null"])
-def test_a_model_list_that_is_not_a_json_object_is_an_invalid_response(
-    monkeypatch: pytest.MonkeyPatch, body: str
-) -> None:
-    """A 200 with an HTML page or a JSON array raised ValueError or AttributeError out of the
-    provider; every provider failure is a ProviderError."""
-    monkeypatch.setenv(ALLOW, JEV)
-    monkeypatch.setenv(jev.ENDPOINT_ENV, f"{JEV}/v1/decide")
-    monkeypatch.setenv(jev.API_KEY_ENV, "k")
-
-    def odd(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body.encode(), headers={"content-type": "text/html"})
-
-    transport = httpx.MockTransport(odd)
-    monkeypatch.setattr(httpx, "Client", functools.partial(httpx.Client, transport=transport))
-    with pytest.raises(ProviderError) as refused:
-        jev.list_models()
-    assert refused.value.code == "invalid_response"

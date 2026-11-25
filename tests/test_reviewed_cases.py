@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """What reviewers decide, as labelled cases (`evals/feedback.py` `reviewed_dataset`): a decision
-with a resolved review or a recorded outcome becomes a pack-dataset record, its label the one a
-person chose (or what happened downstream). Nothing here changes a pack."""
+with a resolved review or a recorded outcome becomes an agent-dataset record, its label the one a
+person chose (or what happened downstream). Nothing here changes an agent. The decisions are the
+triage fixture's."""
 
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore, Decision, Pack
+from mendari import AuditStore, Decision, Pack, load_pack
 from mendari.cli import main
 from mendari.core import audit, tenancy
 from mendari.evals import load_dataset
@@ -19,8 +20,8 @@ from mendari.evals.feedback import reviewed_dataset
 from mendari.evals.harness import evaluate, record_problems
 from mendari.server.app import create_app
 from tests.conftest import (
-    INBOX_DIR,
-    LOCAL_DATASET,
+    CLINICAL_DIR,
+    TRIAGE_DIR,
     encrypt_mode,
     encrypted_store,
     message,
@@ -28,58 +29,63 @@ from tests.conftest import (
 )
 from tests.test_hosted_data import sign_in_env
 
+# The pharmacy's, for a person to review while the screen is the keyword rules alone (the
+# default), and automated when the screen runs its agent (`SCREENED`, canned answers).
 REFILL = "Hi, I need a refill on my metoprolol. I have about a week's worth of pills left."
-CALL_BACK = "Can someone call me back?"
+SCREENED = {"screen": "agent"}
+CALL_BACK = "Can someone call me back?"  # nothing to place it by: an abstention
+# The front desk's (an appointment), and a nurse's to read: the rules miss the symptom.
+SWELLING = "My appointment notes say to call if the swelling gets worse, and it has."
 
 
 def test_a_reviewed_decision_is_a_labelled_case(
-    inbox_pack: Pack, store: AuditStore, tmp_path: Path
+    triage_agent: Pack, store: AuditStore, tmp_path: Path
 ) -> None:
-    decision = Decision(inbox_pack, store=store)
-    kept = decision(message(REFILL))  # the pack suggests the medical assistant
-    corrected = decision(message(CALL_BACK))
-    assert kept.recommendation == "medical_assistant"
-    store.resolve_review(kept.id, final_label="medical_assistant", reviewer="rn-1")
+    decision = Decision(triage_agent, store=store)
+    kept = decision(message(REFILL))  # the agent suggests the pharmacy
+    corrected = decision(message(SWELLING))  # and here the front desk
+    assert (kept.recommendation, corrected.recommendation) == ("pharmacy", "front_desk")
+    store.resolve_review(kept.id, final_label="pharmacy", reviewer="rn-1")
     store.resolve_review(corrected.id, final_label="nurse", reviewer="rn-1")
 
-    records, skipped = reviewed_dataset(store, pack_id=inbox_pack.id)
+    records, skipped = reviewed_dataset(store, pack_id=triage_agent.id)
     assert skipped == 0
     by_decision = {record["attributes"]["decision_id"]: record for record in records}
     assert set(by_decision) == {kept.id, corrected.id}
     case = by_decision[corrected.id]
     assert case["id"] == f"reviewed-{corrected.id}"
-    assert case["input"] == message(CALL_BACK)
+    assert case["input"] == message(SWELLING)
     assert case["labels"] == {"destination": "nurse"}
     assert case["attributes"]["source"] == "review"
     assert case["review"]["label"] == "nurse"
-    assert case["review"]["overridden"] is (corrected.recommendation != "nurse")
+    assert case["review"]["overridden"] is True
     assert by_decision[kept.id]["review"]["overridden"] is False
     assert case["system"]["recommendation"] == corrected.recommendation
-    assert case["system"]["pack_version"] == inbox_pack.version
+    assert case["system"]["pack_version"] == triage_agent.version
 
-    # The payoff: the file is a pack dataset, ready to evaluate and to learn from.
+    # The payoff: the file is an agent's dataset, ready to evaluate.
     path = tmp_path / "reviewed.jsonl"
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
     dataset = load_dataset(path)
-    assert record_problems(inbox_pack.manifest, dataset) == []
-    assert evaluate(Decision(inbox_pack), dataset)["questions"]["destination"]["n"] == 2
+    assert record_problems(triage_agent.manifest, dataset) == []
+    assert evaluate(Decision(triage_agent), dataset)["questions"]["destination"]["n"] == 2
 
 
 def test_a_decision_still_awaiting_review_is_not_a_case(
-    inbox_pack: Pack, store: AuditStore
+    triage_agent: Pack, store: AuditStore
 ) -> None:
-    Decision(inbox_pack, store=store)(message(CALL_BACK))
-    assert reviewed_dataset(store, pack_id=inbox_pack.id) == ([], 0)
+    Decision(triage_agent, store=store)(message(CALL_BACK))
+    assert reviewed_dataset(store, pack_id=triage_agent.id) == ([], 0)
 
 
 def test_what_happened_downstream_is_the_label_when_it_is_known(
-    inbox_pack: Pack, store: AuditStore
+    triage_agent: Pack, store: AuditStore
 ) -> None:
-    result = Decision(inbox_pack, store=store)(message(CALL_BACK))
+    result = Decision(triage_agent, store=store)(message(CALL_BACK))
     store.resolve_review(result.id, final_label="front_desk", reviewer="fd-1")
     store.record_outcome(result.id, final_label="nurse", source="staff-reroute", recorded_by="rn-9")
 
-    (record,), _ = reviewed_dataset(store, pack_id=inbox_pack.id)
+    (record,), _ = reviewed_dataset(store, pack_id=triage_agent.id)
     assert record["labels"] == {"destination": "nurse"}
     assert record["attributes"]["source"] == "outcome"
     assert record["review"]["label"] == "front_desk"  # what the reviewer chose stays visible
@@ -87,45 +93,45 @@ def test_what_happened_downstream_is_the_label_when_it_is_known(
 
 
 def test_an_automated_decision_with_an_outcome_is_a_case(
-    inbox_pack: Pack, store: AuditStore, screened: dict[str, str]
+    triage_agent: Pack, store: AuditStore
 ) -> None:
-    result = Decision(inbox_pack, providers=screened, store=store)(message(REFILL))
+    result = Decision(triage_agent, providers=SCREENED, store=store)(message(REFILL))
     assert result.outcome.value == "AUTO"
-    assert reviewed_dataset(store, pack_id=inbox_pack.id) == ([], 0)  # nobody has said anything
+    assert reviewed_dataset(store, pack_id=triage_agent.id) == ([], 0)  # nobody has said anything
     store.record_outcome(result.id, final_label="front_desk", source="ehr", recorded_by="fd-1")
 
-    (record,), _ = reviewed_dataset(store, pack_id=inbox_pack.id)
+    (record,), _ = reviewed_dataset(store, pack_id=triage_agent.id)
     assert record["labels"] == {"destination": "front_desk"}
     assert record["attributes"]["source"] == "outcome" and "review" not in record
 
 
 def test_a_decision_kept_as_a_hash_is_counted_and_not_exported(
-    inbox_pack: Pack, store: AuditStore
+    triage_agent: Pack, store: AuditStore
 ) -> None:
-    hashed = Decision(inbox_pack)(message("text we must not export"))
+    hashed = Decision(triage_agent)(message("text we must not export"))
     store.record(hashed, message("text we must not export"), store_input="hash")
     store.resolve_review(hashed.id, final_label="nurse", reviewer="rn-1")
-    assert reviewed_dataset(store, pack_id=inbox_pack.id) == ([], 1)
+    assert reviewed_dataset(store, pack_id=triage_agent.id) == ([], 1)
 
 
-def test_a_case_names_no_person(inbox_pack: Pack, store: AuditStore) -> None:
-    result = Decision(inbox_pack, store=store)(message(CALL_BACK))
+def test_a_case_names_no_person(triage_agent: Pack, store: AuditStore) -> None:
+    result = Decision(triage_agent, store=store)(message(CALL_BACK))
     store.resolve_review(result.id, final_label="nurse", reviewer="rn-1", note="called the patient")
     store.record_outcome(result.id, final_label="nurse", source="ehr", recorded_by="fd-7")
-    (record,), _ = reviewed_dataset(store, pack_id=inbox_pack.id)
+    (record,), _ = reviewed_dataset(store, pack_id=triage_agent.id)
     written = json.dumps(record)
     assert "rn-1" not in written and "fd-7" not in written and "called the patient" not in written
 
 
-def test_a_case_says_it_was_exported(inbox_pack: Pack, store: AuditStore) -> None:
+def test_a_case_says_it_was_exported(triage_agent: Pack, store: AuditStore) -> None:
     """It is a site's case wherever the file goes, so it says what it is: the mark that keeps
-    a pack that holds it out of an archive (`core/site_cases.py`), whoever gave its label."""
-    decision = Decision(inbox_pack, store=store)
+    an agent that holds it out of an archive (`core/site_cases.py`), whoever gave its label."""
+    decision = Decision(triage_agent, store=store)
     reviewed, happened = decision(message(CALL_BACK)), decision(message(REFILL))
     for result in (reviewed, happened):
         store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
     store.record_outcome(happened.id, final_label="nurse", source="ehr", recorded_by="fd-7")
-    records, _ = reviewed_dataset(store, pack_id=inbox_pack.id)
+    records, _ = reviewed_dataset(store, pack_id=triage_agent.id)
     assert {record["attributes"]["decision_id"]: record["attributes"] for record in records} == {
         reviewed.id: {
             "source": "review",
@@ -141,40 +147,40 @@ def test_a_case_says_it_was_exported(inbox_pack: Pack, store: AuditStore) -> Non
 
 
 def test_only_the_packs_own_cases_and_the_newest_first(store: AuditStore) -> None:
-    inbox = Decision.from_path(INBOX_DIR, store=store)
-    first = inbox(message(CALL_BACK))
-    second = inbox(message(REFILL))
+    triage = Decision.from_path(TRIAGE_DIR, store=store)
+    first = triage(message(CALL_BACK))
+    second = triage(message(REFILL))
     for result in (first, second):
         store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
-    records, _ = reviewed_dataset(store, pack_id=inbox.pack.id, limit=1)
+    records, _ = reviewed_dataset(store, pack_id=triage.pack.id, limit=1)
     assert [record["attributes"]["decision_id"] for record in records] == [second.id]
-    assert reviewed_dataset(store, pack_id="mendari/referral-router") == ([], 0)
+    assert reviewed_dataset(store, pack_id=load_pack(CLINICAL_DIR).id) == ([], 0)
 
 
-def test_an_organization_exports_only_its_own_cases(inbox_pack: Pack, store: AuditStore) -> None:
-    decision = Decision(inbox_pack, store=store)
+def test_an_organization_exports_only_its_own_cases(triage_agent: Pack, store: AuditStore) -> None:
+    decision = Decision(triage_agent, store=store)
     made = {}
     for org in ("north", "south"):
         with tenancy.acting_for(org):
             made[org] = decision(message(CALL_BACK))
             store.resolve_review(made[org].id, final_label="nurse", reviewer="rn-1")
     with tenancy.acting_for("north"):
-        records, _ = reviewed_dataset(store, pack_id=inbox_pack.id)
+        records, _ = reviewed_dataset(store, pack_id=triage_agent.id)
     assert [record["attributes"]["decision_id"] for record in records] == [made["north"].id]
 
 
 def test_a_sealed_input_is_exported_only_to_a_reader_and_the_read_is_chained(
-    inbox_pack: Pack, db_target: str
+    triage_agent: Pack, db_target: str
 ) -> None:
     with encrypted_store(db_target) as store:  # PHI mode `encrypt`
-        result = Decision(inbox_pack, store=store)(message(CALL_BACK))
+        result = Decision(triage_agent, store=store)(message(CALL_BACK))
         store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
 
-        assert reviewed_dataset(store, pack_id=inbox_pack.id) == ([], 1)  # no reader: sealed
+        assert reviewed_dataset(store, pack_id=triage_agent.id) == ([], 1)  # no reader: sealed
         events = [event["event"] for event in store.get(result.id)["events"]]  # type: ignore[index]
         assert "input.read" not in events
 
-        (record,), skipped = reviewed_dataset(store, pack_id=inbox_pack.id, reader="rn-1")
+        (record,), skipped = reviewed_dataset(store, pack_id=triage_agent.id, reader="rn-1")
         assert skipped == 0 and record["input"] == message(CALL_BACK)
         read = [e for e in store.get(result.id)["events"] if e["event"] == "input.read"]  # type: ignore[index]
         assert len(read) == 1 and read[0]["payload"]["reader"] == "rn-1"
@@ -182,17 +188,17 @@ def test_a_sealed_input_is_exported_only_to_a_reader_and_the_read_is_chained(
 
 
 def test_many_decisions_are_opened_a_part_at_a_time(
-    inbox_pack: Pack, db_target: str, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Pack, db_target: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A database binds only so many values in one statement, so inputs are opened in parts:
     every one is exported, and each read is chained once."""
     monkeypatch.setattr(audit, "_REVEALED_AT_ONCE", 2)
     with encrypted_store(db_target) as store:
-        decision = Decision(inbox_pack, store=store)
+        decision = Decision(triage_agent, store=store)
         made = [decision(message(f"{CALL_BACK} It is my request number {n}.")) for n in range(5)]
         for result in made:
             store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
-        records, skipped = reviewed_dataset(store, pack_id=inbox_pack.id, reader="rn-1")
+        records, skipped = reviewed_dataset(store, pack_id=triage_agent.id, reader="rn-1")
         assert skipped == 0
         assert {r["attributes"]["decision_id"] for r in records} == {r.id for r in made}
         for result in made:
@@ -207,18 +213,18 @@ def test_many_decisions_are_opened_a_part_at_a_time(
 def test_the_command_exports_one_organizations_decisions_when_asked(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """What a pack learns from is one site's: without --org the command line reads every
+    """What an agent is evaluated on is one site's: without --org the command line reads every
     organization's decisions, as every other command does."""
     db = tmp_path / "audit.db"
     made = {}
     with AuditStore(db) as store:
-        decision = Decision.from_path(INBOX_DIR, store=store)
+        decision = Decision.from_path(TRIAGE_DIR, store=store)
         for org in ("north", "south"):
             with tenancy.acting_for(org):
                 made[org] = decision(message(CALL_BACK))
                 store.resolve_review(made[org].id, final_label="nurse", reviewer="rn-1")
     out = tmp_path / "reviewed.jsonl"
-    argv = ["feedback", "export", str(INBOX_DIR), "--db", str(db), "--out", str(out)]
+    argv = ["feedback", "export", str(TRIAGE_DIR), "--db", str(db), "--out", str(out)]
     argv += ["--source", "reviews"]
 
     assert main([*argv, "--org", "north"]) == 0
@@ -235,17 +241,16 @@ def test_the_command_exports_reviewed_decisions(
 ) -> None:
     db = tmp_path / "audit.db"
     with AuditStore(db) as store:
-        decision = Decision.from_path(INBOX_DIR, store=store)
+        decision = Decision.from_path(TRIAGE_DIR, store=store)
         result = decision(message(CALL_BACK))
         store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
         decision(message(REFILL))  # still awaiting review
     out = tmp_path / "reviewed.jsonl"
-    argv = ["feedback", "export", str(INBOX_DIR), "--db", str(db), "--out", str(out)]
+    argv = ["feedback", "export", str(TRIAGE_DIR), "--db", str(db), "--out", str(out)]
     assert main([*argv, "--source", "reviews"]) == 0
     printed = capsys.readouterr().out
     assert f"1 reviewed decision -> {out}" in printed
     assert "the label a person chose" in printed and "mendari eval --dataset" in printed
-    assert "mendari improve --with" in printed
     (line,) = out.read_text().splitlines()
     assert json.loads(line)["labels"] == {"destination": "nurse"}
 
@@ -255,9 +260,9 @@ def test_the_command_says_when_nothing_is_reviewed(
 ) -> None:
     db = tmp_path / "audit.db"
     with AuditStore(db) as store:
-        Decision.from_path(INBOX_DIR, store=store)(message(CALL_BACK))
+        Decision.from_path(TRIAGE_DIR, store=store)(message(CALL_BACK))
     out = tmp_path / "reviewed.jsonl"
-    argv = ["feedback", "export", str(INBOX_DIR), "--db", str(db), "--out", str(out)]
+    argv = ["feedback", "export", str(TRIAGE_DIR), "--db", str(db), "--out", str(out)]
     assert main([*argv, "--source", "reviews"]) == 0
     printed = capsys.readouterr().out
     assert f"0 reviewed decisions -> {out}" in printed and "mendari eval" not in printed
@@ -268,14 +273,14 @@ def test_the_command_says_when_it_stopped_at_its_limit(
 ) -> None:
     db = tmp_path / "audit.db"
     with AuditStore(db) as store:
-        decision = Decision.from_path(INBOX_DIR, store=store)
+        decision = Decision.from_path(TRIAGE_DIR, store=store)
         for body in (CALL_BACK, REFILL):
             store.resolve_review(decision(message(body)).id, final_label="nurse", reviewer="rn-1")
-        hashed = Decision.from_path(INBOX_DIR)(message("kept as a hash"))
+        hashed = Decision.from_path(TRIAGE_DIR)(message("kept as a hash"))
         store.record(hashed, message("kept as a hash"), store_input="hash")
         store.resolve_review(hashed.id, final_label="nurse", reviewer="rn-1")
     out = tmp_path / "reviewed.jsonl"
-    argv = ["feedback", "export", str(INBOX_DIR), "--db", str(db), "--out", str(out)]
+    argv = ["feedback", "export", str(TRIAGE_DIR), "--db", str(db), "--out", str(out)]
     argv += ["--source", "reviews"]
 
     assert main([*argv, "--limit", "2"]) == 0  # the newest two: one of them kept as a hash
@@ -296,20 +301,20 @@ def test_a_rating_filter_with_reviews_is_refused(
     with AuditStore(db):
         pass
     out = tmp_path / "reviewed.jsonl"
-    argv = ["feedback", "export", str(INBOX_DIR), "--db", str(db), "--out", str(out)]
+    argv = ["feedback", "export", str(TRIAGE_DIR), "--db", str(db), "--out", str(out)]
     assert main([*argv, "--source", "reviews", "--rating", "up"]) == 1
     assert "--rating" in capsys.readouterr().err and not out.exists()
 
 
 def test_only_an_administrator_exports_and_only_their_organizations_cases(
-    tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With sign-in on (so PHI mode `encrypt`): the route is an administrator's, as the ratings
     export is, and answers with its own organization's cases, each read logged and chained."""
     db = tmp_path / "a.db"
     made = {}
     with encrypted_store(db) as store:
-        decision = Decision(inbox_pack, store=store)
+        decision = Decision(triage_agent, store=store)
         for org in ("default", "elsewhere"):
             with tenancy.acting_for(org):
                 made[org] = decision(message(CALL_BACK))
@@ -317,7 +322,7 @@ def test_only_an_administrator_exports_and_only_their_organizations_cases(
         encrypt_mode(monkeypatch)
         sign_in_env(monkeypatch)
         client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
-        url = f"/api/agents/{inbox_pack.id}/feedback/export"
+        url = f"/api/agents/{triage_agent.id}/feedback/export"
         for role in ("viewer", "reviewer", "governance"):
             refused = client.get(
                 url, params={"source": "reviews"}, headers=signed_in(store, role=role)
@@ -339,9 +344,9 @@ def test_only_an_administrator_exports_and_only_their_organizations_cases(
 
 
 def test_the_route_exports_reviewed_decisions(db_target: str) -> None:
-    app = create_app(db_path=db_target, datasets_dir=LOCAL_DATASET.parent)
+    app = create_app(db_path=db_target)
     client = TestClient(app)
-    pack = "/api/agents/mendari/patient-inbox-router"
+    pack = "/api/agents/mendari-test/triage"
     decision = client.post(f"{pack}/decide", json=message(CALL_BACK)).json()
     assert client.get(f"{pack}/feedback/export", params={"source": "reviews"}).text == ""
     reviewed = client.post(
@@ -353,7 +358,7 @@ def test_the_route_exports_reviewed_decisions(db_target: str) -> None:
     assert export.status_code == 200
     assert export.headers["content-type"].startswith("application/x-ndjson")
     assert export.headers["x-mendari-skipped"] == "0"
-    assert "patient-inbox-router-reviewed.jsonl" in export.headers["content-disposition"]
+    assert "triage-reviewed.jsonl" in export.headers["content-disposition"]
     (line,) = export.text.splitlines()
     assert json.loads(line)["labels"] == {"destination": "nurse"}
 
