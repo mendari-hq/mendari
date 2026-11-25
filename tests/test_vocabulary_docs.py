@@ -229,12 +229,9 @@ def test_the_files_are_found() -> None:
         "examples/http-agent/README.md",
         "community-agents/README.md",
         "sandbox/inferno/README.md",
-        "sandbox/fixtures.compose.yml",
         "web/README.md",
         ".github/CODEOWNERS",
         ".github/pull_request_template.md",
-        ".github/PULL_REQUEST_TEMPLATE/agent.md",
-        ".github/ISSUE_TEMPLATE/propose-agent.yml",
         ".github/workflows/agents.yml",
         ".github/workflows/ci.yml",
     ):

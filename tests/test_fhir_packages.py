@@ -29,8 +29,6 @@ from typing import Any
 import pytest
 import yaml
 
-from mendari.standards.capability import DTR_QUESTIONNAIRE_PACKAGE
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -128,7 +126,7 @@ def test_the_lock_is_well_formed_and_as_its_writer_writes_it() -> None:
 
 
 def test_what_the_validator_is_told_to_load_is_a_root_of_the_lock() -> None:
-    """US Core (`ARGS`), the R4 definitions (`-version 4.0.1`) and the Da Vinci tarballs CI
+    """US Core (`ARGS`), the R4 definitions (`-version 4.0.1`) and any package tarball CI
     passes are roots, so offline each resolves to its pinned tarball."""
     locked = {package.ref for package in packages.read_lock()}
     assert set(packages.ROOTS) <= locked
@@ -138,11 +136,6 @@ def test_what_the_validator_is_told_to_load_is_a_root_of_the_lock() -> None:
     ci = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
     runs = " ".join(s.get("run", "") for s in ci["jobs"]["fhir-conformance"]["steps"])
     passed = re.findall(r"--ig var/fhir-packages/(\S+)-(\d[^-\s]*)\.tgz", runs)
-    assert {f"{name}#{version}" for name, version in passed} == {
-        "hl7.fhir.us.davinci-crd#2.2.1",
-        "hl7.fhir.us.davinci-dtr#2.2.0",
-        "hl7.fhir.us.davinci-pas#2.2.1",
-    }
     assert {f"{name}#{version}" for name, version in passed} <= set(packages.ROOTS)
 
 
@@ -733,15 +726,3 @@ def test_a_missing_package_tarball_is_refused_before_the_validator_runs(
 def _globbed(path: str, pattern: str) -> bool:
     """Whether the shell's glob `pattern` names `path` (`*` stays within a folder)."""
     return re.fullmatch(re.escape(pattern).replace(r"\*", "[^/]*"), path) is not None
-
-
-def test_the_capability_statement_is_checked_with_the_dtr_it_cites() -> None:
-    """It cites DTR 2.2.0's `$questionnaire-package`. In the US Core run, that made the
-    validator load DTR and its tree for the files after it; it is written with the Da Vinci
-    samples, which only the run that loads DTR 2.2.0 validates."""
-    sample = f"var/fhir-samples/{_script('fhir_output_sample.py').CAPABILITY.as_posix()}"
-    version = DTR_QUESTIONNAIRE_PACKAGE.rsplit("|", 1)[1]
-    (igs,) = [igs for igs, valid in _validator_runs() if any(_globbed(sample, g) for g in valid)]
-    assert f"var/fhir-packages/hl7.fhir.us.davinci-dtr-{version}.tgz" in igs
-    assert _globbed("var/fhir-samples/capability.json", "var/fhir-samples/*.json")
-    assert not _globbed("var/fhir-samples/davinci/capability.json", "var/fhir-samples/*.json")

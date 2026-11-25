@@ -48,8 +48,17 @@ from mendari.server.app import (
 from mendari.server.auth import ROLES, permission_for, person_id
 from tests.conftest import ROOT, encrypt_mode, encrypted_store, launched, member, signed_in
 from tests.test_auth import CLIENT, IDP, legacy_key
-from tests.test_evalset_store import CLINIC, chained
 from tests.test_security_log import logged
+
+CLINIC = "clinic-a"
+
+
+def chained(store: AuditStore) -> list[dict[str, Any]]:
+    """The audit chain's events, payloads parsed, in order."""
+    with store._db.session(exclusive=False) as db:
+        rows = db.all("SELECT seq, decision_id, event, payload FROM audit_events ORDER BY seq")
+    return [{**row, "payload": json.loads(row["payload"])} for row in rows]
+
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "written-mini"
 RUBRIC = "reply_quality"

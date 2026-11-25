@@ -23,11 +23,12 @@ import shutil
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 from playwright.sync_api import Browser, Locator, Page, expect
 
-from mendari import Decision, load_pack
+from mendari import AuditStore, Decision, load_pack
 from mendari.core.pack import Pack
 from mendari.core.written import CLOSING_NOTE, REPORT_MISMATCH, WrittenStore
 from mendari.evals import written
@@ -39,7 +40,13 @@ from tests.browser.access_site import Site, memberships, person, running
 from tests.browser.test_accessibility import violations
 from tests.conftest import ROOT, encrypted_store
 from tests.test_auth import IDP
-from tests.test_evalset_store import tamper
+
+
+def tamper(store: AuditStore, sql: str, params: tuple[Any, ...] = ()) -> None:
+    """Edit the database behind the store's back, as someone with the database could."""
+    with store._db.session(exclusive=True) as db:
+        db.all(sql, params)
+
 
 pytestmark = pytest.mark.browser
 
