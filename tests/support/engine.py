@@ -177,18 +177,27 @@ def _evaluated(agent: str, dataset: str) -> dict[str, Any]:
     return evaluate(Decision(pack), resolve_dataset(pack, dataset))
 
 
-def published(agent: Path, base: Path, *, runs: Sequence[Mapping[str, str]] = ()) -> Pack:
+def published(
+    agent: Path,
+    base: Path,
+    *,
+    runs: Sequence[Mapping[str, str]] = (),
+    manifest: Edit | None = None,
+) -> Pack:
     """A copy under `base` of the agent in folder `agent` (a fixture's, which commits none)
     carrying in `evals/` what a published agent carries: its own evaluation on its benchmark
     set, named by `evaluation.benchmark`, and with `runs` (provider choices) a leaderboard of
     that set evaluated on its default providers and on each of them. Every figure is the copy's
-    own: `evals/` is outside its digest, which is the one recorded."""
+    own: `evals/` is outside its digest, which is the one recorded. `manifest` changes the
+    copy's manifest first (another version, say)."""
     root = base / agent.name
     shutil.copytree(agent, root)
     path = root / "agent.yaml"
-    manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
-    manifest["evaluation"]["benchmark"] = "evals/benchmark.json"
-    path.write_text(_yaml(manifest), encoding="utf-8")
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["evaluation"]["benchmark"] = "evals/benchmark.json"
+    if manifest is not None:
+        manifest(data)
+    path.write_text(_yaml(data), encoding="utf-8")
     pack = load_pack(root)
     dataset = resolve_dataset(pack, pack.manifest.evaluation.benchmark_dataset or "test")
     report = evaluate(Decision(pack), dataset)
