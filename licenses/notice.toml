@@ -39,9 +39,9 @@ notice = "HL7 and FHIR are registered trademarks of Health Level Seven Internati
 
 [[material]]
 name = "LOINC"
-where = "LOINC codes in the sandbox's synthetic FHIR records (src/mendari/sandbox/fhir_records.py) and in tests"
+where = "LOINC codes in tests: the observations of the chart-summary test fixture's synthetic records (tests/support/fixture_records.py, tests/fixtures/us-core/chart.json)"
 licence = "the LOINC License (https://loinc.org/license)"
-distributed = true
+distributed = false
 # The notice the LOINC License asks redistributors to carry, word for word (the year is the
 # current release's).
 notice = """This material contains content from LOINC® (http://loinc.org). LOINC is copyright © 1995-2026,
@@ -51,9 +51,9 @@ registered United States trademark of Regenstrief Institute, Inc."""
 
 [[material]]
 name = "RxNorm"
-where = "RxNorm codes in the sandbox's synthetic EHR profile (src/mendari/sandbox/ehr_profile.py) and in tests"
+where = "RxNorm codes in tests: the medications of the chart-summary test fixture's synthetic records (tests/support/fixture_records.py, tests/fixtures/us-core/chart.json)"
 licence = "public domain (U.S. National Library of Medicine: RxNorm's normalized names and codes)"
-distributed = true
+distributed = false
 # The acknowledgement NLM's RxNorm terms of service ask a product using RxNorm data to carry.
 notice = """This product uses publicly available data courtesy of the U.S. National Library of Medicine
 (NLM), National Institutes of Health, Department of Health and Human Services; NLM is not
@@ -61,9 +61,9 @@ responsible for the product and does not endorse or recommend this or any other 
 
 [[material]]
 name = "ICD-10-CM"
-where = "ICD-10-CM codes in the sandbox's synthetic records and in tests"
+where = "ICD-10-CM codes in tests: the conditions of the chart-summary test fixture and its synthetic records (tests/fixtures/agents/chart-summary, tests/support/fixture_records.py, tests/fixtures/us-core/chart.json)"
 licence = "free to use from the U.S. National Center for Health Statistics, which adapted it from the World Health Organization's copyrighted ICD-10 with WHO's authorization, for U.S. government purposes"
-distributed = true
+distributed = false
 
 [[material]]
 name = "ICD-10-PCS"
@@ -71,8 +71,8 @@ where = "procedure codes and their titles in tests: the orders of the chart-summ
 licence = "public domain (U.S. Centers for Medicare & Medicaid Services)"
 distributed = false
 
-# No package carries SNOMED CT (LP-14): the sandbox and its synthetic data use
-# fictional codes instead, and tests/test_code_systems.py and scripts/check_snomed.py keep it so.
+# No package carries SNOMED CT (LP-14): the bundled agent and the sandbox carry no clinical
+# codes, and tests/test_code_systems.py and scripts/check_snomed.py keep it so.
 [[material]]
 name = "SNOMED CT"
 where = "SNOMED CT codes in test inputs and tests (tests/: the US Core fixtures code procedures and referrals in SNOMED CT), the scan that keeps them out of the packages (scripts/check_snomed.py), and the project's notes and history"

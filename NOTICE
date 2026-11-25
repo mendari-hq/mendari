@@ -24,8 +24,10 @@ HL7 FHIR R4 and US Core 6.1.0
   Licence: CC0 1.0 (HL7 International's FHIR specifications).
   HL7 and FHIR are registered trademarks of Health Level Seven International.
 
+The source repository also carries, in no package:
+
 LOINC
-  LOINC codes in the sandbox's synthetic FHIR records (src/mendari/sandbox/fhir_records.py) and in tests
+  LOINC codes in tests: the observations of the chart-summary test fixture's synthetic records (tests/support/fixture_records.py, tests/fixtures/us-core/chart.json)
   Licence: the LOINC License (https://loinc.org/license).
   This material contains content from LOINC® (http://loinc.org). LOINC is copyright © 1995-2026,
   Regenstrief Institute, Inc. and the Logical Observation Identifiers Names and Codes (LOINC)
@@ -33,17 +35,15 @@ LOINC
   registered United States trademark of Regenstrief Institute, Inc.
 
 RxNorm
-  RxNorm codes in the sandbox's synthetic EHR profile (src/mendari/sandbox/ehr_profile.py) and in tests
+  RxNorm codes in tests: the medications of the chart-summary test fixture's synthetic records (tests/support/fixture_records.py, tests/fixtures/us-core/chart.json)
   Licence: public domain (U.S. National Library of Medicine: RxNorm's normalized names and codes).
   This product uses publicly available data courtesy of the U.S. National Library of Medicine
   (NLM), National Institutes of Health, Department of Health and Human Services; NLM is not
   responsible for the product and does not endorse or recommend this or any other product.
 
 ICD-10-CM
-  ICD-10-CM codes in the sandbox's synthetic records and in tests
+  ICD-10-CM codes in tests: the conditions of the chart-summary test fixture and its synthetic records (tests/fixtures/agents/chart-summary, tests/support/fixture_records.py, tests/fixtures/us-core/chart.json)
   Licence: free to use from the U.S. National Center for Health Statistics, which adapted it from the World Health Organization's copyrighted ICD-10 with WHO's authorization, for U.S. government purposes.
-
-The source repository also carries, in no package:
 
 ICD-10-PCS
   procedure codes and their titles in tests: the orders of the chart-summary test fixture's synthetic records (tests/support/fixture_records.py, tests/fixtures/us-core/chart.json)
