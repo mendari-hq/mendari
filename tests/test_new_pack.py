@@ -12,6 +12,7 @@ import yaml
 from mendari.cli import AUTHORING_GUIDE, main
 from mendari.core.decision import Decision
 from mendari.core.registry import resolve_pack
+from mendari.core.spec import SPEC_VERSION
 from mendari.evals import evaluate, resolve_dataset
 from mendari.evals.pack_tests import run_pack_tests
 
@@ -37,21 +38,28 @@ def test_a_new_pack_works_as_written(tmp_path: Path, capsys: pytest.CaptureFixtu
         assert main(command) == 0
 
 
-def test_the_template_is_yaml_only_and_says_where_the_guide_is() -> None:
-    """What `mendari new` writes: the files every new agent starts with, and over them either
-    the agent's manifest and offline fixture or the community agent's manifest and files."""
-    from mendari.cli import AGENT_TEMPLATE, COMMUNITY_TEMPLATE, TEMPLATE
+def test_the_template_is_yaml_only_on_spec_0_4_and_says_where_the_guide_is() -> None:
+    """What `mendari new` writes: one template, an agent's manifest on the one spec version
+    Mendari reads, its offline fixture, examples, rules, input schema and tests."""
+    from mendari.cli import TEMPLATE
 
     suffixes = {p.suffix for p in TEMPLATE.rglob("*") if p.is_file()}
     assert suffixes <= {".yaml", ".json", ".jsonl"}  # nothing to program
-    # The files every new agent starts with hold no manifest: it is one of the two laid over
-    # them, so none is written only to be replaced.
-    assert not (TEMPLATE / "agent.yaml").exists()
-    for template in (AGENT_TEMPLATE, COMMUNITY_TEMPLATE):
-        text = (template / "agent.yaml").read_text()
-        manifest = yaml.safe_load(text.replace("{{", "").replace("}}", ""))
-        assert manifest["spec_version"] == "0.2"
-        assert AUTHORING_GUIDE in text
+    text = (TEMPLATE / "agent.yaml").read_text()
+    manifest = yaml.safe_load(text.replace("{{", "").replace("}}", ""))
+    assert manifest["spec_version"] == SPEC_VERSION == "0.4"
+    assert AUTHORING_GUIDE in text
+    assert {
+        path.relative_to(TEMPLATE).as_posix() for path in TEMPLATE.rglob("*") if path.is_file()
+    } == {
+        "agent.yaml",
+        "fixtures/mock_agent.json",
+        "data/examples.jsonl",
+        "logic/rules.yaml",
+        "schemas/input.schema.json",
+        "tests/cases.yaml",
+    }
+    assert not (TEMPLATE.parent / "agent").exists()  # merged into it (G11)
 
 
 def test_the_guide_url_names_the_guide_in_this_repository() -> None:
@@ -72,11 +80,6 @@ def test_new_never_overwrites_and_checks_the_id(tmp_path: Path) -> None:
 def test_new_agent_pack_works_offline_as_written(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from mendari.cli import AGENT_TEMPLATE
-
-    suffixes = {p.suffix for p in AGENT_TEMPLATE.rglob("*") if p.is_file()}
-    assert suffixes <= {".yaml", ".json", ".jsonl"}  # YAML/JSON only
-
     target = tmp_path / "agent-router"
     args = [
         "new",

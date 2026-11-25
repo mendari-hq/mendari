@@ -728,7 +728,6 @@ written: JSON on `/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth
 | The token endpoint, before its body is read | client address | 60 a minute |
 | Failed assertions at the token endpoint | client address and client | 10 in 10 minutes |
 | Decisions, at every entry point (REST, FHIR `$decide`, CDS Hooks, DTR, PAS, SMART); each draft order a CDS Hooks order hook decides is one | API key, client or person | 600 a minute, 100 at once |
-| The guard route (an LLM call) | API key, client or person | 60 a minute |
 | Evaluations | caller | 6 an hour |
 | Exports (the audit FHIR export, the feedback export) | caller | 10 an hour |
 | A labeller's calls (`/api/labelling`, memberships mode with the evaluation-set keys; each case shown is chained), and a grader's over written output (`/api/written/labelling`, memberships mode under PHI mode `encrypt`; each text shown is chained) | person | 60 a minute, 30 at once |

@@ -81,15 +81,13 @@ SCREENED = {"screen": "agent"}
 AUTOMATING = {"router": "llm", "screen": "agent"}
 CHECKED = {"screen": "checked"}  # its agent (`calm_agent`, a live service) checked by its rules
 # What the server still mounts of features wave 6 removes, until their code goes: Da Vinci's
-# PAS request and DTR package (G4) and the guard (G12). Set aside, so these tests hold what stays.
+# PAS request and DTR package (G4). Set aside, so these tests hold what stays.
 REMOVED_ROUTES = frozenset(
     {
         ("POST", "/api/agents/{namespace}/{name}/pas"),
         ("POST", "/fhir/Questionnaire/$questionnaire-package"),
-        ("POST", "/api/agents/{namespace}/{name}/guard"),
     }
 )
-REMOVED_CLASSES = frozenset({"guard"})  # the guard's own rate (G12)
 
 
 def sign_in_on(monkeypatch: pytest.MonkeyPatch, limits: str) -> None:
@@ -144,8 +142,7 @@ def test_limits_are_on_with_sign_in_and_off_in_open_mode(monkeypatch: pytest.Mon
     assert limit_settings(sign_in=True).mode == "on"
     assert limit_settings(sign_in=False).mode == "off"  # every caller there is one principal
     assert limit_settings(sign_in=True).rates == DEFAULT_RATES
-    kept = {name: rate for name, rate in DEFAULT_RATES.items() if name not in REMOVED_CLASSES}
-    assert {name: str(rate) for name, rate in kept.items()} == {
+    assert {name: str(rate) for name, rate in DEFAULT_RATES.items()} == {
         "signin": "300/min:120",
         "token": "60/min",
         "token_failures": "10/10min",

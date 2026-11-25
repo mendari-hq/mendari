@@ -76,7 +76,7 @@ def test_score_questions_are_ordered_and_have_expected_values() -> None:
         (lambda m: m["policy"]["rules"][0]["when"].update(question="disposition"), "score bounds"),
     ],
 )
-def test_derive_and_score_validation(mutate: Any, message: str) -> None:
+def test_score_validation(mutate: Any, message: str) -> None:
     raw = manifest_dict()
     mutate(raw)
     with pytest.raises(ValidationError, match=message):

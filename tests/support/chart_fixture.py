@@ -9,8 +9,7 @@ module gives the tests:
 
 - `chart_copy`: a copy of the agent under its own id (so a copy served beside the bundled
   agent, or loaded as one from a registry, never stands in its place), its FHIR mapping changed
-  as a test needs: what `mini()` of `tests/test_spec_03.py` did for the prescreen fixture. Spec
-  versions under 0.3 start from `MAPPING_0_2`, a mapping with no spec 0.3 key.
+  as a test needs.
 - `order_sign`: the agent's `order-sign` twin. A manifest declares one CDS hook, so the order
   hook is a copy: its focus a ServiceRequest whose code is in its own code set `checked_orders`
   (ICD-10-PCS, which a site's order codes may be translated into), the order's code, text and
@@ -62,45 +61,6 @@ KEYS = {
     "notes": ("DocumentReference",),
 }
 
-# The agent's mapping written with no spec 0.3 key (`newer_keys` finds none): what a copy at spec
-# 0.1 or 0.2 starts from. Notes are 0.2's `base64_text` over the attachments' data, codings the
-# first of each concept, and medications MedicationStatements alone.
-MAPPING_0_2: dict[str, Any] = {
-    "fhir_version": "R4",
-    "focus": "Patient",
-    "resources": {"Patient": {"required": True}},
-    "fields": {
-        "patient.age": {"path": "Patient.birthDate", "transform": "age_years"},
-        "patient.sex": {
-            "path": "Patient.gender",
-            "map": {"female": "female", "male": "male", "other": "other", "unknown": "unknown"},
-        },
-        "problems": {"path": "Condition.code.text", "transform": "join"},
-        "notes": {"path": "DocumentReference.content.attachment.data", "transform": "base64_text"},
-    },
-    "lists": {
-        "conditions": {
-            "resource": "Condition",
-            "fields": {
-                "code": {"path": "code.coding[0].code"},
-                "text": {"path": "code.text"},
-                "status": {"path": "clinicalStatus.coding[0].code"},
-                "onset": {"path": "onsetDateTime"},
-            },
-        },
-        "medications": {
-            "resource": "MedicationStatement",
-            "fields": {
-                "code": {"path": "medicationCodeableConcept.coding[0].code"},
-                "name": {"path": "medicationCodeableConcept.text"},
-                "status": {"path": "status"},
-                "start": {"path": "effectivePeriod.start"},
-                "end": {"path": "effectivePeriod.end"},
-            },
-        },
-    },
-}
-
 Edit = Callable[[dict[str, Any]], None]
 
 
@@ -129,15 +89,10 @@ def merged(mapping: dict[str, Any], changes: Mapping[str, Any]) -> dict[str, Any
     return result
 
 
-def _older(spec: str) -> bool:
-    return tuple(int(part) for part in spec.split(".")) < (0, 3)
-
-
 def chart_copy(
     base: Path,
     changes: Mapping[str, Any] | None = None,
     *,
-    spec: str | None = None,
     systems: Iterable[str] = (),
     use: str | None = None,
     agent_id: str = COPY_ID,
@@ -148,8 +103,6 @@ def chart_copy(
     """A copy of the chart-summary agent in `base/<folder>` (one level deep, so `base` can be
     served as a search path), under `agent_id`; its directory.
 
-    - `spec`: its `spec_version`. Under 0.3 the mapping starts from `MAPPING_0_2`, and the card
-      loses its `refused` key (spec 0.3).
     - `systems`: code systems declared besides the agent's own (each named as fictional), for a
       test's `[system=...]` predicates and code sets.
     - `changes`: merged into the mapping (`merged`).
@@ -160,8 +113,6 @@ def chart_copy(
     shutil.copytree(CHART_DIR, root)
     data = _read(root / "agent.yaml")
     data["id"] = agent_id
-    if spec is not None:
-        data["spec_version"] = spec
     known = {use_["url"] for use_ in data.get("code_systems", [])}
     data["code_systems"] = [
         *data.get("code_systems", []),
@@ -169,19 +120,11 @@ def chart_copy(
     ]
     if use is not None:
         data["providers"]["reader"]["use"] = use
-    older = spec is not None and _older(spec)
-    if older:
-        card = data["cds_hooks"]["card"]
-        for key in ("summaries", "indicators"):
-            card[key].pop("refused", None)
-        card["show"] = [label for label in card["show"] if label != "refused"]
     if manifest is not None:
         manifest(data)
     _write(root / "agent.yaml", data)
     mapping_path = root / "fhir" / "mapping.yaml"
-    own = _read(mapping_path)
-    start = merged(MAPPING_0_2, {"task": own["task"]}) if older else own
-    _write(mapping_path, merged(start, changes or {}))
+    _write(mapping_path, merged(_read(mapping_path), changes or {}))
     if schema is not None:
         schema_path = root / "schemas" / "input.schema.json"
         document = json.loads(schema_path.read_text(encoding="utf-8"))

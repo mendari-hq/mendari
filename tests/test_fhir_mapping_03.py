@@ -882,7 +882,6 @@ def test_focus_where_reads_a_code_set_and_a_sites_translation_finds_its_focus(
     coverage = data_coverage.measure(mapped.mapping, for_own, unreadable={})
     assert coverage["focus"]["codes"] == sorted(ORDERS)
     assert coverage["focus"]["paths"] == ["ServiceRequest.code.coding"]
-    assert "focus_where.code_set" in fhir.newer_keys(mapped.mapping)
 
     both = {"focus_where": {"in": [colonoscopy]}}  # beside the twin's `code_set`
     with pytest.raises(PackValidationError, match="either `in` or `code_set`, not both"):
