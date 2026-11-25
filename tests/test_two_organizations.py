@@ -2,10 +2,8 @@
 """Two organizations, every route (LP-12g, ADR-0008, threat model I4).
 
 Two organizations on one deployment, each with every kind of principal (people of each role,
-API keys, Backend Services clients, an EHR launch, its grading key), seed data through the API,
-with a marker in every free-text field (`zqalpha`, `zqbravo`), a hidden evaluation set of its own
-(LP-11g: the feature on, so the routes it mounts are called too) and a frozen one its grading key
-grades (LP-11l). Then each calls every mounted route:
+API keys, Backend Services clients, an EHR launch), seed data through the API, with a marker in
+every free-text field (`zqalpha`, `zqbravo`). Then each calls every mounted route:
 
 - **with the other's live ids** (phase 1): refused as an unknown id is, nothing written;
 - **with its own** (phase 2): served, destructive calls last, on spare ids.
@@ -25,14 +23,18 @@ from __future__ import annotations
 import functools
 import inspect
 import json
+import os
 import re
+import shutil
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, urlsplit
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore
@@ -44,8 +46,6 @@ from mendari.core.audit import (
     DEPLOYMENT_KINDS,
     PERSON_KINDS,
 )
-from mendari.core.evalset_keys import EvalsetKeys, evalset_keys
-from mendari.core.evalsets import EvalsetStore
 from mendari.core.registry import resolve_pack
 from mendari.providers import reach
 from mendari.server import presets, smart_check, smart_routes
@@ -55,41 +55,47 @@ from mendari.server.auth import person_id
 from mendari.server.backend_services import ASSERTION_TYPE
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.search import encode_cursor
+from mendari.standards.terminology import OVERRIDE_REASONS, OVERRIDE_REASONS_SYSTEM
 from tests.conftest import (
     DASHBOARD,
     DEMO_AGENT_DIR,
     ROOT,
-    calm_jev,
+    TRIAGE_DIR,
     encrypt_mode,
     encrypted_store,
-    evalset_on,
-    evalsets_are_on,
-    hand_written,
     member,
     message,
     signed_in,
 )
-from tests.test_ai_guard_pack import SAFE
+from tests.support.fixture_records import SHOWCASE
+from tests.support.platform import (
+    CHART,
+    COMMUNICATION,
+    PATIENT,
+    SMART_CLIENT,
+    SmartEhr,
+    smart_routed,
+    smart_tenant,
+)
 from tests.test_backend_services import Signer, assertion, bearer
-from tests.test_cds_feedback import feedback as card_feedback
-from tests.test_cds_feedback import overridden
-from tests.test_davinci import COMPLETE, PA, package_request, request
-from tests.test_hold import REFILL
 from tests.test_hub_client import Hub, hub  # noqa: F401 - the live registry fixture
 from tests.test_hub_routes import as_published
 from tests.test_memberships import token_of
-from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUESTER, REQUIRED
-from tests.test_prior_auth_pack import _order
-from tests.test_smart import CLIENT as SMART_CLIENT
-from tests.test_smart import DECIDE_BODY, REFERRAL, TENANTS, FakeEhr, routed, tenant
 
 APP = "https://mendari.test"
 IDP = "https://idp.example.org"
-INBOX = "mendari/patient-inbox-router"
-# A grading run (LP-11l): the inbox with local providers only (the deployment here runs Jev).
-RUNS: tuple[str, str] = ("POST", "/api/evalsets/{set_id}/runs")
-GRADED = {"pack": INBOX, "variants": {"safety_screen": "rules", "router": "naive_bayes"}}
-GUARD = "mendari/ai-guard"
+# The agent each organization decides with: the triage fixture, served as a copy that automates
+# on its keyword rules alone (without its `automation_requires`), so that a hold's effect shows
+# with sign-in on, where canned answers never automate, and with no agent service set: what
+# an organization connects here is the demo agent's service (ADR-0021), never called. A refill
+# is automated; a message with chest pain waits for a nurse.
+INBOX = "mendari-test/triage-automated"
+SERVICE = f"/cds-services/{INBOX.replace('/', '.')}"  # its CDS service
+REFILL = "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks"
+APPROVABLE = "mendari-test/clinical-review"  # risk level 2: automated under an approval
+# An EHR launch decides about its patient's chart, read from the EHR (the chart fixture).
+SMART_DECIDE = {"pack_id": CHART, "focus": f"Patient/{SHOWCASE.id}"}
+TENANTS = "https://ehrs.example.org"  # one host, two tenants, two organizations
 # The agent that asks a service of its own (an `agent` variant), served here beside the others:
 # the one whose connection each organization sets (ADR-0021).
 PORTAL = "mendari/portal-message-agent"
@@ -137,7 +143,6 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
     ("GET", "/api/smart/session"): "the launch's own session (the browser's cookie)",
     ("GET", "/smart/launch"): "the launch flow: called and scanned in each organization's seed",
     ("GET", "/smart/callback"): "the launch flow: called and scanned in each organization's seed",
-    ("GET", "/api/providers/jev/models"): "the deployment's Jev account. Not called (needs Jev)",
     ("GET", "/api/internal/retention"): "the operator's cron (CRON_SECRET), across every "
     "organization. Not called: tests/test_hosted_data.py",
     ("GET", "/api/internal/monitor"): "the operator's cron (CRON_SECRET): each organization on "
@@ -155,6 +160,15 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
     ("POST", "/api/smart/logout"): "ending a launch. Not called: tests/test_smart.py",
 }
 NOT_CALLED = {route for route, why in DEPLOYMENT_WIDE.items() if "Not called" in why}
+# What the server still mounts of features wave 6 removes, until their code goes: Da Vinci's PAS
+# request and DTR package (G4), the guard (G12) and Jev's model list (G1). No call here
+# exercises them; they leave the coverage check (`covered`) with their code.
+REMOVED_ROUTES: set[Route] = {
+    ("POST", "/api/agents/{namespace}/{name}/pas"),
+    ("POST", "/fhir/Questionnaire/$questionnaire-package"),
+    ("POST", "/api/agents/{namespace}/{name}/guard"),
+    ("GET", "/api/providers/jev/models"),
+}
 # What may appear in an organization's answers although it is not that organization's data:
 FIELDS = {
     "prev_hash": "an event's place in the deployment's one chain: the hash of the event before, "
@@ -162,7 +176,7 @@ FIELDS = {
     "verify": "claims mode only: the whole chain's verification (head, events) is unchanged "
     "there; in memberships mode it is the operator's (404)",
     "calls_today": "claims mode only: health's count of the deployment's remote calls today "
-    "(Jev, LLM), which every organization's decisions move; the operator's in memberships mode",
+    "(an LLM's), which every organization's decisions move; the operator's in memberships mode",
 }
 # The routes memberships mode adds; claims mode mounts none of them.
 MEMBERSHIPS_ONLY: set[Route] = {
@@ -178,22 +192,12 @@ MEMBERSHIPS_ONLY: set[Route] = {
     ("POST", "/api/auth/access-requests"),
     ("POST", "/api/auth/access-requests/{request_id}"),
     ("POST", "/api/auth/organization"),
-    # A labeller's (LP-11j): mounted with the evaluation-set keys, which this world sets.
-    ("GET", "/api/labelling"),
-    ("GET", "/api/labelling/next"),
-    ("POST", "/api/labelling/{assignment_id}"),
     # A grader's routes over written output and the rounds' reports (ADR-0025): mounted under
     # PHI mode `encrypt`, which this world runs.
     ("GET", "/api/written/labelling"),
     ("GET", "/api/written/labelling/next"),
     ("POST", "/api/written/labelling/{assignment_id}"),
     ("GET", "/api/written/rounds"),
-    # And an organization's curators' (LP-11k), likewise.
-    ("GET", "/api/evalsets"),
-    ("GET", "/api/evalsets/{set_id}"),
-    ("POST", "/api/evalsets/{set_id}/sample"),
-    ("POST", "/api/evalsets/{set_id}/assignments"),
-    ("POST", "/api/evalsets/{set_id}/adjudication"),
     # An organization's pack store (LP-20f): MENDARI_AGENT_STORE=on, which this world sets in
     # memberships mode.
     ("GET", "/api/store/agents"),
@@ -243,11 +247,6 @@ WRITTEN = (
     "memberships",
     "invitations",
     "access_requests",
-    "evalset_sets",  # hidden evaluation sets (LP-11e): no route makes or freezes one
-    "evalset_cases",  # drawn by a curator (LP-11k)
-    "evalset_index",
-    "evalset_assignments",  # their blind labelling (LP-11h): a curator's (LP-11k)
-    "evalset_labels",  # a labeller's label (LP-11j)
     "agent_connections",  # an agent's connection, set in the console (ADR-0021)
     "written_rounds",  # grading rounds of written output (ADR-0025): the operator's command's
     "written_items",
@@ -263,14 +262,13 @@ WRITTEN = (
 class Org:
     name: str
     signer: Signer
-    ehr: FakeEhr
+    ehr: SmartEhr
     people: dict[str, TestClient] = field(default_factory=dict)
     keys: dict[str, TestClient] = field(default_factory=dict)  # viewer, service
     tokens: dict[str, TestClient] = field(default_factory=dict)  # Backend Services clients
     launch: TestClient | None = None
     launch_id: str = ""
-    labeller: TestClient | None = None  # memberships mode: one assignment left open (LP-11j)
-    grader: TestClient | None = None  # its grading key, the operator's (LP-11l)
+    labeller: TestClient | None = None  # memberships mode: a grader of written output
     ids: dict[str, list[str]] = field(default_factory=dict)  # kind of id: ids, in order made
 
     @property
@@ -397,26 +395,6 @@ EXPLICIT = (
     "administrative_events",
     "iter_administrative_events",
     "usage_ledger",  # the usage ledger (LP-21g): an organization's rows, or the operator's all
-    # Hidden evaluation sets (LP-11e): the key holder's command line only, no route.
-    "EvalsetStore.create_set",
-    "EvalsetStore.sets",
-    # A labeller's next case, label and counts, and the set the security log names (LP-11h,
-    # their routes LP-11j): their organization's only.
-    "EvalsetStore.next_case",
-    "EvalsetStore.record_label",
-    "EvalsetStore.labelling",
-    "EvalsetStore.assignment_set",
-    # An organization's curators' reads and writes (LP-11k): its own sets only; the key
-    # holder's command line gives none (every organization's, or the set's own).
-    "EvalsetStore.named_sets",
-    "EvalsetStore.summary",
-    "EvalsetStore.show",
-    "EvalsetStore.progress",
-    "EvalsetStore.sample",
-    "EvalsetStore.assign",
-    "EvalsetStore.adjudicate",
-    # A grading run's check of the set's pack (LP-11l): the grading key's organization's set only.
-    "EvalsetStore.grading_header",
 )
 DEPLOYMENT_READS = {
     "verify": ("claims", "the whole chain's verification: unchanged in claims mode"),
@@ -428,25 +406,12 @@ DEPLOYMENT_READS = {
         "organization's own decisions (shown in claims mode only), never a record",
     ),
     "last_purge": ("claims memberships", "the last purge in health (its counts claims-only)"),
-    "EvalsetStore.hidden_matches": (
-        "memberships",
-        "the hidden-case index across every organization (LP-11e), read by the pack store's "
-        "upload check (LP-20f) on a new version's cases: its answer is one state, `held`, and "
-        "no set or case id reaches the caller",
-    ),
-    # The evaluation-set keys' lifecycle (LP-11f): the key holder's command line only.
-    "EvalsetStore.rotate": ("", "re-seals every organization's sets: never during a call"),
-    "EvalsetStore.check": ("", "opens every organization's sets: never during a call"),
-    "EvalsetStore.reindex": ("", "rebuilds the whole hidden-case index: never during a call"),
-    "EvalsetStore.export": ("", "copies every organization's sealed sets: never during a call"),
 }
 
 
 def owner_of(name: str) -> tuple[type, str]:
-    """The class a probed method is on (`EvalsetStore.` names one of the hidden evaluation
-    sets' store), and its name."""
-    owner, _, method = name.rpartition(".")
-    return (EvalsetStore if owner == "EvalsetStore" else AuditStore), method
+    """The class a probed method is on, and its name."""
+    return AuditStore, name
 
 
 @contextmanager
@@ -526,6 +491,18 @@ def no_call() -> Any:
     raise AssertionError("no connection an organization set is called from this test")
 
 
+def automated(base: Path) -> Path:
+    """`base` holding the triage fixture as `INBOX`: a copy without its policy's
+    `automation_requires`, so its keyword rules alone automate a confident team."""
+    root = base / "triage-automated"
+    shutil.copytree(TRIAGE_DIR, root)
+    manifest = yaml.safe_load((root / "agent.yaml").read_text())
+    manifest["id"] = INBOX
+    del manifest["policy"]["automation_requires"]
+    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    return base
+
+
 @pytest.fixture(params=["claims", "memberships"])
 def world(
     request: pytest.FixtureRequest,
@@ -536,8 +513,9 @@ def world(
 ) -> Iterator[World]:
     accounts = request.param
     # The agent whose connection each organization sets (ADR-0021), served beside the others;
-    # what a connection leads to is never called here.
-    monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
+    # what a connection leads to is never called here. And the agent each decides with.
+    served = (DEMO_AGENT_DIR.parent, automated(tmp_path / "agents"))
+    monkeypatch.setenv("MENDARI_AGENTS_PATH", os.pathsep.join(str(path) for path in served))
     monkeypatch.setattr(reach, "public_client", no_call)
     # A registry to find agents in and add them from (`server/hub_routes.py`), listing one.
     monkeypatch.setenv("MENDARI_REGISTRY_URL", hub.url)
@@ -560,7 +538,7 @@ def world(
     monkeypatch.setenv(
         "MENDARI_SMART_EHRS", ",".join(f"{issuer_of(org)}={org}:decide" for org in ORGS)
     )
-    ehrs = {org: tenant(issuer_of(org)) for org in ORGS}
+    ehrs = {org: smart_tenant(issuer_of(org)) for org in ORGS}
     for name, ehr in ehrs.items():  # alike (the same ids), but its own tokens and patient's name
         marker = name.removeprefix("clinic-")
         ehr.token_prefix = f"access-{marker}"
@@ -570,7 +548,7 @@ def world(
             else r
             for r in ehr.resources
         ]
-    transport = routed(*ehrs.values())
+    transport = smart_routed(*ehrs.values())
     monkeypatch.setattr(
         smart_routes, "GuardedHttp", functools.partial(GuardedHttp, transport=transport)
     )
@@ -594,22 +572,17 @@ def world(
         )
         for org in ORGS
     }
-    # Hidden evaluation sets on (LP-11g), so the routes they mount are called here too.
-    keys = EvalsetKeys(*evalset_on(monkeypatch))
-    # Providers that automate the inbox (a calm Jev), so a hold's effect shows; each hold set
-    # here clears the server's look-up of holds at once.
-    app = create_app(db_path=db_target, providers=calm_jev(monkeypatch))
+    # Each hold set here clears the server's look-up of holds at once.
+    app = create_app(db_path=db_target)
     with AuditStore(db_target) as store:
         store.purge(30, source="command")  # a last purge, with its counts, for health
         world = World(app, store, accounts, orgs)
         with probing(world, monkeypatch):
             for org in orgs.values():
                 seed(world, org)
-                hidden_set(world, org, keys)
-                graded_set(world, org, keys)
                 if world.accounts == "memberships":
+                    labellers(world, org)
                     written_round(world, org, db_target)
-            evalsets_are_on(orgs[ORGS[0]].people["admin"], {})
             yield world
 
 
@@ -689,7 +662,7 @@ def seed(world: World, org: Org) -> None:
         org.launch,
         ("GET", "/smart/launch"),
         "/smart/launch",
-        params={"iss": org.ehr.iss, "launch": "xyz", "pack": REFERRAL},
+        params={"iss": org.ehr.iss, "launch": "xyz", "pack": CHART},
         expect=302,
     )
     location = started.headers["location"]
@@ -706,8 +679,8 @@ def seed(world: World, org: Org) -> None:
     )
     session = org.launch.get("/api/smart/session").json()
     org.launch_id = str(session["launch_id"])
-    # Decisions: pending (a review's), routine (an outcome's), spare (an erasure's); FHIR, the
-    # guard, CDS Hooks (PAS and DTR read it) and the launch.
+    # Decisions: pending (a review's), routine (an outcome's), spare (an erasure's); FHIR, CDS
+    # Hooks (its card's feedback names it) and the launch.
     service = org.keys["service"]
     for kind, words in (
         ("pending", f"Crushing chest pain, left arm numb {m}"),
@@ -744,32 +717,22 @@ def seed(world: World, org: Org) -> None:
         expect=200,
     ).json()
     org.made("decision", packed["decision"]["id"])
-    guarded = world.call(
-        org,
-        service,
-        ("POST", "/api/agents/{namespace}/{name}/guard"),
-        f"/api/agents/{GUARD}/guard",
-        json={**SAFE, "question": f"{SAFE['question']} {m}"},
-        expect=200,
-    ).json()
-    org.made("decision", guarded["decision_id"])
     hook = world.call(
         org,
         service,
         ("POST", "/cds-services/{service_id}"),
-        "/cds-services/mendari.prior-auth-preflight",
-        json=request("acme", COMPLETE, _order("mri", "FX101")),
+        SERVICE,
+        json=hook_request(f"I have had chest pain since last night {m}"),
         expect=200,
     ).json()
-    org.made("decision", org.made("prior", hook["cards"][0]["extension"]["mendari.decision_id"]))
-    org.made("order", json.dumps(hook["systemActions"][0]["resource"]))
+    org.made("decision", org.made("hooked", hook["cards"][0]["extension"]["mendari.decision_id"]))
     assert org.launch is not None
     smart = world.call(
         org,
         org.launch,
         ("POST", "/api/smart/decide"),
         "/api/smart/decide",
-        json=DECIDE_BODY,
+        json=SMART_DECIDE,
         headers={"x-mendari-launch": org.launch_id},
         expect=200,
     ).json()
@@ -799,7 +762,7 @@ def seed(world: World, org: Org) -> None:
             governance,
             ("POST", "/api/governance"),
             "/api/governance",
-            json={"pack_id": GUARD, "reference": f"minutes {m}", "days": 30},
+            json={"pack_id": APPROVABLE, "reference": f"minutes {m}", "days": 30},
             expect=201,
         ).json()
         org.made("approval", approval["id"])
@@ -808,7 +771,7 @@ def seed(world: World, org: Org) -> None:
             governance,
             ("POST", "/api/holds"),
             "/api/holds",
-            json={"pack_id": GUARD, "reason": f"hold {m}"},
+            json={"pack_id": APPROVABLE, "reason": f"hold {m}"},
             expect=201,
         ).json()
         org.made("hold", hold["id"])
@@ -828,7 +791,7 @@ def seed(world: World, org: Org) -> None:
         governance,
         ("POST", "/api/registry-approvals"),
         "/api/registry-approvals",
-        json={"pack_id": GUARD, "pack_digest": "sha256:" + "0" * 64, "reference": "minutes"},
+        json={"pack_id": APPROVABLE, "pack_digest": "sha256:" + "0" * 64, "reference": "minutes"},
         expect=422,
     )
     run = world.call(
@@ -898,46 +861,45 @@ def seed_people(world: World, org: Org) -> None:
         org.made("request", found["id"])
 
 
-def hidden_set(world: World, org: Org, keys: EvalsetKeys) -> None:
-    """A draft hidden evaluation set of `org`'s, as the key holder makes one on the command line
-    (LP-11e), its case's text and author carrying `org`'s marker: the set's id, the case's id
-    and its keyed hash are `org`'s, which the other never sees. In memberships mode its case is
-    drawn and labelled blind by two of `org`'s labellers, at the store (LP-11h): their user
-    ids, the assignments' and the labels' ids are `org`'s too. The first labels at the store; the
-    second's assignment stays open, for phase 2 to label through the routes (LP-11j). Its second
-    case stays undrawn, and a third labeller waits, for phase 2's curator to draw, assign and
-    adjudicate through theirs (LP-11k)."""
-    m = org.marker
-    hidden = EvalsetStore(world.store, keys)
-    made = hidden.create_set(org.name, resolve_pack(INBOX), f"set {m}", created_by="operator")
-    set_id = org.made("evalset", made["set"])
-    case = hand_written(f"A sore wrist since Sunday {m}", author=f"author {m}")
-    later = hand_written(f"A cough since Monday {m}", author=f"author {m}")
-    for added in hidden.add_cases(set_id, [case, later])["cases"]:
-        org.made("evalset case", added["case"])
-    with world.store._db.session(exclusive=False) as db:
-        for row in db.all("SELECT id FROM evalset_cases WHERE set_id = ?", (set_id,)):
-            org.made("evalset case", row["id"])
-    if world.accounts != "memberships":  # a labeller labels in memberships mode only
-        return
-    hidden.sample(set_id, cases=1)
-    people = []
-    for n in range(3):
-        sub = f"labeller-{n}-{m}"
+def labellers(world: World, org: Org) -> None:
+    """Memberships mode: two of `org`'s labellers, who grade its written output (`written_round`);
+    the second is `org.labeller`, signed in. Their user ids are `org`'s."""
+    for n in range(2):
+        sub = f"labeller-{n}-{org.marker}"
         member(world.store, org=org.name, roles=["labeller"], sub=sub)
         org.made("labeller", person_id(IDP, sub))
-        people.append(org.made("person", person_id(IDP, sub)))
-    people = people[:2]  # the third adjudicates in phase 2
-    for assigned in hidden.assign(set_id, people)["assignments"]:
-        org.made("evalset assignment", assigned["assignment"])
-    shown = hidden.next_case(people[0], org=org.name)
-    assert shown is not None
-    labels = {"destination": "nurse", "urgency": "routine"}
-    hidden.record_label(shown["assignment"], people[0], labels, org=org.name)
-    org.labeller = client_of(world.app, member(world.store, org=org.name, sub=f"labeller-1-{m}"))
-    with world.store._db.session(exclusive=False) as db:
-        for row in db.all("SELECT id FROM evalset_labels WHERE set_id = ?", (set_id,)):
-            org.made("evalset label", row["id"])
+        org.made("person", person_id(IDP, sub))
+    org.labeller = client_of(
+        world.app, member(world.store, org=org.name, sub=f"labeller-1-{org.marker}")
+    )
+
+
+def hook_request(words: str) -> dict[str, Any]:
+    """The triage fixture's hook, a message saying `words` prefetched with its patient."""
+    communication = {**COMMUNICATION, "payload": [{"contentString": words}]}
+    return {
+        "hook": "mendari-message-received",
+        "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
+        "context": {"communicationId": "msg-1", "patientId": "pat-1"},
+        "prefetch": {"communication": communication, "patient": PATIENT},
+    }
+
+
+def card_feedback(*items: dict[str, Any]) -> dict[str, Any]:
+    """A CDS Hooks feedback request (LP-23f)."""
+    return {"feedback": list(items)}
+
+
+def overridden(card: str, code: str) -> dict[str, Any]:
+    """One card's feedback: overridden, with one of the reasons the card offered (`code`)."""
+    reason = {"system": OVERRIDE_REASONS_SYSTEM, "code": code}
+    reason["display"] = OVERRIDE_REASONS.get(code, ("x",))[0]
+    return {
+        "card": card,
+        "outcome": "overridden",
+        "outcomeTimestamp": "2026-10-18T12:00:00-04:00",
+        "overrideReason": {"reason": reason},
+    }
 
 
 def written_round(world: World, org: Org, db_target: str) -> None:
@@ -1003,47 +965,6 @@ def served_written(world: World, x: Org) -> None:
         x, x.people["viewer"], ("GET", "/api/written/rounds"), "/api/written/rounds", expect=200
     ).json()
     assert [found["id"] for found in listed] == [x.one("written round")]
-
-
-def graded_set(world: World, org: Org, keys: EvalsetKeys) -> None:
-    """A frozen hidden evaluation set of `org`'s, in either mode, as the key holder makes one
-    (LP-11i): two cases carrying `org`'s marker, drawn and labelled blind at the store by two of
-    its labellers who agree, frozen; and `org`'s grading key, the operator's (LP-11d), which runs
-    the inbox over it through the grading route in phase 2 (LP-11l) and is refused the other's
-    set in phase 1. The set's id, its cases' ids and hashes, the labellers' user ids and the
-    key's id and secret are `org`'s (`secrets_of`)."""
-    m = org.marker
-    hidden = EvalsetStore(world.store, keys)
-    made = hidden.create_set(
-        org.name, resolve_pack(INBOX), f"graded set {m}", created_by="operator"
-    )
-    set_id = org.made("graded evalset", made["set"])
-    written = [
-        hand_written(f"A rash on my arm since Friday {m}", author=f"author {m}"),
-        hand_written(f"A dull headache since Tuesday {m}", author=f"author {m}"),
-    ]
-    for added in hidden.add_cases(set_id, written)["cases"]:
-        org.made("evalset case", added["case"])
-    with world.store._db.session(exclusive=False) as db:
-        for row in db.all("SELECT id FROM evalset_cases WHERE set_id = ?", (set_id,)):
-            org.made("evalset case", row["id"])
-    hidden.sample(set_id, cases=len(written))
-    people = []
-    for n in range(2):
-        sub = f"grading-labeller-{n}-{m}"
-        member(world.store, org=org.name, roles=["labeller"], sub=sub)
-        people.append(org.made("person", person_id(IDP, sub)))
-    hidden.assign(set_id, people)
-    labels = {"destination": "nurse", "urgency": "routine"}
-    for user in people:
-        while (shown := hidden.next_case(user, org=org.name)) is not None:
-            hidden.record_label(shown["assignment"], user, labels, org=org.name)
-    hidden.freeze(set_id, max_runs=5, max_age_days=30, resamples=20)
-    grading = world.store.create_grading_key(
-        org=org.name, created_by="operator", reason=f"grading {m}"
-    )
-    org.made("grading key", grading["id"])
-    org.grader = client_of(world.app, bearer(grading["key"]))
 
 
 def token_form(signer: Signer, client_id: str, scope: str = "system/*.rs") -> dict[str, str]:
@@ -1260,76 +1181,25 @@ def refusals(world: World, x: Org, o: Org) -> None:
         for entry in replayed.get("entry", []):
             if entry.get("search", {}).get("mode") == "match":
                 assert entry["resource"]["id"].startswith(owned), (kind, entry["resource"]["id"])
-    pas = {
-        "decision_id": o.one("prior"),
-        "patient": PATIENT,
-        "coverage": COVERAGE,
-        "insurer": INSURER,
-        "requester": REQUESTER,
-        "order": _order("mri", "FX101"),
-        "service_type": "62",
-        "place_of_service": "22",
-        **REQUIRED,  # the site's X12 codes, from the request (LP-14: none ships)
-    }
-    refused(
-        service,
-        ("POST", "/api/agents/{namespace}/{name}/pas"),
-        f"/api/agents/{PA}/pas",
-        o.one("prior"),
-        404,
-        json=pas,
-    )
     # Authorizing an action for their decision (spec 0.4): unknown here, and nothing is chained.
     refused(
         service,
         ("POST", "/api/agents/{namespace}/{name}/actions"),
-        f"/api/agents/{PA}/actions",
-        o.one("prior"),
+        f"/api/agents/{INBOX}/actions",
+        o.one("hooked"),
         404,
-        json={"decision_id": o.one("prior"), "name": "send_reply", "arguments": {}},
+        json={"decision_id": o.one("hooked"), "name": "send_reply", "arguments": {}},
     )
     # Feedback on their card (its uuid is their decision's id): the one answer an unknown card
     # gets, and nothing chained (LP-23f).
     refused(
         service,
         ("POST", "/cds-services/{service_id}/feedback"),
-        "/cds-services/mendari.prior-auth-preflight/feedback",
-        o.one("prior"),
+        f"{SERVICE}/feedback",
+        o.one("hooked"),
         404,
-        json=card_feedback(overridden(o.one("prior"), "not-relevant")),
+        json=card_feedback(overridden(o.one("hooked"), "not-relevant")),
     )
-    # Their signed order names no decision of this organization: DTR's source data error (a 422,
-    # spec-130), the same answer an unknown assertion id gets.
-    package = refused(
-        service,
-        ("POST", "/fhir/Questionnaire/$questionnaire-package"),
-        "/fhir/Questionnaire/$questionnaire-package",
-        o.one("prior"),
-        422,
-        json=package_request({"name": "order", "resource": json.loads(o.one("order"))}),
-    ).json()
-    assert [i["code"] for i in package["issue"]] == ["not-found"]
-    assert o.one("prior") not in json.dumps(package)
-    # Beside this organization's own order, theirs is a warning beside its package, the same
-    # one an unknown assertion id gets, which repeats neither.
-    mine = {"name": "order", "resource": json.loads(x.one("order"))}
-    warned = []
-    for prior in (o.one("prior"), unknown_like(o.one("prior"))):
-        theirs = json.loads(o.one("order").replace(o.one("prior"), prior))
-        beside = world.call(
-            x,
-            service,
-            ("POST", "/fhir/Questionnaire/$questionnaire-package"),
-            "/fhir/Questionnaire/$questionnaire-package",
-            json=package_request(mine, {"name": "order", "resource": theirs}),
-            sent=(prior,),
-            expect=200,
-        )
-        assert prior not in beside.text
-        *packages, last = beside.json()["parameter"]
-        assert [p["name"] for p in packages] == ["packagebundle"] and last["name"] == "outcome"
-        warned.append(last["resource"]["issue"])
-    assert warned[0] == warned[1] and [i["severity"] for i in warned[0]] == ["warning"]
     # Credentials and governance of the other's.
     for key_id in o.ids["key"]:
         refused(
@@ -1447,30 +1317,15 @@ def refusals(world: World, x: Org, o: Org) -> None:
         (
             ("GET", "/api/smart/focus"),
             "/api/smart/focus",
-            {"params": {"pack_id": DECIDE_BODY["pack_id"]}},
+            {"params": {"pack_id": SMART_DECIDE["pack_id"]}},
         ),
         (("GET", "/api/smart/patient"), "/api/smart/patient", {}),
-        (("POST", "/api/smart/decide"), "/api/smart/decide", {"json": DECIDE_BODY}),
+        (("POST", "/api/smart/decide"), "/api/smart/decide", {"json": SMART_DECIDE}),
     ):
         refused(x.launch, route, url, o.launch_id, 409, headers=pinned, **options)
-    # Their frozen set, graded by this organization's grading key (LP-11l): the `404` an unknown
-    # set gets, nothing read, written or chained.
-    assert x.grader is not None
-    theirs = o.one("graded evalset")
-    url = RUNS[1].replace("{set_id}", theirs)
-    refused(x.grader, RUNS, url, theirs, 404, json=GRADED)
     if world.accounts == "memberships":
         refused_people(world, x, o, refused)
         assert x.labeller is not None
-        for assignment in o.ids["evalset assignment"]:  # one answered, one open
-            refused(
-                x.labeller,
-                ("POST", "/api/labelling/{assignment_id}"),
-                f"/api/labelling/{assignment}",
-                assignment,
-                404,
-                json={"labels": {"destination": "nurse", "urgency": "routine"}},
-            )
         for assignment in o.ids["written assignment"]:  # another organization's grader's
             refused(
                 x.labeller,
@@ -1486,40 +1341,6 @@ def refusals(world: World, x: Org, o: Org) -> None:
                     }
                 },
             )
-        refused_curating(world, x, o, refused)
-
-
-def refused_curating(world: World, x: Org, o: Org, refused: Callable[..., Any]) -> None:
-    """Memberships mode: `x`'s administrator on `o`'s set (LP-11k), read, drawn, assigned and
-    adjudicated: the `404` an unknown set gets, nothing written; and `o`'s labellers named for
-    `x`'s own set: the refusal an unknown person gets, nothing written."""
-    admin, theirs = x.people["admin"], o.one("evalset")
-    pool = {"labellers": x.ids["labeller"][:2]}
-    for route, sent in (
-        (("GET", "/api/evalsets/{set_id}"), {}),
-        (("POST", "/api/evalsets/{set_id}/sample"), {"json": {"cases": 1}}),
-        (("POST", "/api/evalsets/{set_id}/assignments"), {"json": pool}),
-        (("POST", "/api/evalsets/{set_id}/adjudication"), {"json": pool}),
-    ):
-        refused(admin, route, route[1].replace("{set_id}", theirs), theirs, 404, **sent)
-    assign, own = ("POST", "/api/evalsets/{set_id}/assignments"), x.one("evalset")
-    nobody = f"user:{'0' * 16}"  # a person's id that names no one (`unknown_like` would not)
-    for labeller in o.ids["labeller"]:
-        told = []
-        for named in (labeller, nobody):
-            before = written(world.store)
-            answer = world.call(
-                x,
-                admin,
-                assign,
-                f"/api/evalsets/{own}/assignments",
-                json={"labellers": [named, x.one("labeller")]},
-                expect=400,
-                sent=(named,),
-            )
-            assert written(world.store) == before, named
-            told.append(same(answer.text, named))
-        assert told[0] == told[1], told
 
 
 def refused_people(world: World, x: Org, o: Org, refused: Callable[..., Any]) -> None:
@@ -1633,13 +1454,13 @@ def reads(world: World, x: Org) -> dict[str, str]:
         (viewer, ("GET", "/api/feedback"), "/api/feedback", {**pack, "rating": "down"}),
         (viewer, ("GET", "/api/holds"), "/api/holds", {}),
         (viewer, ("GET", "/api/governance"), "/api/governance", {}),
-        (viewer, ("GET", "/api/governance"), "/api/governance", {"pack_id": GUARD}),
+        (viewer, ("GET", "/api/governance"), "/api/governance", {"pack_id": APPROVABLE}),
         (viewer, ("GET", "/api/registry-approvals"), "/api/registry-approvals", {}),
         (
             viewer,
             ("GET", "/api/registry-approvals"),
             "/api/registry-approvals",
-            {"pack_id": GUARD},
+            {"pack_id": APPROVABLE},
         ),
         (viewer, ("GET", "/api/evals"), "/api/evals", {}),
         (viewer, ("GET", "/api/evals"), "/api/evals", pack),
@@ -1674,12 +1495,6 @@ def reads(world: World, x: Org) -> dict[str, str]:
     if world.accounts == "memberships":
         for path in ("/api/auth/members", "/api/auth/invitations", "/api/auth/access-requests"):
             asked.append((admin, ("GET", path), path, {}))
-        assert x.labeller is not None  # a labeller's own counts (LP-11j)
-        asked.append((x.labeller, ("GET", "/api/labelling"), "/api/labelling", {}))
-        # Its curators' list and set (LP-11k): its state, labelling by user id, aggregates.
-        asked.append((admin, ("GET", "/api/evalsets"), "/api/evalsets", {}))
-        own = f"/api/evalsets/{x.one('evalset')}"
-        asked.append((admin, ("GET", "/api/evalsets/{set_id}"), own, {}))
     answers = {}
     for who, route, url, params in asked:
         key = f"{id(who)}{url}?{json.dumps(params)}"
@@ -1856,39 +1671,20 @@ def served(world: World, x: Org) -> None:
         x.launch,
         ("GET", "/api/smart/focus"),
         "/api/smart/focus",
-        params={"pack_id": DECIDE_BODY["pack_id"]},
+        params={"pack_id": SMART_DECIDE["pack_id"]},
         headers=pinned,
         expect=200,
     )
     world.call(
         x, x.launch, ("GET", "/api/smart/patient"), "/api/smart/patient", headers=pinned, expect=200
     )
-    pas = {
-        "decision_id": x.one("prior"),
-        "patient": PATIENT,
-        "coverage": COVERAGE,
-        "insurer": INSURER,
-        "requester": REQUESTER,
-        "order": _order("mri", "FX101"),
-        "service_type": "62",
-        "place_of_service": "22",
-        **REQUIRED,  # the site's X12 codes, from the request (LP-14: none ships)
-    }
-    world.call(
-        x,
-        service,
-        ("POST", "/api/agents/{namespace}/{name}/pas"),
-        f"/api/agents/{PA}/pas",
-        json=pas,
-        expect=200,
-    )
     # An action for its own decision: answered (blocked: this agent declares none), and chained.
     asked = world.call(
         x,
         service,
         ("POST", "/api/agents/{namespace}/{name}/actions"),
-        f"/api/agents/{PA}/actions",
-        json={"decision_id": x.one("prior"), "name": "send_reply", "arguments": {}},
+        f"/api/agents/{INBOX}/actions",
+        json={"decision_id": x.one("hooked"), "name": "send_reply", "arguments": {}},
         expect=200,
     ).json()
     assert (asked["disposition"], asked["reason"]) == ("blocked", "undeclared")
@@ -1896,19 +1692,10 @@ def served(world: World, x: Org) -> None:
         x,
         service,
         ("POST", "/cds-services/{service_id}/feedback"),
-        "/cds-services/mendari.prior-auth-preflight/feedback",
-        json=card_feedback(overridden(x.one("prior"), "already-addressed")),
+        f"{SERVICE}/feedback",
+        json=card_feedback(overridden(x.one("hooked"), "already-addressed")),
         expect=200,
     )
-    package = world.call(
-        x,
-        service,
-        ("POST", "/fhir/Questionnaire/$questionnaire-package"),
-        "/fhir/Questionnaire/$questionnaire-package",
-        json=package_request({"name": "order", "resource": json.loads(x.one("order"))}),
-        expect=200,
-    ).json()
-    assert "packagebundle" in [p["name"] for p in package["parameter"]]
     deployment_wide(world, x)
     # What changes things: an outcome on the reviewed decision, then the spares.
     world.call(
@@ -1978,12 +1765,9 @@ def served(world: World, x: Org) -> None:
         f"/api/registry-approvals/{x.one('registry_approval', 1)}",
         expect=204,
     )
-    served_grading(world, x)
     if world.accounts == "memberships":
         served_people(world, x)
-        served_labelling(world, x)
         served_written(world, x)
-        served_curating(world, x)
         served_store(world, x)
     served_agents(world, x)
 
@@ -2047,7 +1831,7 @@ def served_agents(world: World, x: Org) -> None:
         return
     # The other's store agents (if it has made them by now): no agents here, nothing written.
     if o.ids.get("store version"):
-        theirs = f"/api/connections/{o.name}/inbox-copy"
+        theirs = f"/api/connections/{o.name}/triage-copy"
         before = written(world.store)
         world.call(x, admin, one, theirs, expect=404)
         world.call(x, admin, setting, theirs, json=connection_of(x, "theirs"), expect=404)
@@ -2072,7 +1856,7 @@ def served_agents(world: World, x: Org) -> None:
 
 
 def _store_archive(org: str, key: Any, note: str) -> bytes:
-    """A signed archive of the inbox pack in `org`'s namespace, its tests carrying `note`."""
+    """A signed archive of the triage fixture in `org`'s namespace, its tests carrying `note`."""
     import shutil
     import tempfile
     from pathlib import Path
@@ -2086,7 +1870,7 @@ def _store_archive(org: str, key: Any, note: str) -> bytes:
         root = Path(scratch) / "pack"
         shutil.copytree(resolve_pack(INBOX).root, root)
         manifest = yaml.safe_load((root / "agent.yaml").read_text())
-        manifest["id"] = f"{org}/inbox-upload"
+        manifest["id"] = f"{org}/triage-upload"
         (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
         cases = root / "tests" / "cases.yaml"
         cases.write_text(cases.read_text() + f"\n# {note}\n")
@@ -2095,7 +1879,7 @@ def _store_archive(org: str, key: Any, note: str) -> bytes:
 
 def served_store(world: World, x: Org) -> None:
     """Memberships mode, the pack store on (LP-20f): `x`'s administrator registers an author
-    key; its author copies the inbox pack, edits the copy, runs its tests, uploads a signed
+    key; its author copies the triage fixture, edits the copy, runs its tests, uploads a signed
     archive whole and another in parts, lists and reads them, and withdraws one; the key is
     revoked. Every digest, key and upload of the other organization's answers `404` here."""
     import hashlib
@@ -2151,7 +1935,7 @@ def served_store(world: World, x: Org) -> None:
             x,
             author,
             ("GET", "/api/store/agents/{namespace}/{name}"),
-            f"/api/store/agents/{o.name}/inbox-copy",
+            f"/api/store/agents/{o.name}/triage-copy",
             expect=404,
         )
 
@@ -2172,18 +1956,18 @@ def served_store(world: World, x: Org) -> None:
         author,
         ("POST", "/api/store/copies"),
         "/api/store/copies",
-        json={"pack": INBOX, "name": "inbox-copy"},
+        json={"pack": INBOX, "name": "triage-copy"},
         expect=201,
     ).json()
     x.made("store version", copy["digest"])
-    rules = resolve_pack(INBOX).read_bytes("logic/routing_rules.yaml").decode()
+    rules = resolve_pack(INBOX).read_bytes("logic/router_rules.yaml").decode()
     rules += f"\n# {x.marker}\n"
     world.call(
         x,
         author,
         ("GET", "/api/store/versions/{digest}/file"),
         f"/api/store/versions/{copy['digest']}/file",
-        params={"path": "logic/routing_rules.yaml"},
+        params={"path": "logic/router_rules.yaml"},
         expect=200,
     )
     edited = world.call(
@@ -2191,7 +1975,7 @@ def served_store(world: World, x: Org) -> None:
         author,
         ("POST", "/api/store/versions/{digest}/edits"),
         f"/api/store/versions/{copy['digest']}/edits",
-        json={"files": [{"path": "logic/routing_rules.yaml", "content": rules}]},
+        json={"files": [{"path": "logic/router_rules.yaml", "content": rules}]},
         expect=201,
     ).json()
     x.made("store version", edited["digest"])
@@ -2239,14 +2023,14 @@ def served_store(world: World, x: Org) -> None:
     x.made("store version", parts["digest"])
     listed = world.call(x, author, ("GET", "/api/store/agents"), "/api/store/agents", expect=200)
     assert {lineage["pack_id"] for lineage in listed.json()} == {
-        f"{x.name}/inbox-copy",
-        f"{x.name}/inbox-upload",
+        f"{x.name}/triage-copy",
+        f"{x.name}/triage-upload",
     }
     world.call(
         x,
         author,
         ("GET", "/api/store/agents/{namespace}/{name}"),
-        f"/api/store/agents/{x.name}/inbox-copy",
+        f"/api/store/agents/{x.name}/triage-copy",
         expect=200,
     )
     world.call(
@@ -2391,7 +2175,7 @@ def served_store_promotion(world: World, x: Org, digest: str, job_id: str) -> No
         expect=201,
     ).json()
     x.made("store promotion", made["id"])
-    pack_id = f"{x.name}/inbox-copy"
+    pack_id = f"{x.name}/triage-copy"
     served = world.call(x, x.people["viewer"], ("GET", "/api/agents"), "/api/agents", expect=200)
     assert pack_id in {p["id"] for p in served.json()}
     world.call(
@@ -2427,7 +2211,7 @@ def served_store_improvement(world: World, x: Org, digest: str) -> None:
         x,
         reader,
         ("POST", "/api/store/agents/{namespace}/{name}/improvement"),
-        f"/api/store/agents/{x.name}/inbox-copy/improvement",
+        f"/api/store/agents/{x.name}/triage-copy/improvement",
         json={"version": digest, "limit": 5},
         expect=(201, 422),
     )
@@ -2452,89 +2236,6 @@ def served_store_improvement(world: World, x: Org, digest: str) -> None:
         json={"accept": True},
         expect=200,
     )
-
-
-def served_grading(world: World, x: Org) -> None:
-    """`x`'s grading key runs the inbox over `x`'s frozen set with local providers (LP-11l): its
-    first run, over its two cases, answered with aggregates only (scanned, as every answer is,
-    for the other's markers and ids)."""
-    assert x.grader is not None
-    set_id = x.one("graded evalset")
-    url = RUNS[1].replace("{set_id}", set_id)
-    shown = world.call(x, x.grader, RUNS, url, json=GRADED, expect=200).json()
-    assert (shown["set"], shown["n"], shown["run"], shown["runs_left"]) == (set_id, 2, 1, 4)
-
-
-def served_labelling(world: World, x: Org) -> None:
-    """Memberships mode: `x`'s labeller is shown their own open case and labels it (LP-11j);
-    then nothing waits for them."""
-    assert x.labeller is not None
-    nxt, label = ("GET", "/api/labelling/next"), ("POST", "/api/labelling/{assignment_id}")
-    shown = world.call(x, x.labeller, nxt, nxt[1], expect=200).json()
-    assert shown["assignment"] in x.ids["evalset assignment"]
-    body = {"labels": {"destination": "nurse", "urgency": "routine"}}
-    url = f"/api/labelling/{shown['assignment']}"
-    told = world.call(x, x.labeller, label, url, json=body, expect=200)
-    assert told.json() == {"remaining": 0}
-    world.call(x, x.labeller, nxt, nxt[1], expect=204)
-
-
-def served_curating(world: World, x: Org) -> None:
-    """Memberships mode: `x`'s administrator draws its set's second case, assigns it to its two
-    labellers, who disagree on it at the store, and has a third adjudicate it (LP-11k); the set
-    then counts each labeller's work by user id, and nothing of `o`'s."""
-    admin, set_id = x.people["admin"], x.one("evalset")
-    first, second, third = x.ids["labeller"]
-    drawn = world.call(
-        x,
-        admin,
-        ("POST", "/api/evalsets/{set_id}/sample"),
-        f"/api/evalsets/{set_id}/sample",
-        json={"cases": 1},
-        expect=200,
-    ).json()
-    assert (drawn["drawn"], drawn["sampled"]) == (1, 2)
-    assigned = world.call(
-        x,
-        admin,
-        ("POST", "/api/evalsets/{set_id}/assignments"),
-        f"/api/evalsets/{set_id}/assignments",
-        json={"labellers": [first, second]},
-        expect=200,
-    ).json()
-    assert assigned["assigned"] == 2
-    keys = evalset_keys()
-    assert keys is not None
-    hidden = EvalsetStore(world.store, keys)
-    for user, destination in ((first, "nurse"), (second, "physician")):
-        shown = hidden.next_case(user, org=x.name)
-        assert shown is not None
-        x.made("evalset assignment", shown["assignment"])
-        labels = {"destination": destination, "urgency": "routine"}
-        hidden.record_label(shown["assignment"], user, labels, org=x.name)
-    adjudicated = world.call(
-        x,
-        admin,
-        ("POST", "/api/evalsets/{set_id}/adjudication"),
-        f"/api/evalsets/{set_id}/adjudication",
-        json={"labellers": [third]},
-        expect=200,
-    ).json()
-    assert adjudicated["assigned"] == 1
-    shown = world.call(
-        x,
-        admin,
-        ("GET", "/api/evalsets/{set_id}"),
-        f"/api/evalsets/{set_id}",
-        expect=200,
-    ).json()
-    assert {k: v for k, v in shown["statuses"].items() if v} == {"agreed": 1, "disputed": 1}
-    assert set(shown["labellers"]) == {first, second, third}
-    with world.store._db.session(exclusive=False) as db:
-        for row in db.all("SELECT id FROM evalset_assignments WHERE set_id = ?", (set_id,)):
-            x.made("evalset assignment", row["id"])
-        for row in db.all("SELECT id FROM evalset_labels WHERE set_id = ?", (set_id,)):
-            x.made("evalset label", row["id"])
 
 
 def served_people(world: World, x: Org) -> None:
@@ -2682,9 +2383,9 @@ def test_every_route_called_as_two_organizations_shows_neither_the_others_data(
 
 def again(world: World, x: Org) -> None:
     """A second round of `x`'s work, one write of every kind an answer counts: an automated
-    decision, then a hold of the inbox and a decision it holds (citing it, while the other's
-    automation runs on); a review, an outcome and a rating; an approval, an evaluation, a key and
-    a client; in memberships mode an invitation and a request to join."""
+    decision, then a hold of the triage fixture and a decision it holds (citing it, while the
+    other's automation runs on); a review, an outcome and a rating; an approval, an evaluation, a
+    key and a client; in memberships mode an invitation and a request to join."""
     decide, url = ("POST", "/api/agents/{namespace}/{name}/decide"), f"/api/agents/{INBOX}/decide"
     service, reviewer = x.keys["service"], x.people["reviewer"]
     free = world.call(x, service, decide, url, json=message(f"{REFILL} {x.marker}"), expect=200)
@@ -2733,7 +2434,7 @@ def again(world: World, x: Org) -> None:
         x.people["governance"],
         ("POST", "/api/governance"),
         "/api/governance",
-        json={"pack_id": GUARD, "reference": f"again {x.marker}", "days": 30},
+        json={"pack_id": APPROVABLE, "reference": f"again {x.marker}", "days": 30},
         expect=201,
     ).json()
     x.made("approval", approval["id"])
@@ -2810,9 +2511,8 @@ def again(world: World, x: Org) -> None:
 def secrets_of(world: World, org: Org) -> set[str]:
     """Every id and secret of `org`'s that the other must never see: what it made, its people,
     its credentials, and the hash of each event chained about its rows."""
-    found = {value for kind, values in org.ids.items() if kind != "order" for value in values}
-    graders = [org.grader] if org.grader is not None else []  # its grading key (LP-11l)
-    for client in (*org.keys.values(), *org.tokens.values(), *graders):
+    found = {value for values in org.ids.values() for value in values}
+    for client in (*org.keys.values(), *org.tokens.values()):
         found.add(client.headers["authorization"].removeprefix("Bearer "))
     found |= {org.launch_id, org.name}
     record = world.store.organization(org.name)
@@ -2905,7 +2605,7 @@ def attribute(world: World) -> None:
 def covered(world: World) -> None:
     """Every mounted route is exercised by a call here or is one the allow-list does not call;
     and the allow-list names only mounted routes, each called unless it says why not."""
-    mounted = set(presets.served(world.app.routes))
+    mounted = set(presets.served(world.app.routes)) - REMOVED_ROUTES
     assert mounted - world.exercised - NOT_CALLED == set(), "a route no call here exercises"
     assert world.exercised <= mounted
     assert (set(DEPLOYMENT_WIDE) - MEMBERSHIPS_ONLY) <= mounted | NOT_CALLED
@@ -2970,17 +2670,4 @@ def test_every_store_method_that_may_read_every_organization_is_probed() -> None
         and (parameter := inspect.signature(method).parameters.get("org")) is not None
         and "None" in str(parameter.annotation)
     }
-    # The hidden evaluation sets' store (LP-11e): every method that takes an organization.
-    found |= {
-        f"EvalsetStore.{name}"
-        for name, method in inspect.getmembers(EvalsetStore, inspect.isfunction)
-        if not name.startswith("_") and "org" in inspect.signature(method).parameters
-    }
     assert found == {*EXPLICIT, "holds", "memberships"}
-    assert {name for name in DEPLOYMENT_READS if name.startswith("EvalsetStore.")} == {
-        "EvalsetStore.hidden_matches",
-        "EvalsetStore.rotate",
-        "EvalsetStore.check",
-        "EvalsetStore.reindex",
-        "EvalsetStore.export",
-    }
