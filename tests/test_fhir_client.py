@@ -305,8 +305,9 @@ def test_cds_hooks_fetches_missing_prefetch_from_an_allowed_server(
     assert len(response.json()["cards"]) == 1
     urls = sorted(str(r.url).removeprefix(EHR) for r in ehr.requests)
     patient = CASE.id
+    binaries = [f"/Binary/{patient}-note-{n}-1" for n in range(1, len(CASE.notes) + 1)]
     assert urls == [
-        f"/Binary/{patient}-note-1-1",
+        *binaries,  # each note's one rendition, read as the record is
         f"/Condition?patient={patient}",
         f"/DocumentReference?patient={patient}&category=clinical-note",
         f"/MedicationRequest?patient={patient}&_include=MedicationRequest:medication",
