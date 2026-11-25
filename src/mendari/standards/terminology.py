@@ -39,21 +39,7 @@ from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError
-from mendari.sandbox.code_systems import (
-    CHANNEL_SYSTEM,
-    CHANNELS,
-    CONDITION_SYSTEM,
-    CONDITIONS,
-    PROCEDURE_SYSTEM,
-    PROCEDURES,
-    REFERRAL_SYSTEM,
-    REFERRALS,
-    SANDBOX_TAG,
-    SITE_DIAGNOSES,
-    SITE_DIAGNOSIS_SYSTEM,
-    SITE_ORDER_TYPE_SYSTEM,
-    SITE_ORDER_TYPES,
-)
+from mendari.sandbox.code_systems import CHANNEL_SYSTEM, CHANNELS, SANDBOX_TAG
 from mendari.standards import audit_fhir
 from mendari.standards.fhir import (
     DECISION_ID_SYSTEM,
@@ -221,11 +207,8 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
 
 def sandbox_resources() -> list[dict[str, Any]]:
     """The sandbox's own systems (`sandbox/code_systems.py`), experimental and never served:
-    its synthetic-data tag, its Communications' message channel, the fictional codes synthetic
-    examples are written in (prior-authorization procedures, a local site's conditions, a
-    specialty referral), and a vendor-shaped EHR site's own codes (its diagnoses and its
-    referral's order type, LP-23e). CI loads them so the sandbox and Da Vinci samples
-    validate."""
+    its synthetic-data tag and its Communications' message channel. CI loads them so the
+    sandbox's samples validate."""
     return [
         _code_system(
             SANDBOX_TAG["system"],
@@ -243,57 +226,6 @@ def sandbox_resources() -> list[dict[str, Any]]:
             "How a synthetic patient message arrived (Communication.medium).",
             __version__,
             [_concept(code, shown) for code, shown in CHANNELS.items()],
-            experimental=True,
-        ),
-        _code_system(
-            PROCEDURE_SYSTEM,
-            "fictional-procedures",
-            "Mendari fictional procedure codes",
-            "Procedure codes invented for synthetic prior-authorization data. Not CPT or any "
-            "real code system; never for billing. A site maps its own codes.",
-            __version__,
-            [_concept(code, shown) for code, shown in PROCEDURES.items()],
-            experimental=True,
-        ),
-        _code_system(
-            CONDITION_SYSTEM,
-            "fictional-conditions",
-            "Mendari fictional condition codes",
-            "Condition codes invented for a synthetic local site's patient records. Not SNOMED "
-            "CT or any real code system. A site maps its own codes.",
-            __version__,
-            [_concept(code, shown) for code, shown in CONDITIONS.items()],
-            experimental=True,
-        ),
-        _code_system(
-            REFERRAL_SYSTEM,
-            "fictional-referrals",
-            "Mendari fictional referral codes",
-            "The code that marks a synthetic order as a specialty referral. Not SNOMED CT or "
-            "any real code system. A site maps its own referral code.",
-            __version__,
-            [_concept(code, shown) for code, shown in REFERRALS.items()],
-            experimental=True,
-        ),
-        _code_system(
-            SITE_DIAGNOSIS_SYSTEM,
-            "fictional-site-diagnoses",
-            "Mendari fictional site diagnosis codes",
-            "A synthetic EHR site's own diagnosis codes, which the sandbox's vendor-shaped profile "
-            "sends beside ICD-10-CM. Not SNOMED CT or any real code system.",
-            __version__,
-            [_concept(code, shown) for code, shown in sorted(SITE_DIAGNOSES.values())],
-            experimental=True,
-        ),
-        _code_system(
-            SITE_ORDER_TYPE_SYSTEM,
-            "fictional-site-order-types",
-            "Mendari fictional site order types",
-            "A synthetic EHR site's own order types, which the sandbox's vendor-shaped profile "
-            "sends as a referral's category beside the fictional referral code. Not SNOMED CT or "
-            "any real code system.",
-            __version__,
-            [_concept(code, shown) for code, shown in SITE_ORDER_TYPES.items()],
             experimental=True,
         ),
     ]

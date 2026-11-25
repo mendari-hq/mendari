@@ -114,13 +114,6 @@ EXPECTED_WARNINGS = (
         r"/\*ServiceRequest/[^*]*\*/\.reasonCode\[\d+\]$",
         "synthetic referrals give their reason as text (an extensible binding)",
     ),
-    Expected(
-        r"^None of the codings provided are in the value set 'US Core Procedure Codes' .*"
-        r"\(codes = https://mendari\.co/fhir/CodeSystem/fictional-referrals#FR\d{3}\)$",
-        r"/\*ServiceRequest/[^*]*\*/\.code$",
-        "a synthetic referral's code is the fictional referral code (LP-14: SNOMED CT, whose "
-        "codes the value set's referrals are in, is in no package), an extensible binding",
-    ),
     Expected(r"CodeSystem 'urn:ietf:bcp:47'.* could not be found", "", NO_TERMINOLOGY_SERVER),
     Expected(
         r"^A definition for CodeSystem 'http://www\.cms\.gov/Medicare/Coding/ICD10'( version "

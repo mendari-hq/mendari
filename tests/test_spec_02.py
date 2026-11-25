@@ -270,7 +270,7 @@ def test_other_oids_and_free_systems_name_no_licensed_system() -> None:
         "http://terminology.hl7.org/CodeSystem/CD2-other",
         "http://loinc.org",
         "http://hl7.org/fhir/sid/icd-10-cm",
-        "https://mendari.co/fhir/CodeSystem/fictional-procedures",
+        "https://mendari.co/fhir/CodeSystem/message-channel",
     ):
         assert licensed_systems(text) == set(), text
 
