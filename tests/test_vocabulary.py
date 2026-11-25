@@ -76,8 +76,8 @@ _AS_CODE = re.compile(
 KEPT_NAMES = {
     "CodeSystem/decision-pack": "the CodeSystem of agent versions, by its canonical URL: the "
     "API description gives it as the `_tag` a Task search takes",
-    "mendari.co/packs": "the canonical URLs of an agent's FHIR terminology, schema and library: "
-    "the docs give a community agent's, which it must publish under",
+    "mendari.co/packs": "the canonical URLs of an agent's FHIR terminology, schema and library, "
+    "which stored FHIR resources and published schemas carry",
 }
 _KEPT = re.compile("|".join(re.escape(name) for name in KEPT_NAMES))
 

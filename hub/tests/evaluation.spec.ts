@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // An agent's evaluation page (app/agents/[namespace]/[name]/evaluation), against the registry the
 // other tests run against: the demo agent with its publisher's signed evaluations of two
-// configurations, and a community agent with none (scripts/hub_seed.py --hostile-example
-// --evaluations). The states a seeded registry cannot be in are in evaluation-states.spec.ts.
+// configurations, and a community publisher's agent with none (scripts/hub_seed.py
+// --hostile-example --evaluations). The states a seeded registry cannot be in are in
+// evaluation-states.spec.ts.
 import { readFileSync } from "node:fs";
 
 import { expect, test, type Page } from "@playwright/test";
