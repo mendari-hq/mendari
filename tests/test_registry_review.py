@@ -30,7 +30,7 @@ from tests.test_registry_mount import APP, IDP, World, bearer, served, sign_in_o
 
 REVIEW_ORG = "registry-review"
 REVIEW = "/api/registry/review"
-VERSION = f"{REVIEW}/packs/acme/inbox/{SHIPPED}"
+VERSION = f"{REVIEW}/agents/acme/inbox/{SHIPPED}"
 # Every reviewer route, with a body that is valid for it.
 REVIEW_ROUTES: tuple[tuple[str, str, dict[str, Any] | None], ...] = (
     ("GET", REVIEW, None),
@@ -339,9 +339,11 @@ def test_approval_refusal_review_recall_and_deletion_are_chained_by_the_reviewer
     # Once each: a second recall or deletion, and what does not exist.
     for path, body, _ in sent[4:]:
         assert world.http.post(path, json=body, headers=rita).status_code == 409
-    missing = f"{REVIEW}/packs/acme/nothing/1.0.0"
+    missing = f"{REVIEW}/agents/acme/nothing/1.0.0"
     assert world.http.post(missing, json=sent[3][1], headers=rita).status_code == 404
-    odd = world.http.post(f"{REVIEW}/packs/acme/inbox/not a version", json=sent[3][1], headers=rita)
+    odd = world.http.post(
+        f"{REVIEW}/agents/acme/inbox/not a version", json=sent[3][1], headers=rita
+    )
     assert odd.status_code == 404 and "not a version" not in odd.text
     # The security log: the reviewer's id, the review organization, ids only.
     logged = {line["event"]: line for line in security_lines(capsys.readouterr().out)}
