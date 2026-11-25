@@ -39,9 +39,7 @@ def test_try_it_out_works_under_the_csp_and_nothing_leaves_the_origin(
     operation.get_by_role("button", name="Execute").click()
     response = operation.locator(".live-responses-table .response")
     expect(response.locator(".response-col_status")).to_have_text("200")
-    expect(response.locator(".response-col_description")).to_contain_text(
-        "mendari/patient-inbox-router"
-    )
+    expect(response.locator(".response-col_description")).to_contain_text("mendari-test/triage")
 
     assert page.evaluate("window.__violations") == []
     assert [url for url in requests if not url.startswith(f"{live_server}/")] == []
