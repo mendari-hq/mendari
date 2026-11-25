@@ -58,6 +58,7 @@ from tests.conftest import (
     security_lines,
     signed_in,
 )
+from tests.support.registry import HTTPS
 from tests.test_agent_provider import agent_response, make_agent_provider
 from tests.test_hub_routes import (  # noqa: F401 - `service` is the local agent service fixture
     REFILL,
@@ -65,7 +66,6 @@ from tests.test_hub_routes import (  # noqa: F401 - `service` is the local agent
     answered,
     service,
 )
-from tests.test_memberships import HTTPS
 from tests.test_store_uploads import ORG_A, ORG_B, Store, store_world
 
 DEMO = "mendari/portal-message-agent"

@@ -23,6 +23,9 @@ from mendari.evals.harness import evaluate, resolve_dataset
 from tests.conftest import TRIAGE_DIR
 
 TRIAGE = load_pack(TRIAGE_DIR)
+# The engine's public address in the tests that sign people in to it (conftest's `member` and
+# `signed_in` name `mendari.test` as their host).
+HTTPS = "https://mendari.test"
 ROUTER_RULES = "logic/router_rules.yaml"  # the router's keyword rules
 SCREEN_RULES = "logic/screen_rules.yaml"  # the screen's
 SCHEMA = "schemas/input.schema.json"

@@ -25,9 +25,8 @@ from mendari.errors import MendariError
 from mendari.hub import archive
 from mendari.server.app import create_app
 from tests.conftest import DASHBOARD, TRIAGE_DIR, encrypt_mode, encrypted_store, member
-from tests.support.registry import ROUTER_RULES, edit_yaml, with_lookahead
+from tests.support.registry import HTTPS, ROUTER_RULES, edit_yaml, with_lookahead
 from tests.test_auth import CLIENT, IDP
-from tests.test_memberships import HTTPS
 
 ORG_A, ORG_B = "clinic-a", "clinic-b"
 SECRET_PHONE = "617-555-2368"  # outside the fictional range: a phone the detector finds

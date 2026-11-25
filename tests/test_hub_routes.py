@@ -38,8 +38,8 @@ from mendari.hub.client import RegistryClient
 from mendari.server import hub_routes
 from mendari.server.app import create_app
 from tests.conftest import DASHBOARD, DEMO_AGENT_DIR, TRIAGE_DIR, member, security_lines
+from tests.support.registry import HTTPS
 from tests.test_hub_client import Hub, free_port, hub  # noqa: F401 - the live registry fixture
-from tests.test_memberships import HTTPS
 from tests.test_store_uploads import ORG_A, ORG_B, Store, store_world
 
 ACME = "acme/portal-agent"
