@@ -15,15 +15,25 @@ import pytest
 from pydantic import ValidationError
 
 from mendari.cli import main
-from mendari.core.registry import resolve_pack
+from mendari.core.pack import load_pack
 from mendari.evals.share import SiteReportV2
 from mendari.hub import archive, site_signing
 from mendari.hub.site_signing import Site, init_site
-from tests.conftest import Registry, share_signed, shared_benchmark, site_ticket, verified_site
+from tests.conftest import (
+    TRIAGE_DIR,
+    Registry,
+    share_signed,
+    shared_benchmark,
+    site_ticket,
+    verified_site,
+)
 
-REFERRAL = resolve_pack("mendari/referral-router")
-PATH = f"/v1/agents/mendari/referral-router/{REFERRAL.version}/reports"
-LISTED = "/v1/agents/mendari/referral-router/reports"
+# The agent `Registry.publish()` publishes, whose benchmark set's counts `shared_benchmark()`
+# shares.
+TRIAGE = load_pack(TRIAGE_DIR)
+NAMESPACE, NAME = TRIAGE.id.split("/")
+PATH = f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}/reports"
+LISTED = f"/v1/agents/{TRIAGE.id}/reports"
 
 
 @pytest.fixture
@@ -115,8 +125,8 @@ def test_a_report_for_another_digest_configuration_size_or_site_than_its_ticket_
         issued = site_ticket(published, site, report)
         report = {**report, "pack": {**report["pack"], "digest": "sha256:" + "1" * 64}}
     elif field == "configuration":
-        slot = next(s for s, p in REFERRAL.manifest.providers.items() if len(p.variants) > 1)
-        variants = list(REFERRAL.manifest.providers[slot].variants)
+        slot = next(s for s, p in TRIAGE.manifest.providers.items() if len(p.variants) > 1)
+        variants = list(TRIAGE.manifest.providers[slot].variants)
         other = next(v for v in variants if v != report["providers"][slot]["variant"])
         configuration = {s: p["variant"] for s, p in report["providers"].items()}
         issued = site_ticket(
@@ -162,7 +172,7 @@ def test_a_publisher_token_no_longer_shares_a_report(published: Registry) -> Non
     answer = published.client.post(
         PATH,
         json={"site": "Site A", "report": shared_benchmark()},
-        headers={"authorization": f"Bearer {published.token}"},
+        headers={"authorization": f"Bearer {published.fixture_publisher()[0]}"},
     )
     assert answer.status_code == 401 and "mendari site init" in answer.text
 
@@ -322,7 +332,7 @@ def test_counts_that_cannot_add_up_are_refused_without_holding_the_registry(
     report = shared_benchmark()
     issued = site_ticket(published, site, report)
     broken = copy.deepcopy(report)
-    broken["questions"]["next_step"]["calibration"][9]["wrong"] = 200
+    broken["questions"][TRIAGE.manifest.policy.primary]["calibration"][9]["wrong"] = 200
     answer = _send(published, _submission(site, issued, broken), issued["submit_secret"])
     assert answer.status_code == 422
     assert (
@@ -337,9 +347,7 @@ def test_a_recalled_version_takes_no_report_on_a_ticket_issued_before(
     site = verified_site(published, tmp_path)
     report = shared_benchmark()
     issued = site_ticket(published, site, report)
-    published.operator.delete(
-        "mendari", "referral-router", REFERRAL.version, reason="test", by="operator"
-    )
+    published.operator.delete(NAMESPACE, NAME, TRIAGE.version, reason="test", by="operator")
     answer = _send(published, _submission(site, issued, report), issued["submit_secret"])
     assert answer.status_code in (404, 409)
     assert _stored(published) == []
