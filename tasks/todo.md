@@ -115,6 +115,27 @@ README or the front ends, outside an explicit list of those names.
   are erased when it closes); a better interval than the percentile bootstrap, which is slightly
   liberal on small samples (ADR-0025, Consequences).
 - [ ] **Wave 6 (the owner's go).** The wire and storage names, as a versioned format change.
+  **Widened by the owner (2026-11-24):** packs and everything only they used go, the
+  infrastructure agents need stays, nothing pre-release stays compatible, old data is replaced
+  by new synthetic data. The plan, the decisions (G1 to G16, which win) and the inventory are in
+  `notes/wave6/`; one integration branch, `wave6/packs-gone`, one pull request, one production
+  wipe and refill after it merges.
+  - [x] Phase 1: synthetic fixture agents (`tests/fixtures/agents/{triage, clinical-review,
+    chart-summary}`), the storage baseline and the refusal of pre-release databases, every
+    compatibility name out, the threat model without what wave 6 removes.
+  - [x] Phase 2: the tests on the new fixtures (2A to 2F).
+  - [x] Phase 3.1: the former agents, their data, generators, support and scripts out; the
+    fixtures folder is `tests/fixtures/agents` (`9dda7607`).
+  - [ ] Phase 3.2: the removed features out, one engineer per feature group, everywhere
+    (`notes/wave6/phase32-slices.md`): S1 hidden sets and the scoreboard, S2 the removed
+    providers and the training commands, S3 Da Vinci, PAS, X12, OMOP and the fictional code
+    systems, S4 the community path, S5 one spec version with guard, derive and the policy file.
+    Then the dead code left between them.
+  - [ ] Phase 4: the rename codemod (rehearsed now on `9dda7607`), then the prose sweep.
+  - [ ] Phase 5: README, CLAUDE.md, one spec page, CHANGELOG 0.1.0, ADR-0026, one vocabulary
+    rule.
+  - [ ] Phase 6: full verification, the pull request, the merge, the production wipe and
+    refill.
 - [x] **Last.** The README and the docs caught up with every wave; the grade taken again.
   **Grade, 2026-11-24, against the north star: B-** (it was C+ on 2026-11-23). Measured, not
   assumed: the repository is private with no stars or forks, `mendari` is not on PyPI, the live
