@@ -2,28 +2,16 @@
 // Decision Card: the pack as a document, sections linked as routes ("#card/policy").
 
 import { cardConnection } from "./connection.js";
-import { communityNotice, effectBadge, holdsFor, isCommunity, originBadge, providerWords, rowLabels, statusNotice } from "./pack.js";
+import { communityNotice, effectBadge, holdsFor, isCommunity, originBadge, providerWords, statusNotice } from "./pack.js";
 import { render, views } from "./router.js";
 import { $, actionDialog, api, copyText, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError, whileBusy } from "./ui.js";
 
-function deriveRow(row) {
-  const among = row.in ? `of ${row.in.map((m) => `<code>${esc(m)}</code>`).join(", ")}` : "member";
-  const codes = (labels) => labels.map((l) => `<code>${esc(l)}</code>`).join(" or ");
-  const gate = row.when ? `, when ${Object.entries(row.when).map(([m, labels]) => `<code>${esc(m)}</code> is ${codes(labels)}`).join(" and ")}` : "";
-  if (row.any !== null && row.any !== undefined) return `any ${among} is ${codes(rowLabels(row.any))}${gate} → <code>${esc(row.then)}</code>`;
-  if (row.all !== null && row.all !== undefined) return `every ${among} is ${codes(rowLabels(row.all))}${gate} → <code>${esc(row.then)}</code>`;
-  return `otherwise → <code>${esc(row.else)}</code>`;
-}
-
 function questionPanel(key, q, primary) {
   const kind = q.type && q.type !== "choice" ? ` <span class="chip">${esc(q.type)}</span>` : "";
-  const derive = q.derive ? `<p>Derived from ${q.derive.from.map((x) => `<code>${esc(x)}</code>`).join(", ")}
-      (first matching row wins; members treated as independent):</p>
-    <ol>${q.derive.table.map((row) => `<li>${deriveRow(row)}</li>`).join("")}</ol>` : "";
   const labels = q.type === "score" ? Object.keys(q.levels).sort((a, b) => q.levels[a].score - q.levels[b].score) : Object.keys(q.criteria);
   const score = (label) => (q.type === "score" ? `<td class="mono">${esc(q.levels[label].score)}</td>` : "");
   return `<div class="panel question"><h3>Question <code>${esc(key)}</code>${primary ? " (the decision)" : ""}${kind}</h3>
-    <p class="muted">${esc(q.instructions)}</p>${derive}
+    <p class="muted">${esc(q.instructions)}</p>
     <table><thead><tr><th scope="col">Label</th>${q.type === "score" ? `<th scope="col">Score</th>` : ""}<th scope="col">Means</th></tr></thead>
       <tbody>${labels.map((label) => `<tr><td><code>${esc(label)}</code></td>${score(label)}<td>${esc(q.criteria[label])}</td></tr>`).join("")}</tbody></table></div>`;
 }

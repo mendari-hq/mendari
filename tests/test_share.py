@@ -539,7 +539,7 @@ ERRORS = TypeAdapter(dict[ErrorKey, Count])  # errors counted by their key
         ("agent:not_configured\n", False),
         ("not_configured\n", False),
         # Mendari's codes only (a closed set), however much a name looks like one.
-        ("derived_input_unavailable", True),
+        ("credential_unavailable", True),
         ("Jane_Doe", False),
         ("agent:Jane_Doe", False),
         ("agent:timeout, llm:Jane_Doe", False),

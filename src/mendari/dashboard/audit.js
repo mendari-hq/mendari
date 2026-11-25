@@ -4,7 +4,7 @@
 
 import { closeDrawer, showDrawer, updateDrawer } from "./drawer.js";
 import { feedbackControls, myRating } from "./feedback.js";
-import { actionName, actionReason, actionsList, answerChart, communityNotice, criteriaTable, derivedPrimary, dispositionBadge, effectBadge, inputView, labelName, statusNotice } from "./pack.js";
+import { actionName, actionReason, actionsList, answerChart, communityNotice, dispositionBadge, effectBadge, inputView, labelName, statusNotice } from "./pack.js";
 import { route, views, wire } from "./router.js";
 import { drawerSkeleton } from "./skeleton.js";
 import { tableHtml } from "./table.js";
@@ -268,11 +268,10 @@ async function openRecord(id) {
       ${inputView(r.input, { restricted: found.input_restricted })}
       ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
       ${r.reasons?.length ? `<ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
-      ${samePack && derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(r.answers)}` : ""}
       ${r.data_coverage ? coveragePanel(id, r.data_coverage, r.ehr_declaration) : ""}
       <h3>Engine detail</h3>
       <p class="muted">Each answer's probabilities and provider, as the engine gave them${r.latency_ms !== undefined ? `; ${num(r.latency_ms, 2)} ms` : ""}.</p>
-      ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a, r.answers)).join("")}
+      ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a)).join("")}
       ${may("review") ? `<h3>Was this right?</h3>${feedbackControls(r, myRating(found.events))}` : ""}
       ${found.actions?.length ? `<h3>Actions</h3>
         <p class="muted">What the agent asked to have done. Mendari authorizes each and runs none.</p>

@@ -30,7 +30,7 @@ answers in its place.
 
 The actions the first member proposes (spec 0.4) are the slot's, as its answers are; the second
 member's own are never taken, since it never answers in the first's place. Where the second
-member is one that proposes actions too (an `agent` variant of a 0.4 agent), the two are held
+member is one that proposes actions too (an `agent` variant), the two are held
 against each other (`_proposals`): a proposal of the first that the second did not make, with
 the same arguments, is carried `disputed`, so it is held for the decision's reviewer and never
 released without one, whatever its effect (`policy.gate_of`); and any difference between the two

@@ -22,11 +22,8 @@ ProviderErrorCode = Literal[
     "timeout",
     "unavailable",
 ]
-# A derived question whose inputs failed (core/derive.py): not a provider error, but recorded
-# among them.
-DERIVED_INPUT_UNAVAILABLE = "derived_input_unavailable"
 # Every code a decision may record a question's failure under.
-FAILURE_CODES = frozenset({*get_args(ProviderErrorCode), DERIVED_INPUT_UNAVAILABLE})
+FAILURE_CODES = frozenset(get_args(ProviderErrorCode))
 # Why part of a FHIR record could not be read (LP-23d): a closed set, held by its type, so a
 # decision's reasons and its data-coverage record (`standards/data_coverage.py`) name one of
 # these and never a URL, a query or what a server answered.

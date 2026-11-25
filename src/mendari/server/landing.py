@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """The developer landing at `/docs` (`dashboard/docs.html`, `docs.js`): what Mendari is, a
-quickstart in three calls, FHIR in and out, guarding a model's replies, authentication and links,
-on one static page.
+quickstart in three calls, FHIR in and out, authentication and links, on one static page.
 
 **Public, also with sign-in on**, so it shows only what is the same for every deployment of this
 release, plus this deployment's modes (sign-in, the SMART launch, Backend Services), which
@@ -312,7 +311,7 @@ def _auth(sign_in: bool, token_url: str | None) -> str:
         "person's who has not acknowledged the notice yet (<code>Mendari-Notice-Required</code>)."
         "</li>"
         "<li><strong>Costly calls are rate limited</strong> unless the deployment only counts "
-        "them: decisions, guard checks, evaluations (a grading run is one), exports and a "
+        "them: decisions, evaluations (a grading run is one), exports and a "
         "labeller's calls per caller, "
         "signing in and the token endpoint per address; other reads are not. Over a limit the "
         "answer is a <code>429</code> with <code>Retry-After</code> (seconds): wait that long, "

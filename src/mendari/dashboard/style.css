@@ -1164,17 +1164,11 @@ ol.rules p { margin: var(--space-1) 0; }
 }
 @keyframes undo-time { to { transform: scaleX(0); } }
 
-/* Structured records (packs whose input is not a message) and criteria tables. */
+/* Structured records (packs whose input is not a message). */
 .record { margin: var(--space-3) 0; }
 .record .chips { margin-bottom: var(--space-2); }
 .list-name { font-weight: var(--weight-semibold); font-size: var(--text-xs); margin: var(--space-3) 0 var(--space-1); }
 .list-name .muted, .list-name span { font-weight: var(--weight-regular); }
-.criteria tr.hit-block td { background: var(--outcome-block-soft); }
-.criteria tr.hit-review td { background: var(--outcome-review-soft); }
-.criteria tr.hit-neutral td { background: var(--outcome-abstain-soft); }
-.criteria td:nth-child(-n+5):not(.criterion) { white-space: nowrap; }
-.criteria td.criterion { min-width: 16rem; }
-.criteria td.evidence { color: var(--color-text-muted); min-width: 220px; }
 .finding { padding: var(--space-1-5) 0; border-bottom: 1px dashed var(--color-border); }
 
 /* Developer landing (/docs: docs.html, filled by server/landing.py): one document beside a contents

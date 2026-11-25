@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Spec 0.4: the manifest's `outputs`, `rubrics` and `evaluation.grades` (written output,
 docs/spec/agent-manifest-0.4.md sections 16 to 19). Each validation rule, the names a refusal
-gives, and the rule that a manifest may raise a floor and never lower it. That a 0.4 agent keeps
-every 0.3 feature is tests/test_spec_04.py's."""
+gives, and the rule that a manifest may raise a floor and never lower it. That 0.4 is the one
+version read is tests/test_spec_04.py's."""
 
 from __future__ import annotations
 
@@ -209,10 +209,7 @@ def test_names_and_counts() -> None:
         ({"criteria": {"yes": "Y.", "no": "N.", "maybe": "M."}}, "only has labels yes/no"),
         ({"must_pass": "sometimes"}, "must_pass"),
         ({"weight": 2}, "Extra inputs are not permitted"),
-        (
-            {"derive": {"from": ["safe_to_send"], "table": [{"else": "yes"}]}},
-            "graded, never derived",
-        ),
+        ({"derive": {"from": ["safe_to_send"]}}, "Extra inputs are not permitted"),
     ],
 )
 def test_a_yes_no_criterion(changes: dict[str, Any], said: str) -> None:
@@ -307,35 +304,12 @@ def test_grades_name_a_rubric_and_one_of_the_datasets() -> None:
     )
 
 
-@pytest.mark.parametrize("version", ["0.2", "0.3"])
-@pytest.mark.parametrize("section", ["outputs", "rubrics", "evaluation.grades"])
-def test_an_older_manifest_is_refused_naming_the_key(version: str, section: str) -> None:
-    manifest = raw(spec_version=version)
-    manifest["evaluation"]["grades"] = {
-        "reply_quality": {"dataset": "written", "file": "data/written_grades.jsonl"}
-    }
-    with pytest.raises(ValidationError) as error:
-        PackManifest.model_validate(manifest)
-    assert "['outputs', 'rubrics', 'evaluation.grades'] use spec 0.4 features" in str(error.value)
-    assert "set spec_version: '0.4'" in str(error.value)
-    # Only that section used: it alone is named.
-    only = raw(spec_version=version)
-    if section == "outputs":
-        only.pop("rubrics")
-    elif section == "rubrics":
-        only.pop("outputs")
-    else:
-        only.pop("rubrics")
-        only.pop("outputs")
-        only["evaluation"]["grades"] = {"q": {"dataset": "written", "file": "g.jsonl"}}
-    with pytest.raises(ValidationError) as error:
-        PackManifest.model_validate(only)
-    assert f"['{section}'] use spec 0.4 features" in str(error.value)
-    # Empty mappings are what a dumped manifest carries: they count as left out.
-    empty = raw(spec_version=version, outputs={}, rubrics={})
+def test_empty_sections_count_as_left_out() -> None:
+    """Empty mappings are what a dumped manifest carries: they count as left out."""
+    empty = raw(outputs={}, rubrics={})
     empty["evaluation"]["grades"] = {}
-    older = PackManifest.model_validate(empty)
-    assert older.outputs == {} and older.rubrics == {} and older.evaluation.grades == {}
+    manifest = PackManifest.model_validate(empty)
+    assert manifest.outputs == {} and manifest.rubrics == {} and manifest.evaluation.grades == {}
 
 
 def test_a_manifest_loads_again_from_its_own_dump() -> None:

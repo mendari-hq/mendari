@@ -60,7 +60,7 @@ release, the live Hub and the hosted docs site. The overnight log lists what's n
 
 | Goal area | Status | Main gap |
 |---|---|---|
-| Agent spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ 0.2 | `choice`, `boolean` and `score` questions; derived questions (decision tables) |
+| Agent spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ 0.4 | `choice`, `boolean` and `score` questions; actions; written output |
 | Runtime + AUTO / HUMAN_REVIEW / ABSTAIN / BLOCK + risk levels 0–4, governance approvals in the UI | ✅ | none |
 | Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway; OpenAI-compatible local models), criteria, CQL, dosing; `any_of`, `cascade`, `vote` | ✅ | none |
 | Bundled agents | ✅ the demo agent | A harder, clinician-reviewed benchmark |

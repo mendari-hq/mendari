@@ -5,8 +5,8 @@ The fixture agent `tests/fixtures/mini-agents/actions-mini` declares one action 
 and its canned agent proposes them. Here each proposal is followed to its disposition, under
 every outcome; a proposal that cannot be released lowers the decision and never raises it; a
 response that is not of the contract's shape fails closed; an agent the deployment does not
-vouch for gets nothing released without a person; and an agent older than 0.4 decides exactly
-as it did, whatever its agent says about actions."""
+vouch for gets nothing released without a person; and an agent that declares no action
+decides as an answer alone, until its agent proposes one."""
 
 from __future__ import annotations
 
@@ -485,72 +485,14 @@ def test_a_hold_stops_releases_as_it_stops_automation(agent: Decision) -> None:
     assert shown(shadow)[1] == ("send_reply", "contact", "held", "awaiting_review")
 
 
-# -- an agent older than 0.4 decides exactly as it did --------------------------------------------
+# -- an agent that declares no action ----------------------------------------------------------
 
 
-def comparable(result: DecisionResult) -> dict[str, Any]:
-    """A decision without what differs from run to run: its id, its time and how long it took."""
-    record = result.to_dict()
-    for key in ("id", "created_at", "latency_ms"):
-        record.pop(key)
-    return record
-
-
-@pytest.mark.parametrize("version", ["0.2", "0.3"])
-def test_an_older_agents_actions_key_is_ignored(tmp_path: Path, version: str) -> None:
-    """A 0.2 or 0.3 copy of the agent whose canned answers propose actions: its result has no
-    `actions`, and equals, key for key, the result of the same agent with no proposals at all.
-    Nothing is proposed, released or lowered."""
-
-    def older(raw: dict[str, Any]) -> None:
-        raw["spec_version"] = version
-        raw.pop("actions")
-
-    def silent(mock: dict[str, Any]) -> None:
-        for response in (*(case["response"] for case in mock["cases"]), mock["default"]):
-            response.pop("actions", None)
-
-    proposing = Decision.from_path(copy_of(tmp_path, manifest=older, name="proposing"))
-    quiet = Decision.from_path(copy_of(tmp_path, manifest=older, mock=silent, name="quiet"))
-    current = Decision.from_path(MINI)
-    for body in (
-        "Could you refill my lisinopril?",
-        "Please renew my prescription.",
-        "Try an undeclared thing.",
-        "Send malformed arguments.",
-        "I need to move my appointment.",
-        "It is unclear what I want.",
-        "This message is abusive.",
-        "Hello there.",
-    ):
-        with_proposals, without = proposing(message(body)), quiet(message(body))
-        assert with_proposals.actions is None and "actions" not in with_proposals.to_dict()
-        left, right = comparable(with_proposals), comparable(without)
-        left["pack"].pop("digest"), right["pack"].pop("digest")  # two copies, two digests
-        assert left == right, body
-        assert with_proposals.to_record().keys() == without.to_record().keys()
-        # And it is what the 0.4 agent decides, but where a proposal lowered an AUTO.
-        now = current(message(body))
-        assert now.recommendation == with_proposals.recommendation
-        if now.outcome is not with_proposals.outcome:
-            assert with_proposals.outcome is Outcome.AUTO
-            assert now.outcome is Outcome.HUMAN_REVIEW
-            assert any("a person decides" in reason for reason in now.reasons)
-
-
-def test_an_older_agents_request_and_response_are_as_they_were(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def older(raw: dict[str, Any]) -> None:
-        raw["spec_version"] = "0.3"
-        raw.pop("actions")
-
-    malformed = answers(actions="anything at all, even this")
-    seen = live(monkeypatch, lambda _: malformed)
-    result = Decision.from_path(copy_of(tmp_path, manifest=older))(message("A refill, please."))
-    assert result.outcome is Outcome.AUTO and result.actions is None  # the key is not read
-    assert "actions" not in seen[0]
+def test_a_response_proposes_actions_only_where_they_are_read() -> None:
+    """`validate_response` reads a response's `actions` only for a variant that may propose
+    them (an `agent`'s): without, the key is not read, whatever it holds."""
     questions = Decision.from_path(MINI).pack.manifest.questions
+    malformed = answers(actions="anything at all, even this")
     assert "actions" not in validate_response(malformed, questions)
     assert validate_response(answers(), questions, actions=True)["actions"] == []
 

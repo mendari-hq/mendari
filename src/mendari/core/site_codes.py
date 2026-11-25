@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """A site's own codes, translated per organization (LP-23i, `MENDARI_SITE_CODES`).
 
-A pack at spec 0.3 may name sets of its own codes (`code_sets`) and read a field through one (the
+A pack may name sets of its own codes (`code_sets`) and read a field through one (the
 `code_set` selector, `standards/fhir.py`). A site's EHR often codes the same things its own way:
 a local code system, or another code of a standard one. A site code map says how its codes
 translate into the pack's, one organization at a time:

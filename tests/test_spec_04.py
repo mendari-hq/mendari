@@ -1,16 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Spec 0.4: the manifest's `actions` section (docs/spec/agent-manifest-0.4.md section 2).
+"""Spec 0.4: the one spec version Mendari reads, and the manifest's `actions` section
+(docs/spec/agent-manifest-0.4.md section 2).
 
-A 0.4 manifest declares what an agent may ask to have done, each action with an effect from a
-closed set and, optionally, a JSON Schema for its arguments from a closed keyword subset. A 0.1
-to 0.3 manifest that declares any is refused, naming spec 0.4; every 0.1 to 0.3 agent still
-loads, and a 0.4 agent keeps every feature 0.2 and 0.3 added (the version checks compare, they
-do not test equality)."""
+A manifest says `spec_version: "0.4"`; any other is refused, saying so. It declares what an agent
+may ask to have done, each action with an effect from a closed set and, optionally, a JSON Schema
+for its arguments from a closed keyword subset, and it has every feature the spec documents of
+0.2 and 0.3 add (the card keys, the FHIR mapping's)."""
 
 from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -26,13 +27,12 @@ from mendari.core.spec import (
     MAX_ACTION_SCHEMA_CHARS,
     MAX_ACTIONS,
     SPEC_VERSION,
-    SPEC_VERSIONS,
     ActionSpec,
     Effect,
     PackManifest,
     action_schema_problems,
-    at_least,
 )
+from mendari.errors import PackValidationError
 from mendari.providers.agent import request_body
 from tests.conftest import DEMO_AGENT_DIR, ROOT, fixture_agents
 
@@ -62,14 +62,22 @@ OBJECT = {"type": "object", "additionalProperties": False}
 # -- versions -------------------------------------------------------------------------------------
 
 
-def test_the_newest_spec_is_0_4_and_versions_compare_by_their_place() -> None:
-    assert SPEC_VERSIONS == ("0.1", "0.2", "0.3", "0.4") and SPEC_VERSION == "0.4"
-    for position, version in enumerate(SPEC_VERSIONS):
-        for wanted_at, wanted in enumerate(SPEC_VERSIONS):
-            assert at_least(version, wanted) is (position >= wanted_at)
-    # A version this engine does not read is at least nothing, whichever way it sorts as text.
-    for unknown in ("0.5", "1.0", "0.10", "", "0.3 "):
-        assert not any(at_least(unknown, wanted) for wanted in SPEC_VERSIONS)
+@pytest.mark.parametrize("version", ["0.1", "0.2", "0.3", "0.5", "1.0", "0.40", "", " 0.4", 0.4])
+def test_spec_0_4_is_the_one_version_read_and_another_is_refused_saying_so(
+    version: Any, tmp_path: Path
+) -> None:
+    """Only `"0.4"`: an older manifest is not read (nothing made before the first release is),
+    nor a newer one, nor an unquoted 0.4 (YAML reads a number). The refusal names the version."""
+    assert SPEC_VERSION == "0.4" and not hasattr(spec, "SPEC_VERSIONS")
+    with pytest.raises(ValidationError, match=r'must be "0\.4"') as refused:
+        PackManifest.model_validate({**raw_manifest(), "spec_version": version})
+    assert "the one spec version this engine reads" in str(refused.value)
+    root = tmp_path / "agent"
+    shutil.copytree(MINI, root)
+    text = (root / "agent.yaml").read_text()
+    (root / "agent.yaml").write_text(text.replace('spec_version: "0.4"', "spec_version: 0.4"))
+    with pytest.raises(PackValidationError, match=r'spec_version: must be "0\.4"'):
+        load_pack(root)
 
 
 def test_a_0_4_manifest_with_actions_loads_and_keeps_their_order() -> None:
@@ -90,29 +98,11 @@ def test_a_0_4_manifest_with_actions_loads_and_keeps_their_order() -> None:
     assert load_pack(MINI).manifest == manifest
 
 
-@pytest.mark.parametrize("version", ["0.1", "0.2", "0.3"])
-def test_an_older_manifest_with_actions_is_refused_naming_spec_0_4(version: str) -> None:
-    raw = {**raw_manifest(), "spec_version": version}
-    if version == "0.1":  # 0.1 has no boolean question and no provenance: leave only the actions
-        raw["questions"].pop("abusive")
-        raw["providers"]["reader"]["answers"] = ["request"]
-        raw["policy"]["rules"] = []
-        raw["card"].pop("provenance")
-    with pytest.raises(ValidationError, match=r"\['actions'\] use spec 0.4 features") as refused:
-        PackManifest.model_validate(raw)
-    assert "set spec_version: '0.4'" in str(refused.value)
-    # Without them the same manifest is a valid one of that version: an empty `actions` is what a
-    # dumped manifest carries, so it counts as left out.
+def test_a_manifest_without_actions_declares_none() -> None:
+    """An empty `actions` is what a dumped manifest carries: it counts as left out."""
+    raw = raw_manifest()
     for left_out in ({k: v for k, v in raw.items() if k != "actions"}, {**raw, "actions": {}}):
         assert PackManifest.model_validate(left_out).actions == {}
-
-
-def test_a_0_4_manifest_without_actions_is_a_0_3_manifest() -> None:
-    raw = raw_manifest()
-    raw.pop("actions")
-    assert PackManifest.model_validate(raw).actions == {}
-    with pytest.raises(ValidationError, match="spec_version"):
-        PackManifest.model_validate({**raw, "spec_version": "0.5"})
 
 
 def test_every_agent_of_the_repository_loads_again_from_its_own_dump() -> None:
@@ -136,14 +126,13 @@ def test_the_bundled_agent_and_the_scaffold_are_as_this_wave_left_them() -> None
         "assign_queue": ("write", True),
         "send_acknowledgement": ("contact", False),
     }
-    # The scaffold stays a 0.2 agent, since it uses nothing newer, and says so where its author
-    # sets the version; it shows an action as a comment a person can uncomment.
-    template = (ROOT / "src" / "mendari" / "templates" / "agent" / "agent.yaml").read_text()
+    # The scaffold is a 0.4 agent, the one version there is, and says what 0.4 offers it where
+    # its author reads the version; it shows an action as a comment a person can uncomment.
+    template = (ROOT / "src" / "mendari" / "templates" / "base" / "agent.yaml").read_text()
     assert (
-        '# Spec 0.2 is all this agent uses, so every engine that reads 0.2 runs it. Set "0.4" '
-        "for what\n# 0.4 adds: actions (the commented section at the end of this file), a "
-        "calibrated confidence\n# (`mendari calibrate`) and a second signal (`repeat`, or a "
-        '`check` by a second model).\nspec_version: "0.2"\n'
+        "# Spec 0.4, the one version Mendari reads. It also offers actions (the commented section "
+        "at the\n# end of this file), a calibrated confidence (`mendari calibrate`) and a second "
+        'signal (`repeat`,\n# or a `check` by a second model).\nspec_version: "0.4"\n'
     ) in template
     commented = [line[2:] for line in template.splitlines() if line.startswith("# ")]
     example = yaml.safe_load("\n".join(commented[commented.index("actions:") :]))
@@ -156,51 +145,42 @@ def test_the_bundled_agent_and_the_scaffold_are_as_this_wave_left_them() -> None
     }
 
 
-# -- a 0.4 agent keeps what 0.2 and 0.3 added ---------------------------------------------------
+# -- what 0.4 has of what the spec documents of 0.2 and 0.3 ---------------------------------------
 
 
-def test_a_0_4_card_uses_the_0_3_card_keys() -> None:
+def test_a_card_may_word_refused_input_and_a_rules_match() -> None:
     raw = raw_manifest()
     raw["cds_hooks"] = {
         "hook": "patient-view",
         "title": "Actions Mini",
         "description": "A test fixture.",
-        "card": {"summaries": {"none": "Nothing.", "refused": "The input was refused."}},
+        "card": {
+            "summaries": {"none": "Nothing.", "refused": "The input was refused."},
+            "show": ["refill"],
+            "also_show": {"abusive-message": {"summary": "A person reads this first."}},
+        },
     }
-    assert PackManifest.model_validate(raw).cds_hooks is not None
-    with pytest.raises(ValidationError, match=r"spec 0\.3 card features"):
-        PackManifest.model_validate({**raw, "spec_version": "0.2", "actions": {}})
+    hooks = PackManifest.model_validate(raw).cds_hooks
+    assert hooks is not None and hooks.card is not None and hooks.card.names_refused()
 
 
-def test_no_product_code_asks_for_a_spec_version_by_equality() -> None:
-    """A feature of spec X is one of every later version too: each check asks `at_least`.
-    The one equality left is on the oldest version (what 0.1 does not have), which no later
-    version can break."""
-    asked = re.compile(r"spec_version\s*(?:==|!=|\bnot in\b|\bin\b)\s*(.*)")
-    found = []
-    for path in sorted((ROOT / "src" / "mendari").rglob("*.py")):
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            match = asked.search(line.split("#")[0])
-            if match:
-                found.append((str(path.relative_to(ROOT)), number, match.group(1).strip()))
-    assert [(name, compared) for name, _, compared in found] == [
-        ("src/mendari/core/spec.py", '"0.1":')
-    ], found
-    assert not hasattr(spec, "SPEC_04")  # the version is asked of `at_least`, by its name
+def test_no_product_code_compares_a_spec_version() -> None:
+    """There is one: nothing asks which version a manifest is, by equality or by order."""
+    asked = re.compile(r"spec_version\s*(?:==|!=|<|>|\bnot in\b|\bin\b)")
+    found = [
+        (str(path.relative_to(ROOT)), number)
+        for path in sorted((ROOT / "src" / "mendari").rglob("*.py"))
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if asked.search(line.split("#")[0])
+    ]
+    assert found == []
 
 
-def test_a_0_4_manifest_uses_the_second_signal_keys_and_an_older_one_is_told_to_say_0_4() -> None:
-    """`repeat`, `calibration` and the `check` composite are asked for as actions are: by
-    `at_least`, so a later version keeps them, and an older manifest is refused naming each."""
+def test_a_manifest_uses_the_second_signal_keys() -> None:
+    """`repeat`, `calibration` and the `check` composite are a variant's like any key."""
     raw = raw_manifest()
     raw["providers"]["reader"]["variants"]["agent"]["repeat"] = 3
     assert PackManifest.model_validate(raw).spec_version == "0.4"
-    for version in ("0.2", "0.3"):
-        older = {**raw, "spec_version": version, "actions": {}}
-        with pytest.raises(ValidationError, match=r"use spec 0\.4 features") as refused:
-            PackManifest.model_validate(older)
-        assert "providers.reader.variants.agent.repeat" in str(refused.value)
-        assert "set spec_version: '0.4'" in str(refused.value)
 
 
 # -- the section's own rules ----------------------------------------------------------------------

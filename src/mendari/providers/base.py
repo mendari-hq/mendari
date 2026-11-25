@@ -82,7 +82,7 @@ class ProviderOutput:
     # `MENDARI_AGENT_URL` is unset), or None. A server with sign-in never automates on them.
     canned: str | None = None
     # The actions an agent proposed with its answers (spec 0.4): asked for, never run. Only an
-    # `agent` variant of a 0.4 agent proposes any.
+    # `agent` variant proposes any.
     actions: tuple[Proposed, ...] = ()
     # What the agent wrote with its answers (spec 0.4 section 17), by the output's name: only
     # the outputs the manifest declares for its slot, each within its length. In memory only.
@@ -178,7 +178,7 @@ class Provider(ABC):
     type: ClassVar[str]
     # Remote providers make network calls: they are metered, rate-limited and parallelised.
     remote: bool = False
-    # Whether its output may propose actions (spec 0.4): an `agent` variant of a 0.4 agent.
+    # Whether its output may propose actions (spec 0.4): an `agent` variant's may.
     proposes: bool = False
 
     def __init__(

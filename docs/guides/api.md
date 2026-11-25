@@ -1,9 +1,9 @@
 # Using the API
 
 Mendari's REST and FHIR API by example: a quickstart in three calls, FHIR in and out, CDS
-Hooks, guarding a model's replies, and authentication. A running server shows the same examples on its own landing page, `/docs`, with
-its address filled in and a table of what every call needs; its full reference, with "Try it
-out", is `/docs/reference`.
+Hooks, and authentication. A running server shows the same examples on its own landing page,
+`/docs`, with its address filled in and a table of what every call needs; its full reference,
+with "Try it out", is `/docs/reference`.
 
 Every example below is one of the scripts in `src/mendari/dashboard/snippets/`, included here as
 it is. CI runs them against a local server, once in open mode and once with a `service` key
@@ -150,15 +150,6 @@ or `null` without one ([Connecting an EHR](connecting-an-ehr.md#site-codes)).
 
 **SMART on FHIR.** When a deployment sets `MENDARI_SMART_CLIENT_ID`, an EHR launches Mendari at
 `/smart/launch`, and the dashboard opens on that patient's work.
-
-## Guarding a model's replies
-
-An agent with a `guard` section checks a model's draft before a patient reads it. `POST /api/agents/{id}/guard` answers `{status, reply, outcome, recommendation,
-reasons, fallback, decision_id}` and the whole `decision`: the draft is `released` only when the
-decision is automated with a release recommendation; otherwise it is `held_for_review` or
-`blocked`. Never send a blocked draft: act on `fallback`. The same check runs in Python without
-a server (`mendari.guard.check`). The bundled demo agent declares no `guard` section, so this
-guide has no example to run here: an agent of your own that declares one is checked this way.
 
 ## Authentication
 

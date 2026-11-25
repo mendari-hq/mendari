@@ -172,7 +172,6 @@ Route = tuple[str, str, str]  # (app, method, path)
 CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/notice/acknowledge"): ("notice.acknowledged",),
     (ENGINE, "POST", "/api/agents/{namespace}/{name}/decide"): ("decision.created",),
-    (ENGINE, "POST", "/api/agents/{namespace}/{name}/guard"): ("decision.created",),
     (ENGINE, "POST", "/api/agents/{namespace}/{name}/fhir/decide"): ("decision.created",),
     (ENGINE, "POST", "/fhir/$decide"): ("decision.created",),
     (ENGINE, "POST", "/cds-services/{service_id}"): ("decision.created",),

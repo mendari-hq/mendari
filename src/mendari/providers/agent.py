@@ -48,7 +48,6 @@ from mendari.core.spec import (
     PackManifest,
     Question,
     WrittenOutput,
-    at_least,
     deployment_env_problem,
 )
 from mendari.errors import MendariError, PackValidationError, ProviderError
@@ -160,6 +159,7 @@ class AgentConfig(BaseModel):
 class AgentProvider(Provider):
     type = "agent"
     remote = True
+    proposes = True
 
     def __init__(self, *args: Any, client: httpx.Client | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
@@ -172,9 +172,6 @@ class AgentProvider(Provider):
         self._client = client
         self._connection: ConnectionSource | None = None
         self._mock: dict[str, Any] | None = None
-        # Only a 0.4 agent's response may propose actions: an older agent's `actions` key is
-        # not read, as any key the contract does not name never was.
-        self.proposes = at_least(self.pack.manifest.spec_version, "0.4")
         # What the manifest asks this slot's agent to write (spec 0.4 section 17). A composite's
         # member writes nothing: its response's `outputs` key is not read.
         self.outputs = slot_outputs(self.pack.manifest, self.info.slot, self.info.variant)
@@ -217,13 +214,12 @@ class AgentProvider(Provider):
         data, file_problems = read_problems(lambda: _read_pack_fixture(pack, mock_file))
         if file_problems:
             return file_problems
-        proposes = at_least(pack.manifest.spec_version, "0.4")
         return _fixture_data_problems(
             where,
             mock_file,
             data,
             questions,
-            actions=proposes,
+            actions=cls.proposes,
             outputs=_outputs_at(pack.manifest, where),
         )
 
@@ -581,7 +577,7 @@ def validate_response(
     outputs: Mapping[str, WrittenOutput] | None = None,
 ) -> dict[str, Any]:
     """Strict validation of an external agent's JSON response. Raises `invalid_response`.
-    With `actions` (a spec 0.4 agent), the response's proposed `actions` are read and held to
+    With `actions` (an `agent` variant's), the response's proposed `actions` are read and held to
     the contract's shape (`_validate_actions`); without, the key is not read at all. With
     `outputs` (what the manifest asks this slot to write), the response's `outputs` are read
     and held to them (`_validate_outputs`); with none declared the key is not read either."""

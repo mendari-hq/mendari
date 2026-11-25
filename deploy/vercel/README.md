@@ -8,7 +8,7 @@ Mendari limits requests in two layers ([ADR-0005](../../docs/decisions/ADR-0005-
   no cost for the requests it refuses. There is no per-IP rule on `/api`, `/fhir` or
   `/cds-services`: a hospital sends every clinician's and every EHR's traffic from one address.
 - **The app:** Mendari itself limits per API key, client or person on the costly routes
-  (decisions, guard checks, evaluations, exports), and per address on sign-in and the token
+  (decisions, evaluations, exports), and per address on sign-in and the token
   endpoint, in the database so every instance shares the count (`MENDARI_RATE_LIMITS`; see
   [`docs/deploying-with-phi.md`](../../docs/deploying-with-phi.md)). Its `429` carries
   `Retry-After` and the route's own error shape. The firewall's `429` is Vercel's own page: rely

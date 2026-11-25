@@ -10,17 +10,16 @@ for patient records with many Conditions, Observations or MedicationStatements. 
 Bundle, a single resource, or a CDS Hooks prefetch object whose values may themselves be search
 Bundles; all of them are flattened, and resources are de-duplicated by type and id.
 
-Spec 0.3 (docs/spec/agent-manifest-0.3.md, LP-23g) adds, for a pack that declares it: the
-``[system=<uri>]`` predicate, which keeps the items of one code system (a coding, an
-identifier); `paths`, tried in order until one gives a value; `follow`, one reference hop
-resolved inside the record and never fetched (a path of the field's own type read in place,
-`own_type`, LP-23k); the `attachment_text` transform; `code_sets` and the `code_set` selector,
-for a field and for `focus_where` (LP-23k); and list `resources`, several resource types into
-one list, with the `medication_period` derivation. A 0.1 or 0.2 pack that uses any of them is
-refused, and maps as it always did. `FhirAdapter.looked_for` says what each field and list
-looks for.
+The mapping (docs/spec/agent-manifest-0.3.md, LP-23g) also has the ``[system=<uri>]``
+predicate, which keeps the items of one code system (a coding, an identifier); `paths`, tried in
+order until one gives a value; `follow`, one reference hop resolved inside the record and never
+fetched (a path of the field's own type read in place, `own_type`, LP-23k); the
+`attachment_text` transform; `code_sets` and the `code_set` selector, for a field and for
+`focus_where` (LP-23k); and list `resources`, several resource types into one list, with the
+`medication_period` derivation. `FhirAdapter.looked_for` says what each field and list looks
+for.
 
-The mapping never fetches. A CDS hook and the SMART launch's decide may first read what a 0.3
+The mapping never fetches. A CDS hook and the SMART launch's decide may first read what a
 mapping reaches by a link the record does not hold (`standards/linked.py`, LP-23h): each
 resource read is added to the record (`Indexed.link`) and found by the reference that named it,
 and each link not read keeps its reason (`Indexed.unread`), which the data-coverage record
@@ -44,7 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from mendari.core import clock
 from mendari.core.pack import Pack
-from mendari.core.spec import Outcome, PackManifest, Priority, at_least
+from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.core.templates import (
     UNKNOWN,
     expansion_count,
@@ -87,8 +86,7 @@ _LINK = re.compile(
 )
 _ABSOLUTE = re.compile(r"^https?://", re.IGNORECASE)
 
-SPEC_03 = "0.3"  # the spec version whose mapping keys this module adds
-# Spec 0.3's bounds for a pack the deployment does not own (`Pack.bounded`), and for every pack
+# The mapping's bounds for a pack the deployment does not own (`Pack.bounded`), and for every pack
 # in `mendari validate`: paths a field tries, and codes in a code set. A `follow` is one hop for
 # every pack: what it reaches is never followed further.
 MAX_PATHS = 4
@@ -451,7 +449,7 @@ class FhirAdapter:
         must name built-ins or questions. With `bare` (by default for a pack the deployment
         does not own, `Pack.bounded`, which `load_pack` checks so; `mendari validate` asks it
         of every pack) they must also be bare names (`template_problems`). Otherwise an owned
-        pack's Task text renders as it always did. Spec 0.3's rules are checked for every pack
+        pack's Task text renders as it always did. The mapping's rules are checked for every pack
         (`mapping_problems`), and its bounds under `bare` too."""
         mapping = read_mapping(pack)
         relative = pack.manifest.inputs.fhir
@@ -1363,55 +1361,6 @@ def located_fields(mapping: FhirMapping) -> Iterator[tuple[str, str | None, Fiel
                 yield f"lists.{target}.resources.{kind}.fields.{key}", kind, mapped
 
 
-def newer_keys(mapping: FhirMapping) -> list[str]:
-    """Where a mapping uses a spec 0.3 key, e.g. `fields.notes.paths`, in the mapping's order. A
-    key counts when it is written, whatever its value (`code_sets: {}`, `follow: null`)."""
-    found = ["code_sets"] if "code_sets" in mapping.model_fields_set else []
-    if mapping.focus_where is not None and "[system=" in mapping.focus_where.path:
-        found.append("focus_where.path")
-    if mapping.focus_where is not None and "code_set" in mapping.focus_where.model_fields_set:
-        found.append("focus_where.code_set")
-    for where, _, mapped in located_fields(mapping):
-        found += [
-            f"{where}.{key}"
-            for key in ("paths", "follow", "code_set")
-            if key in mapped.model_fields_set
-        ]
-        if mapped.transform == "attachment_text":
-            found.append(f"{where}.transform")
-        if mapped.path is not None and "[system=" in mapped.path:
-            found.append(f"{where}.path")
-    found += [
-        f"lists.{target}.resources"
-        for target, spec in mapping.lists.items()
-        if "resources" in spec.model_fields_set
-    ]
-    return found
-
-
-def older_spec_problems(mapping: FhirMapping, manifest: PackManifest) -> list[str]:
-    """A 0.1 or 0.2 pack's mapping uses no spec 0.3 key: the problem names each one it does
-    (`newer_keys`). `load_pack` refuses such a pack wherever it comes from (`version_problems`),
-    as `spec.cross_reference_problems` refuses 0.2 features in a 0.1 pack."""
-    newer = [] if at_least(manifest.spec_version, SPEC_03) else newer_keys(mapping)
-    return [f"{newer} use spec 0.3 mapping features; set spec_version: '0.3'"] if newer else []
-
-
-def version_problems(pack: Pack) -> list[str]:
-    """`older_spec_problems` for a pack's mapping, each naming the file, for `load_pack` to
-    refuse a pack the deployment owns as it does one it does not (whose whole mapping
-    `FhirAdapter.for_pack` checks at load). A mapping that is not of the mapping's shape gives
-    none here: it is refused where it is read, as before (the adapter, `mendari validate`)."""
-    relative = pack.manifest.inputs.fhir
-    if relative is None or at_least(pack.manifest.spec_version, SPEC_03):
-        return []
-    try:
-        mapping = read_mapping(pack)
-    except PackValidationError:
-        return []
-    return [f"{relative}: {problem}" for problem in older_spec_problems(mapping, pack.manifest)]
-
-
 def read_mapping(pack: Pack) -> FhirMapping:
     """A pack's FHIR mapping, of the mapping's shape: a `PackValidationError` naming the file
     otherwise, and a `FhirError` for a pack that declares none."""
@@ -1425,16 +1374,13 @@ def read_mapping(pack: Pack) -> FhirMapping:
 
 
 def mapping_problems(mapping: FhirMapping, manifest: PackManifest, *, held: bool) -> list[str]:
-    """What spec 0.3 holds a mapping to beyond its shape (`FhirAdapter.for_pack`). A 0.1 or 0.2
-    pack uses no 0.3 key (`older_spec_problems`), and is otherwise read as it always was. A 0.3
-    pack's paths are paths of the subset (a top-level field's start from a resource type, a list
-    field's from its resource, a followed field's from the type it reaches); each `[system=…]`
-    and each code set names a system its `code_systems` declares; `medication_period` derives a
+    """What the spec holds a mapping to beyond its shape (`FhirAdapter.for_pack`): its paths
+    are paths of the subset (a top-level field's start from a resource type, a list field's from
+    its resource, a followed field's from the type it reaches); each `[system=…]` and each code
+    set names a system its `code_systems` declares; `medication_period` derives a
     MedicationRequest's only. With `held` (a pack the deployment does not own, or any in
     `mendari validate`), a field tries at most `MAX_PATHS` paths and a code set has at most
     `MAX_CODE_SET_CODES` codes."""
-    if not at_least(manifest.spec_version, SPEC_03):
-        return older_spec_problems(mapping, manifest)
     declared = {use.url for use in manifest.code_systems}
     problems: list[str] = []
 

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Try it: a message form or a record form generated from the input schema, or FHIR input where the
-// pack maps FHIR; an AI reply checked where the pack guards replies; the result, and under a
-// complete prior-authorization request, its Da Vinci PAS request Bundle.
+// pack maps FHIR; the result, and under a complete prior-authorization request, its Da Vinci PAS
+// request Bundle.
 
 import { feedbackControls } from "./feedback.js";
 import { schemaForm, wireSchemaForm } from "./form.js";
-import { codesToggle, communityNotice, criteriaTable, derivedPrimary, isMessagePack, labelName, named, plainReasons, questionName, statusNotice, wireCodes } from "./pack.js";
+import { codesToggle, communityNotice, isMessagePack, labelName, named, plainReasons, questionName, statusNotice, wireCodes } from "./pack.js";
 import { refreshReviewCount, views, wire } from "./router.js";
 import { guardrailTrace } from "./trace.js";
 import { $, api, copyText, emptyState, esc, focusHeading, icon, may, packPath, pct, PRIORITY_TEXT, saveFile, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
@@ -31,10 +31,8 @@ views.try = async (main) => {
 };
 
 // What the chosen pack takes besides its own input, as the API reference offers it
-// (server/api_docs.py): FHIR where it has a FHIR mapping, an AI reply to check where it has a
-// `guard` section.
+// (server/api_docs.py): FHIR where it has a FHIR mapping.
 const takesFhir = () => Boolean(state.detail.manifest?.inputs?.fhir);
-const guardsReplies = () => Boolean(state.detail.manifest?.guard);
 
 // The input switch: each way the pack's input can be given, the one chosen last first.
 const MODE_NAMES = { form: "Form", json: "JSON", fhir: "FHIR" };
@@ -97,21 +95,16 @@ function decideFhir(button) {
   });
 }
 
-// The pack's own input, decided, or (`guard`) checked as an AI reply.
-function send(button, input, guard = false) {
+// The pack's own input, decided.
+function send(button, input) {
   const targetPack = state.packId;
-  const endpoint = `${packPath()}/${guard ? "guard" : "decide"}`;
-  const shadow = !guard && shadowChecked();
-  return whileBusy(button, guard ? "Checking…" : "Deciding…", async () => {
+  const endpoint = `${packPath()}/decide`;
+  const shadow = shadowChecked();
+  return whileBusy(button, "Deciding…", async () => {
     try {
-      if (!guard) {
-        const decision = await api(endpoint, { method: "POST", headers: shadowHeaders(shadow), body: JSON.stringify(input) });
-        if (state.packId !== targetPack || !$("#result")) return;
-        return showResult(decision, { request: { endpoint, body: input, shadow } });
-      }
-      const checked = await api(endpoint, { method: "POST", body: JSON.stringify(input) });
+      const decision = await api(endpoint, { method: "POST", headers: shadowHeaders(shadow), body: JSON.stringify(input) });
       if (state.packId !== targetPack || !$("#result")) return;
-      showResult(checked.decision, { guard: checked, request: { endpoint, body: input, shadow: false } });
+      showResult(decision, { request: { endpoint, body: input, shadow } });
     } catch (error) {
       toastError(error.message);
     }
@@ -139,10 +132,9 @@ async function tryRecord(main) {
   const examples = await api(`${packPath()}/examples`);
   const expected = (e) => Object.entries(e.expect).filter(([k]) => k !== "answers").map(([k, v]) => `${k} ${Array.isArray(v) ? v.join("/") : v}`).join(", ");
   const modes = ["form", "json", ...(takesFhir() ? ["fhir"] : [])];
-  const guard = guardsReplies();
   main.innerHTML = `
     <h1>Try it</h1>
-    <p class="muted">Synthetic records only; decisions here are recorded. Start from one of the agent's tests and change any field.${guard ? " Check the AI reply says whether the draft may be sent to the patient as written." : ""}</p>
+    <p class="muted">Synthetic records only; decisions here are recorded. Start from one of the agent's tests and change any field.</p>
     ${communityNotice(state.detail)}
     ${statusNotice(state.detail)}
     <div class="panel">
@@ -160,8 +152,7 @@ async function tryRecord(main) {
       <div class="row mt-3">
         <label class="shadow-toggle"><input type="checkbox" id="try-shadow"> <span>Shadow mode</span></label>
         <span class="grow"></span>
-        ${guard ? `<button type="button" class="primary" id="guard">Check the AI reply</button>` : ""}
-        <button type="button" ${guard ? "" : `class="primary" `}id="decide">Decide</button></div>
+        <button type="button" class="primary" id="decide">Decide</button></div>
     </div>
     <div id="result"></div>`;
   // One record, two views: a form generated from the pack's input schema (form.js), or its JSON.
@@ -181,7 +172,6 @@ async function tryRecord(main) {
     if ($("#fhir-input")) $("#fhir-input").hidden = mode !== "fhir";
     $("#example-row").hidden = mode === "fhir";
     $("#expected").hidden = mode === "fhir";
-    if (guard) $("#guard").hidden = mode === "fhir"; // the guard takes the pack's input
     pressMode(main, mode);
   };
   const switchTo = (next) => {
@@ -230,7 +220,7 @@ async function tryRecord(main) {
   }
   showMode();
   $("#example").addEventListener("change", (e) => choose(Number(e.target.value)));
-  const run = (button, asGuard) => {
+  const run = (button) => {
     if (mode === "fhir") return decideFhir(button);
     let input;
     if (mode === "form") {
@@ -243,12 +233,10 @@ async function tryRecord(main) {
         return toastError(`Not valid JSON: ${error.message}`);
       }
     }
-    return send(button, input, asGuard);
+    return send(button, input);
   };
-  $("#decide").addEventListener("click", (e) => run(e.currentTarget, false));
-  if (guard) $("#guard").addEventListener("click", (e) => run(e.currentTarget, true));
-  const submitPrimary = () => (guard && !$("#guard").hidden ? $("#guard").click() : $("#decide").click());
-  wireSubmitKey($("#record"), submitPrimary);
+  $("#decide").addEventListener("click", (e) => run(e.currentTarget));
+  wireSubmitKey($("#record"), () => $("#decide").click());
   wireSubmitKey($("#fhir-json"), () => $("#decide").click());
 }
 
@@ -355,21 +343,16 @@ async function tryMessage(main) {
   wireSubmitKey($("#fhir-json"), () => $("#decide").click());
 }
 
-// The outcome in words, with the priority when it isn't routine: "Blocked · urgent". A checked AI
-// reply leads with what to do with it (notes/ui-ux-review.md: "blocked, do this instead").
+// The outcome in words, with the priority when it isn't routine: "Blocked · urgent".
 const RESULT_WORDS = { AUTO: "Automated", HUMAN_REVIEW: "Sent to review", ABSTAIN: "Abstained: a person decides", BLOCK: "Blocked" };
 
 const RESULT_ICON = { AUTO: "check", HUMAN_REVIEW: "clock", ABSTAIN: "clock", BLOCK: "alert" };
 
-const GUARD_WORDS = { released: "Released: send the reply", held_for_review: "Held for review: send nothing yet", blocked: "Blocked: send nothing" };
-
-const GUARD_ICON = { released: "shield-check", held_for_review: "clock", blocked: "shield-x" };
-
-const resultHeadline = (r, guard) => `${guard ? GUARD_WORDS[guard.status] ?? guard.status : RESULT_WORDS[r.outcome] ?? r.outcome}${r.priority && r.priority !== "routine" ? ` · ${PRIORITY_TEXT[r.priority].toLowerCase()}` : ""}`;
+const resultHeadline = (r) => `${RESULT_WORDS[r.outcome] ?? r.outcome}${r.priority && r.priority !== "routine" ? ` · ${PRIORITY_TEXT[r.priority].toLowerCase()}` : ""}`;
 
 // Show a new result: scrolled into view, its headline focused (and so announced). `extra`: the
-// guard's answer (`guard`), the FHIR Task (`task`) and the FHIR input decided (`fhir`). Under a
-// decision the PAS route builds a request for (`pas_ready`), the form that builds it.
+// FHIR Task (`task`) and the FHIR input decided (`fhir`). Under a decision the PAS route builds a
+// request for (`pas_ready`), the form that builds it.
 function showResult(result, extra = {}) {
   const box = $("#result");
   if (!box) return;
@@ -386,44 +369,33 @@ function showResult(result, extra = {}) {
   refreshReviewCount();
 }
 
-// What to do with a checked AI reply: the reply to send, or why nothing is sent yet (a blocked
-// one's fallback is the callout below it).
-function guardLead(guard) {
-  if (guard.status === "released") return `<h3>The reply to send</h3><div class="message">${esc(guard.reply)}</div>`;
-  if (guard.status === "held_for_review") return `<div class="callout neutral">A clinician reads the draft and the reasons below before anything is sent.</div>`;
-  return "";
-}
-
 // The result in words (LP-05b): names, not codes (the codes one click away), the reasons a person
 // reads, and each question's answer. The engine's detail (each label's probability, the
 // providers, thresholds and timings, the reasons as the engine gave them) is in the decision
 // record, one link away.
-function decisionView(r, { guard = null, task = null, request = null } = {}) {
+function decisionView(r, { task = null, request = null } = {}) {
   const urgent = r.outcome === "BLOCK" || r.priority === "stat";
   const why = plainReasons(r);
   // Every question the pack asks: an answer by name, or that none came (a provider failed).
   const asked = [...new Set([...Object.keys(r.answers), ...Object.keys(r.errors ?? {})])];
-  const answers = derivedPrimary()
-    ? criteriaTable(r.answers, { plain: true })
-    : `<dl class="answers">${asked.map((q) => {
-      const a = r.answers[q];
-      return `<div>
-        <dt>${named(questionName(q), q)}</dt>
-        <dd>${a ? `<b>${named(labelName(q, a.label), a.label)}</b>${a.confidence !== null && a.confidence !== undefined ? ` <span class="muted">${pct(a.confidence)} sure</span>` : ""}` : `<span class="muted">no answer</span>`}</dd>
-      </div>`;
-    }).join("")}</dl>`;
+  const answers = `<dl class="answers">${asked.map((q) => {
+    const a = r.answers[q];
+    return `<div>
+      <dt>${named(questionName(q), q)}</dt>
+      <dd>${a ? `<b>${named(labelName(q, a.label), a.label)}</b>${a.confidence !== null && a.confidence !== undefined ? ` <span class="muted">${pct(a.confidence)} sure</span>` : ""}` : `<span class="muted">no answer</span>`}</dd>
+    </div>`;
+  }).join("")}</dl>`;
   // The confidence is the primary answer's: said only of the label the engine chose, not of one a
   // rule set instead.
   const chosen = r.recommendation && r.recommendation === r.answers[r.primary]?.label;
   const certainty = !r.recommendation ? "" : chosen && r.confidence !== null ? ` · ${pct(r.confidence)} sure` : r.rule ? " · set by the agent's rule" : "";
-  const headIcon = guard ? GUARD_ICON[guard.status] ?? RESULT_ICON[r.outcome] : RESULT_ICON[r.outcome];
+  const headIcon = RESULT_ICON[r.outcome];
   return `<section class="panel result" aria-labelledby="result-title">
     <div class="result-head ${urgent ? "tone-solid" : `tone-${esc(r.outcome)}`}">
-      <h2 id="result-title">${icon(headIcon)}${esc(resultHeadline(r, guard))}</h2>
+      <h2 id="result-title">${icon(headIcon)}${esc(resultHeadline(r))}</h2>
       <p>${r.recommendation ? `${named(questionName(r.primary), r.primary)}: <b>${named(labelName(r.primary, r.recommendation), r.recommendation)}</b>` : "No recommendation"}${certainty}</p>
     </div>
     ${guardrailTrace(r)}
-    ${guard ? guardLead(guard) : ""}
     ${r.fallback ? `<div class="callout ${r.outcome === "BLOCK" ? "danger" : "neutral"}"><b>Instead:</b> ${esc(r.fallback)}</div>` : ""}
     ${why.length ? `<h3>Why</h3><ul class="reasons">${why.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
     ${asked.length ? `<h3>Answers</h3>${answers}` : ""}

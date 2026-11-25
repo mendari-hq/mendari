@@ -142,7 +142,7 @@ class Case:
     questions: tuple[Question, ...]
     input: dict[str, Any]  # only the fields the manifest's `state_fields` send
     instructions: str | None  # the manifest's `system_prompt` and `instructions`, joined
-    actions: tuple[Action, ...] = ()  # what the agent may propose; none for an older manifest
+    actions: tuple[Action, ...] = ()  # what the agent may propose; none unless declared
     outputs: tuple[Output, ...] = ()  # what the agent is asked to write; none unless declared
 
     @classmethod
@@ -482,8 +482,8 @@ def _question(item: dict[str, Any], choices: list[str]) -> Question:
 
 
 def _actions(items: Any) -> tuple[Action, ...]:
-    """The request's declared actions; none when the key is absent (an older manifest). One
-    that is not as Mendari sends it is `AgentError` (400)."""
+    """The request's declared actions; none when the key is absent (the manifest declares
+    none). One that is not as Mendari sends it is `AgentError` (400)."""
     if items is None:
         return ()
     if not isinstance(items, list) or len(items) > MAX_ACTIONS:

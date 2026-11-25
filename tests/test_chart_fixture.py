@@ -35,7 +35,7 @@ from mendari.errors import FhirError
 from mendari.sandbox.code_systems import CASE_SYSTEM
 from mendari.server.app import create_app
 from mendari.standards import bulk, cds_hooks, fhir_structure, us_core
-from mendari.standards.fhir import FhirAdapter, newer_keys
+from mendari.standards.fhir import FhirAdapter
 from mendari.standards.linked import Linker
 from tests.support import chart_ehr, chart_fixture
 from tests.support import fixture_records as records
@@ -201,21 +201,18 @@ def test_each_label_comes_from_the_facts_and_every_outcome_is_reached(chart: Dec
 
 def test_a_copy_is_another_agent_with_the_mapping_a_test_gives_it(tmp_path: Path) -> None:
     """`chart_copy` is the agent under its own id, so a copy served beside it, or loaded as from
-    a registry, never stands in its place; at spec 0.2 its mapping holds no spec 0.3 key, and a
-    test's changes merge into the mapping (None takes a key out)."""
+    a registry, never stands in its place, and a test's changes merge into the mapping (None
+    takes a key out)."""
     site = "https://site.example/fhir/CodeSystem/conditions"
-    for spec in ("0.2", "0.3", "0.4"):
-        root = chart_fixture.chart_copy(tmp_path / spec, spec=spec, systems=(site,))
-        for origin in ("local", "hub"):
-            pack = load_pack(root, origin=origin)
-            assert (pack.id, pack.manifest.spec_version, pack.warnings) == (
-                chart_fixture.COPY_ID,
-                spec,
-                (),
-            )
-        mapping = FhirAdapter.for_pack(load_pack(root)).mapping
-        assert (newer_keys(mapping) == []) == (spec == "0.2"), spec
-        assert site in {use.url for use in load_pack(root).manifest.code_systems}
+    root = chart_fixture.chart_copy(tmp_path / "copy", systems=(site,))
+    for origin in ("local", "hub"):
+        pack = load_pack(root, origin=origin)
+        assert (pack.id, pack.manifest.spec_version, pack.warnings) == (
+            chart_fixture.COPY_ID,
+            "0.4",
+            (),
+        )
+    assert site in {use.url for use in load_pack(root).manifest.code_systems}
     changed = chart_fixture.chart_copy(
         tmp_path / "changed",
         {

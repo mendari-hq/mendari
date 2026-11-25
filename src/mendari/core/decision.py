@@ -8,7 +8,7 @@ import json
 import re
 import time
 import uuid
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -19,7 +19,6 @@ from jsonschema import ValidationError
 
 from mendari.core import actions, input_schema, tenancy
 from mendari.core.actions import ActionResult, Asked, Checked, Proposed
-from mendari.core.derive import complete_answers, explain
 from mendari.core.origin import (
     MAX_COMMUNITY_TEXT_CHARS,
     UNAPPROVED,
@@ -42,7 +41,7 @@ from mendari.core.policy import (
 )
 from mendari.core.registry import origin_of, resolve_pack
 from mendari.core.site_codes import SiteCodeMap, SiteCodeMaps
-from mendari.core.spec import Outcome, Priority, at_least
+from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.errors import (
     FhirStructureError,
     HubError,
@@ -133,10 +132,10 @@ class DecisionResult:
     # input refused, or a record that could not be read. In memory only, like `rejected`.
     policy_inputs: PolicyInputs | None = field(default=None, compare=False, repr=False)
     # The actions the agent proposed with its answers, each with what may be done with it (spec
-    # 0.4, `core/actions.py`), in the order proposed. None for an agent older than 0.4, and for
-    # one that declares no action and proposed none: its result is what it always was. In the
-    # caller's answer (`to_dict`) and never in the stored record (`to_record`): the chain keeps
-    # each as an event, without its arguments.
+    # 0.4, `core/actions.py`), in the order proposed. None for an agent that declares no action
+    # and proposed none: its result is then an answer alone. In the caller's answer (`to_dict`)
+    # and never in the stored record (`to_record`): the chain keeps each as an event, without
+    # its arguments.
     actions: tuple[ActionResult, ...] | None = field(default=None, compare=False)
     # What its providers found that can only lower its automation (`providers/signals.py`: the
     # agent changed since its confidence was calibrated, a second signal disagreed), with what
@@ -427,10 +426,6 @@ class Decision:
             return f"risk level {int(level)} requires human review"
         return None
 
-    def _takes_actions(self) -> bool:
-        """Whether this agent's proposals are read at all: spec 0.4 and later."""
-        return at_least(self.pack.manifest.spec_version, "0.4")
-
     def _acted(
         self, checked: Sequence[Checked], policy: PolicyResult, vouched: bool
     ) -> tuple[ActionResult, ...]:
@@ -502,7 +497,7 @@ class Decision:
             raise MendariError(problem)
         manifest = self.pack.manifest
         checked = actions.check(manifest, self._action_checkers, Proposed(name, dict(arguments)))
-        spec = checked.spec if self._takes_actions() else None
+        spec = checked.spec
         # Read before the store's own session opens: a hold or an approval is a read of it.
         vouched = self.vouched()
         automating = self.automation_stopped() is None
@@ -814,12 +809,7 @@ class Decision:
                     # A call sent that no answer priced (it failed, or its answer was refused)
                     # may still be billed: the cost is unknown, never zero (as in the ledger).
                     cost = None
-                try:
-                    complete_answers(manifest, answers, failures)
-                except OutOfTime:
-                    for key in manifest.derived:
-                        if key not in answers:
-                            failures[key] = "time_budget"
+                expected_scores(manifest, answers)
                 variants = {slot: info.variant for slot, info in self.provider_info.items()}
                 hold = self.hold_source(self.pack) if self.hold_source is not None else None
                 origin_holds = self._origin_holds()
@@ -829,14 +819,13 @@ class Decision:
                     hold = "; ".join(
                         filter(None, ["this organization's daily decisions quota is used up", hold])
                     )
-                if self._takes_actions():
-                    # Each proposal against what the manifest declares (`core/actions.py`):
-                    # one that could not be released with AUTO lowers the decision, no more.
-                    checked = [
-                        actions.check(manifest, self._action_checkers, proposal)
-                        for proposal in actions.distinct(proposed)
-                    ]
-                    vouched = not self.pack.community and not origin_holds
+                # Each proposal against what the manifest declares (`core/actions.py`): one
+                # that could not be released with AUTO lowers the decision, no more.
+                checked = [
+                    actions.check(manifest, self._action_checkers, proposal)
+                    for proposal in actions.distinct(proposed)
+                ]
+                vouched = not self.pack.community and not origin_holds
                 policy_inputs = PolicyInputs(
                     answers,
                     failures,
@@ -852,14 +841,11 @@ class Decision:
                     caps=signals.reasons(),
                 )
                 policy = policy_inputs.apply(manifest)
-                primary = manifest.questions[manifest.policy.primary]
-                if primary.derive is not None:
-                    policy = replace(policy, reasons=(*policy.reasons, *explain(primary, answers)))
 
         # What may be done with each proposed action, under the policy's final word. None for
-        # an agent that takes none: older than 0.4, or declaring none and proposing none.
+        # an agent that declares none and proposed none.
         acted: tuple[ActionResult, ...] | None = None
-        if self._takes_actions() and (manifest.actions or checked):
+        if manifest.actions or checked:
             acted = self._acted(checked, policy, vouched)
         # Keyed under the deployment's input hash key when it has one (`core/phi.py`).
         hashed = input_hash(inputs) if self.store is None else self.store.phi.input_hash(inputs)
@@ -938,7 +924,7 @@ class Decision:
         refused (`decide`). The result carries its data-coverage record
         (`standards/data_coverage.py`) in every case.
 
-        `links` (a CDS hook's, the SMART launch's decide: LP-23h) reads what a spec 0.3 mapping
+        `links` (a CDS hook's, the SMART launch's decide: LP-23h) reads what the mapping
         reaches by a link the record does not hold, a note's Binary or a followed reference,
         from the EHR's FHIR server, into the record before it is mapped (`standards/linked.py`),
         inside the decision's deadline, which starts before those reads and its providers then
@@ -1090,6 +1076,15 @@ def _check_not_offered(
             raise ValueError(f"not_offered {key!r} holds a value")
         if kind not in allowed:
             raise ValueError(f"not_offered {key!r}: {kind} may not be left out for this agent")
+
+
+def expected_scores(manifest: PackManifest, answers: MutableMapping[str, Answer]) -> None:
+    """Each score question's answer with its expected score (`Question.expected_score`), when
+    its provider gave none."""
+    for key, question in manifest.questions.items():
+        answer = answers.get(key)
+        if answer is not None and question.type == "score" and answer.value is None:
+            answers[key] = replace(answer, value=question.expected_score(answer.probabilities))
 
 
 _FALLBACK = (Outcome.ABSTAIN, Outcome.BLOCK)

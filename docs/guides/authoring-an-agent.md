@@ -491,8 +491,8 @@ and declares the hook `mendari-message-received`. Each `cds_hooks.prefetch` temp
 or search relative to the EHR's FHIR server (`Patient/{{context.patientId}}`): no absolute URL,
 `..`, operation or fragment. A card summary or Task text uses bare placeholders (`{request}`),
 and every text a card can give must be under 140 characters. Selecting codings by system,
-fallback paths, following a reference and code sets need `spec_version: "0.3"`
-([Agent manifest spec 0.3](../spec/agent-manifest-0.3.md)). How an EHR connects is in
+fallback paths, following a reference and code sets are in the mapping's own document
+([the FHIR mapping](../spec/agent-manifest-0.3.md)). How an EHR connects is in
 [Connecting an EHR](connecting-an-ehr.md).
 
 ## 14. Publish the card
@@ -582,7 +582,7 @@ stronger evidence.
 - [ ] At level 2 or 3, the committee's approval is recorded.
 
 The full format is in the [agent manifest spec](../spec/agent-manifest-0.2.md), the FHIR
-mapping of spec 0.3 in [its own document](../spec/agent-manifest-0.3.md), and what spec 0.4
-adds (actions, a calibrated confidence, a second signal) in
-[its own](../spec/agent-manifest-0.4.md). `mendari new` writes an agent on spec 0.2, since it
-uses nothing newer: set `spec_version: "0.4"` when you use what 0.4 adds.
+mapping in [its own document](../spec/agent-manifest-0.3.md), and actions, a calibrated
+confidence, a second signal and written output in [their own](../spec/agent-manifest-0.4.md).
+An agent says `spec_version: "0.4"`, the one version Mendari reads, as `mendari new` writes
+it.

@@ -16,17 +16,17 @@ The hook always answers (LP-23d). A key that could not be read (each read on its
 fetch, an OperationOutcome, a resource or search page Mendari fetched that is not R4, a page
 cap) makes the decision ABSTAIN with its reason, recorded like any other, and the card says so
 whatever the pack's `show` says. Card wording comes from the pack's `cds_hooks.card`; without it,
-the card describes a routing decision. Spec 0.3 adds two keys to it (§5): `refused`, for a decision
+the card describes a routing decision. Two of its keys (spec 0.3 §5): `refused`, for a decision
 that refused its input, whose card lists why whatever the links (a template that does not name it
-words such a decision as `none`, as before), and `also_show`, the policy rules whose match shows a
-card for a recommendation `show` leaves out, in the rule's own words. A pack that declares
+words such a decision as `none`), and `also_show`, the policy rules whose match shows a card for
+a recommendation `show` leaves out, in the rule's own words. A pack that declares
 `coverage_information` also returns, for each decided order, a Da Vinci CRD system action
 (`standards/davinci.py`): `indeterminate` for a technical reason when the order abstained over
 unreadable data and the Coverage was read.
 
-**Linked data** (LP-23h): for a spec 0.3 pack, what its mapping reaches by a link the record does
-not hold (a note's Binary, the payer behind a Coverage, the drug behind a MedicationRequest) is
-read from the same `fhirServer`, under its base, with the same token, at most 50 note Binaries
+**Linked data** (LP-23h): what a pack's mapping reaches by a link the record does not hold (a
+note's Binary, the payer behind a Coverage, the drug behind a MedicationRequest) is read from
+the same `fhirServer`, under its base, with the same token, at most 50 note Binaries
 and 50 followed references a decision and 100 reads a request, inside the decision's deadline
 (`standards/linked.py`); a link that is not read is its field's reason, and the decision
 abstains. Without a `fhirServer`, nothing is read and such a link is `not_fetched`; a
@@ -607,7 +607,7 @@ def card_key(template: CdsCard | None, result: DecisionResult) -> str:
     """Which of a card template's keys words a decision's card: its recommendation, `none`
     without one, or `refused` for a decision that refused its input (a BLOCK before any
     provider ran) when the template names `refused` (spec 0.3 §5); one that does not reads it
-    as `none`, as before."""
+    as `none`."""
     if result.recommendation is not None:
         return result.recommendation
     refused = result.outcome is Outcome.BLOCK and result.rejected

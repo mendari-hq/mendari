@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Pack-generic rendering: inputs, criteria tables, providers and what labels lead to.
+// Pack-generic rendering: inputs, providers and what labels lead to.
 
 import { chartHtml } from "./charts.js";
 import { recordHtml } from "./record.js";
@@ -39,9 +39,8 @@ export function wireCodes(scope) {
 // A decision's reasons in words, for the main view. A rule's reason is the pack author's own
 // sentence; the engine's reasons are said plainly, keeping what a person must know (which answer
 // is missing, that safety checks may be incomplete, what a refused input lacks). Only reasons the
-// engine alone needs are left to the decision record: a threshold that was met, and a derived
-// decision's table rows (the criteria show them). Anything else not recognised is shown as
-// written, never dropped.
+// engine alone needs are left to the decision record: a threshold that was met. Anything else not
+// recognised is shown as written, never dropped.
 export function plainReasons(r) {
   const plain = (r.reasons ?? []).map((reason) => plainReason(reason, r)).filter((x) => x !== null);
   return [...new Set(plain)];
@@ -53,7 +52,6 @@ function plainReason(reason, r) {
   const rule = r.rule ? `rule ${r.rule}: ` : null;  // the rule's name may hold anything, a colon too
   if (rule && reason.startsWith(rule)) return reason.slice(rule.length);
   if (ENGINE_ONLY.test(reason)) return null;
-  if (derivedPrimary() && (state.detail.labels ?? []).some((label) => reason.startsWith(`${label}: `))) return null;
   const refused = reason.match(/^input rejected: ([\s\S]+)$/);
   if (refused) return `The input was refused: ${refused[1]}`;
   const failed = reason.match(/^provider failure \([^)]*\); ([\s\S]+)$/);
@@ -82,9 +80,9 @@ function plainReason(reason, r) {
 
 // One question's answer as the engine gave it, for the decision record: each label's probability,
 // the provider and an ordinal's expected score.
-export function answerChart(id, question, a, answers) {
+export function answerChart(id, question, a) {
   const rows = Object.entries(a.probabilities ?? {}).sort((x, y) => y[1] - x[1])
-    .map(([label, value]) => ({ label, value, chosen: label === a.label, tone: labelTone(question, label, answers) }));
+    .map(([label, value]) => ({ label, value, chosen: label === a.label, tone: labelTone(question, label) }));
   return `<h4>${esc(questionText(question))} <span class="muted"><span class="mono">${esc(question)}</span> · ${providerWords(a.provider)}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h4>
     ${rows.length ? chartHtml({
       id: `answer-${id}-${question}`,
@@ -155,66 +153,6 @@ export function inputView(input, { restricted = false } = {}) {
   return recordHtml(input);
 }
 
-const TONE_BADGE = { block: "o-BLOCK", review: "o-HUMAN_REVIEW", neutral: "o-ABSTAIN" };
-
-// For a derived primary (e.g. eligibility), the member answers are what a reviewer checks:
-// one row per criterion, with what that answer does in the decision table.
-export function derivedPrimary() {
-  const primary = state.detail.manifest.questions[state.detail.primary];
-  return primary && primary.derive ? primary.derive : null;
-}
-
-// What a member's answer does in the table, given every member's answer (for `when` rows).
-function memberEffect(derive, member, label, answers) {
-  for (const row of derive.table) {
-    if (row.else !== undefined && row.else !== null) return null;
-    if (row.in && !row.in.includes(member)) continue;
-    const gateOpen = !row.when || Object.entries(row.when).every(([m, labels]) => labels.includes(answers[m]?.label));
-    if (gateOpen && rowLabels(row.any).includes(label)) return row.then;
-  }
-  return null;
-}
-
-// The criteria of a derived decision. `plain` (the main result view): each criterion, answer and
-// effect by name, the codes one click away; otherwise (the record, the review queue) the engine's
-// view, with confidence, source and evidence.
-export function criteriaTable(answers, { evidence = true, plain = false } = {}) {
-  const derive = derivedPrimary();
-  if (!derive || !answers) return "";
-  const questions = state.detail.manifest.questions;
-  if (plain) {
-    const primary = state.detail.primary;
-    const rows = derive.from.map((member) => {
-      const a = answers[member];
-      const effect = a ? memberEffect(derive, member, a.label, answers) : null;
-      const tone = effect ? labelTone(primary, effect, answers) || "neutral" : "";
-      return `<tr class="${effect ? `hit hit-${tone}` : ""}">
-        <td class="criterion">${named(questionName(member), member)}</td>
-        <td>${a ? `<b>${named(labelName(member, a.label), a.label)}</b>` : `<span class="muted">no answer</span>`}</td>
-        <td class="mono">${a && a.confidence !== null && a.confidence !== undefined ? pct(a.confidence, 0) : ""}</td>
-        <td>${effect ? `<span class="badge ${TONE_BADGE[tone]}">→ ${named(labelName(primary, effect), effect)}</span>` : ""}</td>
-      </tr>`;
-    }).join("");
-    return `<div class="table-wrap"><table class="compact criteria">
-      <tr><th>Criterion</th><th>Answer</th><th>Sure</th><th>Effect</th></tr>${rows}</table></div>`;
-  }
-  const rows = derive.from.map((member) => {
-    const a = answers[member];
-    const effect = a ? memberEffect(derive, member, a.label, answers) : null;
-    const tone = effect ? labelTone(state.detail.primary, effect, answers) || "neutral" : "";
-    return `<tr class="${effect ? `hit hit-${tone}` : ""}">
-      <td class="criterion" title="${esc(questions[member]?.instructions ?? "")}">${esc(questionText(member))} <span class="mono muted">${esc(member)}</span></td>
-      <td>${a ? `<b>${esc(a.label)}</b>` : `<span class="muted">no answer</span>`}</td>
-      <td class="mono">${a ? pct(a.confidence, 0) : ""}</td>
-      <td>${effect ? `<span class="badge ${TONE_BADGE[tone]}">→ ${esc(effect)}</span>` : ""}</td>
-      <td class="muted">${a ? providerWords(a.provider) : ""}</td>
-      ${evidence ? `<td class="evidence">${a && a.evidence.length ? esc(a.evidence.join("; ")) : ""}</td>` : ""}
-    </tr>`;
-  }).join("");
-  return `<div class="table-wrap"><table class="compact criteria">
-    <tr><th>Criterion</th><th>Answer</th><th>Conf.</th><th>Effect</th><th>Source</th>${evidence ? "<th>Evidence</th>" : ""}</tr>${rows}</table></div>`;
-}
-
 // A question in words: the first sentence of its instructions, which the pack writes for people
 // ("Is the patient aged 18 to 75 on the screening date?"); the code follows as secondary text.
 export function questionText(question) {
@@ -267,22 +205,15 @@ function modelText(id) {
   return jev ? `Jev ${jev[1]}` : name;
 }
 
-// `any` / `all` hold a label or a list of labels.
-export const rowLabels = (value) => (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]);
-
 // What choosing this label leads to under the pack's own policy: a block rule is danger; a review
-// rule, or a primary label the policy never automates, is warning. A criterion of a derived
-// decision takes the tone of what that answer would make the decision (the Effect column of the
-// criteria table). Other labels get no tone.
-export function labelTone(question, label, answers) {
+// rule, or a primary label the policy never automates, is warning. Other labels get no tone.
+export function labelTone(question, label) {
   const policy = state.detail.manifest.policy;
   const rules = policy.rules.filter((rule) => rule.when.question === question && rule.when.labels?.includes(label));
   if (rules.some((rule) => rule.outcome === "BLOCK")) return "block";
   if (rules.some((rule) => rule.outcome === "HUMAN_REVIEW")) return "review";
   if (question === policy.primary && policy.labels?.[label]?.allow_auto === false) return "review"; // never automated
-  const derive = derivedPrimary();
-  const effect = derive?.from.includes(question) ? memberEffect(derive, question, label, answers) : null;
-  return effect ? labelTone(state.detail.primary, effect, answers) : "";
+  return "";
 }
 
 // -- proposed actions (spec 0.4) -------------------------------------------------------------------

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Review queue: grouped by priority, stat first; resolving moves focus to the next card.
 
-import { actionsList, communityNotice, criteriaTable, inputView, isCommunity, labelName, originBadge, statusNotice } from "./pack.js";
+import { actionsList, communityNotice, inputView, isCommunity, labelName, originBadge, statusNotice } from "./pack.js";
 import { refreshReviewCount, views } from "./router.js";
 import { $, announce, api, emptyState, esc, focusHeading, icon, may, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, reducedMotion, signedIn, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
 
@@ -295,7 +295,6 @@ function reviewCard(item) {
     </div>
     ${inputView(record.input, { restricted: item.input_restricted })}
     <ul class="reasons">${record.reasons.filter((r) => item.priority !== "stat" || !r.startsWith("rule ")).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
-    ${criteriaTable(record.answers)}
     ${item.actions?.length ? `<h4>Proposed actions</h4>
       ${item.actions.some((a) => a.disposition === "held") ? `<p class="muted">Confirming the recommendation releases the held actions; another label denies them.</p>` : ""}
       ${actionsList(item.actions, { choose: may("review") && Boolean(recommendation) })}` : ""}

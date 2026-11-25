@@ -92,7 +92,7 @@ asking starter-portal-agent about 400 calibration cases...
 cost: $0.4
 fitted for starter-portal-agent version 2.1.0: when its service reports another version, nothing is rescaled and no decision is automated until it is calibrated again
 -> models/reader-agent-calibration.json
-add `calibration: models/reader-agent-calibration.json` to the reader/agent variant to use it (it needs spec_version: '0.4')
+add `calibration: models/reader-agent-calibration.json` to the reader/agent variant to use it
 ```
 
 T above 1 means the agent was over-confident. `--dataset` defaults to the agent's `calibration`

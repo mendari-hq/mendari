@@ -18,9 +18,8 @@ the order of `KINDS`: the version cap first (how far the confidence can be belie
 repeated runs, then a second model.
 
 A disagreement caps only on a question the decision turns on (`deciding_questions`): the primary
-question, a critical one (`evaluation.critical`), one a policy rule reads, and the questions any
-of those is derived from. On another question it is written in the answer's evidence and
-nothing else.
+question, a critical one (`evaluation.critical`) and one a policy rule reads. On another question
+it is written in the answer's evidence and nothing else.
 
 A second signal that did not agree on a proposed action (spec 0.4: only some of the repeated
 runs proposed it, or the member that checks proposed another) caps too, whatever the action:
@@ -134,13 +133,9 @@ def proposed_what(manifest: PackManifest, name: str) -> str:
 
 def deciding_questions(manifest: PackManifest) -> frozenset[str]:
     """The questions a decision turns on: the primary question, each critical question
-    (`evaluation.critical`), each question a policy rule reads, and the questions any of those
-    is derived from. A disagreement on one of them caps automation; on another it does not."""
+    (`evaluation.critical`) and each question a policy rule reads. A disagreement on one of them
+    caps automation; on another it does not."""
     named = {manifest.policy.primary}
     named |= {critical.question for critical in manifest.evaluation.critical}
     named |= {rule.when.question for rule in manifest.policy.rules}
-    for key in list(named):
-        question = manifest.questions.get(key)
-        if question is not None and question.derive is not None:
-            named |= set(question.derive.members)
     return frozenset(named)

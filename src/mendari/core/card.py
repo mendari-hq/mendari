@@ -13,7 +13,7 @@ from mendari.core import clock
 from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
 from mendari.core.policy import GATE_TEXT, gate_of
-from mendari.core.spec import Condition, DeriveRow, Outcome, PackManifest, Question
+from mendari.core.spec import Condition, Outcome, PackManifest, Question
 from mendari.evals import leaderboard, operating_point, ranking, stats
 from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
 from mendari.evals.result import (
@@ -569,15 +569,6 @@ def _question(key: str, question: Question, *, primary: bool) -> list[str]:
     marker = " (primary)" if primary else ""
     kind = f" *({_t(question.type)})*" if question.type != "choice" else ""
     out = [f"**{_c(key)}**{marker}{kind}: {_t(question.instructions)}", ""]
-    if question.derive is not None:
-        members = ", ".join(_c(member) for member in question.derive.members)
-        out += [
-            f"Derived from {members} by a decision table (the first matching row wins; the "
-            "members' answers are treated as independent):",
-            "",
-            *[f"{n}. {_row(row)}" for n, row in enumerate(question.derive.table, start=1)],
-            "",
-        ]
     levels = question.levels
     if levels:
         out += ["| Label | Score | Criteria |", "|---|---|---|"]
@@ -589,21 +580,6 @@ def _question(key: str, question: Question, *, primary: bool) -> list[str]:
         out += ["| Label | Criteria |", "|---|---|"]
         out += [f"| {_c(label)} | {_t(text)} |" for label, text in question.criteria.items()]
     return [*out, ""]
-
-
-def _row(row: DeriveRow) -> str:
-    if row.otherwise is not None:
-        return f"otherwise → {_c(row.result)}"
-    among = f"of {', '.join(_c(m) for m in row.scope)}" if row.scope else "member"
-    value = row.any if row.any is not None else row.all
-    labels = [value] if isinstance(value, str) else list(value or [])
-    matched = " or ".join(_c(label) for label in labels)
-    gate = " and ".join(
-        f"{_c(member)} is " + " or ".join(_c(label) for label in allowed)
-        for member, allowed in (row.when or {}).items()
-    )
-    kind = "any" if row.any is not None else "every"
-    return f"{kind} {among} is {matched}{f', when {gate}' if gate else ''} → {_c(row.result)}"
 
 
 def _condition(when: Condition) -> str:

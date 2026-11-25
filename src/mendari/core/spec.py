@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Agent manifest, spec versions 0.1 to 0.4.
+"""Agent manifest, spec 0.4: the one spec version this engine reads (`SPEC_VERSION`).
 
-A pack declares *questions* (a fixed set of labels, each with human-readable criteria).
-Providers answer questions with probability distributions; the policy turns answers into
-one of four outcomes. Spec 0.2 adds `boolean` and `score` question types and *derived*
-questions computed from other answers by a decision table. See docs/spec/agent-manifest-0.2.md.
-Spec 0.3 changes the FHIR mapping (docs/spec/agent-manifest-0.3.md), which
-`standards/fhir.py` reads and checks, and adds two card keys (§5: `refused` and
-`cds_hooks.card.also_show`); its manifest is otherwise a 0.2 manifest. Spec 0.4 adds `actions`
-(docs/spec/agent-manifest-0.4.md): what an agent may ask to have done besides answer, each with
-an effect; what an effect needs before it is released is the runtime's (`core/policy.py`). It
-also adds written output: `outputs` (what an agent writes), `rubrics` (how a clinician and a
-model judge grade it) and `evaluation.grades` (clinicians' grades in a file).
+An agent declares *questions* (a fixed set of labels, each with human-readable criteria), of
+type `choice`, `boolean` or `score`. Providers answer questions with probability distributions;
+the policy, a section of the manifest, turns answers into one of four outcomes. The FHIR mapping
+(`inputs.fhir`) is read and checked by `standards/fhir.py`; a CDS Hooks card may word a decision
+that refused its input (`refused`) and a policy rule's match (`cds_hooks.card.also_show`).
+`actions` say what an agent may ask to have done besides answer, each with an effect; what an
+effect needs before it is released is the runtime's (`core/policy.py`). Written output:
+`outputs` (what an agent writes), `rubrics` (how a clinician and a model judge grade it) and
+`evaluation.grades` (clinicians' grades in a file). The documents: docs/spec/agent-manifest-0.2.md
+(the manifest), -0.3.md (the FHIR mapping) and -0.4.md (actions, calibration, the second signal
+and written output).
 """
 
 from __future__ import annotations
@@ -31,10 +31,8 @@ from mendari.core.templates import (
     unknown_placeholders,
 )
 
-SPEC_VERSIONS = ("0.1", "0.2", "0.3", "0.4")  # every spec version this engine reads, in order
-SPEC_VERSION = SPEC_VERSIONS[-1]  # the newest
+SPEC_VERSION = "0.4"  # the one spec version this engine reads: a manifest says it
 MAX_VERSION_CHARS = 64
-MAX_DERIVE_ROWS = 10
 
 # Actions (spec 0.4 section 2): how many an agent declares, and the bounds of each.
 MAX_ACTIONS = 16
@@ -70,12 +68,10 @@ MAX_JUDGE_ERRORS = 0.05
 
 
 def at_least(version: str, wanted: str) -> bool:
-    """Whether spec `version` is `wanted` or newer, by their place in `SPEC_VERSIONS`. Every
-    check of "this feature needs spec X" asks this, never equality: a later version keeps what
-    an earlier one added. A version this engine does not read is none of them."""
-    if version not in SPEC_VERSIONS:
-        return False
-    return SPEC_VERSIONS.index(version) >= SPEC_VERSIONS.index(wanted)
+    """Whether a manifest of spec `version` has what spec `wanted` (any version up to
+    `SPEC_VERSION`) added: one this engine loads is always `SPEC_VERSION`, which has every
+    feature. Only `providers/criteria.py` still asks; this goes with it in wave 6 (G1)."""
+    return version == SPEC_VERSION
 
 
 _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
@@ -224,7 +220,7 @@ def version_key(version: str) -> tuple[tuple[int, str], ...]:
 
 # Variant keys that once named the environment variables a remote provider reads its endpoint,
 # model or key from. Those variables are the deployment's (spec section 5), so a pack that sets
-# one is invalid, whatever its spec version: it could send any process secret anywhere.
+# one is invalid: it could send any process secret anywhere.
 DEPLOYMENT_ENV_KEYS: dict[str, frozenset[str]] = {
     "jev": frozenset({"api_key_env", "connector_env", "endpoint_env", "model_env"}),
     "llm": frozenset({"api_key_env", "base_url_env", "local_key_env", "model_env"}),
@@ -346,113 +342,11 @@ class ScoreLevel(_Strict):
     criterion: str = Field(min_length=1)
 
 
-class DeriveRow(_Strict):
-    """One decision-table row: `{any: L, then: X}`, `{all: L, then: X}` or `{else: X}`.
-
-    `L` is a label or a list of labels (`any: ["no", unknown]`: a member is `no` or `unknown`).
-    `in: [members]` limits a row to some of the members, for tables whose members answer in
-    different directions (e.g. criteria where `no` fails, and exclusions where `yes` fails).
-    `when: {member: [labels], ...}` makes a row count only while each named member's answer is
-    one of its labels, e.g. a document only one specialty requires:
-    `{any: "no", in: [ecg_on_file], when: {specialty: [cardiology]}, then: return_for_info}`.
-    """
-
-    any: str | list[str] | None = None
-    all: str | list[str] | None = None
-    then: str | None = None
-    otherwise: str | None = Field(default=None, alias="else")
-    scope: list[str] | None = Field(default=None, alias="in", min_length=1)
-    when: dict[str, list[str]] | None = None
-
-    @model_validator(mode="after")
-    def _shape(self) -> DeriveRow:
-        if self.otherwise is not None:
-            if self.any is not None or self.all is not None or self.then is not None:
-                raise ValueError("an `else` row takes no other keys")
-            if self.scope is not None:
-                raise ValueError("an `else` row applies to all members; it takes no `in`")
-            if self.when is not None:
-                raise ValueError("an `else` row applies always; it takes no `when`")
-        elif (self.any is None) == (self.all is None) or self.then is None:
-            raise ValueError(
-                "a row is {any: <label>, then: <label>}, {all: <label>, then: <label>} "
-                "or {else: <label>}"
-            )
-        if self.otherwise is None and not self.labels:
-            raise ValueError("`any` / `all` need at least one label")
-        if self.when is not None and (not self.when or not all(self.when.values())):
-            raise ValueError(
-                "`when` is {<member>: [<label>, ...], ...}: each with one or more labels"
-            )
-        return self
-
-    @property
-    def result(self) -> str:
-        return self.otherwise if self.otherwise is not None else str(self.then)
-
-    @property
-    def labels(self) -> frozenset[str]:
-        """The labels `any` / `all` match."""
-        value = self.any if self.any is not None else self.all
-        if value is None:
-            return frozenset()
-        return frozenset([value] if isinstance(value, str) else value)
-
-    @property
-    def gates(self) -> dict[str, frozenset[str]]:
-        """The `when` conditions, member -> labels; empty for a row that always counts."""
-        return {member: frozenset(labels) for member, labels in (self.when or {}).items()}
-
-    def applies_to(self, member: str) -> bool:
-        return self.scope is None or member in self.scope
-
-    def describe(self) -> str:
-        if self.otherwise is not None:
-            return f"else -> {self.otherwise}"
-        value = self.any if self.any is not None else self.all
-        label = value if isinstance(value, str) else "|".join(value or [])
-        kind = "any" if self.any is not None else "all"
-        within = f" in [{', '.join(self.scope)}]" if self.scope else ""
-        gate = " and ".join(
-            f"{member} in [{', '.join(labels)}]" for member, labels in (self.when or {}).items()
-        )
-        return f"{kind} {label}{within}{f' when {gate}' if gate else ''} -> {self.then}"
-
-
-class Derive(_Strict):
-    """A question computed from other questions' answers: the first matching row wins."""
-
-    members: list[str] = Field(alias="from", min_length=1)
-    table: list[DeriveRow] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def _table(self) -> Derive:
-        if len(set(self.members)) != len(self.members):
-            raise ValueError("derive `from` lists a question more than once")
-        if self.table[-1].otherwise is None:
-            raise ValueError("the last row of a derive table must be {else: <label>}")
-        if any(row.otherwise is not None for row in self.table[:-1]):
-            raise ValueError("only the last row may be an `else` row")
-        if len(self.table) - 1 > MAX_DERIVE_ROWS:
-            raise ValueError(f"a derive table has at most {MAX_DERIVE_ROWS} rows plus `else`")
-        for row in self.table:
-            outside = sorted(set(row.scope or []) - set(self.members))
-            if outside:
-                raise ValueError(f"row `in` names questions not in `from`: {outside}")
-        gated = {member for row in self.table for member in row.gates}
-        if gated - set(self.members):
-            raise ValueError(
-                f"`when` names questions not in `from`: {sorted(gated - set(self.members))}"
-            )
-        return self
-
-
 class Question(_Strict):
     type: Literal["choice", "boolean", "score"] = "choice"
     instructions: str = Field(min_length=1)
     criteria: dict[str, str]
     levels: dict[str, ScoreLevel] | None = None
-    derive: Derive | None = None
     # What a person reads instead of the key and the labels (`core/status.py` `title`,
     # `Question.name_of`): optional, and a readable form of the key when absent.
     display: str | None = Field(default=None, min_length=1, max_length=80)
@@ -830,8 +724,8 @@ _FIELD = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}(?:\.[A-Za-z0-9_][A-Za-z0-
 class WrittenOutput(_Strict):
     """A text an agent writes (spec 0.4 section 16): a draft reply, a summary, a note. It comes
     from the agent behind `slot`, in its response, or it is already in the input at `input` (a
-    dotted field, as the guard's `draft`). Exactly one of the two. `description` is what the
-    agent is asked for and what a grader is told the text is."""
+    dotted field, such as `draft`). Exactly one of the two. `description` is what the agent is
+    asked for and what a grader is told the text is."""
 
     description: str = Field(min_length=1, max_length=MAX_OUTPUT_DESCRIPTION)
     slot: str | None = None
@@ -873,8 +767,6 @@ class RubricCriterion(Question):
     def _scale(self) -> RubricCriterion:
         if self.type == "choice":
             raise ValueError("a criterion is `boolean` or `score`, never `choice`")
-        if self.derive is not None:
-            raise ValueError("a criterion is graded, never derived")
         if self.type == "boolean":
             if self.pass_from is not None:
                 raise ValueError("a yes/no criterion takes no `pass_from`: `yes` passes")
@@ -971,13 +863,13 @@ SUMMARY_CHARS = 139
 
 
 # The card key of a decision that refused its input (a BLOCK before any provider ran), for a card
-# template that names it (spec 0.3); one that does not reads such a decision as `none`, as before.
+# template that names it; one that does not reads such a decision as `none`.
 REFUSED = "refused"
 
 
 class RuleCard(_Strict):
-    """A card for a decision a policy rule matched whose recommendation `show` leaves out (spec
-    0.3): its own summary (a template, as `summaries` are) and indicator."""
+    """A card for a decision a policy rule matched whose recommendation `show` leaves out: its
+    own summary (a template, as `summaries` are) and indicator."""
 
     summary: str = Field(min_length=1)
     indicator: Literal["info", "warning", "critical"] = "warning"
@@ -985,8 +877,8 @@ class RuleCard(_Strict):
 
 class CdsCard(_Strict):
     """Card wording for one pack. Keys are the primary question's labels, `none` when the
-    decision has no recommendation, or `refused` (spec 0.3) when it refused its input;
-    `{recommendation}` and `{priority}` are filled in."""
+    decision has no recommendation, or `refused` when it refused its input; `{recommendation}`
+    and `{priority}` are filled in."""
 
     summaries: dict[str, str] = Field(min_length=1)
     indicators: dict[str, Literal["info", "warning", "critical"]] = {}
@@ -994,7 +886,7 @@ class CdsCard(_Strict):
     # patients who are clearly not eligible. None: every decision produces a card.
     show: list[str] | None = None
     # Policy rules (by name) whose match still shows a card for a recommendation `show` leaves
-    # out, in the rule's own words (spec 0.3); a recommendation `show` names keeps its own card.
+    # out, in the rule's own words; a recommendation `show` names keeps its own card.
     also_show: dict[str, RuleCard] = {}
     suggestion: str = "Create a task"
 
@@ -1007,14 +899,6 @@ class CdsCard(_Strict):
         return {f"summaries.{key}": text for key, text in self.summaries.items()} | {
             f"also_show.{rule}.summary": card.summary for rule, card in self.also_show.items()
         }
-
-
-class GuardConfig(_Strict):
-    """An API guard in front of an LLM (spec 0.2): `draft` is the input field holding the reply
-    being checked, and a decision releases it only when it is AUTO with a `release` label."""
-
-    draft: str = Field(min_length=1)
-    release: list[str] = Field(min_length=1)
 
 
 class CoverageInformation(_Strict):
@@ -1090,7 +974,7 @@ def prefetch_problems(hooks: CdsHooksConfig | None) -> list[str]:
 
 
 class PackManifest(_Strict):
-    spec_version: Literal["0.1", "0.2", "0.3", "0.4"]
+    spec_version: Literal["0.4"]  # `SPEC_VERSION`, the only one this engine reads
     id: str
     version: str
     name: str
@@ -1108,14 +992,21 @@ class PackManifest(_Strict):
     tests: str | None = None
     audit: AuditConfig = AuditConfig()
     cds_hooks: CdsHooksConfig | None = None
-    guard: GuardConfig | None = None
-    # What the agent may ask to have done besides answer (spec 0.4), by name, in the manifest's
-    # order. Empty: none, as for every agent before 0.4.
+    # What the agent may ask to have done besides answer, by name, in the manifest's order.
+    # Empty: none.
     actions: dict[str, ActionSpec] = {}
-    # What the agent writes, and how it is graded (spec 0.4): empty for an agent that only
-    # answers, as every agent before 0.4.
+    # What the agent writes, and how it is graded: empty for an agent that only answers.
     outputs: dict[str, WrittenOutput] = {}
     rubrics: dict[str, Rubric] = {}
+
+    @field_validator("spec_version", mode="before")
+    @classmethod
+    def _spec_version(cls, value: Any) -> Any:
+        if value != SPEC_VERSION:
+            raise ValueError(
+                f'must be "{SPEC_VERSION}" (quoted), the one spec version this engine reads'
+            )
+        return value
 
     @field_validator("id")
     @classmethod
@@ -1169,10 +1060,6 @@ class PackManifest(_Strict):
     def labels(self, question: str) -> list[str]:
         return self.questions[question].labels
 
-    @property
-    def derived(self) -> dict[str, Question]:
-        return {key: q for key, q in self.questions.items() if q.derive is not None}
-
 
 def cross_reference_problems(m: PackManifest) -> list[str]:
     """Consistency rules that a JSON-shape check cannot express."""
@@ -1180,32 +1067,11 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
     for key in m.questions:
         if not _KEY.match(key):
             problems.append(f"question key {key!r} must match {_KEY.pattern}")
-    derived = {key for key, q in m.questions.items() if q.derive is not None}
-    if m.spec_version == "0.1":
-        newer = [k for k, q in m.questions.items() if q.type != "choice" or q.derive is not None]
-        newer += [
-            f"rule {rule.name}"
-            for rule in m.policy.rules
-            if rule.when.min_probability is not None
-            or rule.when.min_score is not None
-            or rule.when.max_score is not None
-        ]
-        if m.guard is not None:
-            newer.append("guard")
-        newer += [
-            f"question {k} display or names" for k, q in m.questions.items() if q.display or q.names
-        ]
-        if m.card.provenance is not None:
-            newer.append("card.provenance")
-        if newer:
-            problems.append(f"{newer} use spec 0.2 features; set spec_version: '0.2'")
 
     answered_by: dict[str, str] = {}
     for slot_name, slot in m.providers.items():
         for question in slot.answers:
-            if question in derived:
-                problems.append(f"derived question {question!r} cannot be answered by a slot")
-            elif question not in m.questions:
+            if question not in m.questions:
                 problems.append(
                     f"provider slot {slot_name!r} answers unknown question {question!r}"
                 )
@@ -1217,9 +1083,8 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
             else:
                 answered_by[question] = slot_name
     for question in m.questions:
-        if question not in answered_by and question not in derived:
+        if question not in answered_by:
             problems.append(f"question {question!r} is not answered by any provider slot")
-    problems.extend(_derive_problems(m, derived))
 
     policy = m.policy
     if policy.primary not in m.questions:
@@ -1252,10 +1117,6 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
     for label in policy.labels:
         if label not in primary_labels:
             problems.append(f"policy.labels has unknown label {label!r}")
-    if m.guard is not None:
-        unknown_release = sorted(set(m.guard.release) - set(primary_labels))
-        if unknown_release:
-            problems.append(f"guard.release names unknown recommendations {unknown_release}")
     for slot_name, required in policy.automation_requires.items():
         provider_slot = m.providers.get(slot_name)
         if provider_slot is None:
@@ -1278,8 +1139,6 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
             problems.append("cds_hooks.coverage_information needs a `coverage` prefetch")
     dtr = hooks.questionnaire if hooks is not None else None
     if dtr is not None:
-        if m.questions[policy.primary].derive is None:
-            problems.append("cds_hooks.questionnaire needs a derived primary question")
         if dtr.missing not in primary_labels:
             problems.append(f"cds_hooks.questionnaire.missing {dtr.missing!r} is not a label")
         unknown_context = sorted(set(dtr.context) - set(m.questions))
@@ -1308,16 +1167,6 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
             placeholders = unknown_placeholders(summary, m.questions)
             if placeholders:
                 problems.append(f"cds_hooks.card.{where} uses unknown placeholders {placeholders}")
-        # An empty `also_show` is the default a dumped manifest carries: it counts as left out.
-        newer = (["cds_hooks.card.also_show"] if card.also_show else []) + (
-            [f"cds_hooks.card key {REFUSED!r}"] if card.names_refused() else []
-        )
-        if newer and not at_least(m.spec_version, "0.3"):
-            problems.append(f"{newer} use spec 0.3 card features; set spec_version: '0.3'")
-
-    second_signal = second_signal_keys(m)
-    if second_signal and not at_least(m.spec_version, "0.4"):
-        problems.append(f"{second_signal} use spec 0.4 features; set spec_version: '0.4'")
 
     for critical in m.evaluation.critical:
         critical_question = m.questions.get(critical.question)
@@ -1345,19 +1194,11 @@ def _named(kind: str, name: str) -> str | None:
 
 def written_problems(m: PackManifest) -> list[str]:
     """What spec 0.4 holds `outputs`, `rubrics` and `evaluation.grades` to beyond their own
-    shapes: the names, how many, what each refers to, the floors and the spec version. An empty
-    mapping is the default a dumped manifest carries: it counts as left out."""
-    sections = (
-        ("outputs", m.outputs),
-        ("rubrics", m.rubrics),
-        ("evaluation.grades", m.evaluation.grades),
-    )
-    used = [key for key, value in sections if value]
-    if not used:
+    shapes: the names, how many, what each refers to and the floors. An empty mapping is the
+    default a dumped manifest carries: it counts as left out."""
+    if not (m.outputs or m.rubrics or m.evaluation.grades):
         return []
     problems = []
-    if not at_least(m.spec_version, "0.4"):
-        problems.append(f"{used} use spec 0.4 features; set spec_version: '0.4'")
     if len(m.outputs) > MAX_OUTPUTS:
         problems.append(f"an agent declares at most {MAX_OUTPUTS} outputs")
     if len(m.rubrics) > MAX_RUBRICS:
@@ -1411,8 +1252,8 @@ def written_problems(m: PackManifest) -> list[str]:
 
 def action_problems(m: PackManifest) -> list[str]:
     """What spec 0.4 holds the `actions` section to beyond each action's own shape: the names,
-    how many, how long they are together as one request sends them, and the spec version. An
-    empty `actions` is the default a dumped manifest carries: it counts as left out."""
+    how many, and how long they are together as one request sends them. An empty `actions` is
+    the default a dumped manifest carries: it counts as left out."""
     if not m.actions:
         return []
     problems = []
@@ -1431,8 +1272,6 @@ def action_problems(m: PackManifest) -> list[str]:
             f"actions are longer than {MAX_ACTIONS_CHARS:,} characters together, as a request "
             "sends them"
         )
-    if not at_least(m.spec_version, "0.4"):
-        problems.append("['actions'] use spec 0.4 features; set spec_version: '0.4'")
     return problems
 
 
@@ -1449,25 +1288,6 @@ def variant_configs(m: PackManifest) -> Iterator[tuple[str, str, str | None, dic
                 for key, member in members.items():
                     if isinstance(member, dict):
                         yield slot_name, name, str(key), dict(member)
-
-
-def second_signal_keys(m: PackManifest) -> list[str]:
-    """Where a manifest uses what spec 0.4 adds to a provider variant (ADR-0024), in a variant
-    or a composite's member: an `agent`'s `calibration`, `repeat` on an `agent` or an `llm`,
-    and the `check` composite."""
-    found = []
-    for slot, name, member, config in variant_configs(m):
-        at = f"providers.{slot}.variants.{name}"
-        if member is not None:
-            at += f".members.{member}"
-        kind = config.get("type")
-        if kind == "check":
-            found.append(f"{at} (type check)")
-        if kind in ("agent", "llm") and "repeat" in config:
-            found.append(f"{at}.repeat")
-        if kind == "agent" and "calibration" in config:
-            found.append(f"{at}.calibration")
-    return found
 
 
 def card_summary_problems(m: PackManifest) -> list[str]:
@@ -1489,29 +1309,4 @@ def card_summary_problems(m: PackManifest) -> list[str]:
                 f"cds_hooks.card.{where} can read {most} characters with display names; "
                 f"a card's summary is at most {SUMMARY_CHARS} (CDS Hooks: under 140)"
             )
-    return problems
-
-
-def _derive_problems(m: PackManifest, derived: set[str]) -> list[str]:
-    problems = []
-    for key in sorted(derived):
-        spec = m.questions[key].derive
-        if spec is None:
-            continue
-        for member in spec.members:
-            if member not in m.questions or member in derived:
-                problems.append(f"{key}: derive member {member!r} must be a non-derived question")
-        for row in spec.table:
-            scoped = [q for q in spec.members if row.applies_to(q) and q in m.questions]
-            labels = {lab for q in scoped for lab in m.questions[q].criteria}
-            for label in sorted(row.labels - labels):
-                problems.append(f"{key}: row label {label!r} is not a label of its members")
-            if row.result not in m.questions[key].criteria:
-                problems.append(f"{key}: row result {row.result!r} is not one of its labels")
-            for member, gate_labels in row.gates.items():
-                if member not in m.questions:
-                    continue
-                unknown = sorted(gate_labels - set(m.questions[member].criteria))
-                if unknown:
-                    problems.append(f"{key}: `when` labels {unknown} are not labels of {member!r}")
     return problems

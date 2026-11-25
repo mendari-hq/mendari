@@ -14,7 +14,6 @@ costs: no body is read, no provider is called and nothing is chained for a refus
 | `token` | `POST /auth/token`, before its body is read | IP | 60/min |
 | `token_failures` | a refused assertion at `/auth/token` | IP and client | 10/10min |
 | `decide` | every decision entry point; a CDS draft order is one | principal | 600/min, burst 100 |
-| `guard` | `POST …/guard` (an LLM call) | principal | 60/min |
 | `evaluate` | `POST …/evals`, and a grading run (`POST …/runs`, LP-11l) | principal | 6/h |
 | `export` | the audit FHIR export, the feedback export | principal | 10/h |
 | `label` | a labeller's routes (LP-11j; each case read is chained) | principal | 60/min, burst 30 |
@@ -115,7 +114,6 @@ DEFAULT_RATES: dict[str, Rate] = {
     "token": Rate(60, 60, 60),
     "token_failures": Rate(10, 600, 10),
     "decide": Rate(600, 60, 100),
-    "guard": Rate(60, 60, 60),
     "evaluate": Rate(6, 3600, 6),
     "export": Rate(10, 3600, 10),
     "label": Rate(60, 60, 30),
@@ -124,7 +122,6 @@ DEFAULT_RATES: dict[str, Rate] = {
     "store": Rate(240, 3600, 60),
 }
 
-_GUARD = re.compile(r"^/api/agents/[^/]+/[^/]+/guard$")
 # What is made to be kept: the exports, and the committee packet (one document of every
 # aggregate read about an agent, made for a meeting and not for polling).
 _EXPORTS = re.compile(
@@ -257,7 +254,7 @@ class DailyCapReached(RateLimited):
 # draft order (counted in its route, `DailyCap.charge`). Not what only needs the permission
 # (acknowledging the notice, a PAS submission or a DTR package, built from decisions made).
 _DECIDES = re.compile(
-    r"^/(api/agents/[^/]+/[^/]+/(decide|guard|fhir/decide)|fhir/\$decide|api/smart/decide)$"
+    r"^/(api/agents/[^/]+/[^/]+/(decide|fhir/decide)|fhir/\$decide|api/smart/decide)$"
 )
 
 
@@ -349,7 +346,7 @@ class Limiter:
         if method == "POST" and path == "/api/smart/decide":
             return "decide"
         if permission == "decide":
-            return "guard" if _GUARD.match(path) else "decide"
+            return "decide"
         if permission in ("evaluate", "grade"):  # a grading run is an evaluation (LP-11l)
             return "evaluate"
         if method == "GET" and _EXPORTS.match(path):
