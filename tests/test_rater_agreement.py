@@ -3,8 +3,8 @@
 Cohen's kappa and Krippendorff's alpha match hand-computed references and independent
 implementations (statsmodels' kappa, a coincidence-matrix alpha in fractions), and the bootstrap
 interval matches scipy's on the same index matrix. Undefined coefficients and intervals say so,
-derived questions are labelled through the pack's table, and a second run gives the same bytes.
-Ratings are synthetic."""
+and a second run gives the same bytes. Ratings are synthetic, of the triage fixture's
+questions."""
 
 from __future__ import annotations
 
@@ -24,15 +24,10 @@ from mendari.errors import MendariError
 from mendari.evals import stats
 from mendari.evals.rater_agreement import FORMAT, agreement, alpha, kappa
 
-PACK = "mendari/ai-guard"  # `verdict` is derived from six member questions
-MEMBERS = (
-    "question_emergency",
-    "draft_escalates",
-    "dose_exceeds_limit",
-    "unsafe_advice",
-    "out_of_scope",
-    "unsupported_claim",
-)
+PACK = "mendari-test/triage"
+# What a rater says of a message unless a test says otherwise: the front desk reads it, and it
+# holds no same-day symptom and no insult.
+CALM = {"destination": "front_desk", "urgency": "no", "abusive": "no"}
 
 
 def table(first: Sequence[str], second: Sequence[str]) -> np.ndarray:
@@ -148,8 +143,8 @@ def test_bootstrap_interval_matches_reference() -> None:
 
 
 def certain(**labels: str) -> dict[str, str]:
-    """One rater's labels: every member `no` unless given."""
-    return {member: "no" for member in MEMBERS} | labels
+    """One rater's labels: `CALM` unless given."""
+    return CALM | labels
 
 
 def report(cases: list[dict[str, dict[str, str]]], **options: Any) -> dict[str, Any]:
@@ -187,27 +182,23 @@ def test_the_report_holds_percent_kappa_per_pair_and_alpha() -> None:
         flipped = "no" if unsafe == "yes" else "yes"
         other = flipped if i % 10 == 0 else unsafe  # the second rater disagrees on three cases
         raters = ("r1", "r2") if i % 2 else ("r1", "r3")
-        cases.append(
-            {raters[0]: certain(unsafe_advice=unsafe), raters[1]: certain(unsafe_advice=other)}
-        )
-    rows = [{rater: labels["unsafe_advice"] for rater, labels in case.items()} for case in cases]
+        cases.append({raters[0]: certain(urgency=unsafe), raters[1]: certain(urgency=other)})
+    rows = [{rater: labels["urgency"] for rater, labels in case.items()} for case in cases]
     result = report(cases, resamples=200)
     assert result["format"] == FORMAT and result["level"] == 0.95
     assert result["seeds"] == {"bootstrap": 0, "resamples": 200}
-    unsafe = result["questions"]["unsafe_advice"]
+    unsafe = result["questions"]["urgency"]
     assert unsafe["cases"] == 30
     assert unsafe["percent"] == stats.proportion(27, 30).to_dict()
     pairs = {tuple(pair["raters"]): pair for pair in unsafe["kappa"]}
     assert set(pairs) == {("r1", "r2"), ("r1", "r3")}
     for (a, b), pair in pairs.items():
-        shared = [
-            (case[a]["unsafe_advice"], case[b]["unsafe_advice"]) for case in cases if b in case
-        ]
+        shared = [(case[a]["urgency"], case[b]["urgency"]) for case in cases if b in case]
         assert pair["n"] == len(shared) == 15
         assert pair["estimate"] == round(float(kappa(shared) or 0), 6)
         assert pair["labels"][a] == dict(sorted({"yes": 5, "no": 10}.items()))
         assert pair["interval"] == expected_interval(rows, pair_statistic(a, b), 200)
-    units = [[case[r]["unsafe_advice"] for r in case] for case in cases]
+    units = [[case[r]["urgency"] for r in case] for case in cases]
     assert unsafe["alpha"]["estimate"] == round(float(alpha(units) or 0), 6)
     assert (unsafe["alpha"]["cases"], unsafe["alpha"]["ratings"]) == (30, 60)
     assert unsafe["alpha"]["interval"] == expected_interval(rows, pool_statistic, 200)
@@ -222,7 +213,7 @@ def test_the_report_holds_percent_kappa_per_pair_and_alpha() -> None:
 def test_an_undefined_coefficient_and_interval_say_so() -> None:
     same = [{"r1": certain(), "r2": certain()} for _ in range(10)]  # every label `no`
     result = report(same, resamples=50)
-    out_of_scope = result["questions"]["out_of_scope"]
+    out_of_scope = result["questions"]["abusive"]
     (pair,) = out_of_scope["kappa"]
     assert pair["estimate"] is None and pair["status"] == "not_estimable"
     assert pair["reason"] == "both raters gave every case one and the same label"
@@ -236,10 +227,10 @@ def test_an_undefined_coefficient_and_interval_say_so() -> None:
     # interval is not estimable and says in how many.
     rare = [
         *same,
-        {"r1": certain(out_of_scope="yes"), "r2": certain(out_of_scope="yes")},
-        {"r1": certain(out_of_scope="yes"), "r2": certain()},
+        {"r1": certain(abusive="yes"), "r2": certain(abusive="yes")},
+        {"r1": certain(abusive="yes"), "r2": certain()},
     ]
-    pair = report(rare, resamples=200)["questions"]["out_of_scope"]["kappa"][0]
+    pair = report(rare, resamples=200)["questions"]["abusive"]["kappa"][0]
     assert pair["status"] == "ok" and pair["estimate"] is not None
     interval = pair["interval"]
     assert interval["status"] == "not_estimable" and 0 < interval["dropped"] < 200
@@ -249,34 +240,19 @@ def test_an_undefined_coefficient_and_interval_say_so() -> None:
 
 
 def test_one_rater_per_case_has_no_agreement_to_measure() -> None:
-    result = report([{"r1": certain()}, {"r2": certain(unsafe_advice="yes")}], resamples=20)
-    unsafe = result["questions"]["unsafe_advice"]
+    result = report([{"r1": certain()}, {"r2": certain(urgency="yes")}], resamples=20)
+    unsafe = result["questions"]["urgency"]
     assert unsafe["percent"] == {"k": 0, "n": 0, "low": None, "high": None}
     assert unsafe["kappa"] == []
     assert unsafe["alpha"]["status"] == "not_estimable"
     assert unsafe["alpha"]["reason"] == "no case has two ratings"
 
 
-def test_a_derived_question_is_labelled_through_the_packs_table() -> None:
-    # r1 says unsafe advice (block); r2 says out of scope (review): the verdicts differ.
-    cases = [
-        {"r1": certain(unsafe_advice="yes"), "r2": certain(out_of_scope="yes")},
-        {"r1": certain(), "r2": certain()},  # both pass
-    ]
-    verdict = report(cases, resamples=20)["questions"]["verdict"]
-    (pair,) = verdict["kappa"]
-    assert pair["labels"] == {"r1": {"block": 1, "pass": 1}, "r2": {"pass": 1, "review": 1}}
-    assert verdict["percent"]["k"] == 1 and verdict["percent"]["n"] == 2
-    partial = [{"r1": {"unsafe_advice": "yes"}, "r2": certain()}]  # r1 labelled one member
-    assert report(partial, resamples=20)["questions"]["verdict"]["kappa"] == []
-
-
 @pytest.mark.parametrize(
     ("labels", "message"),
     [
-        ({"verdict": "block"}, "labels verdict, a derived question: raters label its members"),
         ({"no_such_question": "yes"}, "labels a question the agent does not have"),
-        ({"unsafe_advice": "certainly"}, "unsafe_advice's label is not one of its labels"),
+        ({"urgency": "certainly"}, "urgency's label is not one of its labels"),
     ],
 )
 def test_ratings_the_pack_cannot_read_are_refused_by_position(
@@ -289,12 +265,10 @@ def test_ratings_the_pack_cannot_read_are_refused_by_position(
 
 def test_a_second_run_gives_the_same_bytes_and_the_seed_matters() -> None:
     draw = random.Random(9)
-    cases = [
-        {r: certain(unsafe_advice=draw.choice(("yes", "no", "unknown"))) for r in ("r1", "r2")}
-        for _ in range(40)
-    ]
+    teams = ("front_desk", "nurse", "pharmacy")
+    cases = [{r: certain(destination=draw.choice(teams)) for r in ("r1", "r2")} for _ in range(40)]
     once = json.dumps(report(cases, resamples=300), sort_keys=True)
     assert once == json.dumps(report(cases, resamples=300), sort_keys=True)
-    other = report(cases, resamples=300, seed=1)["questions"]["unsafe_advice"]["kappa"][0]
-    first = json.loads(once)["questions"]["unsafe_advice"]["kappa"][0]
+    other = report(cases, resamples=300, seed=1)["questions"]["destination"]["kappa"][0]
+    first = json.loads(once)["questions"]["destination"]["kappa"][0]
     assert other["estimate"] == first["estimate"] and other["interval"] != first["interval"]
