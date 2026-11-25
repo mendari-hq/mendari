@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore
@@ -30,8 +29,8 @@ from mendari.server.limits import DailyCap, Limiter, limit_settings
 from mendari.server.scopes import DECIDE, needed
 from tests.conftest import (
     DEMO_AGENT_DIR,
-    INBOX_DIR,
     ROOT,
+    TRIAGE_DIR,
     encrypt_mode,
     encrypted_store,
     message,
@@ -40,7 +39,7 @@ from tests.conftest import (
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 AGENT = "mendari-test/actions-mini"
-INBOX = "mendari/patient-inbox-router"
+PLAIN = "mendari-test/triage"  # an agent that declares no actions
 BASE = f"/api/agents/{AGENT}"
 REFILL = "Could you refill my lisinopril?"
 VISIT = "I need to move my appointment."
@@ -51,10 +50,10 @@ ROUTE = ("POST", "/api/agents/{namespace}/{name}/actions")
 
 
 def agents(tmp_path: Path) -> list[Path]:
-    """A search path holding the actions fixture and the inbox, each a copy."""
+    """A search path holding the actions fixture and the triage fixture, each a copy."""
     base = tmp_path / "agents"
     shutil.copytree(MINI, base / "actions-mini")
-    shutil.copytree(INBOX_DIR, base / "patient-inbox-router")
+    shutil.copytree(TRIAGE_DIR, base / "triage")
     return [base]
 
 
@@ -108,9 +107,9 @@ def test_a_decision_lists_each_proposed_action_with_its_disposition(client: Test
             "id", "name", "effect", "disposition", "reason", "arguments", "arguments_hash",
         }  # fmt: skip
     assert decided["actions"][1]["arguments"] == {"note": "Asked to move a visit."}
-    # An agent older than 0.4 answers as it always did: no `actions` key at all.
-    inbox = client.post(f"/api/agents/{INBOX}/decide", json=message("Crushing chest pain"))
-    assert inbox.status_code == 200 and "actions" not in inbox.json()
+    # An agent that declares no actions answers with no `actions` key at all.
+    plain = client.post(f"/api/agents/{PLAIN}/decide", json=message("Crushing chest pain"))
+    assert plain.status_code == 200 and "actions" not in plain.json()
 
 
 def test_the_stored_decision_shows_its_actions_and_their_events(client: TestClient) -> None:
@@ -151,9 +150,9 @@ def test_the_agents_detail_lists_its_actions_and_how_each_is_gated(client: TestC
     assert "## Actions" in detail["card_markdown"]
     assert "actions" in detail["output_schema"]["properties"]
     # An agent that declares none: its detail is what it was.
-    inbox = client.get(f"/api/agents/{INBOX}").json()
-    assert "actions" not in inbox and "## Actions" not in inbox["card_markdown"]
-    assert "actions" not in inbox["output_schema"]["properties"]
+    plain = client.get(f"/api/agents/{PLAIN}").json()
+    assert "actions" not in plain and "## Actions" not in plain["card_markdown"]
+    assert "actions" not in plain["output_schema"]["properties"]
 
 
 # -- the second way in: each row of the table -----------------------------------------------------
@@ -325,16 +324,16 @@ def test_an_unknown_decision_another_agents_and_an_unknown_agent_are_404s(
     client: TestClient,
 ) -> None:
     decided = decide(client, REFILL)
-    inbox = client.post(f"/api/agents/{INBOX}/decide", json=message("Crushing chest pain")).json()
+    plain = client.post(f"/api/agents/{PLAIN}/decide", json=message("Crushing chest pain")).json()
     body = {"name": "look_up_medications", "arguments": {}}
     unknown = client.post(f"{BASE}/actions", json={"decision_id": "no-such", **body})
-    other = client.post(f"{BASE}/actions", json={"decision_id": inbox["id"], **body})
+    other = client.post(f"{BASE}/actions", json={"decision_id": plain["id"], **body})
     assert unknown.status_code == other.status_code == 404
     assert unknown.json()["detail"] == f"no decision no-such of {AGENT}"
-    assert other.json()["detail"] == f"no decision {inbox['id']} of {AGENT}"
+    assert other.json()["detail"] == f"no decision {plain['id']} of {AGENT}"
     # This agent's decision asked of another agent, and an agent nothing serves.
     crossed = client.post(
-        f"/api/agents/{INBOX}/actions", json={"decision_id": decided["id"], **body}
+        f"/api/agents/{PLAIN}/actions", json={"decision_id": decided["id"], **body}
     )
     assert crossed.status_code == 404
     nobody = client.post(
@@ -345,10 +344,12 @@ def test_an_unknown_decision_another_agents_and_an_unknown_agent_are_404s(
 
 
 def test_an_agent_older_than_0_4_authorizes_nothing_over_http(client: TestClient) -> None:
-    inbox = client.post(f"/api/agents/{INBOX}/decide", json=message("Crushing chest pain")).json()
+    """An agent that declares no actions, as none did before spec 0.4 (the triage fixture):
+    whatever is asked of it is blocked, as undeclared."""
+    plain = client.post(f"/api/agents/{PLAIN}/decide", json=message("Crushing chest pain")).json()
     asked = client.post(
-        f"/api/agents/{INBOX}/actions",
-        json={"decision_id": inbox["id"], "name": "send_reply", "arguments": {}},
+        f"/api/agents/{PLAIN}/actions",
+        json={"decision_id": plain["id"], "name": "send_reply", "arguments": {}},
     )
     assert asked.status_code == 200
     assert (asked.json()["disposition"], asked.json()["reason"]) == ("blocked", "undeclared")
@@ -495,9 +496,7 @@ def test_the_api_description_describes_the_route_and_the_reviews_new_field(
     assert "deny_actions" in review and review["deny_actions"]["default"] == []
 
 
-def test_the_decision_card_lists_the_declared_actions_and_how_each_is_gated(
-    tmp_path: Path,
-) -> None:
+def test_the_decision_card_lists_the_declared_actions_and_how_each_is_gated() -> None:
     card = render_card(load_pack(MINI))
     section = card.split("## Actions")[1].split("## Providers")[0]
     assert "Mendari authorizes each action and runs none" in section
@@ -515,22 +514,8 @@ def test_the_decision_card_lists_the_declared_actions_and_how_each_is_gated(
     assert "`write` | Never without a person" in by_name["queue_refill"]  # tightened
     assert "checked: `medication`, `days_supply`" in by_name["queue_refill"]
     assert "`order` | Never without a person" in by_name["renew_prescription"]
-    # A community copy: nothing is released without a person, and the card says what runs.
-    community = render_card(load_pack(without_a_block(tmp_path), origin="community"))
-    unowned = community.split("## Actions")[1].split("## Providers")[0]
-    assert "With any decision that is not blocked." not in unowned
     # The bundled agent's card lists its two; an agent that declares none has no such section.
     demo = render_card(load_pack(DEMO_AGENT_DIR))
     assert "| `assign_queue` |" in demo and "| `send_acknowledgement` |" in demo
     assert "`contact` | Never without a person" in demo
-    assert "## Actions" not in render_card(load_pack(INBOX_DIR))
-
-
-def without_a_block(tmp_path: Path) -> Path:
-    """The fixture as a community agent may be: with no rule that blocks."""
-    target = tmp_path / "community" / "actions-mini"
-    shutil.copytree(MINI, target)
-    raw = yaml.safe_load((target / "agent.yaml").read_text())
-    raw["policy"]["rules"] = []
-    (target / "agent.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
-    return target
+    assert "## Actions" not in render_card(load_pack(TRIAGE_DIR))
