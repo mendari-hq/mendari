@@ -671,7 +671,7 @@ def test_a_key_rotation_reseals_the_texts_and_the_check_covers_them(
         before = {row["id"]: row["body"] for row in rows(store, "written_items")}
     with AuditStore(db_target, phi=PhiPolicy("encrypt", new, HASH, (old,))) as store:
         checked = store.phi_check()
-        assert checked["by_key"]["written"] == {"legacy": 5} and checked["failures"] == 5
+        assert checked["by_key"]["written"] == {key_id(old): 5} and checked["failures"] == 5
         assert {failure["kind"] for failure in checked["failed"]} == {"written"}
         summary = store.rotate_phi(to=key_id(new))
         assert summary["written"] == 5 and summary["unopenable"] == []

@@ -1524,28 +1524,6 @@ def test_with_no_list_an_operators_word_allows_nothing_because_nothing_needs_it(
         assert [kind for kind, _ in events(site.db)] == ["agent_connection.set"]
 
 
-def test_a_database_from_before_allowances_gains_their_columns_and_keeps_its_rows(
-    db_target: str,
-) -> None:
-    """On SQLite and Postgres: a connection kept before an origin could be allowed is read as
-    one nobody allowed, after the start that adds the columns; a second start changes nothing."""
-    with encrypted_store(db_target) as store:
-        made = ConnectionStore(store).set(ORG_A, DEMO, endpoint=ELSEWHERE, token=TOKEN, by="ada")
-        with store._db.session(exclusive=True) as db:
-            for column in ("allowed_origin", "allowed_by", "allowed_at"):
-                db.all(f"ALTER TABLE agent_connections DROP COLUMN {column}")
-            assert "allowed_origin" not in db.columns("agent_connections")
-    for _ in range(2):
-        with encrypted_store(db_target) as store:
-            with store._db.session(exclusive=False) as db:
-                assert {"allowed_origin", "allowed_by", "allowed_at"} <= db.columns(
-                    "agent_connections"
-                )
-            assert ConnectionStore(store).get(ORG_A, DEMO) == made
-            assert ConnectionStore(store).resolve(ORG_A, DEMO) == Connection(ELSEWHERE, TOKEN)
-            assert store.verify()["ok"]
-
-
 def test_no_machines_credential_allows_an_origin_even_in_the_operating_organization(
     operated: Store,
 ) -> None:

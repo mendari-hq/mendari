@@ -122,7 +122,8 @@ def test_notes_open_for_readers_only_and_each_read_is_chained(
     read = shown["events"][-1]
     note_ids = [e["payload"]["note_ref"]["id"] for e in with_note(shown["events"])]
     assert read["event"] == "input.read"
-    assert read["payload"] == {"reader": "rn-7", "notes": note_ids}  # one read: input and notes
+    # One read: input and notes.
+    assert read["payload"] == {"reader": "rn-7", "notes": note_ids, "org": "default"}
     [rating] = store.feedback(reader="rn-7")
     assert (rating["note_status"], rating["note"]) == ("open", SECRET)
     assert store.verify(notes=True)["ok"] is True
@@ -252,6 +253,7 @@ def test_an_erased_note_is_gone_and_the_chain_still_verifies(
         "note_id": review_note,
         "reason": "request",
         "erased_by": "dpo@example.org",
+        "org": "default",
     }
     store.erase_note(rating_note, erased_by="dpo@example.org", reason="error")
     assert SECRET not in stored(store)
@@ -596,16 +598,17 @@ def chain(store: AuditStore) -> list[tuple[Any, ...]]:
 def test_append_many_writes_the_chain_n_appends_write(
     db_target: str, tmp_path: Path, ticking: Callable[[], None]
 ) -> None:
-    entries = [(f"d-{i}", {"reader": "rn-7", "n": i}) for i in range(7)]
+    # A deployment's kind: it names no organization, so no row stands behind each subject.
+    entries = [(f"d-{i}", {"inputs": i}) for i in range(7)]
     one_by_one = AuditStore(tmp_path / "single.db")
     batched = AuditStore(db_target)
     ticking()
     with one_by_one._db.session(exclusive=True) as db:
         for decision_id, payload in entries:
-            one_by_one._append(db, decision_id, "input.read", payload)
+            one_by_one._append(db, decision_id, "retention.purged", payload)
     ticking()
     with batched._db.session(exclusive=True) as db:
-        written = batched._append_many(db, "input.read", entries)
+        written = batched._append_many(db, "retention.purged", entries)
     assert chain(batched) == chain(one_by_one)
     seqs = [event["seq"] for event in written]
     assert [event["decision_id"] for event in written] == [d for d, _ in entries]

@@ -167,21 +167,6 @@ def test_off_mode_keeps_evidence_unless_the_pack_keeps_only_the_hash(
     assert LAB_VALUE not in evidence(dropped["record"])
 
 
-def test_an_older_database_gets_the_details_column(db_target: str, trial: Pack) -> None:
-    """Inputs kept before this release have no details: they still open, with no evidence."""
-    with AuditStore(db_target, phi=policy("encrypt")) as store:
-        result, _ = Decision(trial, store=store).decide_fhir(marked_bundle())
-        with store._db.session(exclusive=True) as db:
-            db.all("ALTER TABLE decision_inputs DROP COLUMN details")
-    for _ in range(2):  # the second start finds nothing to do
-        with AuditStore(db_target, phi=policy("encrypt")) as store:
-            with store._db.session(exclusive=False) as db:
-                assert "details" in db.columns("decision_inputs")
-            shown = store.get(result.id, reader="Nurse Kim")
-            assert shown is not None and shown["record"]["input"] is not None
-            assert LAB_VALUE not in evidence(shown["record"])
-
-
 @pytest.mark.parametrize("validation", ["warn", "enforce"])
 def test_issues_name_a_resource_by_position_in_the_record_and_by_id_to_the_caller(
     tmp_path: Path, validation: str

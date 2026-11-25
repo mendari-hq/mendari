@@ -35,10 +35,11 @@ def dump(store: AuditStore, *tables: str) -> str:
         )
 
 
-def test_the_tables_are_added_and_no_older_database_reads_as_unmigrated(db_target: str) -> None:
+def test_the_tables_are_made_empty_and_read_so(db_target: str) -> None:
     store = AuditStore(db_target)
     assert store.organizations() == [] and store.memberships() == []
-    assert AuditStore(db_target, read_only=True).unmigrated == []
+    reading = AuditStore(db_target, read_only=True)
+    assert reading.organizations() == [] and reading.memberships() == []
 
 
 def test_the_bootstrap_adds_the_owner_once_and_rewrites_nothing(

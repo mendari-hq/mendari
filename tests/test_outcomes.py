@@ -162,7 +162,9 @@ def test_open_mode_records_the_outcome_as_open_mode(client: TestClient, inbox_pa
     body = {"final_label": "nurse", "source": "ehr", "recorded_by": "Dr Somebody Else"}
     assert client.post(f"/api/audit/{decision}/outcome", json=body).status_code == 200
     [event] = [e for e in client.get(f"/api/audit/{decision}").json()["events"][1:]]
-    assert event["payload"] == {"final_label": "nurse", "source": "ehr", "recorded_by": "open mode"}
+    assert event["payload"] == {
+        "final_label": "nurse", "source": "ehr", "recorded_by": "open mode", "org": "default",
+    }  # fmt: skip
 
 
 # -- the FHIR renderings (pinned: any change is a changelog item) --------------------------------
@@ -269,40 +271,3 @@ def test_a_later_outcome_replaces_the_earlier_and_the_chain_keeps_both(
     assert item["observed_label"] == "front_desk" and item["final_label"] is None
     assert [e["payload"]["final_label"] for e in item["events"] if e["event"] == "outcome.recorded"]
     assert store.stats()["labelled"] == 1
-
-
-def test_an_older_databases_outcome_labels_move_to_their_own_column(
-    store: AuditStore, inbox_pack: Pack
-) -> None:
-    """Before `observed_label`, an outcome's label sat in `final_label`, over a reviewer's when
-    there was one. The migration reads the chain: the reviewer's label goes back, the latest
-    outcome's moves, and a decision never reviewed keeps no `final_label`."""
-    from mendari.core.audit import _split_observed_labels
-
-    decide = Decision(inbox_pack, providers=SCREENED, store=store)
-    overwritten, reviewed_only, automated, untouched = (
-        decide(message(EMERGENCY)),
-        decide(message(EMERGENCY)),
-        decide(message(ROUTINE)),
-        decide(message(ROUTINE)),
-    )
-    store.resolve_review(overwritten.id, final_label="nurse", reviewer="rn-1")
-    store.record_outcome(overwritten.id, final_label="physician", source="ehr", recorded_by="x")
-    store.record_outcome(overwritten.id, final_label="billing", source="ehr", recorded_by="x")
-    store.resolve_review(reviewed_only.id, final_label="physician", reviewer="rn-1")
-    store.record_outcome(automated.id, final_label="front_desk", source="ehr", recorded_by="x")
-    # The rows as the release before this one left them: the chain is the same.
-    with store._db.session(exclusive=True) as db:
-        db.all("UPDATE decisions SET observed_label = NULL")
-        db.all("UPDATE decisions SET final_label = 'billing' WHERE id = ?", (overwritten.id,))
-        db.all("UPDATE decisions SET final_label = 'front_desk' WHERE id = ?", (automated.id,))
-    for _ in range(2):  # idempotent
-        with store._db.session(exclusive=True) as db:
-            _split_observed_labels(db)
-        labels = {r["id"]: (r["final_label"], r["observed_label"]) for r in store.query(limit=10)}
-        assert labels == {
-            overwritten.id: ("nurse", "billing"),
-            reviewed_only.id: ("physician", None),
-            automated.id: (None, "front_desk"),
-            untouched.id: (None, None),
-        }

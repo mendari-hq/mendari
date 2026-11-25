@@ -553,48 +553,6 @@ def test_an_added_version_is_verified_and_kept_in_its_organizations_store_across
     assert len(world.versions()) == 1
 
 
-def test_a_database_from_before_this_change_starts_is_migrated_and_still_verifies(
-    db_target: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    hub: Hub,  # noqa: F811
-) -> None:
-    """On SQLite and Postgres: a database that holds an organization's store version and none
-    of what this change adds (where a version was pulled from, the pinned keys, the
-    connections) starts, gets them, and verifies as it did; a version is then added from the
-    registry beside the one made before, and a connection is set."""
-    for before in adopting(db_target, tmp_path, monkeypatch, hub):
-        copied = before.client.post(
-            "/api/store/copies",
-            json={"pack": INBOX, "name": "inbox-copy"},
-            headers=before.as_(ORG_A, "pack_author"),
-        )
-        assert copied.status_code == 201, copied.text
-        made = copied.json()["digest"]
-        with before.store.db._db.session(exclusive=True) as db:
-            db.all("ALTER TABLE store_versions DROP COLUMN pulled")
-            db.all("DROP TABLE store_pins")
-            db.all("DROP TABLE agent_connections")
-    for world in adopting(db_target, tmp_path, monkeypatch, hub):
-        assert world.store.db.verify()["ok"]
-        author = world.as_(ORG_A, "pack_author")
-        kept = world.client.get(f"/api/store/versions/{made}", headers=author)
-        assert kept.status_code == 200 and "pulled" not in kept.json()
-        pack = world.publish()
-        assert world.pull().status_code == 201
-        connected = world.client.put(
-            f"/api/connections/{ACME}",
-            json={"endpoint": "https://1.1.1.1/decide", "token": "tok-zq"},
-            headers=world.as_(ORG_A, "admin"),
-        )
-        assert connected.status_code == 200, connected.text
-        assert {row["digest"]: row["pulled"] is not None for row in world.versions()} == {
-            made: False,
-            pack.digest: True,
-        }
-        assert world.store.db.verify()["ok"]
-
-
 def test_one_organizations_added_agent_is_invisible_to_another_which_adds_its_own(
     lite: Adopting,
 ) -> None:

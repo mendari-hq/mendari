@@ -661,9 +661,9 @@ def test_decision_created_names_who_asked(
         assert store.verify()["ok"] is True
     assert events[: len(earlier)] == earlier  # never rewritten
     created = {e["decision_id"]: e["payload"] for e in events if e["event"] == "decision.created"}
-    assert set(created[before.json()["id"]]) == {"record_sha256"}  # open mode: nobody
+    assert set(created[before.json()["id"]]) == {"record_sha256", "org"}  # open mode: nobody
     for decision, actor in asked.items():
-        assert set(created[decision]) == {"record_sha256", "requested_by"}
+        assert set(created[decision]) == {"record_sha256", "requested_by", "org"}
         assert created[decision]["requested_by"] == actor
     trail = admin(app, db_target, "clinic-a").get(
         f"/api/audit/{launched.json()['decision']['id']}/fhir"

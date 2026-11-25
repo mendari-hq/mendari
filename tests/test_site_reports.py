@@ -18,7 +18,6 @@ from mendari.cli import main
 from mendari.core.registry import resolve_pack
 from mendari.evals.share import SiteReportV2
 from mendari.hub import archive, site_signing
-from mendari.hub.registry import RegistryStore
 from mendari.hub.site_signing import Site, init_site
 from tests.conftest import Registry, share_signed, shared_benchmark, site_ticket, verified_site
 
@@ -287,33 +286,6 @@ def test_an_offline_ticket_and_submission_are_accepted_through_the_same_checks(
     accepted = json.loads(capsys.readouterr().out)
     assert accepted["ticket"] == issued["ticket"]["id"] and accepted["verified"] is True
     assert main(["registry", "accept-report", str(carried), "--db", db_target]) == 1  # once
-
-
-def test_unsigned_reports_from_before_are_kept_and_not_served(
-    published: Registry, tmp_path: Path, db_target: str
-) -> None:
-    with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
-        db.all(
-            "INSERT INTO hub_reports (id, namespace, name, version, site, submitted_by, "
-            "created_at, report) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "old-1",
-                "mendari",
-                "referral-router",
-                REFERRAL.version,
-                "Old site",
-                "token:x",
-                "2026-01-01T00:00:00Z",
-                json.dumps(shared_benchmark()),
-            ),
-        )
-    site = verified_site(published, tmp_path)
-    assert share_signed(published, site, shared_benchmark()).status_code == 201
-    listed = published.client.get(LISTED)
-    assert [r["site"] for r in listed.json()["reports"]] == [site.id]
-    assert "Old site" not in listed.text
-    with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
-        assert db.one("SELECT id FROM hub_reports WHERE id = 'old-1'") is not None  # kept
 
 
 def test_the_registry_chain_verifies_after_a_ticket_a_report_and_a_supersession(

@@ -535,10 +535,15 @@ def _plant(db_target: str, namespace: str, version: str = "9.9.9") -> None:
 
 
 def _restart_chain(db_target: str) -> None:
-    """Rewrite the unkeyed chain whole, as a writer of the database can: every row it holds
-    now is hashed anew in one first event, so `verify` passes with the planted rows in it."""
-    _drop(db_target, "hub_events")
-    _drop(db_target, "hub_meta")
+    """Rewrite the unkeyed chain whole, as a writer of the database can: every event deleted,
+    then every row it covers chained anew, one event each, so `verify` passes with the planted
+    rows in it and no event of the chain before is left."""
+    with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
+        db.all("DELETE FROM hub_events")
+        for kind, (table, name) in registry_module.ROWS.items():
+            for row in db.all(f"SELECT * FROM {table}"):
+                written = {"kind": kind, "key": name(row), "sha256": registry_module._row_sha(row)}
+                registry_module.record_event(db, "row.rewritten", "registry", {"row": written})
     assert _verify(db_target)["ok"]
 
 
@@ -788,48 +793,6 @@ def test_a_machine_can_require_the_counter_signature(
     with _client(registry) as client:
         assert pulled_record(pull(REFERRAL.id, client).root)["accepted"] is True
     assert client_module.COUNTERSIGNATURE_MODES == ("optional", "required", "shipped")
-
-
-def test_a_database_from_before_counter_signatures_reads_and_verifies(
-    registry: Registry, db_target: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A database from before LP-19i has no `hub_acceptances`: read as it is it verifies and
-    serves, with no record; opened by a registry it gains the table and no event."""
-    _keyed(monkeypatch, None)
-    assert registry.publish().status_code == 201
-    version = registry.client.get(PATH).json()
-    _drop(db_target, "hub_acceptances")
-    with RegistryStore(db_target, read_only=True) as store:
-        before = store.verify()
-        assert before["ok"], before
-        found = store.version("mendari", "referral-router", REFERRAL.version)
-        assert found["checked"]["accepted"] is None and found["digest"] == version["digest"]
-        assert [p["id"] for p in store.latest()] == [REFERRAL.id]
-        assert len(store.versions("mendari", "referral-router")) == 1
-        with store._db.session(exclusive=False) as db:
-            events = db.all("SELECT * FROM hub_events ORDER BY seq")
-            assert not db.columns("hub_acceptances")  # still as it was: nothing written
-    assert _events(db_target) == events  # opened read-write: the table comes, no event does
-    assert _verify(db_target) == before
-    assert registry.client.get(PATH).json() == version
-    with _client(registry) as client:
-        assert pulled_record(pull(REFERRAL.id, client).root)["accepted"] is None
-
-
-def _drop(db_target: str, table: str) -> None:
-    """Drop a table past the store: opening a `RegistryStore` to write creates it again."""
-    if db_target.startswith("postgres"):
-        import psycopg
-
-        with psycopg.connect(db_target, autocommit=True) as connection:
-            connection.execute(f"DROP TABLE IF EXISTS {table}")
-        return
-    import sqlite3
-    from contextlib import closing
-
-    with closing(sqlite3.connect(db_target)) as connection:
-        connection.execute(f"DROP TABLE IF EXISTS {table}")
-        connection.commit()
 
 
 def test_the_shipped_file_holds_public_keys_only() -> None:

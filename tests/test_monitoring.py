@@ -10,8 +10,6 @@ import copy
 import json
 import math
 import shutil
-import sqlite3
-from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -732,13 +730,12 @@ def test_operational_health_comes_from_stored_columns(store: AuditStore, inbox_p
     ids = reviewed(store, inbox_pack, 21, days_ago=1, final=None)
     set_rows(store, ids[:3], provider_errors=1)
     set_rows(store, ids[3:5], outcome="ABSTAIN")
-    set_rows(store, ids[5:6], provider_errors=None)  # recorded before the count existed
     for n, decision_id in enumerate(ids[:20]):
         set_rows(store, [decision_id], latency_ms=100.0 * (n + 1))
     # A refused input: no provider ran, it decided nothing; never in these figures.
     set_rows(store, ids[20:], refused=1, outcome="BLOCK", provider_errors=1, latency_ms=99999.0)
     recent = monitor(store, inbox_pack, now=NOW, providers=MEASURED)["last_7_days"]
-    assert recent["figures"]["provider_errors"] == figures.of(3, 19)  # the NULL row left out
+    assert recent["figures"]["provider_errors"] == figures.of(3, 20)
     assert recent["figures"]["abstained"] == figures.of(2, 20)
     # Nearest rank: the 19th of 20 is the p95 (never simply the largest), the 10th the p50.
     assert recent["latency_ms"] == {"n": 20, "p50": 1000.0, "p95": 1900.0, "mean": 1050.0}
@@ -801,18 +798,6 @@ def test_a_rise_in_provider_errors_alerts_from_what_decisions_stored(
     alerts = monitor(store, inbox_pack, now=NOW, providers=None)["alerts"]  # no benchmark needed
     assert [a["kind"] for a in alerts] == ["provider_errors"]
     assert alerts[0]["message"].startswith("decisions with a provider error: 15 of 60 [")
-
-
-def test_a_command_reading_a_database_without_the_count_is_refused_in_one_line(
-    tmp_path: Path, inbox_pack: Pack, capsys: pytest.CaptureFixture[str]
-) -> None:
-    db = tmp_path / "a.db"
-    AuditStore(db).close()
-    with closing(sqlite3.connect(db)) as connection:
-        connection.execute("ALTER TABLE decisions DROP COLUMN provider_errors")
-        connection.commit()
-    assert main(["monitor", "--db", str(db), "--pack", inbox_pack.id]) == 1
-    assert "decisions.provider_errors" in capsys.readouterr().err
 
 
 def test_a_steady_timeout_tail_does_not_alert_but_a_real_slowdown_does(

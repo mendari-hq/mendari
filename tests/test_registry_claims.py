@@ -539,12 +539,9 @@ def test_the_operators_commands_claim_approve_refuse_and_list(
     assert main(["registry", "verify", "--db", db_target]) == 0
 
 
-def test_a_namespace_from_before_claims_stays_listed(
-    registry: Registry, db_target: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A namespace with no claim row (every one from before LP-19c) reads as it did. A database
-    from before has no claims table: read as it is it verifies and serves; opened by a registry
-    it gains the table, and its chain is as it was."""
+def test_a_namespace_with_no_claim_is_listed(registry: Registry, db_target: str) -> None:
+    """A namespace with no claim row (`create_namespace`, the store's own) is listed, and its
+    events link it to no organization."""
     assert registry.publish().status_code == 201
     path = f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"
     version = registry.client.get(path).json()
@@ -552,41 +549,7 @@ def test_a_namespace_from_before_claims_stays_listed(
     namespace = registry.client.get("/v1/namespaces/mendari").json()
     assert namespace["listed"] is True and namespace["claim"] is None
     assert json.loads(_events(db_target)[-1]["payload"])["org"] is None  # no claim, no link
-    _drop_claims(db_target)
-    with RegistryStore(db_target, read_only=True) as store:
-        before = store.verify()
-        assert before["ok"], before
-        assert store.claims() == []
-        assert [p["id"] for p in store.latest()] == [REFERRAL.id]
-        found = store.version("mendari", "referral-router", REFERRAL.version)
-        assert (found["digest"], found["listed"]) == (version["digest"], True)
-        assert store.namespace("mendari", Viewer(namespace="mendari"))["claim"] is None
-        assert store.archive(version["archive_sha256"])
-        with store._db.session(exclusive=False) as db:
-            events = db.all("SELECT * FROM hub_events ORDER BY seq")
-            assert not db.columns("hub_claims")  # still as it was: nothing written
-    assert main(["registry", "claims", "--db", db_target]) == 0
-    assert json.loads(capsys.readouterr().out) == []
-    assert _events(db_target) == events  # opened read-write: the table comes, no event does
-    assert _verify(db_target) == before
-    assert registry.client.get(path).json() == version
     assert [p["id"] for p in registry.client.get("/v1/search").json()] == [REFERRAL.id]
     with _client(registry) as client:
         assert pull(REFERRAL.id, client).digest == REFERRAL.digest
     assert registry_module.MAX_PENDING_CLAIMS == 3 and not PUBLIC.reviewer
-
-
-def _drop_claims(db_target: str) -> None:
-    """Drop the table past the store: opening a `RegistryStore` to write creates it again."""
-    if db_target.startswith("postgres"):
-        import psycopg
-
-        with psycopg.connect(db_target, autocommit=True) as connection:
-            connection.execute("DROP TABLE IF EXISTS hub_claims")
-        return
-    import sqlite3
-    from contextlib import closing
-
-    with closing(sqlite3.connect(db_target)) as connection:
-        connection.execute("DROP TABLE IF EXISTS hub_claims")
-        connection.commit()

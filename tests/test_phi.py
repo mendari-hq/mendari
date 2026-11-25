@@ -76,7 +76,7 @@ def test_encrypt_mode_keeps_only_ciphertext_and_reveals_it_to_readers(
     shown = store.get(result.id, reader="Nurse Kim")
     assert shown is not None and shown["record"]["input"] == message(SECRET_WORDS)
     assert shown["events"][-1]["event"] == "input.read"
-    assert shown["events"][-1]["payload"] == {"reader": "Nurse Kim"}
+    assert shown["events"][-1]["payload"] == {"reader": "Nurse Kim", "org": "default"}
     assert store.verify()["ok"] is True
 
 
@@ -94,7 +94,7 @@ def test_a_ciphertext_only_opens_for_its_own_decision(tmp_path: Path, inbox_pack
     with pytest.raises(MendariError, match="does not decrypt"):
         store.get(second.id, reader="Nurse Kim")
     wrong_key = AuditStore(tmp_path / "a.db", phi=PhiPolicy(mode="encrypt", key=os.urandom(32)))
-    with pytest.raises(MendariError, match="does not decrypt"):
+    with pytest.raises(MendariError, match=r"sealed under key \w+, which this deployment lacks"):
         wrong_key.get(first.id, reader="Nurse Kim")
 
 

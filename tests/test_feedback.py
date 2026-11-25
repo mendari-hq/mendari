@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -262,46 +261,7 @@ def test_a_check_of_a_derived_decision_can_be_the_right_answer(
     assert report["questions"]["unsafe_advice"]["n"] == 1
 
 
-# -- databases from before this release ---------------------------------------------------------
-
-OLD_FEEDBACK = """CREATE TABLE feedback (
-    id TEXT PRIMARY KEY, decision_id TEXT NOT NULL, created_at TEXT NOT NULL,
-    pack_id TEXT NOT NULL, rating TEXT NOT NULL, reporter TEXT, note TEXT)"""
-
-
-def test_an_older_database_gains_the_columns_and_counts_each_persons_latest_rating(
-    db_target: str,
-) -> None:
-    rows = [
-        ("f1", "d1", "2026-09-01T10:00:00.000+00:00", "rn-1"),
-        ("f2", "d1", "2026-09-02T10:00:00.000+00:00", "rn-1"),  # rn-1 again: replaces f1
-        ("f3", "d1", "2026-09-03T10:00:00.000+00:00", None),
-        ("f4", "d2", "2026-09-01T10:00:00.000+00:00", "rn-1"),
-    ]
-    insert = "INSERT INTO feedback VALUES (?, ?, ?, 'p', 'down', ?, NULL)"
-    if db_target.startswith("postgresql"):
-        import psycopg
-
-        with psycopg.connect(db_target, autocommit=True) as connection:
-            connection.execute(OLD_FEEDBACK)
-            for row in rows:
-                connection.execute(insert.replace("?", "%s"), row)
-    else:
-        import sqlite3
-
-        # closing(): a sqlite3 connection's own `with` commits but never closes.
-        with closing(sqlite3.connect(db_target)) as connection:
-            connection.execute(OLD_FEEDBACK)
-            connection.executemany(insert, rows)
-            connection.commit()
-
-    for _ in range(2):  # the second start finds nothing to do
-        with AuditStore(db_target) as store, store._db.session(exclusive=False) as db:
-            assert {"expected_question", "expected_label", "superseded_by"} <= db.columns(
-                "feedback"
-            )
-            migrated = {r["id"]: r["superseded_by"] for r in db.all("SELECT * FROM feedback")}
-        assert migrated == {"f1": "f2", "f2": None, "f3": None, "f4": None}
+# -- the ratings on each audit row ----------------------------------------------------------------
 
 
 def test_audit_rows_carry_each_decisions_current_ratings(
