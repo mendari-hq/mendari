@@ -1,8 +1,7 @@
 # ADR-0024: A confidence that was checked, and a second signal that only lowers automation
 
 ## Status
-Accepted. Terminology updated 2026-11-25: the service's fields are `service_id` and
-`service_version` ([ADR-0026](ADR-0026-one-release-baseline-agents-only.md), point 6).
+Accepted
 
 Decided by the maintainer on 2026-11-24, before the repository was public, so no comment period ran; open to revision when it is.
 
