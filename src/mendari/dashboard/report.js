@@ -7,9 +7,6 @@ import { criticalText } from "./manifest.js";
 import { tableHtml } from "./table.js";
 import { copyText, esc, evidenceMark, figureHtml, icon, money, num, share, shown, slotText, stat, storageGet, time } from "./ui.js";
 
-// A report's run: its id, time and latency (its `run` block, else the report's own keys).
-export const runOf = (r) => r.run ?? r;
-
 // What a report says of its primary question when none of its cases is labelled for it.
 const UNLABELLED = { macro_f1: null, brier: null, calibration: { ece: null, bins: [] }, per_label: {}, confusion: {} };
 
@@ -30,8 +27,8 @@ export function reportView(r) {
     });
   }).join("");
   const small = (label, value, foot = "") => stat({ size: "small", label, value, html: true, foot });
-  const run = runOf(r);
-  const id = `${run.id ?? run.created_at}`.replace(/[^a-zA-Z0-9-]/g, "");
+  const run = r.run;
+  const id = `${run.id}`.replace(/[^a-zA-Z0-9-]/g, "");
   return `
     <div class="report-meta">
       <div class="row"><b>${esc(r.dataset.name)}</b><span class="muted">n=${r.dataset.n} · ${esc(time(run.created_at))} ·
