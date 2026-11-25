@@ -123,8 +123,8 @@ def every_writer(store: AuditStore, agent: Agent, org: str | None) -> dict[str, 
             expires_at="2999-01-01T00:00:00+00:00",
         )
         store.revoke_approval(approval["id"], revoked_by="cmo")
-        report = {"id": f"r-{org}", "created_at": "2026-10-01T00:00:00+00:00"}
-        store.save_report({**report, "agent": {"id": TRIAGE}, "dataset": {"name": "local"}})
+        run = {"id": f"r-{org}", "created_at": "2026-10-01T00:00:00+00:00"}
+        store.save_report({"run": run, "agent": {"id": TRIAGE}, "dataset": {"name": "local"}})
         store.acknowledge_notice(f"notice:v1:person-{org}", version="v1", actor="rn-1")
     home = org or tenancy.DEFAULT_ORG
     # The command line's and the operator's writes: each names the row's organization.
@@ -257,8 +257,8 @@ def _hold(store: AuditStore, _: Agent) -> str:
 
 
 def _report(store: AuditStore, _: Agent) -> str:
-    report = {"id": "r1", "created_at": "2026-10-01T00:00:00+00:00"}
-    store.save_report({**report, "agent": {"id": TRIAGE}, "dataset": {"name": "local"}})
+    run = {"id": "r1", "created_at": "2026-10-01T00:00:00+00:00"}
+    store.save_report({"run": run, "agent": {"id": TRIAGE}, "dataset": {"name": "local"}})
     return "eval:r1"
 
 

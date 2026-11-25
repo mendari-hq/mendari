@@ -34,7 +34,7 @@ IDP = "https://idp.example.org"
 BASE = "https://mendari.test"
 AGENT = "mendari-test/clinical-review"  # risk level 2: automated under an approval
 ORGS = ("clinic-zqalpha", "clinic-zqbravo")
-REPORT = {"created_at": "2026-10-01T00:00:00+00:00", "dataset": {"name": "local"}}
+WHEN = "2026-10-01T00:00:00+00:00"
 
 
 def serving(db: str, monkeypatch: pytest.MonkeyPatch, accounts: str) -> TestClient:
@@ -77,7 +77,13 @@ def seed(store: AuditStore, org: str) -> dict[str, str]:
             reference=f"minutes {marker}", expires_at="2999-01-01T00:00:00+00:00",
         )  # fmt: skip
         store.revoke_approval(approval["id"], revoked_by="cmo")
-        store.save_report({**REPORT, "id": f"r-{org}", "agent": {"id": AGENT}})
+        store.save_report(
+            {
+                "run": {"id": f"r-{org}", "created_at": WHEN},
+                "agent": {"id": AGENT},
+                "dataset": {"name": "local"},
+            }
+        )
     invitation = store.create_invitation(
         org=org, email=f"lee@{marker}.example.org", roles=["viewer"], created_by="ops"
     )

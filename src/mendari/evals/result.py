@@ -330,13 +330,3 @@ def subgroup_labelled(report: Mapping[str, Any], members: Mapping[str, Any]) -> 
     question = report["questions"].get(report["primary"]) or {}
     every = question.get("n") is not None and question.get("n") == report["dataset"].get("n")
     return int(members["n"]) if every else None
-
-
-def normalize(report: Mapping[str, Any]) -> dict[str, Any]:
-    """A report with its id, created_at and latency_ms in a `run` block, where `mendari.eval/1`
-    keeps them; a report that has its `run` block is returned as it is."""
-    data = dict(report)
-    if "run" in data:
-        return data
-    run = {key: data.pop(key) for key in ("id", "created_at", "latency_ms") if key in data}
-    return {**data, "run": run}

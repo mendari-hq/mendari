@@ -25,7 +25,7 @@ from typing import Any
 from mendari.core.agent import Agent
 from mendari.evals import figures, ranking, stats
 from mendari.evals.render import INTERVALS, evidence, num, shown
-from mendari.evals.result import MIN_POSITIVES, counted, false_automation, normalize
+from mendari.evals.result import MIN_POSITIVES, counted, false_automation
 
 FORMAT = "mendari.leaderboard/1"
 PATH = "evals/leaderboard.json"
@@ -57,7 +57,6 @@ def config_label(providers: Mapping[str, Mapping[str, Any]]) -> str:
 
 
 def row(report: Mapping[str, Any]) -> dict[str, Any]:
-    report = normalize(report)
     run = report["run"]
     primary = report["primary"]
     question = report["questions"].get(primary, {})
@@ -114,7 +113,7 @@ def build(
     rows = {_row_key(r): r for r in (existing or {}).get("rows", []) if "config" in r}
     for report in reports:
         if report["agent"]["id"] != agent.id:
-            named = normalize(report)["run"].get("id")
+            named = report["run"].get("id")
             raise ValueError(f"report {named} is for {report['agent']['id']}, not {agent.id}")
         new = row(report)
         rows[_row_key(new)] = new

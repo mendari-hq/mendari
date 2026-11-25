@@ -1655,9 +1655,7 @@ class AuditStore(RateBuckets):
         organization; chained as `eval.recorded` with ids and hashes only (which report, result
         and ledger, of which agent digest and dataset). The run's remote calls (`usage`) go to
         the usage ledger in the same transaction, as the organization's evaluations."""
-        from mendari.evals.result import normalize
-
-        run = normalize(report)["run"]
+        run = report["run"]
         org = tenancy.current() or tenancy.DEFAULT_ORG
         recorded = {
             "report": run["id"],
@@ -1701,9 +1699,7 @@ class AuditStore(RateBuckets):
 
     def report_record(self, report: Mapping[str, Any], org: str) -> dict[str, Any]:
         """What `eval.recorded` chains of a report, as `save_report` builds it."""
-        from mendari.evals.result import normalize
-
-        run = normalize(report)["run"]
+        run = report["run"]
         return {
             "report": run["id"],
             "result_sha256": report.get("result_sha256"),

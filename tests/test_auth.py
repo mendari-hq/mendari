@@ -925,11 +925,12 @@ def test_organizations_never_see_each_others_work(
     assert len(client.get("/api/feedback", headers=keys["clinic-a"]).json()) == 1
     assert client.get("/api/feedback", headers=keys["clinic-b"]).json() == []
 
-    report: dict[str, Any] = {"id": "r1", "created_at": "2026-09-30T00:00:00+00:00"}
+    report: dict[str, Any] = {"run": {"id": "r1", "created_at": "2026-09-30T00:00:00+00:00"}}
     report |= {"agent": {"id": INBOX}, "dataset": {"name": "local"}}
     with tenancy.acting_for("clinic-a"):
         AuditStore(tmp_path / "two-orgs.db").save_report(report)
-    assert [r["id"] for r in client.get("/api/evals", headers=keys["clinic-a"]).json()] == ["r1"]
+    listed = client.get("/api/evals", headers=keys["clinic-a"]).json()
+    assert [r["run"]["id"] for r in listed] == ["r1"]
     assert client.get("/api/evals", headers=keys["clinic-b"]).json() == []
     sign_in(client, idp, roles=["admin"], org="clinic-b")
     assert client.get("/api/audit/export/fhir").text == ""

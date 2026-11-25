@@ -18,7 +18,6 @@ from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
 from mendari.evals.result import (
     counted,
     false_automation,
-    normalize,
     subgroup_labelled,
     sweep,
 )
@@ -59,8 +58,6 @@ def read_benchmark(agent: Agent) -> tuple[dict[str, Any] | None, str | None]:
     report, problem = agent.attestation_json(relative)
     if report is None:
         return None, problem
-    if isinstance(report, dict):
-        report = normalize(report)  # either format; v1's time and latency in its run block
     return _shown(report)
 
 
@@ -536,7 +533,7 @@ def _attested_benchmark(agent: Agent, given: Attested) -> tuple[dict[str, Any] |
         return read_benchmark(agent)
     if given is None:
         return None, None
-    return _shown(normalize(dict(given)))
+    return _shown(dict(given))
 
 
 def _attested_leaderboard(

@@ -59,7 +59,6 @@ from mendari.core.spec import variant_configs
 from mendari.core.status import title as question_title
 from mendari.errors import MendariError
 from mendari.evals import figures, monitoring
-from mendari.evals.result import normalize
 
 FORMAT = "mendari.committee-packet/1"
 DEFAULT_DAYS = 90
@@ -779,11 +778,10 @@ def _evaluated_second_signal(run: Any) -> dict[str, Any] | None:
     }
 
 
-def _evaluation(report: Mapping[str, Any], agent: Agent) -> dict[str, Any] | None:
+def _evaluation(r: Mapping[str, Any], agent: Agent) -> dict[str, Any] | None:
     """An evaluation report as the packet shows it: counts with intervals, the critical cases
     and the configuration it ran on. None when it is not a report the figures can be read of."""
     try:
-        r = normalize(dict(report))
         shown = figures.report(r)
         measured = r["agent"]
         return {

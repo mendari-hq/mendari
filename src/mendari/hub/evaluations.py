@@ -315,7 +315,7 @@ def build(
     if dataset.get("limit") is not None:
         raise MendariError("a published evaluation covers the whole dataset: drop --limit")
     report = run.report
-    ran = report.get("run") or {}
+    ran = report["run"]
     latency = ran.get("latency_ms") or {}
     cost = (report.get("cost") or {}).get("per_decision_usd")
     fields = {

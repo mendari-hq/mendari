@@ -556,12 +556,23 @@ def _agent_block(value: Any) -> Callable[[Path], None]:
     return edit
 
 
+def _run_lifted(agent: Path) -> None:
+    """The shipped benchmark with its run's id, time and latency at its top level and no `run`
+    block: a shape no release writes, so not a report the card reads."""
+    path = agent / "evals" / "benchmark.json"
+    data = json.loads(path.read_text())
+    run = data.pop("run")
+    data |= {key: run[key] for key in ("id", "created_at", "latency_ms")}
+    path.write_text(json.dumps(data))
+
+
 @pytest.mark.parametrize(
     ("edit", "absent"),
     [
         (_write_eval("benchmark.json", "{"), "benchmark"),
         (_agent_block(...), "benchmark"),
         (_agent_block(5), "benchmark"),
+        (_run_lifted, "benchmark"),
         (_write_eval("benchmark.json", '{"primary": NaN}'), "benchmark"),
         (_write_eval("benchmark.json", "[]"), "benchmark"),
         (_write_eval("benchmark.json", '{"primary": "specialty"}'), "benchmark"),
@@ -576,6 +587,7 @@ def _agent_block(value: Any) -> Callable[[Path], None]:
         "benchmark-not-json",
         "benchmark-without-agent",
         "benchmark-agent-not-object",
+        "benchmark-without-run",
         "benchmark-nan",
         "benchmark-list",
         "benchmark-shape",

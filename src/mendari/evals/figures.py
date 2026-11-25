@@ -22,7 +22,6 @@ from mendari.evals.result import (
     MAX_N,
     MIN_POSITIVES,
     false_automation,
-    normalize,
     subgroup_labelled,
     sweep,
 )
@@ -83,10 +82,9 @@ def critical(item: Mapping[str, Any]) -> dict[str, Any]:
 # -- an evaluation report -----------------------------------------------------------------------
 
 
-def report(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Every share of cases in a report (either format), each over the cases the card and the
-    command line show it over. Raises on a report that is not one."""
-    r = normalize(data)
+def report(r: Mapping[str, Any]) -> dict[str, Any]:
+    """Every share of cases in a report, each over the cases the card and the command line show
+    it over. Raises on a report that is not one."""
     primary = r["primary"]
     q = r["questions"].get(primary)
     d = r["decisions"]
