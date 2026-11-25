@@ -1,0 +1,45 @@
+# Behaviour tests of the synthetic test fixture, on its default providers (the keyword rules for
+# both slots): `mendari test` runs each one. Every message is synthetic.
+- name: chest pain is a possible emergency, for a nurse now
+  input: {message: {body: "I have had chest pain since last night.", channel: portal}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: nurse, priority: stat, answers: {urgency: "yes"}}
+
+- name: stroke signs are a possible emergency
+  input: {message: {body: "The left side of my face is drooping and my speech is slurred.", channel: sms}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: nurse, priority: stat}
+
+- name: a symptom said not to be there is no emergency
+  input: {message: {body: "I do not have chest pain. Could you refill my lisinopril before the weekend?"}}
+  expect: {recommendation: pharmacy, priority: routine, answers: {urgency: "no"}}
+
+- name: a refill goes to the pharmacy, and a person confirms it while the screen is the rules alone
+  input: {message: {subject: Refill, body: "Please renew my prescription for metformin.", channel: portal}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: pharmacy, priority: routine}
+
+- name: an appointment goes to the front desk
+  input: {message: {body: "Can I move my appointment to Friday?", channel: sms}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: front_desk}
+
+- name: a bill goes to billing
+  input: {message: {subject: Bill, body: "Why was I charged twice this month?", channel: email}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: billing, answers: {abusive: "no"}}
+
+- name: an abusive message is blocked
+  input: {message: {body: "You people are useless. Can you send a refill of my metformin to the pharmacy?"}}
+  expect: {outcome: BLOCK, answers: {abusive: "yes", urgency: "no"}}
+
+- name: an abusive message with chest pain goes to a nurse first
+  input: {message: {body: "Answer me this time, you morons. I have had chest pain since last night."}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: nurse, priority: stat, answers: {abusive: "yes"}}
+
+- name: a blank message is refused
+  input: {message: {body: "   "}}
+  expect: {outcome: BLOCK, recommendation: null}
+
+- name: a message the rules cannot place gets no suggestion
+  input: {message: {body: "I am not sure who to ask about my visit last week."}}
+  expect: {outcome: ABSTAIN, recommendation: null}
+
+- name: an emergency worded as a patient might is missed by the rules, and still not automated
+  input: {message: {body: "One side of my mouth will not move when I smile. Could you refill my lisinopril before the weekend?"}}
+  expect: {not_outcome: AUTO, answers: {urgency: "no"}}

@@ -1,0 +1,29 @@
+# Keyword rules for the router (synthetic test fixture). Each pattern that matches adds its weight
+# to its label's score, the front desk starts at `default_score`, and a softmax over the scores
+# is the answer: one strong keyword gives 0.97 (a refill with "prescription" or "pharmacy" too,
+# 1.00), a scheduling word 0.98, a records or form word 0.92 (above the policy's 0.90, below the
+# front desk's own 0.95) and nothing at all 0.48 (no suggestion).
+# Every pattern means the same on RE2 as on Python's `re`: no lookaround, no back reference.
+text_fields: [message.subject, message.body]
+negation_cues: ["no", "not", "never", "without"]
+negation_window: 30
+
+questions:
+  destination:
+    default: front_desk
+    default_score: 1.0
+    labels:
+      pharmacy:
+        - {name: refill, pattern: "refill|renew|ran out of|running low", weight: 5}
+        - {name: prescription, pattern: "prescription|pharmacy", weight: 2}
+      billing:
+        - {name: billing, pattern: "\\bbill(ing)?\\b|charged|charges|payment plan|insurance|copay", weight: 5}
+      nurse:
+        - name: same-day-symptom
+          pattern: "chest (pain|pressure)|short of breath|trouble breathing|slurred|drooping|suddenly numb|coughing up blood|fainted"
+          weight: 5
+          negatable: true
+        - {name: health-question, pattern: "\\b(rash|fever|tired|cough|cold|headache|dizzy)\\b|upset stomach|feel off", weight: 5}
+      front_desk:
+        - {name: scheduling, pattern: "appointment|checkup|clinic open", weight: 4}
+        - {name: paperwork, pattern: "records|work form", weight: 2.5}

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
+import functools
 import gc
 import json
 import os
@@ -38,6 +40,7 @@ from mendari.errors import ProviderError
 from mendari.hub import archive
 from mendari.hub.registry import RegistryStore, create_registry_app
 from mendari.providers import credentials, llm
+from mendari.providers.agent import AgentProvider
 from mendari.providers.jev import JevProvider
 from mendari.server import app as server_app
 from mendari.server import sessions
@@ -53,6 +56,13 @@ _registry._BUNDLED_DIRS = _reference.BUNDLED_DIRS
 _sandbox.DATASET_DIRS = (ROOT / "tests" / "fixtures" / "datasets",)
 INBOX_DIR = REFERENCE_PACKS / "patient-inbox-router"
 LOCAL_DATASET = ROOT / "tests" / "fixtures" / "datasets" / "local-site-example.jsonl"
+# The synthetic test fixtures' agents, in the same folder (`tests/support/fixture_agents.py`
+# writes their data): tests reach them by these names, never by a literal path.
+FIXTURE_AGENTS = REFERENCE_PACKS
+TRIAGE_DIR = FIXTURE_AGENTS / "triage"  # mendari-test/triage: two slots, risk level 1
+CLINICAL_DIR = FIXTURE_AGENTS / "clinical-review"  # mendari-test/clinical-review: risk level 2
+CHART_DIR = FIXTURE_AGENTS / "chart-summary"  # mendari-test/chart-summary: a FHIR record in
+FIXTURE_NAMESPACE = "mendari-test"  # the fixtures' ids' namespace
 # Postgres tests run when this points at a disposable database, e.g.
 # postgresql://postgres:mendari-test@127.0.0.1:56432/mendari_test (see CLAUDE.md).
 _BASE_POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
@@ -122,7 +132,7 @@ CORE = {
     "test_ai_guard_pack.py", "test_policy.py", "test_safety_invariant.py", "test_governance.py",
     "test_hold.py", "test_gate.py", "test_audit.py", "test_evals.py", "test_registry_engine.py",
     "test_rater_agreement.py", "test_stats.py", "test_spec_04.py", "test_actions.py",
-    "test_caps_together.py",
+    "test_caps_together.py", "test_triage_fixture.py", "test_fixture_agents.py",
 }  # fmt: skip
 
 
@@ -283,9 +293,26 @@ def shared_benchmark(pack_id: str = "mendari/referral-router") -> dict[str, Any]
     from mendari.evals.share import shareable
 
     root = resolve_pack(pack_id).root / "evals"
+    if not (root / "benchmark.json").is_file():
+        # A test fixture's agent commits no benchmark: its benchmark set, evaluated once.
+        return copy.deepcopy(_evaluated_benchmark(pack_id))
     ledger_id = json.loads((root / "benchmark.json").read_text())["ledger"]["id"]
     path = root / "ledgers" / (ledger_id.removeprefix("sha256:") + ".jsonl")
     return shareable(Ledger.loads(path.read_bytes()))
+
+
+@functools.cache
+def _evaluated_benchmark(agent_id: str) -> dict[str, Any]:
+    """What a site would share of a run of an agent's benchmark set (`benchmark_dataset`) on its
+    default providers, as `mendari eval --share` counts it: run once a session, for an agent that
+    commits no benchmark (the test fixtures' agents)."""
+    from mendari.core.registry import resolve_pack
+    from mendari.evals.harness import evaluation, resolve_dataset
+    from mendari.evals.share import shareable
+
+    agent = resolve_pack(agent_id)
+    dataset = resolve_dataset(agent, agent.manifest.evaluation.benchmark_dataset or "test")
+    return shareable(evaluation(Decision(agent), dataset).ledger)
 
 
 def verified_site(registry: Registry, directory: Path, *, org: str = "north-health") -> Any:
@@ -397,6 +424,46 @@ def screened(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     return calm_jev(monkeypatch)
 
 
+# The triage fixture's policy automates only while its screen runs an agent (its
+# `automation_requires`), and canned answers never automate on a server with sign-in: a test that
+# needs AUTO there runs both slots on `calm_agent`, a live agent service in place of the network.
+CALM_URL = "https://agent.test/v1/decide"
+CALM_VERSION = "2.0.0"  # the version the calm service reports, as the fixture's canned ones do
+# What it answers for the triage fixture's questions: a team, confidently (above the policy's
+# 0.90), and nothing urgent or abusive.
+CALM_ANSWERS: dict[str, dict[str, Any]] = {
+    "destination": {"value": "pharmacy", "confidence": 0.97},
+    "urgency": {"value": "no", "confidence": 0.98},
+    "abusive": {"value": "no", "confidence": 0.98},
+}
+
+
+def calm_agent(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """Point `MENDARI_AGENT_URL` at a live agent service for this test, answered in place of the
+    network (`CALM_ANSWERS`, by every `agent` variant's call), and return the triage fixture's
+    providers that use it: with sign-in on, where canned answers never automate, a decision on
+    them is AUTO."""
+    monkeypatch.setenv("MENDARI_AGENT_URL", CALM_URL)
+    monkeypatch.delenv("MENDARI_AGENT_TOKEN", raising=False)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked = [question["key"] for question in json.loads(request.content)["questions"]]
+        if not set(asked) <= set(CALM_ANSWERS):
+            return httpx.Response(400)  # only the triage fixture's questions are answered
+        answers = {key: CALM_ANSWERS[key] for key in asked}
+        body = {"model": "calm-agent", "agent_version": CALM_VERSION, "answers": answers}
+        return httpx.Response(200, json=body)
+
+    original = AgentProvider.__init__
+
+    def init(self: AgentProvider, *args: Any, **kwargs: Any) -> None:
+        kwargs["client"] = httpx.Client(transport=httpx.MockTransport(handler))
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(AgentProvider, "__init__", init)
+    return {"screen": "agent", "router": "agent"}
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _postgres_worker_db() -> Iterator[None]:
     """Create this xdist worker's own Postgres database once and drop it when the worker exits."""
@@ -455,6 +522,9 @@ class Registry:
     # since LP-19g every write that is not a publisher's goes through it (or a reviewer's routes
     # under the engine), never over the registry's own HTTP routes.
     operator: RegistryStore
+    # The test fixtures' namespace's owned publisher token and its key, once made
+    # (`fixture_publisher`).
+    fixtures: tuple[str, Any] | None = None
 
     def publish(
         self,
@@ -465,8 +535,11 @@ class Registry:
         version: str | None = None,
     ) -> Any:
         pack = pack or resolve_pack("mendari/referral-router")
-        data = archive.build(pack, key or self.key)
         namespace, name = pack.id.split("/")
+        if namespace == FIXTURE_NAMESPACE:  # a test fixture's agent: its own namespace's
+            fixture_token, fixture_key = self.fixture_publisher()
+            token, key = token or fixture_token, key or fixture_key
+        data = archive.build(pack, key or self.key)
         return self.client.put(
             f"/v1/packs/{namespace}/{name}/{version or pack.version}",
             content=data,
@@ -485,6 +558,23 @@ class Registry:
             namespace, org=org, owner="operator", name="tests", days=days, by="operator"
         )
         return str(minted["token"])
+
+    def fixture_publisher(self) -> tuple[str, Any]:
+        """`mendari-test`, the test fixtures' agents' namespace, made on first use as `mendari`
+        is: its owned publisher token, and the key registered for it (a key belongs to one
+        namespace). So `publish` takes a fixture's agent (`TRIAGE_DIR`, `CLINICAL_DIR`) with
+        neither."""
+        if self.fixtures is None:
+            token = self.namespace(FIXTURE_NAMESPACE, "Mendari tests")
+            private, public = archive.generate_key()
+            added = self.client.post(
+                f"/v1/namespaces/{FIXTURE_NAMESPACE}/keys",
+                json={"public_pem": public.decode()},
+                headers={"authorization": f"Bearer {token}"},
+            )
+            assert added.status_code == 201, added.text
+            self.fixtures = (token, archive.load_private_key(private))
+        return self.fixtures
 
 
 @pytest.fixture
@@ -543,6 +633,54 @@ def pack_copy(tmp_path: Path) -> Callable[..., Path]:
             data = yaml.safe_load(path.read_text())
             edit(data)
             path.write_text(yaml.safe_dump(data, sort_keys=False))
+        return target
+
+    return make
+
+
+@pytest.fixture(scope="session")
+def triage_agent() -> Pack:
+    """The triage fixture (`mendari-test/triage`): a synthetic message's team and urgency."""
+    return load_pack(TRIAGE_DIR)
+
+
+@pytest.fixture(scope="session")
+def triage(triage_agent: Pack) -> Decision:
+    """The triage fixture on its default providers: the keyword rules in both slots, so nothing
+    is automated (its policy's `automation_requires`)."""
+    return Decision(triage_agent)
+
+
+@pytest.fixture
+def agent_copy(tmp_path: Path) -> Callable[..., Path]:
+    """A copy of a test fixture's agent (`agent`: its folder, the triage fixture's by default)
+    with tiny datasets (the first 20 cases of each), and `manifest` and `policy` applied to its
+    manifest and to the policy in it before it is loaded. Each call makes another copy."""
+
+    def make(
+        manifest: Callable[[dict[str, Any]], None] | None = None,
+        policy: Callable[[dict[str, Any]], None] | None = None,
+        agent: Path = TRIAGE_DIR,
+    ) -> Path:
+        target, number = tmp_path / agent.name, 1
+        while target.exists():
+            number += 1
+            target = tmp_path / f"{agent.name}-{number}"
+        shutil.copytree(agent, target, ignore=shutil.ignore_patterns("data"))
+        (target / "data").mkdir()
+        for dataset in sorted((agent / "data").glob("*.jsonl")):
+            # Tiny stand-ins: most tests do not need the whole datasets.
+            cases = dataset.read_text(encoding="utf-8").splitlines()[:20]
+            (target / "data" / dataset.name).write_text("\n".join(cases) + "\n", encoding="utf-8")
+        if manifest is not None or policy is not None:
+            path = target / "agent.yaml"
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            if manifest is not None:
+                manifest(data)
+            if policy is not None:
+                assert isinstance(data["policy"], dict), "the policy is the manifest's own section"
+                policy(data["policy"])
+            path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
         return target
 
     return make

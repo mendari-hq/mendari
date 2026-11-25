@@ -1,0 +1,105 @@
+{
+  "model": "mock-triage-router",
+  "agent_version": "2.0.0",
+  "cases": [
+    {
+      "match": {
+        "contains_any": [
+          "chest pain", "chest pressure", "trouble breathing", "slurred", "drooping",
+          "elephant", "catch my breath", "words are coming out", "lips look blue"
+        ],
+        "exclude_any": ["no chest pain", "not have chest pain", "not short of breath"]
+      },
+      "response": {
+        "answers": {
+          "destination": {
+            "value": "nurse",
+            "confidence": 0.95,
+            "rationale": "Symptoms that may need a nurse today (canned answer of a test fixture)."
+          }
+        }
+      }
+    },
+    {
+      "match": ["refill", "renew", "ran out of", "running low"],
+      "response": {
+        "answers": {
+          "destination": {
+            "value": "pharmacy",
+            "confidence": 0.95,
+            "rationale": "A refill or a renewal (canned answer of a test fixture)."
+          }
+        }
+      }
+    },
+    {
+      "match": ["bill", "charged", "charges", "payment plan", "insurance", "copay"],
+      "response": {
+        "answers": {
+          "destination": {
+            "value": "billing",
+            "confidence": 0.95,
+            "rationale": "A bill, a charge or a payment (canned answer of a test fixture)."
+          }
+        }
+      }
+    },
+    {
+      "match": ["appointment", "checkup", "clinic open"],
+      "response": {
+        "answers": {
+          "destination": {
+            "value": "front_desk",
+            "confidence": 0.95,
+            "rationale": "Scheduling (canned answer of a test fixture)."
+          }
+        }
+      }
+    },
+    {
+      "match": ["records", "work form"],
+      "response": {
+        "answers": {
+          "destination": {
+            "value": "front_desk",
+            "confidence": 0.75,
+            "rationale": "Paperwork, probably for the front desk (canned answer of a test fixture)."
+          }
+        }
+      }
+    },
+    {
+      "match": ["rash", "fever", "tired", "upset stomach", "cough", "cold", "headache", "dizzy", "feel off"],
+      "response": {
+        "answers": {
+          "destination": {
+            "value": "nurse",
+            "confidence": 0.75,
+            "rationale": "A question about health (canned answer of a test fixture)."
+          }
+        }
+      }
+    },
+    {
+      "match": ["not sure who"],
+      "response": {
+        "answers": {
+          "destination": {
+            "value": "front_desk",
+            "confidence": 0.4,
+            "rationale": "Unclear what is asked (canned answer of a test fixture)."
+          }
+        }
+      }
+    }
+  ],
+  "default": {
+    "answers": {
+      "destination": {
+        "value": "front_desk",
+        "confidence": 0.55,
+        "rationale": "No keyword it knows (canned answer of a test fixture)."
+      }
+    }
+  }
+}

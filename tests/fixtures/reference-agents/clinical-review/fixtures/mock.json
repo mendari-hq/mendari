@@ -1,0 +1,61 @@
+{
+  "model": "mock-clinical-review",
+  "agent_version": "1.0.0",
+  "cases": [
+    {
+      "match": ["severe", "unbearable", "cannot stand", "double over", "worst they have ever"],
+      "response": {
+        "answers": {
+          "disposition": {"value": "see_today", "confidence": 0.95, "rationale": "A severe symptom (canned answer of a test fixture)."},
+          "severity": {
+            "value": "severe",
+            "probabilities": {"none": 0.0, "mild": 0.0, "moderate": 0.05, "severe": 0.95},
+            "rationale": "A severe symptom (canned answer of a test fixture)."
+          }
+        }
+      }
+    },
+    {
+      "match": ["moderate", "getting worse", "keeps them up", "hard to work"],
+      "response": {
+        "answers": {
+          "disposition": {"value": "book_visit", "confidence": 0.9, "rationale": "A symptom in the way of daily life (canned answer of a test fixture)."},
+          "severity": {"value": "moderate", "confidence": 0.85, "rationale": "A moderate symptom (canned answer of a test fixture)."}
+        }
+      }
+    },
+    {
+      "match": ["three weeks", "a month", "several weeks"],
+      "response": {
+        "answers": {
+          "disposition": {"value": "book_visit", "confidence": 0.75, "rationale": "A symptom that has lasted weeks (canned answer of a test fixture)."},
+          "severity": {"value": "mild", "confidence": 0.9, "rationale": "A mild symptom (canned answer of a test fixture)."}
+        }
+      }
+    },
+    {
+      "match": ["mild", "slight", "a little"],
+      "response": {
+        "answers": {
+          "disposition": {"value": "self_care", "confidence": 0.95, "rationale": "A mild symptom of a few days (canned answer of a test fixture)."},
+          "severity": {"value": "mild", "confidence": 0.95, "rationale": "A mild symptom (canned answer of a test fixture)."}
+        }
+      }
+    },
+    {
+      "match": ["no symptoms", "feels well"],
+      "response": {
+        "answers": {
+          "disposition": {"value": "self_care", "confidence": 0.97, "rationale": "No symptom (canned answer of a test fixture)."},
+          "severity": {"value": "none", "confidence": 0.97, "rationale": "No symptom (canned answer of a test fixture)."}
+        }
+      }
+    }
+  ],
+  "default": {
+    "answers": {
+      "disposition": {"value": "book_visit", "confidence": 0.6, "rationale": "Unclear (canned answer of a test fixture)."},
+      "severity": {"value": "mild", "confidence": 0.6, "rationale": "Unclear (canned answer of a test fixture)."}
+    }
+  }
+}
