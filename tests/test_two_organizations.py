@@ -167,11 +167,10 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
     ("POST", "/api/smart/logout"): "ending a launch. Not called: tests/test_smart.py",
 }
 NOT_CALLED = {route for route, why in DEPLOYMENT_WIDE.items() if "Not called" in why}
-# What the server still mounts of features wave 6 removes, until their code goes: Da Vinci's DTR
-# package (G4), the guard (G12) and Jev's model list (G1). No call here exercises them; they
-# leave the coverage check (`covered`) with their code.
+# What the server still mounts of features wave 6 removes, until their code goes: the guard
+# (G12) and Jev's model list (G1). No call here exercises them; they leave the coverage check
+# (`covered`) with their code.
 REMOVED_ROUTES: set[Route] = {
-    ("POST", "/fhir/Questionnaire/$questionnaire-package"),
     ("POST", "/api/agents/{namespace}/{name}/guard"),
     ("GET", "/api/providers/jev/models"),
 }

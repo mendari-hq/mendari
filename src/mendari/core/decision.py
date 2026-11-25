@@ -150,7 +150,7 @@ class DecisionResult:
     @property
     def abstained_unreadable(self) -> bool:
         """An ABSTAIN because part of the record could not be read (a CDS card always shows
-        it, and CRD says `indeterminate`)."""
+        it)."""
         return self.outcome is Outcome.ABSTAIN and bool(self.unreadable)
 
     @property

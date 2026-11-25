@@ -153,14 +153,6 @@ class FhirRequestError(FhirStructureError):
     parameter of the wrong type (a `400`, like the structure errors it extends)."""
 
 
-class FhirSourceNotFound(FhirError):
-    """A FHIR operation's source data names nothing here: Da Vinci DTR's `$questionnaire-package`
-    with a `context` id or orders that name no decision of the caller's organization, so no
-    package can be built. Unknown and another organization's are one answer, which never repeats
-    the id: a `422` OperationOutcome with issue type `not-found` (DTR spec-130 asks for a 4xx; the
-    operation exists and the request is well formed, so not a `404` or a `400`)."""
-
-
 class CdsHooksError(MendariError):
     """A CDS Hooks request Mendari will not answer as sent: more draft orders to decide than
     one request may hold (a `400`; the EHR can send them in several requests)."""

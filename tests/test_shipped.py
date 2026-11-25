@@ -357,11 +357,6 @@ NOT_CHAINED: dict[Route, str] = {
         "a five-minute access token for a registered client, like a session; the client's "
         "registration and revocation are chained (security log: auth.token.issued)"
     ),
-    (
-        ENGINE,
-        "POST",
-        "/fhir/Questionnaire/$questionnaire-package",
-    ): "a read: builds, stores nothing",
     (ENGINE, "POST", "/fhir/Task/_search"): "a read: FHIR search by POST carries the query",
     (ENGINE, "POST", "/fhir/AuditEvent/_search"): "a read: FHIR search by POST",
     (ENGINE, "POST", "/fhir/Provenance/_search"): "a read: FHIR search by POST",

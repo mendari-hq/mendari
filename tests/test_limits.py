@@ -80,11 +80,10 @@ NO_STORE = "no-store"
 SCREENED = {"screen": "agent"}
 AUTOMATING = {"router": "llm", "screen": "agent"}
 CHECKED = {"screen": "checked"}  # its agent (`calm_agent`, a live service) checked by its rules
-# What the server still mounts of features wave 6 removes, until their code goes: Da Vinci's
-# DTR package (G4) and the guard (G12). Set aside, so these tests hold what stays.
+# What the server still mounts of features wave 6 removes, until their code goes: the guard
+# (G12). Set aside, so these tests hold what stays.
 REMOVED_ROUTES = frozenset(
     {
-        ("POST", "/fhir/Questionnaire/$questionnaire-package"),
         ("POST", "/api/agents/{namespace}/{name}/guard"),
     }
 )

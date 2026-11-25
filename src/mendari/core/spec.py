@@ -964,9 +964,8 @@ class Rubric(_Strict):
         return MAX_JUDGE_ERRORS if own is None else own
 
 
-# The most characters a CDS Hooks card's summary has: CDS Hooks 2.0 says under 140 (Inferno's CRD
-# kit fails a summary of 140), checked at load for every text a pack's summary can give
-# (`card_summary_problems`).
+# The most characters a CDS Hooks card's summary has: CDS Hooks 2.0 says under 140, checked at
+# load for every text a pack's summary can give (`card_summary_problems`).
 SUMMARY_CHARS = 139
 
 
@@ -1017,43 +1016,12 @@ class GuardConfig(_Strict):
     release: list[str] = Field(min_length=1)
 
 
-class CoverageInformation(_Strict):
-    """Da Vinci CRD `coverage-information` for one recommendation of an order hook (spec 0.2):
-    what the pack's answer tells the EHR about the order's coverage. Codes are CRD's."""
-
-    covered: Literal["covered", "not-covered", "conditional"]
-    pa_needed: Literal["no-auth", "auth-needed", "satisfied", "performpa", "conditional"] | None = (
-        None
-    )
-    doc_needed: list[Literal["clinical", "admin", "patient", "conditional"]] = []
-    doc_purpose: list[Literal["withpa", "withclaim", "withorder", "retain-doc", "OTH"]] = []
-    info_needed: list[
-        Literal["performer", "location", "timeframe", "contract", "detail-code", "OTH"]
-    ] = []
-    reason: str | None = Field(default=None, max_length=500)  # why, in words (no case data)
-
-
-class QuestionnaireConfig(_Strict):
-    """Da Vinci DTR for an order-hook pack whose primary question is derived (spec 0.2): the
-    documentation the payer asks for is every member that can turn the decision into `missing`
-    for the order's `context` (e.g. the service and the payer)."""
-
-    missing: str  # the recommendation that means documentation is missing
-    context: list[str] = Field(min_length=1)  # questions that pick the requirement set
-    title: str = Field(min_length=1, max_length=200)
-
-
 class CdsHooksConfig(_Strict):
     hook: str
     title: str
     description: str
     prefetch: dict[str, str] = {}
     card: CdsCard | None = None
-    # Order hooks only: the order comes back with CRD coverage information (a system action) for
-    # these recommendations. Needs a `coverage` prefetch (the patient's Coverage).
-    coverage_information: dict[str, CoverageInformation] = {}
-    # DTR: `$questionnaire-package` serves a questionnaire of the documentation the payer asks for.
-    questionnaire: QuestionnaireConfig | None = None
 
 
 # A CDS Hooks prefetch template (`cds_hooks.prefetch`): a read (`Type/id`, `Type/{{context.x}}`)
@@ -1266,25 +1234,6 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
                 f"policy.automation_requires.{slot_name} must list variants of the slot"
                 + (f"; unknown: {not_variants}" if not_variants else "")
             )
-
-    hooks = m.cds_hooks
-    if hooks is not None and hooks.coverage_information:
-        unknown_labels = sorted(set(hooks.coverage_information) - set(primary_labels))
-        if unknown_labels:
-            problems.append(f"cds_hooks.coverage_information names unknown labels {unknown_labels}")
-        if hooks.hook not in ("order-select", "order-sign"):
-            problems.append("cds_hooks.coverage_information is for order-select or order-sign")
-        if "coverage" not in hooks.prefetch:
-            problems.append("cds_hooks.coverage_information needs a `coverage` prefetch")
-    dtr = hooks.questionnaire if hooks is not None else None
-    if dtr is not None:
-        if m.questions[policy.primary].derive is None:
-            problems.append("cds_hooks.questionnaire needs a derived primary question")
-        if dtr.missing not in primary_labels:
-            problems.append(f"cds_hooks.questionnaire.missing {dtr.missing!r} is not a label")
-        unknown_context = sorted(set(dtr.context) - set(m.questions))
-        if unknown_context:
-            problems.append(f"cds_hooks.questionnaire.context names unknown {unknown_context}")
 
     card = m.cds_hooks.card if m.cds_hooks is not None else None
     if card is not None:

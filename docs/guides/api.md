@@ -100,10 +100,7 @@ deployment sets `MENDARI_PUBLIC_URL`, the reasons are behind the card's link to 
 the audit trail (which needs a Mendari sign-in), `source.url` is the agent's card, and, when SMART
 is on and your `fhirServer` is registered for launches in your organization, a `smart` link
 opens the agent. Without it, the reasons are in the detail, but for the confidence thresholds',
-whose figures carry no interval. A service whose agent maps recommendations to coverage
-information (`cds_hooks.coverage_information`) is a Da Vinci CRD service: discovery declares `davinci-crd.version` and the `coverage-info` option,
-and a request whose `extension.davinci-crd.configuration` sets `coverage-info` to `false` gets no
-cards and no system actions, while each order is still decided and recorded.
+whose figures carry no interval.
 
 `POST /cds-services/{id}/feedback` takes CDS Hooks 2.0 feedback, 1 to 50 cards: each `accepted`
 with the suggestion taken (`acceptedSuggestions`), or `overridden` with one of the card's

@@ -46,7 +46,7 @@ fictional):
 |---|---|---|
 | `id` | yes | Lower-case letters, digits and hyphens, at most 63. The client is the principal `cds:<id>`, and the audit chain names it `cds <id>`. |
 | `title` | yes | A name for people, at most 100 characters. |
-| `iss` | yes | Exactly what the EHR's tokens carry as `iss`. Some EHRs send their FHIR base; Inferno's CRD kit sends its suite's own URL, `<its host>/custom/crd_server_v221`, with `jku` that URL plus `/jwks.json` ([Conformance runs](#conformance-runs)). |
+| `iss` | yes | Exactly what the EHR's tokens carry as `iss`. Some EHRs send their FHIR base. |
 | `org` | yes | The organization its calls act for, and whose decisions they become. With sign-in off it must be `default`. In memberships mode it needs a record. |
 | `fhir_servers` | yes | The FHIR bases (1 to 20) the EHR may send as `fhirServer`. Each must have its origin on `MENDARI_FHIR_ALLOWED_SERVERS`, and if `MENDARI_SMART_EHRS` registers the same base for launches, it must be to the same organization. |
 | `jwks` or `jwks_uri` | one of the two | The EHR's public keys. `jwks` is a JWK Set by value. `jwks_uri` is the one URL Mendari fetches them from: https (plain http only for a loopback or single-label host), with its origin on `MENDARI_FHIR_ALLOWED_SERVERS`. |
@@ -306,12 +306,6 @@ Each card is CDS Hooks 2.0's:
   shows for refused input, if any.
 - The demo agent's hook, `mendari-message-received`, is Mendari's own, not a standard one:
   the EHR sends the message (a `Communication`) and its sender as prefetch, and gets one card.
-- A service whose agent declares `coverage_information` is a Da Vinci CRD service. Its discovery
-  entry declares
-  `davinci-crd.version` (`2.2`) and one option, `coverage-info`, and each of its cards says it
-  is `coverage-info` in `source.topic`. A request with
-  `"extension": {"davinci-crd.configuration": {"coverage-info": false}}` gets no cards and no
-  system actions. Each order is still decided and recorded.
 
 The links on a card need `MENDARI_PUBLIC_URL`:
 
@@ -606,40 +600,15 @@ person who attests it is named on every decision it applies to.
 
 ## Conformance runs
 
-Mendari's own repository runs Inferno's Da Vinci CRD test kit (v0.15.0, suite
-`crd_server_v221`) as an EHR's CDS client against a signed-in engine, weekly and by hand
-(`conformance.yml`; how to run it yourself, and every known gap with its reason, in
-[`sandbox/inferno/README.md`](https://github.com/mendari-hq/mendari/tree/main/sandbox/inferno)).
-It is registered as any EHR is: the entry below, in that sandbox only. The kit's signing keys
-are in its public repository, so never register it on a deployment.
-
-```json
-[
-  {
-    "id": "inferno-crd",
-    "title": "Inferno CRD test kit (sandbox only)",
-    "iss": "http://nginx/custom/crd_server_v221",
-    "org": "pilot",
-    "fhir_servers": ["http://nginx/custom/crd_server_v221/fhir"],
-    "jwks_uri": "http://nginx/custom/crd_server_v221/jwks.json"
-  }
-]
-```
-
-Each hook call carries a new ES384 token with exactly these header fields (`alg`, `kid`, `typ`,
-`jku`), and its `aud` is the engine's `MENDARI_PUBLIC_URL` plus the path called. The run proves,
-on synthetic data, that discovery and an agent's `order-sign` service answer a
-signed CRD client, read the record from the EHR's FHIR server with the token the hook carries,
-and abstain, saying what they could not read, when part of it cannot be read: with the EHR's
-FHIR server failing every read (the kit's Technical Issues group), the answer's coverage is
-`indeterminate` for a `technical` reason. With no Coverage to name, no coverage information is
-sent at all. It does not prove your
-deployment: TLS (the kit's test 1.01), your EHR's keys and their rotation, and your EHR's own
-requests are yours to check (`Check it`, above). The same weekly run has Inferno's SMART App
-Launch client suite against an EHR launch and the Bulk Data client suite against `mendari bulk
-export`, and `terminology.yml` runs the HL7 validator over Mendari's synthetic FHIR resources
-with a terminology server (tx.fhir.org). For an EHR that launches Mendari, `mendari smart check
-<its FHIR base>` also compares the scopes a launch asks for with the EHR's `scopes_supported`
+Mendari's own repository runs two of Inferno's test kits against an engine, weekly and by hand
+(`conformance.yml`; how to run them yourself, and every known gap with its reason, in
+[`sandbox/inferno/README.md`](https://github.com/mendari-hq/mendari/tree/main/sandbox/inferno)):
+the SMART App Launch client suite against an EHR launch, and the Bulk Data client suite against
+`mendari bulk export`. `terminology.yml` runs the HL7 validator over Mendari's synthetic FHIR
+resources with a terminology server (tx.fhir.org). None of them proves your deployment: TLS,
+your EHR's keys and their rotation, and your EHR's own requests are yours to check (`Check it`,
+above). For an EHR that launches Mendari, `mendari smart check <its FHIR base>` also compares the
+scopes a launch asks for with the EHR's `scopes_supported`
 ([Sign-in and roles](../deploying-with-phi.md#2-sign-in-and-roles)).
 
 ## Before a pilot

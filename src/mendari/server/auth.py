@@ -329,7 +329,6 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/cds-services/[^/]+$", "decide"),
         # CDS Hooks card feedback (LP-23f): what a clinician did with a card the caller asked for.
         ("POST", r"^/cds-services/[^/]+/feedback$", "decide"),
-        ("POST", r"^/fhir/Questionnaire/\$questionnaire-package$", "decide"),  # Da Vinci DTR
         ("POST", r"^/fhir/\$decide$", "decide"),
         # How to talk to this FHIR base: public, so clients can discover it. The SMART
         # configuration is mounted only when Backend Services is on (server/backend_services.py).

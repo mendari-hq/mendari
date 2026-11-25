@@ -69,11 +69,10 @@ ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 # service (`calm_agent`), the screen's checked by its keyword rules. A refill is automated; a
 # message with chest pain waits for a person.
 CHECKED = {"router": "agent", "screen": "checked"}
-# What the server still holds of features wave 6 removes, until their code goes: the routes of
-# Da Vinci's DTR package (G4) and of the guard (G12), and hidden evaluation sets' permissions and
-# role (G13). Set aside, so these tables hold what stays.
+# What the server still holds of features wave 6 removes, until their code goes: the route of
+# the guard (G12), and hidden evaluation sets' permissions and role (G13). Set aside, so these
+# tables hold what stays.
 REMOVED_ROUTES = {
-    ("POST", "/fhir/Questionnaire/$questionnaire-package"),
     ("POST", "/api/agents/{namespace}/{name}/guard"),
 }
 REMOVED_PERMISSIONS = {"curate", "grade"}

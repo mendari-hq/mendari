@@ -77,7 +77,6 @@ from mendari.errors import (
     CdsHooksError,
     ClientError,
     FhirError,
-    FhirSourceNotFound,
     FhirStructureError,
     GradingRefused,
     InvitationRefused,
@@ -157,7 +156,6 @@ from mendari.standards import (
     audit_fhir,
     capability,
     cds_hooks,
-    davinci,
     decide_op,
     fhir_search,
 )
@@ -183,7 +181,6 @@ _STATUS = {
     ReviewError: 409,
     NoteError: 422,
     FhirStructureError: 400,  # before FhirError: the first match wins
-    FhirSourceNotFound: 422,  # issue type not-found: unknown or another organization's, one answer
     PrefetchRequired: 412,  # CDS Hooks 2.0: neither the prefetch nor a fhirServer to read it from
     FhirError: 422,
     PackValidationError: 422,
@@ -3370,30 +3367,6 @@ def create_app(
         recorded = store.record_card_feedback(pack.id, service_id, items)
         return {"recorded": len(recorded)}
 
-    @app.post(
-        "/fhir/Questionnaire/$questionnaire-package",
-        tags=["FHIR and CDS Hooks"],
-        summary="Da Vinci DTR $questionnaire-package",
-    )
-    def questionnaire_package(payload: JsonBody) -> JSONResponse:
-        """Da Vinci DTR: the documentation the payer asks for, for orders an agent decided (found by
-        CRD's assertion id), pre-answered from the decision, and the questionnaires asked for,
-        each version once (`standards/davinci.py`). A questionnaire not found here, or an order
-        or a `context` that names no decision of yours, is a warning in `outcome`; orders or a
-        `context` that name no decision, with nothing to return, are a `422` OperationOutcome
-        (`not-found`)."""
-
-        def lookup(decision_id: str) -> tuple[Pack, dict[str, str]] | None:
-            record = store.get(decision_id)
-            pack = packs.get(record["pack_id"]) if record is not None else None
-            if record is None or pack is None:
-                return None
-            return pack, davinci.record_answers(record)
-
-        authored = datetime.now(UTC).isoformat(timespec="seconds")
-        result = davinci.questionnaire_package(payload, lookup, packs, authored)
-        return JSONResponse(result, media_type="application/fhir+json")
-
     # -- FHIR: the $decide operation and conformance resources --------------------------------
 
     @app.post(
@@ -3481,8 +3454,7 @@ def create_app(
         summary="Read the $decide OperationDefinition",
     )
     def fhir_operation_definition(resource_id: str) -> JSONResponse:
-        """The definition of `$decide` (id `decide`). Da Vinci's `$questionnaire-package` is
-        defined by the DTR implementation guide, not here."""
+        """The definition of `$decide` (id `decide`)."""
         return conformance(decide_op.operation_definition() if resource_id == "decide" else None)
 
     def conformance(resource: Mapping[str, Any] | None) -> JSONResponse:
@@ -3740,10 +3712,7 @@ def create_app(
             response.headers.setdefault(name, value)
         if path.startswith("/api/"):  # data, often an organization's: never stored anywhere
             response.headers["Cache-Control"] = "no-store"
-        elif path.startswith(("/auth/", "/smart/", "/cds-services/")) or path in (
-            "/fhir/$decide",
-            "/fhir/Questionnaire/$questionnaire-package",
-        ):
+        elif path.startswith(("/auth/", "/smart/", "/cds-services/")) or path == "/fhir/$decide":
             response.headers.setdefault("Cache-Control", "no-store")
         api = path.startswith(("/api/", "/fhir/")) or path == "/fhir"
         if api and response.status_code in (401, 403) and NOTICE_HEADER not in response.headers:
@@ -4647,7 +4616,7 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     if isinstance(error, FhirStructureError):
         return operation_outcome(status, [{"code": "structure", **i} for i in error.issues])
     code = _ISSUE_TYPE.get(status, "processing")
-    if isinstance(error, PackNotFoundError | FhirSourceNotFound):
+    if isinstance(error, PackNotFoundError):
         code = "not-found"
     return operation_outcome(status, [{"code": code, "diagnostics": str(error)}], headers)
 

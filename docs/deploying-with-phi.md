@@ -1159,14 +1159,13 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       so on an EHR that sends notes as links, or as RTF, an agent that reads notes may abstain for
       most patients with one, each decision going to a person with an `info` card
       ([threat model](security/threat-model.md#residual-risks-and-assumptions)).
-- [ ] Only if an EHR calls with its own tokens, or launches Mendari, or you export with Bulk
-      FHIR: know what Mendari's own conformance runs prove and what they leave to you. Weekly,
-      on synthetic data, Inferno's test kits play the other side against Mendari's engines
+- [ ] Only if an EHR launches Mendari, or you export with Bulk FHIR: know what Mendari's own
+      conformance runs prove and what they leave to you. Weekly, on synthetic data, Inferno's
+      test kits play the other side against Mendari's engines
       ([`sandbox/inferno/README.md`](https://github.com/mendari-hq/mendari/tree/main/sandbox/inferno),
-      `conformance.yml`): the Da Vinci CRD kit as a signed CDS client, the SMART App Launch
-      client suite as the EHR of a launch, the Bulk Data client suite as the export's server,
-      and the DTR kit as a DTR client. Each test's result is pinned, every known gap with its
-      reason and requirement id. They run over plain HTTP inside Docker, so TLS (CRD 1.01, SMART
+      `conformance.yml`): the SMART App Launch client suite as the EHR of a launch, and the Bulk
+      Data client suite as the export's server. Each test's result is pinned, every known gap
+      with its reason and requirement id. They run over plain HTTP inside Docker, so TLS (SMART
       3.01's https registration) is your deployment's to show, as are your EHR's keys, its
       requests and its own conformance; the sign-in SMART profile (`openid fhirUser`) is not
       run against Inferno (the README says why), so check a launch from your EHR as above.

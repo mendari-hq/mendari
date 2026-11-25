@@ -212,7 +212,6 @@ _ROUTE_SCOPES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/cds-services/[^/]+$", DECIDE),
         ("POST", r"^/cds-services/[^/]+/feedback$", DECIDE),  # a card's feedback (LP-23f)
         ("POST", r"^/fhir/\$decide$", DECIDE),
-        ("POST", r"^/fhir/Questionnaire/\$questionnaire-package$", DECIDE),  # Da Vinci DTR
         ("POST", r"^/api/audit/[^/]+/outcome$", OUTCOME),
         # The lists of agents a credential may decide with, which deciding needs (`DISCOVER`).
         ("GET", r"^/api/agents$", DECIDE),

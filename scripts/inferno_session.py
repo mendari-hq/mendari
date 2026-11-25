@@ -3,7 +3,7 @@
 the engine's container (LP-23l, sandbox/inferno/README.md, "The scripted suites").
 
 `inferno execute` runs a suite in one process with no web server, so it stops at the first test
-that waits for a call: a CRD hook's answer, a SMART launch, a Bulk export. This driver works a
+that waits for a call: a SMART launch, a Bulk export. This driver works a
 session as a person at Inferno's web app would, from this machine (Inferno's nginx on
 `127.0.0.1:4580`, the scripted compose project's):
 
@@ -17,7 +17,7 @@ session as a person at Inferno's web app would, from this machine (Inferno's ngi
    client gets the client's part, once (`CLIENT_STEPS`): a SMART launch from the launch URL
    Inferno made (`mendari sandbox smart-launch --launch-url`) or a Bulk export
    (`mendari bulk export`), each run in the engine's container with `docker compose exec`, then
-   the test's resume URL. A CRD hook test resumes itself: Inferno's own job calls the hooks;
+   the test's resume URL. A wait the driver has no part in is left to Inferno;
 5. write the session's results (`GET /api/test_sessions/<id>/results`) as `--out`, in the form
    `inferno execute --outputter json` prints them, for `scripts/inferno_check.py`, the verdict.
 
@@ -28,9 +28,11 @@ here for the run, an EC P-384 key: its public half is the client's registration 
 (`smart_jwk_set`), and its private half goes to the export through the environment only,
 never a file or a command line, and dies with the run.
 
-    uv run python scripts/inferno_session.py crd_server_v221 \\
-      --inputs var/inferno/crd_server_v221_inputs.json --groups 1 2 3.4 4 \\
-      --out var/inferno/crd_server_v221_results.json --tests var/inferno/crd_server_v221_tests.json
+    uv run python scripts/inferno_session.py smart_client_stu2_2 \\
+      --inputs var/inferno/smart_client_stu2_2_inputs.json \\
+      --option client_type=SMART,authorization_code,public \\
+      --out var/inferno/smart_client_stu2_2_results.json \\
+      --tests var/inferno/smart_client_stu2_2_tests.json
 """
 
 from __future__ import annotations
@@ -60,7 +62,7 @@ COMPOSE_FILE = "sandbox/inferno/scripted/docker-compose.yml"
 ENGINE_SERVICE = "engine"
 OPEN_ENGINE = "http://engine:8000"
 POLL_SECONDS = 2.0
-RUN_TIMEOUT = 1800.0  # seconds a run may take: a CRD group waits up to 300 s a hook test
+RUN_TIMEOUT = 1800.0  # seconds a run may take
 UP_TIMEOUT = 300.0  # seconds Inferno's web app may take to answer after `up`
 BULK_KEY_ID = "mendari-bulk-run"
 BULK_ENV = "MENDARI_BULK_PRIVATE_KEY"
@@ -304,7 +306,7 @@ class Session:
         test = str(waiting.get("test_id") or "")
         step = CLIENT_STEPS.get(test.rsplit("-", 1)[-1])
         if step is None:
-            return  # a CRD hook test: Inferno's own job calls the hooks and resumes it
+            return  # a wait the driver has no part in: Inferno resumes it, or the run times out
         resume = step(self, waiting, given)
         if resume is not None:
             # Inferno answers a resume with a redirect to the session's page, which is not
@@ -413,7 +415,7 @@ def run(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("suite", help="the suite's id, e.g. crd_server_v221")
+    parser.add_argument("suite", help="the suite's id, e.g. smart_client_stu2_2")
     parser.add_argument("--inputs", type=Path, required=True, help="the preset to take inputs from")
     parser.add_argument("--groups", nargs="*", default=[], help="short ids (default: the suite)")
     parser.add_argument(
