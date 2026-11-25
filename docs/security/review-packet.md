@@ -3,7 +3,8 @@
 _For the reviewer of Mendari before any real patient data, and before the project's public
 deployment drops Vercel Authentication. Written at the end of Phase 4b (2026-10-02), with an
 [addendum](#addendum-the-ehr-launch-gated-2026-10-03) on the EHR launch's redesign
-(2026-10-03). Everything here runs on synthetic data._
+(2026-10-03). Wave 6 (2026-11-24) took out what it said of the features that wave removed (the
+threat model's note names them). Everything here runs on synthetic data._
 
 ## What Mendari is
 
@@ -24,16 +25,16 @@ approvals are appended to a hash chain. A clinician reviews what the policy does
 
 | In scope | Where |
 |---|---|
-| The engine's HTTP surface: REST `/api`, FHIR `/fhir` (read, search, `$decide`), CDS Hooks, DTR, PAS, the sign-in routes `/auth`, the SMART launch `/smart` | `src/mendari/server/`, `src/mendari/standards/` |
+| The engine's HTTP surface: REST `/api`, FHIR `/fhir` (read, search, `$decide`), CDS Hooks, the sign-in routes `/auth`, the SMART launch `/smart` | `src/mendari/server/`, `src/mendari/standards/` |
 | Authentication and authorization: OIDC sign-in, sessions, API keys, scopes, SMART Backend Services, an EHR's own signed CDS Hooks token (LP-23b, [ADR-0014](../decisions/ADR-0014-a-cds-client-is-a-principal.md)) | `server/auth.py`, `server/sessions.py`, `server/scopes.py`, `server/backend_services.py`, `server/cds_clients.py`, `standards/oidc.py` |
 | Abuse controls: the body cap, rate limits, quotas, the Origin check, CORS on `/cds-services` for the CDS clients' registered origins (LP-23c) | `server/app.py` (`BodyCap`, `_guard`), `server/limits.py`, `server/origin.py`, `server/cors.py`, `core/decision.py` (`CallBudget`) |
 | What is stored: the audit chain, PHI modes, notes, the keyed input hash | `core/audit.py`, `core/phi.py`, `core/decision.py` |
 | What is logged | `server/security_log.py` |
 | The dashboard and the API reference in the browser: CSP, cookies, the vendored Swagger UI | `src/mendari/dashboard/`, `server/app.py` (`_security_headers`, `versioned_page`) |
-| Outbound calls (SSRF): FHIR servers, the CQL engine, the identity provider, the payer, webhooks, model providers | `standards/fhir_client.py`, `providers/` |
+| Outbound calls (SSRF): FHIR servers, the identity provider, webhooks, model providers | `standards/fhir_client.py`, `providers/` |
 | The agent registry: publishing, the card it renders, the two groups (checked, claimed), its chain, recalls and deletions, rate limits and headers, the regression check (LP-18, [ADR-0012](../decisions/ADR-0012-a-registry-that-shows-only-what-it-checked.md)) | `hub/registry.py`, `hub/yank.py`, `hub/regression.py`, `hub/archive.py`, `core/card.py` |
 | Pulling and serving an agent from a registry: verification, the origin marker, the cap until an organization approves its digest, the recall reads | `hub/client.py`, `core/origin.py`, `core/decision.py` (`_origin_holds`), `server/recalls.py`, `server/app.py` (`/api/registry-approvals`) |
-| An organization's agent store (LP-20, [ADR-0016](../decisions/ADR-0016-an-agent-store-per-organization.md), off unless `MENDARI_AGENT_STORE=on`, memberships mode only): the author role and its keys, signed uploads in parts, the PHI detector, the hidden-set check and what it holds, copies and edits, stored evaluation jobs and comparisons, promotion by someone other than the author and serving a promoted version to its organization only, the improvement dataset; routes `/api/store/*`, tables `store_files`, `store_versions`, `store_usage`, `store_keys`, `store_uploads`, `store_upload_parts`, `store_matches`, `store_datasets`, `store_jobs`, `store_promotions`, `store_proposals` | `core/pack_store.py`, `core/phi_detect.py`, `server/store_routes.py`, `evals/store_jobs.py`, `evals/corrections.py`, `evals/validation.py`, `evals/dataset_checks.py`, `server/app.py` (`served_here`) |
+| An organization's agent store (LP-20, [ADR-0016](../decisions/ADR-0016-an-agent-store-per-organization.md), off unless `MENDARI_AGENT_STORE=on`, memberships mode only): the author role and its keys, signed uploads in parts, the PHI detector, copies and edits, stored evaluation jobs and comparisons, promotion by someone other than the author and serving a promoted version to its organization only, the improvement dataset; routes `/api/store/*`, tables `store_files`, `store_versions`, `store_usage`, `store_keys`, `store_uploads`, `store_upload_parts`, `store_datasets`, `store_jobs`, `store_promotions`, `store_proposals` | `core/pack_store.py`, `core/phi_detect.py`, `server/store_routes.py`, `evals/store_jobs.py`, `evals/corrections.py`, `evals/validation.py`, `evals/dataset_checks.py`, `server/app.py` (`served_here`) |
 | The Hub website: rendering publisher text, its CSP and headers | the repository's top-level `hub/` (Next.js: `proxy.ts`, `app/`), not `src/mendari/hub/` |
 | The build: CI, pinned actions and images, the Docker image, Dependabot | `.github/`, `Dockerfile`, `deploy/` |
 
@@ -42,13 +43,13 @@ Paths under `src/mendari/` are given without that prefix.
 ## Trust boundaries
 
 1. **Browser ↔ engine:** the dashboard, the API reference and the API, with a session cookie.
-2. **EHR ↔ engine:** CDS Hooks, the SMART launch, DTR and FHIR `$decide`, with API keys or
+2. **EHR ↔ engine:** CDS Hooks, the SMART launch and FHIR `$decide`, with API keys or
    SMART Backend Services tokens; on CDS Hooks also, for an EHR registered in
    `MENDARI_CDS_CLIENTS`, the JWT it signs itself, verified against its registered keys (by
    value, or fetched from its one allow-listed `jwks_uri`).
-3. **Engine → outside servers:** FHIR servers, the CQL engine, the identity provider, the payer
-   and alert webhooks, all through one outbound client with an allow-list.
-4. **Engine → model providers:** Jev, and LLMs through a gateway. Only an agent's declared
+3. **Engine → outside servers:** FHIR servers, the identity provider and alert webhooks, all
+   through one outbound client with an allow-list.
+4. **Engine → model providers:** LLMs through a gateway. Only an agent's declared
    `state_fields` leave; an owned agent that declares none sends the whole input, and an agent the
    deployment does not own must declare them (refused at load otherwise). For such an agent the
    model is the deployment's and its answer length, timeout and effort are capped
@@ -77,7 +78,7 @@ it holds only `launch` (`GET /api/smart/patient`, `/focus`) and, registered to d
 opens for it, on the patient view alone. An EHR registered in `MENDARI_CDS_CLIENTS` calling
 with its own verified token is a principal of kind `cds` (`cds:<id>`), with no role: it holds
 only `discover` and `decide`, on `/cds-services` only, in its registered organization (threats
-S21 and E15). Machines are `viewer` or `service` only (but an organization's grading key, which only the operator mints, LP-11); managing keys and clients is for signed-in
+S21 and E15). Machines are `viewer` or `service` only; managing keys and clients is for signed-in
 people only. Without sign-in (open mode) every caller is an admin, but for a JWT on
 `/cds-services`, which is verified and is then a `cds` principal: that mode is for local use and
 the sandbox, and there `/cds-services` answers this machine only, unless the sandbox flag
@@ -88,7 +89,7 @@ any origin but those and this site's own (threat I16).
 ## What changed in Phases 4 and 4b
 
 **Phase 4, machine access** ([ADR-0004](../decisions/ADR-0004-machine-access-tokens-and-scopes.md)):
-- API keys (`ohk_`) are `viewer` or `service` (or an organization's grading key, `grading`, which only the operator mints), hashed, expire (90 days, 365 at most) and take
+- API keys (`ohk_`) are `viewer` or `service`, hashed, expire (90 days, 365 at most) and take
   scopes: SMART v2 `system/` reads and Mendari's decide and outcome URIs. An `Authorization`
   header decides alone, with no fallback to the cookie; no credential in a URL or a form.
 - SMART Backend Services, off by default: `POST /auth/token` takes an RS384 or ES384 client
@@ -98,8 +99,8 @@ any origin but those and this site's own (threat I16).
 - Outcomes take a system identifier as `source`, never free text.
 
 **Phase 4b, hardening before PHI** ([ADR-0005](../decisions/ADR-0005-hardening-before-phi.md)):
-- **What is kept for good.** Notes and a payer's text left the chain for a `notes` table, with a
-  salted commitment in the chain; a payer's outcome and review actions stay only as codes. Under `hash` the record keeps no evidence values, and under
+- **What is kept for good.** Notes left the chain for a `notes` table, with a salted commitment
+  in the chain. Under `hash` the record keeps no evidence values, and under
   `encrypt` they are sealed with the input. Input issues name resources by type and position.
   The input hash is an HMAC under `MENDARI_INPUT_HASH_KEY`. People are chained by verified
   email, keys as `key <id>`.
@@ -241,8 +242,8 @@ browser suite. The per-stage detail and each deviation from the plan are in `tas
   tries to run a script among them: its Playwright tests and the OWASP ZAP baseline), `pilot-check` (a pilot organization end to end against a mock identity
   provider, PHI mode `encrypt`), `sandbox-e2e` (SMART launches from smart-launcher-v2, in open
   mode and into an engine with sign-in on and the launcher registered) and `fhir-conformance`
-  (the HL7 validator). Weekly and by hand, `conformance.yml` runs the Inferno DTR payer suite
-  against the open engine on synthetic data (`sandbox/inferno/README.md`).
+  (the HL7 validator). Weekly and by hand, `conformance.yml` runs Inferno's SMART client and
+  Bulk Data client suites, with Mendari as the client, on synthetic data (`sandbox/inferno/README.md`).
 - **How to deploy safely:** [`deploying-with-phi.md`](../deploying-with-phi.md), with the
   settings in one table (§8) and the go-live checklist (§9). `SECURITY.md` at the repository's
   root lists the controls in one place.
@@ -311,9 +312,6 @@ From the threat model's residual risks, and the plan's deferred list:
   EHR's token. The design is in the [addendum](#addendum-the-ehr-launch-gated-2026-10-03).
 - **Erasing a note is not instant everywhere:** backups, the database's point-in-time history
   and earlier exports keep it until they expire.
-- **Records chained before Phase 4b** keep what they had (notes in the chain, unkeyed hashes,
-  evidence values); they are synthetic on the project's deployment. Old notes are shown only to
-  those who may read inputs.
 - **The feedback export's log line** lists exported records only; a note opened for a rating
   left out of the export is chained but not logged.
 - **Vercel's own request log** keeps paths with their query strings; credentials are refused in
