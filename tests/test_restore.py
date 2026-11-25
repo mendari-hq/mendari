@@ -74,14 +74,14 @@ os._exit(0)
 
 
 def test_a_sqlite_backup_restores_and_verifies_against_the_signed_checkpoint(
-    tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """As the runbook says: a backup while it runs, a crash that leaves `-wal` and `-shm`, then
     the three files moved aside (kept) and the backup copied into place."""
     var = tmp_path / "var"
     var.mkdir()
     live = var / "mendari.db"
-    statement = signed_before_backup(str(live), inbox_pack, monkeypatch)
+    statement = signed_before_backup(str(live), triage_agent, monkeypatch)
     backup = tmp_path / "mendari-backup.db"
     sqlite3_cli = shutil.which("sqlite3")
     if sqlite3_cli is not None:  # the runbook's command
@@ -91,7 +91,7 @@ def test_a_sqlite_backup_restores_and_verifies_against_the_signed_checkpoint(
             source.backup(target)
     backed_up = events_in(backup)
     env = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
-    crash = [sys.executable, "-c", CRASHING, str(live), str(inbox_pack.root)]
+    crash = [sys.executable, "-c", CRASHING, str(live), str(triage_agent.root)]
     subprocess.run(crash, check=True, env=env)
     left = [live.with_name(live.name + suffix) for suffix in ("-wal", "-shm")]
     assert all(path.exists() for path in left)  # the crash left them: the case that matters
@@ -129,7 +129,7 @@ def a_new_database() -> Iterator[str]:
 
 
 def test_a_postgres_dump_restores_and_verifies_against_the_signed_checkpoint(
-    tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     if not POSTGRES_URL:
         pytest.skip("set MENDARI_TEST_DATABASE_URL to run the Postgres backend tests")
@@ -146,7 +146,7 @@ def test_a_postgres_dump_restores_and_verifies_against_the_signed_checkpoint(
     separator = "&" if "?" in POSTGRES_URL else "?"
     live = f"{POSTGRES_URL}{separator}options=-csearch_path%3D{schema}"
     try:
-        statement = signed_before_backup(live, inbox_pack, monkeypatch)
+        statement = signed_before_backup(live, triage_agent, monkeypatch)
         archive = tmp_path / "mendari.dump"
         subprocess.run(  # the runbook's commands, the schema the test runs in
             [dump, "--format=custom", f"--schema={schema}", f"--file={archive}", POSTGRES_URL],

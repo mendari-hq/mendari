@@ -45,7 +45,7 @@ def rewrite_from(store: AuditStore, seq: int) -> None:
 
 
 def test_a_checkpoint_is_the_verified_head_and_later_checks_start_from_it(
-    db_target: str, inbox_pack: Pack
+    db_target: str, triage_agent: Pack
 ) -> None:
     with AuditStore(db_target) as store:
         assert store.record_checkpoint() == {
@@ -54,7 +54,7 @@ def test_a_checkpoint_is_the_verified_head_and_later_checks_start_from_it(
             "head": GENESIS,
             "recorded": None,  # an empty chain: nothing to record
         }
-        decide(store, inbox_pack, 3)
+        decide(store, triage_agent, 3)
         first = store.record_checkpoint()
         full = store.verify()
         assert first["ok"] and first["recorded"]["hash"] == full["head"]
@@ -62,7 +62,7 @@ def test_a_checkpoint_is_the_verified_head_and_later_checks_start_from_it(
         assert recorded == first["recorded"]
         again = store.record_checkpoint()  # nothing new: the same head, no second row
         assert again["recorded"] is None and again["events"] == 0
-        decide(store, inbox_pack, 2)
+        decide(store, triage_agent, 2)
         since = store.verify(since_checkpoint=True)
         assert since["ok"] and since["events"] == 2 and since["head"] == store.verify()["head"]
         assert since["checkpoint"] == recorded
@@ -82,12 +82,12 @@ def test_a_checkpoint_is_the_verified_head_and_later_checks_start_from_it(
 
 
 def test_a_change_after_the_checkpoint_is_caught_and_one_before_by_a_full_verification(
-    db_target: str, inbox_pack: Pack
+    db_target: str, triage_agent: Pack
 ) -> None:
     with AuditStore(db_target) as store:
-        before = decide(store, inbox_pack, 2)
+        before = decide(store, triage_agent, 2)
         (checkpoint,) = [store.record_checkpoint()["recorded"]]
-        after = decide(store, inbox_pack, 2)
+        after = decide(store, triage_agent, 2)
         kept = record_of(store, after[0])
         tamper(store, "UPDATE decisions SET record = ? WHERE id = ?", ('{"x": 1}', after[0]))
         since = store.verify(since_checkpoint=True)
@@ -110,12 +110,12 @@ def record_of(store: AuditStore, decision_id: str) -> str:
 
 
 def test_a_chain_rewritten_from_before_a_checkpoint_or_cut_short_of_it_is_caught(
-    db_target: str, inbox_pack: Pack
+    db_target: str, triage_agent: Pack
 ) -> None:
     with AuditStore(db_target) as store:
-        decide(store, inbox_pack, 3)
+        decide(store, triage_agent, 3)
         (checkpoint,) = [store.record_checkpoint()["recorded"]]
-        decide(store, inbox_pack, 1)
+        decide(store, triage_agent, 1)
         rewrite_from(store, 1)  # every hash recomputed: the chain alone holds
         full = store.verify()
         assert (full["ok"], full["reason"], full["broken_at"]) == (
@@ -136,11 +136,11 @@ def test_a_chain_rewritten_from_before_a_checkpoint_or_cut_short_of_it_is_caught
 
 
 def test_the_commands_record_a_checkpoint_and_verify_from_it(
-    tmp_path: Path, inbox_pack: Pack, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, triage_agent: Pack, capsys: pytest.CaptureFixture[str]
 ) -> None:
     db = str(tmp_path / "a.db")
     with AuditStore(db) as store:
-        decide(store, inbox_pack, 2)
+        decide(store, triage_agent, 2)
 
     def run(*argv: str) -> tuple[int, Any]:
         code = main(list(argv))
@@ -150,7 +150,7 @@ def test_the_commands_record_a_checkpoint_and_verify_from_it(
     code, recorded = run("audit", "checkpoint", "--db", db)
     assert code == 0 and recorded["recorded"]["seq"] >= 1
     with AuditStore(db) as store:
-        decide(store, inbox_pack, 1)
+        decide(store, triage_agent, 1)
     code, since = run("audit", "verify", "--db", db, "--since-checkpoint")
     assert code == 0 and since["events"] == 1
     assert main(["audit", "verify", "--db", db, "--notes", "--since-checkpoint"]) == 1
