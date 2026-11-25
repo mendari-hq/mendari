@@ -14,10 +14,11 @@ from typing import Any
 import pytest
 
 from mendari.core.pack_store import PackStore, StoreError
+from tests.support.registry import ROUTER_RULES, TRIAGE
 from tests.test_store_jobs import _author, _copy, _dataset, _job, _run
 from tests.test_store_uploads import ORG_A, ORG_B, Store, store_world
 
-INBOX = "mendari/patient-inbox-router"
+SERVED = TRIAGE.id  # an agent this deployment serves from disk: the triage fixture
 MESSAGE = {"message": {"body": "Could I get a refill of my lisinopril please?"}}
 
 
@@ -68,7 +69,7 @@ def test_the_author_cannot_approve_their_own_promotion(world: Store) -> None:
 
     dual = member(world.db, org=ORG_A, roles=["governance", "pack_author"], sub="dual")
     made = world.client.post(
-        "/api/store/copies", json={"pack": INBOX, "name": "inbox-router"}, headers=dual
+        "/api/store/copies", json={"pack": SERVED, "name": "inbox-router"}, headers=dual
     )
     assert made.status_code == 201, made.text
     digest = made.json()["digest"]
@@ -80,10 +81,10 @@ def test_the_author_cannot_approve_their_own_promotion(world: Store) -> None:
     )
     assert refused.status_code == 403 and "author" in refused.text
     packs: PackStore = world.client.app.state.pack_store  # type: ignore[attr-defined]
-    rules = packs.files(ORG_A, digest)["logic/routing_rules.yaml"].decode()
+    rules = packs.files(ORG_A, digest)[ROUTER_RULES].decode()
     edited = world.client.post(
         f"/api/store/versions/{digest}/edits",
-        json={"files": [{"path": "logic/routing_rules.yaml", "content": rules + "\n# b\n"}]},
+        json={"files": [{"path": ROUTER_RULES, "content": rules + "\n# b\n"}]},
         headers=_author(world),
     ).json()
     assert len(packs.authors(ORG_A, edited["digest"])) == 2
@@ -177,12 +178,10 @@ def test_a_promoted_version_is_served_to_its_organization_and_to_no_other(world:
 
 def test_promotion_is_bound_to_the_digest(world: Store) -> None:
     digest, _, _ = _promoted(world)
-    rules = world.client.app.state.pack_store.files(ORG_A, digest)["logic/routing_rules.yaml"]  # type: ignore[attr-defined]
+    rules = world.client.app.state.pack_store.files(ORG_A, digest)[ROUTER_RULES]  # type: ignore[attr-defined]
     edited = world.client.post(
         f"/api/store/versions/{digest}/edits",
-        json={
-            "files": [{"path": "logic/routing_rules.yaml", "content": rules.decode() + "\n#x\n"}]
-        },
+        json={"files": [{"path": ROUTER_RULES, "content": rules.decode() + "\n#x\n"}]},
         headers=_author(world),
     ).json()
     assert edited["digest"] != digest
@@ -191,12 +190,10 @@ def test_promotion_is_bound_to_the_digest(world: Store) -> None:
 
 def test_promoting_retires_the_version_before_and_both_are_chained(world: Store) -> None:
     first, _, promotion = _promoted(world)
-    rules = world.client.app.state.pack_store.files(ORG_A, first)["logic/routing_rules.yaml"]  # type: ignore[attr-defined]
+    rules = world.client.app.state.pack_store.files(ORG_A, first)[ROUTER_RULES]  # type: ignore[attr-defined]
     second = world.client.post(
         f"/api/store/versions/{first}/edits",
-        json={
-            "files": [{"path": "logic/routing_rules.yaml", "content": rules.decode() + "\n#2\n"}]
-        },
+        json={"files": [{"path": ROUTER_RULES, "content": rules.decode() + "\n#2\n"}]},
         headers=_author(world),
     ).json()["digest"]
     made = _promote(world, second, [_report(world, second)])
@@ -302,7 +299,7 @@ def test_what_the_security_review_found_is_closed(world: Store) -> None:
 
     dual = member(world.db, org=ORG_A, roles=["governance", "pack_author"], sub="dual")
     made = world.client.post(
-        "/api/store/copies", json={"pack": INBOX, "name": "inbox-router"}, headers=dual
+        "/api/store/copies", json={"pack": SERVED, "name": "inbox-router"}, headers=dual
     ).json()
     promoted = _promote(world, made["digest"], [_report(world, made["digest"])])
     assert promoted.status_code == 201, promoted.text
@@ -326,4 +323,4 @@ def test_what_the_security_review_found_is_closed(world: Store) -> None:
     listed = world.client.get("/api/agents", headers=world.as_(ORG_A, "viewer"))
     assert listed.status_code == 200
     ids = {p["id"] for p in listed.json()}
-    assert resolve_pack(INBOX).id in ids and f"{ORG_A}/inbox-router" not in ids
+    assert resolve_pack(SERVED).id in ids and f"{ORG_A}/inbox-router" not in ids

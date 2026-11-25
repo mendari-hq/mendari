@@ -37,13 +37,13 @@ from mendari.hub import archive
 from mendari.hub.client import RegistryClient
 from mendari.server import hub_routes
 from mendari.server.app import create_app
-from tests.conftest import DASHBOARD, DEMO_AGENT_DIR, member, security_lines
+from tests.conftest import DASHBOARD, DEMO_AGENT_DIR, TRIAGE_DIR, member, security_lines
+from tests.support.registry import HTTPS
 from tests.test_hub_client import Hub, free_port, hub  # noqa: F401 - the live registry fixture
-from tests.test_memberships import HTTPS
 from tests.test_store_uploads import ORG_A, ORG_B, Store, store_world
 
 ACME = "acme/portal-agent"
-INBOX = "mendari/patient-inbox-router"
+OWN = load_pack(TRIAGE_DIR).id  # an agent this deployment serves from its own files
 REFILL = {"message": {"body": "Could I get a refill of my lisinopril please?"}}
 # What the local agent service answers each of the bundled agent's questions with.
 ANSWERS = {"request": "refill", "urgent_symptoms": "no"}
@@ -869,7 +869,7 @@ def test_what_the_deployment_serves_from_its_own_files_is_never_replaced(
     """An id this deployment serves from its files is refused before anything is asked of the
     registry."""
     asked = counting(monkeypatch, "version")
-    refused = lite.pull(INBOX)
+    refused = lite.pull(OWN)
     assert refused.status_code == 409 and "from its own files" in refused.json()["detail"]
     assert asked == []
     lite.nothing_was_added()

@@ -42,11 +42,11 @@ from mendari.evals.share import (
     suppress,
     unchanged_by_suppression,
 )
-from mendari.hub.registry import RegistryStore
 from tests.conftest import (
-    INBOX_DIR,
+    CHART_DIR,
+    CLINICAL_DIR,
     ROOT,
-    SCREENED,
+    TRIAGE_DIR,
     Registry,
     share_signed,
     shared_benchmark,
@@ -54,13 +54,9 @@ from tests.conftest import (
     verified_site,
 )
 
-PACKS = (
-    "ai-guard",
-    "clinical-trial-prescreener",
-    "patient-inbox-router",
-    "prior-auth-preflight",
-    "referral-router",
-)
+# The test fixtures' agents; the first is the one `shared_benchmark()` shares by default.
+TRIAGE, CLINICAL, CHART = (load_pack(d) for d in (TRIAGE_DIR, CLINICAL_DIR, CHART_DIR))
+PACKS = (TRIAGE.id, CLINICAL.id, CHART.id)
 SHARED = shared_benchmark()
 FREE_TEXT = "Jane Doe, DOB 1960-02-01, called about chest pain"
 
@@ -70,9 +66,11 @@ def _run(pack_id: str, dataset: str, **options: Any) -> Evaluation:
     return evaluation(Decision(pack, **options), resolve_dataset(pack, dataset))
 
 
-def test_case_ids_and_dataset_identity_stay_home() -> None:
-    pack = resolve_pack("mendari/patient-inbox-router")
-    dataset = resolve_dataset(pack, "test")
+def test_case_ids_and_dataset_identity_stay_home(tmp_path: Path) -> None:
+    pack = resolve_pack(TRIAGE.id)
+    site_file = tmp_path / "north-clinic-cases.jsonl"  # a site's own file, named as it names it
+    shutil.copyfile(TRIAGE_DIR / "data" / "test.jsonl", site_file)
+    dataset = resolve_dataset(pack, str(site_file))
     run = evaluation(Decision(pack), dataset)
     shared = shareable(run.ledger)
     text = json.dumps(shared)
@@ -80,13 +78,14 @@ def test_case_ids_and_dataset_identity_stay_home() -> None:
     assert all(record["id"] not in text for record in dataset.records)
     assert all(case["c"] not in text for case in run.ledger.cases)  # nor their hashes
     assert shared["dataset"] == {"n": len(dataset.records)}  # no name, no digest
+    assert dataset.name == "north-clinic-cases"
     assert dataset.sha256 not in text and dataset.name not in text
     assert "id" not in shared and "created_at" not in shared and "subgroups" not in shared
 
 
 def test_an_override_is_shared_as_a_fact_not_a_name() -> None:
     approval = GovernanceOverride(approved_by="Dr. A. Person", reference="IRB-2026-0042")
-    run = _run("mendari/clinical-trial-prescreener", "test", governance=approval)
+    run = _run(CLINICAL.id, "test", governance=approval)  # risk level 2
     shared = shareable(run.ledger)
     assert shared["policy"]["governance_override"] is True
     assert "Person" not in json.dumps(shared) and "IRB-2026" not in json.dumps(shared)
@@ -105,7 +104,7 @@ def _leaves(value: Any, path: tuple[Any, ...] = ()) -> Iterator[tuple[tuple[Any,
 
 @pytest.mark.parametrize("pack_id", PACKS)
 def test_a_shared_report_holds_whole_counts_and_no_rate(pack_id: str) -> None:
-    shared = shared_benchmark(f"mendari/{pack_id}")
+    shared = shared_benchmark(pack_id)
     for path, leaf in _leaves(shared):
         assert leaf is None or isinstance(leaf, int | str | bool), path
         assert not isinstance(leaf, float), path
@@ -144,7 +143,7 @@ def test_a_rate_or_a_fraction_anywhere_is_refused_on_both_sides(path: tuple[Any,
 _BINS = [(0, 0)] * 7 + [(30, 11), (40, 10), (25, 0)]  # rights 95, wrongs 21
 FIXTURE: dict[str, Any] = {
     "format": "mendari.site-report/2",
-    "pack": {"id": "mendari/referral-router", "version": "1.0.0", "digest": "sha256:" + "0" * 64},
+    "pack": {"id": "mendari-test/hand-made", "version": "1.0.0", "digest": "sha256:" + "0" * 64},
     "providers": {"router": {"variant": "rules", "type": "rules", "model": None}},
     "policy": {
         "risk_level": 2,
@@ -287,7 +286,7 @@ def test_safety_counts_are_shared_exactly_and_small_runs_are_not_shared() -> Non
         suppress(small)
     with pytest.raises(ValidationError):
         SiteReportV2.model_validate(small)
-    run = _run("mendari/patient-inbox-router", "red_flags_holdout")  # 30 cases
+    run = _run(TRIAGE.id, "critical")  # 40 cases
     with pytest.raises(MendariError, match="fewer than 100 cases"):
         shareable(run.ledger)
 
@@ -335,7 +334,7 @@ def test_every_field_has_a_written_suppression_rule() -> None:
 
 def test_the_counts_are_the_ledgers() -> None:
     """Each count is counted from the ledger, and agrees with the report computed from it."""
-    run = _run("mendari/referral-router", "test")
+    run = _run(TRIAGE.id, "test")
     counts, report = counted_report(run.ledger), run.report
     for name, question in counts["questions"].items():
         full = report["questions"][name]
@@ -366,8 +365,8 @@ def test_the_counts_are_the_ledgers() -> None:
 
 @pytest.mark.parametrize("pack_id", PACKS)
 def test_every_shipped_benchmark_can_be_shared(pack_id: str) -> None:
-    shared = SiteReportV2.model_validate(shared_benchmark(f"mendari/{pack_id}"))
-    assert shared.pack.id == f"mendari/{pack_id}"
+    shared = SiteReportV2.model_validate(shared_benchmark(pack_id))
+    assert shared.pack.id == pack_id
     assert unchanged_by_suppression(shared)
 
 
@@ -404,7 +403,7 @@ def test_free_text_in_any_string_is_refused(path: tuple[Any, ...]) -> None:
 
 
 def test_a_run_that_cannot_be_shared_names_fields_never_values() -> None:
-    run = _run("mendari/referral-router", "test")
+    run = _run(TRIAGE.id, "test")
     header = copy.deepcopy(run.ledger.header)
     slot = next(iter(header["providers"]))
     header["providers"][slot]["model"] = FREE_TEXT
@@ -418,23 +417,22 @@ def test_a_run_that_cannot_be_shared_names_fields_never_values() -> None:
 
 
 def _composite_run(tmp_path: Path) -> tuple[Pack, Evaluation]:
-    """The inbox pack with its router a cascade of its two local variants (naive Bayes, then
-    rules) and its shipped any_of screen (rules and Jev), evaluated where Jev is not set up:
-    Jev fails without a call. At a new version: changed at its own, a registry refuses it (it
-    would take the reference pack's place)."""
+    """The triage fixture with each slot on a `check` composite (each slot's agent and its keyword
+    rules; the router's members named apart from the screen's), evaluated offline on their
+    canned answers. At a new version: changed at its own, a registry refuses it (it would take
+    the reference pack's place)."""
     root = tmp_path / "pack"
-    shutil.copytree(INBOX_DIR, root)
+    shutil.copytree(TRIAGE_DIR, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["version"] = "9.9.9"
     variants = manifest["providers"]["router"]["variants"]
-    variants["nb_then_rules"] = {
-        "type": "cascade",
-        "accept_at": 0.9,
-        "members": {"naive_bayes": variants["naive_bayes"], "rules": variants["rules"]},
+    variants["checked"] = {
+        "type": "check",
+        "members": {"service": variants["agent"], "keywords": variants["rules"]},
     }
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     pack = load_pack(root)
-    decision = Decision(pack, providers={"router": "nb_then_rules", **SCREENED})
+    decision = Decision(pack, providers={"router": "checked", "screen": "checked"})
     return pack, evaluation(decision, resolve_dataset(pack, "test"))
 
 
@@ -446,13 +444,13 @@ def test_a_composite_is_shared_as_recorded_and_the_registry_accepts_it(
     members those are, and refuses member names that are not the pack's own, as it does every
     other name."""
     pack, run = _composite_run(tmp_path)
-    shared = shareable(run.ledger, remote_consent=True)  # Jev: off the site's machines
+    shared = shareable(run.ledger, remote_consent=True)  # agents: off the site's machines
     assert shared["providers"] == run.report["providers"]
     received = SiteReportV2.model_validate(shared).providers
-    assert received["router"].type == "cascade" and " → " in (received["router"].model or "")
-    assert composite_members(received["router"]) == ["naive_bayes", "rules"]
-    assert received["safety_screen"].type == "any_of"
-    assert composite_members(received["safety_screen"]) == ["rules", "jev"]
+    assert received["router"].type == "check" and " + " in (received["router"].model or "")
+    assert composite_members(received["router"]) == ["service", "keywords"]
+    assert received["screen"].type == "check"
+    assert composite_members(received["screen"]) == ["agent", "second"]
 
     assert registry.publish(pack).status_code == 201
     site = verified_site(registry, tmp_path)
@@ -466,50 +464,18 @@ def test_a_composite_is_shared_as_recorded_and_the_registry_accepts_it(
         return {**shared, "providers": providers}
 
     router = shared["providers"]["router"]["model"]
-    screen = shared["providers"]["safety_screen"]["model"]
-    first, second = router.split(" → ")
+    screen = shared["providers"]["screen"]["model"]
+    first, second = router.split(" + ")
     refused = [
-        renamed("router", router.replace("rules:", "Jane_Doe:")),
-        renamed("router", f"{second} → {first}"),  # the pack's members, out of order
-        renamed("router", f"{first} → {second} → {second}"),  # one listed twice
-        renamed("safety_screen", screen.replace("jev:", "naive_bayes:")),  # the router's member
+        renamed("router", router.replace("keywords:", "Jane_Doe:")),
+        renamed("router", f"{second} + {first}"),  # the pack's members, out of order
+        renamed("router", f"{first} + {second} + {second}"),  # one listed twice
+        renamed("screen", screen.replace("second:", "keywords:")),  # the router's member
     ]
     for body in refused:
         answer = share_signed(registry, other, body, issued)
         assert answer.status_code == 422, answer.text
         assert "a composite member" in answer.text and "Jane" not in answer.text
-
-
-def test_a_version_published_before_members_were_recorded_refuses_a_composite(
-    registry: Registry, tmp_path: Path, db_target: str
-) -> None:
-    """Its members cannot be checked, so a report from a composite is refused with the reason
-    (publish a new version); a report from single providers is still received."""
-    pack, run = _composite_run(tmp_path)
-    shared = shareable(run.ledger, remote_consent=True)  # Jev: off the site's machines
-    assert registry.publish(pack).status_code == 201
-    namespace, name = pack.id.split("/")
-    key = (namespace, name, pack.version)
-    with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
-        where = "WHERE namespace = ? AND name = ? AND version = ?"
-        row = db.one(f"SELECT metadata FROM hub_versions {where}", key)
-        assert row is not None
-        metadata = json.loads(row["metadata"])
-        del metadata["names"]["members"]
-        db.all(f"UPDATE hub_versions SET metadata = ? {where}", (json.dumps(metadata), *key))
-    site = verified_site(registry, tmp_path)
-    single = {
-        **shared,
-        "providers": {
-            "safety_screen": {"variant": "rules", "type": "rules", "model": None},
-            "router": {"variant": "naive_bayes", "type": "naive_bayes", "model": None},
-        },
-    }
-    answer = share_signed(registry, site, shared)
-    assert answer.status_code == 409 and "publish a new version" in answer.text
-    single_ticket = site_ticket(registry, site, single, commitment=site.commitment(b"another run"))
-    answer = share_signed(registry, site, single, single_ticket)
-    assert answer.status_code == 201, answer.text
 
 
 def _provider(type_: str, model: str) -> dict[str, Any]:
@@ -519,12 +485,11 @@ def _provider(type_: str, model: str) -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("type_", "model"),
     [
-        ("any_of", "rules:rules@661449489daf + jev:jev-1.13.0"),
-        ("vote", "nb:naive_bayes@37cb3086c82a + llm:anthropic/claude-sonnet-5 + jev:jev"),
-        ("cascade", "naive_bayes:naive_bayes@37cb3086c82a → jev:jev-1.13.0"),
-        ("cascade", " → ".join(f"m{i}:rules" for i in range(MAX_MEMBERS))),
+        ("check", "agent:triage-screen@2.0.0 + second:rules@661449489daf"),
+        ("check", "agent:anthropic/claude-sonnet-5 + second:llm-2"),
+        ("check", " + ".join(f"m{i}:rules" for i in range(MAX_MEMBERS))),
         ("llm", "anthropic/claude-sonnet-5"),
-        ("naive_bayes", "naive_bayes@37cb3086c82a"),
+        ("rules", "rules@661449489daf"),
     ],
 )
 def test_a_composite_lists_its_members_as_its_type_joins_them(type_: str, model: str) -> None:
@@ -534,19 +499,18 @@ def test_a_composite_lists_its_members_as_its_type_joins_them(type_: str, model:
 @pytest.mark.parametrize(
     ("type_", "model"),
     [
-        ("rules", "rules:rules + jev:jev"),  # only a composite lists members
-        ("llm", "anthropic/claude-sonnet-5 → jev"),
-        ("cascade", "naive_bayes:naive_bayes + jev:jev"),  # each type has its own joiner
-        ("any_of", "rules:rules → jev:jev"),
-        ("any_of", "rules:rules"),  # a composite has at least two members
-        ("any_of", "rules + jev"),  # each a member, a colon and a model
-        ("any_of", "rules:rules +  jev:jev"),
-        ("any_of", "rules:rules + jev:jev + "),
-        ("vote", "Jane Doe:rules + chest:pain"),
-        ("vote", "rules:rules + jev:Jane Doe called"),
-        ("vote", " + ".join(f"m{i}:rules" for i in range(MAX_MEMBERS + 1))),
-        ("vote", f"rules:rules + jev:{'j' * 129}"),
-        ("vote", "rules:rules + jev:jev\n"),  # "$" would admit a final newline
+        ("rules", "rules:rules + agent:agent"),  # only a composite lists members
+        ("llm", "anthropic/claude-sonnet-5 → agent"),
+        ("check", "rules:rules → agent:agent"),  # a composite joins its members its own way
+        ("check", "rules:rules"),  # a composite has at least two members
+        ("check", "rules + agent"),  # each a member, a colon and a model
+        ("check", "rules:rules +  agent:agent"),
+        ("check", "rules:rules + agent:agent + "),
+        ("check", "Jane Doe:rules + chest:pain"),
+        ("check", "rules:rules + agent:Jane Doe called"),
+        ("check", " + ".join(f"m{i}:rules" for i in range(MAX_MEMBERS + 1))),
+        ("check", f"rules:rules + agent:{'j' * 129}"),
+        ("check", "rules:rules + agent:agent\n"),  # "$" would admit a final newline
         ("llm", "anthropic/claude-sonnet-5\n"),
     ],
 )
@@ -556,29 +520,29 @@ def test_anything_else_in_a_model_is_refused(type_: str, model: str) -> None:
     assert "Jane" not in str(error.value.errors(include_input=False))
 
 
-ERRORS = TypeAdapter(dict[ErrorKey, Count])  # as a hidden set's result counts errors
+ERRORS = TypeAdapter(dict[ErrorKey, Count])  # errors counted by their key
 
 
 @pytest.mark.parametrize(
     ("key", "valid"),
     [
         ("not_configured", True),
-        ("jev:not_configured", True),
-        ("jev:not_configured, llm:timeout", True),  # two members failed on the same cases
+        ("agent:not_configured", True),
+        ("agent:not_configured, llm:timeout", True),  # two members failed on the same cases
         (", ".join(f"m{i}:timeout" for i in range(MAX_MEMBERS)), True),
         (", ".join(f"m{i}:timeout" for i in range(MAX_MEMBERS + 1)), False),
-        ("jev:not_configured,llm:timeout", False),
-        ("jev:not_configured, timeout", False),
-        ("jev:not_configured, ", False),
-        ("jev:not:configured", False),
+        ("agent:not_configured,llm:timeout", False),
+        ("agent:not_configured, timeout", False),
+        ("agent:not_configured, ", False),
+        ("agent:not:configured", False),
         ("Jane Doe:chest_pain", False),
-        ("jev:not_configured\n", False),
+        ("agent:not_configured\n", False),
         ("not_configured\n", False),
         # Mendari's codes only (a closed set), however much a name looks like one.
         ("derived_input_unavailable", True),
         ("Jane_Doe", False),
-        ("jev:Jane_Doe", False),
-        ("jev:timeout, llm:Jane_Doe", False),
+        ("agent:Jane_Doe", False),
+        ("agent:timeout, llm:Jane_Doe", False),
         ("server_error", False),
         ("Timeout", False),
     ],
@@ -593,7 +557,7 @@ def test_an_error_is_a_code_or_the_members_that_failed(key: str, valid: bool) ->
 
 @pytest.mark.parametrize("code", sorted(FAILURE_CODES))
 def test_every_error_code_mendari_records_can_be_counted(code: str) -> None:
-    errors = {code: 1, f"jev:{code}": 2, f"rules:{code}, jev:{code}": 3}
+    errors = {code: 1, f"agent:{code}": 2, f"rules:{code}, agent:{code}": 3}
     assert ERRORS.validate_python(errors) == errors
 
 
@@ -606,9 +570,11 @@ def test_the_spec_lists_every_error_code() -> None:
 @pytest.mark.parametrize(
     "where",
     [
-        ("questions", "next_step", "calibration", 9, "wrong"),
-        ("questions", "next_step", "calibration", 9, "right"),
-        ("questions", "next_step", "right"),
+        # Cells of equations the benchmark's report leaves less slack in (its suppressed cells
+        # add up to fewer than 20) than any of these values would need.
+        ("questions", TRIAGE.manifest.policy.primary, "calibration", 9, "wrong"),
+        ("questions", TRIAGE.manifest.policy.primary, "calibration", 8, "right"),
+        ("questions", TRIAGE.manifest.policy.primary, "right"),
         ("decisions", "outcomes", "HUMAN_REVIEW"),
     ],
     ids=lambda w: ".".join(map(str, w)),

@@ -21,8 +21,10 @@ from mendari.core.policy import GovernanceOverride
 from mendari.core.spec import Outcome
 from mendari.hub.client import packs_cache, pull
 from mendari.server.app import create_app
+from tests.conftest import TRIAGE_DIR
+from tests.support.registry import BILL, BLOCK_RULE, OUTSIDE_ID
 from tests.test_hub_client import Hub, copy_pack, hub  # noqa: F401 - the live registry fixture
-from tests.test_registry_engine import BILL, copied, outside_sorter
+from tests.test_registry_engine import copied, outside_sorter
 
 GOVERNANCE = GovernanceOverride(approved_by="committee", reference="minutes 12")
 
@@ -62,10 +64,10 @@ def test_nothing_in_the_pack_lifts_the_cap(tmp_path: Path) -> None:
 
     claimed = outside_sorter(tmp_path / "claimed", manifest=verified)
     assert Decision(claimed).decide(BILL).outcome is Outcome.HUMAN_REVIEW
-    reference = load_pack(copied(tmp_path, "patient-inbox-router"), origin="hub")
+    reference = load_pack(copied(tmp_path, TRIAGE_DIR.name), origin="hub")
     assert not reference.bounded  # the maintained engine, and still capped
     assert Decision(reference)._origin_holds() == [UNAPPROVED]
-    owned = load_pack(copied(tmp_path / "own", "patient-inbox-router"), origin="local")
+    owned = load_pack(copied(tmp_path / "own", TRIAGE_DIR.name), origin="local")
     assert owned.digest == reference.digest and Decision(owned)._origin_holds() == []
 
 
@@ -113,16 +115,16 @@ def test_the_marker_records_where_a_pull_came_from(
 
 
 def _served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, str, Any]:
-    """A server whose search path holds a pulled pack (the visit sorter under an id outside
-    the community namespace), which automates `BILL` under its own policy."""
+    """A server whose search path holds a pulled pack (an outside publisher's agent), which
+    automates `BILL` under its own policy."""
     pack = outside_sorter(tmp_path / "source")
-    target = packs_cache() / "someone" / "visit-sorter" / pack.version
+    target = packs_cache() / OUTSIDE_ID / pack.version
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(pack.root, target)
     (target / MARKER).write_text(
         json.dumps({"format": ORIGIN_FORMAT, "registry": "https://hub.example.org"})
     )
-    monkeypatch.setenv("MENDARI_AGENTS", "someone/visit-sorter")
+    monkeypatch.setenv("MENDARI_AGENTS", OUTSIDE_ID)
     return TestClient(create_app(db_path=tmp_path / "engine.db")), pack.digest, BILL
 
 
@@ -136,17 +138,15 @@ def test_an_organization_approves_a_pulled_digest_and_can_revoke_it(
     client, digest, automated = _served(tmp_path, monkeypatch)
     with client:
         client.app.state.recall_watch.refresh("https://hub.example.org")  # type: ignore[attr-defined]
-        decide = "/api/agents/someone/visit-sorter/decide"
+        decide = f"/api/agents/{OUTSIDE_ID}/decide"
         assert client.post(decide, json=automated).json()["outcome"] == "HUMAN_REVIEW"
-        state = client.get(
-            "/api/registry-approvals", params={"pack_id": "someone/visit-sorter"}
-        ).json()
+        state = client.get("/api/registry-approvals", params={"pack_id": OUTSIDE_ID}).json()
         assert state["origin"] == "hub" and state["active"] is None
         assert state["pulled"]["registry"] == "https://hub.example.org"
-        body = {"pack_id": "someone/visit-sorter", "pack_digest": digest, "reference": "minutes 4"}
+        body = {"pack_id": OUTSIDE_ID, "pack_digest": digest, "reference": "minutes 4"}
         wrong = client.post("/api/registry-approvals", json={**body, "pack_digest": "sha256:0" * 8})
         assert wrong.status_code == 422
-        local = {**body, "pack_id": "mendari/patient-inbox-router"}
+        local = {**body, "pack_id": load_pack(TRIAGE_DIR).id}  # served from its own files
         assert client.post("/api/registry-approvals", json=local).status_code in (404, 422)
         approved = client.post("/api/registry-approvals", json={**body, "approver": "dr-a"})
         assert approved.status_code == 201, approved.text
@@ -175,11 +175,11 @@ def test_the_command_line_decides_a_pulled_pack_capped_unless_its_trail_approved
         pass
     text = json.dumps(automated)
     (tmp_path / "input.json").write_text(text)
-    args = ["decide", "someone/visit-sorter", "--input", str(tmp_path / "input.json")]
+    args = ["decide", OUTSIDE_ID, "--input", str(tmp_path / "input.json")]
     assert main(args) == 0
     assert json.loads(capsys.readouterr().out)["outcome"] == "HUMAN_REVIEW"
     AuditStore(tmp_path / "engine.db").approve_registry_pack(
-        pack_id="someone/visit-sorter",
+        pack_id=OUTSIDE_ID,
         pack_digest=digest,
         registry="x",
         approver="a",
@@ -192,10 +192,9 @@ def test_the_command_line_decides_a_pulled_pack_capped_unless_its_trail_approved
 def test_an_unapproved_pulled_packs_own_block_goes_to_a_person(tmp_path: Path) -> None:
     """The LP-18d review: its own rule's BLOCK is final and seen by nobody, so before approval
     (or while recalled) a person decides instead; approved, its rule blocks as written."""
-    from tests.test_registry_engine import BLOCK_RULE
 
     def blocks(manifest: dict[str, Any]) -> None:
-        manifest["policy"]["rules"] = [BLOCK_RULE]
+        manifest["policy"]["rules"].append(BLOCK_RULE)
 
     pack = outside_sorter(tmp_path, manifest=blocks)
     held = Decision(pack).decide(BILL)
@@ -218,7 +217,7 @@ def test_an_approval_is_one_organizations_and_one_a_digest(tmp_path: Path) -> No
 
     store = AuditStore(tmp_path / "a.db")
     approval = {
-        "pack_id": "someone/visit-sorter",
+        "pack_id": OUTSIDE_ID,
         "pack_digest": "sha256:" + "1" * 64,
         "registry": "https://hub.example.org",
         "approver": "a",

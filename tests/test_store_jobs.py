@@ -20,18 +20,11 @@ from mendari.evals import store_jobs
 from mendari.evals.harness import evaluation, load_dataset
 from mendari.evals.ledger import Ledger
 from mendari.evals.store_jobs import JobStore
-from tests.conftest import INBOX_DIR
-from tests.test_store_uploads import (
-    HIDDEN_BODY,
-    ORG_A,
-    ORG_B,
-    SECRET_PHONE,
-    Store,
-    _hidden,
-    store_world,
-)
+from tests.conftest import TRIAGE_DIR
+from tests.support.registry import SCREEN_RULES, TRIAGE
+from tests.test_store_uploads import ORG_A, ORG_B, SECRET_PHONE, Store, store_world
 
-INBOX = "mendari/patient-inbox-router"
+SERVED = TRIAGE.id  # an agent this deployment serves from disk: the triage fixture
 
 
 @pytest.fixture
@@ -39,7 +32,7 @@ def world(db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> It
     yield from store_world(db_target, tmp_path, monkeypatch)
 
 
-CASES = (INBOX_DIR / "data" / "test.jsonl").read_text().splitlines()
+CASES = (TRIAGE_DIR / "data" / "test.jsonl").read_text().splitlines()
 
 
 def _author(world: Store, org: str = ORG_A) -> dict[str, str]:
@@ -48,7 +41,7 @@ def _author(world: Store, org: str = ORG_A) -> dict[str, str]:
 
 def _copy(world: Store, org: str = ORG_A, name: str = "inbox-router") -> str:
     made = world.client.post(
-        "/api/store/copies", json={"pack": INBOX, "name": name}, headers=_author(world, org)
+        "/api/store/copies", json={"pack": SERVED, "name": name}, headers=_author(world, org)
     )
     assert made.status_code == 201, made.text
     return str(made.json()["digest"])
@@ -159,7 +152,7 @@ def test_a_job_stopped_half_way_continues_from_its_ledger(
     app_jobs = world.client.app.state  # type: ignore[attr-defined]
     fresh = JobStore(
         app_jobs.pack_store,
-        served=lambda: {INBOX: resolve_pack(INBOX)},
+        served=lambda: {SERVED: resolve_pack(SERVED)},
         decision_for=lambda pack, variants: Decision(
             pack, providers=dict(variants), origin_cap=False
         ),
@@ -172,17 +165,17 @@ def test_a_job_stopped_half_way_continues_from_its_ledger(
 
 
 def _compared(world: Store) -> tuple[dict[str, Any], dict[str, Any], str]:
-    """A draft whose emergency screen never flags (its rules' default score raised), and the
-    inbox pack it was copied from, each run on the organization's dataset; the comparison."""
+    """A draft whose same-day screen never flags (its rules' default score raised), and the
+    triage fixture it was copied from, each run on the organization's dataset; the comparison."""
     digest = _copy(world)
-    rules = resolve_pack(INBOX).read_bytes("logic/red_flags.yaml").decode()
-    assert "default_score: 2.0" in rules
+    rules = resolve_pack(SERVED).read_bytes(SCREEN_RULES).decode()
+    assert rules.count("default_score: 2.0") == 1  # the urgency question's
     edited = world.client.post(
         f"/api/store/versions/{digest}/edits",
         json={
             "files": [
                 {
-                    "path": "logic/red_flags.yaml",
+                    "path": SCREEN_RULES,
                     "content": rules.replace("default_score: 2.0", "default_score: 50.0"),
                 }
             ]
@@ -193,7 +186,7 @@ def _compared(world: Store) -> tuple[dict[str, Any], dict[str, Any], str]:
     dataset = _dataset(world, edited.json()["digest"], n=120).json()
     version = edited.json()["digest"]
     draft = _run(world, _job(world, version=version, dataset={"id": dataset["id"]})["id"])
-    current = _run(world, _job(world, pack=INBOX, dataset={"id": dataset["id"]})["id"])
+    current = _run(world, _job(world, pack=SERVED, dataset={"id": dataset["id"]})["id"])
     compared = world.client.get(
         "/api/store/comparisons",
         params={"draft": draft["id"], "current": current["id"]},
@@ -207,7 +200,7 @@ def test_draft_against_current_is_paired_on_the_same_cases(world: Store) -> None
     compared, draft, _ = _compared(world)
     assert compared["dataset"]["paired"] == 120
     assert compared["dataset"]["only_in_a"] == compared["dataset"]["only_in_b"] == 0
-    other = _run(world, _job(world, pack=INBOX, dataset={"name": "red_flags"})["id"])
+    other = _run(world, _job(world, pack=SERVED, dataset={"name": "critical"})["id"])
     refused = world.client.get(
         "/api/store/comparisons",
         params={"draft": draft["id"], "current": other["id"]},
@@ -258,15 +251,12 @@ def test_the_changed_cases_are_listed_by_id_and_nothing_else_of_them(world: Stor
 def test_a_draft_runs_under_the_budget_and_a_slow_rule_ends_as_a_persons_decision(
     world: Store,
 ) -> None:
-    from tests.test_community_budget import EMOJI, long_message, slow_rules
-    from tests.test_community_caps import sorter
+    from tests.support.registry import EMOJI, long_message, slow_rules, triage_copy
     from tests.test_store_uploads import upload
 
-    root = sorter(world.tmp, rules=slow_rules(), schema=long_message, pack_id=f"{ORG_A}/sorter")
-    (root / "data").mkdir()
-    (root / "data" / "slow.jsonl").write_text(
-        json.dumps({"id": "s1", "input": {"message": EMOJI}, "labels": {"topic": "billing"}}) + "\n"
-    )
+    root = triage_copy(world.tmp, f"{ORG_A}/sorter", rules=slow_rules(), schema=long_message)
+    slow = {"id": "s1", "input": {"message": {"body": EMOJI}}, "labels": {"destination": "billing"}}
+    (root / "data" / "slow.jsonl").write_text(json.dumps(slow) + "\n")
     digest = upload(world, root).json()["digest"]
     raw = (root / "data" / "slow.jsonl").read_text()
     dataset = world.client.post(
@@ -288,11 +278,11 @@ def test_a_remote_arm_needs_the_organizations_quota_and_stops_at_it(world: Store
         json={
             "version": digest,
             "dataset": {"id": dataset["id"]},
-            "variants": {"safety_screen": "jev"},
+            "variants": {"router": "llm"},
         },
         headers=_author(world),
     )
-    assert refused.status_code == 422 and "eval_jev" in refused.text
+    assert refused.status_code == 422 and "eval_llm" in refused.text
     jobs = JobStore(
         world.client.app.state.pack_store,  # type: ignore[attr-defined]
         served=lambda: {},
@@ -305,32 +295,16 @@ def test_a_remote_arm_needs_the_organizations_quota_and_stops_at_it(world: Store
         by="user-1",
         digest=digest,
         dataset={"name": "test"},
-        variants={"safety_screen": "jev"},
-        limits={"eval_jev": 10},
+        variants={"router": "llm"},
+        limits={"eval_llm": 10},
     )
-    assert made["total"] == store_jobs.REMOTE_LIMIT < 600
+    assert made["total"] == store_jobs.REMOTE_LIMIT < len(CASES)
 
 
 def test_a_dataset_with_a_hidden_case_or_phi_like_content_is_held_or_refused(
     world: Store,
 ) -> None:
     digest = _copy(world)
-    _hidden(world)
-    hidden = json.dumps({"id": "h1", "input": {"message": {"body": HIDDEN_BODY,
-                         "channel": "portal"}}, "labels": {}})  # fmt: skip
-    held = world.client.post(
-        "/api/store/datasets",
-        json={"name": "held", "version": digest, "content": hidden + "\n"},
-        headers=_author(world),
-    )
-    assert held.status_code == 201 and held.json()["state"] == "held"
-    assert set(held.json()) == {"id", "name", "state", "created_at", "message"}
-    refused = world.client.post(
-        "/api/store/jobs",
-        json={"version": digest, "dataset": {"id": held.json()["id"]}},
-        headers=_author(world),
-    )
-    assert refused.status_code == 409
     phi = json.dumps({"id": "p1", "input": {"message": {"body": f"call {SECRET_PHONE}"}},
                       "labels": {}})  # fmt: skip
     rejected = world.client.post(

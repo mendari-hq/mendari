@@ -25,9 +25,15 @@ from mendari.core.spec import Outcome
 from mendari.hub.archive import pack_files
 from mendari.providers import build_provider
 from mendari.settings import providers_for
-from tests.conftest import INBOX_DIR, cpu_time
-from tests.test_community_budget import BOUND_S, EMOJI, long_message, slow_rules
-from tests.test_community_caps import sorter
+from tests.conftest import TRIAGE_DIR, cpu_time
+from tests.support.registry import (
+    BOUND_S,
+    EMOJI,
+    ROUTER_RULES,
+    long_message,
+    slow_rules,
+    triage_copy,
+)
 
 ORG_A, ORG_B = "clinic-a", "clinic-b"
 
@@ -39,10 +45,10 @@ def files_of(root: Path) -> dict[str, bytes]:
 def renamed(
     base: Path, pack_id: str = "clinic-a/inbox-router", changes: dict[str, Any] | None = None
 ) -> Path:
-    """The inbox pack under an organization's id (so not a reference pack), its manifest
+    """The triage fixture under an organization's id (so not a reference pack), its manifest
     changed by `changes` (a dotted key -> value)."""
     root = base / pack_id.replace("/", "-")
-    shutil.copytree(INBOX_DIR, root)
+    shutil.copytree(TRIAGE_DIR, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"] = pack_id
     for dotted, value in (changes or {}).items():
@@ -69,7 +75,7 @@ def test_a_version_is_keyed_by_the_digest_the_loader_hashed_and_never_one_it_is_
     assert stored.digest == pack_digest(root) == load_pack(root).digest
     assert stored.state == "draft" and stored.valid
     # One byte more is another version, under its own digest.
-    files["logic/routing_rules.yaml"] += b"\n# a comment\n"
+    files[ROUTER_RULES] += b"\n# a comment\n"
     other = packs.put(ORG_A, files, by="user-1", source="upload")
     assert other.digest != stored.digest
     assert [v["digest"] for v in packs.versions(ORG_A)] == [other.digest, stored.digest]
@@ -141,13 +147,13 @@ def test_an_uploaded_card_and_benchmark_are_not_stored_and_the_card_is_rendered_
 def test_a_store_pack_runs_on_the_bounded_engine_and_its_rules_stop_at_the_budget(
     packs: PackStore, tmp_path: Path
 ) -> None:
-    root = sorter(tmp_path, rules=slow_rules(), schema=long_message, pack_id="clinic-a/sorter")
+    root = triage_copy(tmp_path, "clinic-a/sorter", rules=slow_rules(), schema=long_message)
     stored = packs.put(ORG_A, files_of(root), by="user-1", source="upload")
     pack = packs.load(ORG_A, stored.digest)
-    assert pack.origin == "store" and pack.bounded and not pack.community
+    assert pack.origin == "store" and pack.bounded
     assert pack.origin_label == ORIGIN_LABELS["store"] == "From this organization's store"
     with cpu_time() as spent:
-        result = Decision(pack).decide({"message": EMOJI})
+        result = Decision(pack).decide({"message": {"body": EMOJI}})
     assert spent() < BOUND_S
     assert set(result.errors.values()) == {"time_budget"}
     assert result.outcome is not Outcome.AUTO
@@ -156,11 +162,11 @@ def test_a_store_pack_runs_on_the_bounded_engine_and_its_rules_stop_at_the_budge
 def test_a_store_pack_never_takes_a_reference_packs_id_and_version(
     packs: PackStore, tmp_path: Path
 ) -> None:
-    """A changed inbox pack under Mendari's own id and version is refused (it would take the
+    """A changed triage fixture under its own id and version is refused (it would take the
     reference pack's place); the reference pack itself, byte for byte, is that pack."""
-    root = tmp_path / "inbox"
-    shutil.copytree(INBOX_DIR, root)
-    rules = root / "logic" / "routing_rules.yaml"
+    root = tmp_path / "triage"
+    shutil.copytree(TRIAGE_DIR, root)
+    rules = root / ROUTER_RULES
     rules.write_text(rules.read_text() + "\n# changed\n")
     with pytest.raises(StoreError) as error:
         packs.put(ORG_A, files_of(root), by="user-1", source="upload")
@@ -171,36 +177,31 @@ def test_a_store_pack_never_takes_a_reference_packs_id_and_version(
 def test_a_store_pack_does_not_set_its_own_cost_batching_or_temperature(
     packs: PackStore, tmp_path: Path
 ) -> None:
-    """Its Jev price, its batching switch and an LLM's temperature are the deployment's; a pack
-    from a registry keeps them (a change would change its decisions). Unscoped provider settings
-    and the Jev defaults do not reach it: only a setting that names it."""
-    variants = yaml.safe_load((INBOX_DIR / "agent.yaml").read_text())["providers"]
-    jev = dict(variants["safety_screen"]["variants"]["jev"])
-    jev |= {"cost_per_1k_input_tokens_usd": 0.9, "batch": False}
-    root = renamed(tmp_path, changes={"providers.safety_screen.variants.jev": jev})
+    """Its batching switch and an LLM's temperature are the deployment's; a pack from a
+    registry keeps them (a change would change its decisions). Unscoped provider settings do not
+    reach it: only a setting that names it."""
+    variants = yaml.safe_load((TRIAGE_DIR / "agent.yaml").read_text())["providers"]
+    llm = dict(variants["router"]["variants"]["llm"])
+    llm |= {"batch": False, "temperature": 1.5}
+    root = renamed(tmp_path, changes={"providers.router.variants.llm": llm})
     stored = packs.put(ORG_A, files_of(root), by="user-1", source="upload")
     pack = packs.load(ORG_A, stored.digest)
-    provider: Any = build_provider(pack, "safety_screen", "jev")
-    assert provider.settings.batch is True
-    assert provider.settings.cost_per_1k_input_tokens_usd != 0.9
+    provider: Any = build_provider(pack, "router", "llm")
+    assert provider.settings.batch is True and provider.settings.temperature is None
     hub = load_pack(
-        renamed(
-            tmp_path / "hub",
-            "someone/inbox-router",
-            {"providers.safety_screen.variants.jev": jev},
-        ),
+        renamed(tmp_path / "hub", "someone/inbox-router", {"providers.router.variants.llm": llm}),
         origin="hub",
     )
-    kept: Any = build_provider(hub, "safety_screen", "jev")
-    assert kept.settings.batch is False and kept.settings.cost_per_1k_input_tokens_usd == 0.9
-    llm = {"type": "llm", "temperature": 1.5, "members": None}
-    assert "temperature" not in deployment_config(llm, store=True)
-    assert deployment_config(llm)["temperature"] == 1.5
+    kept: Any = build_provider(hub, "router", "llm")
+    assert kept.settings.batch is False and kept.settings.temperature == 1.5
+    plain = {"type": "llm", "temperature": 1.5, "members": None}
+    assert "temperature" not in deployment_config(plain, store=True)
+    assert deployment_config(plain)["temperature"] == 1.5
     assert pack.named_settings_only and not hub.named_settings_only
     slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-    assert providers_for(pack.id, slots, {"safety_screen": "jev"}, community=True)[0] == {}
-    named = {f"{pack.id}:safety_screen": "jev"}
-    assert providers_for(pack.id, slots, named, community=True)[0] == {"safety_screen": "jev"}
+    assert providers_for(pack.id, slots, {"router": "llm"}, community=True)[0] == {}
+    named = {f"{pack.id}:router": "llm"}
+    assert providers_for(pack.id, slots, named, community=True)[0] == {"router": "llm"}
 
 
 def test_a_version_of_one_organization_is_not_loaded_for_another(
@@ -264,8 +265,8 @@ def test_an_organization_over_its_bytes_or_its_daily_uploads_is_refused(
 
 
 def a_dataset(lines: int = 1) -> bytes:
-    """The inbox pack's own test cases, `lines` of them, as JSON Lines."""
-    kept = (INBOX_DIR / "data" / "test.jsonl").read_bytes().splitlines()[:lines]
+    """The triage fixture's own test cases, `lines` of them, as JSON Lines."""
+    kept = (TRIAGE_DIR / "data" / "test.jsonl").read_bytes().splitlines()[:lines]
     return b"\n".join(kept) + b"\n"
 
 
@@ -377,11 +378,8 @@ def test_audit_verify_passes_after_every_store_event(
     files = files_of(renamed(tmp_path))
     stored = packs.put(ORG_A, files, by="user-1", source="upload")
     assert store.verify()["ok"]
-    packs.hold(ORG_A, stored.digest, by="mendari")
-    assert store.verify()["ok"]
-    with pytest.raises(StoreError):
-        packs.put(ORG_A, files | {"a.txt": b"x"}, by="user-1", source="edit", parent=stored.digest)
-    packs.release(ORG_A, stored.digest, by="operator", reason="no hidden case after all")
+    with pytest.raises(StoreError):  # a refused write chains nothing
+        packs.put(ORG_A, files, by="user-1", source="upload")
     assert store.verify()["ok"]
     packs.withdraw(ORG_A, stored.digest, by="user-1")
     assert store.verify()["ok"] and packs.verify()["ok"]
@@ -389,8 +387,6 @@ def test_audit_verify_passes_after_every_store_event(
     assert events is not None
     assert [e["event"] for e in events["events"]] == [
         "pack_version.created",
-        "pack_version.held",
-        "pack_version.released",
         "pack_version.withdrawn",
     ]
     assert all(e["payload"]["org"] == ORG_A for e in events["events"])

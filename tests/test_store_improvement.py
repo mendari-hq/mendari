@@ -15,9 +15,10 @@ import pytest
 
 from mendari.core.pack_store import PackStore
 from tests.conftest import member
+from tests.support.registry import TRIAGE
 from tests.test_store_uploads import ORG_A, ORG_B, Store, store_world
 
-INBOX = "mendari/patient-inbox-router"
+SERVED = TRIAGE.id  # an agent this deployment serves from disk: the triage fixture
 BODIES = [
     "I need to move my appointment next week to Friday morning please",
     "Is there a charge for the forms my employer asked you to fill in",
@@ -33,12 +34,12 @@ def world(db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> It
 def _corrected(
     world: Store, org: str = ORG_A, labels: tuple[str, ...] = ("front_desk", "billing", "nurse")
 ) -> list[str]:
-    """Decisions of the inbox pack in `org`, each resolved by a reviewer with a label."""
+    """Decisions of the triage fixture in `org`, each resolved by a reviewer with a label."""
     reviewer = world.as_(org, "reviewer")
     made = []
     for body, label in zip(BODIES, labels, strict=True):
         decided = world.client.post(
-            f"/api/agents/{INBOX}/decide",
+            f"/api/agents/{SERVED}/decide",
             json={"message": {"body": f"{body} ({org})"}},
             headers=reviewer,
         ).json()
@@ -58,7 +59,7 @@ def _author_reader(world: Store, org: str = ORG_A) -> dict[str, str]:
 
 def _draft(world: Store, headers: dict[str, str]) -> str:
     made = world.client.post(
-        "/api/store/copies", json={"pack": INBOX, "name": "inbox-router"}, headers=headers
+        "/api/store/copies", json={"pack": SERVED, "name": "inbox-router"}, headers=headers
     )
     assert made.status_code == 201, made.text
     return str(made.json()["digest"])
@@ -102,7 +103,7 @@ def test_a_hashed_input_is_skipped_and_counted(world: Store) -> None:
         db.all("DELETE FROM decision_inputs WHERE decision_id = ?", (first["decision_id"],))
     with tenancy.acting_for(ORG_A):
         records, skipped = corrections_dataset(
-            world.db, org=ORG_A, pack_ids=[INBOX], reader="reviewer@clinic-a"
+            world.db, org=ORG_A, pack_ids=[SERVED], reader="reviewer@clinic-a"
         )
     assert (len(records), skipped) == (2, 1)
 

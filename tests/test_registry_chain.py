@@ -12,13 +12,23 @@ import pytest
 from pydantic import ValidationError
 
 from mendari.cli import main
-from mendari.core.registry import resolve_pack
+from mendari.core.pack import load_pack
 from mendari.errors import HubError
 from mendari.hub.registry import RegistryStore, ReviewRequest, token_id
-from tests.conftest import Registry, share_signed, shared_benchmark, verified_site
+from tests.conftest import (
+    FIXTURE_NAMESPACE,
+    TRIAGE_DIR,
+    Registry,
+    share_signed,
+    shared_benchmark,
+    verified_site,
+)
 
-REFERRAL = resolve_pack("mendari/referral-router")
-VERSION_PATH = f"/v1/agents/{REFERRAL.id}/{REFERRAL.version}"
+# The agent `Registry.publish()` publishes, in the test fixtures' namespace (`FIXTURE_NAMESPACE`),
+# which the registry makes on the first publish, with its own token and key, after `mendari`'s.
+TRIAGE = load_pack(TRIAGE_DIR)
+NAMESPACE, NAME = TRIAGE.id.split("/")
+VERSION_PATH = f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}"
 
 
 def _events(db_target: str) -> list[dict[str, Any]]:
@@ -48,14 +58,16 @@ def test_every_write_is_chained_and_the_chain_verifies(
 ) -> None:
     assert registry.publish().status_code == 201
     _share(registry, tmp_path)
-    registry.operator.set_publisher_type("mendari", "verified", by="operator")
+    registry.operator.set_publisher_type(FIXTURE_NAMESPACE, "verified", by="operator")
     registry.operator.review(
-        "mendari", "referral-router", REFERRAL.version, risk_level=1, note="checked",
-        reviewer="operator",
-    )  # fmt: skip
+        NAMESPACE, NAME, TRIAGE.version, risk_level=1, note="checked", reviewer="operator"
+    )
     events = _events(db_target)
     assert [e["event"] for e in events] == [
-        "namespace.created",
+        "namespace.created",  # `mendari`, with its token and key
+        "token.issued",
+        "key.added",
+        "namespace.created",  # the test fixtures' namespace, with its own
         "token.issued",
         "key.added",
         "pack.published",
@@ -68,24 +80,25 @@ def test_every_write_is_chained_and_the_chain_verifies(
         "namespace.publisher_type_set",
         "pack.reviewed",
     ]
-    published = json.loads(events[3]["payload"])
+    published = json.loads(events[6]["payload"])
     assert published.pop("row")["kind"] == "versions"  # the row it wrote, hashed
+    token = registry.fixture_publisher()[0]
     assert published == {
-        "pack": REFERRAL.id,
-        "version": REFERRAL.version,
-        "digest": REFERRAL.digest,
+        "pack": TRIAGE.id,
+        "version": TRIAGE.version,
+        "digest": TRIAGE.digest,
         "archive_sha256": registry.client.get(VERSION_PATH).json()["archive_sha256"],
-        "key_id": json.loads(events[2]["payload"])["key_id"],
-        "by": f"token:{token_id(registry.token)}",  # the token's id, never the token
+        "key_id": json.loads(events[5]["payload"])["key_id"],
+        "by": f"token:{token_id(token)}",  # the token's id, never the token
         "org": None,  # a namespace with no claim (LP-19c): linked to no organization, listed
         "listed": True,
     }
-    assert registry.token not in json.dumps(events)
+    assert registry.token not in json.dumps(events) and token not in json.dumps(events)
     assert _verify(db_target) == {
         "ok": True,
         "seq": None,
         "problem": None,
-        "events": 12,
+        "events": 15,
         "head": events[-1]["hash"],
     }
 
@@ -95,9 +108,9 @@ def test_the_command_line_verifies_read_only(
 ) -> None:
     assert registry.publish().status_code == 201
     head = registry.client.get("/v1/chain/head").json()
-    assert head["events"] == 4
+    assert head["events"] == 7  # two namespaces, each with a token and a key, and the publish
     assert main(["registry", "verify", "--db", db_target]) == 0
-    assert f"registry chain verified: 4 events, head {head['head']}" in capsys.readouterr().out
+    assert f"registry chain verified: 7 events, head {head['head']}" in capsys.readouterr().out
     _write(db_target, "UPDATE hub_events SET payload = ? WHERE event = ?", ("{}", "key.added"))
     assert main(["registry", "verify", "--db", db_target]) == 1
     assert "registry chain broken at event 3: an event was changed" in capsys.readouterr().err
@@ -129,7 +142,10 @@ PLANTED = "2026-01-01T00:00:00+00:00"
             "1 of the namespaces changed since their chained event",
         ),
         (
-            ("UPDATE hub_publisher_tokens SET namespace = ?", ("other",)),
+            (
+                "UPDATE hub_publisher_tokens SET namespace = ? WHERE namespace = ?",
+                ("other", FIXTURE_NAMESPACE),
+            ),
             "1 of the publisher_tokens changed since their chained event",
         ),
         (
@@ -144,7 +160,10 @@ PLANTED = "2026-01-01T00:00:00+00:00"
             "1 of the versions changed since their chained event",
         ),
         (("DELETE FROM hub_versions", ()), "1 of the versions were removed"),
-        (("DELETE FROM hub_keys", ()), "1 of the keys were removed"),
+        (
+            ("DELETE FROM hub_keys WHERE namespace = ?", (FIXTURE_NAMESPACE,)),
+            "1 of the keys were removed",
+        ),
         (
             ("UPDATE hub_archives SET data = ?", (b"other bytes",)),
             "an archive is not the bytes its name hashes",
@@ -225,7 +244,7 @@ def test_a_key_whose_id_is_not_its_key_does_not_verify(registry: Registry, db_ta
 
     assert registry.publish().status_code == 201
     other = archive.generate_key()[1].decode()
-    _write(db_target, "UPDATE hub_keys SET public_pem = ?", (other,))
+    _write(db_target, "UPDATE hub_keys SET public_pem = ? WHERE namespace = ?", (other, NAMESPACE))
     assert _verify(db_target)["problem"] == "1 of the keys changed since their chained event"
 
 
@@ -283,7 +302,7 @@ def test_a_review_confirms_or_corrects_the_declared_risk_level(registry: Registr
     unreviewed = registry.client.get(VERSION_PATH).json()
     assert unreviewed["checked"]["review"] == {"status": "unreviewed"}
     assert unreviewed["claimed"]["risk"]["confirmed"] is None
-    publisher = {"authorization": f"Bearer {registry.token}"}
+    publisher = {"authorization": f"Bearer {registry.fixture_publisher()[0]}"}
     body = {"risk_level": 2, "note": "reads clinical notes"}
     # Nobody reviews over the registry's own routes (LP-19g): a reviewer, under the engine, or
     # the operator's command, which checks the same body.
@@ -301,9 +320,8 @@ def test_a_review_confirms_or_corrects_the_declared_risk_level(registry: Registr
 
     def review(risk_level: int, note: str = "") -> dict[str, Any]:
         return registry.operator.review(
-            "mendari", "referral-router", REFERRAL.version, risk_level=risk_level, note=note,
-            reviewer="operator",
-        )  # fmt: skip
+            NAMESPACE, NAME, TRIAGE.version, risk_level=risk_level, note=note, reviewer="operator"
+        )
 
     corrected = review(2, "reads clinical notes")
     shown = registry.client.get(VERSION_PATH).json()
@@ -323,13 +341,13 @@ def test_a_review_confirms_or_corrects_the_declared_risk_level(registry: Registr
     again = registry.client.get(VERSION_PATH).json()
     assert again["checked"]["review"]["matches_declared"] is True  # the newest review is shown
     for shown in (
-        registry.client.get(f"/v1/agents/{REFERRAL.id}").json()["latest"],
+        registry.client.get(f"/v1/agents/{TRIAGE.id}").json()["latest"],
         registry.client.get("/v1/search").json()[0],
     ):
         assert shown["claimed"]["risk"]["confirmed"] is True
     with pytest.raises(HubError) as missing:
         registry.operator.review(
-            "mendari", "referral-router", "0.0.1", risk_level=1, note="", reviewer="operator"
+            NAMESPACE, NAME, "0.0.1", risk_level=1, note="", reviewer="operator"
         )
     assert missing.value.status == 404
 
@@ -339,14 +357,14 @@ def test_a_review_is_chained_and_planted_reviews_do_not_verify(
 ) -> None:
     assert registry.publish().status_code == 201
     registry.operator.review(
-        "mendari", "referral-router", REFERRAL.version, risk_level=1, note="", reviewer="operator"
+        NAMESPACE, NAME, TRIAGE.version, risk_level=1, note="", reviewer="operator"
     )
     assert _verify(db_target)["ok"]
     _write(
         db_target,
         "INSERT INTO hub_reviews (id, namespace, name, version, digest, risk_level, reviewer, "
         "note, created_at, ordinal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ("planted", "mendari", "referral-router", REFERRAL.version, REFERRAL.digest, 0, "admin",
+        ("planted", NAMESPACE, NAME, TRIAGE.version, TRIAGE.digest, 0, "admin",
          "", "2099-01-01T00:00:00.000+00:00", 99),
     )  # fmt: skip
     assert _verify(db_target)["problem"] == "1 of the reviews have no chained event"

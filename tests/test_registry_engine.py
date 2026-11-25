@@ -7,6 +7,10 @@ decides. Unless its digest, the one `load_pack` hashed, is a reference pack's of
 release: a copy of a reference pack keeps the maintained engine. The engine is all it shares
 with a community pack: its label, its automation and its policy are a registry pack's.
 Maintained and local packs stay on `re`, unchanged.
+
+In the suite the test fixtures' agents stand where a release's bundled agents do (`conftest.py`),
+so they are its reference packs: the triage fixture, whose patterns all run on RE2, and the
+others beside it.
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ import json
 import re
 import shutil
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -33,19 +38,31 @@ from mendari.evals.pack_tests import _run, input_problems, load_cases
 from mendari.hub.client import packs_cache
 from mendari.providers import build_provider
 from mendari.server.app import create_app
-from tests.conftest import INBOX_DIR, ROOT, cpu_time
-from tests.test_community_budget import BOUND_S, EMOJI, fan_out, long_message, slow_rules
-from tests.test_community_caps import sorter
+from tests.conftest import (
+    CHART_DIR,
+    CLINICAL_DIR,
+    DEMO_AGENT_DIR,
+    FIXTURE_AGENTS,
+    TRIAGE_DIR,
+    cpu_time,
+)
+from tests.support.registry import (
+    BILL,
+    BLOCK_RULE,
+    BOUND_S,
+    EMOJI,
+    ROUTER_RULES,
+    SCHEMA,
+    SCREEN_RULES,
+    TRIAGE,
+    fan_out,
+    long_message,
+    outside_agent,
+    slow_rules,
+    with_lookahead,
+)
 
-PACKS = INBOX_DIR.parent
-DATASETS = ROOT / "tests" / "fixtures" / "datasets"
-BILL = {"message": "I have a question about my last bill."}
-BLOCK_RULE = {
-    "name": "blk",
-    "when": {"question": "topic", "labels": ["billing"]},
-    "outcome": "BLOCK",
-    "reason": "Billing is blocked.",
-}
+PACKS = FIXTURE_AGENTS  # where the reference packs of the suite's release are
 
 
 def bundled() -> list[Path]:
@@ -61,11 +78,11 @@ def copied(
     version: str | None = None,
     edit: Callable[[Path], None] | None = None,
 ) -> Path:
-    """A copy of the reference pack `name` where a puller caches it, at `version` (its own
-    unless given), with `edit` applied to the copy's files."""
+    """A copy of the reference pack in the folder `name` where a puller caches it, at `version`
+    (its own unless given), with `edit` applied to the copy's files."""
     source = PACKS / name
     shipped = load_pack(source)
-    root = base / "cache" / "mendari" / name / (version or shipped.version)
+    root = base / "cache" / shipped.id / (version or shipped.version)
     shutil.copytree(source, root)
     if version is not None:
         manifest = root / "agent.yaml"
@@ -118,22 +135,28 @@ def jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line)["input"] for line in path.read_text().splitlines() if line.strip()]
 
 
-def outside_sorter(base: Path, **kwargs: Any) -> Pack:
-    """The community fixture under an id outside the community namespace, pulled from a
-    registry."""
-    return load_pack(sorter(base, pack_id="someone/visit-sorter", **kwargs), origin="hub")
+def outside_sorter(base: Path, **changes: Any) -> Pack:
+    """An outside publisher's agent (`tests/support/registry.py` `outside_agent`), as pulled from
+    a registry: a `Pack` made afresh of its fields, nothing cached in it by its loading
+    (`tests/test_registry_recalls.py` copies one through its `__dict__`)."""
+    return replace(load_pack(outside_agent(base, **changes), origin="hub"))
+
+
+def lookahead(root: Path) -> None:
+    """A changed rule: one more router pattern, a lookahead (`with_lookahead`)."""
+    with_lookahead(root)
 
 
 # -- the engine ------------------------------------------------------------------------------------
 
 
 def test_a_pack_from_a_registry_runs_on_the_community_engine(tmp_path: Path) -> None:
-    pack = load_pack(copied(tmp_path, "patient-inbox-router", version="9.9.9"), origin="hub")
-    assert pack.bounded and not pack.community
+    pack = load_pack(copied(tmp_path, TRIAGE_DIR.name, version="9.9.9"), origin="hub")
+    assert pack.bounded
     assert pack.origin_label == "From a registry"
     decision = Decision(pack)
     assert isinstance(decision._validator, input_schema._Re2Validator)
-    rules: Any = decision.providers["safety_screen"]
+    rules: Any = decision.providers["screen"]
     compiled = [
         regex
         for labels in rules._compiled.values()
@@ -141,23 +164,17 @@ def test_a_pack_from_a_registry_runs_on_the_community_engine(tmp_path: Path) -> 
         for _, regex in found
     ]
     assert compiled and all(isinstance(regex, patterns._Re2Pattern) for regex in compiled)
-    maintained = Decision(load_pack(INBOX_DIR, origin="maintained"))
+    maintained = Decision(load_pack(TRIAGE_DIR, origin="maintained"))
     assert not isinstance(maintained._validator, input_schema._Re2Validator)
 
 
-@pytest.mark.parametrize(
-    ("name", "local_site"),
-    [
-        ("patient-inbox-router", "local-site-example.jsonl"),
-        ("prior-auth-preflight", "prior-auth-local-site-example.jsonl"),
-    ],
-)
+@pytest.mark.parametrize("name", [path.name for path in (TRIAGE_DIR, CLINICAL_DIR, CHART_DIR)])
 def test_a_registry_copy_decides_the_shipped_inputs_as_the_reference_does(
-    tmp_path: Path, name: str, local_site: str
+    tmp_path: Path, name: str
 ) -> None:
-    """The community engine changes no decision of these packs: on every behaviour test, the
-    test split and the local-site example, the hub copy (a new version, so not the reference)
-    decides with the same outcome, recommendation, priority, answers, evidence and reasons."""
+    """The community engine changes no decision of these packs: on every behaviour test and every
+    case of every dataset they ship, the hub copy (a new version, so not the reference) decides
+    with the same outcome, recommendation, priority, answers, evidence and reasons."""
     reference = Decision(load_pack(PACKS / name, origin="maintained"))
     # The engine compared, not the origin cap (LP-18d): the pack's own policy on both.
     hub = Decision(
@@ -165,7 +182,8 @@ def test_a_registry_copy_decides_the_shipped_inputs_as_the_reference_does(
     )
     assert hub.pack.bounded and not reference.pack.bounded
     inputs = [case["input"] for case in load_cases(reference.pack)]
-    inputs += jsonl(PACKS / name / "data" / "test.jsonl") + jsonl(DATASETS / local_site)
+    for path in sorted((PACKS / name / "data").glob("*.jsonl")):
+        inputs += jsonl(path)
     differ = [
         number
         for number, given in enumerate(inputs)
@@ -175,9 +193,9 @@ def test_a_registry_copy_decides_the_shipped_inputs_as_the_reference_does(
 
 
 def test_a_pulled_copy_of_a_reference_pack_keeps_the_maintained_engine(tmp_path: Path) -> None:
-    """Every reference pack, the two with lookarounds included, copied as a pull caches it
-    (with what the digest leaves out: an attestation and a hidden file), is the reference pack
-    of this release: it loads from the registry cache on the maintained engine."""
+    """Every reference pack, copied as a pull caches it (with what the digest leaves out: an
+    attestation and a hidden file), is the reference pack of this release: it loads from the
+    registry cache on the maintained engine."""
 
     def extras(root: Path) -> None:
         (root / "evals").mkdir(exist_ok=True)
@@ -193,19 +211,17 @@ def test_a_pulled_copy_of_a_reference_pack_keeps_the_maintained_engine(tmp_path:
 
 def test_one_changed_byte_puts_a_reference_copy_on_the_community_engine(tmp_path: Path) -> None:
     """One changed byte makes a copy of a reference pack not the reference pack: at another
-    version it runs on the community engine (where the referral pack's lookahead cannot run), and
-    at the reference pack's own version it does not load at all (F: it would take its place)."""
-    edit = one_more_line("logic/triage_rules.yaml")
-    root = copied(tmp_path, "referral-router", version="9.9.9", edit=edit)
+    version it runs on the community engine (where the lookahead the change added cannot run),
+    and at the reference pack's own version it does not load at all (F: it would take its
+    place)."""
+    root = copied(tmp_path, TRIAGE_DIR.name, version="9.9.9", edit=lookahead)
     with pytest.raises(PatternsRefused) as refused:
         load_pack(root, origin="hub")
     problems = refused.value.problems
-    assert any("new-lung-mass" in problem and "lookahead" in problem for problem in problems)
-    assert any("is not the copy of it in this release" in problem for problem in problems)
-    assert not any("not the copy" in problem for problem in refused.value.patterns)
+    assert any("a-refill-not-a-question" in p and "lookahead" in p for p in problems)
     local = load_pack(root, origin="local")  # an operator's own copy: owned, on `re`
     assert not local.bounded
-    same = copied(tmp_path / "same", "referral-router", edit=edit)
+    same = copied(tmp_path / "same", TRIAGE_DIR.name, edit=lookahead)
     with pytest.raises(PackValidationError) as shadow:
         load_pack(same, origin="hub")
     assert not isinstance(shadow.value, PatternsRefused)
@@ -213,13 +229,41 @@ def test_one_changed_byte_puts_a_reference_copy_on_the_community_engine(tmp_path
     assert not load_pack(same, origin="local").bounded
 
 
+def test_a_changed_copy_of_an_agent_mendari_maintains_is_told_to_use_the_release_copy(
+    tmp_path: Path, release_agents: None
+) -> None:
+    """An agent of Mendari's own namespace (the release's demo agent), changed and at another
+    version, is refused for a pattern RE2 cannot run with what to do: use the copy this release
+    bundles, or a version published for it. The patterns themselves are listed apart."""
+    reference = load_pack(DEMO_AGENT_DIR)
+    root = tmp_path / "cache" / reference.id / "9.9.9"
+    shutil.copytree(DEMO_AGENT_DIR, root)
+    manifest = root / "agent.yaml"
+    manifest.write_text(
+        manifest.read_text().replace(f"version: {reference.version}", "version: 9.9.9", 1)
+    )
+
+    def lookaround(rules: dict[str, Any]) -> None:
+        labels = rules["questions"]["request"]["labels"]["refill"]
+        labels.append({"name": "not-a-question", "pattern": "refill(?! question)", "weight": 1})
+
+    yaml_edit("logic/rules.yaml", lookaround)(root)
+    with pytest.raises(PatternsRefused) as refused:
+        load_pack(root, origin="hub")
+    problems = refused.value.problems
+    assert any("not-a-question" in problem and "lookahead" in problem for problem in problems)
+    told = f"{reference.id}@9.9.9 is not the copy of it in this release"
+    assert any(told in problem for problem in problems)
+    assert not any("not the copy" in problem for problem in refused.value.patterns)
+
+
 def test_the_engine_follows_the_bytes_not_the_manifest(tmp_path: Path) -> None:
     """A changed copy that keeps the reference pack's id and `publisher.type` is not the
     reference pack: what chooses the engine is the digest `load_pack` hashed from its files. One
     that keeps its version too does not load at all (F), whatever a marker beside it says."""
-    reference = load_pack(INBOX_DIR)
-    edit = one_more_line("logic/routing_rules.yaml")
-    root = copied(tmp_path, "patient-inbox-router", version="9.9.9", edit=edit)
+    reference = TRIAGE
+    edit = one_more_line(ROUTER_RULES)
+    root = copied(tmp_path, TRIAGE_DIR.name, version="9.9.9", edit=edit)
     pack = load_pack(root, origin="hub")
     assert pack.id == reference.id
     assert pack.manifest.publisher.type == reference.manifest.publisher.type
@@ -228,7 +272,7 @@ def test_the_engine_follows_the_bytes_not_the_manifest(tmp_path: Path) -> None:
     # Nothing written beside the files (a marker naming the reference digest) changes it.
     (root / ".mendari-verified").write_text(reference.digest + "\n")
     assert load_pack(root, origin="hub").bounded
-    same = copied(tmp_path / "same", "patient-inbox-router", edit=edit)
+    same = copied(tmp_path / "same", TRIAGE_DIR.name, edit=edit)
     (same / ".mendari-verified").write_text(reference.digest + "\n")
     shadow = load_pack(same, origin="local")
     assert (shadow.id, shadow.version) == (reference.id, reference.version)
@@ -241,13 +285,12 @@ def test_the_engine_follows_the_bytes_not_the_manifest(tmp_path: Path) -> None:
 
 
 def shadow(base: Path, version: str | None = None) -> Path:
-    """A copy of the inbox pack with one more line in its routing rules, at `version` (the
+    """A copy of the triage fixture with one more line in its router's rules, at `version` (the
     reference pack's own unless given), where `mendari pull` caches it."""
-    reference = load_pack(INBOX_DIR)
-    root = packs_cache() / "mendari" / "patient-inbox-router" / (version or reference.version)
+    root = packs_cache() / TRIAGE.id / (version or TRIAGE.version)
     root.parent.mkdir(parents=True, exist_ok=True)
-    edit = one_more_line("logic/routing_rules.yaml")
-    shutil.copytree(copied(base, "patient-inbox-router", version=version, edit=edit), root)
+    edit = one_more_line(ROUTER_RULES)
+    shutil.copytree(copied(base, TRIAGE_DIR.name, version=version, edit=edit), root)
     return root
 
 
@@ -255,7 +298,7 @@ def test_a_pulled_pack_never_takes_a_reference_packs_name_and_version(tmp_path: 
     """A pack from a registry with the id and version of a reference pack of this release but
     other files would be served in its place (the cache wins a version tie): it is refused at
     load, and the reason names it, the reference pack and the cached directory to remove."""
-    reference = load_pack(INBOX_DIR)
+    reference = TRIAGE
     root = shadow(tmp_path)
     with pytest.raises(PackValidationError) as refused:
         load_pack(root, origin="hub")
@@ -267,8 +310,8 @@ def test_a_pulled_pack_never_takes_a_reference_packs_name_and_version(tmp_path: 
     )
     assert problem.endswith(f"; remove {root.resolve()} from the cache")
     # Checked where it is not cached (an archive being checked), it names no directory.
-    edit = one_more_line("logic/routing_rules.yaml")
-    elsewhere = copied(tmp_path / "unpacked", "patient-inbox-router", edit=edit)
+    edit = one_more_line(ROUTER_RULES)
+    elsewhere = copied(tmp_path / "unpacked", TRIAGE_DIR.name, edit=edit)
     with pytest.raises(PackValidationError) as unpacked:
         load_pack(elsewhere, origin="hub")
     assert "never takes a bundled agent's place" in unpacked.value.problems[0]
@@ -278,8 +321,8 @@ def test_a_pulled_pack_never_takes_a_reference_packs_name_and_version(tmp_path: 
 @pytest.mark.parametrize("tie", ["pre-release", "leading zero"])
 def test_a_version_that_ties_a_reference_packs_is_refused_too(tmp_path: Path, tie: str) -> None:
     """Versions are compared as the search path orders them (`version_key`), not as text:
-    `0.4.1-x` and `0.04.1` tie `0.4.1`, so either would take the reference pack's place."""
-    reference = load_pack(INBOX_DIR)
+    `1.0.0-x` and `1.00.0` tie `1.0.0`, so either would take the reference pack's place."""
+    reference = TRIAGE
     major, minor, patch = reference.version.split(".")
     version = f"{reference.version}-x" if tie == "pre-release" else f"{major}.0{minor}.{patch}"
     assert version != reference.version and version_key(version) == version_key(reference.version)
@@ -293,15 +336,15 @@ def test_a_pulled_copy_of_a_reference_pack_and_a_newer_version_still_load(tmp_pa
     """What F leaves as it was: an identical copy is the reference pack (the maintained engine),
     a changed copy at another version runs on the community engine, and an operator's local
     copy at the reference pack's version is its own choice."""
-    reference = load_pack(INBOX_DIR)
-    identical = load_pack(copied(tmp_path / "same", "patient-inbox-router"), origin="hub")
+    reference = TRIAGE
+    identical = load_pack(copied(tmp_path / "same", TRIAGE_DIR.name), origin="hub")
     assert (identical.bounded, identical.digest) == (False, reference.digest)
-    edit = one_more_line("logic/routing_rules.yaml")
+    edit = one_more_line(ROUTER_RULES)
     newer = load_pack(
-        copied(tmp_path / "new", "patient-inbox-router", version="9.9.9", edit=edit), origin="hub"
+        copied(tmp_path / "new", TRIAGE_DIR.name, version="9.9.9", edit=edit), origin="hub"
     )
     assert newer.bounded and newer.version == "9.9.9"
-    local = load_pack(copied(tmp_path / "local", "patient-inbox-router", edit=edit))
+    local = load_pack(copied(tmp_path / "local", TRIAGE_DIR.name, edit=edit))
     assert (local.origin, local.bounded, local.version) == ("local", False, reference.version)
     assert local.digest != reference.digest
 
@@ -309,7 +352,7 @@ def test_a_pulled_copy_of_a_reference_pack_and_a_newer_version_still_load(tmp_pa
 def test_a_shadow_in_the_cache_is_listed_and_the_reference_pack_is_served(tmp_path: Path) -> None:
     """One cached before this release refused it is listed (`invalid`), and the reference pack
     is served under its id, by version too, wherever packs are listed."""
-    reference = load_pack(INBOX_DIR)
+    reference = TRIAGE
     root = shadow(tmp_path)
     paths = [SearchPath(packs_cache(), "hub"), SearchPath(PACKS, "maintained")]
     found = discover(paths)
@@ -334,27 +377,32 @@ def test_decision_from_path_refuses_a_cached_shadow(tmp_path: Path) -> None:
 
 
 def test_a_registry_pack_reads_at_most_10000_characters(tmp_path: Path) -> None:
-    given = dict(jsonl(PACKS / "prior-auth-preflight" / "data" / "test.jsonl")[0])
-    given["notes"] = "Low back pain. " * 1_000  # 15,000 characters: the schema allows 20,000
-    hub = load_pack(copied(tmp_path, "prior-auth-preflight", version="9.9.9"), origin="hub")
-    result = Decision(hub).decide(given)
+    """A copy whose schema takes a message twice that long: from a registry, it reads at most
+    10,000 characters of it; owned, all of them."""
+
+    def longer(schema: dict[str, Any]) -> None:
+        schema["properties"]["message"]["properties"]["body"]["maxLength"] = 20_000
+
+    edit = json_edit(SCHEMA, longer)
+    root = copied(tmp_path, TRIAGE_DIR.name, version="9.9.9", edit=edit)
+    given = {"message": {"body": "Low back pain. " * 1_000}}  # 15,000 characters
+    result = Decision(load_pack(root, origin="hub")).decide(given)
     assert result.outcome is Outcome.BLOCK
     assert result.reasons == (
-        "input rejected: notes: longer than 10,000 characters, the most an agent from a registry "
-        "reads",
+        "input rejected: message.body: longer than 10,000 characters, the most an agent from a "
+        "registry reads",
     )
-    maintained = Decision(load_pack(PACKS / "prior-auth-preflight", origin="maintained"))
-    reference = maintained.decide(given)
-    assert not any(reason.startswith("input rejected") for reason in reference.reasons)
+    owned = Decision(load_pack(root, origin="local")).decide(given)
+    assert not any(reason.startswith("input rejected") for reason in owned.reasons)
 
 
 def test_a_registry_packs_rules_stop_at_the_budget_and_a_person_decides(tmp_path: Path) -> None:
-    """As a community pack's (`tests/test_community_budget.py`): the rules fail as a provider
-    that cannot answer does, and the decision never automates."""
+    """Its patterns share one CPU budget per decision: once it is spent, the rules fail as a
+    provider that cannot answer does, and the decision never automates."""
     pack = outside_sorter(tmp_path, rules=slow_rules(), schema=long_message)
-    assert pack.bounded and not pack.community
+    assert pack.bounded
     with cpu_time() as spent:
-        result = Decision(pack).decide({"message": EMOJI})
+        result = Decision(pack).decide({"message": {"body": EMOJI}})
     assert spent() < BOUND_S
     assert set(result.errors.values()) == {"time_budget"}
     assert result.outcome in (Outcome.ABSTAIN, Outcome.HUMAN_REVIEW)
@@ -362,7 +410,7 @@ def test_a_registry_packs_rules_stop_at_the_budget_and_a_person_decides(tmp_path
 
 
 def nested_input(depth: int) -> dict[str, Any]:
-    """An inbox input whose deepest value is `depth` levels down (the input itself is 1)."""
+    """A triage input whose deepest value is `depth` levels down (the input itself is 1)."""
     deep: Any = 0
     for _ in range(depth - 2):
         deep = {"n": deep}
@@ -372,10 +420,10 @@ def nested_input(depth: int) -> dict[str, Any]:
 def test_a_registry_pack_refuses_an_input_too_large_before_its_schema_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """At decide, as a community pack does: more than 10,000 values, nesting past 32 or texts
+    """At decide, as every agent on that engine: more than 10,000 values, nesting past 32 or texts
     past 10,000 characters are refused, in the registry pack's words, before its schema check
-    (`Decision.validate`) runs. Called alone (`mendari omop`), its check holds to them too."""
-    root = copied(tmp_path, "patient-inbox-router", version="9.9.9")
+    (`Decision.validate`) runs. Called alone, its check holds to them too."""
+    root = copied(tmp_path, TRIAGE_DIR.name, version="9.9.9")
     hub = Decision(load_pack(root, origin="hub"))
     values = {"message": {"body": "hi"}, "patient": {"tags": [0] * 11_000}}
     long = {"message": {"body": "x" * 10_000, "subject": "y"}}
@@ -396,14 +444,14 @@ def test_a_registry_pack_refuses_an_input_too_large_before_its_schema_runs(
             assert result.reasons == (f"input rejected: {expected[name]}",), name
     within = hub.decide(nested_input(32))  # one level less: the schema decides
     assert not any("deep" in reason for reason in within.reasons)
-    local = Decision(load_pack(copied(tmp_path / "local", "patient-inbox-router"), origin="local"))
+    local = Decision(load_pack(copied(tmp_path / "local", TRIAGE_DIR.name), origin="local"))
     assert not any("the most" in reason for reason in local.decide(values).reasons)
 
 
 def test_a_registry_packs_typo_corrections_never_lengthen_its_text_past_the_length(
     tmp_path: Path,
 ) -> None:
-    """As a community pack's: a correction that would make a text longer than 10,000 characters
+    """On that engine, a correction that would make a text longer than 10,000 characters
     is not made, and correcting stops at the budget. A local copy corrects all, with no
     budget."""
 
@@ -411,15 +459,15 @@ def test_a_registry_packs_typo_corrections_never_lengthen_its_text_past_the_leng
         rules["typo_tolerance"] = {"min_length": 4}
 
     hub = outside_sorter(tmp_path / "hub", rules=tolerant)
-    local = load_pack(sorter(tmp_path / "local", rules=tolerant, pack_id="someone/visit-sorter"))
+    local = load_pack(outside_agent(tmp_path / "local", rules=tolerant))
     assert hub.bounded and not local.bounded
-    text = "invoce " * 1_428  # 9,996 characters
-    reader: Any = build_provider(hub, "reader")
+    text = "refil " * 1_666  # 9,996 characters, each word one letter short of "refill"
+    reader: Any = build_provider(hub, "router")
     capped, fixes = reader._normalize(text)
-    assert len(capped) <= 10_000 and fixes and "invoce" in capped
-    owned: Any = build_provider(local, "reader")
+    assert len(capped) <= 10_000 and fixes and "refil " in capped
+    owned: Any = build_provider(local, "router")
     full, all_fixes = owned._normalize(text)
-    assert len(full) == 9_996 + 1_428 and len(all_fixes) == 1_428
+    assert len(full) == 9_996 + 1_666 and len(all_fixes) == 1_666
     with patterns.time_budget(0):
         sum(range(100_000))  # a little CPU: the budget is spent
         with pytest.raises(patterns.OutOfTime):
@@ -428,7 +476,7 @@ def test_a_registry_packs_typo_corrections_never_lengthen_its_text_past_the_leng
 
 
 def test_a_registry_packs_schema_errors_stop_at_100_with_short_reasons(tmp_path: Path) -> None:
-    """As a community pack's: its schema check stops collecting at 100 errors, and its reasons
+    """On that engine, its schema check stops collecting at 100 errors, and its reasons
     are short (a `required` names five fields and how many more). A local copy lists what it
     always listed."""
 
@@ -437,8 +485,7 @@ def test_a_registry_packs_schema_errors_stop_at_100_with_short_reasons(tmp_path:
         found["properties"]["meta"] = {"type": "object", "required": [f"n{i}" for i in range(9)]}
 
     hub = Decision(outside_sorter(tmp_path / "hub", schema=schema))
-    root = sorter(tmp_path / "local", schema=schema, pack_id="someone/visit-sorter")
-    local = Decision(load_pack(root))
+    local = Decision(load_pack(outside_agent(tmp_path / "local", schema=schema)))
     assert hub.pack.bounded and not local.pack.bounded
 
     class Counting:
@@ -450,14 +497,15 @@ def test_a_registry_packs_schema_errors_stop_at_100_with_short_reasons(tmp_path:
                 self.pulled += 1
                 yield error
 
+    bill = {"body": "my bill"}
     for decision, pulled in ((hub, 100), (local, 150)):
         counting = Counting(decision._validator)
         decision._validator = counting  # type: ignore[assignment]
-        found = decision.validate({"message": "my bill", "xs": ["a"] * 150})
+        found = decision.validate({"message": bill, "xs": ["a"] * 150})
         assert counting.pulled == pulled and len(found) == 10
-    short = hub.decide({"message": "my bill", "meta": {}}).reasons
+    short = hub.decide({"message": bill, "meta": {}}).reasons
     assert short == ("input rejected: meta: n0, n1, n2, n3, n4 and 4 more is required",)
-    listed = local.decide({"message": "my bill", "meta": {}}).reasons
+    listed = local.decide({"message": bill, "meta": {}}).reasons
     assert listed[0] == f"input rejected: meta: {', '.join(f'n{i}' for i in range(9))} is required"
     assert len(listed) == 9  # one per missing name, as before
 
@@ -465,17 +513,17 @@ def test_a_registry_packs_schema_errors_stop_at_100_with_short_reasons(tmp_path:
 def test_mendari_test_stops_a_registry_pack_at_the_budget(tmp_path: Path) -> None:
     """`mendari test` holds a registry pack to the budget as a decision does: checking its test
     inputs against a schema whose keywords fan out stops, and a case its rules run out of time
-    on says why, in the registry pack's words. Checked alone (`mendari omop`), the schema check
-    stops too."""
+    on says why, in the registry pack's words. Checked alone, outside a decision, the schema
+    check stops too."""
 
     def noted(schema: dict[str, Any]) -> None:
         schema["properties"]["note"] = {"type": "string", "$ref": "#/$defs/t0"}
         schema["$defs"] = fan_out(22)
 
-    root = sorter(tmp_path / "schema", schema=noted, pack_id="someone/visit-sorter")
+    root = outside_agent(tmp_path / "schema", schema=noted)
     cases = root / "tests" / "cases.yaml"
     cases.write_text(
-        cases.read_text() + '- name: noted\n  input: {message: "my bill", note: x}\n'
+        cases.read_text() + '\n- name: noted\n  input: {message: {body: "my bill"}, note: x}\n'
         "  expect: {recommendation: billing}\n"
     )
     hub = load_pack(root, origin="hub")
@@ -483,13 +531,17 @@ def test_mendari_test_stops_a_registry_pack_at_the_budget(tmp_path: Path) -> Non
         found = input_problems(hub)
     assert spent() < BOUND_S
     assert any("checking its input against the schema stopped" in problem for problem in found)
-    # Checked alone, outside a decision (`mendari omop`), its schema check has a budget too.
+    # Checked alone, outside a decision, its schema check has a budget too.
     with cpu_time() as spent:
-        alone = Decision(hub).validate({"message": "my bill", "note": "x"})
+        alone = Decision(hub).validate({"message": {"body": "my bill"}, "note": "x"})
     assert spent() < BOUND_S
     assert len(alone) == 1 and alone[0].startswith("(root): checking it against the schema stopped")
     slow = outside_sorter(tmp_path / "rules", rules=slow_rules(), schema=long_message)
-    case = {"name": "slow", "input": {"message": EMOJI}, "expect": {"recommendation": "billing"}}
+    case = {
+        "name": "slow",
+        "input": {"message": {"body": EMOJI}},
+        "expect": {"recommendation": "billing"},
+    }
     failures = _run(Decision(slow), case).failures
     assert any("time_budget" in failure for failure in failures)
     assert any(
@@ -500,13 +552,10 @@ def test_mendari_test_stops_a_registry_pack_at_the_budget(tmp_path: Path) -> Non
 
 def test_a_registry_packs_schema_uses_only_the_keywords_mendari_bounds(tmp_path: Path) -> None:
     def unique(schema: dict[str, Any]) -> None:
-        schema["properties"]["patient"]["properties"]["tags"] = {
-            "type": "array",
-            "uniqueItems": True,
-        }
+        schema["properties"]["tags"] = {"type": "array", "uniqueItems": True}
 
-    edit = json_edit("schemas/input.schema.json", unique)
-    root = copied(tmp_path, "patient-inbox-router", version="9.9.9", edit=edit)
+    edit = json_edit(SCHEMA, unique)
+    root = copied(tmp_path, TRIAGE_DIR.name, version="9.9.9", edit=edit)
     with pytest.raises(PackValidationError) as refused:
         load_pack(root, origin="hub")
     assert any(
@@ -517,12 +566,12 @@ def test_a_registry_packs_schema_uses_only_the_keywords_mendari_bounds(tmp_path:
 
 
 def test_a_registry_packs_caps_are_checked_at_load(tmp_path: Path) -> None:
-    edit = yaml_edit("logic/red_flags.yaml", lambda rules: rules.update(negation_window=300))
-    root = copied(tmp_path, "patient-inbox-router", version="9.9.9", edit=edit)
+    edit = yaml_edit(SCREEN_RULES, lambda rules: rules.update(negation_window=300))
+    root = copied(tmp_path, TRIAGE_DIR.name, version="9.9.9", edit=edit)
     with pytest.raises(PackValidationError) as refused:
         load_pack(root, origin="hub")
     assert refused.value.problems == [
-        "logic/red_flags.yaml: negation_window is 300; a community or registry agent's is at most "
+        f"{SCREEN_RULES}: negation_window is 300; a community or registry agent's is at most "
         "200 characters (30 to 40 is usual)"
     ]
     assert not load_pack(root, origin="local").bounded
@@ -537,80 +586,84 @@ def test_a_registry_pack_is_never_a_community_pack(
     its organization approves its digest (LP-18d): approved here."""
     monkeypatch.setenv("LLM_MODEL", "example/deployment-model")
     pack = outside_sorter(tmp_path / "plain")
-    assert pack.bounded and not pack.community and pack.shown_origin == "hub"
+    assert pack.bounded and pack.shown_origin == "hub"
     assert Decision(pack, origin_approval=lambda _: True).decide(BILL).outcome is Outcome.AUTO
-    assert build_provider(pack, "reader", "llm").info.model == "example/deployment-model"
+    assert build_provider(pack, "router", "llm").info.model == "example/deployment-model"
 
     def blocks(manifest: dict[str, Any]) -> None:
-        manifest["policy"]["rules"] = [BLOCK_RULE]
+        manifest["policy"]["rules"].append(BLOCK_RULE)
 
     blocking = outside_sorter(tmp_path / "blocking", manifest=blocks)
     assert Decision(blocking, origin_approval=lambda _: True).decide(BILL).outcome is Outcome.BLOCK
 
 
 def test_discover_lists_a_refused_registry_pack_and_serves_the_others(tmp_path: Path) -> None:
-    referral = copied(tmp_path, "referral-router", version="9.9.9")
-    copied(tmp_path, "patient-inbox-router", version="9.9.9")
+    """In the cache, a version on the community engine that cannot run (a lookahead) is listed
+    as refused, and the reference pack of its id is served; another pack's new version is."""
+    refused = copied(tmp_path, TRIAGE_DIR.name, version="9.9.9", edit=lookahead)
+    other = load_pack(copied(tmp_path, CLINICAL_DIR.name, version="9.9.9"))
     paths = [SearchPath(tmp_path / "cache", "hub"), SearchPath(PACKS, "maintained")]
     found = discover(paths)
-    assert set(found.problems) == {str(referral.resolve())}
-    assert "lookahead" in found.problems[str(referral.resolve())]
+    assert set(found.problems) == {str(refused.resolve())}
+    assert "lookahead" in found.problems[str(refused.resolve())]
     served = {(pack.id, pack.version): pack for pack in found.packs}
-    assert served[("mendari/patient-inbox-router", "9.9.9")].bounded
-    shipped = load_pack(PACKS / "referral-router").version
-    assert not served[("mendari/referral-router", shipped)].bounded
-    assert ("mendari/referral-router", "9.9.9") not in served
+    assert served[(other.id, "9.9.9")].bounded
+    assert not served[(TRIAGE.id, TRIAGE.version)].bounded
+    assert (TRIAGE.id, "9.9.9") not in served
     client = TestClient(create_app(db_path=tmp_path / "e.db", packs_paths=paths))
-    assert str(referral.resolve()) in client.get("/api/health").json()["invalid"]
-    detail = client.get("/api/agents/mendari/referral-router").json()
-    assert detail["manifest"]["version"] == shipped
-    detail = client.get("/api/agents/mendari/patient-inbox-router").json()
+    assert str(refused.resolve()) in client.get("/api/health").json()["invalid"]
+    detail = client.get(f"/api/agents/{TRIAGE.id}").json()
+    assert detail["manifest"]["version"] == TRIAGE.version
+    detail = client.get(f"/api/agents/{other.id}").json()
     assert detail["manifest"]["version"] == "9.9.9"
 
 
 def test_decision_from_path_takes_the_origin_of_the_path(tmp_path: Path) -> None:
     """H3: a pulled pack loaded by its path (`Decision.from_path`) is still a pack from a
     registry, on its engine; a reference pack by its path is maintained."""
-    cached = packs_cache() / "mendari" / "patient-inbox-router" / "9.9.9"
-    shutil.copytree(copied(tmp_path, "patient-inbox-router", version="9.9.9"), cached)
+    cached = packs_cache() / TRIAGE.id / "9.9.9"
+    shutil.copytree(copied(tmp_path, TRIAGE_DIR.name, version="9.9.9"), cached)
     pulled = Decision.from_path(cached).pack
     assert (pulled.origin, pulled.bounded) == ("hub", True)
-    reference = Decision.from_path(INBOX_DIR).pack
+    reference = Decision.from_path(TRIAGE_DIR).pack
     assert (reference.origin, reference.bounded) == ("maintained", False)
 
 
 def test_the_reference_digests_are_the_installed_releases() -> None:
+    """Whatever agents the release bundles (in the suite, the fixtures' folder), each by the id
+    its manifest names."""
     expected = {pack_digest(directory) for directory in bundled()}
-    assert reference_digests() == expected and len(expected) == 5
-    assert {resolve_pack(f"mendari/{d.name}").digest for d in bundled()} == expected
+    assert expected and reference_digests() == expected
+    assert {resolve_pack(load_pack(d).id).digest for d in bundled()} == expected
 
 
 def test_the_reference_index_is_each_bundled_packs_id_version_and_digest() -> None:
     """`reference_packs`, read from each manifest and the files' digest without loading the
     pack, says what loading it says."""
     loaded = [load_pack(directory) for directory in bundled()]
+    assert loaded
     assert {
         pack_id: [(each.version, each.digest) for each in packs]
         for pack_id, packs in reference_packs().items()
     } == {pack.id: [(pack.version, pack.digest)] for pack in loaded}
-    assert len(reference_packs()) == 5
 
 
 def test_owned_packs_stay_on_re(tmp_path: Path) -> None:
     """Reference packs, and an operator's local packs (a changed copy included), run on `re` as
     before: no caps, no budget, and a pattern that backtracks still loads."""
     for directory in bundled():
-        assert not load_pack(directory, origin="maintained").bounded
-        assert not resolve_pack(f"mendari/{directory.name}").bounded
-    changed = copied(tmp_path, "referral-router", edit=one_more_line("logic/triage_rules.yaml"))
+        pack = load_pack(directory, origin="maintained")
+        assert not pack.bounded
+        assert not resolve_pack(pack.id).bounded
+    changed = copied(tmp_path, TRIAGE_DIR.name, edit=lookahead)
     assert not load_pack(changed, origin="local").bounded
 
     def backtracks(rules: Any) -> None:
         labels = rules["questions"]["destination"]["labels"]["front_desk"]
         labels.append({"name": "slow", "pattern": "(a+)+$", "weight": 1.0})
 
-    edit = yaml_edit("logic/routing_rules.yaml", backtracks)
-    local = load_pack(copied(tmp_path / "slow", "patient-inbox-router", edit=edit), origin="local")
+    edit = yaml_edit(ROUTER_RULES, backtracks)
+    local = load_pack(copied(tmp_path / "slow", TRIAGE_DIR.name, edit=edit), origin="local")
     assert not local.bounded
     provider: Any = build_provider(local, "router", "rules")
     regexes = [
@@ -636,7 +689,7 @@ def test_mendari_test_runs_a_registry_pack_on_its_engine(tmp_path: Path) -> None
         )
 
     edit = yaml_edit("tests/cases.yaml", big_case)
-    root = copied(tmp_path, "patient-inbox-router", version="9.9.9", edit=edit)
+    root = copied(tmp_path, TRIAGE_DIR.name, version="9.9.9", edit=edit)
     hub = load_pack(root, origin="hub")
     assert any(
         "its input is too large: more than 10,000 values, the most an agent from a registry reads"

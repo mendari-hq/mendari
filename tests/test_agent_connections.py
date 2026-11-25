@@ -50,6 +50,7 @@ from tests.conftest import (
     DASHBOARD,
     DEMO_AGENT_DIR,
     INPUT_HASH_KEY,
+    TRIAGE_DIR,
     encrypt_mode,
     encrypted_store,
     member,
@@ -57,6 +58,7 @@ from tests.conftest import (
     security_lines,
     signed_in,
 )
+from tests.support.registry import HTTPS
 from tests.test_agent_provider import agent_response, make_agent_provider
 from tests.test_hub_routes import (  # noqa: F401 - `service` is the local agent service fixture
     REFILL,
@@ -64,11 +66,12 @@ from tests.test_hub_routes import (  # noqa: F401 - `service` is the local agent
     answered,
     service,
 )
-from tests.test_memberships import HTTPS
 from tests.test_store_uploads import ORG_A, ORG_B, Store, store_world
 
 DEMO = "mendari/portal-message-agent"
-INBOX = "mendari/patient-inbox-router"
+# An agent that decides on this server (keyword rules in every slot, by default): the triage
+# fixture, served from disk.
+LOCAL = load_pack(TRIAGE_DIR).id
 # A token a search finds anywhere: no other value in these tests holds this text.
 TOKEN = "zqTOKEN-5f1c0d6e9a3b47c2-never-shown"
 PUBLIC = "93.184.216.34"  # a public address a patched look-up answers; never connected to
@@ -528,7 +531,7 @@ def test_a_token_opens_only_for_its_own_row_organization_and_agent(tmp_path: Pat
         connections = ConnectionStore(store)
         connections.set(ORG_A, DEMO, endpoint=ELSEWHERE, token=TOKEN, by="ada")
         connections.set(ORG_B, DEMO, endpoint="https://1.1.1.1/b", token="theirs", by="eve")
-        connections.set(ORG_A, INBOX, endpoint="https://1.1.1.1/c", token="inbox", by="ada")
+        connections.set(ORG_A, LOCAL, endpoint="https://1.1.1.1/c", token="local", by="ada")
         sealed = {(row["org"], row["pack_id"]): row["token"] for row in rows(store)}
         with store._db.session(exclusive=True) as db:
             db.all(
@@ -537,9 +540,9 @@ def test_a_token_opens_only_for_its_own_row_organization_and_agent(tmp_path: Pat
             )
             db.all(
                 "UPDATE agent_connections SET token = ? WHERE org = ? AND pack_id = ?",
-                (sealed[(ORG_A, DEMO)], ORG_A, INBOX),
+                (sealed[(ORG_A, DEMO)], ORG_A, LOCAL),
             )
-        for org, agent in ((ORG_B, DEMO), (ORG_A, INBOX)):
+        for org, agent in ((ORG_B, DEMO), (ORG_A, LOCAL)):
             with pytest.raises(MendariError):
                 connections.resolve(org, agent)
         assert connections.resolve(ORG_A, DEMO) == Connection(ELSEWHERE, TOKEN)
@@ -704,7 +707,7 @@ def test_an_administrator_sets_reads_changes_and_clears_their_organizations_conn
     listed = site.client.get("/api/connections", headers=site.as_(ORG_A, "viewer")).json()
     [mine] = [item for item in listed["agents"] if item["pack_id"] == DEMO]
     assert mine == {key: seen[key] for key in mine}
-    assert {item["pack_id"]: item["applies"] for item in listed["agents"]}[INBOX] is False
+    assert {item["pack_id"]: item["applies"] for item in listed["agents"]}[LOCAL] is False
 
     changed = put(site, endpoint="https://1.1.1.1/decide")
     assert changed.status_code == 200 and changed.json()["connection"]["token"] == "none"
@@ -864,7 +867,7 @@ def test_another_organization_neither_sees_nor_changes_a_connection(
     # An agent in one organization's store is no agent at all to another.
     copied = lite.client.post(
         "/api/store/copies",
-        json={"pack": INBOX, "name": "inbox-copy"},
+        json={"pack": LOCAL, "name": "inbox-copy"},
         headers=lite.as_(ORG_A, "pack_author"),
     )
     assert copied.status_code == 201, copied.text
@@ -880,7 +883,7 @@ def test_another_organization_neither_sees_nor_changes_a_connection(
 
 
 def test_an_agent_that_decides_on_this_server_has_no_connection_to_set(lite: Store) -> None:
-    at = f"/api/connections/{INBOX}"
+    at = f"/api/connections/{LOCAL}"
     shown = read(lite, at=at)
     assert (shown["applies"], shown["source"], shown["slots"]) == (False, None, [])
     refused = put(lite, at=at)

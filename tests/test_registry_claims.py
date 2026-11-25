@@ -14,19 +14,18 @@ import httpx
 import pytest
 
 from mendari.cli import main
-from mendari.core.pack import Pack
-from mendari.core.registry import resolve_pack
+from mendari.core.pack import Pack, load_pack
 from mendari.errors import HubError
 from mendari.hub import archive, yank
 from mendari.hub import registry as registry_module
 from mendari.hub.client import RegistryClient, pull
 from mendari.hub.registry import PUBLIC, REVIEWER, RegistryStore, Viewer, token_id
-from tests.conftest import Registry, shared_benchmark
+from tests.conftest import FIXTURE_NAMESPACE, TRIAGE_DIR, Registry, shared_benchmark
 from tests.test_hub_client import SHIPPED, copy_pack
 
 CLAIMANT = "user:3f9a"  # a person as a chain names one: an id, never an address
 REVIEWED_BY = "user:77aa"
-REFERRAL = resolve_pack("mendari/referral-router")
+TRIAGE = load_pack(TRIAGE_DIR)  # the agent `Registry.publish()` publishes, listed
 # Every read of a namespace and a pack in it, by path.
 READS = (
     "/v1/namespaces/{ns}",
@@ -236,7 +235,7 @@ def test_a_first_publish_is_invisible_to_search_pull_the_namespace_the_recall_li
     report = shared_benchmark()
     for who in ({}, _bearer(registry.token), _bearer("ohr_made-up")):  # nobody, another publisher
         assert [p["id"] for p in registry.client.get("/v1/search", headers=who).json()] == [
-            REFERRAL.id
+            TRIAGE.id
         ]
         assert registry.client.get("/v1/search?q=inbox", headers=who).json() == []
         assert registry.client.get("/v1/health", headers=who).json()["packs"] == 1
@@ -261,7 +260,7 @@ def test_a_first_publish_is_invisible_to_search_pull_the_namespace_the_recall_li
     assert [(r["pack"], r["yank"]) for r in own] == [("acme/inbox", record)]
     # The store's own answer, whatever route asks (the rule is in the store, not per route).
     with RegistryStore(db_target) as store:
-        assert [p["id"] for p in store.latest()] == [REFERRAL.id]
+        assert [p["id"] for p in store.latest()] == [TRIAGE.id]
         assert store.versions("acme", "inbox") == []
         assert store.reports("acme", "inbox") == {"reports": [], "superseded": 0}
         assert store.recalled() == [] and len(store.recalled(REVIEWER)) == 1
@@ -543,13 +542,13 @@ def test_a_namespace_with_no_claim_is_listed(registry: Registry, db_target: str)
     """A namespace with no claim row (`create_namespace`, the store's own) is listed, and its
     events link it to no organization."""
     assert registry.publish().status_code == 201
-    path = f"/v1/agents/{REFERRAL.id}/{REFERRAL.version}"
+    path = f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}"
     version = registry.client.get(path).json()
     assert version["listed"] is True
-    namespace = registry.client.get("/v1/namespaces/mendari").json()
+    namespace = registry.client.get(f"/v1/namespaces/{FIXTURE_NAMESPACE}").json()
     assert namespace["listed"] is True and namespace["claim"] is None
     assert json.loads(_events(db_target)[-1]["payload"])["org"] is None  # no claim, no link
-    assert [p["id"] for p in registry.client.get("/v1/search").json()] == [REFERRAL.id]
+    assert [p["id"] for p in registry.client.get("/v1/search").json()] == [TRIAGE.id]
     with _client(registry) as client:
-        assert pull(REFERRAL.id, client).digest == REFERRAL.digest
+        assert pull(TRIAGE.id, client).digest == TRIAGE.digest
     assert registry_module.MAX_PENDING_CLAIMS == 3 and not PUBLIC.reviewer
