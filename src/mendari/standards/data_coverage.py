@@ -13,12 +13,12 @@ can see how a pack read its EHR's data: for the focus, each mapped field and eac
   that failed, counted against the resource type its template reads, and a note whose data does
   not decode (`undecodable`) or that is only a link (`not_fetched`).
 
-A spec 0.3 mapping (LP-23g) is counted against what the adapter says each field looks for
+A mapping (LP-23g) is counted against what the adapter says each field looks for
 (`fhir.looked_for`, `FhirAdapter.looked_for`): a field's `paths` are the ones it tries, in order,
 and it counts what the paths it read found (each in order until one gave the field its value,
 as the mapping reads them). Its codes are its code set's too, and its systems the ones it
 selects on (its `[system=…]` predicates', its code set's), declared ones all; a coded path that
-selects on none has the declared systems, as a 0.2 path does. A field that follows a reference
+selects on none has the declared systems. A field that follows a reference
 says how many references it found and how many resources they reached inside the record
 (`follow`), and counts the resources of each type it reads. A list of several resource types
 (`resources`) holds a record for each type under `sources`, shaped as a one-type list's, with a
@@ -26,8 +26,7 @@ says how many references it found and how many resources they reached inside the
 read counts by `fhir.read_attachment`'s reason (`unsupported_type`, `undecodable`,
 `not_fetched`); an attachment with neither data nor a link has nothing to read and counts for
 nothing, as for `base64_text`. A note field whose joined text is longer than the pack's input
-lets it be counts once as `too_large` (`fhir.overlong`, LP-23k). A 0.1 or 0.2 mapping's record
-is as it was.
+lets it be counts once as `too_large` (`fhir.overlong`, LP-23k).
 
 Linked reads (LP-23h, `standards/linked.py`) add what they read to the record, so a note whose
 Binary was read counts as read, and a reference that reached a resource read so counts among
@@ -149,7 +148,7 @@ def unreadable_links(mapping: FhirMapping, indexed: Indexed) -> dict[str, dict[s
     """Each field with `follow` (a list's as `<list>.<field>`) whose links the record does not
     hold (`fhir.FieldRead.missing`), with a count by reason: why a linked read did not read each
     (`Indexed.unread`), else `not_fetched` (LP-23h). Fields whose links all resolved are left
-    out. A 0.1 or 0.2 mapping has none."""
+    out."""
     reading = Reading.of(mapping, indexed)
     found: dict[str, Counter[str]] = {}
     for target, mapped in mapping.fields.items():
@@ -243,7 +242,7 @@ def measure(
             kinds |= own
             notes.update(counts)
         total.update(notes)
-        if spec.resources is None:  # one type: its record, as a 0.2 list has it
+        if spec.resources is None:  # one type: its record
             lists[name] = next(iter(records.values()))
         else:
             lists[name] = {

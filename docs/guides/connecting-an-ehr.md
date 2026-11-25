@@ -226,9 +226,9 @@ read.
 
 ### Linked data
 
-An agent on spec 0.3 can read a note that is only a link to a Binary, and what a reference points
-to: the payer behind `Coverage.payor`, the drug behind `medicationReference`
-([the 0.3 mapping](../spec/agent-manifest-0.3.md)). When the record does not hold them, Mendari
+An agent can read a note that is only a link to a Binary, and what a reference points to: the
+payer behind `Coverage.payor`, the drug behind `medicationReference`
+([the mapping](../spec/agent-manifest-0.3.md)). When the record does not hold them, Mendari
 reads them from the same `fhirServer`, with the same token:
 
 - one `GET` of one resource by `Type/id`, under the server's base URL, with
@@ -295,8 +295,7 @@ Each card is CDS Hooks 2.0's:
   confidence the card used to show as one is gone.
 - Every decision is recorded, but an agent may show a card for some recommendations only (its
   `cds_hooks.card.show`; a decision with no recommendation, an ABSTAIN or a BLOCK, is its
-  `none`, and since spec 0.3 one that refused its input is its `refused` where the agent names
-  that key). An agent may also show a card for a recommendation it otherwise leaves out when a
+  `none`, and one that refused its input is its `refused` where the agent names that key). An agent may also show a card for a recommendation it otherwise leaves out when a
   policy rule of its own matched, in that rule's words (`cds_hooks.card.also_show`). An input
   the agent refuses as invalid (BLOCK) gets its `refused` card, if the agent names one, saying
   it was not checked and why, each reason naming where in the input and which rule, never the
@@ -451,8 +450,8 @@ docker compose $F --profile signin up -d --wait engine launcher engine-signin
 docker compose $F --profile signin run --rm --use-aliases cds-client
 ```
 
-**What an agent cannot read in these shapes.** An agent on spec 0.3 reads a note that is only a
-link from the FHIR server (its Binary, as text/plain or text/html); an RTF note is not read, so
+**What an agent cannot read in these shapes.** An agent reads a note that is only a link from
+the FHIR server (its Binary, as text/plain or text/html); an RTF note is not read, so
 the decision abstains for a patient whose note is RTF (`could not read notes: unsupported_type`,
 an `info` card), the one unread thing that run allows. A payer's reference is followed to its
 Organization, but the Organization holds only the site's own payer id, which no site code map
@@ -461,7 +460,7 @@ translates (a map translates codings only).
 ## Site codes
 
 An EHR often codes things its own way: a local code system, or another code of a standard one.
-An agent at spec 0.3 names sets of its own codes (`code_sets`) and reads a field through one
+An agent names sets of its own codes (`code_sets`) and reads a field through one
 (`code_set`, [the spec](../spec/agent-manifest-0.3.md#25-code-sets-03)). `MENDARI_SITE_CODES`
 says how a site's codes translate into an agent's, one organization at a time. Off until you set
 it: unset, no code is translated and every decision is made as before.
@@ -655,8 +654,8 @@ to a pilot:
   vendor's sandbox patients without a failed hook, and that `mendari smart check` passes against
   the vendor, is the pilot's first run (the named vendor is Epic, with Oracle Health as the
   backup). Until then the path is proven with test keys, the sandbox's client and Inferno only.
-- **Notes the agents may not read.** An agent on spec 0.3 that reads notes reads a note that is
-  only a link from the FHIR server, but as text only when it is text/plain or text/html: an RTF,
+- **Notes the agents may not read.** An agent that reads notes reads a note that is only a link
+  from the FHIR server, but as text only when it is text/plain or text/html: an RTF,
   PDF or CDA note abstains (`unsupported_type`). So do notes longer than the agent's input allows
   in all (`too_large`; the text is never cut) and more notes than a decision reads (50,
   `cap`), which a patient with many notes may reach. On an EHR that sends notes that way, or keeps

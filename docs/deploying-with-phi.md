@@ -277,8 +277,8 @@ MENDARI_CDS_CLIENTS='[{"id": "ehr", "title": "Our EHR", "iss": "https://ehr.exam
 - Each field, the token's rules and the log's reasons are in
   [Connecting an EHR](guides/connecting-an-ehr.md).
 
-**A site's own codes (optional, off by default).** An agent on spec 0.3 may read a field through a
-set of its own codes; `MENDARI_SITE_CODES` says how your EHR's codes translate into them, one
+**A site's own codes (optional, off by default).** An agent may read a field through a set of
+its own codes; `MENDARI_SITE_CODES` says how your EHR's codes translate into them, one
 map per organization, read and checked at startup. Each FHIR decision records its
 organization's map by version and SHA-256, and a decision that read a value through a
 translation never automates: it goes to a person, and so does an agent rule's BLOCK on it, until
@@ -807,9 +807,8 @@ decision goes to a person; the local providers still answer, so a keyword safety
 flags a possible emergency. Keep it below your platform's limit on a request, with room for the
 audit write: on Vercel, `maxDuration` is 300 s (`vercel.json`). A request that makes several
 decisions (a CDS Hooks order hook's draft orders) gives each its own deadline. On a CDS hook or a
-SMART launch, a spec 0.3 agent's linked reads from the EHR (a note's Binary, a followed
-reference) use the same deadline first, and the remote calls get what they leave: set it with
-both in mind.
+SMART launch, an agent's linked reads from the EHR (a note's Binary, a followed reference) use
+the same deadline first, and the remote calls get what they leave: set it with both in mind.
 
 **At the edge.** A per-address limit in front of Mendari takes floods before they reach it, on
 `/auth/` and `/smart/` only: your proxy (§1), or on Vercel one firewall rule, 120 requests a
@@ -1094,7 +1093,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_SMART_EHRS` | none: with sign-in on, every launch refused | The EHRs that may launch: `<FHIR base>=<org>:view` or `:decide`, comma-separated; `<org>` is one your people sign in to (`default` without `MENDARI_OIDC_ORG_CLAIM`); read at startup | 2 |
 | `MENDARI_CDS_CLIENTS` | unset: no JWT accepted anywhere | The EHRs that call CDS Hooks with their own signed tokens: a JSON list of clients, each its `id`, `title`, `iss`, `org` (`default` with sign-in off), `fhir_servers` (on the FHIR allow-list), and its keys by value (`jwks`) or one `jwks_uri` on the FHIR allow-list; optionally `sub`, `tenant`, `iss_is_fhir_server` and `origins` (the browser origins its pages call from: CORS on `/cds-services` only, never with credentials). Needs `MENDARI_PUBLIC_URL`; read at startup, and anything wrong stops the server ([Connecting an EHR](guides/connecting-an-ehr.md)) | 2 |
 | `MENDARI_CDS_SANDBOX` | unset: with sign-in off, CDS Hooks answer this machine only | `1`: with sign-in off, the CDS services answer from any host, for a synthetic sandbox reached over a network (the compose sandbox's open engine; a warning at startup). Any other value but `0`, and `1` on Vercel or with sign-in on, stops the server | 2 |
-| `MENDARI_SITE_CODES` | unset: no code is translated | A site's own codes, translated into the codes a spec 0.3 agent's code sets declare, per organization: inline JSON or the path of a JSON file, `{"<org>": {"version": ..., "sets": {"<code set>": [{"system", "code", "as"}]}}}` (`default` alone with sign-in off). Read at startup and checked against the agents found: a translation must land on a code its set declares, and anything wrong stops the server. Each FHIR decision the server makes records its organization's map by version and SHA-256 (the command line, `mendari decide --fhir` and `mendari bulk dataset`, reads no map), and a decision made through a translation never automates, nor does an agent rule's BLOCK on it stand without a person ([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)) | 2 |
+| `MENDARI_SITE_CODES` | unset: no code is translated | A site's own codes, translated into the codes an agent's code sets declare, per organization: inline JSON or the path of a JSON file, `{"<org>": {"version": ..., "sets": {"<code set>": [{"system", "code", "as"}]}}}` (`default` alone with sign-in off). Read at startup and checked against the agents found: a translation must land on a code its set declares, and anything wrong stops the server. Each FHIR decision the server makes records its organization's map by version and SHA-256 (the command line, `mendari decide --fhir` and `mendari bulk dataset`, reads no map), and a decision made through a translation never automates, nor does an agent rule's BLOCK on it stand without a person ([Connecting an EHR](guides/connecting-an-ehr.md#site-codes)) | 2 |
 | `MENDARI_EHR_DECLARATIONS` | unset: every source is read, and a refused one abstains | What each registered EHR does not offer, per FHIR base: inline JSON or the path of a JSON file, `{"<FHIR base>": {"org", "version", "attested_by", "reference", "not_offered": ["<R4 type>"]}}` (`default` the one organization with sign-in off). Read at startup and checked: each base on `MENDARI_FHIR_ALLOWED_SERVERS` and registered (`MENDARI_SMART_EHRS`, or a CDS client's `fhir_servers`) to its organization, each type one an agent found here reads as one of several sources of a list beside a source not declared; anything wrong stops the server. A SMART launch's decide, or a CDS hook, from that base and organization does not read a declared type for such an agent, records the declaration by version and SHA-256 on the decision, and never automates it ([Connecting an EHR](guides/connecting-an-ehr.md#what-your-ehr-does-not-offer)) | 2 |
 | `MENDARI_FHIR_VALIDATION` | `warn` | The US Core and base R4 checks on FHIR input: `warn` decides input that is R4 JSON but breaks R4's other rules, with its issues recorded on the decision; `enforce` blocks it before any provider runs; `off` skips the checks. Input that is not R4 JSON is refused in every mode. Choose it for an EHR pilot before go-live | 9 |
 | `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch. `mendari smart check` compares each with the EHR's `scopes_supported` (`unknown` when it publishes none) | 2 |
@@ -1185,7 +1184,7 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       runs.
 - [ ] Only if an EHR calls Mendari or launches it: in the first days, read the data-coverage
       record of the decisions it makes (the audit view's "What it read"). An agent reads a note
-      that is only a link to a Binary only on spec 0.3, and then only as text/plain or text/html,
+      that is only a link to a Binary only as text/plain or text/html,
       so on an EHR that sends notes as links, or as RTF, an agent that reads notes may abstain for
       most patients with one, each decision going to a person with an `info` card
       ([threat model](security/threat-model.md#residual-risks-and-assumptions)).

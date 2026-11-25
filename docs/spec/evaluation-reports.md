@@ -1038,9 +1038,8 @@ more positives there than it holds distinct.
 ## Rater agreement: `mendari.agreement/1`
 
 How far raters who label the same cases blind agree, per question of the agent (LP-11,
-`evals/rater_agreement.py`). The input is each case's first-pass labels by rater: raters label
-the agent's member questions, and a derived question's label for a rater comes from the agent's
-decision table over that rater's member labels. An adjudicator's label is not a first pass.
+`evals/rater_agreement.py`). The input is each case's first-pass labels by rater, of the
+agent's questions. An adjudicator's label is not a first pass.
 
 The report holds `format`, `pack`, `level` (0.95), `seeds` (`{bootstrap, resamples}`: the seed,
 and 2,000 resamples unless set) and `questions`: for each of the agent's questions, `cases` (the

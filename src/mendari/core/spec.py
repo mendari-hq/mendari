@@ -220,7 +220,7 @@ def version_key(version: str) -> tuple[tuple[int, str], ...]:
 
 # Variant keys that once named the environment variables a remote provider reads its endpoint,
 # model or key from. Those variables are the deployment's (spec section 5), so a pack that sets
-# one is invalid, whatever its spec version: it could send any process secret anywhere.
+# one is invalid: it could send any process secret anywhere.
 DEPLOYMENT_ENV_KEYS: dict[str, frozenset[str]] = {
     "jev": frozenset({"api_key_env", "connector_env", "endpoint_env", "model_env"}),
     "llm": frozenset({"api_key_env", "base_url_env", "local_key_env", "model_env"}),

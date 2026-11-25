@@ -499,7 +499,7 @@ def decide_for(
     templates describe, read with the session's token. Each prefetch read stands alone, as a
     CDS hook's do (`cds_hooks.read_each`): one that fails makes the decision ABSTAIN with its
     reason (LP-23d), but a `401` still ends the launch (`ehr`). A focus resource that cannot be
-    read is an error, as before: there is nothing to decide about. What a spec 0.3 mapping
+    read is an error, as before: there is nothing to decide about. What the mapping
     reaches by a link the record does not hold is read with the same token, as a CDS hook's is
     (`standards/linked.py`, LP-23h), and a `401` there ends the launch too. A key of a type the
     EHR does not offer, as the site declared it (`declared`, `standards/ehr_declarations.py`), is

@@ -924,7 +924,7 @@ class Decision:
         refused (`decide`). The result carries its data-coverage record
         (`standards/data_coverage.py`) in every case.
 
-        `links` (a CDS hook's, the SMART launch's decide: LP-23h) reads what a spec 0.3 mapping
+        `links` (a CDS hook's, the SMART launch's decide: LP-23h) reads what the mapping
         reaches by a link the record does not hold, a note's Binary or a followed reference,
         from the EHR's FHIR server, into the record before it is mapped (`standards/linked.py`),
         inside the decision's deadline, which starts before those reads and its providers then
