@@ -196,22 +196,25 @@ def test_comparison_figures_say_what_they_are_of() -> None:
             {"kind": "calibration", "local": 0.2, "baseline": 0.02, "n": 300},
             {"kind": "subgroup", "baseline": 0.99, "local": 0.5, "n": 40, "local_n": 40,
              "baseline_n": 600, "baseline_scope": "overall"},
-            # Stored before LP-10b: no counts. Recall's `n` is its local support, a subgroup's
-            # `n` its members (not its labelled ones), so that local side stays n/a.
-            {"kind": "label_recall", "baseline": 1.0, "local": 0.5, "n": 20},
-            {"kind": "subgroup", "baseline": 1.0, "local": 0.5, "n": 20},
+            # A benchmark that does not say how many cases its recall is of: n/a on its side.
+            {"kind": "label_recall", "baseline": 1.0, "local": 0.5, "n": 20, "local_n": 20,
+             "baseline_n": None},
         ],
     }  # fmt: skip
     worked = figures.comparison(comparison)
     assert worked is not None
     assert shown(worked["baseline"]) == shown(figures.of(594, 600))
-    critical, calibration, overall, recall, subgroup = worked["findings"]
+    critical, calibration, overall, recall = worked["findings"]
     assert critical == {"automated": figures.of(2, 20), "insufficient_evidence": True}
     assert calibration is None
     assert overall["overall"] is True and overall["local"] == figures.of(20, 40)
     assert recall["baseline"] is None and recall["local"] == figures.of(10, 20)
-    assert subgroup["local"] is None
     assert figures.comparison({"status": "unknown", "reason": "x", "findings": []}) is None
+    # A finding holds the counts its figures are of: one without them is not read from its `n`.
+    for kind in ("label_recall", "subgroup", "false_automation"):
+        uncounted = {"kind": kind, "baseline": 1.0, "local": 0.5, "n": 20}
+        with pytest.raises(KeyError):
+            figures.comparison({**comparison, "findings": [uncounted]})
 
 
 def rows_on(digest: str, sha: str = "d" * 64) -> list[dict[str, Any]]:

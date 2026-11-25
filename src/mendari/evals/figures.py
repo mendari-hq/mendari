@@ -210,9 +210,9 @@ def site(data: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def comparison(c: Mapping[str, Any]) -> dict[str, Any] | None:
-    """A local validation's figures: each side's accuracy and each finding's two figures. A
-    finding stored before its counts were (LP-10b) shows its benchmark side as n/a; its local
-    side is over the cases the finding is about where that is exact."""
+    """A local validation's figures: each side's accuracy and each finding's two figures, over
+    the cases the comparison states they are of (`baseline_n`, `local_n`): the benchmark's side
+    is n/a where the benchmark does not say."""
     if c.get("status") == "unknown":
         return None
     base, local = c["baseline"], c["local"]
@@ -229,18 +229,16 @@ def comparison(c: Mapping[str, Any]) -> dict[str, Any] | None:
         elif kind == "calibration":
             findings.append(None)  # an ECE, not a share of cases
         else:
-            exact = kind in ("label_recall", "false_automation")  # `n` is their local count
-            local_n = f.get("local_n", f["n"] if exact else None)
             findings.append(
                 {
-                    "baseline": counted(f["baseline"], f.get("baseline_n")),
-                    "local": counted(f["local"], local_n),
+                    "baseline": counted(f["baseline"], f["baseline_n"]),
+                    "local": counted(f["local"], f["local_n"]),
                     "overall": f.get("baseline_scope") == "overall",
                 }
             )
     return {
-        "baseline": counted(base["accuracy"], base.get("n")),
-        "local": counted(local["accuracy"], local.get("n")),
+        "baseline": counted(base["accuracy"], base["n"]),
+        "local": counted(local["accuracy"], local["n"]),
         "findings": findings,
     }
 
