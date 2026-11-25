@@ -4,7 +4,7 @@
 Past it a remote call is not made, before any credential is fetched or any budget charged; a
 call under way waits at most what remains of it; either is the provider error `timeout`, so the
 decision is held for a person. Local providers always answer: a possible emergency is still
-flagged, and what a pack decides offline never changes. Jev, the LLM, the CQL engine and Vercel
+flagged, and what a pack decides offline never changes. A live agent service, the LLM and Vercel
 Connect answer here through `httpx.MockTransport`s: nothing leaves the machine.
 """
 
@@ -24,30 +24,26 @@ from mendari import Decision, Pack, load_pack
 from mendari.core import decision as decision_module
 from mendari.core import patterns
 from mendari.core.decision import CallBudget, DecisionResult
-from mendari.core.registry import resolve_pack
 from mendari.core.spec import Outcome, Priority
 from mendari.errors import MendariError, ProviderError
 from mendari.evals.pack_tests import load_cases
 from mendari.parallel import parallel_map
-from mendari.providers import build_provider, deadline, http
-from mendari.providers import cql as cql_module
+from mendari.providers import deadline, http
+from mendari.providers.agent import AgentProvider
 from mendari.providers.credentials import ConnectorToken
-from mendari.providers.jev import JevProvider
 from mendari.providers.llm import LlmProvider
 from mendari.server.app import create_app
 from mendari.settings import decision_deadline_s
-from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import INBOX_DIR, message
-from tests.test_community_caps import sorter
+from tests.conftest import FIXTURE_AGENTS, message
+from tests.support.engine import pulled, sorter
 
-PACKS = INBOX_DIR.parent
-TRIAL = "mendari/clinical-trial-prescreener"
-CQL_ENGINE = "https://cql.example.org/fhir"
 URL = "https://remote.test/v1"
 # A deadline that has passed before the first remote call (0, not a tiny positive number, so a
 # coarse clock cannot leave it in the future).
 EXPIRED = 0.0
 SETTING = "MENDARI_DECISION_DEADLINE_S"
+# Every question of the triage fixture, both of whose slots time out.
+TIMED_OUT = {"destination": "timeout", "urgency": "timeout", "abusive": "timeout"}
 
 
 def distribution(labels: list[str], chosen: str) -> dict[str, float]:
@@ -56,33 +52,34 @@ def distribution(labels: list[str], chosen: str) -> dict[str, float]:
 
 
 class Remote:
-    """Jev and an LLM behind mock transports. `calls` lists each call made, in order; `delay`
-    says how long a call waits before it answers (by provider type and request text); `labels`
-    is what each question is answered, with probability 0.97."""
+    """A live agent service (`MENDARI_AGENT_URL`) and an LLM behind mock transports. `calls`
+    lists each call made, in order; `delay` says how long a call waits before it answers (by
+    provider type and request text); `labels` is what each question is answered, with
+    confidence 0.97."""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
-        self.labels = {"urgency": "routine", "destination": "nurse", "topic": "other"}
+        self.labels = {
+            "destination": "nurse",
+            "urgency": "no",
+            "abusive": "no",
+            "topic": "other",
+            "upset": "no",
+        }
         self.delay: Callable[[str, str], float] = lambda kind, text: 0.0
 
     def answer(self, kind: str, request: httpx.Request) -> httpx.Response:
         self.calls.append(kind)
         time.sleep(self.delay(kind, request.content.decode()))
         body = json.loads(request.content)
-        if kind == "jev":
-            answers = {}
-            for key, question in body["questions"].items():
-                chosen = self.labels[key]
-                probabilities = distribution(list(question["criteria"]), chosen)
-                answers[key] = {
-                    "type": "choice",
-                    "choice": chosen,
-                    "confidence": 0.97,
-                    "probabilities": probabilities,
-                }
-            usage = {"input_tokens": 10, "output_tokens": 1}
+        if kind == "agent":
+            answers = {
+                question["key"]: {"value": self.labels[question["key"]], "confidence": 0.97}
+                for question in body["questions"]
+            }
             return httpx.Response(
-                200, json={"model": "jev-test-model", "answers": answers, "usage": usage}
+                200,
+                json={"model": "agent-test-model", "agent_version": "2.0.0", "answers": answers},
             )
         schema = body["response_format"]["json_schema"]["schema"]["properties"]
         content = {
@@ -96,26 +93,25 @@ class Remote:
 
 @pytest.fixture
 def remote(monkeypatch: pytest.MonkeyPatch) -> Remote:
-    """Jev and the LLM set up, every client of theirs answering through `Remote`."""
-    monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
-    monkeypatch.setenv("JEV_MODEL", "jev-test-model")
-    monkeypatch.setenv("JEV_API_KEY", "test-key")
-    monkeypatch.delenv("JEV_CONNECTOR", raising=False)
+    """A live agent service and the LLM set up, every client of theirs answering through
+    `Remote`."""
+    monkeypatch.setenv("MENDARI_AGENT_URL", "https://agent.test/v1/decide")
+    monkeypatch.delenv("MENDARI_AGENT_TOKEN", raising=False)
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "test-key")
     monkeypatch.setenv("LLM_MODEL", "openai/gpt-oss-120b")  # no built-in default model (LP-10c-ii)
     fake = Remote()
-    jev_init, llm_init = JevProvider.__init__, LlmProvider.__init__
+    agent_init, llm_init = AgentProvider.__init__, LlmProvider.__init__
 
     def client(kind: str) -> httpx.Client:
         return httpx.Client(transport=httpx.MockTransport(lambda r: fake.answer(kind, r)))
 
-    def jev(self: JevProvider, *args: Any, **kwargs: Any) -> None:
-        jev_init(self, *args, **{**kwargs, "client": client("jev")})
+    def agent(self: AgentProvider, *args: Any, **kwargs: Any) -> None:
+        agent_init(self, *args, **{**kwargs, "client": client("agent")})
 
     def llm(self: LlmProvider, *args: Any, **kwargs: Any) -> None:
         llm_init(self, *args, **{**kwargs, "client": client("llm")})
 
-    monkeypatch.setattr(JevProvider, "__init__", jev)
+    monkeypatch.setattr(AgentProvider, "__init__", agent)
     monkeypatch.setattr(LlmProvider, "__init__", llm)
     return fake
 
@@ -139,37 +135,36 @@ def mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> httpx.Cli
 
 
 def test_a_remote_call_after_the_deadline_is_not_made_and_uses_no_budget(
-    remote: Remote, inbox_pack: Pack
+    remote: Remote, triage_agent: Pack
 ) -> None:
-    """Jev, asked for the screen, answers after the whole deadline, so its answer is cut too;
-    the router's LLM call would start after it, so it is not made, and nothing is charged for
-    it."""
-    remote.delay = lambda kind, text: 2.5 if kind == "jev" else 0.0
+    """The agent service, asked for the router (the triage fixture's first slot), answers after
+    the whole deadline, so its answer is cut too; the screen's LLM call would start after it, so
+    it is not made, and nothing is charged for it."""
+    remote.delay = lambda kind, text: 2.5 if kind == "agent" else 0.0
     budget = Counted()
     decision = Decision(
-        inbox_pack,
-        providers={"safety_screen": "jev", "router": "llm"},
+        triage_agent,
+        providers={"router": "agent", "screen": "llm"},
         budget=budget,
         deadline_s=2.0,  # ample for the call to start, even on a loaded runner
     )
     result = decision.decide(message("A rash on my arm since Tuesday."))
-    assert remote.calls == ["jev"]
-    assert budget.acquired == ["jev"]
-    assert result.errors == {"urgency": "timeout", "destination": "timeout"}
+    assert remote.calls == ["agent"]
+    assert budget.acquired == ["agent"]
+    assert result.errors == TIMED_OUT
     assert result.outcome is Outcome.ABSTAIN  # no answer for the primary: a person decides
 
 
-def test_local_providers_answer_after_the_deadline(remote: Remote, inbox_pack: Pack) -> None:
-    """The deadline only ever fails remote calls: the keyword rules beside Jev still read the
-    message, so the possible-emergency rule (policy.yaml) still sends it to a nurse now."""
-    decision = Decision(
-        inbox_pack, providers={"safety_screen": "rules_and_jev"}, deadline_s=EXPIRED
-    )
-    result = decision.decide(message("Crushing chest pain since this morning"))
+def test_local_providers_answer_after_the_deadline(remote: Remote, triage_agent: Pack) -> None:
+    """The deadline only ever fails remote calls: the screen's keyword rules still read the
+    message while the router's agent service is never called, so the possible-emergency rule
+    still sends it to a nurse now."""
+    decision = Decision(triage_agent, providers={"router": "agent"}, deadline_s=EXPIRED)
+    result = decision.decide(message("I have had chest pain since this morning."))
     assert remote.calls == []
-    assert result.errors == {"urgency": "jev:timeout"}
-    assert result.answers["urgency"].label == "urgent"
-    assert result.answers["destination"].provider.type == "naive_bayes"  # local: answered
+    assert result.errors == {"destination": "timeout"}
+    assert result.answers["urgency"].label == "yes"
+    assert result.answers["urgency"].provider.type == "rules"  # local: answered
     assert (result.rule, result.outcome, result.priority, result.recommendation) == (
         "possible-emergency",
         Outcome.HUMAN_REVIEW,
@@ -178,47 +173,53 @@ def test_local_providers_answer_after_the_deadline(remote: Remote, inbox_pack: P
     )
 
 
-def test_a_deadline_never_automates(remote: Remote, inbox_pack: Pack) -> None:
-    """A case that automates with Jev's answers in time is held for a person once the deadline
-    has passed, with `timeout` recorded."""
-    providers = {"safety_screen": "rules_and_jev", "router": "jev"}
+def test_a_deadline_never_automates(remote: Remote, triage_agent: Pack) -> None:
+    """A case that automates with the agent service's answers in time is held for a person once
+    the deadline has passed, with `timeout` recorded."""
+    remote.labels["destination"] = "pharmacy"
+    providers = {"router": "agent", "screen": "agent"}
     case = message("Can you refill my lisinopril prescription? I have two days left.")
-    in_time = Decision(inbox_pack, providers=providers, deadline_s=30).decide(case)
+    in_time = Decision(triage_agent, providers=providers, deadline_s=30).decide(case)
     assert in_time.outcome is Outcome.AUTO and in_time.errors == {}
-    assert remote.calls == ["jev"]  # both slots' questions in one call
-    late = Decision(inbox_pack, providers=providers, deadline_s=EXPIRED).decide(case)
-    assert remote.calls == ["jev"]  # no call past the deadline
+    assert remote.calls == ["agent", "agent"]  # one call for each slot
+    late = Decision(triage_agent, providers=providers, deadline_s=EXPIRED).decide(case)
+    assert remote.calls == ["agent", "agent"]  # no call past the deadline
     assert late.outcome in (Outcome.HUMAN_REVIEW, Outcome.ABSTAIN)
-    assert late.errors == {"urgency": "jev:timeout", "destination": "timeout"}
+    assert late.errors == TIMED_OUT
 
 
-def test_the_deadline_belongs_to_one_decision(remote: Remote, inbox_pack: Pack) -> None:
+def test_the_deadline_belongs_to_one_decision(remote: Remote, triage_agent: Pack) -> None:
     """One Decision serves every thread, as on the server. The slow decision's deadline passes
-    during its Jev call, so that answer is cut and its LLM call is not made; the quick one
+    during its agent call, so that answer is cut and its LLM call is not made; the quick one
     starts after that deadline, during that call, and keeps its own."""
-    remote.delay = lambda kind, text: 2.8 if kind == "jev" and "slow" in text else 0.0
-    providers = {"safety_screen": "jev", "router": "llm"}
+    remote.delay = lambda kind, text: 2.8 if kind == "agent" and "slow" in text else 0.0
+    providers = {"router": "agent", "screen": "llm"}
     # Each decision has 2 s: the quick one's instant calls fit in it even on a loaded runner.
-    shared = Decision(inbox_pack, providers=providers, deadline_s=2.0)
+    shared = Decision(triage_agent, providers=providers, deadline_s=2.0)
 
     def decide(text: str) -> DecisionResult:
         if text.startswith("quick"):
-            time.sleep(2.2)  # after the slow decision's deadline, during its Jev call
+            time.sleep(2.2)  # after the slow decision's deadline, during its agent call
         return shared.decide(message(text))
 
     slow, quick = parallel_map(decide, ["slow: a rash on my arm", "quick: a rash on my arm"], 2)
-    assert slow.errors == {"urgency": "timeout", "destination": "timeout"}
+    assert slow.errors == TIMED_OUT
     assert quick.errors == {} and quick.answers["destination"].label == "nurse"
-    assert sorted(remote.calls) == ["jev", "jev", "llm"]
+    assert sorted(remote.calls) == ["agent", "agent", "llm"]
     assert deadline.remaining() is None  # none outside a decision
 
 
 def test_reference_decisions_never_see_the_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every shipped pack on its default (local) providers decides each of its behaviour tests
-    exactly as before, with a deadline that passed before it started."""
+    """Every agent of the test fixtures' folder, on its default providers (local, or canned
+    answers while no agent service is set), decides each of its behaviour tests exactly as
+    before, with a deadline that passed before it started."""
     monkeypatch.delenv(SETTING, raising=False)
-    packs = [load_pack(root) for root in sorted(PACKS.iterdir()) if (root / "agent.yaml").exists()]
-    assert len(packs) == 5
+    packs = [
+        load_pack(root)
+        for root in sorted(FIXTURE_AGENTS.iterdir())
+        if (root / "agent.yaml").exists()
+    ]
+    assert packs
 
     def comparable(result: DecisionResult) -> dict[str, Any]:
         shown = result.to_dict()
@@ -236,34 +237,37 @@ def test_reference_decisions_never_see_the_deadline(monkeypatch: pytest.MonkeyPa
 def test_the_cpu_budget_is_not_the_deadline(
     remote: Remote, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A community pack's patterns share a budget of CPU time (`core/patterns.py`); waiting for
-    a remote member costs it nothing, and a passed deadline leaves it untouched."""
+    """The patterns of an agent the deployment does not own share a budget of CPU time
+    (`core/patterns.py`); waiting for a remote slot asked before its rules costs it nothing, and
+    a passed deadline leaves it untouched."""
 
-    def llm_then_rules(manifest: dict[str, Any]) -> None:
-        manifest["providers"]["reader"]["variants"]["llm_then_rules"] = {
-            "type": "any_of",
-            "escalate": {"topic": "billing"},
-            "members": {
-                "llm": {"type": "llm", "state_fields": ["message"]},
-                "rules": {"type": "rules", "config": "logic/rules.yaml"},
-            },
+    def llm_first(manifest: dict[str, Any]) -> None:
+        manifest["questions"]["upset"] = {
+            "type": "boolean",
+            "instructions": "Does the message sound upset?",
+            "criteria": {"yes": "It does.", "no": "It does not."},
         }
+        screen = {
+            "answers": ["upset"],
+            "use": "llm",
+            "variants": {"llm": {"type": "llm", "state_fields": ["message"]}},
+        }
+        manifest["providers"] = {"screen": screen, **manifest["providers"]}  # asked first
 
-    pack = load_pack(sorter(tmp_path, manifest=llm_then_rules))
-    assert pack.community
+    pack = pulled(sorter(tmp_path, manifest=llm_first))
+    assert pack.bounded
     monkeypatch.setattr(decision_module, "time_budget", lambda: patterns.time_budget(0.2))
     remote.delay = lambda kind, text: 0.5  # waited for, longer than the budget
     case = {"message": "A question about my bill"}
-    providers = {"reader": "llm_then_rules"}
 
-    waited = Decision(pack, providers=providers, deadline_s=30).decide(case)
+    waited = Decision(pack, deadline_s=30).decide(case)
     assert remote.calls == ["llm"]
     assert waited.errors == {}  # no `time_budget`: the rules ran after the wait
     assert waited.answers["topic"].label == "billing"
 
-    late = Decision(pack, providers=providers, deadline_s=EXPIRED).decide(case)
+    late = Decision(pack, deadline_s=EXPIRED).decide(case)
     assert remote.calls == ["llm"]
-    assert late.errors == {"topic": "llm:timeout"}
+    assert late.errors == {"upset": "timeout"}
     assert late.answers["topic"].label == "billing"
 
 
@@ -342,111 +346,9 @@ def test_a_slow_response_stops_at_its_own_timeout_outside_a_decision() -> None:
     assert took < 2.5  # the timeout, one chunk, and room for a busy runner; not 5 s
 
 
-# -- the CQL engine ----------------------------------------------------------------------------
-
-
-FHIR_JSON = "application/fhir+json"
-
-
-def trial_case(trial: Pack) -> dict[str, Any]:
-    return dict(load_cases(trial)[0]["input"])
-
-
-def test_cql_after_the_deadline_records_timeout_without_a_request(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    trial = resolve_pack(TRIAL)
-    monkeypatch.setenv("MENDARI_CQL_URL", CQL_ENGINE)
-
-    def no_client(**kwargs: Any) -> GuardedHttp:
-        raise AssertionError("no request to the CQL engine past the deadline")
-
-    monkeypatch.setattr(cql_module, "GuardedHttp", no_client)
-    decision = Decision(trial, providers={"structured": "cql"}, deadline_s=EXPIRED)
-    result = decision.decide(trial_case(trial))
-    assert not result.rejected
-    structured = trial.manifest.providers["structured"].answers
-    assert {result.errors[question] for question in structured} == {"timeout"}
-    assert result.outcome is not Outcome.AUTO
-
-
-def cql_engine(monkeypatch: pytest.MonkeyPatch, evaluate: Any) -> list[tuple[str, float]]:
-    """A CQL engine that stores the Library and answers `$evaluate` with `evaluate`; the
-    method and read timeout of each request it was sent."""
-    seen: list[tuple[str, float]] = []
-
-    def answer(request: httpx.Request) -> httpx.Response:
-        seen.append((request.method, request.extensions["timeout"]["read"]))
-        if request.method == "PUT":
-            return httpx.Response(
-                200, json={"resourceType": "Library"}, headers={"content-type": FHIR_JSON}
-            )
-        return evaluate(request)
-
-    transport = httpx.MockTransport(answer)
-    monkeypatch.setattr(
-        cql_module,
-        "GuardedHttp",
-        lambda **kw: GuardedHttp(transport=transport, allowed={"https://cql.example.org"}),
-    )
-    return seen
-
-
-def test_a_cql_request_waits_at_most_what_remains(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The Library upload and `$evaluate`, the request every decision makes once the Library
-    is there, each wait at most what remains of the deadline; cut off by it, the failure is
-    `timeout`. Outside a decision the same failure is `unavailable`, at the usual 10 s."""
-    trial = resolve_pack(TRIAL)
-    monkeypatch.setenv("MENDARI_CQL_URL", CQL_ENGINE)
-
-    def slow(request: httpx.Request) -> httpx.Response:
-        # As a real engine too slow to answer: the read times out after the timeout it was
-        # given (at once outside a decision, to keep the test quick).
-        waited = request.extensions["timeout"]["read"]
-        time.sleep(waited + 0.05 if waited < 10 else 0)
-        raise httpx.ReadTimeout("slow", request=request)
-
-    seen = cql_engine(monkeypatch, slow)
-    provider = build_provider(trial, "structured", "cql")
-    with deadline.decision_deadline(2.0), pytest.raises(ProviderError) as error:
-        provider.answer(trial_case(trial))
-    assert error.value.code == "timeout"
-    assert [method for method, _ in seen] == ["PUT", "POST"]
-    assert all(0 < waited <= 2.0 for _, waited in seen)
-    seen.clear()
-    with deadline.decision_deadline(2.0), pytest.raises(ProviderError) as error:
-        provider.answer(trial_case(trial))  # the Library is there: `$evaluate` alone
-    assert error.value.code == "timeout"
-    assert [method for method, _ in seen] == ["POST"] and 0 < seen[0][1] <= 2.0
-    seen.clear()
-    with pytest.raises(ProviderError) as error:
-        provider.answer(trial_case(trial))
-    assert error.value.code == "unavailable" and seen == [("POST", 10.0)]
-
-
-def test_a_cql_answer_still_arriving_stops_at_the_deadline(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An engine that sends its answer a little at a time is cut at the deadline, not after
-    every part has come (each part alone is within the clamped timeout)."""
-    trial = resolve_pack(TRIAL)
-    monkeypatch.setenv("MENDARI_CQL_URL", CQL_ENGINE)
-    cql_engine(
-        monkeypatch,
-        lambda request: httpx.Response(200, stream=Dripping(), headers={"content-type": FHIR_JSON}),
-    )
-    provider = build_provider(trial, "structured", "cql")
-    started = time.monotonic()
-    with deadline.decision_deadline(0.3), pytest.raises(ProviderError) as error:
-        provider.answer(trial_case(trial))
-    took = time.monotonic() - started
-    assert error.value.code == "timeout"
-    assert took < 2.5  # the deadline, one part, and room for a busy runner; not 5 s
-
-
 # -- credentials -------------------------------------------------------------------------------
 
-KEY = {"token": "jev-key", "expiresAt": 4_102_444_800_000}
+KEY = {"token": "connector-key", "expiresAt": 4_102_444_800_000}
 
 
 def test_a_connector_token_wait_stops_at_the_deadline() -> None:
@@ -461,7 +363,7 @@ def test_a_connector_token_wait_stops_at_the_deadline() -> None:
         release.wait(5)
         return httpx.Response(200, json=KEY)
 
-    token = ConnectorToken("jev/my-project", client=mock_client(connect), oidc=lambda: "oidc")
+    token = ConnectorToken("llm/my-project", client=mock_client(connect), oidc=lambda: "oidc")
     first = threading.Thread(target=token.get)
     first.start()
     try:
@@ -474,9 +376,9 @@ def test_a_connector_token_wait_stops_at_the_deadline() -> None:
     finally:
         release.set()
         first.join(5)
-    assert token.get() == "jev-key" and len(requests) == 1  # the other thread's fetch, kept
+    assert token.get() == "connector-key" and len(requests) == 1  # the other thread's fetch, kept
 
-    fresh = ConnectorToken("jev/my-project", client=mock_client(connect), oidc=lambda: "oidc")
+    fresh = ConnectorToken("llm/my-project", client=mock_client(connect), oidc=lambda: "oidc")
     with deadline.decision_deadline(EXPIRED), pytest.raises(ProviderError) as error:
         fresh.get()
     assert error.value.code == "timeout" and len(requests) == 1
@@ -508,12 +410,12 @@ def test_a_bad_deadline_setting_stops_the_server_at_startup(
 
 
 def test_the_deadline_setting_is_120_seconds_unless_set(
-    inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv(SETTING, raising=False)
-    assert decision_deadline_s() == 120 and Decision(inbox_pack).deadline_s == 120
+    assert decision_deadline_s() == 120 and Decision(triage_agent).deadline_s == 120
     for value in ("10", "270", " 60 "):
         monkeypatch.setenv(SETTING, value)
         assert decision_deadline_s() == int(value)
-    assert Decision(inbox_pack).deadline_s == 60
-    assert Decision(inbox_pack, deadline_s=5).deadline_s == 5  # a caller's own, e.g. a test
+    assert Decision(triage_agent).deadline_s == 60
+    assert Decision(triage_agent, deadline_s=5).deadline_s == 5  # a caller's own, e.g. a test
