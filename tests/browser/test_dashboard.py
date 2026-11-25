@@ -714,8 +714,8 @@ def test_a_model_is_named_whole_unless_a_composite_joins_its_members(page: Page)
     open_agent(page, TRIAGE)
     named = page.evaluate(
         """async () => {
-          const agent = await import(new URL("/static/manifest.js", location).href);
-          const name = (variant, type, model) => agent.providerName({ variant, type, model });
+          const manifest = await import(new URL("/static/manifest.js", location).href);
+          const name = (variant, type, model) => manifest.providerName({ variant, type, model });
           return [
             name("llm", "llm", "anthropic.claude-sonnet-5-20261001-v1:0"),
             name("llm", "llm", "llama3.1:8b"),
@@ -741,10 +741,10 @@ def test_the_picker_groups_every_origin_and_leaves_no_agent_out(page: Page) -> N
     open_agent(page, TRIAGE)
     grouped = page.evaluate(
         """async () => {
-          const agent = await import(new URL("/static/manifest.js", location).href);
+          const manifest = await import(new URL("/static/manifest.js", location).href);
           const agent = (id, origin) => ({ id, name: id, version: "1.0.0", origin });
           const box = document.createElement("select");
-          box.innerHTML = agent.agentOptions([
+          box.innerHTML = manifest.agentOptions([
             agent("a/maintained", "maintained"), agent("a/pulled", "hub"),
             agent("a/stored", "store"), agent("a/local", "local"), agent("a/new", "elsewhere"),
           ]);
