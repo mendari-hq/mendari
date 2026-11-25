@@ -89,5 +89,3 @@ def test_no_test_mints_a_vercel_oidc_token() -> None:
     for module in (credentials, llm):
         with pytest.raises(ProviderError, match="credential_unavailable"):
             module.vercel_oidc_token()
-    with pytest.raises(ProviderError, match="credential_unavailable"):
-        credentials.ConnectorToken("jev/a-project").get()

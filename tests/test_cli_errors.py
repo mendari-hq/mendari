@@ -213,12 +213,6 @@ USAGE = {"list", "demo"}
 # Commands whose answer to a broken input is their check report, one problem a line on stdout,
 # and exit 1, as for any failed check: the report is the result, not an error.
 REPORTS = {"smart check"}
-# The commands wave 6 removes, until their code goes (a name, or the first word of a group's):
-REMOVED: set[str] = set()  # none left
-
-
-def staying(command: str) -> bool:
-    return command not in REMOVED and command.split()[0] not in REMOVED
 
 
 def argv_for(command: str, places: dict[str, str]) -> list[str]:
@@ -227,7 +221,7 @@ def argv_for(command: str, places: dict[str, str]) -> list[str]:
 
 
 def test_every_command_has_a_broken_input() -> None:
-    assert sorted(filter(staying, commands(build_parser()))) == sorted(BROKEN)
+    assert sorted(commands(build_parser())) == sorted(BROKEN)
 
 
 @pytest.mark.parametrize("command", sorted(BROKEN))

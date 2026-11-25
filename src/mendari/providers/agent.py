@@ -201,10 +201,9 @@ class AgentProvider(Provider):
         questions: Mapping[str, Question],
         *,
         bounded: bool,
-        trained: bool,
     ) -> list[str]:
         settings, problems = cls._settings(where, config, questions, bounded=bounded)
-        if settings is not None and settings.calibration is not None and trained:
+        if settings is not None and settings.calibration is not None:
             problems = agent_calibration.file_problems(pack, where, settings.calibration)
             if problems:
                 return problems

@@ -118,7 +118,6 @@ class RulesProvider(Provider):
         questions: Mapping[str, Question],
         *,
         bounded: bool,
-        trained: bool,
     ) -> list[str]:
         closed = closed_problems(FileConfig, where, config)
         if closed:

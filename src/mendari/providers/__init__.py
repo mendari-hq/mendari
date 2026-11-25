@@ -20,7 +20,6 @@ from mendari.providers.base import (
     Provider,
     ProviderInfo,
     ProviderOutput,
-    checking_once,
     prefixed,
 )
 from mendari.providers.check import CheckConfig, CheckProvider
@@ -89,32 +88,28 @@ def provider_allow_list() -> list[str] | None:
     return sorted(allowed)
 
 
-def config_problems(pack: Pack, *, trained: bool = True) -> list[str]:
+def config_problems(pack: Pack) -> list[str]:
     """Why any variant of any slot of `pack` cannot run, as far as its provider can tell without
     the environment or the network (`Provider.config_problems`): its closed config, its pack
     files, the slot's questions and, for a pack the deployment does not own (`Pack.bounded`),
     `state_fields` on every model variant and member. Each problem names
-    `providers.<slot>.variants.<variant>` first. `trained=False` leaves the calibrations
-    unread, as `load_pack(missing_models_ok=True)` does.
+    `providers.<slot>.variants.<variant>` first.
 
     `load_pack` runs it: a pack the deployment does not own is refused for any problem, an owned
     one loads with them as `Pack.warnings`. `mendari validate` refuses both."""
     bounded = pack.bounded
     problems: list[str] = []
-    with checking_once():  # a file several variants name is read once
-        for slot_name, slot in pack.manifest.providers.items():
-            questions = {key: pack.manifest.questions[key] for key in slot.answers}
-            for name, variant in slot.variants.items():
-                where = f"providers.{slot_name}.variants.{name}"
-                provider_type = PROVIDER_TYPES.get(variant.type)
-                if provider_type is None:
-                    problems.append(f"{where}: unknown provider type {variant.type!r}")
-                    continue
-                config = {"type": variant.type, **(variant.model_extra or {})}
-                found = provider_type.config_problems(
-                    pack, where, config, questions, bounded=bounded, trained=trained
-                )
-                problems += prefixed(where, found)
+    for slot_name, slot in pack.manifest.providers.items():
+        questions = {key: pack.manifest.questions[key] for key in slot.answers}
+        for name, variant in slot.variants.items():
+            where = f"providers.{slot_name}.variants.{name}"
+            provider_type = PROVIDER_TYPES.get(variant.type)
+            if provider_type is None:
+                problems.append(f"{where}: unknown provider type {variant.type!r}")
+                continue
+            config = {"type": variant.type, **(variant.model_extra or {})}
+            found = provider_type.config_problems(pack, where, config, questions, bounded=bounded)
+            problems += prefixed(where, found)
     return problems
 
 

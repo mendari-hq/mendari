@@ -45,8 +45,6 @@ from mendari.core.templates import template_problems
 from mendari.errors import PackValidationError
 
 MANIFEST = "agent.yaml"
-# The names a manifest is looked for under: its one name.
-MANIFEST_NAMES = (MANIFEST,)
 # Attestations *about* a pack (eval reports, the rendered card) are excluded from its digest,
 # otherwise publishing a benchmark would change the identity of the pack it describes.
 _DIGEST_EXCLUDED_DIRS = {"evals"}
@@ -316,17 +314,13 @@ def manifests_under(base: Path) -> list[Path]:
     )
 
 
-def load_pack(
-    path: str | Path, *, missing_models_ok: bool = False, origin: Origin = "local"
-) -> Pack:
-    """Load and validate an agent. `missing_models_ok` loads an agent whose calibrations
-    (`calibration`) do not exist yet; `origin` is where it was
-    found (`core/registry.py` knows). A pack the deployment does not own (`Pack.bounded`: a
-    pack from a registry or a store that is not a bundled agent of this release) is
-    checked as it will run: its patterns on RE2, its schema's keywords and its caps; and one
-    from a registry never has a bundled agent's id and version with other files
-    (`_shadow_problem`). Every other pack's input schema is held to the expansion bounds
-    (`core/input_schema.py` `expansion_problems`).
+def load_pack(path: str | Path, *, origin: Origin = "local") -> Pack:
+    """Load and validate an agent. `origin` is where it was found (`core/registry.py` knows).
+    A pack the deployment does not own (`Pack.bounded`: a pack from a registry or a store that
+    is not a bundled agent of this release) is checked as it will run: its patterns on RE2, its
+    schema's keywords and its caps; and one from a registry never has a bundled agent's id and
+    version with other files (`_shadow_problem`). Every other pack's input schema is held to the
+    expansion bounds (`core/input_schema.py` `expansion_problems`).
 
     Every provider variant and composite member is checked against its provider's closed config
     and its pack files (`providers.config_problems`, without the environment or the network),
@@ -385,7 +379,7 @@ def load_pack(
 
     problems = [
         f"missing file {relative!r}"
-        for where, relative in _referenced_files(manifest, models=not missing_models_ok)
+        for where, relative in _referenced_files(manifest)
         if not _pack_file(root, relative, label, digested, where).is_file()
     ]
     if problems:
@@ -448,7 +442,7 @@ def load_pack(
     # Every variant against its provider's closed config, as `mendari validate` checks it.
     from mendari.providers import config_problems  # `providers/base.py` imports this module
 
-    problems = config_problems(pack, trained=not missing_models_ok)
+    problems = config_problems(pack)
     if manifest.rubrics:
         # Each rubric's canned judge, as `mendari validate` checks it (spec 0.4 section 18.2).
         from mendari.providers.judge import rubric_problems  # imports this module
@@ -590,10 +584,9 @@ def _digest(root: Path, label: str = "") -> tuple[str, Digested, dict[str, str]]
 # composite member's config. Every one is checked at load, naming the field; a file read under
 # any other key goes through `Pack.path`, which accepts only a digested file as well.
 _PROVIDER_FILE_KEYS = ("config", "calibration", "mock_file")
-_TRAINED_FILE_KEYS = ("calibration",)  # may not exist yet (`missing_models_ok`)
 
 
-def _referenced_files(m: PackManifest, *, models: bool = True) -> list[tuple[str, str]]:
+def _referenced_files(m: PackManifest) -> list[tuple[str, str]]:
     """Every file the manifest names that must be inside the digest, as (the manifest field
     naming it, its path). `evaluation.benchmark` is not one: it is an attestation."""
     files = [("inputs.schema", m.inputs.json_schema)]
@@ -611,7 +604,6 @@ def _referenced_files(m: PackManifest, *, models: bool = True) -> list[tuple[str
         (f"evaluation.grades.{name}.file", grades.file)
         for name, grades in m.evaluation.grades.items()
     ]
-    keys = [key for key in _PROVIDER_FILE_KEYS if models or key not in _TRAINED_FILE_KEYS]
     for slot_name, slot in m.providers.items():
         for variant_name, variant in slot.variants.items():
             where = f"providers.{slot_name}.variants.{variant_name}"
@@ -625,7 +617,9 @@ def _referenced_files(m: PackManifest, *, models: bool = True) -> list[tuple[str
                 ]
             for at, config in configs:
                 files += [
-                    (f"{at}.{key}", config[key]) for key in keys if isinstance(config.get(key), str)
+                    (f"{at}.{key}", config[key])
+                    for key in _PROVIDER_FILE_KEYS
+                    if isinstance(config.get(key), str)
                 ]
     return files
 

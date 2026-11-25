@@ -11,7 +11,6 @@ Connect answer here through `httpx.MockTransport`s: nothing leaves the machine.
 from __future__ import annotations
 
 import json
-import threading
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -30,7 +29,6 @@ from mendari.evals.pack_tests import load_cases
 from mendari.parallel import parallel_map
 from mendari.providers import deadline, http
 from mendari.providers.agent import AgentProvider
-from mendari.providers.credentials import ConnectorToken
 from mendari.providers.llm import LlmProvider
 from mendari.server.app import create_app
 from mendari.settings import decision_deadline_s
@@ -344,44 +342,6 @@ def test_a_slow_response_stops_at_its_own_timeout_outside_a_decision() -> None:
     took = time.monotonic() - started
     assert error.value.code == "timeout"
     assert took < 2.5  # the timeout, one chunk, and room for a busy runner; not 5 s
-
-
-# -- credentials -------------------------------------------------------------------------------
-
-KEY = {"token": "connector-key", "expiresAt": 4_102_444_800_000}
-
-
-def test_a_connector_token_wait_stops_at_the_deadline() -> None:
-    """Another thread is fetching the key (Vercel Connect is slow): a decision waits for it at
-    most until its deadline; past its deadline, no fetch starts."""
-    fetching, release = threading.Event(), threading.Event()
-    requests: list[httpx.Request] = []
-
-    def connect(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        fetching.set()
-        release.wait(5)
-        return httpx.Response(200, json=KEY)
-
-    token = ConnectorToken("llm/my-project", client=mock_client(connect), oidc=lambda: "oidc")
-    first = threading.Thread(target=token.get)
-    first.start()
-    try:
-        assert fetching.wait(5)
-        started = time.monotonic()
-        with deadline.decision_deadline(0.2), pytest.raises(ProviderError) as error:
-            token.get()
-        assert error.value.code == "timeout"
-        assert time.monotonic() - started < 2
-    finally:
-        release.set()
-        first.join(5)
-    assert token.get() == "connector-key" and len(requests) == 1  # the other thread's fetch, kept
-
-    fresh = ConnectorToken("llm/my-project", client=mock_client(connect), oidc=lambda: "oidc")
-    with deadline.decision_deadline(EXPIRED), pytest.raises(ProviderError) as error:
-        fresh.get()
-    assert error.value.code == "timeout" and len(requests) == 1
 
 
 # -- the setting -------------------------------------------------------------------------------

@@ -8,7 +8,6 @@ import math
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Iterator, Mapping
-from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from typing import Any, ClassVar, TypeVar
@@ -203,14 +202,12 @@ class Provider(ABC):
         questions: Mapping[str, Question],
         *,
         bounded: bool,
-        trained: bool,
     ) -> list[str]:
         """Why `config` (a variant's or a composite member's, with its `type`) cannot answer
         `questions` in `pack`, or nothing: every check that reads neither the environment nor
         the network, each problem naming `where` (the variant, or the member) or the pack file
         it is about. Its closed config model refuses any key it does not read. `bounded`: the
-        pack is one the deployment does not own (`Pack.bounded`), held to more. `trained`: the
-        calibrations are read too (`load_pack(missing_models_ok=True)` leaves them unread).
+        pack is one the deployment does not own (`Pack.bounded`), held to more.
         `load_pack` runs it on every variant (`providers.config_problems`:
         a pack the deployment does not own is refused, an owned one warned) and so does
         `mendari validate`; each constructor raises on the checks a variant was refused for
@@ -304,34 +301,6 @@ def read_problems(read: Callable[[], Any]) -> tuple[Any, list[str]]:
         return read(), []
     except PackValidationError as error:
         return None, list(error.problems)
-
-
-# What one `providers.config_problems` call has already worked out about a pack file, by key: a
-# file several variants name is then read and checked once.
-# None outside such a call, so nothing outlives it (a file edited later is read again, and
-# refused).
-_CHECKED: ContextVar[dict[Hashable, Any] | None] = ContextVar("checked", default=None)
-
-
-@contextmanager
-def checking_once() -> Iterator[None]:
-    """Within this block, `once` computes each key's value a single time."""
-    token = _CHECKED.set({})
-    try:
-        yield
-    finally:
-        _CHECKED.reset(token)
-
-
-def once(key: Hashable, compute: Callable[[], T]) -> T:
-    """`compute()`, computed once per key inside `checking_once`, every time outside it."""
-    checked = _CHECKED.get()
-    if checked is None:
-        return compute()
-    if key not in checked:
-        checked[key] = compute()
-    value: T = checked[key]
-    return value
 
 
 def state_fields_problem(kind: str) -> str:

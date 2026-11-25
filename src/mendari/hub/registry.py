@@ -131,7 +131,6 @@ from mendari.hub import checkpoint as chain_checkpoint
 from mendari.hub import evaluations as publisher_evaluations
 from mendari.hub import site_reports as site_report_store
 from mendari.hub import sites as site_store
-from mendari.server import paths
 from mendari.server.app import HSTS, SECURITY_HEADERS
 from mendari.server.limits import Limiter, LimitSettings, Rate, client_ip, parse_rate
 
@@ -2163,8 +2162,7 @@ REGISTRY_RATES: dict[str, Rate] = {
     "registry_ticket": Rate(60, 3600, 10),
     "registry_ticket_key": Rate(20, 3600, 5),
 }
-# A route's current path; `_rate_class` reads a renamed route's former path as its current one
-# first (`server/paths.py`), so a report counts against the same limit under either.
+# The paths `_rate_class` sorts by: a site's reports, and its ticket requests and withdrawals.
 _REPORTS = re.compile(r"^/v1/agents/[^/]+/[^/]+/[^/]+/reports$")
 _TICKETS = re.compile(r"^/v1/tickets(?:/[^/]+/withdraw)?$")
 
@@ -2214,7 +2212,7 @@ def _rate_class(request: Request, known: Callable[[str], str | None]) -> tuple[s
     # The path as the registry's routes see it: under a mount (LP-19d) without the mount's.
     root = str(request.scope.get("root_path", ""))
     path = str(request.scope["path"])
-    path = paths.current(path[len(root) :] if root and path.startswith(root) else path)
+    path = path[len(root) :] if root and path.startswith(root) else path
     if _TICKETS.match(path):  # a site signs, it has no token: per address
         return "registry_ticket", f"ip:{client_ip(request)}"
     kind = "registry_report" if _REPORTS.match(path) else "registry_write"
@@ -2405,7 +2403,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         packs = sorted(p["id"] for p in store.latest(viewer) if p["namespace"] == namespace)
         return {**found, "packs": packs}
 
-    @paths.route(app.put, "/v1/agents/{namespace}/{name}/{version}", status_code=201)
+    @app.put("/v1/agents/{namespace}/{name}/{version}", status_code=201)
     async def publish(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         await run_in_threadpool(require_publisher, request, namespace)
         if not _NAME.match(name) or not _VERSION.match(version):
@@ -2438,8 +2436,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         except ValidationError as error:
             raise RequestValidationError(error.errors()) from None
 
-    @paths.route(
-        app.post,
+    @app.post(
         "/v1/agents/{namespace}/{name}/{version}/yank",
         status_code=201,
         openapi_extra=_body_of(YankRequest),
@@ -2475,7 +2472,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         a running server checks the agents it pulled against this list."""
         return store.recalled(viewer_of(request))
 
-    @paths.route(app.get, "/v1/agents/{namespace}/{name}", name="agent")
+    @app.get("/v1/agents/{namespace}/{name}", name="agent")
     def pack(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """An agent: its versions, the recalled ones apart, and its newest version that is not
         recalled (`latest`, null when every version is)."""
@@ -2495,14 +2492,14 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             "latest": served(live[-1], viewer) if live else None,
         }
 
-    @paths.route(app.get, "/v1/agents/{namespace}/{name}/tickets", name="agent_tickets")
+    @app.get("/v1/agents/{namespace}/{name}/tickets", name="agent_tickets")
     def pack_tickets(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """An agent's tickets by verified site, digest and configuration: how many were
         reported, are unreported (open or expired) and were withdrawn (LP-22e). No commitment
         and no secret is served."""
         return {"id": f"{namespace}/{name}", "tickets": store.pack_tickets(namespace, name)}
 
-    @paths.route(app.get, "/v1/agents/{namespace}/{name}/site-evidence", name="agent_site_evidence")
+    @app.get("/v1/agents/{namespace}/{name}/site-evidence", name="agent_site_evidence")
     def pack_site_evidence(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """What sites' signed reports say of an agent (`mendari.site-evidence/1`, LP-22g): per
         digest and configuration, each site's k of n, then the pooled figures and the
@@ -2511,7 +2508,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             raise HubError("no such agent", 404)
         return site_evidence.evidence(store, namespace, name)
 
-    @paths.route(app.get, "/v1/agents/{namespace}/{name}/reports/{report_id}")
+    @app.get("/v1/agents/{namespace}/{name}/reports/{report_id}")
     def signed_report(
         request: Request, namespace: str, name: str, report_id: str
     ) -> dict[str, Any]:
@@ -2522,7 +2519,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
                 raise HubError("no such report", 404)
         return store.signed_report(namespace, name, report_id)
 
-    @paths.route(app.get, "/v1/agents/{namespace}/{name}/reports")
+    @app.get("/v1/agents/{namespace}/{name}/reports")
     def reports(request: Request, namespace: str, name: str) -> dict[str, Any]:
         """Each site's shared results, version by version (unverified until sites sign them)."""
         viewer = viewer_of(request)
@@ -2530,8 +2527,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             raise HubError(f"no agent {namespace}/{name}", 404)
         return {"id": f"{namespace}/{name}", **store.reports(namespace, name, viewer)}
 
-    # Routes made after the rename: they never had a former path, so `paths.route` is not
-    # theirs. Each is registered before `/{version}`, which would read its last part as one.
+    # Each is registered before `/{version}`, which would read its last part as one.
     @app.get("/v1/agents/{namespace}/{name}/evaluation", name="agent_evaluation")
     def agent_evaluation(
         request: Request, namespace: str, name: str, version: str | None = None
@@ -2586,7 +2582,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         request.state.badge = True  # an image was made: the badge's headers (the middleware)
         return Response(image, status, media_type=BADGE_TYPE)
 
-    @paths.route(app.get, "/v1/agents/{namespace}/{name}/{version}", name="agent_version")
+    @app.get("/v1/agents/{namespace}/{name}/{version}", name="agent_version")
     def pack_version(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         viewer = viewer_of(request)
         return served(store.version(namespace, name, version, viewer), viewer)
@@ -2603,7 +2599,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             "figures": figures.registry(version),
         }
 
-    @paths.route(app.get, "/v1/agents/{namespace}/{name}/{version}/archive", name="agent_archive")
+    @app.get("/v1/agents/{namespace}/{name}/{version}/archive", name="agent_archive")
     def pack_archive(request: Request, namespace: str, name: str, version: str) -> Response:
         viewer = viewer_of(request)
         found = store.version(namespace, name, version, viewer)
@@ -2621,7 +2617,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             },
         )
 
-    @paths.route(app.post, "/v1/agents/{namespace}/{name}/{version}/reports", status_code=201)
+    @app.post("/v1/agents/{namespace}/{name}/{version}/reports", status_code=201)
     async def add_report(
         request: Request, namespace: str, name: str, version: str
     ) -> dict[str, Any]:
@@ -2669,7 +2665,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             )
         )
 
-    @paths.route(app.post, "/v1/agents/{namespace}/{name}/{version}/evaluations", status_code=201)
+    @app.post("/v1/agents/{namespace}/{name}/{version}/evaluations", status_code=201)
     async def publish_evaluation(
         request: Request, namespace: str, name: str, version: str
     ) -> dict[str, Any]:
@@ -2693,7 +2689,7 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             lambda: store.publish_evaluation(namespace, name, version, parsed, by=actor(request))
         )
 
-    @paths.route(app.get, "/v1/agents/{namespace}/{name}/{version}/evaluations")
+    @app.get("/v1/agents/{namespace}/{name}/{version}/evaluations")
     def evaluations(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         """A version's live publisher evaluations (`mendari.publisher-evaluations/1`), each
         with the figures the registry works out from its counts, whether it re-ran it, and

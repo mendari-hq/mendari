@@ -31,7 +31,7 @@ from mendari.server.auth import (
 from mendari.server.scopes import parse
 from tests.conftest import ROOT, encrypt_mode, message, signed_in
 from tests.support.platform import COMMUNICATION, PATIENT
-from tests.test_auth import REMOVED_ROUTES, attempt, expected
+from tests.test_auth import attempt, expected
 
 IDP = "https://idp.example.org"
 INBOX = "mendari-test/triage"  # the agent these tests decide with
@@ -144,8 +144,7 @@ def test_a_key_from_each_preset_gets_past_the_guard_on_its_calls_and_nothing_mor
     key = made.json()
     assert (key["role"], key["scope"], key["preset"]) == (preset.role, preset.scope, preset_id)
     headers = {"authorization": f"Bearer {key['key']}"}
-    every = presets.served(client.app.routes)  # type: ignore[attr-defined]
-    routes = [route for route in every if route not in REMOVED_ROUTES]
+    routes = presets.served(client.app.routes)  # type: ignore[attr-defined]
     settings = AuthSettings(IDP, "mendari", None, "roles", {}, None, None)
     with AuditStore(db) as store:
         guard = Auth(settings, store)

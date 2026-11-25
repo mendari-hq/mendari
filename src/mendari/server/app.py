@@ -62,7 +62,6 @@ from mendari.core.connections import ConnectionStore
 from mendari.core.connections import enabled as connections_enabled
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.https_only import is_local_host
-from mendari.core.origin import is_local
 from mendari.core.pack import Pack
 from mendari.core.pack_store import PackStore
 from mendari.core.phi import phi_policy, require_protection
@@ -331,16 +330,6 @@ class EvalRequest(BaseModel):
     # Evaluate another configuration than the deployed one (e.g. for the leaderboard); the
     # remote-call cap and daily budgets still apply.
     providers: dict[str, str] | None = None
-
-
-def _local_variant(pack: Pack, slot: str, variant: str) -> bool:
-    """Whether `variant` of a pack's provider `slot` decides on this machine (`is_local`); a
-    slot or variant the pack does not have is left for `Decision` to refuse."""
-    spec = pack.manifest.providers.get(slot)
-    config = spec.variants.get(variant) if spec is not None else None
-    if config is None:
-        return True
-    return is_local({"type": config.type, **(config.model_extra or {})})
 
 
 # Evaluations that call a metered, network-bound provider must fit one function invocation.

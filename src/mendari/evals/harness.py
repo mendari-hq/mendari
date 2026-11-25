@@ -40,11 +40,9 @@ from mendari.evals import confidence, metrics, operating_point
 from mendari.evals import ledger as ledgers
 from mendari.evals.ledger import Ledger
 from mendari.evals.operating_point import Targets
-from mendari.evals.result import FORMAT, result_from_ledger, result_sha256
+from mendari.evals.result import result_from_ledger, result_sha256
 from mendari.parallel import parallel_map
 from mendari.providers.base import Metered
-
-REPORT_FORMAT = FORMAT
 
 
 @dataclass(frozen=True)

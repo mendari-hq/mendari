@@ -90,7 +90,7 @@ def test_an_agents_work_is_found_by_what_its_mapping_focuses_on(tmp_path: Path) 
     assert smart_launch.focus_search(load_pack(every)) == ("ServiceRequest", {})
 
 
-def test_a_referral_patient_is_found_beside_the_prior_authorization_packs_orders(
+def test_an_order_patient_is_found_beside_other_synthetic_orders(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Other synthetic orders are tagged ServiceRequests too, and come first here (lab orders,

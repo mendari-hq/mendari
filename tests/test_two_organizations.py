@@ -167,8 +167,6 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
     ("POST", "/api/smart/logout"): "ending a launch. Not called: tests/test_smart.py",
 }
 NOT_CALLED = {route for route, why in DEPLOYMENT_WIDE.items() if "Not called" in why}
-# What the server still mounts of features wave 6 removes, until their code goes: none left.
-REMOVED_ROUTES: set[Route] = set()
 # What may appear in an organization's answers although it is not that organization's data:
 FIELDS = {
     "prev_hash": "an event's place in the deployment's one chain: the hash of the event before, "
@@ -2676,7 +2674,7 @@ def attribute(world: World) -> None:
 def covered(world: World) -> None:
     """Every mounted route is exercised by a call here or is one the allow-list does not call;
     and the allow-list names only mounted routes, each called unless it says why not."""
-    mounted = set(presets.served(world.app.routes)) - REMOVED_ROUTES
+    mounted = set(presets.served(world.app.routes))
     assert mounted - world.exercised - NOT_CALLED == set(), "a route no call here exercises"
     assert world.exercised <= mounted
     assert (set(DEPLOYMENT_WIDE) - MEMBERSHIPS_ONLY) <= mounted | NOT_CALLED

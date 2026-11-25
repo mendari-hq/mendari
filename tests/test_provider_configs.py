@@ -262,16 +262,16 @@ def test_an_owned_packs_unread_key_warns_and_it_still_serves(
     assert TestClient(clean_app).get("/api/health").json()["pack_warnings"] == {}
 
 
-def test_trained_files_are_read_only_when_trained(make: Callable[..., Path]) -> None:
-    """`load_pack(missing_models_ok=True)` does not read a `calibration`; a broken one is a
-    problem otherwise. A calibration file is checked whichever model it was fitted on: which
-    model runs is the deployment's."""
+def test_a_calibration_file_is_checked_whichever_model_it_was_fitted_on(
+    make: Callable[..., Path],
+) -> None:
+    """A broken `calibration` is a problem, whichever model it was fitted on: which model runs is
+    the deployment's."""
     other = {**VALID["llm"], "calibration": "models/mock_agent.json"}
     root = make({"llm": VALID["llm"], "other": other})
     (root / "models" / "calibration.json").write_text(
         json.dumps({"format": CALIBRATION_FORMAT, "model": "elsewhere/m", "temperatures": [1]})
     )
-    assert load_pack(root, origin="hub", missing_models_ok=True).warnings == ()
     assert refused(root) == [
         "providers.reader.variants.llm: the calibration file's temperatures are not a mapping",
         "providers.reader.variants.other: not a calibration file",
@@ -680,7 +680,7 @@ def test_every_config_a_provider_refuses_is_a_problem_at_load(
                 q: pack.manifest.questions[q] for q in pack.manifest.providers["reader"].answers
             }
             problems = PROVIDER_TYPES[config["type"]].config_problems(
-                pack, "w", config, questions, bounded=pack.bounded, trained=True
+                pack, "w", config, questions, bounded=pack.bounded
             )
             provider = builds(pack, config)
             assert provider is not None or problems, (pack.origin, config)

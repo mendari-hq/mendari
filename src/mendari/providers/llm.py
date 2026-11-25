@@ -164,11 +164,10 @@ class LlmProvider(Provider):
         questions: Mapping[str, Question],
         *,
         bounded: bool,
-        trained: bool,
     ) -> list[str]:
         settings, problems = cls._settings(where, config, questions, bounded=bounded)
         calibration = settings.calibration if settings is not None else None
-        if calibration is None or not trained:
+        if calibration is None:
             return problems
         # The calibration file's shape, whichever model it was fitted on: the model that runs
         # can be the deployment's (`LLM_MODEL`), and at build a file fitted on another is unused.

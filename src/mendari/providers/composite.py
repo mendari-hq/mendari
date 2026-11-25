@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from mendari.core.actions import Proposed
 from mendari.core.pack import Pack
 from mendari.core.spec import Question
-from mendari.errors import PackValidationError, ProviderError, ProviderErrorCode
+from mendari.errors import PackValidationError
 from mendari.providers.base import Answer, Provider, ProviderInfo, ProviderOutput, prefixed
 from mendari.providers.signals import Signals, merged
 
@@ -75,7 +75,6 @@ class CompositeProvider(Provider):
         questions: Mapping[str, Question],
         *,
         bounded: bool,
-        trained: bool,
     ) -> list[str]:
         """Its own settings, then each member's (`where.members.<name>`), as each member's
         provider checks them."""
@@ -87,7 +86,7 @@ class CompositeProvider(Provider):
         for name, member in settings.members.items():
             at = f"{where}.members.{name}"
             found = PROVIDER_TYPES[str(member["type"])].config_problems(
-                pack, at, member, questions, bounded=bounded, trained=trained
+                pack, at, member, questions, bounded=bounded
             )
             problems += prefixed(at, found)
         return problems
@@ -180,7 +179,3 @@ class CompositeProvider(Provider):
             actions=actions,
             signals=merged(o.signals for o in outputs.values()) if signals is None else signals,
         )
-
-
-def all_failed(failed: Mapping[str, ProviderErrorCode]) -> ProviderError:
-    return ProviderError(next(iter(failed.values())), "every member failed")

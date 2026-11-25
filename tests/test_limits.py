@@ -80,8 +80,6 @@ NO_STORE = "no-store"
 SCREENED = {"screen": "agent"}
 AUTOMATING = {"router": "llm", "screen": "agent"}
 CHECKED = {"screen": "checked"}  # its agent (`calm_agent`, a live service) checked by its rules
-# What the server still mounts of features wave 6 removes, until their code goes: none left.
-REMOVED_ROUTES: frozenset[tuple[str, str]] = frozenset()
 
 
 def sign_in_on(monkeypatch: pytest.MonkeyPatch, limits: str) -> None:
@@ -653,7 +651,7 @@ def test_costly_routes_have_their_class_reads_none_and_one_call_of_each_passes(
     )
     classes = {r: limiter.classify(*r, permission_for(*r)) for r in routes}
     added = MEMBERSHIPS_CLASSES if accounts == "memberships" else {}
-    limited = {r: c for r, c in classes.items() if c is not None and r not in REMOVED_ROUTES}
+    limited = {r: c for r, c in classes.items() if c is not None}
     assert limited == EXPECTED_CLASSES | added
     if accounts == "memberships":
         with AuditStore(tmp_path / "signin.db") as store:
@@ -1196,7 +1194,6 @@ def test_only_what_decides_counts_against_the_cap(
         if isinstance(route, Route)
         for method in route.methods or ()
         if permission_for(method, route.path) in ("decide", "launch_decide")
-        and (method, route.path) not in REMOVED_ROUTES
     }
     in_route = {("POST", "/cds-services/{service_id}")}
     not_decisions = {

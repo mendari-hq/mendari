@@ -69,8 +69,6 @@ ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 # service (`calm_agent`), the screen's checked by its keyword rules. A refill is automated; a
 # message with chest pain waits for a person.
 CHECKED = {"router": "agent", "screen": "checked"}
-# What the server still holds of features wave 6 removes, until their code goes: none left.
-REMOVED_ROUTES: set[tuple[str, str]] = set()
 
 
 class FakeIdp:
@@ -695,7 +693,6 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         for route in app.routes
         if isinstance(route, Route)
         for method in route.methods or ()
-        if (method, route.path) not in REMOVED_ROUTES
     )
     assert {r for r in routes if permission_for(*r) == "public"} == PUBLIC | BACKEND_PUBLIC
     assert {r for r in routes if r[1].startswith("/api/auth/clients")} == {

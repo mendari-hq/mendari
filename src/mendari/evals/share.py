@@ -47,7 +47,6 @@ from mendari.providers.composite import CompositeProvider
 
 MIN_GROUP = 10
 MAX_MEMBERS = 16  # the most members a shared composite may list
-SITE_REPORT_FORMAT = "mendari.site-report/1"  # the format a registry refuses by its name
 
 _NAME_PART = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}"
 _MODEL_PART = r"[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,127}"
