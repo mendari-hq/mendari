@@ -200,10 +200,10 @@ def invoke(
     links: CardLinks = NO_LINKS,
     declared: EhrDeclaration | None = None,
 ) -> dict[str, Any]:
-    """The cards for one hook request. An order hook decides each
-    draft order the pack is about, at most `most` of them; `charge` is given the number of
-    decisions about to be made, before anything is fetched or decided (the rate limit), and
-    refuses by raising. `links` says where the cards may link.
+    """The cards for one hook request. An order hook decides each draft order the pack is about,
+    at most `most` of them; `charge` is given the number of decisions about to be made, before
+    anything is fetched or decided (the rate limit), and refuses by raising. `links` says where
+    the cards may link.
 
     `declared` is what the request's `fhirServer` does not offer, as the site declared it for
     the caller's organization (`standards/ehr_declarations.py`): a prefetch key of such a type,
