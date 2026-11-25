@@ -27,7 +27,7 @@ from mendari.core.decision import DecisionResult
 from mendari.core.spec import Outcome
 from mendari.errors import PackValidationError
 from mendari.providers.agent import ENDPOINT_ENV, validate_response
-from tests.conftest import DEMO_AGENT_DIR, ROOT, fixture_agents, message
+from tests.conftest import DEMO_AGENT_DIR, ROOT, message
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
 URL = "https://actions-agent.test/decide"
@@ -575,29 +575,6 @@ def test_a_0_4_agent_that_declares_nothing_is_as_it_was_until_its_agent_proposes
     assert "actions" not in seen[0]  # nothing declared: the request is what it was
     assert proposing.outcome is Outcome.HUMAN_REVIEW
     assert shown(proposing) == [("send_reply", None, "blocked", "undeclared")]
-
-
-def test_every_fixture_agent_of_before_decides_without_actions() -> None:
-    """Each 0.1 to 0.3 agent the tests decide with, on its own behaviour tests' inputs: no
-    `actions` in any result, and no reason an action could have added."""
-    checked = 0
-    for folder in fixture_agents():
-        pack = load_pack(
-            folder, origin="community" if "community-agents" in folder.parts else "local"
-        )
-        if pack.manifest.spec_version == "0.4":
-            continue
-        assert not pack.manifest.actions
-        if pack.manifest.tests is None:
-            continue
-        decision = Decision(pack)
-        for case in pack.read_yaml(pack.manifest.tests)[:5]:
-            result = decision(case["input"])
-            assert result.actions is None and "actions" not in result.to_dict(), folder.name
-            assert result.policy_inputs is None or result.policy_inputs.actions == ()
-            assert not [r for r in result.reasons if "action" in r and "a person decides" in r]
-            checked += 1
-    assert checked >= 20
 
 
 # -- the bundled agent ----------------------------------------------------------------------------

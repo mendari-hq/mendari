@@ -81,9 +81,8 @@ jobs:
       - name: The test fixtures' agents pass their behaviour tests
         if: matrix.python == '3.12'
         env:
-          MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
-          MENDARI_DATASETS_PATH: tests/fixtures/datasets
-        run: for agent in tests/fixtures/reference-agents/*/; do uv run mendari test "$agent"; done
+          MENDARI_AGENTS_PATH: tests/fixtures/agents
+        run: for agent in tests/fixtures/agents/*/; do uv run mendari test "$agent"; done
       - name: Postgres container logs on failure
         if: failure() && matrix.python == '3.12'
         run: docker logs --tail 80 mendari-pg || true
@@ -163,8 +162,7 @@ jobs:
       # The terminology and the sandbox's samples are also the test fixtures' agents', beside
       # the bundled demo agent's: they are on the search path here. A step that needs one of
       # them to decide names its directory.
-      MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
-      MENDARI_DATASETS_PATH: tests/fixtures/datasets
+      MENDARI_AGENTS_PATH: tests/fixtures/agents
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -211,11 +209,11 @@ jobs:
       - name: What the sandbox posts, for the demo agent and for the test fixtures' message agent
         run: >-
           uv run python scripts/sandbox_fhir_sample.py var/fhir-samples
-          --agent tests/fixtures/reference-agents/triage
+          --agent tests/fixtures/agents/triage
       - name: What Mendari makes of FHIR input, for the demo agent and for each test-fixture agent on its US Core fixture
         run: >-
           uv run python scripts/fhir_output_sample.py var/fhir-samples
-          --fixture chart=tests/fixtures/reference-agents/chart-summary
+          --fixture chart=tests/fixtures/agents/chart-summary
       - run: >-
           uv run python scripts/fhir_validate.py --offline
           --ig var/fhir-terminology
@@ -662,7 +660,7 @@ jobs:
       MENDARI_PUBLIC_URL: http://127.0.0.1:8000
       # The engine also serves the test fixtures' agents, for the one whose automation the
       # committee approves.
-      MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
+      MENDARI_AGENTS_PATH: tests/fixtures/agents
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -682,7 +680,7 @@ jobs:
       - name: The pilot on the demo agent, the committee approving a risk level 2 agent
         run: >-
           uv run mendari sandbox pilot-check --engine http://127.0.0.1:8000
-          --approve tests/fixtures/reference-agents/clinical-review
+          --approve tests/fixtures/agents/clinical-review
       - if: failure()
         run: tail -100 /tmp/engine.log
 

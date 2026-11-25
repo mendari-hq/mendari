@@ -29,11 +29,10 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack, load_pack
-from mendari import sandbox as _sandbox
 from mendari.core import reference as _reference
 from mendari.core import registry as _registry
-from mendari.core.evalset_keys import EvalsetKeys, evalset_keys
-from mendari.core.pack import MANIFEST_NAMES, pack_digest
+from mendari.core.evalset_keys import evalset_keys
+from mendari.core.pack import pack_digest
 from mendari.core.phi import PhiPolicy
 from mendari.core.registry import resolve_pack
 from mendari.errors import ProviderError
@@ -41,24 +40,18 @@ from mendari.hub import archive
 from mendari.hub.registry import RegistryStore, create_registry_app
 from mendari.providers import credentials, llm
 from mendari.providers.agent import AgentProvider
-from mendari.providers.jev import JevProvider
 from mendari.server import app as server_app
 from mendari.server import sessions
 from mendari.server.origin import OWN_REQUEST
 
 ROOT = Path(__file__).resolve().parents[1]
-# The packs the tests decide with are fixtures, not part of the product: here they stand where a
-# release's bundled agents do, so they load with the maintained origin. Both names are read when
-# called, never copied, so setting them here reaches every module.
-REFERENCE_PACKS = ROOT / "tests" / "fixtures" / "reference-agents"
-_reference.BUNDLED_DIRS = (REFERENCE_PACKS,)
+# The synthetic agents the tests decide with (`tests/support/fixture_agents.py` writes their data)
+# are fixtures, not part of the product: here they stand where a release's bundled agents do, so
+# they load with the maintained origin. Both names are read when called, never copied, so setting
+# them here reaches every module. Tests reach the fixtures by these names, never by a literal path.
+FIXTURE_AGENTS = ROOT / "tests" / "fixtures" / "agents"
+_reference.BUNDLED_DIRS = (FIXTURE_AGENTS,)
 _registry._BUNDLED_DIRS = _reference.BUNDLED_DIRS
-_sandbox.DATASET_DIRS = (ROOT / "tests" / "fixtures" / "datasets",)
-INBOX_DIR = REFERENCE_PACKS / "patient-inbox-router"
-LOCAL_DATASET = ROOT / "tests" / "fixtures" / "datasets" / "local-site-example.jsonl"
-# The synthetic test fixtures' agents, in the same folder (`tests/support/fixture_agents.py`
-# writes their data): tests reach them by these names, never by a literal path.
-FIXTURE_AGENTS = REFERENCE_PACKS
 TRIAGE_DIR = FIXTURE_AGENTS / "triage"  # mendari-test/triage: two slots, risk level 1
 CLINICAL_DIR = FIXTURE_AGENTS / "clinical-review"  # mendari-test/clinical-review: risk level 2
 CHART_DIR = FIXTURE_AGENTS / "chart-summary"  # mendari-test/chart-summary: a FHIR record in
@@ -71,10 +64,8 @@ _WORKER_DB_LOCK = 72_610_491
 
 
 def fixture_agents() -> list[Path]:
-    """The folder of every agent under tests/fixtures, whichever name its manifest has (one
-    keeps `pack.yaml` on purpose: tests/test_manifest_names.py)."""
-    fixtures = ROOT / "tests" / "fixtures"
-    return sorted({p.parent for name in MANIFEST_NAMES for p in fixtures.glob(f"**/{name}")})
+    """The folder of every agent under tests/fixtures."""
+    return sorted(path.parent for path in (ROOT / "tests" / "fixtures").glob("**/agent.yaml"))
 
 
 def _worker_postgres(base_url: str, worker: str) -> tuple[str, str | None]:
@@ -98,8 +89,7 @@ POSTGRES_URL, _WORKER_POSTGRES_DB = _worker_postgres(_BASE_POSTGRES_URL, _XDIST_
 # the CDS clients whose tokens a server would take (LP-23b), a site's code map (LP-23i), and the
 # key holder's grading key (LP-17e), which no test may sign with.
 # No test may reach them, whatever a module opens at import (the Vercel entrypoint builds its
-# app on DATABASE_URL) or a subprocess inherits: they are gone before anything is collected, and
-# so are the old OPENHEALTH_* names, which `mendari.legacy` would copy back in a subprocess. A
+# app on DATABASE_URL) or a subprocess inherits: they are gone before anything is collected. A
 # test that needs one sets its own.
 LIVE_SETTINGS = (
     "DATABASE_URL", "DATABASE_URL_UNPOOLED", "AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN",
@@ -112,27 +102,25 @@ LIVE_SETTINGS = (
     "MENDARI_CDS_CLIENTS", "MENDARI_SITE_CODES", "MENDARI_EHR_DECLARATIONS",
     "MENDARI_GRADING_SIGNING_KEY", "MENDARI_AGENT_URL", "MENDARI_AGENT_TOKEN",
 )  # fmt: skip
-for _name in [*LIVE_SETTINGS, *(name for name in os.environ if name.startswith("OPENHEALTH_"))]:
+for _name in LIVE_SETTINGS:
     os.environ.pop(_name, None)
 # An input hash key (MENDARI_INPUT_HASH_KEY), which PHI modes hash and encrypt require.
 INPUT_HASH_KEY = secrets.token_bytes(32)
 HASH_KEY_B64 = base64.b64encode(INPUT_HASH_KEY).decode()
 PHI_KEY = secrets.token_bytes(32)  # test keys for PHI mode `encrypt` (`encrypt_mode`)
 PHI_KEY_B64 = base64.b64encode(PHI_KEY).decode()
-# The edit loop, `uv run pytest -m core` (about 20 s; the full suite takes about 6 min): pack
+# The edit loop, `uv run pytest -m core` (about 20 s; the full suite takes about 15 min): agent
 # loading, decisions, policy, the audit and the statistics. Only files in tests/ itself, and
 # never a slow test in one: `-m core` replaces the default marker filter, so a browser or slow
 # test marked core would run.
 CORE = {
     "test_spec.py", "test_spec_02.py", "test_pack_status.py", "test_input_schema.py",
     "test_patterns.py", "test_templates.py", "test_community_caps.py", "test_new_pack.py",
-    "test_decision.py", "test_criteria.py", "test_any_of.py", "test_composites.py",
-    "test_dosing.py", "test_providers.py", "test_guard.py", "test_inbox_pack.py",
-    "test_referral_pack.py", "test_trial_pack.py", "test_prior_auth_pack.py",
-    "test_ai_guard_pack.py", "test_policy.py", "test_safety_invariant.py", "test_governance.py",
-    "test_hold.py", "test_gate.py", "test_audit.py", "test_evals.py", "test_registry_engine.py",
-    "test_rater_agreement.py", "test_stats.py", "test_spec_04.py", "test_actions.py",
-    "test_caps_together.py", "test_triage_fixture.py", "test_fixture_agents.py",
+    "test_decision.py", "test_providers.py", "test_policy.py", "test_safety_invariant.py",
+    "test_governance.py", "test_hold.py", "test_gate.py", "test_audit.py", "test_evals.py",
+    "test_registry_engine.py", "test_rater_agreement.py", "test_stats.py", "test_spec_04.py",
+    "test_actions.py", "test_caps_together.py", "test_triage_fixture.py",
+    "test_fixture_agents.py",
 }  # fmt: skip
 
 
@@ -144,19 +132,20 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _the_repositorys_own_packs_are_as_they_were() -> Iterator[None]:
-    """No test changes a pack of the repository: each works on a copy. One did once (it applied
-    a run of `mendari improve` to packs/patient-inbox-router), and every test that read the pack
-    after it read another pack. A run that leaves one changed fails here, at its end."""
-    packs = sorted(
+def _the_repositorys_own_agents_are_as_they_were() -> Iterator[None]:
+    """No test changes an agent of the repository, the bundled demo agent or a test fixture:
+    each works on a copy. One test did once, and every test that read the agent after it read
+    another agent. A run that leaves one changed fails here, at its end."""
+    agents = sorted(
         path
-        for path in (ROOT / "tests" / "fixtures" / "reference-agents").iterdir()
+        for folder in (ROOT / "agents", FIXTURE_AGENTS)
+        for path in folder.iterdir()
         if (path / "agent.yaml").is_file()
     )
-    before = {path: pack_digest(path) for path in packs}
+    before = {path: pack_digest(path) for path in agents}
     yield
     changed = [path.name for path, digest in before.items() if pack_digest(path) != digest]
-    assert not changed, f"a test changed the repository's own packs: {', '.join(changed)}"
+    assert not changed, f"a test changed the repository's own agents: {', '.join(changed)}"
 
 
 @pytest.fixture(autouse=True)
@@ -282,9 +271,6 @@ def _no_jev(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-# The inbox's policy automates only while its urgency screen includes a model
-# (automation_requires). Tests that need an automated inbox decision run the screen with Jev,
-# against `calm_jev`, which finds nothing urgent.
 def shared_benchmark(pack_id: str = "mendari-test/triage") -> dict[str, Any]:
     """The `mendari.site-report/2` a site would share of a shipped pack's benchmark run:
     counted from the benchmark's own ledger (synthetic data), as `mendari eval --share` does."""
@@ -366,62 +352,6 @@ def share_signed(
         json=record,
         headers={"authorization": f"Bearer {issued['submit_secret']}"},
     )
-
-
-SCREENED = {"safety_screen": "rules_and_jev"}
-
-
-# What `calm_jev` answers for the inbox's questions: confidently nothing urgent, and a team it is
-# unsure of (below the automation threshold, so a routing it answers is never automated).
-CALM = {
-    "urgency": {"urgent": 0.02, "routine": 0.98},
-    "destination": {
-        "front_desk": 0.1,
-        "medical_assistant": 0.6,
-        "nurse": 0.1,
-        "physician": 0.1,
-        "billing": 0.1,
-    },
-}
-
-
-def calm_jev(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-    """Set up a fake Jev for this test that answers the inbox's questions (`CALM`: a confident
-    `routine` urgency), and return the inbox providers that use it."""
-    monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
-    monkeypatch.setenv("JEV_MODEL", "jev-test-model")
-    monkeypatch.setenv("JEV_API_KEY", "test-key")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        questions = json.loads(request.content)["questions"]
-        if not set(questions) <= set(CALM):
-            return httpx.Response(400)  # only the inbox's questions are faked
-        answers = {}
-        for key in questions:
-            choice = max(CALM[key], key=lambda label: CALM[key][label])
-            answers[key] = {
-                "type": "choice",
-                "choice": choice,
-                "confidence": CALM[key][choice],
-                "probabilities": CALM[key],
-            }
-        usage = {"input_tokens": 100, "output_tokens": 10}
-        return httpx.Response(200, json={"model": "jev-9.9.9", "answers": answers, "usage": usage})
-
-    original = JevProvider.__init__
-
-    def init(self: JevProvider, *args: Any, **kwargs: Any) -> None:
-        kwargs["client"] = httpx.Client(transport=httpx.MockTransport(handler))
-        original(self, *args, **kwargs)
-
-    monkeypatch.setattr(JevProvider, "__init__", init)
-    return dict(SCREENED)
-
-
-@pytest.fixture
-def screened(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-    """The inbox providers whose decisions may be automated, with `calm_jev` in the screen."""
-    return calm_jev(monkeypatch)
 
 
 # The triage fixture's policy automates only while its screen runs an agent (its
@@ -602,43 +532,6 @@ def registry(db_target: str) -> Iterator[Registry]:
 
 
 @pytest.fixture(scope="session")
-def inbox_pack() -> Pack:
-    return load_pack(INBOX_DIR)
-
-
-@pytest.fixture(scope="session")
-def router(inbox_pack: Pack) -> Decision:
-    return Decision(inbox_pack)
-
-
-@pytest.fixture
-def pack_copy(tmp_path: Path) -> Callable[..., Path]:
-    """Copy the reference pack and apply edits to agent.yaml / policy.yaml before loading."""
-
-    def make(
-        manifest: Callable[[dict[str, Any]], None] | None = None,
-        policy: Callable[[dict[str, Any]], None] | None = None,
-    ) -> Path:
-        target = tmp_path / "pack"
-        shutil.copytree(INBOX_DIR, target, ignore=shutil.ignore_patterns("data"))
-        (target / "data").mkdir()
-        for split in ("train", "calibration", "test"):
-            # Tiny stand-ins: most tests do not need the real splits.
-            source = (INBOX_DIR / "data" / f"{split}.jsonl").read_text().splitlines()[:20]
-            (target / "data" / f"{split}.jsonl").write_text("\n".join(source) + "\n")
-        for name, edit in (("agent.yaml", manifest), ("policy.yaml", policy)):
-            if edit is None:
-                continue
-            path = target / name
-            data = yaml.safe_load(path.read_text())
-            edit(data)
-            path.write_text(yaml.safe_dump(data, sort_keys=False))
-        return target
-
-    return make
-
-
-@pytest.fixture(scope="session")
 def triage_agent() -> Pack:
     """The triage fixture (`mendari-test/triage`): a synthetic message's team and urgency."""
     return load_pack(TRIAGE_DIR)
@@ -791,22 +684,6 @@ def evalsets_are_on(client: TestClient, headers: Mapping[str, str]) -> None:
         assert mounted >= EVALSET_MEMBERSHIPS_ROUTES, "memberships mode mounts the sets' routes"
 
 
-def evalset_keys_for_test() -> EvalsetKeys:
-    """Throwaway evaluation-set keys for a store made in a test (no environment)."""
-    return EvalsetKeys(secrets.token_bytes(32), secrets.token_bytes(32))
-
-
-def hand_written(body: str, **attributes: Any) -> dict[str, Any]:
-    """A hidden case as its author writes it: the inbox pack's input, hand-written, in English,
-    of the routine stratum (each overridable, or removed with None)."""
-    given: dict[str, Any] = {"author": "author-1", "language": "en", "stratum": "routine"}
-    given.update({"source": "hand_written", "template": None, **attributes})
-    return {
-        "input": {"message": {"body": body, "channel": "portal"}},
-        "attributes": {name: value for name, value in given.items() if value is not None},
-    }
-
-
 def encrypted_store(target: str | Path) -> AuditStore:
     """A store under `encrypt_mode`'s policy, as a signed-in server opens its database: what a
     test records beside such a server, it records through this (a store under `off` may not)."""
@@ -923,104 +800,3 @@ def launched(
 
 
 DEMO_AGENT_DIR = ROOT / "agents" / "portal-message-agent"
-
-
-def runbook_body(
-    body: dict[str, Any],
-    pack_id: str,
-    *,
-    variants: dict[str, str] | None = None,
-    arms: dict[str, dict[str, str]] | None = None,
-) -> dict[str, Any]:
-    """A grading body from docs/operations/evalsets.md, sent to a test's own agent. The runbook
-    writes it for the bundled demo agent, which a hidden set made of these tests' cases cannot
-    grade: so the body's agent, slots and variants are checked against the demo agent's
-    manifest (each named slot and variant exists and runs locally), then its `pack` and its
-    `variants` or `arms` are put in for the test's agent, the rest of the body kept as written."""
-    from mendari.core.pack import load_pack
-
-    demo = load_pack(DEMO_AGENT_DIR)
-    assert body["pack"] == demo.id, body["pack"]
-    named = [body.get("variants") or {}, *(body.get("arms") or {}).values()]
-    for slots in named:
-        for slot, variant in slots.items():
-            spec = demo.manifest.providers[slot].variants[variant]
-            assert spec.type not in ("agent", "jev", "llm"), (slot, variant)  # local only
-    sent = {**body, "pack": pack_id}
-    if "variants" in body:
-        assert variants is not None
-        sent["variants"] = variants
-    if "arms" in body:
-        assert arms is not None
-        sent["arms"] = arms
-    return sent
-
-
-# The routes renamed in 2026-11 (`server/paths.py`), each at the path it had before, with the
-# route that answers it now: written out here, not computed, so the tests that hold the two
-# spellings to the same rules have a table of their own to hold the helper to. The engine's
-# own; those of what it mounts when on (the agent store, the registry's reviewers); and the
-# registry's, which the engine serves under `/registry`.
-RenamedRoutes = dict[tuple[str, str], tuple[str, str]]
-FORMER_ROUTES: RenamedRoutes = {
-    (method, f"/api/packs{rest}"): (method, f"/api/agents{rest}")
-    for method, rest in [
-        ("GET", ""),
-        ("GET", "/{namespace}/{name}"),
-        ("GET", "/{namespace}/{name}/datasets"),
-        ("GET", "/{namespace}/{name}/examples"),
-        ("POST", "/{namespace}/{name}/decide"),
-        ("POST", "/{namespace}/{name}/guard"),
-        ("POST", "/{namespace}/{name}/fhir/decide"),
-        ("GET", "/{namespace}/{name}/validation-brief"),
-        ("POST", "/{namespace}/{name}/evals"),
-        ("GET", "/{namespace}/{name}/feedback/export"),
-        ("POST", "/{namespace}/{name}/pas"),
-    ]
-}
-STORE_FORMER_ROUTES: RenamedRoutes = {
-    (method, f"/api/store/packs{rest}"): (method, f"/api/store/agents{rest}")
-    for method, rest in [
-        ("GET", ""),
-        ("GET", "/{namespace}/{name}"),
-        ("POST", "/{namespace}/{name}/improvement"),
-    ]
-}
-REVIEW_FORMER_ROUTES: RenamedRoutes = {
-    (method, f"/api/registry/review/packs{rest}"): (method, f"/api/registry/review/agents{rest}")
-    for method, rest in [
-        ("GET", "/{namespace}/{name}/{version}"),
-        ("POST", "/{namespace}/{name}/{version}"),
-        ("POST", "/{namespace}/{name}/{version}/recall"),
-        ("POST", "/{namespace}/{name}/{version}/delete"),
-    ]
-}
-REGISTRY_FORMER_ROUTES: RenamedRoutes = {
-    (method, f"/v1/packs{rest}"): (method, f"/v1/agents{rest}")
-    for method, rest in [
-        ("PUT", "/{namespace}/{name}/{version}"),
-        ("POST", "/{namespace}/{name}/{version}/yank"),
-        ("GET", "/{namespace}/{name}"),
-        ("GET", "/{namespace}/{name}/tickets"),
-        ("GET", "/{namespace}/{name}/site-evidence"),
-        ("GET", "/{namespace}/{name}/reports/{report_id}"),
-        ("GET", "/{namespace}/{name}/reports"),
-        ("GET", "/{namespace}/{name}/{version}"),
-        ("GET", "/{namespace}/{name}/{version}/archive"),
-        ("POST", "/{namespace}/{name}/{version}/reports"),
-        ("POST", "/{namespace}/{name}/{version}/evaluations"),
-        ("GET", "/{namespace}/{name}/{version}/evaluations"),
-    ]
-}
-ENGINE_FORMER_ROUTES: RenamedRoutes = {
-    **FORMER_ROUTES,
-    **STORE_FORMER_ROUTES,
-    **REVIEW_FORMER_ROUTES,
-}
-
-
-def as_now(route: tuple[str, str]) -> tuple[str, str]:
-    """A route of the engine as it is listed now: a former route's current one, any other as
-    it is. A test's own table of what each route needs names current paths; a former route is
-    held to what that table says of the route that answers it now."""
-    return ENGINE_FORMER_ROUTES.get(route, route)

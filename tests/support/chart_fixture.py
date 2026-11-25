@@ -3,7 +3,7 @@
 
 Synthetic test fixture. Not clinically reviewed. Not for patient care.
 
-`tests/fixtures/reference-agents/chart-summary` (`mendari-test/chart-summary`) is a
+`tests/fixtures/agents/chart-summary` (`mendari-test/chart-summary`) is a
 `patient-view` service. Its records and datasets are `tests/support/fixture_records.py`'s. This
 module gives the tests:
 

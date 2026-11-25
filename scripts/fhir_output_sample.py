@@ -3,7 +3,7 @@
 `fhir-conformance`), which checks them against Mendari's terminology (`--ig`):
 
 - `task-message.json`: the Task the bundled demo agent makes from the US Core portal-message
-  fixture (`tests/fixtures/us-core/inbox.json`), read by its keyword rules (`sample_agent`);
+  fixture (`tests/fixtures/us-core/triage.json`), read by its keyword rules (`sample_agent`);
 - what the FHIR routes serve, from a local server: `capability.json` (`/fhir/metadata`),
   `operation-definition-decide.json`, and `decide-message.json` (`$decide` on that fixture);
 - `served-*.json`: what the read and search routes answer for synthetic decisions made through
@@ -60,7 +60,7 @@ from mendari.standards.fhir import DECISION_ID_SYSTEM  # noqa: E402
 
 FIXTURES = ROOT / "tests" / "fixtures" / "us-core"
 MESSAGE = "message"  # the demo agent's samples, from the portal-message fixture
-MESSAGE_FIXTURE = FIXTURES / "inbox.json"
+MESSAGE_FIXTURE = FIXTURES / "triage.json"
 SERVER = "https://mendari.example"  # a reserved name: the samples' links point nowhere real
 FORM = {"content-type": "application/x-www-form-urlencoded"}
 # The CapabilityStatement, beside the other samples: the US Core run validates it.

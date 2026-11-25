@@ -26,7 +26,7 @@ from mendari.evals.validation import problems as validation_problems
 from mendari.evals.written import INSUFFICIENT, NOT_VALIDATED, VALIDATED
 from mendari.providers.judge import Judge
 from mendari.sandbox.demo import STAGED
-from tests.conftest import DEMO_AGENT_DIR, ROOT
+from tests.conftest import DEMO_AGENT_DIR, ROOT, TRIAGE_DIR
 
 RUBRIC = "acknowledgement_quality"
 NURSE = "a nurse will call you today"
@@ -265,8 +265,8 @@ def test_the_decision_card_and_the_committee_packet_say_what_it_writes(demo: Pac
     assert "is at least 0.8. That is decided on at least 50 outputs" in section
     assert "kappa 0." not in card and "validated" not in section  # no figure, no verdict
     # An agent that writes nothing has no such section: its card is what it always was.
-    inbox = render_card(load_pack(ROOT / "tests/fixtures/reference-agents/patient-inbox-router"))
-    assert "## Written outputs" not in inbox
+    triage = render_card(load_pack(TRIAGE_DIR))
+    assert "## Written outputs" not in triage
     alone = packet.build_alone(demo)
     assert packet.problems(alone) == []
     (oversight,) = [s["content"] for s in alone["sections"] if s["key"] == "oversight"]

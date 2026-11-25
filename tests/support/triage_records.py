@@ -4,7 +4,7 @@ collection Bundle.
 
 Synthetic test fixture data. Not clinically reviewed. Not for patient care.
 
-`mendari-test/triage` (`tests/fixtures/reference-agents/triage`, fixture F1 of wave 6) decides a
+`mendari-test/triage` (`tests/fixtures/agents/triage`, fixture F1 of wave 6) decides a
 patient's message to a clinic: a Communication, from a Patient its mapping does not read. A
 message is built by the sandbox's own builder (`mendari.sandbox.fhir_records.message_entries`,
 which `mendari sandbox seed` loads a message with) on a fixed day, each resource then given a

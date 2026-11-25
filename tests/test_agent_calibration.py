@@ -676,9 +676,10 @@ def test_the_evaluation_reports_the_calibration_before_and_after(
     # The block is the run's, never the result's: no stored or hashed format changes.
     assert "calibration" not in {k for k in run.report if k != "run"}
     said = report_text(run.report)
+    fitted = json.loads((root / "models" / "reader-agent-calibration.json").read_text())
     assert (
         "Confidence".ljust(26) + "reader/agent: calibrated on 400 cases of calibration "
-        "(2026-11-24) for starter-portal-agent version 2.1.0"
+        f"({fitted['fitted_on']['date']}) for starter-portal-agent version 2.1.0"
     ) in said
     lines = block["lines"]
     assert lines[0].startswith("reader/agent: calibrated on 400 cases of calibration")

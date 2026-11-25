@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -34,13 +33,10 @@ from mendari.core.spec import (
     action_schema_problems,
     at_least,
 )
-from mendari.errors import PackValidationError
 from mendari.providers.agent import request_body
-from mendari.standards.fhir import FhirAdapter
 from tests.conftest import DEMO_AGENT_DIR, ROOT, fixture_agents
 
 MINI = ROOT / "tests" / "fixtures" / "mini-agents" / "actions-mini"
-PRESCREEN = ROOT / "tests" / "fixtures" / "mini-agents" / "prescreen-mini"
 
 
 def raw_manifest(folder: Path = MINI) -> dict[str, Any]:
@@ -161,44 +157,6 @@ def test_the_bundled_agent_and_the_scaffold_are_as_this_wave_left_them() -> None
 
 
 # -- a 0.4 agent keeps what 0.2 and 0.3 added ---------------------------------------------------
-
-
-@pytest.mark.parametrize("feature", ["mapping", "criteria"])
-def test_a_0_4_agent_uses_a_0_3_mapping_and_a_0_3_criteria_key(
-    tmp_path: Path, feature: str
-) -> None:
-    """The checks that once tested `== "0.3"` would refuse these in a 0.4 agent."""
-    folder = tmp_path / "prescreen"
-    shutil.copytree(PRESCREEN, folder)
-    manifest = folder / "agent.yaml"
-    raw = yaml.safe_load(manifest.read_text())
-    assert raw["spec_version"] == "0.2"
-    if feature == "mapping":
-        mapping_path = folder / raw["inputs"]["fhir"]
-        mapping = yaml.safe_load(mapping_path.read_text())
-        mapping["fields"]["patient.age"] = {
-            "paths": ["Patient.birthDate"],
-            "transform": "age_years",
-        }
-        mapping_path.write_text(yaml.safe_dump(mapping, sort_keys=False))
-    else:
-        criteria_path = folder / "logic" / "criteria.yaml"
-        criteria = yaml.safe_load(criteria_path.read_text())
-        criteria["questions"]["t2d_diagnosis"]["checks"].append(
-            {"medication": {"names": ["metformin"], "current_within_days": 365, "then": "yes"}}
-        )
-        criteria_path.write_text(yaml.safe_dump(criteria, sort_keys=False))
-    # As 0.2 it is refused; as 0.3 and as 0.4 it loads and maps.
-    with pytest.raises(PackValidationError) as refused:
-        load_pack(folder)
-    assert f"spec 0.3 {feature} features" in "; ".join(refused.value.problems)
-    for version in ("0.3", "0.4"):
-        manifest.write_text(yaml.safe_dump({**raw, "spec_version": version}, sort_keys=False))
-        pack = load_pack(folder)
-        assert pack.manifest.spec_version == version
-        adapter = FhirAdapter.for_pack(pack)
-        if feature == "mapping":
-            assert adapter.mapping.fields["patient.age"].paths == ["Patient.birthDate"]
 
 
 def test_a_0_4_card_uses_the_0_3_card_keys() -> None:

@@ -3,7 +3,7 @@
 
 Synthetic test fixture. Not clinically reviewed. Not for patient care.
 
-`tests/fixtures/reference-agents/triage` (`mendari-test/triage`, `TRIAGE_DIR`) routes a
+`tests/fixtures/agents/triage` (`mendari-test/triage`, `TRIAGE_DIR`) routes a
 synthetic patient message to the team that reads it first. On its default providers (the
 keyword rules in both slots) nothing is automated (its policy's `automation_requires`); a test
 that needs AUTO with sign-in on runs `calm_agent` (tests/conftest.py). This module gives the

@@ -30,10 +30,10 @@ Kinds (`KINDS`):
   synthetic datasets are full of made-up names, and many names are also words.
 
 The verdict (`rejects`): any of the first six kinds rejects alone; name findings reject from
-`NAME_THRESHOLD`. Measured on 2026-11-15 over the 94 files of the five agents now in
-`tests/fixtures/reference-agents` and their synthetic datasets: no finding of any kind, names
-included (110 of their lines hold a listed name, none beside a person's word or another kind),
-so one name finding is enough (`tests/test_phi_detect.py` keeps the measurement).
+`NAME_THRESHOLD`. Measured on 2026-11-15 over the 94 files of the five agents the tests then
+decided with and their synthetic datasets: no finding of any kind, names included (110 of
+their lines hold a listed name, none beside a person's word or another kind), so one name
+finding is enough (`tests/test_phi_detect.py` keeps the measurement).
 
 Every pattern is compiled with RE2 (`core/patterns.py`'s engine), because the detector reads
 hostile uploads: a long line costs one pass, never a backtracking search. The patterns hold no

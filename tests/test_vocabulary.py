@@ -126,7 +126,7 @@ def test_the_rule() -> None:
         "resolve_pack",
         "MENDARI_PACKS_PATH",
         "community-agents/<name>/",
-        "tests/fixtures/reference-agents/",
+        "tests/fixtures/agents/",
         "https://mendari.co/fhir/CodeSystem/decision-pack|{namespace}/{name}@{version}",
         "under its own url, https://mendari.co/packs/community/<name>/",
         "Chained `pack.yanked` with your id",

@@ -3,7 +3,7 @@
 
 Synthetic test fixture data. Not clinically reviewed. Not for patient care.
 
-`tests/fixtures/reference-agents/chart-summary` (`mendari-test/chart-summary`, fixture F3 of
+`tests/fixtures/agents/chart-summary` (`mendari-test/chart-summary`, fixture F3 of
 wave 6) is a small agent that reads a patient's FHIR record: when the patient should next be
 seen (`follow_up`), and whether an anticoagulant is listed (`on_anticoagulant`). This module
 makes its data, the same on every run (a fixed seed, fixed phrase lists, no clock read):
@@ -71,7 +71,7 @@ from mendari.sandbox.code_systems import SANDBOX_TAG
 from mendari.sandbox.fhir_records import meta, patient
 
 ROOT = Path(__file__).resolve().parents[2]
-AGENT = ROOT / "tests" / "fixtures" / "reference-agents" / "chart-summary"
+AGENT = ROOT / "tests" / "fixtures" / "agents" / "chart-summary"
 CARD = AGENT / "DECISION_CARD.md"
 US_CORE_DIR = ROOT / "tests" / "fixtures" / "us-core"
 AGENT_ID = "mendari-test/chart-summary"

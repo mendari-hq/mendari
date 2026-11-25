@@ -1,5 +1,0 @@
-{"id": "tm-0", "input": {"summary": "age 54, type 2 diabetes, male"}, "labels": {"eligibility": "candidate", "inc_adult": "yes", "inc_t2d": "yes", "not_pregnant": "yes"}}
-{"id": "tm-1", "input": {"summary": "age 34, type 2 diabetes, pregnant"}, "labels": {"eligibility": "not_eligible", "not_pregnant": "no"}}
-{"id": "tm-2", "input": {"summary": "age 61, type 2 diabetes"}, "labels": {"eligibility": "needs_review", "not_pregnant": "unknown"}}
-{"id": "tm-3", "input": {"summary": "age 15, type 1 diabetes, male"}, "labels": {"eligibility": "not_eligible", "inc_adult": "no", "inc_t2d": "no"}}
-{"id": "tm-4", "input": {"summary": "age 45, type 2 diabetes, not pregnant, moderate"}, "labels": {"eligibility": "candidate", "severity": "moderate"}}

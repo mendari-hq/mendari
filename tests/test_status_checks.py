@@ -33,7 +33,7 @@ from tests.test_readiness import break_sqlite
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 # The bundled demo agent the status check decides with, beside the tests' fixture agents.
-SERVED = [ROOT_DIR / "agents", ROOT_DIR / "tests" / "fixtures" / "reference-agents"]
+SERVED = [ROOT_DIR / "agents", ROOT_DIR / "tests" / "fixtures" / "agents"]
 
 KEY = "STATUS_DECIDE_KEY"
 

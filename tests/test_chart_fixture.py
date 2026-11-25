@@ -116,8 +116,8 @@ def test_the_committed_files_are_what_the_generator_writes(
     records._cases.cache_clear()  # made again from the seed: the same bytes
     assert records.written() == records.written()
     assert {path.relative_to(ROOT).as_posix() for path in records.written()} == {
-        "tests/fixtures/reference-agents/chart-summary/data/examples.jsonl",
-        "tests/fixtures/reference-agents/chart-summary/data/test.jsonl",
+        "tests/fixtures/agents/chart-summary/data/examples.jsonl",
+        "tests/fixtures/agents/chart-summary/data/test.jsonl",
         "tests/fixtures/us-core/chart.json",
         "tests/fixtures/us-core/invalid/chart.json",
     }
