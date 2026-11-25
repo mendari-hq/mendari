@@ -249,12 +249,12 @@ def _dataset_reports(agent: Agent) -> list[dict[str, Any]]:
     """The dataset checks (`evals/dataset_checks.py`) of each dataset the agent declares that
     reads: ids and counts, never an input."""
     from mendari.evals import dataset_checks
-    from mendari.evals.harness import resolve_dataset
+    from mendari.evals.harness import declared_dataset
 
     reports = []
     for name in agent.manifest.evaluation.datasets:
         try:
-            dataset = resolve_dataset(agent, name)
+            dataset = declared_dataset(agent, name)
         except MendariError:
             continue
         reports.append(dataset_checks.check(agent, dataset).data)

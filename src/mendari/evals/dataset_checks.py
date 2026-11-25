@@ -186,14 +186,14 @@ def training_records(agent: Agent, *, skip: str | None = None) -> dict[str, Reco
     """The records of the agent's `train` and `calibration` datasets, by name, other than `skip`
     (a set is not compared with itself). One that does not read is left out: `mendari
     validate` names it."""
-    from mendari.evals.harness import resolve_dataset
+    from mendari.evals.harness import declared_dataset
 
     found: dict[str, Records] = {}
     for name in TRAINING:
         if name == skip or name not in agent.manifest.evaluation.datasets:
             continue
         try:
-            found[name] = resolve_dataset(agent, name).records
+            found[name] = declared_dataset(agent, name).records
         except MendariError:
             continue
     return found

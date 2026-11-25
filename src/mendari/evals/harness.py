@@ -146,11 +146,22 @@ def record_problems(manifest: AgentManifest, dataset: Dataset) -> list[str]:
     return problems
 
 
+def declared_dataset(agent: Agent, name: str) -> Dataset:
+    """A dataset the agent declares in `evaluation.datasets`, read from its own files: all a
+    server, an agent store or a registry ever reads. A name it does not declare is refused,
+    never read as a path."""
+    named = agent.manifest.evaluation.datasets.get(name)
+    if named is None:
+        known = ", ".join(agent.manifest.evaluation.datasets) or "none"
+        raise MendariError(f"dataset {name!r} is not one the agent declares ({known})")
+    return load_dataset(agent.path(named), name=name, raw=agent.read_bytes(named), label=named)
+
+
 def resolve_dataset(agent: Agent, ref: str) -> Dataset:
-    """A dataset named in the agent's `evaluation.datasets`, or a path to a JSONL file."""
-    named = agent.manifest.evaluation.datasets.get(ref)
-    if named is not None:
-        return load_dataset(agent.path(named), name=ref, raw=agent.read_bytes(named), label=named)
+    """A dataset the agent declares (`declared_dataset`), or, on the command line, a path to a
+    JSONL file."""
+    if ref in agent.manifest.evaluation.datasets:
+        return declared_dataset(agent, ref)
     if Path(ref).is_file():
         return load_dataset(ref)
     known = ", ".join(agent.manifest.evaluation.datasets) or "none"

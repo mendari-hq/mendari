@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from mendari import Agent, Decision, Outcome
+from mendari import Agent, Decision, Outcome, load_agent
 from mendari.core.card import render_card
 from mendari.errors import MendariError
 from mendari.evals import (
@@ -20,7 +20,7 @@ from mendari.evals import (
     resolve_dataset,
     run_behaviour_tests,
 )
-from tests.conftest import calm_agent
+from tests.conftest import TRIAGE_DIR, calm_agent
 from tests.support.engine import benchmark
 
 DRUGS = ("metformin", "lisinopril", "atorvastatin", "levothyroxine", "amlodipine", "sertraline")
@@ -289,3 +289,21 @@ def test_the_card_lists_a_boolean_property_schema() -> None:
 
     schema = {"properties": {"note": True, "age": {"type": "integer"}}, "required": ["note"]}
     assert _schema_rows(schema) == ["| `note` | any | yes |", "| `age` | integer | no |"]
+
+
+def test_a_declared_dataset_is_read_from_the_agent_and_any_other_name_is_refused(
+    tmp_path: Path,
+) -> None:
+    """What a server, an agent store and a registry read (`declared_dataset`): only a dataset the
+    agent declares, never a path, however one is spelled; the command line's `resolve_dataset`
+    also takes a JSONL file by its path."""
+    from mendari.evals.harness import declared_dataset, resolve_dataset
+
+    agent = load_agent(TRIAGE_DIR)
+    assert len(declared_dataset(agent, "test").records) > 0
+    elsewhere = tmp_path / "cases.jsonl"
+    elsewhere.write_text((TRIAGE_DIR / "data" / "test.jsonl").read_text())
+    for name in (str(elsewhere), "../../etc/passwd", "/etc/passwd", "test.jsonl"):
+        with pytest.raises(MendariError, match="is not one the agent declares"):
+            declared_dataset(agent, name)
+    assert len(resolve_dataset(agent, str(elsewhere)).records) > 0

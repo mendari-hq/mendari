@@ -522,7 +522,7 @@ class EvaluationStore:
             agent_dir = Path(scratch) / "agent"
             self._archived(namespace, found, agent_dir)
             from mendari.core.agent import load_agent
-            from mendari.evals.harness import resolve_dataset
+            from mendari.evals.harness import declared_dataset
 
             try:
                 agent = load_agent(agent_dir, origin="hub")
@@ -530,7 +530,7 @@ class EvaluationStore:
                     raise HubError(
                         "dataset.name: it is not a dataset the agent's manifest declares"
                     )
-                dataset = resolve_dataset(agent, evaluation.dataset.name)
+                dataset = declared_dataset(agent, evaluation.dataset.name)
             except HubError:
                 raise
             except Exception as error:  # the publisher's content: named, never a 500

@@ -1,11 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 from mendari.evals.behaviour_tests import run_behaviour_tests
 from mendari.evals.compare import compare
-from mendari.evals.harness import Dataset, evaluate, load_dataset, resolve_dataset
+from mendari.evals.harness import (
+    Dataset,
+    declared_dataset,
+    evaluate,
+    load_dataset,
+    resolve_dataset,
+)
 
 __all__ = [
     "Dataset",
     "compare",
+    "declared_dataset",
     "evaluate",
     "load_dataset",
     "resolve_dataset",

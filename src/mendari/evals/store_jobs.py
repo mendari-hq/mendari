@@ -134,12 +134,12 @@ class JobStore:
     def _dataset(self, org: str, agent: Agent, ref: Mapping[str, str]) -> Dataset:
         """A job's dataset: one the agent declares (`{"name": ...}`) or one of the organization's
         uploaded datasets (`{"id": ...}`), loaded with its case key."""
-        from mendari.evals.harness import load_dataset, resolve_dataset
+        from mendari.evals.harness import declared_dataset, load_dataset
 
         if "name" in ref:
             if ref["name"] not in agent.manifest.evaluation.datasets:
                 raise StoreError(f"{agent.id} declares no dataset {ref['name']!r}")
-            return resolve_dataset(agent, ref["name"])
+            return declared_dataset(agent, ref["name"])
         raw, name = self.agents.dataset_bytes(org, str(ref.get("id")))
         return load_dataset(f"{name}.jsonl", name=name, raw=raw, label=name)
 

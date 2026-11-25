@@ -91,7 +91,7 @@ from mendari.errors import (
     SmartError,
     UnknownCard,
 )
-from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_dataset
+from mendari.evals import compare, declared_dataset, figures, leaderboard, load_dataset
 from mendari.evals.behaviour_tests import load_cases
 from mendari.evals.compare import FROM_REGISTRY, not_compared
 from mendari.evals.feedback import feedback_dataset, reviewed_dataset
@@ -1122,7 +1122,7 @@ def create_app(
 
     def dataset_for(agent: Agent, name: str) -> Dataset:
         if name in agent.manifest.evaluation.datasets:
-            return resolve_dataset(agent, name)
+            return declared_dataset(agent, name)
         path = local_datasets(agent).get(name)
         if not _DATASET_NAME.match(name) or path is None:
             raise AgentNotFoundError(f"unknown dataset {name!r}")

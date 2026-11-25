@@ -186,14 +186,14 @@ def dataset_problems(agent: Agent) -> list[Problem]:
     input schema as a decision checks it (within its limits and budget for a bounded agent,
     `Decision.validate`), and each record's labels are the agent's questions and labels
     (`record_problems`). Problems name the file and the case id, never its text."""
-    from mendari.evals.harness import record_problems, resolve_dataset
+    from mendari.evals.harness import declared_dataset, record_problems
 
     decision = Decision(agent)
     found: list[Problem] = []
     for name, path in agent.manifest.evaluation.datasets.items():
         file = str(path)
         try:
-            dataset = resolve_dataset(agent, name)
+            dataset = declared_dataset(agent, name)
         except MendariError as error:
             found.append(Problem("dataset", file, "", str(error)))
             continue

@@ -225,7 +225,7 @@ def _rerun_main(agent_dir: str, dataset: str, configuration: str) -> dict[str, A
     """In the child: a publisher's evaluation run again (`rerun`)."""
     from mendari.core.agent import load_agent
     from mendari.core.decision import Decision
-    from mendari.evals.harness import evaluation, resolve_dataset
+    from mendari.evals.harness import declared_dataset, evaluation
     from mendari.evals.share import counted_report
 
     agent = load_agent(Path(agent_dir), origin="hub")
@@ -234,7 +234,7 @@ def _rerun_main(agent_dir: str, dataset: str, configuration: str) -> dict[str, A
     decision = Decision(agent, providers=json.loads(configuration), origin_cap=False)
     if decision.is_remote:
         return {"status": "needs_remote"}
-    run = evaluation(decision, resolve_dataset(agent, dataset))
+    run = evaluation(decision, declared_dataset(agent, dataset))
     return {"status": "measured", "counts": counted_report(run.ledger)}
 
 
@@ -243,7 +243,7 @@ def _main(argv: list[str]) -> int:
     `--evaluation DATASET CONFIGURATION`, run a publisher's evaluation again (`rerun`)."""
     from mendari.core.agent import load_agent
     from mendari.core.decision import Decision
-    from mendari.evals.harness import evaluation, resolve_dataset
+    from mendari.evals.harness import declared_dataset, evaluation
 
     if os.name == "posix":
         _limits()  # before anything of the agent is read
@@ -264,7 +264,7 @@ def _main(argv: list[str]) -> int:
             if decision.is_remote:
                 answer = {"status": "needs_remote"}
             else:
-                report = evaluation(decision, resolve_dataset(agent, test_set)).report
+                report = evaluation(decision, declared_dataset(agent, test_set)).report
                 answer = {
                     "status": "measured",
                     "summary": summary(report),
