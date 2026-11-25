@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -63,15 +63,23 @@ def _lines(built: ledgers.Ledger) -> list[dict[str, Any]]:
 
 
 def _joined(
-    header: dict[str, Any], lines: list[dict[str, Any]], n: int, limit: int | None
+    header: dict[str, Any],
+    lines: list[dict[str, Any]],
+    n: int,
+    limit: int | None,
+    order: Sequence[str],
 ) -> ledgers.Ledger:
     """The ledger a single run over every case writes: the slices' lines in order, models
-    numbered in the order they first appear."""
+    numbered in the order they first appear, reading each case's answers in the manifest's
+    question order (`order`), as a single run does. The job keeps its lines and header with
+    sorted keys, which would number models in another order when the questions are not in
+    alphabetical order."""
     models: list[str] = []
     cases = []
     for line in lines:
         q = {}
-        for question, answer in line["q"].items():
+        for question in [question for question in order if question in line["q"]]:
+            answer = line["q"][question]
             model = answer[4]
             if model is not None and model not in models:
                 models.append(model)
@@ -231,8 +239,8 @@ class JobStore:
                 (done + len(lines), _canonical(kept), _canonical(timing),
                  row["header"] or _canonical(header), job_id),
             )  # fmt: skip
-        if done + len(lines) >= total:
-            return self._finish(org, job_id)
+        if done + len(lines) >= total:  # the last slice's header lists the manifest's order
+            return self._finish(org, job_id, list(header["questions"]))
         return self.job(org, job_id)
 
     def _slice(
@@ -258,9 +266,9 @@ class JobStore:
         built = ledgers.build(decision, part, results)
         return _lines(built), built.header, [int(r.latency_ms) for r in results]
 
-    def _finish(self, org: str, job_id: str) -> dict[str, Any]:
+    def _finish(self, org: str, job_id: str, order: Sequence[str]) -> dict[str, Any]:
         """Write the report of a job whose every case is decided, once, in one transaction with
-        the job's own state."""
+        the job's own state. `order` is the manifest's question order."""
         from mendari.evals import metrics
 
         with self.store._db.session(exclusive=False) as db:
@@ -269,7 +277,7 @@ class JobStore:
             return self._shown(row)
         header, total = json.loads(row["header"]), int(row["total"])
         n = int(row["dataset_cases"])
-        joined = _joined(header, json.loads(row["lines"]), n, None if total == n else total)
+        joined = _joined(header, json.loads(row["lines"]), n, None if total == n else total, order)
         found = result_from_ledger(joined)
         run = {
             "id": str(uuid.uuid4()),
