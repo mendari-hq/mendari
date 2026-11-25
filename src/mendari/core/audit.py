@@ -142,20 +142,19 @@ DECISION_KINDS = frozenset(
     }
 )
 # On a row of its own, under `<prefix>:<id>`: the table, its id column, and the row's
-# organization as SQL, mapped as `_org_of` maps it (NULL is `default`), except a hold's: NULL is
-# the deployment's, a hold set for every organization.
-_ROW_ORG = f"COALESCE(org, '{tenancy.DEFAULT_ORG}')"
+# organization column. A hold's is NULL when it is the deployment's, a hold set for every
+# organization.
 SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
-    "key": ("api_keys", "id", _ROW_ORG),
-    "client": ("oauth_clients", "client_id", _ROW_ORG),
-    "governance": ("governance_approvals", "id", _ROW_ORG),
-    "registry_approval": ("registry_approvals", "id", _ROW_ORG),  # a pulled agent (LP-18d)
+    "key": ("api_keys", "id", "org"),
+    "client": ("oauth_clients", "client_id", "org"),
+    "governance": ("governance_approvals", "id", "org"),
+    "registry_approval": ("registry_approvals", "id", "org"),  # a pulled agent (LP-18d)
     "hold": ("automation_holds", "id", "org"),
-    "eval": ("eval_reports", "id", _ROW_ORG),
+    "eval": ("eval_reports", "id", "org"),
     "org": ("organizations", "id", "id"),  # an organization is its own
-    "membership": ("memberships", "id", _ROW_ORG),
-    "invitation": ("invitations", "id", _ROW_ORG),
-    "access": ("access_requests", "id", _ROW_ORG),
+    "membership": ("memberships", "id", "org"),
+    "invitation": ("invitations", "id", "org"),
+    "access": ("access_requests", "id", "org"),
     "store_version": ("store_versions", "id", "org"),  # a version in an agent store (LP-20e)
     "store_key": ("store_keys", "id", "org"),  # an author's key for an agent store (LP-20f)
     "store_dataset": ("store_datasets", "id", "org"),  # an agent store's dataset (LP-20g)
@@ -294,7 +293,7 @@ CREATE TABLE IF NOT EXISTS decisions (
     human_override  INTEGER,
     reviewer        TEXT,
     resolved_at     TEXT,
-    org             TEXT,
+    org             TEXT NOT NULL,
     refused         INTEGER,
     provider_errors INTEGER,
     observed_label  TEXT
@@ -319,7 +318,7 @@ CREATE TABLE IF NOT EXISTS eval_reports (
     agent_id     TEXT NOT NULL,
     dataset     TEXT NOT NULL,
     report      TEXT NOT NULL,
-    org         TEXT,
+    org         TEXT NOT NULL,
     ledger      TEXT
 );
 CREATE TABLE IF NOT EXISTS provider_usage (
@@ -954,12 +953,6 @@ def break_glass_reason(reason: str) -> str:
     return reason
 
 
-def _org_of(value: Any) -> str:
-    """A row's organization: NULL is `default` (rows from before tenancy). Never `value or
-    DEFAULT_ORG`: "" is an organization (core/tenancy.py). As `_ROW_ORG` maps it in SQL."""
-    return tenancy.DEFAULT_ORG if value is None else str(value)
-
-
 _NO_ROW = object()  # a subject `verify` did not find (a hold's organization may be None)
 
 
@@ -1112,8 +1105,8 @@ class AuditStore(RateBuckets):
 
     def _bound(self, kind: str, payload: Mapping[str, Any], org: str | None) -> dict[str, Any]:
         """A payload as chained (`kind`): with the organization of the row it is about (`org`,
-        which the caller read in the same transaction, mapped by `_org_of`). Every kind but the
-        deployment's names it (`_append_many` refuses one that does not)."""
+        which the caller read in the same transaction). Every kind but the deployment's names
+        it (`_append_many` refuses one that does not)."""
         return {**payload, "org": org}
 
     def ready_to_keep(self) -> None:
@@ -1367,7 +1360,7 @@ class AuditStore(RateBuckets):
                 "note": None,
                 "note_ref": self._keep_note(db, decision_id, "review.resolved", note),
             }
-            chained = self._bound("review.resolved", payload, _org_of(row["org"]))
+            chained = self._bound("review.resolved", payload, row["org"])
             self._append(db, decision_id, "review.resolved", chained)
             # Each held action is resolved here and nowhere else, so exactly once: a held action
             # exists only on a decision that awaits review, and this is the only way out of it.
@@ -1385,7 +1378,7 @@ class AuditStore(RateBuckets):
                 db,
                 "action.resolved",
                 [
-                    (decision_id, self._bound("action.resolved", item, _org_of(row["org"])))
+                    (decision_id, self._bound("action.resolved", item, row["org"]))
                     for item in resolved
                 ],
             )
@@ -1453,7 +1446,7 @@ class AuditStore(RateBuckets):
                 db,
                 decision_id,
                 "action.proposed",
-                self._bound("action.proposed", payload, _org_of(item["org"])),
+                self._bound("action.proposed", payload, item["org"]),
             )
         if epoch is not None:  # committed: this process need not look again
             self._hash_epoch = epoch
@@ -1500,7 +1493,7 @@ class AuditStore(RateBuckets):
                 "UPDATE decisions SET observed_label = ? WHERE id = ?", (final_label, decision_id)
             )
             payload = {"final_label": final_label, "source": source, "recorded_by": recorded_by}
-            chained = self._bound("outcome.recorded", payload, _org_of(row["org"]))
+            chained = self._bound("outcome.recorded", payload, row["org"])
             self._append(db, decision_id, "outcome.recorded", chained)
 
     def record_card_feedback(
@@ -1558,9 +1551,7 @@ class AuditStore(RateBuckets):
                     "outcome_timestamp": item["outcome_timestamp"],
                     "reporter": requester,
                 }
-                entries.append(
-                    (card, self._bound(CARD_FEEDBACK, payload, _org_of(rows[card]["org"])))
-                )
+                entries.append((card, self._bound(CARD_FEEDBACK, payload, rows[card]["org"])))
             return self._append_many(db, "card.feedback", entries)
 
     def record_feedback(
@@ -1634,7 +1625,7 @@ class AuditStore(RateBuckets):
                 "expected": answer,
                 "replaces": previous["id"] if previous else None,
             }
-            chained = self._bound("feedback.recorded", payload, _org_of(row["org"]))
+            chained = self._bound("feedback.recorded", payload, row["org"])
             self._append(db, decision_id, "feedback.recorded", chained)
         return {
             "id": feedback_id,
@@ -2089,7 +2080,7 @@ class AuditStore(RateBuckets):
                 (erased_at, erased_by, note_id),
             )
             payload = {"note_id": note_id, "reason": reason, "erased_by": erased_by}
-            chained = self._bound("note.erased", payload, _org_of(row["org"]))
+            chained = self._bound("note.erased", payload, row["org"])
             self._append(db, row["decision_id"], "note.erased", chained)
         return {**payload, "decision_id": row["decision_id"], "erased_at": erased_at}
 
@@ -2119,9 +2110,7 @@ class AuditStore(RateBuckets):
                 erased = [
                     (
                         row["decision_id"],
-                        self._bound(
-                            "note.erased", {"note_id": row["id"], **retention}, _org_of(row["org"])
-                        ),
+                        self._bound("note.erased", {"note_id": row["id"], **retention}, row["org"]),
                     )
                     for row in doomed
                 ]
@@ -2256,7 +2245,7 @@ class AuditStore(RateBuckets):
             marks = ", ".join("?" for _ in reads)
             with self._db.session(exclusive=True) as db:
                 orgs = {
-                    row["id"]: _org_of(row["org"])
+                    row["id"]: row["org"]
                     for row in db.all(
                         f"SELECT id, org FROM decisions WHERE id IN ({marks})", list(reads)
                     )
@@ -2356,7 +2345,7 @@ class AuditStore(RateBuckets):
                 (erased_at, erased_by, decision_id),
             )
             who = {"reason": reason, "erased_by": erased_by}
-            org = _org_of(item["org"])
+            org = item["org"]
             self._append_many(
                 db,
                 "note.erased",
@@ -2478,7 +2467,7 @@ class AuditStore(RateBuckets):
                     [
                         (
                             row["decision_id"],
-                            self._bound("input.purged", purged, _org_of(row["org"])),
+                            self._bound("input.purged", purged, row["org"]),
                         )
                         for row in rows
                     ],
@@ -3814,7 +3803,7 @@ class AuditStore(RateBuckets):
                 "expires_at_before": row["expires_at"],
                 "overlap_hours": overlap_hours,
             }
-            chained = self._bound("key.rotated", rotated, _org_of(row["org"]))
+            chained = self._bound("key.rotated", rotated, row["org"])
             self._append(db, f"key:{key_id}", "key.rotated", chained)
         return {**new, "replaces": {"id": key_id, "expires_at": until}}
 
@@ -3860,7 +3849,7 @@ class AuditStore(RateBuckets):
                 "UPDATE api_keys SET revoked_at = ?, revoked_by = ? WHERE id = ?",
                 (revoked["revoked_at"], revoked_by, key_id),
             )
-            chained = self._bound("key.revoked", revoked, _org_of(row["org"]))
+            chained = self._bound("key.revoked", revoked, row["org"])
             self._append(db, f"key:{key_id}", "key.revoked", chained)
         return True
 
@@ -3974,7 +3963,7 @@ class AuditStore(RateBuckets):
                 (revoked["revoked_at"], revoked_by, client_id),
             )
             db.all("DELETE FROM oauth_tokens WHERE client_id = ?", (client_id,))
-            chained = self._bound("client.revoked", revoked, _org_of(row["org"]))
+            chained = self._bound("client.revoked", revoked, row["org"])
             self._append(db, f"client:{client_id}", "client.revoked", chained)
         return True
 
@@ -4076,8 +4065,7 @@ class AuditStore(RateBuckets):
             )
             if row is None:
                 return None
-            # As `SUBJECT_TABLES` maps it: NULL is `default`, but a hold's NULL is the
-            # deployment's (every organization's), no one organization's.
+            # A hold's NULL is the deployment's (every organization's), no one organization's.
             owner = row["org"]
             if org is not None and owner != org:
                 return None
@@ -4971,27 +4959,23 @@ class AuditStore(RateBuckets):
 
     def organizations_in_use(self) -> list[dict[str, Any]]:
         """The preflight before memberships mode (`mendari access check`): each organization
-        that keys, clients, approvals, holds, decisions or evaluation reports name (a NULL is
-        `default`), with how many of each, whether it has a record, and whether its id can
-        have one (`recordable`). Counts and ids only."""
-        default = f"COALESCE(org, '{tenancy.DEFAULT_ORG}')"
-        tables = (  # (table, its rows' organization, the live rows)
-            ("api_keys", "org", "revoked_at IS NULL"),
-            ("oauth_clients", "org", "revoked_at IS NULL"),
-            ("governance_approvals", "org", "revoked_at IS NULL"),
-            ("registry_approvals", "org", "revoked_at IS NULL"),
-            ("automation_holds", "org", "lifted_at IS NULL"),
-            ("decisions", default, "1 = 1"),
-            ("eval_reports", default, "1 = 1"),
+        that keys, clients, approvals, holds, decisions or evaluation reports name, with how
+        many of each, whether it has a record, and whether its id can have one (`recordable`).
+        Counts and ids only."""
+        tables = (  # (table, the live rows)
+            ("api_keys", "revoked_at IS NULL"),
+            ("oauth_clients", "revoked_at IS NULL"),
+            ("governance_approvals", "revoked_at IS NULL"),
+            ("registry_approvals", "revoked_at IS NULL"),
+            ("automation_holds", "lifted_at IS NULL"),
+            ("decisions", "1 = 1"),
+            ("eval_reports", "1 = 1"),
         )
         found: dict[str, dict[str, Any]] = {}
         with self._db.session(exclusive=False) as db:
             recorded = {r["id"] for r in db.all("SELECT id FROM organizations")}
-            for table, column, live in tables:
-                rows = db.all(
-                    f"SELECT {column} AS org, COUNT(*) AS n FROM {table} WHERE {live} "
-                    f"GROUP BY {column}"
-                )
+            for table, live in tables:
+                rows = db.all(f"SELECT org, COUNT(*) AS n FROM {table} WHERE {live} GROUP BY org")
                 for row in rows:
                     if row["org"] is None:  # a deployment-wide hold
                         continue
@@ -5131,14 +5115,12 @@ class AuditStore(RateBuckets):
             )
 
     def organizations_since(self, since: str) -> list[str]:
-        """Every organization that made a decision since a time (ISO), `default` for rows with
-        none: the monitor's schedule runs once for each (LP-21f). Deployment-wide: an
-        operator's read, never an organization's route's."""
+        """Every organization that made a decision since a time (ISO): the monitor's schedule
+        runs once for each (LP-21f). Deployment-wide: an operator's read, never an
+        organization's route's."""
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                "SELECT DISTINCT COALESCE(org, ?) AS org FROM decisions WHERE created_at >= ? "
-                "ORDER BY 1",
-                (tenancy.DEFAULT_ORG, since),
+                "SELECT DISTINCT org FROM decisions WHERE created_at >= ? ORDER BY 1", (since,)
             )
         return [str(row["org"]) for row in rows]
 
@@ -5608,7 +5590,7 @@ class AuditStore(RateBuckets):
             decided = db.all(f"SELECT {columns} FROM decisions") if start is None else []
             records = {row["id"]: json.loads(row["record"]) for row in decided}
             rows_of = {row["id"]: row for row in decided}
-            owners = {row["id"]: _org_of(row["org"]) for row in decided}
+            owners = {row["id"]: row["org"] for row in decided}
             # A full verification checks every decision row against the chain (`_unchained`):
             # the events chained since those read excuse a row written, or resolved, after them.
             later: dict[str, set[str]] = {}
@@ -5657,7 +5639,7 @@ class AuditStore(RateBuckets):
                         ):
                             records[row["id"]] = json.loads(row["record"])
                             rows_of[row["id"]] = row
-                            owners[row["id"]] = _org_of(row["org"])
+                            owners[row["id"]] = row["org"]
                 for event in page:
                     breaks = _chain_break(
                         event, prev, expected, records, rows_of, stored, states, owners, subjects
@@ -6011,11 +5993,11 @@ def _check_label(
 
 def _scope() -> tuple[str, tuple[str, ...]]:
     """The SQL condition (on the table aliased `d`) that keeps a query to the organization this
-    request acts for; nothing in open mode. Rows from before tenancy belong to the default one."""
+    request acts for; nothing in open mode."""
     org = tenancy.current()
     if org is None:
         return "1 = 1", ()
-    return "COALESCE(d.org, ?) = ?", (tenancy.DEFAULT_ORG, org)
+    return "d.org = ?", (org,)
 
 
 def _membership(row: Any) -> dict[str, Any]:

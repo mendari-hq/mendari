@@ -430,33 +430,30 @@ def test_verify_finds_a_row_moved_to_another_organization_or_removed(
     }
 
 
-def test_a_decision_from_before_tenancy_is_bound_as_default(
-    db_target: str, triage_agent: Agent
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "UPDATE decisions SET org = NULL",
+        "INSERT INTO eval_reports (id, created_at, agent_id, dataset, report) "
+        "VALUES ('r1', '2026-10-07T00:00:00+00:00', 'p', 'd', '{}')",
+    ],
+    ids=["decision", "evaluation-report"],
+)
+def test_a_row_without_an_organization_is_refused_by_the_database(
+    db_target: str, triage_agent: Agent, statement: str
 ) -> None:
-    """decisions.org is NULL on rows from before v0.6: every writer binds it as `verify` reads
-    it, `default` (`_org_of`), never None."""
+    """Every decision and evaluation report names its organization (`default` in open mode),
+    so no reader maps a missing one to any: the database refuses a row that names none, and
+    what was chained still verifies."""
+    import sqlite3
+
+    import psycopg
+
     with keeping(db_target) as store:
-        first = Decision(triage_agent, store=store)(message(URGENT)).id
         Decision(triage_agent, store=store)(message(URGENT))
-        held = Decision.from_path(PROPOSING, store=store)(message(HELD)).id
-        tamper(store, "UPDATE decisions SET org = NULL")
-    with keeping(db_target) as store, acting(tenancy.DEFAULT_ORG):
-        proposing = Decision.from_path(PROPOSING, store=store)
-        proposing.authorize_action(held, "file_note", {"note": "asked"})  # `action.proposed`
-        store.resolve_review(held, final_label="refill", reviewer="rn-1")  # `action.resolved`
-        store.resolve_review(first, final_label="nurse", reviewer="rn-1", note="a note")
-        rating = store.record_feedback(first, rating="down", reporter="rn-2", note="a note")
-        store.record_outcome(first, final_label="nurse", source="ehr", recorded_by="ehr-feed")
-        store.record_card_feedback(triage_agent.id, "s", [card_feedback(first)])
-        store.get(first, reader="rn-7")  # `input.read`
-        store.erase_note(rating["id"], erased_by="dpo", reason="request")
-        store.erase_input(first, erased_by="dpo", reason="request")
-        store.purge(0, source="command")  # `input.purged` (the second), `note.erased`
-        events = chained(store)
+        with pytest.raises((sqlite3.IntegrityError, psycopg.IntegrityError)):
+            tamper(store, statement)
         assert store.verify()["ok"]
-    bound = [e for e in events if e["event"] in DECISION_KINDS - {"decision.created"}]
-    assert {e["event"] for e in bound} == DECISION_KINDS - {"decision.created"}
-    assert {e["payload"]["org"] for e in bound} == {tenancy.DEFAULT_ORG}
 
 
 def test_the_empty_organization_is_bound_as_itself(db_target: str) -> None:
