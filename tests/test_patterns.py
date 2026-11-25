@@ -67,7 +67,7 @@ def with_schema_pattern(root: Path, pattern: str) -> Path:
     ],
     ids=["re-error", "overflow", "too-long"],
 )
-def test_a_rules_pattern_that_is_not_an_agent_pattern_names_the_agent_file_and_rule(
+def test_a_bad_rules_pattern_names_the_agent_file_and_rule(
     triage_copy: Path, pattern: str, detail: str
 ) -> None:
     root = with_pattern(triage_copy, pattern)
