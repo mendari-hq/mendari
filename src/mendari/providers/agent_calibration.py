@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""An external agent's confidence, calibrated (ADR-0024).
+"""An agent service's confidence, calibrated (ADR-0024).
 
-An `agent` variant's confidence is a number the agent reports about itself, and the policy
-automates on it. `mendari calibrate` asks the live agent about labelled cases and fits, for each
-question, one temperature T (`providers/calibration.py`, the fit an `llm` variant and naive
-Bayes use): the reported distribution p becomes softmax(log p / T).
+An `agent` variant's confidence is a number its service reports about itself, and the policy
+automates on it. `mendari calibrate` asks the live service about labelled cases and fits, for
+each question, one temperature T (`providers/calibration.py`, the fit an `llm` variant uses):
+the reported distribution p becomes softmax(log p / T).
 
-- When the agent reports a distribution over the labels, that is temperature scaling of it.
+- When the service reports a distribution over the labels, that is temperature scaling of it.
 - When it reports only its answer's confidence c, the provider has already spread the rest
   evenly over the other labels (`providers/agent.py`), and the same formula then scales the
   log-odds of c against each other label: log(c / ((1 - c) / (K - 1))) / T. For a question
@@ -15,20 +15,20 @@ Bayes use): the reported distribution p becomes softmax(log p / T).
   likelihoods differ by a constant.
 
 One parameter per question, monotone, and it never changes which answer wins: softmax keeps the
-order of its scores, and the answer's label is kept as the agent gave it.
+order of its scores, and the answer's label is kept as the service gave it.
 
 The fit is a file of the agent (`mendari.agent-calibration/1`), named by the variant's
 `calibration` key as an `llm` variant's is, so the agent's digest, its archive and its signature
 cover it. It records what it was fitted on (the dataset, its sha256, the number of cases, the
-date) and for which agent: the variant's `service_id` and the `service_version` the agent's service
+date) and for which service: the variant's `service_id` and the `service_version` the service
 reported while it was asked. A question with fewer than `MIN_CASES` labelled cases is not
 fitted and is left as reported; so is one whose best temperature is at the edge of the search
-(an agent right on every case has no temperature: sharpening it further always fits better).
+(a service right on every case has no temperature: sharpening it further always fits better).
 
 At decision time (`calibrated`, called by `AgentProvider.answer` for every call, so on every
 path a decision is made by):
 
-- canned answers (`mock_file`) are left alone: they are not the agent's confidence;
+- canned answers (`mock_file`) are left alone: they are not the service's confidence;
 - when the service reports the version the fit was made for, each fitted question's
   distribution is rescaled, and the evidence says `calibrated T=…`;
 - when it reports another version, or none, nothing is rescaled and the decision is capped
@@ -82,7 +82,7 @@ class Calibration:
     date: str
 
     def changed(self, service_id: str | None, reported_version: str | None) -> str | None:
-        """Why this calibration is not the running agent's, as the cap's reason, or None when
+        """Why this calibration is not the running service's, as the cap's reason, or None when
         it is: the variant's `service_id` and the version the service reports are the ones it
         was fitted for. A service that reports no version is not the one it was fitted for."""
         if service_id == self.service_id and reported_version == self.service_version:

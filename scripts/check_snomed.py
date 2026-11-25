@@ -29,8 +29,8 @@ from pathlib import Path
 from mendari.core.spec import licensed_systems
 
 SNOMED = "http://snomed.info/sct"
-# Every SNOMED CT concept id the repository has carried: the six the agents, their data
-# and the sandbox used before LP-14 swapped them for fictional codes, and the three only the US
+# Every SNOMED CT concept id the repository has carried: the six the former bundled agents, their
+# data and the sandbox used before LP-14 swapped them for fictional codes, and the three only the US
 # Core test fixtures use. A bare id names no system, so the scan looks for these values in every
 # file, and for any other number written as a concept id in Mendari's own files (`OWN_FILES`).
 CONCEPT_IDS = (

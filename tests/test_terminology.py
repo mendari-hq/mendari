@@ -58,8 +58,8 @@ PINNED = {
         "CodeSystem/message-channel": "0c3b329c01cfcc58",
         "NamingSystem/decision-id": "a3ac1c38e9476b4f",
         "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
-        # Moved in wave 1, before 0.1.0's release: its title and description say "agent" (its
-        # id and url are as they were: stored resources carry them).
+        # Moved in wave 1, before 0.1.0's release: its title and description say "agent"; and in
+        # wave 6, before it too: its id and url say `agent-version`.
         "NamingSystem/agent-version": "1448a6d6492ce83f",
         # Added in LP-12g, new urls (no earlier content): the administrative events' codes and
         # the chain id each is about. Moved in LP-21l, before 0.1.0's release: `sessions.ended`;
@@ -73,15 +73,15 @@ PINNED = {
         # Moved in LP-20g, before 0.1.0's release: the store's datasets and jobs.
         # Moved in LP-20h, before 0.1.0's release: a store version's promotion and retirement.
         # Moved in LP-20i, before 0.1.0's release: the improvement dataset and its proposed tests.
-        # Moved in wave 1, before 0.1.0's release: the displays say "agent" (the codes are as
-        # they were: the chain holds them).
+        # Moved in wave 1, before 0.1.0's release: the displays say "agent".
         # Moved in wave 3, before 0.1.0's release: an agent's connection set, cleared, and its
         # origin allowed by an operator (ADR-0021), with their `agent_connection:` subject.
         # Moved in wave 5, before 0.1.0's release: the six events of a grading round of written
         # output (`written.*`, ADR-0025).
         # Moved in wave 6, before 0.1.0's release: the hidden evaluation sets' events, their
         # `evalset:` subject and the store's holds (`store_version.held|released`,
-        # `store_dataset.held`) are gone (G13).
+        # `store_dataset.held`) are gone (G13), and a store version's and a pulled agent's
+        # events are `store_version.*` and `registry_agent.*`.
         "CodeSystem/audit-administrative-event": "eaacdc14fcb32d46",
         "NamingSystem/audit-subject": "5804d858d1fb1240",
     }
