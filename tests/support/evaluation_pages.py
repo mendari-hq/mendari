@@ -153,7 +153,6 @@ class World:
         key: Ed25519PrivateKey = KEY,
         labelled_by: str | None = LABELLED_BY,
         failed: int = 0,
-        first_format: bool = False,
     ) -> dict[str, Any]:
         """A signed evaluation of `pack` with `reader=variant`, with what a run varies pinned."""
         decision = Decision(pack, providers={"reader": variant}, origin_cap=False)
@@ -163,10 +162,6 @@ class World:
         measured = REMOTE if built["report"]["remote_consent"] else LOCAL
         fields["engine"] = "0.1.0"
         fields["claimed"] = {**measured, "failed_cases": failed}
-        if first_format:
-            fields["format"] = evaluations.FORMAT_V1
-            del fields["engine"], fields["claimed"]["failed_cases"]
-            fields["dataset"] = {k: fields["dataset"][k] for k in ("name", "sha256", "n")}
         return evaluations.sign(fields, key)
 
     def publish(self, pack: Pack, *variants: str, **how: Any) -> list[dict[str, Any]]:
@@ -297,9 +292,6 @@ def _cases(world: World) -> dict[str, Any]:
 
     world.publish(world.agent("no-critical", no_critical_label), "rules", "agent")
     keep("no-critical")
-
-    world.publish(world.agent("first-format"), "agent", first_format=True)
-    keep("first-format")
 
     world.publish(world.agent("failed"), "agent", failed=3)
     keep("failed")

@@ -26,7 +26,6 @@ const CASES = [
   "tied",
   "insufficient",
   "no-critical",
-  "first-format",
   "failed",
   "hostile",
   "tampered",
@@ -236,17 +235,7 @@ test("a recalled agent says so, and shows no evaluation", async ({ page }) => {
   await expect(badgeAlt(page)).toHaveAttribute("alt", "Mendari: recalled");
 });
 
-test("what an earlier record does not state is said to be not stated, and failed cases are said", async ({ page }) => {
-  await page.goto(at("first-format"));
-  const what = page.getByRole("region", { name: "What was evaluated, and on what data" });
-  await expect(what).toContainText(
-    "Where the cases come from. Not stated in the signed record. The agent's own manifest marks its data as synthetic.",
-  );
-  await expect(what).toContainText("Who labelled them. Not stated by the publisher.");
-  await expect(what).toContainText("Not stated in the signed records.");
-  await expect(compared(page).locator(".eval-claimed li")).not.toContainText("provider");
-  await expect(page.getByRole("region", { name: "Signatures" }).locator(".group-tag")).toHaveText("1 of 1 verified");
-
+test("failed cases are said", async ({ page }) => {
   await page.goto(at("failed"));
   await expect(verdict(page)).toContainText(
     "A provider failed on 3 of the 600 cases in reader=agent's run. Each went to a person, so its figures are partly of the failure.",

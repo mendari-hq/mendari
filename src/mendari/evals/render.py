@@ -88,10 +88,8 @@ INTERVALS = "k of n [exact 95% interval, Clopper-Pearson]"
 
 def equal_mass(question: Mapping[str, Any]) -> str:
     """The equal-mass ECE (ten equal-count bins), "not estimable" with why when a bin would
-    hold too few cases, or n/a for a report from before it was computed (mendari.eval/1)."""
-    stored = (question.get("calibration") or {}).get("equal_mass")
-    if not isinstance(stored, Mapping):
-        return "n/a"
+    hold too few cases."""
+    stored = question["calibration"]["equal_mass"]
     if stored.get("ece") is None:
         return f"not estimable ({stored.get('reason', 'too few cases')})"
     return num(stored["ece"])

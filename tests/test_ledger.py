@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """The per-case ledger and the mendari.eval/2 result (LP-10): a result is computed only from its
 ledger and seed, byte for byte the same on a second run and when recomputed from the parsed
-ledger; the ledger holds no input text and no case id; a mendari.eval/1 report still loads; a
-stored report is chained; and two runs compare case by case."""
+ledger; the ledger holds no input text and no case id; a stored report is chained; and two runs
+compare case by case."""
 
 from __future__ import annotations
 
@@ -20,17 +20,15 @@ import pytest
 
 from mendari import Decision, Pack, load_pack
 from mendari.cli import main
-from mendari.core import clock
 from mendari.core.audit import AuditStore
 from mendari.core.card import render_card
 from mendari.errors import MendariError
-from mendari.evals import leaderboard, paired
+from mendari.evals import paired
 from mendari.evals.harness import evaluation, load_dataset, resolve_dataset
 from mendari.evals.ledger import Ledger, canonical, case_hash, case_key
 from mendari.evals.result import (
     FORMAT,
     PREDICTED,
-    normalize,
     result_from_ledger,
     result_of,
     result_sha256,
@@ -225,19 +223,6 @@ def test_a_case_entry_a_reader_would_index_wrongly_is_refused(runs: Any, change:
     run, _, _ = runs
     with pytest.raises(MendariError, match="a case line is not a ledger case"):
         Ledger.loads(_with_entry(run, change))
-
-
-def test_a_v1_report_still_loads_everywhere(tmp_path: Path) -> None:
-    assert normalize(V1)["run"]["id"] == V1["id"]
-    assert leaderboard.row(V1)["report_id"] == V1["id"]
-    copy = tmp_path / "patient-inbox-router"
-    shutil.copytree(ROOT / "tests" / "fixtures" / "reference-agents" / "patient-inbox-router", copy)
-    shutil.copy(ROOT / "tests" / "fixtures" / "eval-v1-inbox.json", copy / "evals/benchmark.json")
-    card = render_card(load_pack(copy))  # the card reads a v1 benchmark as it did
-    assert f"| Last validation | {clock.local_date(V1['created_at'])} on `test`" in card
-    assert f"{V1['latency_ms']['p50']:.2f} / " in card
-    # Its sweep in counts: 598 of the 600 scored cases at 0.50 or more, 3 of them wrong.
-    assert "| 0.50 | 598 of 600 [98.8-99.96%] | 595 of 598 [98.5-99.9%] |" in card
 
 
 def test_a_benchmark_of_the_same_version_is_never_called_an_earlier_one(tmp_path: Path) -> None:

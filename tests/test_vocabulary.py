@@ -614,11 +614,11 @@ def test_a_class_named_for_the_old_word_is_listed_under_its_title(
     """The model of a shared record's `pack` key: its Python class and the key it types keep
     their names (signed records hold the key), and the API description lists the schema under
     the title the model sets, with every reference to it following."""
-    from mendari.evals.share import SharedPack, SiteReport
+    from mendari.evals.share import SharedPack, SiteReportV2
     from mendari.server import api_docs
 
     assert SharedPack.__name__ == "SharedPack" and SharedPack in api_docs.TITLED
-    assert "pack" in SiteReport.model_fields  # the key on the wire, unchanged
+    assert "pack" in SiteReportV2.model_fields  # the key on the wire, unchanged
     whole = API_DOCUMENTS["the engine's API description, everything on"](tmp_path, monkeypatch)
     schemas = whole["components"]["schemas"]
     assert "SharedPack" not in schemas and schemas["SharedAgent"]["title"] == "SharedAgent"

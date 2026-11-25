@@ -15,11 +15,10 @@ model lists each member's as `member:model`, joined as the composite joins them 
 cascade's " → ", the one character that is not ASCII), and a failed member's error is
 `member:code`. Calibration bins with fewer than `MIN_GROUP` cases are dropped.
 
-Its models are kept for what is built from their parts (a hidden set's result,
-`evals/hidden.py`) and for reports a registry stored before LP-22c; a registry no longer takes
-it, and nothing here builds it. A site shares `mendari.site-report/2` (LP-22c, ADR-0017),
-built by `site_report` (`shareable`, as sent): whole counts only, counted from the run's
-ledger, small cells suppressed by one function (`suppress`) that both sides run.
+Its parts are kept for what is built from them (a hidden set's result, `evals/hidden.py`);
+a registry takes none, and nothing here builds one. A site shares `mendari.site-report/2`
+(LP-22c, ADR-0017), built by `site_report` (`shareable`, as sent): whole counts only, counted
+from the run's ledger, small cells suppressed by one function (`suppress`) that both sides run.
 """
 
 from __future__ import annotations
@@ -50,7 +49,7 @@ from mendari.providers.composite import CompositeProvider
 
 MIN_GROUP = 10
 MAX_MEMBERS = 16  # the most members a shared composite may list
-SITE_REPORT_FORMAT = "mendari.site-report/1"
+SITE_REPORT_FORMAT = "mendari.site-report/1"  # the format a registry refuses by its name
 
 _NAME_PART = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}"
 _MODEL_PART = r"[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,127}"
@@ -141,10 +140,6 @@ class SharedPolicy(_Closed):
     governance_override: bool
 
 
-class SharedDataset(_Closed):
-    n: Count
-
-
 class LabelMetrics(_Closed):
     precision: Rate | None
     recall: Rate | None
@@ -201,16 +196,6 @@ class CriticalCounts(_Closed):
 Outcome = Literal["AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK"]
 
 
-class Decisions(_Closed):
-    outcome_counts: dict[Outcome, Count]
-    outcome_rates: dict[Outcome, Rate | None]
-    abstention_rate: Rate | None
-    automation: Automation
-    review: Review
-    recommendation_accuracy: Rate | None
-    critical: Annotated[list[CriticalCounts], Field(max_length=64)]
-
-
 class SweepRow(_Closed):
     threshold: Rate
     coverage: Rate | None
@@ -218,39 +203,8 @@ class SweepRow(_Closed):
     errors: Count
 
 
-class Latency(_Closed):
-    mean: Positive | None
-    p50: Positive | None
-    p95: Positive | None
-    max: Positive | None
-
-
-class Cost(_Closed):
-    total_usd: Positive | None
-    per_decision_usd: Positive | None
-    input_tokens: Count
-    output_tokens: Count
-
-
-class SiteReport(_Closed):
-    """Everything a site may share about one evaluation, and nothing else."""
-
-    format: Literal["mendari.site-report/1"]
-    pack: SharedPack
-    providers: Annotated[dict[Name, SharedProvider], Field(max_length=64)]
-    policy: SharedPolicy
-    dataset: SharedDataset
-    primary: Name
-    questions: Annotated[dict[Name, QuestionMetrics], Field(max_length=64)]
-    decisions: Decisions
-    threshold_sweep: Annotated[list[SweepRow], Field(max_length=101)]
-    latency_ms: Latency
-    cost: Cost
-    errors: Annotated[dict[ErrorKey, Count], Field(max_length=64)]
-
-
 def _field_names() -> frozenset[str]:
-    models: list[type[BaseModel]] = [SiteReport, SiteReportV2]
+    models: list[type[BaseModel]] = [SiteReportV2]
     names: set[str] = {"report", "site", "body", "query", "path"}
     while models:
         model = models.pop()
@@ -281,22 +235,6 @@ def where(loc: tuple[Any, ...] | list[Any]) -> str:
         if part != "[key]"
     ]
     return ".".join(shown)
-
-
-def summary(report: Mapping[str, Any]) -> dict[str, Any]:
-    """The few numbers a site-to-site comparison shows."""
-    primary = report.get("primary")
-    question = (report.get("questions") or {}).get(primary, {})
-    decisions = report.get("decisions") or {}
-    return {
-        "n": (report.get("dataset") or {}).get("n"),
-        "primary": primary,
-        "accuracy": question.get("accuracy"),
-        "macro_f1": question.get("macro_f1"),
-        "automation_rate": (decisions.get("outcome_rates") or {}).get("AUTO"),
-        "false_automation_rate": (decisions.get("automation") or {}).get("false_automation_rate"),
-        "ece": (question.get("calibration") or {}).get("ece"),
-    }
 
 
 # --------------------------------------------------------------------------------------------

@@ -28,15 +28,10 @@ says whether the configuration calls a provider off the machine; a public set ma
 word, shown labelled so. `dataset.provenance` is what the manifest's `card.provenance` says
 the agent's data was built from (null: it does not say), and the registry refuses any other.
 
-`mendari.publisher-evaluation/1` is the same record without `engine`, `dataset.provenance`,
-`dataset.labelled_by` and `claimed.failed_cases`. A registry still takes one, and one it
-stored verifies and is shown as before: what it does not state is shown as not stated.
-Nothing here rewrites a stored record.
-
 The signature is Ed25519 over `PREFIX`, the format and a zero byte, then the canonical JSON of
 every field but the signature (sorted keys, no spaces, ASCII). The format is in the signed
-bytes twice (after the prefix, and as a field), so a record of one format never verifies as the
-other. No other Mendari signature is over bytes that start so: an archive's manifest, a yank
+bytes twice (after the prefix, and as a field), so a record of one format never verifies as
+another. No other Mendari signature is over bytes that start so: an archive's manifest, a yank
 and the registry's records sign bare JSON, a site and the grading key their own prefixes
 (`hub/site_signing.py`, `evals/signing.py`).
 
@@ -107,13 +102,12 @@ if TYPE_CHECKING:
     from mendari.core.pack import Pack
     from mendari.evals.harness import Evaluation
 
-FORMAT_V1 = "mendari.publisher-evaluation/1"
 FORMAT_V2 = "mendari.publisher-evaluation/2"
-FORMAT = FORMAT_V2  # what `build` signs; a registry takes either, and shows what it stored
-FORMATS = (FORMAT_V1, FORMAT_V2)
+FORMAT = FORMAT_V2  # what `build` signs, and the one format a registry takes
+FORMATS = (FORMAT,)
 LISTING_FORMAT = "mendari.publisher-evaluations/1"
-# The signature scheme's own name, the same for both formats: the format follows it in the
-# signed bytes (`signed_bytes`), so a record of one never verifies as the other.
+# The signature scheme's own name: the format follows it in the signed bytes
+# (`signed_bytes`), so a record of one format never verifies as another.
 PREFIX = b"mendari-publisher-evaluation-v1\x00"
 MAX_SKEW_S = 600  # as a recall's (`yank.MAX_SKEW_S`): sign it again
 MAX_BYTES = 256_000  # a record of the demo agent is about 4 KB
@@ -214,22 +208,10 @@ class ClaimedV2(Claimed):
 Models = Annotated[list[Annotated[str, Field(pattern=_MODEL_NAME)]], Field(max_length=MAX_MODELS)]
 
 
-class PublisherEvaluation(_Closed):
-    format: Literal["mendari.publisher-evaluation/1"]
-    pack: SharedPack
-    configuration: Annotated[dict[Name, Name], Field(min_length=1, max_length=64)]
-    dataset: EvaluatedDataset
-    report: SiteReportV2
-    claimed: Claimed
-    models: Models
-    created_at: Annotated[str, Field(pattern=_TIME)]
-    key_id: Annotated[str, Field(pattern=_KEY_ID)]
-    signature: Annotated[str, Field(min_length=1, max_length=200)]
-
-
 class PublisherEvaluationV2(_Closed):
-    """`mendari.publisher-evaluation/2`: as `/1`, with the dataset's provenance and who labelled
-    it, and the Mendari release that ran the evaluation."""
+    """`mendari.publisher-evaluation/2`: the agent, the configuration, the dataset (with its
+    provenance and who labelled it), the run's counts, the publisher's own claims and models,
+    and the Mendari release that ran the evaluation."""
 
     format: Literal["mendari.publisher-evaluation/2"]
     pack: SharedPack
@@ -244,11 +226,8 @@ class PublisherEvaluationV2(_Closed):
     signature: Annotated[str, Field(min_length=1, max_length=200)]
 
 
-Evaluated = PublisherEvaluation | PublisherEvaluationV2
-_MODELS: dict[str, type[PublisherEvaluation] | type[PublisherEvaluationV2]] = {
-    FORMAT_V1: PublisherEvaluation,
-    FORMAT_V2: PublisherEvaluationV2,
-}
+Evaluated = PublisherEvaluationV2
+_MODELS: dict[str, type[PublisherEvaluationV2]] = {FORMAT_V2: PublisherEvaluationV2}
 _FIELDS = frozenset(PublisherEvaluationV2.model_fields) | {
     name for model in (DescribedDataset, ClaimedV2) for name in model.model_fields
 }
@@ -521,10 +500,7 @@ class EvaluationStore:
             raise HubError(f"report: it names {unknown} the agent does not have")
         if report.dataset.n != evaluation.dataset.n:
             raise HubError("report.dataset.n: it is not the dataset's n")
-        if (
-            isinstance(evaluation, PublisherEvaluationV2)
-            and evaluation.claimed.failed_cases > evaluation.dataset.n
-        ):
+        if evaluation.claimed.failed_cases > evaluation.dataset.n:
             raise HubError("claimed.failed_cases: it is more than the dataset's n")
         shared = report.model_dump(mode="json")
         if _has_null(shared):
@@ -566,10 +542,7 @@ class EvaluationStore:
                 raise HubError("dataset.sha256: it is not the archived dataset's")
             if len(dataset.records) != evaluation.dataset.n:
                 raise HubError("dataset.n: it is not the archived dataset's")
-            if (
-                isinstance(evaluation, PublisherEvaluationV2)
-                and evaluation.dataset.provenance != pack.manifest.card.provenance
-            ):
+            if evaluation.dataset.provenance != pack.manifest.card.provenance:
                 raise HubError(
                     "dataset.provenance: it is not what the agent's manifest says its data was "
                     "built from (`card.provenance`)"
@@ -903,13 +876,12 @@ def as_listed(
             "name": dataset["name"],
             "n": dataset["n"],
             "sha256": dataset["sha256"],
-            # What `mendari.publisher-evaluation/1` does not state is null: not stated.
-            "provenance": dataset.get("provenance"),
-            "labelled_by": dataset.get("labelled_by"),
+            "provenance": dataset["provenance"],
+            "labelled_by": dataset["labelled_by"],
         },
-        "models": list(record.get("models") or []),
-        "claimed": dict(record.get("claimed") or {}),
-        "engine": record.get("engine"),
+        "models": list(record["models"]),
+        "claimed": dict(record["claimed"]),
+        "engine": record["engine"],
         "created_at": row["created_at"],
         "signature": signature,
         "excluded": REVOKED if str(row["key_id"]) in revoked else None,

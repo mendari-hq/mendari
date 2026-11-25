@@ -81,16 +81,6 @@ def said(registry: Registry, agent: str = AGENT) -> str:
     return words
 
 
-def as_v1(record: dict[str, Any], key: Any) -> dict[str, Any]:
-    """The same run as a `mendari.publisher-evaluation/1` record, as a client from before `/2`
-    signs it."""
-    fields = copy.deepcopy({k: v for k, v in record.items() if k not in ("key_id", "signature")})
-    fields["format"] = evaluations.FORMAT_V1
-    del fields["engine"], fields["claimed"]["failed_cases"]
-    fields["dataset"] = {k: fields["dataset"][k] for k in ("name", "sha256", "n")}
-    return evaluations.sign(fields, key)
-
-
 def rewrite(registry: Registry, evaluation_id: str, **columns: str) -> None:
     """Change a stored evaluation's row behind the registry's back, as someone with the
     database could."""
@@ -202,29 +192,6 @@ def test_a_published_evaluation_is_read_back_verified_and_shown(published: Regis
         shown["badge"]["message"],
     )
     assert published.operator.verify()["ok"]
-
-
-def test_a_record_of_the_first_format_is_still_taken_and_shown(published: Registry) -> None:
-    """What a client from before `mendari.publisher-evaluation/2` signs: taken, verified on
-    every read, and shown with what it does not state as not stated."""
-    old = as_v1(signed(published.key, "agent"), published.key)
-    assert send(published, old).status_code == 201
-    assert stored_body(published, evaluations.evaluation_id(old)) == old  # stored as it was sent
-    [listed] = published.client.get(f"{AGENT}/{demo().version}/evaluations").json()["evaluations"]
-    assert listed["signature"]["verified"] and listed["record_format"] == evaluations.FORMAT_V1
-    assert listed["dataset"]["provenance"] is None and listed["engine"] is None
-    [dataset] = page(published)["datasets"]
-    [shown] = dataset["configurations"]
-    assert dataset["provenance"] is None and dataset["labelled_by"] == []
-    assert shown["engine"] is None and "failed_cases" not in shown["claimed"]
-    assert shown["signed"]["verified"] is True
-    # That the data is synthetic is still said: the signed archive's manifest says it.
-    assert page(published)["agent"]["synthetic"] is True
-    assert said(published).startswith("evaluated, 600 synthetic cases")
-    # A record of one format never passes as the other: the format is in the signed bytes.
-    relabelled = {**old, "format": evaluations.FORMAT_V2}
-    answer = send(published, relabelled)
-    assert answer.status_code == 422 and "mendari.publisher-evaluation/2 record" in answer.text
 
 
 def test_what_the_second_format_adds_is_checked(published: Registry) -> None:
