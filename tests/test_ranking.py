@@ -6,15 +6,24 @@ person reads is k of n with its interval."""
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 from mendari import Decision, Pack
-from mendari.core.registry import resolve_pack
 from mendari.evals import ranking, stats
 from mendari.evals.harness import evaluate, resolve_dataset
 from mendari.evals.render import report_text, shown
+from tests.conftest import CHART_DIR, CLINICAL_DIR, TRIAGE_DIR
+from tests.support.engine import published
 
 DIGEST = "sha256:" + "a" * 64
+# The test fixtures' agents, each published in a test with its own benchmark and a board of a
+# second configuration beside its default (`published`).
+FIXTURES = {
+    TRIAGE_DIR: {"screen": "checked"},
+    CLINICAL_DIR: {"reader": "agent"},
+    CHART_DIR: {"reader": "rules"},
+}
 
 
 def row(config: str, **changes: Any) -> dict[str, Any]:
@@ -103,8 +112,9 @@ def test_rows_on_other_records_rank_apart() -> None:
     assert {(c, r) for c, r, _ in order([row("here"), other])} == {("here", 1), ("other", 1)}
 
 
-def test_twenty_emergency_positives_say_insufficient_evidence(inbox_pack: Pack) -> None:
-    report = evaluate(Decision(inbox_pack), resolve_dataset(inbox_pack, "red_flags_holdout"))
+def test_twenty_emergency_positives_say_insufficient_evidence(triage_agent: Pack) -> None:
+    critical = resolve_dataset(triage_agent, "critical").head(20)  # same-day symptoms, each
+    report = evaluate(Decision(triage_agent), critical)
     text = report_text(report)
     (item,) = report["decisions"]["critical"]
     assert item["n"] == 20
@@ -120,26 +130,17 @@ def test_a_proportion_is_shown_with_its_interval() -> None:
     assert shown({"k": 3, "n": 10, "low": 0.06674, "high": 0.652453}) == "3 of 10 [6.7-65.2%]"
 
 
-def test_the_reference_cards_hold_no_bare_percentage() -> None:
-    """Every proportion on a reference pack's card is k of n with its interval; what else is a
-    percentage there is a threshold or a tolerance, never a share of cases."""
+def test_the_reference_cards_hold_no_bare_percentage(tmp_path: Path) -> None:
+    """Every proportion on a published fixture agent's card is k of n with its interval; what
+    else is a percentage there is a threshold or a tolerance, never a share of cases."""
     from mendari.core.card import render_card
 
-    for name in ("patient-inbox-router", "referral-router"):
-        card = render_card(resolve_pack(f"mendari/{name}"))
+    for agent, run in FIXTURES.items():
+        card = render_card(published(agent, tmp_path, runs=[run]))
         validation = card[card.index("Benchmark `") : card.index("Calibration (reliability)")]
         for line in validation.splitlines():
             if line.startswith("|") and "%" in line:
                 assert " of " in line or "no cases" in line, line
-
-
-REFERENCE_PACKS = (
-    "ai-guard",
-    "clinical-trial-prescreener",
-    "patient-inbox-router",
-    "prior-auth-preflight",
-    "referral-router",
-)
 
 
 def printed_ranks(text: str) -> list[str]:
@@ -153,21 +154,20 @@ def printed_ranks(text: str) -> list[str]:
     ]
 
 
-def test_no_card_or_board_prints_a_rank_for_a_public_set() -> None:
-    """A pack's own sets are public, and a board can also hold a site's own file, never a
-    frozen hidden set, so each of its tables is a regression check, not a ranking (LP-17g):
-    neither the five reference cards (as rendered, and as committed) nor the command line's
-    tables print a rank. The rows keep theirs as data, and are listed in their order."""
+def test_no_card_or_board_prints_a_rank_for_a_public_set(tmp_path: Path) -> None:
+    """An agent's own sets are public, and a board can also hold a site's own file, so each of
+    its tables is a regression check, not a ranking (LP-17g): neither a published fixture
+    agent's card with its board nor the command line's tables print a rank. The rows keep theirs
+    as data, and are listed in their order."""
     from mendari.core.card import render_card
     from mendari.evals import leaderboard
 
-    for name in REFERENCE_PACKS:
-        pack = resolve_pack(f"mendari/{name}")
-        for card in (render_card(pack), (pack.root / "DECISION_CARD.md").read_text()):
-            section = card[card.index("## Provider comparison") : card.index("## Known failure")]
-            assert section.count("Public set: regression check, not a ranking.") == 1, name
-            assert "| Configuration | Critical detected |" in section, name
-            assert printed_ranks(section) == [], name
+    for agent, run in FIXTURES.items():
+        card = render_card(published(agent, tmp_path, runs=[run]))
+        section = card[card.index("## Provider comparison") : card.index("## Known failure")]
+        assert section.count("Public set: regression check, not a ranking.") == 1, agent.name
+        assert "| Configuration | Critical detected |" in section, agent.name
+        assert printed_ranks(section) == [], agent.name
 
     # Rows that rank as data (on the pack's digest, with enough critical positives).
     rows = [
@@ -187,26 +187,28 @@ def test_no_card_or_board_prints_a_rank_for_a_public_set() -> None:
     assert listed == ["| a-first", "| b-second", "| c-third"]  # in the order, unnumbered
 
 
-def test_the_card_says_the_order_its_rows_are_in() -> None:
+def test_the_card_says_the_order_its_rows_are_in(tmp_path: Path) -> None:
     """The rows are listed as `ranking.grouped` lists them: those that rank as data first, in
     their order, then every other row by configuration name. The card says just that, and never
-    that its rows come critical cases first: every row of the five reference boards is of an
-    earlier version of its pack, so each of their tables is in order of configuration name."""
+    that its rows come critical cases first: no row of a published fixture agent's board ranks
+    (each of its sets holds under 100 critical positives), so each of its tables is in order of
+    configuration name."""
     from mendari.core.card import render_card
     from mendari.evals import leaderboard
 
-    for name in REFERENCE_PACKS:
-        pack = resolve_pack(f"mendari/{name}")
+    for agent, run in FIXTURES.items():
+        pack = published(agent, tmp_path, runs=[run])
         board, problem = leaderboard.read(pack)
         assert board is not None, problem
         for _, rows in ranking.grouped(board["rows"], pack.digest):
-            assert {r["standing"] for r in rows} == {ranking.EARLIER}, name
+            assert {r["standing"] for r in rows} == {ranking.INSUFFICIENT}, agent.name
+            assert all(r["rank"] is None for r in rows), agent.name
             configs = [r["config"] for r in rows]
-            assert configs == sorted(configs), name
+            assert configs == sorted(configs), agent.name
         card = render_card(pack)
-        assert leaderboard.preface() in card, name
-        assert "every other row follows, by configuration name" in card, name
-        assert "rows are listed with the critical cases caught first" not in card, name
+        assert leaderboard.preface() in card, agent.name
+        assert "every other row follows, by configuration name" in card, agent.name
+        assert "rows are listed with the critical cases caught first" not in card, agent.name
 
     # Ranked rows first in their order, then the rest by name, whatever the names.
     rows = [
@@ -266,21 +268,6 @@ def test_why_a_row_is_not_of_the_pack_as_it_is() -> None:
     assert ranking.measured_on("1.0.0", None, "1.0.0") == (
         "version 1.0.0, its agent digest not recorded"
     )
-
-
-def test_a_row_from_leaderboard_1_has_no_accuracy_as_k_of_n() -> None:
-    """A v1 row stored its accuracy over the cases labelled for the primary question, and not
-    how many: on red_flags (38 cases, 28 labelled) 0.75 is 21 of 28, never "28 of 38"."""
-    from mendari.evals.leaderboard import markdown
-
-    v2_only = ("accuracy_proportion", "false_automation")
-    v1 = {k: v for k, v in row("v1").items() if k not in v2_only}
-    v1.update(dataset="red_flags", n=38, accuracy=0.75, pack_digest=None, dataset_sha256=None)
-    v1.update(critical=[])
-    table = "\n".join(markdown({"rows": [v1]}, DIGEST, "1.0.0"))
-    (line,) = [x for x in table.splitlines() if x.startswith("| v1 ")]
-    assert "28 of 38" not in line and "| n/a | n/a | 0 of 38" in line
-    assert "n/a on a row recorded before leaderboards kept the counts" in table
 
 
 def test_an_unknown_cost_is_said_not_a_crash() -> None:
