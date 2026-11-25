@@ -2,7 +2,8 @@
 """The scheduled monitor (LP-21f): `GET /api/internal/monitor` with CRON_SECRET only, each
 organization on its own (the status checks' left out), one recorded alert per organization
 that alerts, the pending ones sent again first, a time limit that says what it left; and
-`mendari monitor --each-org`, the same from the command line."""
+`mendari monitor --each-org`, the same from the command line. The decisions are the triage
+fixture's."""
 
 from __future__ import annotations
 
@@ -31,15 +32,16 @@ from mendari.core.audit import AuditStore
 from mendari.errors import MendariError
 from mendari.server import app as app_module
 from mendari.server.app import create_app
-from tests.conftest import ROOT, SCREENED, encrypt_mode, encrypted_store, message, signed_in
+from tests.conftest import ROOT, encrypt_mode, encrypted_store, message, signed_in
 from tests.test_hosted_data import sign_in_env
-
-pytestmark = pytest.mark.usefixtures("screened")  # automated decisions: the screen on fake Jev
 
 CRON = "a-cron-secret-of-some-length-0123456789"
 HOOK = "https://hooks.example.org/services/T000/B000/WebhookSecretToken"
 ROUTE = "/api/internal/monitor"
+# Automated: the pharmacy's, with the screen running its agent (canned answers that find nothing
+# urgent), as the fixture's policy requires.
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
+SCREENED = {"screen": "agent"}
 
 
 class Webhook:
@@ -148,14 +150,14 @@ def run(client: TestClient) -> dict[str, Any]:
 
 
 def test_the_cron_route_alerts_on_a_seeded_degradation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inbox_pack: Pack, no_waiting: None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, triage_agent: Pack, no_waiting: None
 ) -> None:
     hook = Webhook()
     monkeypatch.setattr(alerts_module.httpx, "post", hook)
     client = server(tmp_path, monkeypatch)
     store = encrypted_store(tmp_path / "a.db")
-    degraded(store, inbox_pack, "clinic-a")
-    healthy(store, inbox_pack, "clinic-b")
+    degraded(store, triage_agent, "clinic-a")
+    healthy(store, triage_agent, "clinic-b")
     assert run(client) == {
         "organizations": 2,
         "alerting": 1,
@@ -203,15 +205,15 @@ def test_the_cron_route_refuses_a_request_without_its_secret(
 
 
 def test_alerts_never_mix_organizations(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inbox_pack: Pack, no_waiting: None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, triage_agent: Pack, no_waiting: None
 ) -> None:
     hook = Webhook()
     monkeypatch.setattr(alerts_module.httpx, "post", hook)
     client = server(tmp_path, monkeypatch)
     store = encrypted_store(tmp_path / "a.db")
-    degraded(store, inbox_pack, "clinic-a")
-    degraded(store, inbox_pack, "clinic-b")
-    degraded(store, inbox_pack, "clinic-b")
+    degraded(store, triage_agent, "clinic-a")
+    degraded(store, triage_agent, "clinic-b")
+    degraded(store, triage_agent, "clinic-b")
     assert run(client)["delivered"] == 2
     by_org = {sent["body"]["organization"]: sent["body"] for sent in hook.sent}
     assert set(by_org) == {"clinic-a", "clinic-b"}
@@ -223,28 +225,28 @@ def test_alerts_never_mix_organizations(
 
 
 def test_the_status_organization_is_not_monitored(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inbox_pack: Pack, no_waiting: None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, triage_agent: Pack, no_waiting: None
 ) -> None:
     hook = Webhook()
     monkeypatch.setattr(alerts_module.httpx, "post", hook)
     monkeypatch.setenv("MENDARI_STATUS_ORG", "status")
     client = server(tmp_path, monkeypatch)
     store = encrypted_store(tmp_path / "a.db")
-    degraded(store, inbox_pack, "status")
-    healthy(store, inbox_pack, "clinic-a")
+    degraded(store, triage_agent, "status")
+    healthy(store, triage_agent, "clinic-a")
     assert run(client)["organizations"] == 1 and hook.sent == []
 
 
 def test_an_overrun_reports_the_organizations_left(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inbox_pack: Pack, no_waiting: None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, triage_agent: Pack, no_waiting: None
 ) -> None:
     hook = Webhook()
     monkeypatch.setattr(alerts_module.httpx, "post", hook)
     monkeypatch.setattr(app_module, "MONITOR_SECONDS", -1.0)  # out of time from the start
     client = server(tmp_path, monkeypatch)
     store = encrypted_store(tmp_path / "a.db")
-    degraded(store, inbox_pack, "clinic-a")
-    healthy(store, inbox_pack, "clinic-b")
+    degraded(store, triage_agent, "clinic-a")
+    healthy(store, triage_agent, "clinic-b")
     result = run(client)
     assert (result["organizations"], result["not_reached"]) == (0, 2)
     (sent,) = hook.sent
@@ -281,13 +283,13 @@ def test_alerts_still_pending_are_sent_again_first(
 
 
 def test_an_organization_s_alert_that_is_not_delivered_is_tried_three_times_and_kept(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inbox_pack: Pack, no_waiting: None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, triage_agent: Pack, no_waiting: None
 ) -> None:
     hook = Webhook(503, 503, 503)
     monkeypatch.setattr(alerts_module.httpx, "post", hook)
     client = server(tmp_path, monkeypatch)
     store = encrypted_store(tmp_path / "a.db")
-    degraded(store, inbox_pack, "clinic-a")
+    degraded(store, triage_agent, "clinic-a")
     result = run(client)
     assert (result["alerting"], result["delivered"], result["not_delivered"]) == (1, 0, 1)
     assert [sent["body"]["organization"] for sent in hook.sent] == ["clinic-a"] * 3
@@ -296,7 +298,7 @@ def test_an_organization_s_alert_that_is_not_delivered_is_tried_three_times_and_
 
 
 def test_a_hung_webhook_and_a_backlog_keep_the_run_inside_the_function_s_time(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inbox_pack: Pack, fake_clock: Clock
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, triage_agent: Pack, fake_clock: Clock
 ) -> None:
     """20 pending alerts and five organizations alerting, to a receiver that never answers:
     the retries stop at 60 s (the rest stay due), no organization starts after 180 s, and the
@@ -306,7 +308,7 @@ def test_a_hung_webhook_and_a_backlog_keep_the_run_inside_the_function_s_time(
     pending(store, 20, monkeypatch)
     orgs = [f"clinic-{letter}" for letter in "abcde"]
     for org in orgs:
-        degraded(store, inbox_pack, org)
+        degraded(store, triage_agent, org)
     monkeypatch.setattr(clock_module, "today", lambda: date.fromordinal(5 * 1000))  # a first
     hung = HungWebhook(fake_clock)
     monkeypatch.setattr(alerts_module.httpx, "post", hung)
@@ -323,14 +325,14 @@ def test_a_hung_webhook_and_a_backlog_keep_the_run_inside_the_function_s_time(
 
 
 def test_each_day_starts_at_another_organization(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inbox_pack: Pack, fake_clock: Clock
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, triage_agent: Pack, fake_clock: Clock
 ) -> None:
     """With time for one organization a run, two days in a row reach both."""
     monkeypatch.setattr(app_module, "MONITOR_SECONDS", 0.0)
     client = server(tmp_path, monkeypatch)
     store = encrypted_store(tmp_path / "a.db")
-    degraded(store, inbox_pack, "clinic-a")
-    degraded(store, inbox_pack, "clinic-b")
+    degraded(store, triage_agent, "clinic-a")
+    degraded(store, triage_agent, "clinic-b")
     reached: list[str] = []
     for day in (800_000, 800_001):
         monkeypatch.setattr(clock_module, "today", lambda day=day: date.fromordinal(day))
@@ -345,7 +347,7 @@ def test_each_day_starts_at_another_organization(
 def test_a_webhook_it_cannot_use_posts_nothing_and_the_route_still_answers(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    inbox_pack: Pack,
+    triage_agent: Pack,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     hook = Webhook()
@@ -353,7 +355,7 @@ def test_a_webhook_it_cannot_use_posts_nothing_and_the_route_still_answers(
     client = server(tmp_path, monkeypatch)
     monkeypatch.setenv("MENDARI_ALERT_WEBHOOK", "http://hooks.example.org/plain")
     client = TestClient(create_app(db_path=tmp_path / "b.db"), base_url="https://mendari.test")
-    degraded(encrypted_store(tmp_path / "b.db"), inbox_pack, "clinic-a")
+    degraded(encrypted_store(tmp_path / "b.db"), triage_agent, "clinic-a")
     with caplog.at_level(logging.WARNING, logger="mendari.monitor"):
         result = run(client)
     assert (result["alerting"], result["delivered"]) == (1, 0) and hook.sent == []
@@ -375,22 +377,22 @@ def test_mendari_monitor_each_org_posts_one_alert_per_organization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    inbox_pack: Pack,
+    triage_agent: Pack,
     no_waiting: None,
 ) -> None:
     db = tmp_path / "a.db"
     store = AuditStore(db)
-    degraded(store, inbox_pack, "clinic-a")
-    degraded(store, inbox_pack, "status")
-    healthy(store, inbox_pack, "clinic-b")
+    degraded(store, triage_agent, "clinic-a")
+    degraded(store, triage_agent, "status")
+    healthy(store, triage_agent, "clinic-b")
     monkeypatch.setenv("MENDARI_STATUS_ORG", "status")
     hook = Webhook()
     monkeypatch.setattr(alerts_module.httpx, "post", hook)
-    args = ["monitor", "--db", str(db), "--agent", inbox_pack.id, "--each-org", "--webhook", HOOK]
+    args = ["monitor", "--db", str(db), "--agent", triage_agent.id, "--each-org", "--webhook", HOOK]
     assert main(args) == 0  # a scheduled job: every alert posted is the job done
     out = capsys.readouterr().out
-    assert "clinic-a: mendari/patient-inbox-router: 1 alert(s)" in out
-    assert "clinic-b: mendari/patient-inbox-router: ok" in out and "status:" not in out
+    assert f"clinic-a: {triage_agent.id}: 1 alert(s)" in out
+    assert f"clinic-b: {triage_agent.id}: ok" in out and "status:" not in out
     assert [sent["body"]["organization"] for sent in hook.sent] == ["clinic-a"]
     assert main(args[:-2]) == 1  # alerts with nowhere to post them
     monkeypatch.setattr(alerts_module.httpx, "post", Webhook(*[httpx.ConnectError("down")] * 3))
@@ -403,16 +405,16 @@ def test_a_lost_alert_or_a_failed_organization_never_hides_behind_another(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    inbox_pack: Pack,
+    triage_agent: Pack,
     no_waiting: None,
 ) -> None:
     """clinic-a's alert is lost; clinic-b's is posted after it: still exit 3. clinic-a's
     monitoring fails; clinic-b is still monitored and posted: exit 1, the line names clinic-a."""
     db = tmp_path / "a.db"
     store = AuditStore(db)
-    degraded(store, inbox_pack, "clinic-a")
-    degraded(store, inbox_pack, "clinic-b")
-    args = ["monitor", "--db", str(db), "--agent", inbox_pack.id, "--each-org", "--webhook", HOOK]
+    degraded(store, triage_agent, "clinic-a")
+    degraded(store, triage_agent, "clinic-b")
+    args = ["monitor", "--db", str(db), "--agent", triage_agent.id, "--each-org", "--webhook", HOOK]
     hook = Webhook(*[httpx.ConnectError("down")] * 3)
     monkeypatch.setattr(alerts_module.httpx, "post", hook)
     assert main(args) == 3
