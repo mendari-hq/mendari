@@ -1,16 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
-"""A community pack's patterns share one time budget per decision (`core/patterns.py`).
+"""The patterns of an agent the deployment does not own share one time budget per decision
+(`core/patterns.py`).
 
-RE2 is linear and the caps bound how many patterns run and how large they are, but a pack within
-every cap could still take 5 s on 10,000 characters of emoji, or 17 s with negated patterns
-(the focused check of B11), and its schema minutes. The budget, in the decision thread's CPU time,
-makes the bound hard: once spent, the pack's rules or its schema check stop (`time_budget`) and
-the decision abstains, for a person to decide.
+Such an agent (here, one pulled from a registry whose digest is no bundled agent's:
+`tests/support/engine.py`) runs on the bounded engine. RE2 is linear and the caps bound how many
+patterns run and how large they are, but an agent within every cap could still take 5 s on
+10,000 characters of emoji, or 17 s with negated patterns (the focused check of B11), and its
+schema minutes. The budget, in the decision thread's CPU time, makes the bound hard: once spent,
+the agent's rules or its schema check stop (`time_budget`) and the decision abstains, for a
+person to decide.
 """
 
 from __future__ import annotations
 
-import json
+import copy
 import time
 from pathlib import Path
 from typing import Any
@@ -19,10 +22,11 @@ import pytest
 
 from mendari import Decision, load_pack
 from mendari.core import patterns
+from mendari.core.origin import Origin
 from mendari.core.spec import Outcome
 from mendari.errors import PackValidationError
 from mendari.evals.pack_tests import _run
-from tests.test_community_caps import SORTER, sorter
+from tests.support.engine import SORTER_SCHEMA, pulled, sorter
 
 EMOJI = "\U0001f600" * 10_000
 # Each takes about half a second on EMOJI and the nine stay within every cap (2,700 of 3,000).
@@ -61,8 +65,8 @@ def timed(pack: Any, inputs: dict[str, Any]) -> tuple[Any, float]:
 def test_a_community_packs_rules_stop_at_the_budget_and_a_person_decides(tmp_path: Path) -> None:
     """The rules fail as any provider that cannot answer does: the decision abstains, with no
     recommendation, and a person decides."""
-    pack = load_pack(sorter(tmp_path, rules=slow_rules(), schema=long_message))
-    assert pack.community
+    pack = pulled(sorter(tmp_path, rules=slow_rules(), schema=long_message))
+    assert pack.bounded
     result, took = timed(pack, {"message": EMOJI})
     assert took < BOUND_S
     assert result.outcome is Outcome.ABSTAIN and result.recommendation is None
@@ -71,7 +75,7 @@ def test_a_community_packs_rules_stop_at_the_budget_and_a_person_decides(tmp_pat
 
 def test_negated_patterns_stop_at_the_budget_too(tmp_path: Path) -> None:
     """Before, each negated match made RE2 scan ahead again: 17.5 s within every cap."""
-    pack = load_pack(sorter(tmp_path, rules=slow_rules(negatable=True), schema=long_message))
+    pack = pulled(sorter(tmp_path, rules=slow_rules(negatable=True), schema=long_message))
     text = (("no " + "\U0001f600" * 190 + " ") * 60)[:10_000]
     result, took = timed(pack, {"message": text})
     assert took < BOUND_S
@@ -95,7 +99,7 @@ def test_a_community_packs_schema_patterns_stop_at_the_budget(tmp_path: Path) ->
         long_message(schema)
         schema["properties"]["message"]["allOf"] = [{"pattern": p} for p in SLOW]
 
-    pack = load_pack(sorter(tmp_path, schema=slow_schema))
+    pack = pulled(sorter(tmp_path, schema=slow_schema))
     result, took = timed(pack, {"message": EMOJI})
     assert took < BOUND_S and result.outcome is Outcome.BLOCK
     assert 0 < len(result.reasons) < len(SLOW)
@@ -112,7 +116,7 @@ def test_a_schema_that_fans_out_without_patterns_stops_at_the_budget(tmp_path: P
             for i in range(24)
         } | {"t24": {"minLength": 1}}
 
-    pack = load_pack(sorter(tmp_path, schema=fan_out))
+    pack = pulled(sorter(tmp_path, schema=fan_out))
     assert timed(pack, {"message": "my bill"})[1] < 1  # without the field, nothing fans out
     result, took = timed(pack, {"message": "my bill", "note": "x"})
     assert took < BOUND_S and stopped_for_a_person(result)
@@ -129,9 +133,9 @@ def test_an_enum_is_short_and_stops_at_the_budget_on_many_items(tmp_path: Path) 
         return edit
 
     with pytest.raises(PackValidationError) as error:
-        load_pack(sorter(tmp_path / "long", schema=codes(list(range(501)))))
+        pulled(sorter(tmp_path / "long", schema=codes(list(range(501)))))
     assert any("lists 501 values, at most 500" in problem for problem in error.value.problems)
-    pack = load_pack(sorter(tmp_path / "short", schema=codes(list(range(500)))))
+    pack = pulled(sorter(tmp_path / "short", schema=codes(list(range(500)))))
     result, took = timed(pack, {"message": "my bill", "codes": [499] * 9_990})
     assert took < BOUND_S and result.outcome is not Outcome.BLOCK
 
@@ -158,7 +162,7 @@ def test_a_community_packs_schema_uses_only_the_keywords_mendari_bounds(
         schema["properties"]["codes"] = {"type": "array", keyword: value}
 
     with pytest.raises(PackValidationError) as error:
-        load_pack(sorter(tmp_path, schema=used))
+        pulled(sorter(tmp_path, schema=used))
     assert any(
         f"properties/codes/{keyword}: a community or registry agent's schema may not use {keyword}"
         in problem
@@ -179,7 +183,7 @@ def test_a_community_packs_ref_names_one_of_its_defs(tmp_path: Path, reference: 
         schema["properties"]["meta"] = {"$ref": reference}
 
     with pytest.raises(PackValidationError) as error:
-        load_pack(sorter(tmp_path, schema=referred))
+        pulled(sorter(tmp_path, schema=referred))
     expected = "is not in the schema" if reference.endswith("missing") else "a $ref names one"
     assert any(expected in problem for problem in error.value.problems)
 
@@ -201,7 +205,7 @@ def test_lists_and_values_a_schema_compares_at_once_are_short_and_flat(
         schema["properties"]["meta"] = {"type": "object", keyword: value}
 
     with pytest.raises(PackValidationError) as error:
-        load_pack(sorter(tmp_path, schema=listed))
+        pulled(sorter(tmp_path, schema=listed))
     assert any(problem in found for found in error.value.problems)
 
 
@@ -217,7 +221,7 @@ def test_the_budget_counts_the_decisions_own_cpu_time_not_waiting() -> None:
 
 
 def test_a_pack_test_that_runs_out_of_time_says_so(tmp_path: Path) -> None:
-    pack = load_pack(sorter(tmp_path, rules=slow_rules(), schema=long_message))
+    pack = pulled(sorter(tmp_path, rules=slow_rules(), schema=long_message))
     case = {"name": "slow", "input": {"message": EMOJI}, "expect": {"recommendation": "billing"}}
     failures = _run(Decision(pack), case).failures
     assert any("time_budget" in failure for failure in failures)
@@ -226,7 +230,7 @@ def test_a_pack_test_that_runs_out_of_time_says_so(tmp_path: Path) -> None:
 
 def test_the_budget_belongs_to_one_decision(tmp_path: Path) -> None:
     """Spent in one decision, it is not in the next; outside a decision there is none."""
-    pack = load_pack(sorter(tmp_path, rules=slow_rules(), schema=long_message))
+    pack = pulled(sorter(tmp_path, rules=slow_rules(), schema=long_message))
     decision = Decision(pack)
     assert set(decision.decide({"message": EMOJI}).errors.values()) == {"time_budget"}
     assert patterns._DEADLINE.get() is None
@@ -236,11 +240,11 @@ def test_the_budget_belongs_to_one_decision(tmp_path: Path) -> None:
 
 
 def test_a_pack_that_is_not_a_community_pack_has_no_budget(tmp_path: Path) -> None:
-    """Its patterns run on `re`, as before, with no budget (a short text: `re` would take long
-    on the slow one)."""
+    """The same agent as the operator's own: its patterns run on `re`, as before, with no budget
+    (a short text: `re` would take long on the slow one)."""
     root = sorter(tmp_path, rules=slow_rules(), schema=long_message, pack_id="someone/sorter")
     result = Decision(load_pack(root)).decide({"message": "a question about my bill 0"})
-    assert not load_pack(root).community and result.errors == {}
+    assert not load_pack(root).bounded and result.errors == {}
 
 
 def test_the_budget_is_spent_once_and_restored() -> None:
@@ -273,7 +277,7 @@ def test_keywords_jsonschema_walks_on_its_own_are_refused(tmp_path: Path, keywor
         schema["$defs"] = fan_out(20)
 
     with pytest.raises(PackValidationError) as error:
-        load_pack(sorter(tmp_path, schema=walked))
+        pulled(sorter(tmp_path, schema=walked))
     assert any(f"may not use {keyword}" in problem for problem in error.value.problems)
 
 
@@ -281,7 +285,7 @@ def test_a_property_named_like_a_keyword_is_allowed(tmp_path: Path) -> None:
     def named(schema: dict[str, Any]) -> None:
         schema["properties"]["uniqueItems"] = {"type": "string", "x-note": "a name, not a keyword"}
 
-    assert load_pack(sorter(tmp_path, schema=named)).community
+    assert pulled(sorter(tmp_path, schema=named)).bounded
 
 
 def test_a_community_packs_input_holds_a_bounded_number_of_values(tmp_path: Path) -> None:
@@ -291,11 +295,11 @@ def test_a_community_packs_input_holds_a_bounded_number_of_values(tmp_path: Path
     def many(schema: dict[str, Any]) -> None:
         schema["properties"]["xs"] = {"type": "array", "items": {"x-note": 1}}
 
-    pack = load_pack(sorter(tmp_path, schema=many))
+    pack = pulled(sorter(tmp_path, schema=many))
     result, took = timed(pack, {"message": "my bill", "xs": [1] * 2_000_000})
     assert took < BOUND_S and result.outcome is Outcome.BLOCK  # refused before any keyword
     assert result.reasons == (
-        "input rejected: (root): more than 10,000 values, the most a community agent reads",
+        "input rejected: (root): more than 10,000 values, the most an agent from a registry reads",
     )
     assert timed(pack, {"message": "my bill", "xs": [1] * 9_000})[0].outcome is not Outcome.BLOCK
 
@@ -311,11 +315,11 @@ def test_a_community_packs_input_is_nested_at_most_32_deep(tmp_path: Path) -> No
     deep: dict[str, Any] = {}
     for _ in range(200):
         deep = {"n": deep}
-    result = Decision(load_pack(sorter(tmp_path, schema=nested))).decide(
+    result = Decision(pulled(sorter(tmp_path, schema=nested))).decide(
         {"message": "my bill", "tree": deep}
     )
     assert result.reasons == (
-        "input rejected: (root): nested more than 32 deep, the most a community agent reads",
+        "input rejected: (root): nested more than 32 deep, the most an agent from a registry reads",
     )
 
 
@@ -324,21 +328,22 @@ def test_the_community_validator_keeps_its_class_on_the_root(tmp_path: Path) -> 
     to it, now refused at load) brought back its own one, with patterns on `re`."""
     from mendari.core import input_schema
 
-    schema = json.loads((SORTER / "schemas" / "input.schema.json").read_text())
+    schema = copy.deepcopy(SORTER_SCHEMA)
     validator = input_schema.validator(schema, community=True)
     assert isinstance(validator.schema, dict) and "$schema" not in validator.schema
     assert type(validator.evolve(schema=validator.schema)) is type(validator)
 
 
 def test_a_number_past_checking_is_refused_not_a_crash(tmp_path: Path) -> None:
-    """For every pack: `multipleOf: 0.01` on a 4,000-digit integer raised OverflowError."""
+    """For every agent, pulled or the deployment's own: `multipleOf: 0.01` on a 4,000-digit
+    integer raised OverflowError."""
 
     def money(schema: dict[str, Any]) -> None:
         schema["properties"]["amount"] = {"type": "number", "multipleOf": 0.01}
 
-    for pack_id in ("community/visit-sorter", "someone/sorter"):
-        root = sorter(tmp_path / pack_id.split("/")[0], schema=money, pack_id=pack_id)
-        result = Decision(load_pack(root)).decide({"message": "my bill", "amount": 10**4000})
+    for name, loaded in (("pulled", pulled), ("own", load_pack)):
+        root = sorter(tmp_path / name, schema=money)
+        result = Decision(loaded(root)).decide({"message": "my bill", "amount": 10**4000})
         assert result.outcome is Outcome.BLOCK
         refused = (
             "input rejected: (root): the schema cannot check it: it is nested too deep or holds "
@@ -356,7 +361,7 @@ def test_errors_found_before_the_budget_runs_out_still_refuse_the_input(tmp_path
         }
         schema["$defs"] = fan_out(24)
 
-    pack = load_pack(sorter(tmp_path, schema=checked_first))
+    pack = pulled(sorter(tmp_path, schema=checked_first))
     result, took = timed(pack, {"a": "one", "message": "my bill", "note": "x"})
     assert took < BOUND_S and result.outcome is Outcome.BLOCK
     assert result.reasons == ("input rejected: a: must be of type integer",)
@@ -376,7 +381,7 @@ def test_mendari_validate_checks_test_inputs_within_the_budget(tmp_path: Path) -
         "  expect: {recommendation: billing}\n"
     )
     started = time.monotonic()
-    found = input_problems(load_pack(root))
+    found = input_problems(pulled(root))
     assert time.monotonic() - started < BOUND_S
     assert any("checking its input against the schema stopped" in problem for problem in found)
 
@@ -393,7 +398,7 @@ def test_a_defs_name_is_one_a_ref_names_exactly(tmp_path: Path, name: str) -> No
         schema["properties"]["codes"] = {"$ref": f"#/$defs/{name}"}
 
     with pytest.raises(PackValidationError) as error:
-        load_pack(sorter(tmp_path, schema=hidden))
+        pulled(sorter(tmp_path, schema=hidden))
     assert any(
         f"$defs/{name}: a $defs name is letters" in p or "is not in the schema" in p
         for p in error.value.problems
@@ -401,7 +406,7 @@ def test_a_defs_name_is_one_a_ref_names_exactly(tmp_path: Path, name: str) -> No
 
 
 def test_the_error_limit_and_short_reasons_are_a_community_packs_only(tmp_path: Path) -> None:
-    """Every other pack lists what it always listed."""
+    """Every agent the deployment owns lists what it always listed."""
 
     def many(schema: dict[str, Any]) -> None:
         schema["properties"]["meta"] = {"type": "object", "required": [f"n{i}" for i in range(9)]}
@@ -410,8 +415,8 @@ def test_the_error_limit_and_short_reasons_are_a_community_packs_only(tmp_path: 
     reasons = Decision(outside).decide({"message": "my bill", "meta": {}}).reasons
     assert reasons[0] == f"input rejected: meta: {', '.join(f'n{i}' for i in range(9))} is required"
     assert len(reasons) == 9  # one per missing name, as before
-    community = load_pack(sorter(tmp_path / "b", schema=many))
-    reasons = Decision(community).decide({"message": "my bill", "meta": {}}).reasons
+    bounded = pulled(sorter(tmp_path / "b", schema=many))
+    reasons = Decision(bounded).decide({"message": "my bill", "meta": {}}).reasons
     assert reasons == ("input rejected: meta: n0, n1, n2, n3, n4 and 4 more is required",)
 
 
@@ -431,17 +436,18 @@ def test_a_schemas_texts_are_short(tmp_path: Path, keyword: str, value: Any) -> 
         schema["properties"]["meta"] = {"type": "object", keyword: value}
 
     with pytest.raises(PackValidationError) as error:
-        load_pack(sorter(tmp_path, schema=long))
+        pulled(sorter(tmp_path, schema=long))
     assert any("longer than 200 characters" in p for p in error.value.problems)
 
 
 def test_validate_called_alone_holds_a_community_packs_text_to_its_length(
     tmp_path: Path,
 ) -> None:
-    """`mendari omop` validates records without deciding them: the length cap applies too."""
-    pack = load_pack(sorter(tmp_path, schema=long_message))
+    """`mendari data check` validates a dataset's inputs without deciding them: the length cap
+    applies too."""
+    pack = pulled(sorter(tmp_path, schema=long_message))
     assert Decision(pack).validate({"message": "x" * 10_001}) == [
-        "message: longer than 10,000 characters, the most a community agent reads"
+        "message: longer than 10,000 characters, the most an agent from a registry reads"
     ]
 
 
@@ -451,7 +457,7 @@ def test_refused_keywords_say_what_to_write_instead(tmp_path: Path) -> None:
         schema["definitions"] = {}
 
     with pytest.raises(PackValidationError) as error:
-        load_pack(sorter(tmp_path, schema=used))
+        pulled(sorter(tmp_path, schema=used))
     found = " ".join(error.value.problems)
     assert "dependentRequired" in found and "use if/then" in found and "use $defs" in found
 
@@ -472,11 +478,12 @@ def test_enum_and_const_errors_do_not_copy_the_schema_or_the_input() -> None:
     assert not list(validator.iter_errors({"a": listed[7], "b": 1.0}))  # 1.0 is 1, True is not
 
 
-@pytest.mark.parametrize("pack_id", ["community/visit-sorter", "someone/sorter"])
-def test_a_root_id_that_is_not_text_is_refused(tmp_path: Path, pack_id: str) -> None:
-    """Before, it failed the load with an AttributeError (on every pack)."""
+@pytest.mark.parametrize("origin", ["hub", "local"])
+def test_a_root_id_that_is_not_text_is_refused(tmp_path: Path, origin: Origin) -> None:
+    """Before, it failed the load with an AttributeError (on every agent, pulled or the
+    deployment's own)."""
     with pytest.raises(PackValidationError) as error:
-        load_pack(sorter(tmp_path, schema=lambda s: s.update({"$id": 5}), pack_id=pack_id))
+        load_pack(sorter(tmp_path, schema=lambda s: s.update({"$id": 5})), origin=origin)
     assert "input schema: $id: $id is a text" in error.value.problems
 
 
@@ -496,5 +503,5 @@ def test_a_refused_keyword_says_why_and_what_instead(
         schema["properties"]["meta"] = {"type": "object", keyword: {"enum": [1]}}
 
     with pytest.raises(PackValidationError) as error:
-        load_pack(sorter(tmp_path, schema=used))
+        pulled(sorter(tmp_path, schema=used))
     assert any(words in problem for problem in error.value.problems), error.value.problems
