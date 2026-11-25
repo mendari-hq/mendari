@@ -128,8 +128,6 @@ class SiteReportStore:
             return None
         wanted = secret_sha256(secret)
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_tickets"):
-                return None
             row = db.one("SELECT * FROM hub_tickets WHERE submit_sha256 = ?", (wanted,))
         if row is None or not hmac.compare_digest(str(row["submit_sha256"]), wanted):
             return None
@@ -227,12 +225,9 @@ class SiteReportStore:
             if signer is None or signer["site"] != ticket["site"]:
                 raise HubError(NOT_A_SITE_KEY, 403)
             # The version may have been recalled, deleted or unlisted since the ticket.
-            if not _recall_free(db, namespace, name, version) or (
-                db.columns("hub_claims")
-                and db.one(
-                    "SELECT namespace FROM hub_claims WHERE namespace = ? AND status <> 'approved'",
-                    (namespace,),
-                )
+            if not _recall_free(db, namespace, name, version) or db.one(
+                "SELECT namespace FROM hub_claims WHERE namespace = ? AND status <> 'approved'",
+                (namespace,),
             ):
                 raise HubError("that version is recalled or not listed: it takes no report", 409)
             if db.one(
@@ -325,8 +320,6 @@ class SiteReportStore:
         site, key, ticket, whether it was superseded (and by which) and whether its key was
         revoked as compromised, and its figures, worked out from its counts."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_site_reports"):
-                return []
             rows = db.all(
                 "SELECT r.*, s.name AS site_name FROM hub_site_reports r JOIN hub_sites s "
                 "ON s.id = r.site WHERE r.namespace = ? AND r.name = ? "
@@ -347,12 +340,10 @@ class SiteReportStore:
         """One signed report as it was received: the site's signed record, to check against
         the site's key (`GET /v1/sites/{id}`), and its body's SHA-256."""
         with self._db.session(exclusive=False) as db:
-            row = None
-            if db.columns("hub_site_reports"):
-                row = db.one(
-                    "SELECT * FROM hub_site_reports WHERE id = ? AND namespace = ? AND name = ?",
-                    (report_id, namespace, name),
-                )
+            row = db.one(
+                "SELECT * FROM hub_site_reports WHERE id = ? AND namespace = ? AND name = ?",
+                (report_id, namespace, name),
+            )
         if row is None:
             raise HubError("no such report", 404)
         return {
@@ -366,9 +357,7 @@ class SiteReportStore:
     ) -> dict[str, Any]:
         """The report a correction's ticket names: the site's own live report for the same
         digest and configuration, not already superseded nor named by another correction."""
-        row = None
-        if db.columns("hub_site_reports"):
-            row = db.one("SELECT * FROM hub_site_reports WHERE id = ?", (supersedes,))
+        row = db.one("SELECT * FROM hub_site_reports WHERE id = ?", (supersedes,))
         if row is None or row["site"] != site:
             raise HubError("no such report of this site to supersede", 404)
         if row["digest"] != digest or row["configuration"] != configuration:

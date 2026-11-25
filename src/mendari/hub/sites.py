@@ -107,7 +107,7 @@ def key_proof_holds(public: Ed25519PublicKey, site_id: str, proof: str) -> bool:
 
 
 def _site_row(db: Session, site_id: str) -> dict[str, Any] | None:
-    if not _SITE_ID.match(site_id) or not db.columns("hub_sites"):  # no such table: no site
+    if not _SITE_ID.match(site_id):
         return None
     return db.one(f"SELECT {_SITE_FIELDS} FROM hub_sites WHERE id = ?", (site_id,))
 
@@ -282,16 +282,14 @@ def live_result(
     )
     # A reported ticket whose report a correction superseded is no longer live, so a
     # correction can itself be corrected (the adversarial review of LP-22f).
-    superseded: set[str] = set()
-    if db.columns("hub_site_reports"):
-        superseded = {
-            str(row["ticket"])
-            for row in db.all(
-                "SELECT r.ticket FROM hub_site_reports r WHERE r.site = ? AND r.id IN "
-                "(SELECT supersedes FROM hub_site_reports WHERE supersedes IS NOT NULL)",
-                (site,),
-            )
-        }
+    superseded = {
+        str(row["ticket"])
+        for row in db.all(
+            "SELECT r.ticket FROM hub_site_reports r WHERE r.site = ? AND r.id IN "
+            "(SELECT supersedes FROM hub_site_reports WHERE supersedes IS NOT NULL)",
+            (site,),
+        )
+    }
     return any(
         _status(row, now) in ("open", "reported", "withdrawn")
         for row in rows
@@ -477,9 +475,7 @@ class SiteStore:
 
         by, reason = _label(by, "who revokes", 200), _label(reason, "the reason", 200)
         with self._db.session(exclusive=True) as db:
-            row = None
-            if db.columns("hub_site_keys"):
-                row = db.one(f"SELECT {_KEY_FIELDS} FROM hub_site_keys WHERE key_id = ?", (key_id,))
+            row = db.one(f"SELECT {_KEY_FIELDS} FROM hub_site_keys WHERE key_id = ?", (key_id,))
             site = None if row is None else _site_row(db, row["site"])
             if row is None or site is None or (org is not None and site["org"] != org):
                 raise HubError("no such site key", 404)  # another organization's: the same
@@ -522,8 +518,6 @@ class SiteStore:
                 params.append(value)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_sites"):
-                return []
             rows = db.all(
                 f"SELECT {_SITE_FIELDS} FROM hub_sites{where} ORDER BY created_at, id",
                 tuple(params),
@@ -561,7 +555,7 @@ class SiteStore:
         operator's to name."""
         with self._db.session(exclusive=False) as db:
             site = _site_row(db, site_id)
-            if site is None or not db.columns("hub_claims"):
+            if site is None:
                 return False
             claim = db.one("SELECT org FROM hub_claims WHERE namespace = ?", (namespace,))
         return claim is not None and claim["org"] == site["org"]
@@ -571,8 +565,6 @@ class SiteStore:
     def _signer(self, db: Session, record: Mapping[str, Any]) -> dict[str, Any] | None:
         """The site key that signed `record`, when it is a live key of the verified site the
         record names (else None: one answer for every way it is not, so none is told apart)."""
-        if not db.columns("hub_site_keys"):
-            return None
         key = db.one(
             f"SELECT {_KEY_FIELDS} FROM hub_site_keys WHERE key_id = ?", (record["key_id"],)
         )
@@ -687,7 +679,7 @@ class SiteStore:
             # may have changed since (the adversarial review of LP-22e).
             if self._signer(db, record) is None:
                 raise HubError(NOT_A_SITE_KEY, 403)
-            unlisted = db.columns("hub_claims") and db.one(
+            unlisted = db.one(
                 "SELECT namespace FROM hub_claims WHERE namespace = ? AND status <> 'approved'",
                 (namespace,),
             )
@@ -818,8 +810,6 @@ class SiteStore:
         """An agent's tickets of verified or closed sites, as stored (for site evidence, LP-22g):
         never the secret's hash, the commitment or the nonce."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_tickets"):
-                return []
             return db.all(
                 "SELECT t.id, t.site, t.version, t.digest, t.configuration, t.remote_consent, "
                 "t.status, t.created_at, t.expires_at FROM hub_tickets t JOIN hub_sites s "
@@ -837,8 +827,6 @@ class SiteStore:
         if not self.versions(namespace, name):  # type: ignore[attr-defined]
             raise HubError("no such agent", 404)
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_tickets"):
-                return []
             rows = db.all(
                 "SELECT t.site, t.version, t.digest, t.configuration, t.remote_consent, "
                 "t.status, t.created_at, t.expires_at, s.name AS site_name, "
