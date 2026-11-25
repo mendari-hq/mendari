@@ -3,9 +3,10 @@
 # writes data/ and DECISION_CARD.md; everything else here is written by hand.
 #
 # Every outcome is reached offline, without a service:
-# - AUTO: a confident team with the screen running an agent (`--provider screen=agent`), since
-#   the policy automates only then (`automation_requires`): a refill at 0.97, an appointment at
-#   0.98 (the front desk needs 0.95), never billing (`allow_auto: false`);
+# - AUTO: a confident team with the screen running its agent (`--provider screen=agent`, or the
+#   agent checked by the rules, `checked`), since the policy automates only then
+#   (`automation_requires`): a refill at 0.97, an appointment at 0.98 (the front desk needs
+#   0.95), never billing (`allow_auto: false`);
 # - HUMAN_REVIEW: a confidence from 0.50 to the label's threshold, a possible emergency (rule
 #   `possible-emergency`, a nurse at priority stat), or any decision while the screen is the
 #   keyword rules alone (the default);

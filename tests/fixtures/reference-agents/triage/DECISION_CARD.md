@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `screen` is `agent` or `checked`; otherwise a person reviews. |
-| Agent digest | `sha256:adf293958eec1e00418c2850d215173903dc0f940ef60dc643c56ef0474d1c05` |
+| Agent digest | `sha256:46cc4df984b8d0e3b0ea18a59cf3daa2d9977a360d3d057d493ba4543b152be7` |
 
 ## Intended use
 
