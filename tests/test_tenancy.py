@@ -68,7 +68,7 @@ def test_nobody_reads_any_organization_data(store: AuditStore) -> None:
         lambda: store.feedback(),
         lambda: store.reports(),
         lambda: store.approvals(),
-        lambda: store.decision_rows("mendari/patient-inbox-router", "2026-01-01"),
+        lambda: store.decision_rows("mendari-test/triage", "2026-01-01"),
     ]
     with tenancy.acting_for_nobody("Bo"):
         for read in reads:
@@ -76,9 +76,9 @@ def test_nobody_reads_any_organization_data(store: AuditStore) -> None:
                 read()
 
 
-def test_nobody_writes_any_organization_data(store: AuditStore, inbox_pack: Pack) -> None:
+def test_nobody_writes_any_organization_data(store: AuditStore, triage_agent: Pack) -> None:
     inputs = message(REFILL)
-    result = Decision(inbox_pack)(inputs)
+    result = Decision(triage_agent)(inputs)
     before = store.verify()
     with tenancy.acting_for_nobody("Bo"):
         with pytest.raises(NoOrganization):
@@ -87,8 +87,8 @@ def test_nobody_writes_any_organization_data(store: AuditStore, inbox_pack: Pack
             store.acknowledge_notice("person:bo", version="1", actor="Bo")
         with pytest.raises(NoOrganization):
             store.approve_automation(
-                pack_id=inbox_pack.id,
-                pack_digest=inbox_pack.digest,
+                pack_id=triage_agent.id,
+                pack_digest=triage_agent.digest,
                 risk_level=2,
                 approver="Bo",
                 reference="ref",
