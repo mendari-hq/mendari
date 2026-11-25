@@ -29,6 +29,7 @@ from mendari.core import clock, tenancy
 from mendari.core.audit import AuditStore
 from mendari.core.decision import CallBudget, Decision
 from mendari.errors import MendariError, ProviderError
+from mendari.providers import llm
 from mendari.server import auth as auth_module
 from mendari.server.app import create_app, error_response, quota_alert
 from mendari.server.auth import permission_for
@@ -41,10 +42,10 @@ from mendari.server.limits import (
 )
 from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import (
+    FIXTURE_AGENTS,
     ROOT,
+    calm_agent,
     encrypt_mode,
-    evalset_on,
-    evalsets_are_on,
     hosted,
     launched,
     member,
@@ -53,6 +54,10 @@ from tests.conftest import (
     signed_in,
     without_request_id,
 )
+from tests.support.chart_fixture import ORDERS_SERVICE, draft, order_hook
+from tests.support.chart_fixture import order_sign as orders_twin
+from tests.support.fixture_records import SHOWCASE
+from tests.support.platform import BUNDLE, COMMUNICATION, PATIENT
 from tests.test_auth import IDP, FakeIdp
 from tests.test_backend_services import (
     PUBLIC_URL,
@@ -64,10 +69,27 @@ from tests.test_backend_services import (
 )
 from tests.test_backend_services import on as backend_on
 
-INBOX = "mendari/patient-inbox-router"
+INBOX = "mendari-test/triage"  # the agent these tests decide with
 DECIDE = f"/api/agents/{INBOX}/decide"
+HOOK = "/cds-services/mendari-test.triage"
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 NO_STORE = "no-store"
+# The triage fixture's providers that automate in open mode: its screen's canned agent (its
+# policy's `automation_requires`), with its router's keyword rules or, in `AUTOMATING`, the
+# deployment's LLM (`llm_answers`), a remote call that budgets and quotas count.
+SCREENED = {"screen": "agent"}
+AUTOMATING = {"router": "llm", "screen": "agent"}
+CHECKED = {"screen": "checked"}  # its agent (`calm_agent`, a live service) checked by its rules
+# What the server still mounts of features wave 6 removes, until their code goes: Da Vinci's
+# PAS request and DTR package (G4) and the guard (G12). Set aside, so these tests hold what stays.
+REMOVED_ROUTES = frozenset(
+    {
+        ("POST", "/api/agents/{namespace}/{name}/pas"),
+        ("POST", "/fhir/Questionnaire/$questionnaire-package"),
+        ("POST", "/api/agents/{namespace}/{name}/guard"),
+    }
+)
+REMOVED_CLASSES = frozenset({"guard"})  # the guard's own rate (G12)
 
 
 def sign_in_on(monkeypatch: pytest.MonkeyPatch, limits: str) -> None:
@@ -100,6 +122,20 @@ def assert_retry_after(answer: Any) -> int:
     return int(answer.headers["retry-after"])
 
 
+def llm_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The deployment's LLM endpoint, answered in place of the network: the triage fixture's
+    router asks it for a team, and it answers the pharmacy, surely."""
+    monkeypatch.setenv("LLM_BASE_URL", "https://llm.test/v1")
+    monkeypatch.setenv("LLM_MODEL", "test-model")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    teams = {"front_desk": 0.01, "nurse": 0.01, "pharmacy": 0.97, "billing": 0.01}
+    message = {"role": "assistant", "content": json.dumps({"destination": teams})}
+    choice = {"index": 0, "finish_reason": "stop", "message": message}
+    usage = {"prompt_tokens": 100, "completion_tokens": 10}
+    answer = {"model": "test-model", "choices": [choice], "usage": usage}
+    monkeypatch.setattr(llm, "post_json", lambda *_, **__: answer)
+
+
 # -- settings -------------------------------------------------------------------------------------
 
 
@@ -108,12 +144,12 @@ def test_limits_are_on_with_sign_in_and_off_in_open_mode(monkeypatch: pytest.Mon
     assert limit_settings(sign_in=True).mode == "on"
     assert limit_settings(sign_in=False).mode == "off"  # every caller there is one principal
     assert limit_settings(sign_in=True).rates == DEFAULT_RATES
-    assert {name: str(rate) for name, rate in DEFAULT_RATES.items()} == {
+    kept = {name: rate for name, rate in DEFAULT_RATES.items() if name not in REMOVED_CLASSES}
+    assert {name: str(rate) for name, rate in kept.items()} == {
         "signin": "300/min:120",
         "token": "60/min",
         "token_failures": "10/10min",
         "decide": "600/min:100",
-        "guard": "60/min",
         "evaluate": "6/h",
         "export": "10/h",
         "label": "60/min:30",
@@ -124,7 +160,7 @@ def test_limits_are_on_with_sign_in_and_off_in_open_mode(monkeypatch: pytest.Mon
     assert chosen.mode == "log"
     assert chosen.rates["decide"] == Rate(1200, 60, 200)
     assert chosen.rates["evaluate"] == Rate(20, 3600, 20)
-    monkeypatch.setenv("MENDARI_RATE_LIMITS", "guard=30/min")  # overrides alone: default mode
+    monkeypatch.setenv("MENDARI_RATE_LIMITS", "decide=30/min")  # overrides alone: default mode
     assert limit_settings(sign_in=True).mode == "on"
 
 
@@ -143,7 +179,7 @@ def test_limits_are_on_with_sign_in_and_off_in_open_mode(monkeypatch: pytest.Mon
         ("MENDARI_ORG_DAILY_LIMITS", "decisions=5,decisions=6", "at most once"),
         ("MENDARI_ORG_DAILY_LIMITS", "eval_decisions=5", "must look like"),
         ("MENDARI_ORG_DAILY_LIMITS", "eval_LLM=50", "must look like"),
-        ("MENDARI_ORG_DAILY_LIMITS", "eval_jev=5,eval_jev=6", "at most once"),
+        ("MENDARI_ORG_DAILY_LIMITS", "eval_llm=5,eval_llm=6", "at most once"),
         ("MENDARI_ORG_DAILY_LIMITS", "eval_llm=-1", "must look like"),
         ("MENDARI_PRINCIPAL_DAILY_LIMIT", "many", "non-negative integer"),
         ("MENDARI_PRINCIPAL_DAILY_LIMIT", "-1", "non-negative integer"),
@@ -273,37 +309,27 @@ def test_a_refused_request_calls_no_provider_and_writes_nothing(
         assert store.verify()["ok"]
 
 
-REFERRAL_HOOK = "/cds-services/mendari.referral-router"
+ORDER_HOOK = ORDERS_SERVICE  # the chart fixture's order-sign twin
+# The triage fixture's hook, its message prefetched: one decision a request.
+HOOK_REQUEST = {
+    "hook": "mendari-message-received",
+    "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
+    "context": {"communicationId": "msg-1", "patientId": "pat-1"},
+    "prefetch": {"communication": COMMUNICATION, "patient": PATIENT},
+}
+
+
+def with_orders(tmp_path: Path) -> list[Path]:
+    """What a server serves here beside the bundled fixtures: the chart fixture's order-sign
+    twin (`tests/support/chart_fixture.py`), which decides each draft order it checks."""
+    return [orders_twin(tmp_path / "twin"), FIXTURE_AGENTS]
 
 
 def order_sign(orders: int) -> dict[str, Any]:
-    """An order-sign request for the referral router: `orders` copies of the fixture's
-    referral as draft orders, each its own id, with the whole record prefetched."""
-    bundle = json.loads((ROOT / "tests" / "fixtures" / "us-core" / "referral.json").read_text())
-    resources = [entry["resource"] for entry in bundle["entry"]]
-    patient = next(r for r in resources if r["resourceType"] == "Patient")
-    referral = next(r for r in resources if r["resourceType"] == "ServiceRequest")
-
-    def searchset(kind: str) -> dict[str, Any]:
-        found = [{"resource": r} for r in resources if r["resourceType"] == kind]
-        return {"resourceType": "Bundle", "type": "searchset", "entry": found}
-
-    drafts = [{"resource": {**referral, "id": f"sr{i}"}} for i in range(orders)]
-    return {
-        "hook": "order-sign",
-        "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
-        "context": {
-            "userId": "Practitioner/1",
-            "patientId": patient["id"],
-            "draftOrders": {"resourceType": "Bundle", "type": "collection", "entry": drafts},
-        },
-        "prefetch": {
-            "patient": patient,
-            "documents": searchset("DocumentReference"),
-            "reports": searchset("DiagnosticReport"),
-            "labs": searchset("Observation"),
-        },
-    }
+    """An order-sign request for the order-sign twin: `orders` copies of the synthetic showcase
+    record's order as draft orders, each its own id, with the patient's chart prefetched."""
+    order = draft(SHOWCASE)
+    return order_hook(SHOWCASE, *({**order, "id": f"sr{i}"} for i in range(orders)))
 
 
 def decisions_in(db: str) -> int:
@@ -318,13 +344,13 @@ def test_an_order_hook_counts_one_decision_per_draft_order(
     limit, all counted before the first is made, and a refused request decides none."""
     sign_in_on(monkeypatch, "on,decide=5/h")
     db = str(tmp_path / "orders.db")
-    client = TestClient(create_app(db_path=db))
+    client = TestClient(create_app(db_path=db, packs_paths=with_orders(tmp_path)))
     key = service_key(db)
-    three = client.post(REFERRAL_HOOK, json=order_sign(3), headers=key)
+    three = client.post(ORDER_HOOK, json=order_sign(3), headers=key)
     assert three.status_code == 200, three.text
     assert len(three.json()["cards"]) == decisions_in(db) == 3
     # Two left: the guard takes one for the request, the other two orders do not fit.
-    refused = client.post(REFERRAL_HOOK, json=order_sign(3), headers=key)
+    refused = client.post(ORDER_HOOK, json=order_sign(3), headers=key)
     assert assert_retry_after(refused) > 60 and refused.json()["error"] == "RateLimited"
     assert decisions_in(db) == 3  # the refused request decided nothing
     # One left: the other two orders were not charged.
@@ -337,27 +363,28 @@ def test_an_order_hook_decides_at_most_fifty_orders_a_request(
 ) -> None:
     sign_in_on(monkeypatch, "on")
     db = str(tmp_path / "cap.db")
-    client = TestClient(create_app(db_path=db))
+    served = with_orders(tmp_path)
+    client = TestClient(create_app(db_path=db, packs_paths=served))
     key = service_key(db)
-    over = client.post(REFERRAL_HOOK, json=order_sign(51), headers=key)
+    over = client.post(ORDER_HOOK, json=order_sign(51), headers=key)
     assert over.status_code == 400, over.text
     assert without_request_id(over.json(), over) == {
         "error": "CdsHooksError",
         "detail": "51 draft orders to decide; at most 50 in one request",
     }
     assert decisions_in(db) == 0
-    assert client.post(REFERRAL_HOOK, json=order_sign(50), headers=key).status_code == 200
+    assert client.post(ORDER_HOOK, json=order_sign(50), headers=key).status_code == 200
     assert decisions_in(db) == 50
     # Under a decide limit whose burst is smaller, the burst is the most one request may decide.
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "on,decide=600/min:4")
     db = str(tmp_path / "burst.db")
-    client = TestClient(create_app(db_path=db))
+    client = TestClient(create_app(db_path=db, packs_paths=served))
     key = service_key(db)
-    over = client.post(REFERRAL_HOOK, json=order_sign(5), headers=key)
+    over = client.post(ORDER_HOOK, json=order_sign(5), headers=key)
     assert over.status_code == 400 and "at most 4 in one request" in over.json()["detail"]
     assert decisions_in(db) == 0
     # The refused request was one decide request all the same: three of the four are left.
-    assert client.post(REFERRAL_HOOK, json=order_sign(3), headers=key).status_code == 200
+    assert client.post(ORDER_HOOK, json=order_sign(3), headers=key).status_code == 200
 
 
 def test_each_refusal_says_when_to_retry_in_the_routes_own_shape(
@@ -380,7 +407,7 @@ def test_each_refusal_says_when_to_retry_in_the_routes_own_shape(
     assert fhir.headers["content-type"].startswith("application/fhir+json")
     issue = fhir.json()["issue"][0]
     assert fhir.json()["resourceType"] == "OperationOutcome" and issue["code"] == "throttled"
-    hooks = client.post("/cds-services/patient-inbox-router", json={}, headers=key)
+    hooks = client.post(HOOK, json={}, headers=key)
     assert assert_retry_after(hooks) and hooks.json()["error"] == "RateLimited"
 
 
@@ -582,22 +609,16 @@ EXPECTED_CLASSES = {
     ("POST", "/api/notice/acknowledge"): "decide",  # what deciding asks first; chained once
     ("POST", "/api/agents/{namespace}/{name}/decide"): "decide",
     ("POST", "/api/agents/{namespace}/{name}/fhir/decide"): "decide",
-    ("POST", "/api/agents/{namespace}/{name}/pas"): "decide",
     ("POST", "/api/agents/{namespace}/{name}/actions"): "decide",  # authorizing an action
     ("POST", "/cds-services/{service_id}"): "decide",
     ("POST", "/cds-services/{service_id}/feedback"): "decide",  # a card's feedback (LP-23f)
     ("POST", "/fhir/$decide"): "decide",
-    ("POST", "/fhir/Questionnaire/$questionnaire-package"): "decide",
-    ("POST", "/api/agents/{namespace}/{name}/guard"): "guard",
     ("POST", "/api/agents/{namespace}/{name}/evals"): "evaluate",
     ("GET", "/api/audit/export/fhir"): "export",
     ("GET", "/api/audit/administrative/export/fhir"): "export",
     ("GET", "/api/agents/{namespace}/{name}/feedback/export"): "export",
     # The committee packet: every aggregate read about an agent in one document, made to keep.
     ("GET", "/api/agents/{namespace}/{name}/committee-packet"): "export",
-    # With the evaluation-set keys, in both account modes: a grading run is an evaluation
-    # (LP-11l), counted per grading key.
-    ("POST", "/api/evalsets/{set_id}/runs"): "evaluate",
     # A check of an agent's connection sends one request to its service (ADR-0021): counted per
     # person at a person's pace, as the console's reads of the deployment's registry are.
     ("POST", "/api/connections/{namespace}/{name}/check"): "label",
@@ -608,15 +629,11 @@ EXPECTED_CLASSES = {
     ("POST", "/api/system/ehr-check"): "label",
 }
 # What memberships mode adds (ADR-0008): a person's own three routes, counted per address as
-# signing in is, and, with the evaluation-set keys, a labeller's, per person (LP-11j). An
-# organization's curators' routes (LP-11k) have no class, as an administrator's other writes.
+# signing in is.
 MEMBERSHIPS_CLASSES = {
     ("POST", "/api/auth/organization"): "signin",
     ("POST", "/api/auth/access-requests"): "signin",
     ("POST", "/api/auth/invitations/accept"): "signin",
-    ("GET", "/api/labelling"): "label",
-    ("GET", "/api/labelling/next"): "label",
-    ("POST", "/api/labelling/{assignment_id}"): "label",
     # A grader's routes over written output (ADR-0025), per person, as a labeller's.
     ("GET", "/api/written/labelling"): "label",
     ("GET", "/api/written/labelling/next"): "label",
@@ -631,10 +648,8 @@ def test_costly_routes_have_their_class_reads_none_and_one_call_of_each_passes(
     """Every route the app serves (Backend Services on), in each account mode: the class it
     counts against, from its permission and path, and with the default limits on, one call of
     each as an admin (the route matrix's other half: limits never change who may call what) is
-    never a 429. Hidden evaluation sets are on, so the routes they mount are classified too
-    (LP-11g; a labeller's, in memberships mode, LP-11j; the grading route, in both, LP-11l)."""
+    never a 429."""
     backend_on(monkeypatch)
-    evalset_on(monkeypatch)
     monkeypatch.setenv("MENDARI_ACCOUNTS", accounts)
     client, _ = signing_in(tmp_path, monkeypatch, "on")
     limiter = Limiter(AuditStore(tmp_path / "classes.db"), limit_settings(sign_in=True))
@@ -647,14 +662,13 @@ def test_costly_routes_have_their_class_reads_none_and_one_call_of_each_passes(
     )
     classes = {r: limiter.classify(*r, permission_for(*r)) for r in routes}
     added = MEMBERSHIPS_CLASSES if accounts == "memberships" else {}
-    limited = {r: c for r, c in classes.items() if c is not None}
+    limited = {r: c for r, c in classes.items() if c is not None and r not in REMOVED_ROUTES}
     assert limited == EXPECTED_CLASSES | added
     if accounts == "memberships":
         with AuditStore(tmp_path / "signin.db") as store:
             admin = member(store, org="default", roles=["admin"], sub="lead")
     else:
         admin = person(str(tmp_path / "signin.db"))
-    evalsets_are_on(client, admin)
     for method, path in routes:
         url = re.sub(r"\{[^}]+\}", "x", path)
         answer = client.request(method, url, headers=admin, follow_redirects=False)
@@ -670,8 +684,8 @@ def test_each_organization_has_its_own_quota_and_evaluations_spend_their_own(
     reached: list[tuple[str, str, int]] = []
     budget = CallBudget(
         store,
-        {"jev": None},
-        org_limits={"decisions": 2, "jev": 1, "eval_jev": 1},
+        {"llm": None},
+        org_limits={"decisions": 2, "llm": 1, "eval_llm": 1},
         on_quota_reached=lambda *args: reached.append(args),
     )
     with tenancy.acting_for("north"):
@@ -679,41 +693,44 @@ def test_each_organization_has_its_own_quota_and_evaluations_spend_their_own(
         budget.admit_decision()
         with pytest.raises(ProviderError, match="quota_exhausted"):
             budget.admit_decision()
-        budget.acquire("jev")
+        budget.acquire("llm")
         with pytest.raises(ProviderError, match="quota_exhausted"):
-            budget.acquire("jev")
+            budget.acquire("llm")
         evaluation = budget.for_evaluation()
         evaluation.admit_decision()  # an evaluation's case is not one of its decisions
-        evaluation.acquire("jev")  # its own quota, with the deployment's budget
+        evaluation.acquire("llm")  # its own quota, with the deployment's budget
         with pytest.raises(ProviderError, match="quota_exhausted"):
-            evaluation.acquire("jev")
-        evaluation.acquire("llm")  # no `eval_llm` quota: no limit
+            evaluation.acquire("llm")
+        evaluation.acquire("agent")  # no `eval_agent` quota: no limit
     with tenancy.acting_for("south"):
         budget.admit_decision()
-        budget.for_evaluation().acquire("jev")  # its own evaluations, its own quota
-    assert store.org_usage("north") == {"decisions": 2, "jev": 1, "eval_jev": 1}
-    assert store.org_usage("south") == {"decisions": 1, "eval_jev": 1}
-    assert store.usage("jev") == 3
+        budget.for_evaluation().acquire("llm")  # its own evaluations, its own quota
+    assert store.org_usage("north") == {"decisions": 2, "llm": 1, "eval_llm": 1}
+    assert store.org_usage("south") == {"decisions": 1, "eval_llm": 1}
+    assert store.usage("llm") == 3
     assert reached == [
         ("north", "decisions", 2),
-        ("north", "jev", 1),
-        ("north", "eval_jev", 1),
-        ("south", "eval_jev", 1),
+        ("north", "llm", 1),
+        ("north", "eval_llm", 1),
+        ("south", "eval_llm", 1),
     ]  # once each, when reached
 
 
 def test_every_quota_is_read_and_an_evaluation_s_large_quota_is_warned_about(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=5,jev=4,llm=3,eval_jev=2,eval_llm=1")
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=5,llm=3,eval_llm=1,store_uploads=2")
     assert settings.org_daily_limits() == {
-        "decisions": 5, "jev": 4, "llm": 3, "eval_jev": 2, "eval_llm": 1,
+        "decisions": 5, "llm": 3, "eval_llm": 1, "store_uploads": 2,
     }  # fmt: skip
-    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "eval_jev=500,eval_llm=10")
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "eval_llm=10")
     with caplog.at_level(logging.WARNING, logger="mendari.limits"):
-        create_app(db_path=tmp_path / "a.db", budget_limits={"jev": 500, "llm": 200})
-    assert "eval_jev=500 in MENDARI_ORG_DAILY_LIMITS is not below" in caplog.text
+        create_app(db_path=tmp_path / "a.db", budget_limits={"llm": 200})
     assert "eval_llm" not in caplog.text  # 10 of 200: fine
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "eval_llm=200")
+    with caplog.at_level(logging.WARNING, logger="mendari.limits"):
+        create_app(db_path=tmp_path / "b.db", budget_limits={"llm": 200})
+    assert "eval_llm=200 in MENDARI_ORG_DAILY_LIMITS is not below" in caplog.text
 
 
 def test_the_quota_alert_says_what_an_evaluation_quota_stops(
@@ -727,7 +744,7 @@ def test_the_quota_alert_says_what_an_evaluation_quota_stops(
 
     monkeypatch.setattr(alerts_module.httpx, "post", post)
     alert = quota_alert(AlertSettings("https://alerts.example.org/hook"), store)
-    alert("north", "eval_jev", 3)
+    alert("north", "eval_llm", 3)
     alert("north", "decisions", 5)
     evaluation, decisions = (sent["alerts"][0]["message"] for sent in posted)
     assert "evaluations make no more of these calls" in evaluation
@@ -736,27 +753,29 @@ def test_the_quota_alert_says_what_an_evaluation_quota_stops(
 
 
 def test_an_evaluation_over_its_quota_never_lowers_a_live_decision(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, screened: dict[str, str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The organization's evaluations use up their Jev quota: the rest of the evaluation's
+    """The organization's evaluations use up their LLM quota: the rest of the evaluation's
     calls fail (`quota_exhausted`), and its live decisions are automated as before."""
-    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=10,jev=10,eval_jev=3")
+    llm_answers(monkeypatch)
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=10,llm=10,eval_llm=3")
     db = str(tmp_path / "quota.db")
-    client = TestClient(create_app(db_path=db, providers=screened))
+    client = TestClient(create_app(db_path=db, providers=AUTOMATING))
     run = client.post(f"/api/agents/{INBOX}/evals", json={"dataset": "test", "limit": 5})
     assert run.status_code == 200, run.text
     with AuditStore(db) as store:
-        assert store.org_usage("default") == {"eval_jev": 3}
+        assert store.org_usage("default") == {"eval_llm": 3}
     outcomes = [client.post(DECIDE, json=message(ROUTINE)).json() for _ in range(2)]
     assert [o["outcome"] for o in outcomes] == ["AUTO", "AUTO"]
     assert all(not o["errors"] for o in outcomes)
     used = client.get("/api/health").json()["org_quotas"]["used_today"]
-    assert used == {"decisions": 2, "jev": 2, "eval_jev": 3}
+    assert used == {"decisions": 2, "llm": 2, "eval_llm": 3}
 
 
 def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, screened: dict[str, str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    calm_agent(monkeypatch)  # the screen's agent, a live service: a remote call
     monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=2")
     monkeypatch.setenv("MENDARI_ALERT_WEBHOOK", "https://alerts.example.org/hook")
     posted: list[dict[str, Any]] = []
@@ -767,7 +786,7 @@ def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
 
     monkeypatch.setattr(alerts_module.httpx, "post", post)
     db = str(tmp_path / "quota.db")
-    client = TestClient(create_app(db_path=db, providers=screened))
+    client = TestClient(create_app(db_path=db, providers=CHECKED))
     # Evaluations never spend the decisions quota (only `eval_*`, unset here: no limit).
     run = client.post(f"/api/agents/{INBOX}/evals", json={"dataset": "test", "limit": 5})
     assert run.status_code == 200, run.text
@@ -776,8 +795,8 @@ def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
     for over in outcomes[2:]:  # never automated: a person decides
         assert over["outcome"] in ("HUMAN_REVIEW", "ABSTAIN")
         # Its remote calls fail with the quota; its local providers still answer (the keyword
-        # screen beside Jev), and the policy holds it.
-        assert set(over["errors"].values()) == {"jev:quota_exhausted"}
+        # rules that check the screen's agent), and the policy holds it.
+        assert set(over["errors"].values()) == {"quota_exhausted"}
         assert any("decisions quota is used up" in reason for reason in over["reasons"])
     assert [p["url"] for p in posted] == ["https://alerts.example.org/hook"]
     alert = posted[0]["json"]
@@ -800,7 +819,6 @@ def test_a_quota_alert_that_fails_never_fails_the_decision(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
-    screened: dict[str, str],
 ) -> None:
     monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=1")
     monkeypatch.setenv("MENDARI_ALERT_WEBHOOK", "https://alerts.example.org/hook")
@@ -809,7 +827,7 @@ def test_a_quota_alert_that_fails_never_fails_the_decision(
         raise httpx.ConnectError("down")
 
     monkeypatch.setattr(alerts_module.httpx, "post", down)
-    client = TestClient(create_app(db_path=tmp_path / "down.db", providers=screened))
+    client = TestClient(create_app(db_path=tmp_path / "down.db", providers=SCREENED))
     with caplog.at_level(logging.WARNING, logger="mendari.alerts"):
         assert client.post(DECIDE, json=message(ROUTINE)).json()["outcome"] == "AUTO"
     assert "an alert to the webhook failed (ConnectError)" in caplog.text
@@ -962,12 +980,13 @@ def test_sign_in_allows_at_least_what_the_edge_does() -> None:
 
 
 def test_over_its_quota_an_emergency_still_reaches_a_nurse_at_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, screened: dict[str, str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Over quota, every provider used to fail, the emergency rule among them: the message went
     to a person at routine priority. Local providers now still answer."""
+    llm_answers(monkeypatch)
     monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=1")
-    client = TestClient(create_app(db_path=tmp_path / "q.db", providers=screened))
+    client = TestClient(create_app(db_path=tmp_path / "q.db", providers=AUTOMATING))
     client.post(DECIDE, json=message(ROUTINE))
     chest = "Crushing chest pain for 30 minutes, going down my left arm."
     over = client.post(DECIDE, json=message(chest)).json()
@@ -1060,12 +1079,12 @@ def test_the_cap_answers_in_each_routes_own_shape(
 ) -> None:
     capped(monkeypatch, 0)
     db = str(tmp_path / "shape.db")
-    client = TestClient(create_app(db_path=db))
+    client = TestClient(create_app(db_path=db, packs_paths=with_orders(tmp_path)))
     key = service_key(db)
     fhir = client.post("/fhir/$decide", json=message(ROUTINE), headers=key)
     assert_retry_after(fhir)
     assert fhir.json()["resourceType"] == "OperationOutcome"
-    hook = client.post(REFERRAL_HOOK, json=order_sign(3), headers=key)
+    hook = client.post(ORDER_HOOK, json=order_sign(3), headers=key)
     assert_retry_after(hook)
     with AuditStore(db) as store:
         assert store.principal_usage(key_id(key, db)) == 0  # a cap of 0 writes nothing
@@ -1087,10 +1106,10 @@ def test_a_request_the_rate_limit_refuses_never_uses_the_day(
     # An order hook whose other draft orders the rate limit refuses in its route: none either.
     hooked = str(tmp_path / "order-hook.db")
     capped(monkeypatch, 5, limits="on,decide=5/h")
-    client = TestClient(create_app(db_path=hooked))
+    client = TestClient(create_app(db_path=hooked, packs_paths=with_orders(tmp_path)))
     key = service_key(hooked)
-    assert client.post(REFERRAL_HOOK, json=order_sign(3), headers=key).status_code == 200
-    assert_retry_after(client.post(REFERRAL_HOOK, json=order_sign(3), headers=key))
+    assert client.post(ORDER_HOOK, json=order_sign(3), headers=key).status_code == 200
+    assert_retry_after(client.post(ORDER_HOOK, json=order_sign(3), headers=key))
     with AuditStore(hooked) as store:
         assert store.principal_usage(key_id(key, hooked)) == 3
 
@@ -1102,15 +1121,15 @@ def test_each_draft_order_counts_against_the_cap_all_or_none(
     organization's day through order hooks either."""
     capped(monkeypatch, 5)
     db = str(tmp_path / "hook.db")
-    client = TestClient(create_app(db_path=db))
+    client = TestClient(create_app(db_path=db, packs_paths=with_orders(tmp_path)))
     key = service_key(db)
-    assert client.post(REFERRAL_HOOK, json=order_sign(3), headers=key).status_code == 200
+    assert client.post(ORDER_HOOK, json=order_sign(3), headers=key).status_code == 200
     before = decisions_in(db)
-    assert_retry_after(client.post(REFERRAL_HOOK, json=order_sign(3), headers=key))
+    assert_retry_after(client.post(ORDER_HOOK, json=order_sign(3), headers=key))
     assert decisions_in(db) == before  # refused before any draft order was decided
     with AuditStore(db) as store:
         assert store.principal_usage(key_id(key, db)) == 3
-    assert client.post(REFERRAL_HOOK, json=order_sign(2), headers=key).status_code == 200
+    assert client.post(ORDER_HOOK, json=order_sign(2), headers=key).status_code == 200
     with AuditStore(db) as store:
         assert store.principal_usage(key_id(key, db)) == 5
 
@@ -1118,7 +1137,7 @@ def test_each_draft_order_counts_against_the_cap_all_or_none(
 def test_every_principal_kind_is_capped_on_the_routes_it_decides_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A person, an API key (on the AI guard), a Backend Services client (on FHIR), an EHR
+    """A person, an API key (on FHIR input), a Backend Services client (on FHIR), an EHR
     launch and a CDS client's own token (on CDS Hooks, LP-23b) each have their own cap; a
     request counts whatever it answers (a launch's empty body is a 422, a bare record on
     /fhir/$decide a 400: both count)."""
@@ -1141,12 +1160,7 @@ def test_every_principal_kind_is_capped_on_the_routes_it_decides_on(
         launch = launched(store, host="mendari.test")
     calls = [
         ("person", DECIDE, message(ROUTINE), person(db, "reviewer")),
-        (
-            "key",
-            "/api/agents/mendari/ai-guard/guard",
-            {"question": "Headache?", "draft": "Rest and drink water."},
-            service_key(db),
-        ),
+        ("key", f"/api/agents/{INBOX}/fhir/decide", BUNDLE, service_key(db)),
         ("client", "/fhir/$decide", message(ROUTINE), {"authorization": f"Bearer {token}"}),
         ("launch", "/api/smart/decide", {}, launch),
     ]
@@ -1157,8 +1171,8 @@ def test_every_principal_kind_is_capped_on_the_routes_it_decides_on(
     # A CDS client's token is good for one request (its jti): a fresh one each time.
     assert client.get("/api/health", headers=person(db, "admin")).json()["cds_clients"] == ["epic"]
     for answered in (200, 429):
-        signed = cds(cds_token(path=REFERRAL_HOOK))
-        hooked = client.post(REFERRAL_HOOK, json=order_sign(1), headers=signed)
+        signed = cds(cds_token(path=HOOK))
+        hooked = client.post(HOOK, json=HOOK_REQUEST, headers=signed)
         assert hooked.status_code == answered, hooked.text
     assert_retry_after(hooked)
     with AuditStore(db) as store:
@@ -1174,9 +1188,9 @@ def test_only_what_decides_counts_against_the_cap(
 ) -> None:
     """Every route that needs a permission to decide is counted by the guard, counted by its
     route (CDS Hooks, per draft order), or does not decide: the notice's acknowledgement (which
-    must stay possible at the cap, or a person could neither review nor give feedback), a PAS
-    submission and a DTR package, both built from decisions made, and a CDS Hooks card's
-    feedback (LP-23f), about one made."""
+    must stay possible at the cap, or a person could neither review nor give feedback), an
+    action authorized for a decision made, and a CDS Hooks card's feedback (LP-23f), about one
+    made."""
     from mendari.server.limits import DailyCap
 
     capped(monkeypatch, 0)
@@ -1191,14 +1205,13 @@ def test_only_what_decides_counts_against_the_cap(
         if isinstance(route, Route)
         for method in route.methods or ()
         if permission_for(method, route.path) in ("decide", "launch_decide")
+        and (method, route.path) not in REMOVED_ROUTES
     }
     in_route = {("POST", "/cds-services/{service_id}")}
     not_decisions = {
         ("POST", "/api/notice/acknowledge"),
-        ("POST", "/api/agents/{namespace}/{name}/pas"),
         # Authorizing an action for a decision already made and counted: no new decision.
         ("POST", "/api/agents/{namespace}/{name}/actions"),
-        ("POST", "/fhir/Questionnaire/$questionnaire-package"),
         ("POST", "/cds-services/{service_id}/feedback"),
     }
     counted = {r for r in deciding if DailyCap.counts(r[0], re.sub(r"\{[^}]+\}", "x", r[1]))}
