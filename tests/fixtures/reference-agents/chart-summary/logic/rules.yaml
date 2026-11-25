@@ -1,0 +1,32 @@
+# Synthetic test fixture. Not clinically reviewed. Not for patient care.
+#
+# The `rules` variant: keyword rules over the chart's clinic notes only (`notes`), which run with
+# no service. A chart whose notes say nothing reads as nothing found: `routine` and `no`, each
+# with a low confidence, so a person sees it. Some charts on the watch list say so in words these
+# rules do not know (tests/support/fixture_records.py, `SOON_UNSAID`): the evaluation finds them,
+# and none of them is automated.
+text_fields: [notes]
+negation_cues: ["no", "not", "without", "stopped"]
+negation_window: 30
+questions:
+  follow_up:
+    default: routine
+    labels:
+      soon:
+        - {name: within-a-week, pattern: '\bwithin (a|one) week\b', weight: 4}
+        - {name: this-week, pattern: '\bthis week\b', weight: 4}
+        - {name: within-days, pattern: '\bwithin (a few|two|three) days\b', weight: 4}
+      routine:
+        - {name: in-months, pattern: '\bin (three|six) months\b', weight: 4}
+        - {name: yearly-visit, pattern: '\byearly visit\b', weight: 4}
+      none:
+        - {name: no-follow-up, pattern: '\bno follow-up needed\b', weight: 4}
+        - {name: as-needed, pattern: '\breturn as needed\b', weight: 4}
+  on_anticoagulant:
+    default: "no"
+    labels:
+      "yes":
+        - name: anticoagulant-named
+          pattern: '\b(warfarin|apixaban|rivaroxaban|edoxaban)\b'
+          weight: 4
+          negatable: true

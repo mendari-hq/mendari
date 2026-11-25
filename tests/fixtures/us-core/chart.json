@@ -1,0 +1,555 @@
+{
+  "resourceType": "Bundle",
+  "id": "chart",
+  "meta": {
+    "tag": [
+      {
+        "system": "https://mendari.co/fhir/sandbox",
+        "code": "synthetic"
+      }
+    ]
+  },
+  "type": "collection",
+  "entry": [
+    {
+      "fullUrl": "https://ehr.example.org/fhir/Patient/chart-us-core-1",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "chart-us-core-1",
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"
+          ],
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        },
+        "identifier": [
+          {
+            "system": "https://mendari.co/fhir/synthetic-case",
+            "value": "chart-us-core-1"
+          }
+        ],
+        "name": [
+          {
+            "family": "Synthetic",
+            "given": [
+              "Case chart-us-core-1"
+            ]
+          }
+        ],
+        "gender": "female",
+        "birthDate": "1959-04-20"
+      }
+    },
+    {
+      "fullUrl": "https://ehr.example.org/fhir/Practitioner/chart-prescriber",
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "chart-prescriber",
+        "name": [
+          {
+            "family": "Prescriber",
+            "given": [
+              "Synthetic"
+            ]
+          }
+        ],
+        "meta": {
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://ehr.example.org/fhir/Condition/chart-us-core-1-condition-1",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "chart-us-core-1-condition-1",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active"
+            }
+          ]
+        },
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/condition-category",
+                "code": "problem-list-item"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://hl7.org/fhir/sid/icd-10-cm",
+              "code": "I48.91",
+              "display": "Unspecified atrial fibrillation"
+            }
+          ],
+          "text": "Unspecified atrial fibrillation"
+        },
+        "subject": {
+          "reference": "Patient/chart-us-core-1"
+        },
+        "onsetDateTime": "2019-04-01",
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns"
+          ],
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://ehr.example.org/fhir/Condition/chart-us-core-1-condition-2",
+      "resource": {
+        "resourceType": "Condition",
+        "id": "chart-us-core-1-condition-2",
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active"
+            }
+          ]
+        },
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/condition-category",
+                "code": "problem-list-item"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://hl7.org/fhir/sid/icd-10-cm",
+              "code": "D68.32",
+              "display": "Hemorrhagic disorder due to extrinsic circulating anticoagulants"
+            }
+          ],
+          "text": "Hemorrhagic disorder due to extrinsic circulating anticoagulants"
+        },
+        "subject": {
+          "reference": "Patient/chart-us-core-1"
+        },
+        "onsetDateTime": "2026-09-28",
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns"
+          ],
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://ehr.example.org/fhir/MedicationStatement/chart-us-core-1-statement-1",
+      "resource": {
+        "resourceType": "MedicationStatement",
+        "id": "chart-us-core-1-statement-1",
+        "status": "active",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "6809",
+              "display": "metformin"
+            }
+          ],
+          "text": "metformin 500 mg tablet"
+        },
+        "subject": {
+          "reference": "Patient/chart-us-core-1"
+        },
+        "effectivePeriod": {
+          "start": "2021-02-01"
+        },
+        "meta": {
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://ehr.example.org/fhir/Medication/chart-us-core-1-drug-2",
+      "resource": {
+        "resourceType": "Medication",
+        "id": "chart-us-core-1-drug-2",
+        "code": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "11289",
+              "display": "warfarin"
+            }
+          ],
+          "text": "warfarin 5 mg tablet"
+        },
+        "meta": {
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://ehr.example.org/fhir/MedicationRequest/chart-us-core-1-request-2",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "chart-us-core-1-request-2",
+        "status": "active",
+        "intent": "order",
+        "medicationReference": {
+          "reference": "Medication/chart-us-core-1-drug-2",
+          "display": "warfarin 5 mg tablet"
+        },
+        "subject": {
+          "reference": "Patient/chart-us-core-1"
+        },
+        "authoredOn": "2025-10-27",
+        "dosageInstruction": [
+          {
+            "timing": {
+              "repeat": {
+                "boundsPeriod": {
+                  "start": "2025-11-03",
+                  "end": "2026-11-02"
+                }
+              }
+            }
+          }
+        ],
+        "requester": {
+          "reference": "Practitioner/chart-prescriber"
+        },
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medicationrequest"
+          ],
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://ehr.example.org/fhir/MedicationRequest/chart-us-core-1-request-3",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "chart-us-core-1-request-3",
+        "status": "active",
+        "intent": "order",
+        "contained": [
+          {
+            "resourceType": "Medication",
+            "id": "drug",
+            "code": {
+              "coding": [
+                {
+                  "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+                  "code": "83367",
+                  "display": "atorvastatin"
+                }
+              ],
+              "text": "atorvastatin 20 mg tablet"
+            }
+          }
+        ],
+        "medicationReference": {
+          "reference": "#drug",
+          "display": "atorvastatin 20 mg tablet"
+        },
+        "subject": {
+          "reference": "Patient/chart-us-core-1"
+        },
+        "authoredOn": "2024-05-20",
+        "requester": {
+          "reference": "Practitioner/chart-prescriber"
+        },
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medicationrequest"
+          ],
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://ehr.example.org/fhir/MedicationRequest/chart-us-core-1-request-4",
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "chart-us-core-1-request-4",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "29046",
+              "display": "lisinopril"
+            }
+          ],
+          "text": "lisinopril 10 mg tablet"
+        },
+        "subject": {
+          "reference": "Patient/chart-us-core-1"
+        },
+        "authoredOn": "2026-08-01",
+        "dosageInstruction": [
+          {
+            "timing": {
+              "repeat": {
+                "boundsDuration": {
+                  "value": 90,
+                  "unit": "days",
+                  "system": "http://unitsofmeasure.org",
+                  "code": "d"
+                }
+              }
+            }
+          }
+        ],
+        "requester": {
+          "reference": "Practitioner/chart-prescriber"
+        },
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medicationrequest"
+          ],
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://ehr.example.org/fhir/DocumentReference/chart-us-core-1-note-1",
+      "resource": {
+        "resourceType": "DocumentReference",
+        "id": "chart-us-core-1-note-1",
+        "status": "current",
+        "type": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "11506-3",
+              "display": "Progress note"
+            }
+          ]
+        },
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://hl7.org/fhir/us/core/CodeSystem/us-core-documentreference-category",
+                "code": "clinical-note"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/chart-us-core-1"
+        },
+        "date": "2026-10-01T12:00:00Z",
+        "content": [
+          {
+            "attachment": {
+              "contentType": "text/plain",
+              "data": "UmV2aWV3ZWQgYXQgdGhlIGNsaW5pYyB0b2RheS4gRm9sbG93LXVwIHdpdGhpbiBhIHdlZWsuIFRha2VzIHdhcmZhcmluIGV2ZXJ5IGRheS4="
+            }
+          }
+        ],
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-documentreference"
+          ],
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://ehr.example.org/fhir/DocumentReference/chart-us-core-1-note-2",
+      "resource": {
+        "resourceType": "DocumentReference",
+        "id": "chart-us-core-1-note-2",
+        "status": "current",
+        "type": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "11506-3",
+              "display": "Progress note"
+            }
+          ]
+        },
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://hl7.org/fhir/us/core/CodeSystem/us-core-documentreference-category",
+                "code": "clinical-note"
+              }
+            ]
+          }
+        ],
+        "subject": {
+          "reference": "Patient/chart-us-core-1"
+        },
+        "date": "2026-10-02T12:00:00Z",
+        "content": [
+          {
+            "attachment": {
+              "contentType": "text/html",
+              "data": "PGRpdj48cD5NZWRpY2luZXMgcmV2aWV3ZWQgd2l0aCB0aGUgcGF0aWVudC48L3A+PC9kaXY+"
+            }
+          }
+        ],
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-documentreference"
+          ],
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://ehr.example.org/fhir/Observation/chart-us-core-1-inr",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "chart-us-core-1-inr",
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "6301-6"
+            }
+          ],
+          "text": "INR"
+        },
+        "subject": {
+          "reference": "Patient/chart-us-core-1"
+        },
+        "effectiveDateTime": "2026-10-01",
+        "valueQuantity": {
+          "value": 3.4,
+          "unit": "INR",
+          "system": "http://unitsofmeasure.org",
+          "code": "{INR}"
+        },
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab"
+          ],
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://ehr.example.org/fhir/ServiceRequest/chart-us-core-1-order",
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "id": "chart-us-core-1-order",
+        "status": "active",
+        "intent": "order",
+        "code": {
+          "coding": [
+            {
+              "system": "http://www.cms.gov/Medicare/Coding/ICD10",
+              "code": "0DJD8ZZ",
+              "display": "Inspection of Lower Intestinal Tract, Via Natural or Artificial Opening Endoscopic"
+            }
+          ],
+          "text": "Colonoscopy"
+        },
+        "subject": {
+          "reference": "Patient/chart-us-core-1"
+        },
+        "authoredOn": "2026-10-01",
+        "requester": {
+          "reference": "Practitioner/chart-prescriber"
+        },
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-servicerequest"
+          ],
+          "tag": [
+            {
+              "system": "https://mendari.co/fhir/sandbox",
+              "code": "synthetic"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

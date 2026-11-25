@@ -1,0 +1,54 @@
+# Synthetic test fixture. Not clinically reviewed. Not for patient care.
+#
+# The canned answers of the `agent` variant, used while no live agent service is set
+# (MENDARI_AGENT_URL). It reads the chart's lists (`state_fields`). Each case looks for the words
+# fhir/mapping.yaml writes for a condition of the agent's code set (`flag-soon`,
+# `flag-routine`), for the RxNorm codes of the four anticoagulants (warfarin 11289, apixaban
+# 1364430, rivaroxaban 1114195, edoxaban 1599538), or for a code it is unsure of. A watch-list
+# condition comes first, so nothing on the watch list is ever read as less. Confidences: 0.92 to
+# 0.97 (sure), 0.70 (a person reviews), 0.45 (it abstains: under 0.50, and no other label as
+# likely as the policy's 0.30 for `soon`). Any other chart gets `default`.
+model: mock-chart-summary
+agent_version: 1.0.0
+cases:
+  - match: {contains_all: [flag-soon], contains_any: ["11289", "1364430", "1114195", "1599538"]}
+    response:
+      answers:
+        follow_up: {value: soon, confidence: 0.93}
+        on_anticoagulant: {value: "yes", confidence: 0.97}
+  - match: flag-soon
+    response:
+      answers:
+        follow_up: {value: soon, confidence: 0.93}
+        on_anticoagulant: {value: "no", confidence: 0.96}
+  # Codes no follow-up can be read from (R68.89, other general symptoms and signs) and that the
+  # agent is unsure of (R69, illness unspecified). The charts that hold one list no anticoagulant.
+  - match: r68.89
+    response:
+      answers:
+        follow_up: {value: none, confidence: 0.45}
+        on_anticoagulant: {value: "no", confidence: 0.90}
+  - match: r69
+    response:
+      answers:
+        follow_up: {value: routine, confidence: 0.70}
+        on_anticoagulant: {value: "no", confidence: 0.90}
+  - match: {contains_all: [flag-routine], contains_any: ["11289", "1364430", "1114195", "1599538"]}
+    response:
+      answers:
+        follow_up: {value: routine, confidence: 0.95}
+        on_anticoagulant: {value: "yes", confidence: 0.97}
+  - match: flag-routine
+    response:
+      answers:
+        follow_up: {value: routine, confidence: 0.95}
+        on_anticoagulant: {value: "no", confidence: 0.96}
+  - match: ["11289", "1364430", "1114195", "1599538"]
+    response:
+      answers:
+        follow_up: {value: none, confidence: 0.92}
+        on_anticoagulant: {value: "yes", confidence: 0.97}
+default:
+  answers:
+    follow_up: {value: none, confidence: 0.92}
+    on_anticoagulant: {value: "no", confidence: 0.96}

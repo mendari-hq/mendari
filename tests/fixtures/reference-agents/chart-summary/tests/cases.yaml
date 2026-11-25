@@ -1,0 +1,95 @@
+# Synthetic test fixture. Not clinically reviewed. Not for patient care.
+#
+# Behaviour tests: what the agent must decide, whichever variant answers (`mendari test`, and
+# with `--providers reader=rules` the rules variant, which reads only the notes). Each chart is
+# written as fhir/mapping.yaml reads one.
+- name: a condition on the watch list goes to a person, urgently
+  input:
+    patient: {age: 71, sex: female}
+    conditions:
+      - {code: I50.9, flag: flag-soon, text: "Heart failure, unspecified", status: active, onset: "2024-02-10"}
+    medications: []
+    notes: Seen in clinic for a review of the chart. Follow-up within a week.
+  expect: {outcome: HUMAN_REVIEW, recommendation: soon, priority: urgent, answers: {follow_up: soon}}
+- name: bleeding on an anticoagulant goes to a person, urgently
+  input:
+    patient: {age: 80, sex: male}
+    conditions:
+      - {code: D68.32, flag: flag-soon, text: "Hemorrhagic disorder due to extrinsic circulating anticoagulants", status: active, onset: "2026-09-28"}
+      - {code: I48.91, flag: flag-routine, text: "Unspecified atrial fibrillation", status: active, onset: "2019-04-01"}
+    medications:
+      - {code: "11289", name: warfarin 5 mg tablet, status: active, start: "2025-11-03", end: "2026-11-02"}
+    notes: Reviewed at the clinic today. Asked to come back this week to recheck. Takes warfarin every day.
+  expect:
+    outcome: HUMAN_REVIEW
+    recommendation: soon
+    priority: urgent
+    answers: {follow_up: soon, on_anticoagulant: "yes"}
+- name: a long-term condition is a routine follow-up, automated
+  input:
+    patient: {age: 58, sex: male}
+    conditions:
+      - {code: E11.9, flag: flag-routine, text: "Type 2 diabetes mellitus without complications", status: active, onset: "2018-05-02"}
+    medications:
+      - {code: "6809", name: metformin 500 mg tablet, status: active, start: "2023-03-01"}
+    notes: Reviewed at the clinic today. Routine follow-up in three months.
+  expect: {outcome: AUTO, recommendation: routine, answers: {follow_up: routine, on_anticoagulant: "no"}}
+- name: a chart with no long-term condition needs no follow-up
+  input:
+    patient: {age: 34, sex: female}
+    conditions:
+      - {code: J06.9, text: "Acute upper respiratory infection, unspecified", status: active, onset: "2026-09-20"}
+    medications: []
+    notes: Seen today with a family member. No follow-up needed.
+  expect: {outcome: AUTO, recommendation: none, answers: {follow_up: none}}
+- name: an anticoagulant on the medication list is read
+  input:
+    patient: {age: 76, sex: male}
+    conditions:
+      - {code: I48.91, flag: flag-routine, text: "Unspecified atrial fibrillation", status: active, onset: "2020-01-15"}
+    medications:
+      - {code: "1364430", name: apixaban 5 mg tablet, status: active, start: "2025-06-01"}
+    notes: Reviewed at the clinic today. Review at the yearly visit. Remains on apixaban.
+  expect: {recommendation: routine, answers: {follow_up: routine, on_anticoagulant: "yes"}}
+- name: an antiplatelet drug is not an anticoagulant
+  input:
+    patient: {age: 66, sex: female}
+    conditions:
+      - {code: I10, flag: flag-routine, text: "Essential (primary) hypertension", status: active, onset: "2016-07-07"}
+    medications:
+      - {code: "1191", name: aspirin 81 mg tablet, status: active, start: "2024-04-04"}
+    notes: Reviewed at the clinic today. Stable. Follow-up in six months. Takes aspirin every day.
+  expect: {answers: {on_anticoagulant: "no"}}
+- name: an anticoagulant the note says the patient is not on is not listed
+  input:
+    patient: {age: 49, sex: female}
+    conditions:
+      - {code: J45.909, flag: flag-routine, text: "Unspecified asthma, uncomplicated", status: active, onset: "2010-03-03"}
+    medications:
+      - {code: "435", name: albuterol inhaler, status: active, start: "2022-08-01"}
+    notes: Reviewed at the clinic today. Review at the yearly visit. Not on warfarin.
+  expect: {answers: {on_anticoagulant: "no"}}
+- name: a chart the agent is unsure of goes to a person
+  input:
+    patient: {age: 45, sex: other}
+    conditions:
+      - {code: R69, text: "Illness, unspecified", status: active, onset: "2026-09-01"}
+    medications: []
+    notes: Reviewed at the clinic today.
+  expect: {outcome: HUMAN_REVIEW, recommendation: routine}
+- name: a chart no follow-up can be read from is never automated
+  input:
+    patient: {age: 52, sex: male}
+    conditions:
+      - {code: R68.89, text: "Other general symptoms and signs", status: active, onset: "2026-08-15"}
+    medications: []
+  expect: {not_outcome: AUTO}
+- name: a child's chart is refused, as the agent is for adults
+  input:
+    patient: {age: 12, sex: male}
+    conditions: []
+    medications: []
+  expect: {outcome: BLOCK}
+- name: a field the input does not have is refused
+  input: {chart: {}}
+  expect: {outcome: BLOCK}
