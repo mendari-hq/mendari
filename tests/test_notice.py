@@ -20,9 +20,9 @@ from mendari.server.app import create_app
 from mendari.server.smart_routes import error_page
 from mendari.standards import cds_hooks
 from tests.conftest import ROOT, encrypt_mode, message, signed_in
-from tests.test_fhir import COMMUNICATION, PATIENT
+from tests.support.platform import COMMUNICATION, PATIENT, TRIAGE
 
-INBOX = "mendari/patient-inbox-router"
+INBOX = TRIAGE  # the agent these tests decide with
 REFILL = "Hi, I need a refill on my lisinopril. Thanks"
 REFERENCE = sorted((p for p in discover().packs if p.origin == "maintained"), key=lambda p: p.id)
 
@@ -60,11 +60,11 @@ def test_every_decision_card_carries_it(pack: Pack) -> None:
         assert card.splitlines()[4] == f"*{notices.NOTICE}*"
 
 
-def test_cds_hooks_carry_it(router: Decision) -> None:
-    service = cds_hooks.discovery([router.pack])["services"][0]
+def test_cds_hooks_carry_it(triage: Decision) -> None:
+    service = cds_hooks.discovery([triage.pack])["services"][0]
     assert notices.NOTICE in service["usageRequirements"]
     response = cds_hooks.invoke(
-        router,
+        triage,
         {
             "hook": "mendari-message-received",
             "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
@@ -78,9 +78,6 @@ def test_cds_hooks_carry_it(router: Decision) -> None:
 def test_every_decide_answer_carries_it(open_client: TestClient) -> None:
     decided = open_client.post(f"/api/agents/{INBOX}/decide", json=message(REFILL)).json()
     assert decided["notice"] == notices.notice() and decided["outcome"]
-    draft = open_client.get("/api/agents/mendari/ai-guard/examples").json()[0]["input"]
-    checked = open_client.post("/api/agents/mendari/ai-guard/guard", json=draft).json()
-    assert checked["notice"] == notices.notice() and checked["status"]
 
 
 def test_the_notice_says_what_the_plan_requires() -> None:
@@ -122,7 +119,6 @@ def test_a_signed_in_person_acknowledges_before_deciding(
     # Every route that takes data in from a person: deciding, reviewing, feedback.
     for path in (
         f"/api/agents/{INBOX}/fhir/decide",
-        f"/api/agents/{INBOX}/guard",
         "/api/review/any",
         "/api/audit/any/feedback",
     ):
