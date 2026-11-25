@@ -184,7 +184,7 @@ Each bullet is one control; the threat model names the row and the tests behind 
   gateway, where a proxy on the host connects from). Signed in, `/api/health` shows the address
   seen on the request and whether `X-Forwarded-For` gave it. Per-organization daily quotas
   (`MENDARI_ORG_DAILY_LIMITS`) count decisions and their remote calls, and the organization's
-  evaluations' remote calls under their own `eval_jev` and `eval_llm` (unset: no limit), never
+  evaluations' remote calls under their own `eval_llm` (unset: no limit), never
   the decisions' quotas; over a decision quota, decisions fall back to human review, over an
   evaluation quota the evaluation's remote calls fail, and one alert goes to the webhook a day. A daily
   cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set) counts the decisions it
@@ -329,7 +329,7 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   `422`), never used under a digest that does not describe it; loading the agent again picks the
   edit up under its new digest. The manifest fields naming
   such a file (`inputs.schema`, `inputs.fhir`, `policy`, `tests`, `evaluation.datasets`, and a
-  provider's `config`, `library`, `model_file` and `calibration`) are checked at load, and a
+  provider's `config` and `calibration`) are checked at load, and a
   refusal names the field and why (through a hidden entry or `__pycache__`, in `evals/` or a
   `DECISION_CARD.md`, or not a file the digest covers). The attestations, left out of the
   digest, are read only through a separate accessor (`Pack.attestation`) by their fixed names

@@ -87,7 +87,7 @@ There is no worker: a **job** is a row that runs when an author asks, a slice at
   one transaction: two calls at once never decide a case twice, and a slice cut short is run
   again by the next call. The last slice writes one evaluation report with its ledger
   (`eval.recorded`), the same bytes a single run would write. A remote variant needs the
-  organization's evaluation quota (`eval_jev`, `eval_llm`) set and runs 200 cases at most; a job
+  organization's evaluation quota (`eval_llm`) set and runs 200 cases at most; a job
   runs 5,000 at most, and `store_jobs` bounds the jobs an organization makes a day.
 - **Draft against current.** `GET /api/store/comparisons?draft=…&current=…` pairs two finished
   jobs on the same dataset: each side's figures as k of n with exact intervals, each difference

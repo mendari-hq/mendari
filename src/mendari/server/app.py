@@ -2593,7 +2593,7 @@ def create_app(
                     f"{', '.join(refused)}"
                 )
         # Provider calls count against the daily budgets and the organization's evaluation
-        # quotas (`eval_jev`, `eval_llm`), never its decisions' quotas.
+        # quota (`eval_llm`), never its decisions' quotas.
         decision = Decision(
             pack,
             providers={**chosen, **asked},
