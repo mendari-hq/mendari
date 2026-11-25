@@ -714,8 +714,8 @@ def test_a_model_is_named_whole_unless_a_composite_joins_its_members(page: Page)
     open_agent(page, TRIAGE)
     named = page.evaluate(
         """async () => {
-          const agent = await import(new URL("/static/manifest.js", location).href);
-          const name = (variant, type, model) => agent.providerName({ variant, type, model });
+          const manifest = await import(new URL("/static/manifest.js", location).href);
+          const name = (variant, type, model) => manifest.providerName({ variant, type, model });
           return [
             name("llm", "llm", "anthropic.claude-sonnet-5-20261001-v1:0"),
             name("llm", "llm", "llama3.1:8b"),
@@ -1640,7 +1640,7 @@ LAYOUT_SHIFT = """window.__cls = 0; new PerformanceObserver((list) => {
 
 
 def test_nothing_shifts_while_a_tablet_page_loads(browser: Browser, base_url: str) -> None:
-    """The pack picker used to fill in after first paint, wrap the top bar at 768 px and shift the
+    """The agent picker used to fill in after first paint, wrap the top bar at 768 px and shift the
     whole page (a layout shift of 0.50)."""
     context = browser.new_context(base_url=base_url, viewport={"width": 768, "height": 900})
     page = context.new_page()
@@ -1990,8 +1990,8 @@ def test_configurations_at_the_same_point_share_one_labelled_mark(
     page: Page, served_agents: Path
 ) -> None:
     """On the triage fixture's critical set the four screens, all with the keyword router, are
-    as accurate; the agent and the agent checked by the rules each call the service once, so
-    they cost the same too: one mark for the two, naming both."""
+    as accurate; the `agent` screen and the `checked` one (its service checked by the rules) each
+    call the service once, so they cost the same too: one mark for the two, naming both."""
     serve_board(page, TRIAGE, counted_board(served(served_agents, TRIAGE), priced=True))
     open_agent(page, TRIAGE, "evals")
     page.get_by_role("button", name=re.compile(r"^critical n=")).click()

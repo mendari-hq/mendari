@@ -32,8 +32,8 @@ abstains. Without a `fhirServer`, nothing is read and such a link is `not_fetche
 **Cards** (LP-23f) are CDS Hooks 2.0's: the card's `uuid` is its decision's id and its one
 suggestion's is `suggestion_id` of it, so feedback names them without anything stored; a card
 with suggestions says `selectionBehavior` (`at-most-one`) and offers the override reasons of
-`terminology.OVERRIDE_REASONS`. Its summary is the pack's words with display names
-(`templates.fill_display`), and its detail the pack's status, the notice and one plain sentence,
+`terminology.OVERRIDE_REASONS`. Its summary is the agent's words with display names
+(`templates.fill_display`), and its detail the agent's status, the notice and one plain sentence,
 never a percentage. With `MENDARI_PUBLIC_URL` set (`CardLinks`) the reasons are behind a link to
 the decision in the audit view, `source.url` is the agent's card, and when the EHR may launch the
 agent (SMART on, the request's `fhirServer` registered for launches in the caller's organization)
@@ -140,9 +140,8 @@ class CardLinks:
     launch the agent's SMART view from the card (SMART on, and the request's `fhirServer`
     registered for launches in the caller's organization, `MENDARI_SMART_EHRS`).
 
-    A link into the console names the agent as the console's address does, `?agent=`. The
-    launch link keeps `?pack=`: that is the launch route's own query parameter
-    (`server/smart_routes.py`), a name on the wire that an EHR's registered launch may hold."""
+    A link into the console, and the launch link (`server/smart_routes.py`), name the agent as
+    the console's address does, `?agent=`."""
 
     public_url: str | None = None
     launch: bool = False
@@ -617,8 +616,8 @@ def _target(agent: Agent, result: DecisionResult) -> str:
 
 
 def _unreadable_detail(agent: Agent, result: DecisionResult) -> str:
-    """An unreadable ABSTAIN's detail: the pack's status and the notice, the fixed words, and
-    each key with its reason code (the pack's own names and a closed set: nothing from the
+    """An unreadable ABSTAIN's detail: the agent's status and the notice, the fixed words, and
+    each key with its reason code (the agent's own names and a closed set: nothing from the
     record, the request or a server); then, apart, each list read without a source the EHR does
     not offer (`DecisionResult.limitations`), whatever the links."""
     limited = [reason for reason in result.reasons if reason.startswith(result.limitations)]
@@ -631,7 +630,7 @@ def _unreadable_detail(agent: Agent, result: DecisionResult) -> str:
 
 
 def _refused_detail(agent: Agent, result: DecisionResult) -> str:
-    """A refused input's detail (the `refused` key): the pack's status and the notice, the fixed
+    """A refused input's detail (the `refused` key): the agent's status and the notice, the fixed
     words, and each reason it was refused as the audit record keeps it
     (`DecisionResult.to_record`), whatever the links: why it was refused is what the card is
     for. Its other reasons (a part that could not be read, a list read without a source the EHR

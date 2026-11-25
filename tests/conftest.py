@@ -449,8 +449,8 @@ class Registry:
         )
 
     def namespace(self, name: str, display_name: str = "") -> str:
-        """A namespace made by the operator with no claim (listed, as one from before claims),
-        and an owned token for it."""
+        """A namespace made by the operator with no claim (listed, with no organization), and an
+        owned token for it."""
         self.operator.create_namespace(name, "community", display_name)
         return self.mint(name)
 

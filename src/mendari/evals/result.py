@@ -6,14 +6,11 @@ the report's separate `run` block, outside the result; so is the run's operating
 (mendari.evals.operating_point), which depends on the run's options and on what each decision
 kept in memory, never on the ledger alone.
 
-Over `mendari.eval/1`, the result keeps every figure and adds: each proportion as k of n with its
-exact Clopper-Pearson interval (`proportions`, and `proportion` beside each question's accuracy and
-each critical label's detection), a seeded bootstrap interval for each Brier score, an equal-mass
+The result holds every figure and, with them, each proportion as k of n with its exact
+Clopper-Pearson interval (`proportions`, and `proportion` beside each question's accuracy and each
+critical label's detection), a seeded bootstrap interval for each Brier score, an equal-mass
 calibration error beside the equal-width one ("not estimable" on small bins), the answering models,
 and the ledger it came from. Cases are named by their ledger hash, never their id.
-
-`normalize` reads a report of either format as this one: a `mendari.eval/1` report's id, time and
-latency are lifted into its `run` block (it has no ledger, so no intervals).
 """
 
 from __future__ import annotations
@@ -293,7 +290,7 @@ def counted(rate: Any, n: Any) -> stats.Proportion | None:
 
 def false_automation(report: Mapping[str, Any]) -> stats.Proportion | None:
     """Automated with a wrong recommendation, over every case labelled for the primary question:
-    stored in a mendari.eval/2 report, worked out from a mendari.eval/1 one."""
+    the count the report stores (`proportions`), else worked out from its rate."""
     stored = (report.get("proportions") or {}).get("false_automation")
     if stored is not None:
         return stats.proportion(stored["k"], stored["n"])
@@ -305,7 +302,7 @@ def false_automation(report: Mapping[str, Any]) -> stats.Proportion | None:
 
 def sweep(report: Mapping[str, Any]) -> list[dict[str, Any]]:
     """The threshold sweep with the counts each row is of (`scored` cases, `chosen` at or above
-    the threshold): stored since LP-10b; for an earlier report, `scored` is the primary
+    the threshold), as the report stores them; for a row that does not, `scored` is the primary
     question's calibration bins, which hold exactly the cases the sweep is over, and `chosen`
     follows from the coverage."""
     question = report["questions"].get(report["primary"]) or {}
@@ -326,8 +323,8 @@ def sweep(report: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 def subgroup_labelled(report: Mapping[str, Any], members: Mapping[str, Any]) -> int | None:
     """How many of a subgroup's members are labelled for the primary question, which its
-    accuracy is over: stored since LP-10b; for an earlier report, known only when every case
-    is labelled."""
+    accuracy is over, as the report stores it (`labelled`); else known only when every case is
+    labelled."""
     if "labelled" in members:
         return int(members["labelled"])
     question = report["questions"].get(report["primary"]) or {}
@@ -336,8 +333,8 @@ def subgroup_labelled(report: Mapping[str, Any], members: Mapping[str, Any]) -> 
 
 
 def normalize(report: Mapping[str, Any]) -> dict[str, Any]:
-    """A report of either format, as `mendari.eval/1` reads: v1's id, created_at and latency_ms
-    in a `run` block. A v2 report is returned as it is."""
+    """A report with its id, created_at and latency_ms in a `run` block, where `mendari.eval/1`
+    keeps them; a report that has its `run` block is returned as it is."""
     data = dict(report)
     if "run" in data:
         return data

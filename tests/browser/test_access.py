@@ -158,7 +158,7 @@ def test_roles_that_grant_nothing_are_said(page: Page) -> None:
 
 def test_a_role_is_named_never_shown_by_its_key(page: Page) -> None:
     """The list of a person's organizations names each role as the Access view does: whoever
-    writes agents is an "Agent author", whatever the role's key is on the wire."""
+    writes agents is an "Agent author", never `agent_author`."""
     held = [
         {**CLINICS[0], "roles": ["agent_author"]},
         {**CLINICS[1], "roles": ["governance", "agent_author"]},

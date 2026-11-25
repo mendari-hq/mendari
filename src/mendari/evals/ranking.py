@@ -57,7 +57,7 @@ def about(group: Records, *, limited: bool, twin: bool) -> list[str]:
 
 
 def measured_on(version: Any, digest: Any, current: str | None) -> str:
-    """Why a row (or a benchmark) is not of the pack as it is, in words."""
+    """Why a row (or a benchmark) is not of the agent as it is, in words."""
     if not digest:
         return f"version {version}, its agent digest not recorded"
     if current is not None and version == current:

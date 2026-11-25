@@ -715,8 +715,8 @@ def _operating_point(report: Mapping[str, Any]) -> list[str]:
     automated, and each risk as k of n with its exact one-sided bound
     (`evals/operating_point.py`). Every figure is worked out here from the counts the report's
     result states, never read from the run's own block, which only says that the run worked one
-    out: a card rendered from a benchmark written before that is as it was. A threshold the
-    cases would support is advice for the agent's author (`mendari eval`), not the card's."""
+    out (a benchmark whose run did not shows none). A threshold the cases would support is
+    advice for the agent's author (`mendari eval`), not the card's."""
     try:
         if not isinstance(report["run"].get("operating_point"), Mapping):
             return []

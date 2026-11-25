@@ -13,7 +13,7 @@ what Mendari emits. The server serves them and CI loads them into the HL7 valida
 | an agent's `task.performer_system` | what `FhirAdapter.to_task` routes to | Task.performerType |
 | `…/agents/{agent}/CodeSystem/{question}` | labels, by their criteria | Task.output, `$decide` |
 
-The agent-version system is a `fragment`: decisions made by packs no longer served keep their
+The agent-version system is a `fragment`: decisions made by agents no longer served keep their
 codes. Agents that share a performer system share one CodeSystem, with the union of their codes.
 The NamingSystems are for decision ids, input hashes, and agent versions acting as the engine.
 

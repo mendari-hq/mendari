@@ -11,7 +11,7 @@
   - none of its files holds a case `mendari feedback export` wrote
     (`archive.refuse_site_cases`: a site's cases, which a client refuses to archive, and which
     a client that did not look still cannot publish);
-  - it extracts to a pack that loads with the signed digest, on the engine its pullers run
+  - it extracts to an agent that loads with the signed digest, on the engine its pullers run
     (`origin="hub"`: RE2, the caps and the schema keyword list unless it is a bundled agent of
     the registry's own release, ADR-0009);
   - that version does not exist yet.
@@ -2010,7 +2010,7 @@ def describe(agent: Agent, verified: archive.Verified) -> dict[str, Any]:
         "digest": agent.digest,
         "key_id": verified.key_id,
         # The engine its pullers run it on (ADR-0009): a copy of a bundled agent of this
-        # registry's release keeps the maintained one; every other pack runs bounded.
+        # registry's release keeps the maintained one; every other agent runs bounded.
         "engine": "bounded" if agent.bounded else "maintained",
         "engine_release": __version__,
         "card_markdown": render_card(agent, report=None, board=None, rendered_by="registry"),
@@ -2697,7 +2697,6 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
         store.version(namespace, name, version, viewer_of(request))  # 404 as the version
         return store.evaluations(namespace, name, version)
 
-    # Made after the rename, as the two above `/{version}`: no former path.
     @app.get(
         "/v1/agents/{namespace}/{name}/{version}/evaluations/{evaluation_id}",
         name="agent_evaluation_record",

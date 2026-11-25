@@ -21,8 +21,8 @@ names the bounded engine, which runs the agents the deployment does not own (`Ag
   Each is rewritten for RE2 to mean what `re` means (`core/re2_syntax.py`, which lists the
   differences that remain); one RE2 cannot run (a lookaround, a back reference) or cannot
   compile (too large once compiled) makes the agent invalid, saying what to write instead.
-- **Every other pack's** (the bundled agents, a pulled copy of one included, and an operator's
-  local packs) run on `re`, exactly as they always have. `re` has no time limit, and checking a
+- **Every other agent's** (the bundled agents, a pulled copy of one included, and an operator's
+  own agents) run on `re`. `re` has no time limit, and checking a
   pattern at load cannot tell how long it will take on an input: a pattern like `(a+)+$`
   backtracks for seconds on a few dozen characters. Installing such an agent means trusting its
   author, as with any plugin (SECURITY.md).
@@ -179,7 +179,7 @@ def _re2(text: str, flags: int) -> _Re2Pattern:
 
 
 def compile(text: str, flags: int = 0, *, bounded: bool = False) -> Matcher:
-    """A pack's pattern compiled for the engine its pack's patterns run on (module docstring):
+    """A pattern compiled for the engine its agent's patterns run on (module docstring):
     `bounded` for an agent on the bounded engine (`Agent.bounded`); for any other, this is
     `re.compile(text, flags)`."""
     if bounded:
@@ -228,7 +228,7 @@ _RE2_ENGINE = "the engine agents from a registry or a store run on"
 
 
 def _re2_problem(message: str) -> str:
-    """What RE2 refused, in words a pack author can act on."""
+    """What RE2 refused, in words an agent's author can act on."""
     if "repetition" in message:
         return (
             f"repeats nested inside each other multiply past 1,000, the most RE2 ({_RE2_ENGINE}) "

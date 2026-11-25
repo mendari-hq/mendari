@@ -5,7 +5,7 @@ import { chartHtml } from "./charts.js";
 import { recordHtml } from "./record.js";
 import { esc, num, pct, slotText, state } from "./ui.js";
 
-// A pack's words for its questions and labels (spec 0.2 `display`, `names`), else the key as
+// An agent's words for its questions and labels (spec 0.2 `display`, `names`), else the key as
 // words, spelled as the server spells it (core/spec.py `readable`). An agent's names are its
 // author's claim, so the code stays one click away: `named` puts it beside the name, shown only
 // once someone presses "Show codes" (`codesToggle`).
@@ -142,7 +142,7 @@ export function inputView(input, { restricted = false } = {}) {
   return recordHtml(input);
 }
 
-// A question in words: the first sentence of its instructions, which the pack writes for people
+// A question in words: the first sentence of its instructions, which its author writes for people
 // ("Is the patient aged 18 to 75 on the screening date?"); the code follows as secondary text.
 export function questionText(question) {
   const instructions = state.detail.manifest.questions[question]?.instructions ?? "";

@@ -112,7 +112,7 @@ def _served(mendari: Path, *, env: dict[str, str], cwd: Path) -> bool:
         if health is None:
             print("mendari serve did not answer /api/health")
             return False
-        # `agents`: the count of agents served, under the name the answer has had from the start.
+        # `agents`: the count of agents served.
         if health.get("status") != "ok" or not health.get("agents"):
             print(f"mendari serve answered, but serves no agent: {health.get('status')!r}")
             return False

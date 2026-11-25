@@ -192,11 +192,11 @@ def test_a_pulled_agents_uploaded_figures_are_not_shown_where_it_is_served(
 def test_a_pulled_agents_uploaded_benchmark_is_never_compared_or_monitored_against(
     hub: Hub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """LP-18h: the engine still read a pulled pack's uploaded benchmark in two places. The
+    """LP-18h: the engine once read a pulled agent's uploaded benchmark in two places: the
     evaluation route and `mendari eval` attached a comparison with it, and the monitor took it
-    as its reference. Now the evaluation says it is not compared with the benchmark the agent
+    as its reference. The evaluation says it is not compared with the benchmark the agent
     carries, as it says when a benchmark cannot be compared, and the monitor has no benchmark
-    (`from_registry`). The same pack of one's own is compared as before."""
+    (`from_registry`). The same agent of one's own is compared with its benchmark."""
     from fastapi.testclient import TestClient
 
     from mendari.core.card import benchmark
@@ -225,7 +225,7 @@ def test_a_pulled_agents_uploaded_benchmark_is_never_compared_or_monitored_again
     assert json.loads(capsys.readouterr().out)["comparison"] == not_compared(FROM_REGISTRY)
     assert main(["eval", "site-a/inbox", *eval_args]) == 0
     assert f"Comparison unavailable: {FROM_REGISTRY}" in capsys.readouterr().out
-    # The pack it was published from is one's own: compared with its benchmark, as before.
+    # The agent it was published from is one's own: compared with its benchmark.
     assert main(["eval", str(agent.root), *eval_args, "--json"]) == 0
     own = json.loads(capsys.readouterr().out)["comparison"]
     assert own["status"] in ("ok", "warning", "degraded") and "baseline" in own
@@ -350,8 +350,8 @@ def test_a_pull_the_engine_refuses_leaves_nothing_in_the_cache(tmp_path: Path) -
 
 def test_a_pull_of_a_shadow_is_refused_and_nothing_is_cached(tmp_path: Path) -> None:
     """F: a signed copy of the triage fixture with one changed byte at the reference agent's own
-    version would be served in its place. The pull refuses it before the rename, and the
-    reference pack is still the one served."""
+    version would be served in its place. The pull refuses it before it moves into the cache,
+    and the reference agent is still the one served."""
     registry = HostileRegistry(tmp_path, changed_triage(tmp_path))
     assert registry.version == TRIAGE.version
     with registry.client() as signed, pytest.raises(AgentValidationError) as refused:
@@ -510,8 +510,8 @@ def test_the_cli_logs_in_pushes_searches_and_pulls(
 def test_search_shows_no_figure_a_registry_sends(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A registry before LP-18 served the publisher's own benchmark beside each entry: the
-    listing never shows an uploaded number (ADR-0012), and says the risk level is declared."""
+    """A registry may send the publisher's own benchmark beside each entry: the listing never
+    shows an uploaded number (ADR-0012), and says the risk level is declared."""
     import contextlib
 
     from mendari import cli

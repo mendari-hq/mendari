@@ -5,7 +5,7 @@
 1. the archive's SHA-256 is the one the registry recorded;
 2. every file matches the signed manifest;
 3. the signature is by a key of the agent's namespace;
-4. the extracted pack loads with the signed digest, as an agent from a registry: on the bounded
+4. the extracted agent loads with the signed digest, as one from a registry: on the bounded
    engine (RE2, the caps, the input limits and a CPU budget per decision) unless it is a copy of
    a bundled agent of this release (ADR-0009). An agent that does not load there is not cached.
 
@@ -27,7 +27,7 @@ archive is fetched. The registry's key is trusted when it is one shipped with th
 record is missing, does not verify, or names another agent, version, digest, archive or publisher
 key is refused, and nothing is cached; so is a registry that published a key before and now
 publishes none, or another. A registry that has never published a key (a local one) is pulled
-from as before, and the marker beside the pack records `accepted: null`; unless
+from without that check, and the marker beside the agent records `accepted: null`; unless
 `MENDARI_REGISTRY_COUNTERSIGNATURE` is `required` (every pull is counter-signed by a shipped or
 pinned key) or `shipped` (by a shipped key only: nothing is trusted on first use).
 

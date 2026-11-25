@@ -58,7 +58,7 @@ def search_paths() -> list[SearchPath]:
 
 
 def origin_of(path: str | Path) -> Origin:
-    """The origin of a directory (a search directory, or a pack's) given without one: in the
+    """The origin of a directory (a search directory, or an agent's) given without one: in the
     bundled agents, maintained; in the registry cache (`hub/client.py` `agents_cache`), hub;
     anywhere else, local."""
     from mendari.hub.client import agents_cache

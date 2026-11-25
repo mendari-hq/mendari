@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Every surface says what a pack is (core/status.py), and questions read as words.
+"""Every surface says what an agent is (core/status.py), and questions read as words.
 
 The agents the tests bundle (the test fixtures') are synthetic examples, not clinically
 reviewed and not for patient care. The line is derived from the manifest's `card.provenance`,
@@ -42,7 +42,7 @@ PATIENT: dict[str, Any] = {"resourceType": "Patient", "id": "pat-1", "birthDate"
 
 
 def test_the_label_says_what_the_plan_requires() -> None:
-    """The launch plan's words for a reference pack (A2 step 6, B21), written once."""
+    """The launch plan's words for a reference agent (A2 step 6, B21), written once."""
     assert SYNTHETIC_EXAMPLE == "Synthetic example. Not clinically reviewed. Not for patient care."
 
 

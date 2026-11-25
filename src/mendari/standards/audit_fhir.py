@@ -258,7 +258,8 @@ def _task(event: Mapping[str, Any], base: str | None, version: int | None = None
 
 
 def engine(event: Mapping[str, Any]) -> dict[str, Any]:
-    """The engine as an agent: the pack version (`agent_id`, `agent_version`) that decided."""
+    """The engine as an AuditEvent `agent`: the agent version that decided (`agent_id`,
+    `agent_version`)."""
     agent = f"{event['agent_id']}@{event['agent_version']}"
     identifier = {"system": AGENT_ID_SYSTEM, "value": agent}
     return {"identifier": identifier, "display": f"Mendari engine · {agent}"}

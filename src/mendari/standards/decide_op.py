@@ -4,7 +4,7 @@
 Why a custom, system-level operation and not `PlanDefinition/$apply`: R4's `$apply` resolves
 its `subject` against the server's own data, and Mendari holds none; CPG's `$apply` adds `data`
 but returns a different shape; and an agent's logic (models, rules, LLM providers, policy)
-cannot be expressed as PlanDefinition actions, so serving packs as PlanDefinitions would promise
+cannot be expressed as PlanDefinition actions, so serving agents as PlanDefinitions would promise
 what no other engine could run. R4 has a resource for a decision-support result, though:
 
 - `GuidanceResponse` (first in the Bundle): the decision. `status` is `success` when the agent

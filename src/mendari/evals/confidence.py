@@ -448,9 +448,9 @@ def _titled(title: str, lines: Sequence[str]) -> str:
 
 def text(run: Mapping[str, Any]) -> str:
     """Both blocks of a report's `run` as the terminal prints them under the report: what a
-    calibration did on these cases, and what a second signal did. "" for a run with neither
-    (and for a report from before them): whether a variant is calibrated at all is a row of
-    the report itself (`render.confidence_rows`)."""
+    calibration did on these cases, and what a second signal did. "" for a run with neither:
+    whether a variant is calibrated at all is a row of the report itself
+    (`render.confidence_rows`)."""
     parts = []
     found = run.get("calibration")
     if isinstance(found, Mapping) and found.get("lines"):

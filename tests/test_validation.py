@@ -67,7 +67,7 @@ def test_the_command_and_the_registry_call_one_function(
     assert main(["validate", str(agent.root)]) == 1
     assert line in capsys.readouterr().err
     with pytest.raises(AgentValidationError) as error:
-        validate_agent(agent)  # the old name calls the one function
+        validate_agent(agent)  # `behaviour_tests.validate_agent` calls the one function too
     assert error.value.problems == [line]
 
     # The registry: refused, naming it, and nothing stored.

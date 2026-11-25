@@ -23,8 +23,8 @@ Mendari `POST`s to `MENDARI_AGENT_URL` (with `Authorization: Bearer $MENDARI_AGE
 }
 ```
 
-(`pack_id` is the agent's id: the key keeps the name it had before) and expects, for every
-question asked and no other:
+(`agent_id` is the agent's id, and `service_id` the name its manifest gives this service) and
+expects, for every question asked and no other:
 
 ```json
 {

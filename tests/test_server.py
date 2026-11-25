@@ -362,7 +362,7 @@ def test_the_api_reference_describes_every_operation(client: TestClient) -> None
     assert "Sign-in is off here" in schema["info"]["description"]
     decide = schema["paths"]["/api/agents/{namespace}/{name}/decide"]["post"]
     examples = decide["requestBody"]["content"]["application/json"]["examples"]
-    # No demo agent among the tests' fixtures: the packs come by id (the demo agent first where a
+    # No demo agent among the tests' fixtures: the agents come by id (the demo agent first where a
     # release serves it: test_a_release_offers_the_demo_agent_first), one example each.
     exampled = [example["summary"].split(":")[0] for example in examples.values()]
     assert exampled == [agent.id for agent in bundled_agents()]

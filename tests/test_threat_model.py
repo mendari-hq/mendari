@@ -2,7 +2,7 @@
 """The threat model stays true to the code (docs/security/threat-model.md): every threat has one
 id, the rows run in STRIDE order with numbers in order, and every test a row names as "Checked
 by" exists. Parallel lanes once added rows with the same id; this catches that and a test that
-was renamed or removed. Its "Agent content" part (LP-16g) names every input a pack has, and cites
+was renamed or removed. Its "Agent content" part (LP-16g) names every input an agent has, and cites
 only rows and tests that exist."""
 
 from __future__ import annotations

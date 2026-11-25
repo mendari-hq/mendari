@@ -613,7 +613,7 @@ def test_mendari_new_agent_end_to_end_offline_and_live_switch(
     assert report["questions"]["request"]["accuracy"] == 1.0
     assert report["questions"]["urgent_symptoms"]["accuracy"] == 1.0
 
-    # 2. Setting MENDARI_AGENT_URL switches the exact same pack to the live external agent
+    # 2. Setting MENDARI_AGENT_URL switches the exact same agent to its live service
     monkeypatch.setenv(ENDPOINT_ENV, AGENT_URL)
     monkeypatch.setenv(TOKEN_ENV, "prod-token")
     live_calls: list[httpx.Request] = []

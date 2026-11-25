@@ -50,9 +50,7 @@ def load(path: str | Path, *, flag: str) -> Ledger:
         report = json.loads(data)
         ledger_id = report["ledger"]["id"]
     except (ValueError, KeyError, TypeError):
-        raise MendariError(
-            f"{where}: a report without a ledger (mendari.eval/1); evaluate it again"
-        ) from None
+        raise MendariError(f"{where}: a report without a ledger; evaluate it again") from None
     beside = path.parent / "ledgers" / (str(ledger_id).removeprefix("sha256:") + ".jsonl")
     try:
         ledger = Ledger.loads(beside.read_bytes(), where=f"{where}'s ledger")

@@ -21,10 +21,9 @@ the report it supersedes (`supersedes`, LP-22e's request); the old report stays 
 listed as superseded, and leaves the pool (LP-22g). Reports signed with a key later revoked as
 compromised are listed as such.
 
-`hub_reports` (unsigned reports, `/1` or `/2`, from before) is never altered and no longer
-served: `reports()` lists signed reports only, each `verified: true` with its site, key id and
-ticket, and `GET …/reports/{id}` serves the signed record, so anyone can check it against the
-site's public key (`GET /v1/sites/{id}`).
+`reports()` lists the signed reports, each `verified: true` with its site, key id and ticket, and
+`GET …/reports/{id}` serves the signed record, so anyone can check it against the site's public
+key (`GET /v1/sites/{id}`).
 """
 
 from __future__ import annotations

@@ -35,12 +35,12 @@ items) add more. So a bounded agent's patterns and schema checks also share one 
 per decision, in the CPU time of the decision's thread (`patterns.time_budget`,
 `BOUNDED_TIME_BUDGET_S`): checked before each search, at each match, at each word typo
 correction looks at, at each schema applied and after each error a schema check finds, it
-stops the pack's rules or its schema check, and the decision abstains, for a person (an input
+stops the agent's rules or its schema check, and the decision abstains, for a person (an input
 the schema had already found wrong is refused). One decision runs a bounded agent's
 patterns and schema for at most the budget plus one step under way (about 3.5 s of CPU at
 worst).
 
-Every other pack (a bundled agent, a pulled copy of one, an operator's local pack) is not
+Every other agent (a bundled one, a pulled copy of one, an operator's own) is not
 capped: its patterns run on `re`, and installing it means trusting its author (SECURITY.md).
 """
 
@@ -186,7 +186,7 @@ class SchemaCycle(Exception):
 def schema_problems(schema: Any, rules_runs: int, rules_size: int = 0) -> list[str]:
     """Why a bounded agent's input schema multiplies its patterns' work (module docstring), with
     `rules_runs` (`rules_runs`) and their size (`rules_runs` with `rules_size`) counted toward
-    the pack's totals."""
+    the agent's totals."""
     try:
         runs = schema_runs(schema)
     except SchemaCycle as cycle:

@@ -22,7 +22,7 @@ The schema patterns of an agent on the bounded engine (an agent the deployment d
 from a registry or a store that is not a bundled agent of this release, `Agent.bounded`) run on
 RE2, like its rules (`core/patterns.py`): its validator's `pattern`,
 `patternProperties` and `additionalProperties` (and so `propertyNames`, which checks keys with
-the same keywords) search with RE2, and every other pack's validator is jsonschema's own,
+the same keywords) search with RE2, and every other agent's validator is jsonschema's own,
 unchanged. Its validator also checks the decision's time budget each time it applies a schema
 (`patterns.check_time`), so a schema whose keywords apply many times over (`$ref`s that fan out,
 a subschema on many items) stops at the budget; it is built without the root's `$schema` (which
@@ -32,8 +32,8 @@ only keywords whose work stays within the budget, `$ref` only to its own `$defs`
 (`unevaluatedProperties`, `unevaluatedItems`, `contains`), or compares every pair of items at
 once (`uniqueItems`).
 
-Every other pack's schema (a pack the deployment owns: a bundled agent, an operator's local
-one) has no budget, so its shape is bounded at load instead (`expansion_problems`): it nests at
+Every other agent's schema (an agent the deployment owns: a bundled one, an operator's own)
+has no budget, so its shape is bounded at load instead (`expansion_problems`): it nests at
 most `MAX_SCHEMA_NESTING` deep, a chain of `$ref`s runs at most `MAX_REF_CHAIN` long, and one
 value of an input is checked against at most `MAX_SCHEMA_APPLICATIONS` schema objects (a `$ref`,
 `allOf`, `anyOf` or `oneOf` that reaches one schema twice doubles it, and twenty-eight such steps

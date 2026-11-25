@@ -26,7 +26,7 @@ plain form is the same words in a keyboard's characters:
 4. a carriage return before a newline is left out, and every run of white space that holds no
    newline becomes one space.
 
-A newline stays a newline: a pack's patterns stop at one, as at the end of a sentence, so text
+A newline stays a newline: an agent's patterns stop at one, as at the end of a sentence, so text
 wrapped mid-phrase is still read as two lines. Every other character that ends a line somewhere
 (a lone carriage return, a vertical tab, a form feed, the line and paragraph separators) is
 white space, as a pattern has always read it. Nothing else changes: no case folding (patterns

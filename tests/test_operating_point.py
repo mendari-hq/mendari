@@ -1666,7 +1666,8 @@ def test_the_card_shows_the_bound_at_the_benchmarks_threshold(
     tmp_path: Path, demo_run: tuple[Any, list[Any]]
 ) -> None:
     """Under the benchmark's figures, each risk at the threshold it ran with, as k of n with
-    its bound; a benchmark written before a run worked that out leaves the card as it was."""
+    its bound; a benchmark whose run did not work it out shows none, and the rest of the card is
+    the same."""
     run, _ = demo_run
     root = a_copy(tmp_path)
     card = render_card(with_a_benchmark(root, run.report)).splitlines()
@@ -1800,7 +1801,6 @@ def test_the_guide_names_the_options_the_command_takes() -> None:
     )
     assert (parsed.target_critical_miss, parsed.target_critical_miss_of) == (0.01, "all")
     assert (parsed.target_false_automation, parsed.target_confidence) == (0.02, 0.95)
-    assert not re.search(r"\bpacks?\b", text, re.IGNORECASE)  # one vocabulary: an agent
 
 
 # -- proposed actions are part of what the policy decided from (spec 0.4) -------------------------

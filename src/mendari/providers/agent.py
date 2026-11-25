@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """AI Agent provider: wrap any external HTTP AI agent inside Mendari's governance engine.
 
-An `agent` variant sends a pack's typed questions and (optionally filtered) input to an external
-agent service (OpenAI, Claude, LangGraph, or any custom HTTP agent) and validates the agent's
-structured answers against the pack's declared question schemas. Any HTTP error, timeout, or
-malformed response raises `ProviderError` so Mendari's deterministic policy engine fails closed
-(`HUMAN_REVIEW` / `ABSTAIN` / `BLOCK`) and records the failure in the audit trail.
+An `agent` variant sends the agent's typed questions and (optionally filtered) input to its
+service, an external HTTP agent (OpenAI, Claude, LangGraph, or any custom one), and validates the
+service's structured answers against the agent's declared question schemas. Any HTTP error,
+timeout, or malformed response raises `ProviderError` so Mendari's deterministic policy engine
+fails closed (`HUMAN_REVIEW` / `ABSTAIN` / `BLOCK`) and records the failure in the audit trail.
 
 Configuration & security:
 - Where a live call goes is decided in one place, `AgentProvider.live`: the organization's own
@@ -138,12 +138,12 @@ class AgentConfig(BaseModel):
     timeout_seconds: float = Field(
         default=DEFAULT_TIMEOUT_SECONDS, gt=0.0, le=120.0, allow_inf_nan=False
     )
-    # Minimum necessary: when set, only these input fields are sent to the agent.
+    # Minimum necessary: when set, only these input fields are sent to the service.
     state_fields: list[str] | None = None
     # Agent-relative JSON or YAML fixture for offline testing and evaluation.
     mock_file: str | None = None
     # Spec 0.4 (ADR-0024). Per-question temperatures fitted by `mendari calibrate` (a file in
-    # the agent), for the agent version its service reported then: `agent_calibration.py`.
+    # the agent), for the version its service reported then: `agent_calibration.py`.
     calibration: str | None = None
     # Ask each case this many times and never automate when the runs disagree: `repeat.py`.
     repeat: int | None = Field(default=None, ge=MIN_RUNS, le=MAX_RUNS)
@@ -355,7 +355,7 @@ class AgentProvider(Provider):
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         """The agent's answers as the policy sees them: each call's confidence calibrated
         (`agent_calibration.calibrated`), and the call repeated when the variant says so
-        (`repeat.repeated`). `answer_once` is one call, as the agent answered it."""
+        (`repeat.repeated`). `answer_once` is one call, as the service answered it."""
         return repeated(
             self, self.settings.repeat, lambda: self._calibrated(self.answer_once(inputs))
         )
@@ -549,7 +549,7 @@ def request_body(
 
 
 def agent_question(key: str, question: Question) -> dict[str, Any]:
-    """A pack question serialized for an external agent."""
+    """One of the agent's questions, serialized for its service."""
     item: dict[str, Any] = {
         "key": key,
         "type": question.type,

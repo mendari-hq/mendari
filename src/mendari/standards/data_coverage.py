@@ -51,8 +51,8 @@ translations, as the input is (`measure`'s `site_codes`), so a `code_set` field'
 and items agree with what the input read. It holds no translation, and a coding a translation
 matched counts by its system, as any other.
 
-It holds counts and the pack's own words only: never a value, an id, text, a patient's code or a
-system the pack does not declare (a site's own system can name the site). The output is
+It holds counts and the agent's own words only: never a value, an id, text, a patient's code or a
+system the agent does not declare (a site's own system can name the site). The output is
 canonical, keys and lists sorted, so one record gives the same bytes on every run.
 """
 
@@ -281,7 +281,7 @@ def _prefetch(
 ) -> dict[str, Any]:
     """Each prefetch key that could not be read, or that the EHR does not offer by the site's
     declaration: the type its template reads (when known), and its reason and status, or
-    `not_offered`. The pack's key names and Mendari's words only, and a status as a number."""
+    `not_offered`. The agent's key names and Mendari's words only, and a status as a number."""
     found: dict[str, Any] = {}
     for key, reason in unreadable.items():
         item: dict[str, Any] = {"reason": reason}

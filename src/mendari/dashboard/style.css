@@ -225,7 +225,7 @@ button.other-stat-pill:hover { opacity: 0.9; }
   background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted);
 }
 .agent-picker { min-width: 0; }  /* long agent names shrink the picker, not widen the page */
-/* Its width is fixed from first paint: filled in later with long pack names, it used to wrap the top
+/* Its width is fixed from first paint: filled in later with long agent names, it used to wrap the top
    bar at tablet widths and shift the whole page (a 0.50 layout shift at 768 px). */
 .agent-picker select { width: 15rem; max-width: 100%; }
 /* Memberships mode: the organization a person in several acts for (main.js), and choosing one
@@ -1051,7 +1051,7 @@ button.priority-filter[aria-pressed="true"] { border-color: var(--color-text); b
 /* Try it on record agents: a form generated from the agent's input schema (form.js), or the JSON. */
 .try-mode { justify-content: space-between; margin-bottom: var(--space-2); }
 .try-mode-label { font-weight: var(--weight-semibold); }
-/* A refusal said where it happened: under the FHIR input, above the PAS request's button. */
+/* A refusal said where it happened: under the field or in the panel it is about. */
 :is(.sf-field, .panel) > .error { margin: var(--space-2) 0 0; color: var(--color-danger); font-weight: var(--weight-medium); }
 .sf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-3) var(--space-4); }
 .sf-field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }

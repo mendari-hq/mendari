@@ -571,12 +571,12 @@ def _where_it_shows(registry: Any, agent_id: str) -> list[str]:
     """After a publish: where the Agent Hub shows the agent's evaluation, and the Markdown
     line that puts its badge in a README, linked to that page. The badge is the registry's own
     answer, so its address is the registry's; the page's is whatever Hub the registry names
-    (`MENDARI_REGISTRY_HUB_URL`). A registry from before evaluation pages says so."""
+    (`MENDARI_REGISTRY_HUB_URL`). For a registry that serves no evaluation page, it says so."""
     namespace, name = agent_id.split("/")
     try:
         found = registry.evaluation(namespace, name)
     except HubError:
-        return ["this registry serves no evaluation page or badge (it is from before them)"]
+        return ["this registry serves no evaluation page or badge"]
     answer = registry.evaluation_url(namespace, name)
     links = found.get("links") if isinstance(found.get("links"), Mapping) else {}
     page = _linkable(links.get("page"), f"/agents/{namespace}/{name}/evaluation")
@@ -1260,8 +1260,7 @@ def _shown(target: str) -> str:
 
 
 _MENDARI_TABLES = ("decisions", "deployments", "automation_holds")
-# The tables every release of Mendari has had: a database from before a release that added one
-# (`automation_holds`, LP-06) is still Mendari's, and its server migrates it.
+# Two tables every Mendari database has: a database without them is not a server's.
 _EVERY_RELEASE = ("audit_events", "decisions")
 
 
@@ -2891,8 +2890,8 @@ def cmd_search(args: argparse.Namespace) -> int:
         _print_json(found)
         return 0
     for item in found:
-        # No figure: what a registry before LP-18 served was the publisher's own benchmark, and
-        # an uploaded number is never shown (ADR-0012). The risk level is the publisher's word.
+        # No figure: what a registry sends beside an entry may be the publisher's own benchmark,
+        # and an uploaded number is never shown (ADR-0012). The risk level is the publisher's word.
         risk = f"risk {item['risk']['level']} (declared)"
         print(f"{item['id']}@{item['version']}  {risk}  {item['publisher_type']}")
         print(f"    {item['summary'][:110]}")
@@ -3487,12 +3486,12 @@ def _agent_argument(
     about: str = "agent id (namespace/name[@version]) or directory",
     **kwargs: Any,
 ) -> None:
-    """The agent a command takes, shown as `agent`; the commands read it as `args.agent`."""
+    """The agent a command takes (`args.agent`)."""
     command.add_argument("agent", metavar="agent", help=about, **kwargs)
 
 
 def _agent_option(command: argparse.ArgumentParser, **kwargs: Any) -> None:
-    """`--agent`, the agent a command is about; the commands read it as `args.agent`."""
+    """`--agent`, the agent a command is about (`args.agent`)."""
     if "choices" not in kwargs:  # with choices, the usage lists them
         kwargs.setdefault("metavar", "AGENT")
     command.add_argument("--agent", dest="agent", **kwargs)

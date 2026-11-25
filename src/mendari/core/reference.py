@@ -10,7 +10,7 @@ read only from the files its digest covers (`Agent.read_bytes`): equal digests m
 behaviour. So a copy of a bundled agent keeps the maintained engine wherever it was pulled
 from, and one changed byte puts it on the other (ADR-0009).
 
-A pack from a registry never takes a bundled agent's place: one with a bundled agent's id and
+An agent from a registry never takes a bundled agent's place: one with a bundled agent's id and
 a version that ties its (`version_key`) but other files is refused at load (`core/agent.py`
 `_shadow_problem`), so at pull and at publish too; `reference_agents` is the index it reads.
 """

@@ -13,8 +13,8 @@ The Task Mendari serves is the decision itself, not the work item the decision r
 **Versions.** The events that change the decision's result make its versions, in chain order:
 `decision.created` is version 1, then each `review.resolved` and `outcome.recorded`
 (`audit_fhir.VERSION_EVENTS`: exactly the events that get a Provenance). `meta.versionId` is
-that ordinal and `meta.lastUpdated` the event's time. Feedback, input reads and purges, and PAS
-submissions stay in the chain and make no version. The ordinal, not the global `seq`, so a
+that ordinal and `meta.lastUpdated` the event's time. Feedback, and input reads and purges, stay
+in the chain and make no version. The ordinal, not the global `seq`, so a
 version number says nothing about how busy the rest of the deployment is.
 
 **From the chain, not the row.** The outputs come from event payloads: the reviewer's label from

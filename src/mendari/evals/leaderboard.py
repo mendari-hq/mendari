@@ -245,27 +245,21 @@ def markdown(
                 f"| {'unknown' if cost is None else f'${cost:.5f}'} | {_errors(item)} |"
             )
         if any(item.get("accuracy_proportion") is None for item in rows):
-            out += [
-                "",
-                "Accuracy and false automation are n/a on a row recorded before leaderboards kept "
-                "the counts they are of (mendari.leaderboard/1).",
-            ]
+            out += ["", "Accuracy is n/a on a row with no case labelled for the primary question."]
         out.append("")
         out += _question_table(rows, config)
     return out
 
 
 def _accuracy(item: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    """A row's primary accuracy over the cases labelled for it. A row from before stored only
-    the rate, and not how many cases were labelled (fewer than the dataset's when some have no
-    label), so it shows n/a."""
+    """A row's primary accuracy over the cases labelled for it, as the row stores it: None (n/a)
+    when no case is labelled for the primary question."""
     stored: Mapping[str, Any] | None = item.get("accuracy_proportion")
     return stored
 
 
 def _false_automation(item: Mapping[str, Any]) -> stats.Proportion | Mapping[str, Any] | None:
-    """A row's false automation over its labelled cases. A row from before stored only the rate
-    over its automated cases, a different measure, so it shows n/a."""
+    """A row's false automation over its labelled cases, as the row stores it."""
     stored: Mapping[str, Any] | None = item.get("false_automation")
     return stored
 
@@ -274,8 +268,8 @@ def _question_table(
     rows: list[dict[str, Any]], config: Callable[[Mapping[str, Any]], str]
 ) -> list[str]:
     """Accuracy and ECE of the other questions, for those whose results differ between the
-    configurations (the ones the providers being compared actually answer). Rows measured
-    before reports carried them have none, and are left out."""
+    configurations (the ones the providers being compared actually answer). A row without
+    them is left out."""
     rows = [item for item in rows if "questions" in item]
     keys = sorted({key for item in rows for key in item.get("questions", {})})
     varying = [

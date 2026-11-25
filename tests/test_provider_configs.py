@@ -199,8 +199,8 @@ def test_a_broken_non_default_variant_is_refused_for_a_registry_agent_and_warned
     make: Callable[..., Path], template: Path, tmp_path: Path
 ) -> None:
     """A variant that cannot run, though the agent's default never uses it: a label its rules
-    answer that the question does not have. The owned pack loads and decides with its default
-    as before; the variant still fails when chosen, as it always did."""
+    answer that the question does not have. The owned agent loads and decides with its default;
+    the variant fails when it is chosen."""
     rules = yaml.safe_load((template / "logic" / "rules.yaml").read_text())
     rules["questions"]["topic"]["default"] = "maybe"
     root = make({"other": {"type": "rules", "config": "logic/other.yaml"}})
@@ -306,7 +306,7 @@ def test_a_registry_agents_remote_variant_needs_state_fields(make: Callable[...,
         f"providers.reader.variants.screen.members.agent: {rule.format('agent')}",
         f"providers.reader.variants.nothing: {rule.format('llm')}",
     ]
-    owned = load_agent(root)  # an owned pack may send the whole input, as before
+    owned = load_agent(root)  # an owned agent may send the whole input
     assert owned.warnings == ()
     assert {"llm", "agent"} <= MODEL_TYPES
 
@@ -320,7 +320,7 @@ def test_a_registry_agents_pinned_model_gives_way_to_the_deployments(
     monkeypatch.setenv("LLM_MODEL", "example/deployment-model")
     assert build_provider(hub, "reader", "llm").info.model == "example/deployment-model"
     assert build_provider(owned, "reader", "llm").info.model == "example/pinned-model"
-    # No LLM_MODEL: there is no built-in model (LP-10c-ii), and a pack from a registry never
+    # No LLM_MODEL: there is no built-in model (LP-10c-ii), and an agent from a registry never
     # falls back to its own pinned one, so it has no model and nothing is called.
     monkeypatch.delenv("LLM_MODEL")
     assert build_provider(hub, "reader", "llm").info.model is None
@@ -380,7 +380,7 @@ def capped_however_written(make: Callable[..., Path], written: Callable[[int], A
     """The config models read `"32000"` and `32000.0` as 32000 (pydantic's lax mode), so an agent
     from a registry that writes its numbers so loads, and is held to the caps all the same, as
     a variant and as a composite's member; the cap compares the number the model reads, never
-    the text. An owned pack's number written so builds as before."""
+    the text. An owned agent's number written so builds too."""
     llm = {
         "type": "llm",
         "max_tokens": written(32000),
@@ -704,7 +704,7 @@ def test_load_and_validate_agree_on_provider_configs(
     template: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
     """The LP-16 parity test: an agent `mendari validate` refuses is never one `load_agent` lists as
-    valid. With any generated variants and members, a pack the deployment does not own is
+    valid. With any generated variants and members, an agent the deployment does not own is
     refused at load exactly when validate refuses it, and an owned one is warned exactly when
     validate refuses it (it still loads: conflict 17). What an owned agent cannot load with
     (a file a variant names that is missing, say), no agent loads with."""
@@ -790,7 +790,7 @@ def answered(request: httpx.Request) -> httpx.Response:
 def test_a_generated_agent_only_reaches_the_deployments_endpoints_with_its_credentials(
     template: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """LP-16's hypothesis test: whatever a pack's model variants and members say (variables to
+    """LP-16's hypothesis test: whatever an agent's model variants and members say (variables to
     read the endpoint or key from, URLs, models that look like URLs), from a registry or owned,
     every request a decision makes goes to the deployment's LLM or agent service with the key
     the deployment set for that endpoint, or, for an agent the deployment owns that names its
