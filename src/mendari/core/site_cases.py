@@ -17,8 +17,8 @@ it was calibrated on, carries the same marks in its `training` record (`evals/tr
 `fit`), until it is trained again without them.
 
 Whatever would carry a pack somewhere else looks for those marks in every file it would carry:
-an archive's builder and a registry's publish (`hub/archive.py` `refuse_site_cases`), and the
-community-pack check (`community/check.py`). A file is searched as bytes, never parsed, so a
+an archive's builder and a registry's publish (`hub/archive.py` `refuse_site_cases`). A file is
+searched as bytes, never parsed, so a
 mark is found whatever the file is called and however it is laid out: a dataset the pack trains
 on, one it only tests with, the file an export wrote, a copy the manifest does not name, the
 same cases as one JSON document, a record cut short. A file that only quotes a mark is counted

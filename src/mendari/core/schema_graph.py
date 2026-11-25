@@ -3,7 +3,7 @@
 applicators of Draft 2020-12 lead from it (the same value, its keys, one or every property, one
 or every item), through `$ref` and every other applicator.
 
-Two checks read it: the caps of a pack on the community engine (`core/caps.py` `schema_runs`:
+Two checks read it: the caps of an agent on the bounded engine (`core/caps.py` `schema_runs`:
 how many patterns run on one value) and the expansion bounds of every other pack's schema
 (`core/input_schema.py` `expansion_problems`: how many schema objects apply to one value, how
 long a chain of `$ref`s runs, which references lead back). Nothing here imports RE2. Every

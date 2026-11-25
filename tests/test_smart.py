@@ -243,7 +243,7 @@ def test_each_launch_names_itself_and_the_window_it_opens(app: TestClient, ehr: 
     assert first.headers["location"].endswith(f"#patient/{one['launch_id']}")
     assert re.fullmatch(r"[0-9a-f]{16}", one["launch_id"])
     listed = {pack["id"]: pack for pack in app.get("/api/agents").json()}
-    # With the label the patient view shows (a community pack says so where a person decides).
+    # With where each comes from, and the label for it.
     assert one["packs"] == [
         {
             "id": i,

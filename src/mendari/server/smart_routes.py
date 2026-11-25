@@ -290,8 +290,7 @@ def add_smart_routes(
         is an answer, not an error): the EHR, patient and encounter, who launched (`fhir_user`),
         the scopes, when the EHR's token expires, the agent launched, the launch's id
         (`launch_id`: the dashboard window it opened carries it, to tell a replaced launch), and
-        the agents it may use (`packs`: id, name, origin and `origin_label`, which the patient view
-        shows, so a community agent is labelled where a clinician decides)."""
+        the agents it may use (`packs`: id, name, origin and `origin_label`)."""
         launch = auth.launch(request) if settings is not None else None
         if launch is None:
             return {"active": False}
@@ -302,7 +301,7 @@ def add_smart_routes(
             {
                 "id": pack.id,
                 "name": pack.manifest.name,
-                "origin": pack.shown_origin,
+                "origin": pack.origin,
                 "origin_label": pack.origin_label,
                 "status_label": pack.status_label,
             }

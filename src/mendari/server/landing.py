@@ -6,8 +6,7 @@ quickstart in three calls, FHIR in and out, authentication and links, on one sta
 release, plus this deployment's modes (sign-in, the SMART launch, Backend Services), which
 `/api/auth/me`, `/fhir/metadata` and the SMART configuration already make public: never a pack,
 a provider, a count or anything from the store. Open mode, where everything is public anyway,
-adds a link to each pack's Decision Card, a community pack's labelled "Community · not clinically
-reviewed" as everywhere else.
+adds a link to each pack's Decision Card.
 
 **Its examples are the snippet scripts** (`server/snippets.py`) that CI runs against a local
 server, so what the page shows works; the table of what each call needs is built from the
@@ -28,7 +27,6 @@ from typing import NamedTuple
 from urllib.parse import quote
 
 from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS
-from mendari.core.origin import COMMUNITY_LABEL
 from mendari.server import api_docs, scopes, sessions, snippets
 from mendari.server.auth import EHR_ONLY, GRADING_ONLY, PEOPLE_ONLY, PERMISSIONS, ROLES
 
@@ -36,11 +34,9 @@ _MARKER = re.compile(r"<!-- landing:([a-z-]+) -->")
 
 
 class CardLink(NamedTuple):
-    """A pack's Decision Card on the landing: its name, and whether it is a community pack (then
-    labelled "Community · not clinically reviewed", as everywhere else)."""
+    """An agent's Decision Card on the landing: its name."""
 
     name: str
-    community: bool = False
 
 
 # What the quickstart's decide step prints (its `jq` filter), abridged: the id is new each time.
@@ -126,8 +122,8 @@ def page(
 ) -> str:
     """The landing, from `docs.html` as `versioned_page` returns it. `routes` are the mounted
     `(method, path)` pairs; `token_url` is set when SMART Backend Services is on; `cards` (pack
-    id -> name, and whether it is a community pack) is given in open mode only: with sign-in on,
-    which packs run here is not public."""
+    id -> name) is given in open mode only: with sign-in on, which packs run here is not
+    public."""
     decided: list[tuple[str, Mapping[str, object]]] = [(PRINTED_LABEL, PRINTED)]
     prints = {("quickstart", "decide"): decided}
     return fill(
@@ -389,10 +385,9 @@ def _cards(cards: Mapping[str, CardLink] | None) -> str:
             '<a href="/#card">Decision Cards</a>: what each agent decides, how it was tested and '
             "its limits, in the dashboard once you sign in."
         )
-    community = f' <span class="badge origin-community">{escape(COMMUNITY_LABEL)}</span>'
     links = "".join(
         f'<li><a href="/?agent={escape(quote(pack_id, safe="/"))}#card">{escape(link.name)}</a> '
-        f"<code>{escape(pack_id)}</code>{community if link.community else ''}</li>"
+        f"<code>{escape(pack_id)}</code></li>"
         for pack_id, link in sorted(cards.items())
     )
     return (

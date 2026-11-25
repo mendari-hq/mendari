@@ -49,7 +49,7 @@ first** (the Hub only matters once it has strong agents), **LLMs through Vercel 
   - a security review (threat model; dependency audit and an OWASP ZAP scan in CI; headers);
   - the clinician's authoring guide and `mendari new`;
   - the docs site;
-  - the contribution flow with its eval gate, and the community files;
+  - the community files;
   - a release workflow, and the README quickstart timed in CI (it finishes well under 10
     minutes).
 
@@ -72,7 +72,7 @@ release, the live Hub and the hosted docs site. The overnight log lists what's n
 | Hub: publish / pull / search, publisher types, signed archives, the site evaluation network (verified sites, tickets, signed counts, pooled site evidence apart from every rank), website | ✅ v0.5 (not public yet; the site network built, LP-22) | Going public (a public registry and site); datasets and eval suites as first-class entries |
 | Developer experience (`pip install`, `from_hub`, `pull`, container per agent) | Partial | The PyPI release and the first published images (both at a release tag) |
 | Org readiness (auth, tenancy, PHI handling, monitoring) | ✅ v0.6 (off until configured) | A security review before real PHI (v1.0) |
-| Community (contribution flow, verification, public repo) | ✅ built (v1.0) | The repo going public (your decision) |
+| Community (verification, public repo) | ✅ built (v1.0) | The repo going public (your decision) |
 
 ## Milestones
 
@@ -202,7 +202,6 @@ repository public, the PyPI release (trusted publishing is set up in `release.ym
 the Hub and the docs site._
 - Security review (threat model, dependency audit, API penetration test).
 - A docs site, including a **YAML-first authoring guide for clinicians**.
-- A contribution flow: agent PRs are automatically validated, tested, evaluated and given a card.
 - CODE_OF_CONDUCT and community governance.
 - PyPI release, public GitHub repo, launch.
 - Exit: a new user goes from README to their own local validation in under 10 minutes; the
@@ -238,7 +237,7 @@ the Hub and the docs site._
 Publish the v1.0 open-source release (public repository, PyPI package, container images, and
 hosted docs/Hub) and focus on real-world adoption of Mendari as an open-source healthcare AI
 governance and evaluation platform — clinician-reviewed evaluation sets, transparent provider
-benchmarking, auditable human-in-the-loop policies, and community-contributed agents.
+benchmarking, and auditable human-in-the-loop policies.
 
 ## Verification of the roadmap itself
 Each milestone's exit criteria are testable (commands, datasets, metrics). The roadmap counts

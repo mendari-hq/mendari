@@ -12,7 +12,7 @@
 // patient, items and decide requests carry the pin (`X-Mendari-Launch`): the server answers 409
 // to a replaced one, so a launch that replaces this one between those requests shows nothing.
 
-import { communityNotice, isCommunity, originBadge, statusNotice } from "./pack.js";
+import { statusNotice } from "./pack.js";
 import { render, route, views } from "./router.js";
 import { $, api, emptyState, esc, icon, may, outcomeBadge, priorityBadge, state, toast, toastError, whileBusy } from "./ui.js";
 
@@ -46,7 +46,6 @@ views.patient = async (main, params) => {
   main.innerHTML = `
     <h1>This patient</h1>
     <p class="muted">From the EHR launch: what ${esc(packName())} decides about for this patient.</p>
-    ${communityNotice(currentPack())}
     ${statusNotice(currentPack())}
     ${banner(patient)}
     ${items.length ? `<ul class="work-items">${items.map(workItem).join("")}</ul>` : emptyState({
@@ -80,8 +79,7 @@ function pin(launchId) {
   return launchId;
 }
 
-// The pack in use, with where it comes from (`origin_label`): a community pack says so here,
-// where a clinician decides from the EHR.
+// The pack in use.
 const currentPack = () => state.packs.find((p) => p.id === state.packId);
 const packName = () => currentPack()?.name ?? state.packId;
 
@@ -143,8 +141,7 @@ function decided(decision) {
   const record = !state.launchOnly && may("read")
     ? `<a class="action-link" href="#audit/${encodeURIComponent(decision.id)}">Open the decision ${icon("arrow-right")}</a>`
     : "";
-  const origin = isCommunity(currentPack()) ? ` ${originBadge(currentPack())}` : "";
-  return `<div class="decided-line">${outcomeBadge(decision.outcome)} → <b>${esc(decision.recommendation ?? "no recommendation")}</b>${origin}${record}</div>
+  return `<div class="decided-line">${outcomeBadge(decision.outcome)} → <b>${esc(decision.recommendation ?? "no recommendation")}</b>${record}</div>
     ${reasons.length ? `<ul class="reasons decided-reasons">${reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
     ${state.launchOnly ? `<p class="muted decided-id">Recorded in your organization's audit trail as <span class="mono">${esc(decision.id)}</span>.</p>` : ""}`;
 }

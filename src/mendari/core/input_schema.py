@@ -18,9 +18,9 @@ The whole document is searched, not only keyword positions: a `$ref` can make an
 a schema; each object once, by identity. The validator (`validator`) also has a registry that
 retrieves nothing, so a reference can never leave the document even if a check were missed.
 
-The schema patterns of a pack on the community engine (a pack the deployment does not own: a
-community pack, or one from a registry that is not a bundled agent of this release,
-`Pack.bounded`) run on RE2, like its rules (`core/patterns.py`): its validator's `pattern`,
+The schema patterns of an agent on the bounded engine (an agent the deployment does not own: one
+from a registry or a store that is not a bundled agent of this release, `Pack.bounded`) run on
+RE2, like its rules (`core/patterns.py`): its validator's `pattern`,
 `patternProperties` and `additionalProperties` (and so `propertyNames`, which checks keys with
 the same keywords) search with RE2, and every other pack's validator is jsonschema's own,
 unchanged. Its validator also checks the decision's time budget each time it applies a schema
@@ -28,7 +28,7 @@ unchanged. Its validator also checks the decision's time budget each time it app
 a subschema on many items) stops at the budget; it is built without the root's `$schema` (which
 may only name 2020-12), so jsonschema never swaps it for its own. And such a pack's schema uses
 only keywords whose work stays within the budget, `$ref` only to its own `$defs`
-(`community_problems`): jsonschema works some others out on its own, outside any check
+(`bounded_problems`): jsonschema works some others out on its own, outside any check
 (`unevaluatedProperties`, `unevaluatedItems`, `contains`), or compares every pair of items at
 once (`uniqueItems`).
 
@@ -319,8 +319,8 @@ def _chain_start(nodes: list[_Node], chain: list[int], looped: list[bool]) -> st
     return nodes[v].where
 
 
-# A community pack's input schema uses only keywords whose work Mendari bounds
-# (`community_problems`): each applies to a value through `descend`, so the time budget is
+# A bounded agent's input schema uses only keywords whose work Mendari bounds
+# (`bounded_problems`): each applies to a value through `descend`, so the time budget is
 # checked at every schema applied (`_applicable`), or does a bounded amount of work at once.
 # Their values: a schema, a map of names to schemas, a list of schemas, or data.
 _SCHEMA = frozenset({"additionalProperties", "items", "propertyNames", "not", "if", "then", "else"})
@@ -365,7 +365,7 @@ _DEFS_REF = "#/$defs/"
 # A `$defs` name a `$ref` can name exactly: a JSON pointer splits on `/`, escapes with `~` and
 # is read as a URL (`%2F` is `/`), so any of those would let `#/$defs/<name>` lead elsewhere.
 _DEF_NAME = re.compile(r"[A-Za-z0-9_.-]+")
-# What to write instead of a keyword a community pack's schema may not use.
+# What to write instead of a keyword a bounded agent's schema may not use.
 _INSTEAD = {
     "unevaluatedProperties": "use additionalProperties",
     "unevaluatedItems": "use items",
@@ -400,9 +400,9 @@ _UNBOUNDED = frozenset(
 )
 
 
-def community_problems(schema: Any) -> list[str]:
-    """Why the input schema of a pack on the community engine (`Pack.bounded`: a community pack,
-    or one from a registry) cannot run as such a pack's must; [] if it can.
+def bounded_problems(schema: Any) -> list[str]:
+    """Why the input schema of an agent on the bounded engine (`Pack.bounded`: one from a
+    registry or a store) cannot run as such an agent's must; [] if it can.
     It uses only the keywords above (and `x-...` annotations): jsonschema's others either walk
     the schema on their own, outside the time budget (`unevaluatedProperties`,
     `unevaluatedItems`, `contains`), compare every pair of items at once (`uniqueItems`), or
@@ -441,7 +441,7 @@ def community_problems(schema: Any) -> list[str]:
 
 
 def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | None:
-    """Why the schema of a pack on the community engine may not hold `key: value` at `path`, or
+    """Why the schema of an agent on the bounded engine may not hold `key: value` at `path`, or
     None."""
     if key.startswith("x-"):
         return None  # an annotation of the pack's own
@@ -452,7 +452,7 @@ def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | N
             if key in _UNBOUNDED
             else "not one of the keywords the guide lists"
         )
-        return f"a community or registry agent's schema may not use {key}, {why}: {instead}"
+        return f"a registry or store agent's schema may not use {key}, {why}: {instead}"
     if key == "$defs" and path:
         return "only the root may hold $defs"
     if key == "$ref" and not (
@@ -479,24 +479,22 @@ def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | N
     return None
 
 
-def validator(
-    schema: dict[str, Any], *, formats: bool = True, community: bool = False
-) -> Validator:
+def validator(schema: dict[str, Any], *, formats: bool = True, bounded: bool = False) -> Validator:
     """A Draft 2020-12 validator for a pack's input schema (one `problems` passed) whose
-    registry retrieves nothing; `formats` checks `format` too. With `community` (a pack on the
-    community engine, `Pack.bounded`), it runs its patterns on RE2 (module docstring)."""
-    cls = _Re2Validator if community else Draft202012Validator
+    registry retrieves nothing; `formats` checks `format` too. With `bounded` (an agent on the
+    bounded engine, `Pack.bounded`), it runs its patterns on RE2 (module docstring)."""
+    cls = _Re2Validator if bounded else Draft202012Validator
     checker = cls.FORMAT_CHECKER if formats else None
-    if community and isinstance(schema, dict):  # never swapped for jsonschema's own (above)
+    if bounded and isinstance(schema, dict):  # never swapped for jsonschema's own (above)
         schema = {key: value for key, value in schema.items() if key != "$schema"}
     return cls(schema, registry=Registry(), format_checker=checker)
 
 
-# -- a community pack's keywords: jsonschema's own, searching with RE2 ---------------------------
+# -- a bounded agent's keywords: jsonschema's own, searching with RE2 ----------------------------
 
 
 def _search(pattern: str, text: str) -> bool:
-    return patterns.search(pattern, text, community=True)
+    return patterns.search(pattern, text, bounded=True)
 
 
 def _pattern(

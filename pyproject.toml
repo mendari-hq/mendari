@@ -26,7 +26,7 @@ dependencies = [
     "vercel-oidc>=0.9",
     "tzdata>=2026.4", # IANA zones where the OS has none (slim images, serverless)
     "pyjwt[crypto]>=2.10.1,<3",
-    "google-re2>=1.1.20251105", # community agents' patterns: RE2 never backtracks (core/patterns.py)
+    "google-re2>=1.1.20251105", # the bounded engine's patterns: RE2 never backtracks (core/patterns.py)
 ]
 
 [project.scripts]

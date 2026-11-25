@@ -657,7 +657,7 @@ def test_a_page_is_read_as_a_person_reads_it() -> None:
   <img src="pack.png" alt="A pack's card">
   <input name="pack" placeholder="Search packs" aria-label="Find a pack">
   <input type="submit" value="Add a pack"><input type="hidden" value="a pack">
-  <select><optgroup label="Community packs"><option value="pack">Inbox</option></optgroup></select>
+  <select><optgroup label="Local packs"><option value="pack">Inbox</option></optgroup></select>
 </body>
 </html>"""
     assert list(page_texts(page)) == [
@@ -672,7 +672,7 @@ def test_a_page_is_read_as_a_person_reads_it() -> None:
         (16, "Find a pack"),
         (16, "Search packs"),
         (17, "Add a pack"),
-        (18, "Community packs"),
+        (18, "Local packs"),
         (18, "Inbox"),
     ]
     # A wire name written as code passes; the word in the sentence does not.

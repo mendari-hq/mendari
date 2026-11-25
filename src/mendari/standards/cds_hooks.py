@@ -72,7 +72,6 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 from mendari import notices
 from mendari.core import clock
 from mendari.core.decision import REJECTED, Decision, DecisionResult
-from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.policy import threshold_reason
 from mendari.core.spec import REFUSED, SUMMARY_CHARS, CdsCard, Outcome, Priority, RuleCard
@@ -202,17 +201,11 @@ def discovery(packs: Iterable[Pack]) -> dict[str, Any]:
             f"Risk level {int(pack.manifest.risk.level)} ({pack.manifest.risk.category}). "
             f"Validate locally first: `mendari eval {pack.id} --dataset <local data>`."
         )
-        description = hooks.description
-        if pack.community:  # the EHR's integrator reads this before turning the service on
-            description = f"{description} ({COMMUNITY_LABEL})"
-            usage = (
-                f"{COMMUNITY_LABEL}: it recommends, and a person confirms every decision. {usage}"
-            )
         service: dict[str, Any] = {
             "hook": hooks.hook,
             "id": service_id(pack),
             "title": hooks.title,
-            "description": description,
+            "description": hooks.description,
             "prefetch": hooks.prefetch,
             "usageRequirements": usage,
         }
@@ -597,10 +590,8 @@ def fill_template(template: str, context: Mapping[str, Any]) -> str:
 
 
 def source_label(pack: Pack) -> str:
-    """Who a card comes from, as the clinician sees it under the card: a community pack says it
-    is not clinically reviewed."""
-    label = f"Mendari · {pack.manifest.name} {pack.version}"
-    return f"{label} · {COMMUNITY_LABEL}" if pack.community else label
+    """Who a card comes from, as the clinician sees it under the card."""
+    return f"Mendari · {pack.manifest.name} {pack.version}"
 
 
 def card_key(template: CdsCard | None, result: DecisionResult) -> str:

@@ -57,8 +57,8 @@ nav:
   - Home: index.md
   - Guides:
       # A developer's path: write the agent, find its failures, check its confidence, set its
-      # threshold, gate what it does, check it on every change, publish its evaluations,
-      # contribute it. Then a hospital's: install, adopt, connect, evaluate, decide, deploy.
+      # threshold, gate what it does, check it on every change, publish its evaluations. Then
+      # a hospital's: install, adopt, connect, evaluate, decide, deploy.
       - Authoring an agent: guides/authoring-an-agent.md
       - Finding failures: guides/finding-failures.md
       - Calibration and a second signal: guides/calibration-and-a-second-signal.md
@@ -67,7 +67,6 @@ nav:
       - Evaluating written output: guides/written-output.md
       - Evaluating an agent on every change: guides/evaluate-in-ci.md
       - Publishing an agent's evaluations: guides/publishing-evaluations.md
-      - Contributing an agent: guides/contributing-an-agent.md
       - Using the API: guides/api.md
       - Install Mendari at your site: guides/install-at-your-site.md
       - Adopting an agent from the console: guides/adopting-an-agent.md

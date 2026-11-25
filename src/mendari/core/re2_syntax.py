@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-r"""The patterns of a pack on the community engine, written in Python's `re` syntax, rewritten
+r"""The patterns of an agent on the bounded engine, written in Python's `re` syntax, rewritten
 for RE2.
 
 A pack author writes `re` patterns (the spec, the guide and every maintained pack use them).
-The patterns of a pack the deployment does not own (a community pack, or one from a registry
-that is not a bundled agent of this release: `Pack.bounded`) run on RE2 (`core/patterns.py`),
+The patterns of an agent the deployment does not own (one from a registry or a store that is
+not a bundled agent of this release: `Pack.bounded`) run on RE2 (`core/patterns.py`),
 which never backtracks.
 `translate` parses a pattern the way `re` does (`re._parser`, the same parse `re.compile`
 makes) and writes out an RE2 pattern that matches the same text, spelling out what `re` means
@@ -21,8 +21,7 @@ where RE2 would read the same characters differently:
   wherever the character just outside the match is in ASCII. A letter or digit outside ASCII
   just outside the match does not continue the word: `\bpie` also matches in "épie", `\bma\b`
   inside "mañana", and next to letters outside ASCII the pattern names, `\bрак\b` inside
-  "практика" (`re` matches none of them). `boundary_problem` says when a pattern has such a
-  boundary; `community-check` warns on it. A boundary next to something that may match nothing
+  "практика" (`re` matches none of them). A boundary next to something that may match nothing
   (`\b\w*`) is RE2's ASCII one.
 - `$` is `re`'s: the end of the text, or before a newline that ends it; `\Z` is the end only;
   `a{,3}` is `a{0,3}` (RE2 reads it as text).
@@ -36,7 +35,7 @@ What RE2 cannot run is refused with what to write instead (`Unsupported`): looka
 lookbehind, back references, conditional groups, atomic groups and possessive quantifiers.
 
 `size` is how much of RE2's work a pattern can make on each character of a text
-(`core/caps.py` caps a community pack's total).
+(`core/caps.py` caps a bounded agent's total).
 """  # noqa: RUF002 (the letters the differences are about)
 
 from __future__ import annotations
@@ -96,42 +95,11 @@ def _size(items: Sequence[Item]) -> int:
     return total  # what RE2 cannot run counts nothing: such a pattern is refused anyway
 
 
-def boundary_problem(pattern: str, flags: int = 0) -> bool:
-    """Whether `pattern` has a `\\b` or `\\B` next to something that may match a letter or digit
-    outside ASCII (module docstring): RE2 then decides it as if a letter or digit outside ASCII
-    just outside the match did not continue the word, so `\\bрак\\b` matches inside "практика".
-    Raises `re.error` for a pattern `re` refuses."""  # noqa: RUF002
-    tree = _parsed(pattern, flags)
-    return _boundary_near_wide(list(tree), tree.state.flags)
-
-
 def _parsed(pattern: str, flags: int) -> Any:
     """`re`'s parse of `pattern`, its warnings (a FutureWarning on `[[`) left to `re.compile`."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return _parser.parse(pattern, flags)
-
-
-def _boundary_near_wide(items: Sequence[Item], flags: int) -> bool:
-    for index, (op, av) in enumerate(items):
-        name = str(op)
-        if _boundary(op, av) and not flags & _c.SRE_FLAG_ASCII:
-            before = items[index - 1] if index else None
-            after = items[index + 1] if index + 1 < len(items) else None
-            if (before is not None and _movable(before) and _wide(before, "end", flags)) or (
-                after is not None and _movable(after) and _wide(after, "start", flags)
-            ):
-                return True
-        elif name == "SUBPATTERN":
-            _, added, removed, inner = av
-            if _boundary_near_wide(list(inner), (flags | added) & ~removed):
-                return True
-        elif name == "BRANCH":
-            if any(_boundary_near_wide(list(a), flags) for a in av[1]):
-                return True
-        elif name in _REPEATS and _boundary_near_wide(list(av[2]), flags):
-            return True
-    return False
 
 
 # -- character sets ------------------------------------------------------------------------------
@@ -310,7 +278,7 @@ _NOT_AFTER = (
     'for "not after a word" (no pain), mark the rule negatable: true and list the word in '
     "negation_cues; otherwise write a second rule for what must not come before"
 )
-_GUIDE = 'see "Patterns run on RE2" in docs/guides/contributing-an-agent.md'
+_GUIDE = 'see "Patterns run on RE2" in docs/guides/authoring-an-agent.md'
 _SINGLE = ("LITERAL", "NOT_LITERAL", "ANY", "IN")
 _REPEATS = ("MAX_REPEAT", "MIN_REPEAT")
 
@@ -366,8 +334,8 @@ class _Writer:
             if name == "ASSERT_NOT" and av[0] < 0:  # a negative lookbehind
                 instead = _NOT_AFTER
             raise Unsupported(
-                f"uses {_REFUSED[name]}, which RE2 (the engine community agents and agents from a "
-                f"registry run on) does not have: {instead} ({_GUIDE})"
+                f"uses {_REFUSED[name]}, which RE2 (the engine agents from a registry or a store "
+                f"run on) does not have: {instead} ({_GUIDE})"
             )
         if name in _SINGLE:
             return self._single(item, flags, lead, trail)

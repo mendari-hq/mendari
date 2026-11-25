@@ -132,9 +132,6 @@ function openAgent(id, view) {
 // Whether a served agent acts on its own now, and what stands in the way: each of the engine's own
 // conditions (core/decision.py, core/policy.py), read from what the page already asks.
 function standing(agent, ctx) {
-  if (agent.origin === "community") {
-    return { label: "Recommends only", tone: "", why: ["A community agent recommends, and a person confirms every decision."] };
-  }
   const why = [];
   const level = agent.risk?.level ?? 0;
   if (level >= 4) why.push("At risk level 4 a person reviews every decision.");

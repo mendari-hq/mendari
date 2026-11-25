@@ -21,14 +21,13 @@
 - **Spec and agent loading** (`core/spec.py`, `core/pack.py`): pydantic models, cross-reference
   validation, file confinement, content digest.
 - **Registry** (`core/registry.py`): resolves `namespace/name[@version]` from
-  `MENDARI_AGENTS_PATH`, the registry cache, the bundled agents and, with
-  `MENDARI_COMMUNITY_AGENTS=on`, `community-agents/`. Each agent carries the origin of where it
-  was found (`core/origin.py`: maintained, community, hub or local); an id is one agent, and a
-  second claim is reported, never served. The origin, never the manifest's `publisher.type`
-  (self-declared), sets the label every surface shows: "Maintained by Mendari" or "Community ·
-  not clinically reviewed" ([ADR-0007](decisions/ADR-0007-community-agents-by-pull-request.md)).
+  `MENDARI_AGENTS_PATH`, the registry cache and the bundled agents. Each agent carries the
+  origin of where it was found (`core/origin.py`: maintained, hub or local, and store for a
+  version an organization's agent store serves). The origin, never the manifest's
+  `publisher.type` (self-declared), sets the label every surface shows, such as "Maintained by
+  Mendari" or "From a registry".
   The origin and the digest choose the engine an agent's patterns run on (`Pack.bounded`): an agent
-  the deployment does not own (a community agent, or a pulled one that is not a copy of an agent
+  the deployment does not own (a pulled one, or a store's, that is not a copy of an agent
   bundled with the installed release, `core/reference.py`) runs on RE2 with caps, input limits and a CPU
   budget per decision; the others on `re`, their input schemas bounded in shape at load
   (`core/input_schema.py`, over `core/schema_graph.py`)
@@ -38,9 +37,9 @@
 - **Runtime** (`core/decision.py`): binds an agent to concrete provider variants. It validates
   input, collects answers, applies policy and optionally records the result.
 - **Policy** (`core/policy.py`): a pure function from answers and failures to an outcome. It
-  holds all automation limits, including risk-level caps, governance overrides, the
-  cap on community agents (one never automates) and the site code cap (a decision read
-  through a site's translation of its own code never automates, `core/site_codes.py`).
+  holds all automation limits, including risk-level caps, governance overrides and the site code
+  cap (a decision read through a site's translation of its own code never automates,
+  `core/site_codes.py`).
 - **Providers** (`providers/`): a common `answer(inputs) -> ProviderOutput` contract.
   Within one decision, remote providers that share an endpoint and model are merged into a
   single call (`providers/batch.py`): two slots answered by the same Jev model, for example,
@@ -118,7 +117,7 @@
   forbids following it, and the response schema is fixed by the agent. Their responses are validated strictly and bounded in size. A batched
   call sends the union of its variants' `state_fields`; a variant that must not share its
   state sets `batch: false`. An owned agent's variant without `state_fields` sends the whole
-  input; an agent the deployment does not own (community, registry) must name them, and runs on
+  input; an agent the deployment does not own (a registry's, a store's) must name them, and runs on
   the deployment's model with its `max_tokens`, `timeout_ms` and `reasoning_effort` capped.
   Every variant's config is checked at load against its provider's closed config
   (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): such

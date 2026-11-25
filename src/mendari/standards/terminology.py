@@ -14,10 +14,7 @@ what Mendari emits. The server serves them and CI loads them into the HL7 valida
 | `…/packs/{pack}/CodeSystem/{question}` | labels, defined by their criteria | Da Vinci DTR |
 
 The decision-pack system is a `fragment`: decisions made by packs no longer served keep their
-codes. Packs that share a performer system share one CodeSystem, with the union of their codes;
-a community pack never shares one with another pack (its systems live under its own url,
-`core/origin.py`). A community pack's systems are published by its publisher, experimental, and
-say "Community · not clinically reviewed".
+codes. Packs that share a performer system share one CodeSystem, with the union of their codes.
 The NamingSystems are for decision ids, input hashes, and pack versions acting as the engine.
 
 **Versions.** One `url|version` must never name two contents, in any deployment. The fixed
@@ -35,7 +32,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from mendari import __version__
-from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError
@@ -161,9 +157,7 @@ class Terminology:
         such a pack's terminology and reports it, rather than not starting."""
         kept: list[Pack] = []
         problems: dict[str, str] = {}
-        # Every other pack before any community pack, so a community pack's terminology never
-        # costs another pack its own.
-        for pack in sorted(packs, key=lambda p: (p.community, p.id)):
+        for pack in sorted(packs, key=lambda p: p.id):
             try:
                 resources([*kept, pack])
             except MendariError as error:
@@ -403,13 +397,6 @@ def _performers(served: list[Pack]) -> Iterator[dict[str, Any]]:
             adapter = FhirAdapter.for_pack(pack)
             systems.setdefault(adapter.mapping.task.performer_system, []).append(adapter)
     for url, adapters in sorted(systems.items()):
-        if len({adapter.pack.community for adapter in adapters}) > 1:
-            shared = ", ".join(adapter.pack.id for adapter in adapters)
-            raise MendariError(
-                f"the performer system {url} is used by a community agent and another agent "
-                f"({shared}); a community agent's systems are its own"
-            )
-        community = adapters[0].pack.community
         concepts: dict[str, dict[str, str]] = {}
         for adapter in adapters:
             for code, values in adapter.performer_codes().items():
@@ -419,14 +406,11 @@ def _performers(served: list[Pack]) -> Iterator[dict[str, Any]]:
         yield _code_system(
             url,
             resource_id(url.removeprefix(_OWN) if url.startswith(_OWN) else url.split("//")[-1]),
-            f"{adapters[0].pack.manifest.name} performer: {shown}"
-            if community
-            else f"Mendari performer: {shown}",
+            f"Mendari performer: {shown}",
             f"Who handles a decision, as Task.performerType: the codes {refs} can route to "
             "(fhir/mapping.yaml, `task.performer`).",
             _served_version([adapter.pack for adapter in adapters]),
             list(concepts.values()),
-            **(_community(adapters[0].pack) if community else {}),
         )
 
 
@@ -461,14 +445,7 @@ def _questions(pack: Pack) -> Iterator[dict[str, Any]]:
                 _concept(label, question.criteria[label], question.criteria[label])
                 for label in question.labels
             ],
-            **(_community(pack) if pack.community else {}),
         )
-
-
-def _community(pack: Pack) -> dict[str, Any]:
-    """How a community pack's systems are published: by its publisher (self-declared), as
-    experimental, labelled as not clinically reviewed."""
-    return {"publisher": pack.manifest.publisher.name, "experimental": True, "community": True}
 
 
 def _code_system(
@@ -481,17 +458,9 @@ def _code_system(
     *,
     content: str = "complete",
     experimental: bool = False,
-    publisher: str = PUBLISHER,
-    community: bool = False,
 ) -> dict[str, Any]:
     rows = [(concept["code"], concept["display"]) for concept in concepts]
     name = _name(title)
-    if community:
-        title = f"{title} ({COMMUNITY_LABEL})"
-        description = (
-            f"{description} {COMMUNITY_LABEL}: an outside developer contributed this agent, and "
-            "Mendari has not clinically reviewed it."
-        )
     resource: dict[str, Any] = {
         "resourceType": "CodeSystem",
         "id": id_,
@@ -502,7 +471,7 @@ def _code_system(
         "title": title,
         "status": "active",
         "experimental": experimental,
-        "publisher": publisher,
+        "publisher": PUBLISHER,
         "description": " ".join(description.split()),
         "caseSensitive": True,
         "content": content,

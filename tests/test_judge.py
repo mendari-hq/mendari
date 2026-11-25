@@ -359,12 +359,11 @@ def test_a_fixture_that_is_not_one_is_a_problem_naming_the_rubric(
     assert [problem.text for problem in validation_problems(loaded)] == found
     with pytest.raises(PackValidationError):
         Judge(loaded, "reply_quality")
-    # A community agent with the same fixture is refused at load.
-    manifest = yaml.safe_load((folder / "agent.yaml").read_text())
-    manifest["id"] = "community/written-mini"
-    (folder / "agent.yaml").write_text(yaml.safe_dump(manifest))
-    with pytest.raises(PackValidationError):
-        load_pack(folder, origin="community")
+    # An agent the deployment does not own (one from a registry) with the same fixture is
+    # refused at load.
+    with pytest.raises(PackValidationError) as refused:
+        load_pack(folder, origin="hub")
+    assert found[0] in refused.value.problems
 
 
 def test_a_missing_fixture_is_a_missing_file(tmp_path: Path) -> None:
@@ -419,22 +418,19 @@ def test_a_rubric_without_a_fixture_needs_a_model(
         Judge(loaded, "tone")
 
 
-def test_a_community_agents_judge_stays_canned_unless_forced(
+def test_a_registry_agents_judge_asks_the_deployments_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     folder = tmp_path / "written-mini"
     shutil.copytree(MINI, folder)
     manifest = yaml.safe_load((folder / "agent.yaml").read_text())
-    manifest["id"] = "community/written-mini"
     manifest["rubrics"]["reply_quality"]["judge"] |= {"model": "openai/gpt-5.1", "max_tokens": 9000}
     (folder / "agent.yaml").write_text(yaml.safe_dump(manifest))
-    community = load_pack(folder, origin="community")
-    assert community.bounded and community.community
+    pulled = load_pack(folder, origin="hub")
+    assert pulled.bounded
     seen: list[dict[str, Any]] = []
-    judge = live(monkeypatch, community, answering(PASSING, seen))
-    assert judge.canned and judge.grade(REPLY, CONTEXT).errors == {} and seen == []
-    forced = live(monkeypatch, community, answering(PASSING, seen), mode="live")
-    assert not forced.canned
-    forced.grade(REPLY, CONTEXT)
+    judge = live(monkeypatch, pulled, answering(PASSING, seen))
+    assert not judge.canned
+    judge.grade(REPLY, CONTEXT)
     # The deployment's model and caps, never the manifest's (`core/origin.py` `deployment_config`).
     assert seen[0]["model"] == MODEL and seen[0]["max_tokens"] == 4096

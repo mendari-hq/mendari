@@ -24,7 +24,7 @@ from mendari.core.spec import licensed_systems
 from tests.conftest import FIXTURE_AGENTS
 
 ROOT = Path(__file__).resolve().parents[1]
-TREES = ("agents", "community-agents", "tests/fixtures")
+TREES = ("agents", "tests/fixtures")
 # What the wheel, the sdist and the images are built from: the wheel from src/ and agents/; the
 # sdist adds README.md, LICENSE, NOTICE and pyproject.toml; the images copy the same trees and
 # carry /licenses (#180): LICENSE, NOTICE and what the build writes from licenses/image (its

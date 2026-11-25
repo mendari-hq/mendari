@@ -4,7 +4,7 @@
 
 import { closeDrawer, showDrawer, updateDrawer } from "./drawer.js";
 import { feedbackControls, myRating } from "./feedback.js";
-import { actionName, actionReason, actionsList, answerChart, communityNotice, dispositionBadge, effectBadge, inputView, labelName, statusNotice } from "./pack.js";
+import { actionName, actionReason, actionsList, answerChart, dispositionBadge, effectBadge, inputView, labelName, statusNotice } from "./pack.js";
 import { route, views, wire } from "./router.js";
 import { drawerSkeleton } from "./skeleton.js";
 import { tableHtml } from "./table.js";
@@ -46,7 +46,6 @@ views.audit = async (main, params) => {
   main.innerHTML = `
     <h1>Audit trail</h1>
     <p class="muted">Every decision and what happened next, in a tamper-evident chain.</p>
-    ${communityNotice(state.detail)}
     ${statusNotice(state.detail)}
     <div class="row toolbar">
       <label for="outcome-filter">Outcome</label>

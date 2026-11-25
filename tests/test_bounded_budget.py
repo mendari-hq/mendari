@@ -62,7 +62,7 @@ def timed(pack: Any, inputs: dict[str, Any]) -> tuple[Any, float]:
     return result, time.monotonic() - started
 
 
-def test_a_community_packs_rules_stop_at_the_budget_and_a_person_decides(tmp_path: Path) -> None:
+def test_a_bounded_packs_rules_stop_at_the_budget_and_a_person_decides(tmp_path: Path) -> None:
     """The rules fail as any provider that cannot answer does: the decision abstains, with no
     recommendation, and a person decides."""
     pack = pulled(sorter(tmp_path, rules=slow_rules(), schema=long_message))
@@ -91,7 +91,7 @@ def stopped_for_a_person(result: Any) -> bool:
     )
 
 
-def test_a_community_packs_schema_patterns_stop_at_the_budget(tmp_path: Path) -> None:
+def test_a_bounded_packs_schema_patterns_stop_at_the_budget(tmp_path: Path) -> None:
     """The input fails the first patterns (no `0` in it): those errors refuse it, and the rest
     are not searched once the budget is spent."""
 
@@ -151,7 +151,7 @@ def test_an_enum_is_short_and_stops_at_the_budget_on_many_items(tmp_path: Path) 
         ("definitions", {}),
     ],
 )
-def test_a_community_packs_schema_uses_only_the_keywords_mendari_bounds(
+def test_a_bounded_packs_schema_uses_only_the_keywords_mendari_bounds(
     tmp_path: Path, keyword: str, value: Any
 ) -> None:
     """`contains` applied its subschema to every item outside the budget (48 s), `uniqueItems`
@@ -164,7 +164,7 @@ def test_a_community_packs_schema_uses_only_the_keywords_mendari_bounds(
     with pytest.raises(PackValidationError) as error:
         pulled(sorter(tmp_path, schema=used))
     assert any(
-        f"properties/codes/{keyword}: a community or registry agent's schema may not use {keyword}"
+        f"properties/codes/{keyword}: a registry or store agent's schema may not use {keyword}"
         in problem
         for problem in error.value.problems
     )
@@ -174,7 +174,7 @@ def test_a_community_packs_schema_uses_only_the_keywords_mendari_bounds(
     "reference",
     ["#", "#/$defs/h/default", "#/properties/message", "#/$defs/missing"],
 )
-def test_a_community_packs_ref_names_one_of_its_defs(tmp_path: Path, reference: str) -> None:
+def test_a_bounded_packs_ref_names_one_of_its_defs(tmp_path: Path, reference: str) -> None:
     """A `$ref` into data (`default`, `const`) made it a schema, out of this check's sight, and
     one to the root brought back jsonschema's own validator."""
 
@@ -239,7 +239,7 @@ def test_the_budget_belongs_to_one_decision(tmp_path: Path) -> None:
     patterns.check_time()  # no budget, no limit
 
 
-def test_a_pack_that_is_not_a_community_pack_has_no_budget(tmp_path: Path) -> None:
+def test_a_pack_that_is_not_bounded_has_no_budget(tmp_path: Path) -> None:
     """The same agent as the operator's own: its patterns run on `re`, as before, with no budget
     (a short text: `re` would take long on the slow one)."""
     root = sorter(tmp_path, rules=slow_rules(), schema=long_message, pack_id="someone/sorter")
@@ -288,7 +288,7 @@ def test_a_property_named_like_a_keyword_is_allowed(tmp_path: Path) -> None:
     assert pulled(sorter(tmp_path, schema=named)).bounded
 
 
-def test_a_community_packs_input_holds_a_bounded_number_of_values(tmp_path: Path) -> None:
+def test_a_bounded_packs_input_holds_a_bounded_number_of_values(tmp_path: Path) -> None:
     """Its schema applies to every value: a subschema with no keyword on 2 million items took
     15.7 s before (the budget never checked)."""
 
@@ -304,7 +304,7 @@ def test_a_community_packs_input_holds_a_bounded_number_of_values(tmp_path: Path
     assert timed(pack, {"message": "my bill", "xs": [1] * 9_000})[0].outcome is not Outcome.BLOCK
 
 
-def test_a_community_packs_input_is_nested_at_most_32_deep(tmp_path: Path) -> None:
+def test_a_bounded_packs_input_is_nested_at_most_32_deep(tmp_path: Path) -> None:
     """Before, 200 levels crashed the check (RecursionError, a 500)."""
 
     def nested(schema: dict[str, Any]) -> None:
@@ -323,13 +323,13 @@ def test_a_community_packs_input_is_nested_at_most_32_deep(tmp_path: Path) -> No
     )
 
 
-def test_the_community_validator_keeps_its_class_on_the_root(tmp_path: Path) -> None:
+def test_the_bounded_validator_keeps_its_class_on_the_root(tmp_path: Path) -> None:
     """jsonschema picks a validator by the schema's `$schema`: evolving to the root (a `$ref`
     to it, now refused at load) brought back its own one, with patterns on `re`."""
     from mendari.core import input_schema
 
     schema = copy.deepcopy(SORTER_SCHEMA)
-    validator = input_schema.validator(schema, community=True)
+    validator = input_schema.validator(schema, bounded=True)
     assert isinstance(validator.schema, dict) and "$schema" not in validator.schema
     assert type(validator.evolve(schema=validator.schema)) is type(validator)
 
@@ -405,7 +405,7 @@ def test_a_defs_name_is_one_a_ref_names_exactly(tmp_path: Path, name: str) -> No
     )
 
 
-def test_the_error_limit_and_short_reasons_are_a_community_packs_only(tmp_path: Path) -> None:
+def test_the_error_limit_and_short_reasons_are_a_bounded_packs_only(tmp_path: Path) -> None:
     """Every agent the deployment owns lists what it always listed."""
 
     def many(schema: dict[str, Any]) -> None:
@@ -440,7 +440,7 @@ def test_a_schemas_texts_are_short(tmp_path: Path, keyword: str, value: Any) -> 
     assert any("longer than 200 characters" in p for p in error.value.problems)
 
 
-def test_validate_called_alone_holds_a_community_packs_text_to_its_length(
+def test_validate_called_alone_holds_a_bounded_packs_text_to_its_length(
     tmp_path: Path,
 ) -> None:
     """`mendari data check` validates a dataset's inputs without deciding them: the length cap
@@ -469,7 +469,7 @@ def test_enum_and_const_errors_do_not_copy_the_schema_or_the_input() -> None:
 
     listed = [f"{i:03d}" + "y" * 197 for i in range(500)]
     schema = {"type": "object", "properties": {"a": {"enum": listed}, "b": {"const": 1}}}
-    validator = input_schema.validator(schema, community=True)
+    validator = input_schema.validator(schema, bounded=True)
     errors = list(validator.iter_errors({"a": "z" * 9_000, "b": True}))
     assert sorted(e.message for e in errors) == [
         "is not one of the values the schema allows",

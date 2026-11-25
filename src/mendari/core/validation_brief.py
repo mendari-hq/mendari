@@ -173,8 +173,8 @@ def _governance_gate(
     )
     if hard_holds:
         return _gate("governance", label, WARN, f"{len(hard_holds)} automation hold(s) active.")
-    if pack.community or risk_level >= 4:
-        detail = "Human-in-the-loop permanently enforced by agent origin or risk level."
+    if risk_level >= 4:
+        detail = "Human-in-the-loop permanently enforced by risk level."
         return _gate("governance", label, PASS, detail)
     if needs_risk_approval or needs_reg_approval:
         pending_items = []

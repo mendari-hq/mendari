@@ -143,13 +143,6 @@ def test_the_workflow_is_no_part_of_the_agent(tmp_path: Path) -> None:
     assert main(["validate", str(agent)]) == 0
 
 
-def test_a_community_agent_gets_no_workflow(tmp_path: Path) -> None:
-    """It lives in Mendari's repository, whose own workflow checks it."""
-    agent = tmp_path / "community-agents" / "sorter"
-    assert main(["new", str(agent), "--community"]) == 0
-    assert not (agent / ".github").exists()
-
-
 def test_the_template_is_in_no_folder_a_release_refuses() -> None:
     """A wheel, an sdist and an image hold no `.github/` at any depth
     (scripts/check_excluded.py): the template is kept outside one, and written into one."""

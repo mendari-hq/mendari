@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """One validation function for an agent (LP-20b).
 
-`mendari validate`, the community check, the registry's publish and the pack store all call
+`mendari validate`, the registry's publish and the agent store all call
 `validate` or `problems` here, so a pack one of them takes the others take too. It is what
 `load_pack` does not check: the CDS Hooks templates and provider configs held to the rules a
 pack the deployment does not own is refused for (an owned pack loads with them as warnings),
@@ -143,9 +143,9 @@ def input_problems(pack: Pack) -> list[Problem]:
     number and name, the place in the input and the schema's rule, never the input's value."""
     from mendari.evals.pack_tests import every_case
 
-    bounded = pack.bounded  # on the community engine, as in a decision
-    reader = bounded_reader(pack.id, pack.origin)
-    validator = input_schema.validator(pack.input_schema, formats=False, community=bounded)
+    bounded = pack.bounded  # on the bounded engine, as in a decision
+    reader = bounded_reader(pack.origin)
+    validator = input_schema.validator(pack.input_schema, formats=False, bounded=bounded)
     found: list[Problem] = []
     for tests, number, case in every_case(pack):
         if (case.get("expect") or {}).get("outcome") == "BLOCK":

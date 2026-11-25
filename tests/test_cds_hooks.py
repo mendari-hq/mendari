@@ -13,7 +13,6 @@ from typing import Any
 import pytest
 
 from mendari import Decision, load_pack
-from mendari.core.origin import Origin
 from mendari.core.spec import PREFETCH, prefetch_problems
 from mendari.errors import PackValidationError
 from mendari.evals.pack_tests import validate_pack
@@ -83,8 +82,7 @@ def test_every_shipped_prefetch_template_is_a_relative_read_or_search() -> None:
     roots = [DEMO_AGENT_DIR, *fixture_agents()]
     assert CHART_DIR in roots and TRIAGE_DIR in roots
     for root in roots:
-        origin: Origin = "community" if root.parent.name == "community-agents" else "local"
-        hooks = load_pack(root, origin=origin).manifest.cds_hooks
+        hooks = load_pack(root).manifest.cds_hooks
         assert prefetch_problems(hooks) == [], root
         found += [] if hooks is None else list(hooks.prefetch.values())
     assert len(found) >= 9

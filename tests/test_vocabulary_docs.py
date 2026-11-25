@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """One vocabulary in what a reader reads (tasks/todo.md, "Plan: the engineering to A+"): the
-README, every page and file of the docs site, its navigation and theme, the community files, the
+README, every page and file of the docs site, its navigation and theme, the
 changelog and the READMEs beside the code say agent, never pack. So does what GitHub shows a
 contributor (the issue forms, the pull request templates, and each workflow, whose name, jobs
 and steps are a pull request's checks), and what an operator copies and edits: the deploy
@@ -12,7 +12,7 @@ stored FHIR resources carry, are let through there, each with its reason), held 
 every file in `files()` and on each file's own path. Beside it, `FORMER_NAMES`: the names the
 plan's table renamed that the rule cannot see (a setting's name is one word to it) or lets
 through (a file's name written as code reads like a chain event's). A folder's former name
-(`community-packs/`) needs no entry there: the rule sees the word in it.
+(`agent-packs/`) needs no entry there: the rule sees the word in it.
 
 **What is left alone** is said here and nowhere else, each entry with its reason: `NOT_READ` (a
 file, whole), `PARTS` (a file from one line to another) and `ALLOWED` (a text, in the files a
@@ -43,13 +43,12 @@ _FILES = (
     "hub/README.md",
     "docker-compose.yml",  # the sandbox, as an operator starts it
     "deploy/onprem/.env.example",  # a template whose name starts with a dot: named here
-    "community-agents/MAINTAINERS.yaml",
 )
 # Read whole: the docs site and its theme, what GitHub shows a contributor, the deploy templates.
 _FOLDERS = ("docs", "docs_theme", ".github", "deploy")
 # Each README beside the code, at any depth; `examples/` one level down only (a starter's own
 # virtual environment, made as its README says, holds other projects' READMEs).
-_READMES = ("agents", "community-agents", "sandbox", "web")
+_READMES = ("agents", "sandbox", "web")
 _TEXT = {
     *(".md", ".yml", ".yaml", ".json", ".html", ".css", ".js", ".txt", ".conf", ".example"),
     ".sh",  # the one-machine install's daily jobs, whose comments are an operator's reading
@@ -92,7 +91,6 @@ FORMER_NAMES = (
     "MENDARI_PACKS_PATH",
     "MENDARI_PACKS",
     "MENDARI_PACK_STORE",
-    "MENDARI_COMMUNITY_PACKS",
 )
 _FORMER = re.compile("|".join(rf"(?<![\w.-]){re.escape(name)}(?![\w-])" for name in FORMER_NAMES))
 
@@ -227,7 +225,6 @@ def test_the_files_are_found() -> None:
         "deploy/kubernetes/mendari.yaml",
         "deploy/onprem/.env.example",
         "examples/http-agent/README.md",
-        "community-agents/README.md",
         "sandbox/inferno/README.md",
         "web/README.md",
         ".github/CODEOWNERS",
@@ -252,10 +249,10 @@ def test_what_is_held_and_what_is_left_alone() -> None:
     assert problems("a pack and `pack_id`") == ["pack"]
     assert problems("`MENDARI_PACKS_PATH`, then `MENDARI_AGENTS_PATH`") == ["MENDARI_PACKS_PATH"]
     assert problems("MENDARI_PACKS=a/b") == ["MENDARI_PACKS"]
-    assert problems("in `community-packs/<name>/`") == ["packs"]  # a folder's name: the rule's
+    assert problems("in `agent-packs/<name>/`") == ["packs"]  # a folder's name: the rule's
     assert problems("`tests/fixtures/reference-packs`") == ["packs"]
     assert problems("the manifest, `pack.yaml`") == ["pack.yaml"]
-    assert not problems("`agent.yaml`, `community-agents/`, `/api/agents`, unpack a package")
+    assert not problems("`agent.yaml`, `agents/`, `/api/agents`, unpack a package")
     assert len(found_in("docs/x.md", "An agent.\nA pack.\nSee `--pack`.")) == 2
     assert found_in("docs/a-pack-store.md", "An agent.") == [
         "docs/a-pack-store.md: 'pack' in the file's name"

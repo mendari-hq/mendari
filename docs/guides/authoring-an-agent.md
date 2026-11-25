@@ -327,8 +327,7 @@ MENDARI_AGENT_URL=https://your-agent.example/decide mendari eval my-agent --data
   audit trail alike. A rule's `BLOCK` (final at once) goes to a person as well, the reason
   `canned answers: MENDARI_AGENT_URL is not set: a person decides instead of its rule's BLOCK`. Set `MENDARI_AGENT_URL` there and live answers decide as the policy says.
 
-An agent you publish to a registry or contribute as a community agent is one the deployment
-that runs it does not own: there it must name `state_fields`, may not set `endpoint` (the
+An agent you publish to a registry is one the deployment that runs it does not own: there it must name `state_fields`, may not set `endpoint` (the
 deployment's `MENDARI_AGENT_URL` is used), and its `timeout_seconds` is held to at most 15
 ([ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md)).
 
@@ -451,8 +450,107 @@ answer: each matching pattern adds its weight to a label's score, and `negatable
 ignored, at most 2,000 characters each and 500 in a manifest; keep them simple, since `re` has
 no time limit. Text is read in its plain form first (curly apostrophes, no-break spaces and the
 like become a keyboard's characters; [the spec, §5](../spec/agent-manifest-0.2.md#5-providers),
-lists what changes). A community agent's patterns run on RE2: see
-[Contributing an agent](contributing-an-agent.md#patterns-run-on-re2).
+lists what changes). An agent from a registry or an agent store runs its patterns on RE2:
+see [Patterns run on RE2](#patterns-run-on-re2).
+
+### Patterns run on RE2
+
+Write patterns in Python's `re` syntax, as every agent does. Where a deployment does not own your
+agent (you published it to a registry, or an organization keeps it in its agent store, and it is
+not a copy of an agent bundled with the installed release:
+[ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-agents-the-deployment-does-not-own.md)),
+its patterns (its rules and its input schema's `pattern`, `patternProperties` and
+`propertyNames`) run on [RE2](https://github.com/google/re2/wiki/Syntax), which never
+backtracks: its time grows with the text's length times the pattern's compiled size, never
+exponentially, so no pattern can stall the server the way `(a+)+$` stalls `re` on a long
+message. Nothing times your patterns before they are published; at run time they share the
+one-second budget below, which only very long counts on long text in other scripts come near.
+Mendari rewrites each pattern for RE2 to mean what it means in `re`, and a registry checks a
+publish on the same engine.
+
+**Not available on RE2:** lookahead and lookbehind (`(?=...)`, `(?!...)`, `(?<=...)`,
+`(?<!...)`), back references (`\1`, `(?P=name)`), conditional groups (`(?(1)...|...)`), atomic
+groups (`(?>...)`) and possessive quantifiers (`*+`, `++`, `?+`, `{m,n}+`). Counts nested inside
+each other may multiply to at most 1,000, and a pattern must fit in RE2's memory for one pattern
+once compiled. A registry refuses to publish a pattern that breaks one of these, and `mendari
+archive verify` refuses an archive that holds one; each says what to write instead:
+
+| Instead of | Write | Why |
+|---|---|---|
+| `pain(?= now)`, `(?<=chest )pain` | `pain now`, `chest pain` | Lookahead and lookbehind: match the text itself (a rule reads only whether, and where, it matches) |
+| `(?<!no )pain` | `pain`, with `negatable: true` and `no` in `negation_cues` | Negative lookbehind: the negation cues say what must not come before |
+| `\d+(?!\s*%)` | `\d+\s*(?:mg\|mcg\|ml)` | Negative lookahead: say what must come, not what must not |
+| `^(?!.*\burgent\b).*refill` | `refill`, and a second rule `\burgent\b` with more weight on the label it means | "Matches one thing but not another" is two rules |
+| `([a-z])\1`, `(?P<d>\d)(?P=d)` | the text itself, e.g. `(?:aa\|bb\|cc)` | Back references |
+| `(a)?(?(1)b\|c)` | `ab\|c` | Conditional groups: write the alternatives with `\|` |
+| `(?>...)`, `a++` | `(?:...)`, `a+` | Atomic groups and possessive quantifiers: RE2 never backtracks, so they are not needed |
+| `(?:\w{1,20}\s?){1,60}` | `(?:\w{1,20}\s?){1,20}` | Counts nested inside each other may multiply to at most 1,000 |
+| `\w{0,1000}` | `\w*`, or a smaller count | Too large once compiled: `\w` is every letter and digit in Unicode, a large class |
+
+**What still differs from `re`.** `\w`, `\d`, `\s` (and `\W`, `\D`, `\S`) are `re`'s Unicode
+classes, `$` is `re`'s (the end, or before a newline that ends the text), `\Z` is the end only,
+`a{,3}` is `a{0,3}`, and counts above 1,000 are split into counts RE2 runs. Case is ignored
+exactly as `re` ignores it: `ilaç` matches "İLAÇ", `ağrı` matches "AĞRI", and `\W` never
+matches a Greek `ι`. Two things differ:
+
+- **Word boundaries.** RE2 sees only ASCII letters, digits and `_` as word characters *in the
+  text just outside a match*, so a letter or digit outside ASCII there does not continue the
+  word: `\bpie` also matches in "épie" and `\bma\b` inside "mañana". In a script other than
+  Latin, whose letters are all outside ASCII, that is the usual case: `\bрак\b` (cancer) also
+  matches inside "практика" (practice), and `\bболь\b` (pain) inside "больница" (hospital).
+  Write `(?:^|\W)рак(?:\W|$)` instead of `\bрак\b`: `\W` is `re`'s, so it matches no letter in
+  any script (the match then starts one character earlier).
+- **Lone surrogates.** A text holding one (a JSON string can) has it read as U+FFFD before a
+  pattern runs.
+
+**Its limits.** Such an agent is held to these, whatever its manifest says:
+
+- it reads at most **10,000 characters** of text in all (its texts, each and all together, and
+  its keys too where its input schema runs patterns on them, with `patternProperties` or
+  `propertyNames`; a longer input is refused before any pattern runs, and typo correction never
+  makes a text longer than that), and at most **10,000 values**, nested at most **32** deep;
+- its settings do not multiply its patterns' work: each field is named once in a
+  `text_fields` (a provider's or a question's), `negation_window` is at most **200** characters
+  with at most **50** `negation_cues`, its input schema runs at most **50** patterns on any one
+  value or key (two `$ref`s to the same schema run its patterns twice, and each
+  `patternProperties` pattern counts three times where `additionalProperties` is also set, which
+  searches them again and for its error message) and never refers back to itself where patterns
+  run, and its rules (on an input) and its schema (on one value) run at most **500** patterns
+  together (a rules pattern counts once for each question it answers and each composite member
+  holding it);
+- those same pattern runs come to a **size** of at most **3,000** together: a pattern's size is
+  the characters, classes and `.`s it holds, each as often as a count repeats it (`a{1,50}` is
+  50, `a{5,}` is 5, `\w+` and `x*` are 1, `(?:ab|cd){1,10}` is 40), so RE2's time on each
+  character grows with it;
+- its patterns and its schema's checks, together, take at most **one second** of CPU in a
+  decision: past that its rules or its schema check stop and the decision abstains, for a
+  person (the error `time_budget`; `mendari test` says so), or, when the schema had already
+  found the input wrong, the input is refused. Ordinary agents take milliseconds; if your tests
+  run out of time, shorten the long counts (`.{0,999}`) and classes repeated many times;
+- its input schema uses only the keywords Mendari keeps within the time budget: `type`,
+  `properties`, `required` (at most 100 names), `additionalProperties`, `patternProperties`,
+  `propertyNames`, `items`, `prefixItems`, `minItems`/`maxItems`,
+  `minProperties`/`maxProperties`, `enum` (at most 500 values) and `const` (texts, numbers,
+  `true`, `false` or `null`), `minLength`/`maxLength`, `pattern`, `format`, the number limits
+  (`minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`), `allOf`,
+  `anyOf`, `oneOf`, `not`, `if`/`then`/`else`, `$defs` at the root (names of letters, digits,
+  `_`, `.` and `-`) and `$ref` to one of them (`#/$defs/<name>`), the annotations (`title`,
+  `description`, `default`, `examples`, `$comment`, `deprecated`, `readOnly`, `writeOnly`,
+  `x-...`), and `$schema`/`$id` at the root. A `required` name and an `enum` or `const` text
+  are at most 200 characters. Others are refused: jsonschema works some out on its own, outside
+  the budget (`unevaluatedProperties`: use `additionalProperties`; `unevaluatedItems`: use
+  `items`; `contains`), or compares every pair of items at once (`uniqueItems`); check those in
+  a rule.
+
+Habits that keep patterns precise and honest:
+
+- Bound every gap: `{0,5}` words, not `*`, e.g.
+  `chest(?:[^\w.!?\n]+\w+){0,5}?[^\w.!?\n]+pain` for at most five words between, never across
+  a sentence.
+- Leave `.*` off either end: a rule matches anywhere in the text already.
+- Match whole phrases a person writes ("can't breathe"), not single letters or fragments.
+- Name every pattern: the audit record says which one matched.
+- Mark a pattern `negatable: true` when "no chest pain" must not count, and test it.
 
 ## 12. What `mendari validate` holds you to
 
@@ -478,8 +576,7 @@ lists what changes). A community agent's patterns run on RE2: see
   endpoint and key come from the deployment, never from the manifest: a variant that names
   environment variables (`api_key_env`, `endpoint_env` and the like) is refused.
 
-The community check, a registry's publish and an organization's agent store run the same
-validation. Each problem names its file and a place in it, never a case's text. If you edit an
+A registry's publish and an organization's agent store run the same validation. Each problem names its file and a place in it, never a case's text. If you edit an
 agent a server has loaded, restart the server: until then reads of the edited file are refused.
 
 ## 13. FHIR and CDS Hooks
@@ -509,8 +606,6 @@ into one page. Share it with your AI or clinical decision support committee. At 
 
 - **In your own deployment:** keep the folder anywhere and name it, or its parent, in
   `MENDARI_AGENTS_PATH` (several separated by `:`).
-- **With everyone, as a community agent:** open a pull request with the folder in
-  `community-agents/<name>/` ([Contributing an agent](contributing-an-agent.md)).
 - **On a registry:** your organization claims the namespace (`my-clinic`) and mints a publisher
   token, in the dashboard's Access view where the registry runs under the engine, or the
   registry's operator runs `mendari registry claim` and `mendari registry token`. Then:

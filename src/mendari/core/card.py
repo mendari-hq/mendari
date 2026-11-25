@@ -10,10 +10,9 @@ from typing import Any, Literal
 
 from mendari import notices
 from mendari.core import clock
-from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
 from mendari.core.policy import GATE_TEXT, gate_of
-from mendari.core.spec import Condition, Outcome, PackManifest, Question
+from mendari.core.spec import Condition, PackManifest, Question
 from mendari.evals import leaderboard, operating_point, ranking, stats
 from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
 from mendari.evals.result import (
@@ -133,16 +132,8 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
     category = f" ({_t(m.risk.category)})" if m.risk.category != RISK_NAMES[level] else ""
     # Where the pack comes from, by origin and never by its manifest: a card written for a pack
     # of one's own (local) or pulled from a registry claims nothing.
-    source = (
-        [f"| Source | {pack.origin_label} |"]
-        if pack.shown_origin in ("maintained", "community")
-        else []
-    )
-    automation = (
-        COMMUNITY_AUTOMATION
-        if pack.community
-        else RISK_AUTOMATION[level] + _required(m.policy.automation_requires)
-    )
+    source = [f"| Source | {pack.origin_label} |"] if pack.origin == "maintained" else []
+    automation = RISK_AUTOMATION[level] + _required(m.policy.automation_requires)
     out: list[str] = [
         f"# Decision Card: {_t(m.name)}",
         "",
@@ -209,34 +200,24 @@ def _render(pack: Pack, report: Attested, board: Attested, rendered_by: Rendered
         "## Decision policy",
         "",
     ]
-    if pack.community:
-        # Never AUTO, whatever the thresholds say (`core/policy.py`): the card says what runs.
-        out.append(
-            f"- Never automated: a person reviews from {_c(p.primary)} confidence "
-            f"≥ **{p.thresholds.review:.2f}**; abstain below."
-        )
-    else:
-        out.append(
-            f"- AUTO when {_c(p.primary)} confidence ≥ **{p.thresholds.auto:.2f}**; human review "
-            f"≥ **{p.thresholds.review:.2f}**; abstain below."
-        )
-        for label, label_policy in p.labels.items():
-            if not label_policy.allow_auto:
-                out.append(f"- {_c(label)} is never automated.")
-            elif label_policy.auto_threshold is not None:
-                out.append(f"- {_c(label)} needs ≥ **{label_policy.auto_threshold:.2f}** for AUTO.")
-        for slot, variants in p.automation_requires.items():
-            running = " or ".join(_c(variant) for variant in variants)
-            out.append(f"- AUTO only while {_c(slot)} is {running}; otherwise a person reviews.")
+    out.append(
+        f"- AUTO when {_c(p.primary)} confidence ≥ **{p.thresholds.auto:.2f}**; human review "
+        f"≥ **{p.thresholds.review:.2f}**; abstain below."
+    )
+    for label, label_policy in p.labels.items():
+        if not label_policy.allow_auto:
+            out.append(f"- {_c(label)} is never automated.")
+        elif label_policy.auto_threshold is not None:
+            out.append(f"- {_c(label)} needs ≥ **{label_policy.auto_threshold:.2f}** for AUTO.")
+    for slot, variants in p.automation_requires.items():
+        running = " or ".join(_c(variant) for variant in variants)
+        out.append(f"- AUTO only while {_c(slot)} is {running}; otherwise a person reviews.")
     for rule in p.rules:
         target = f" → {_c(rule.recommendation)}" if rule.recommendation else ""
         priority = f", priority `{rule.priority.value}`" if rule.priority else ""
-        outcome = rule.outcome
-        if pack.community and outcome in (Outcome.AUTO, Outcome.BLOCK):
-            outcome = Outcome.HUMAN_REVIEW  # what the policy makes of it for a community pack
         out.append(
             f"- Rule **{_t(rule.name)}**: {_condition(rule.when)} ⇒ "
-            f"`{outcome.value}`{target}{priority}. {_t(rule.reason)}"
+            f"`{rule.outcome.value}`{target}{priority}. {_t(rule.reason)}"
         )
     out += [f"- Fallback (ABSTAIN / BLOCK): {_t(p.fallback)}", ""]
     out += _actions(pack)
@@ -421,15 +402,14 @@ def _actions(pack: Pack) -> list[str]:
         "and runs none: the caller runs an action only when it was released, and every "
         "proposal and its release or denial is in the audit trail. An action the agent "
         "proposes that is not listed here is blocked, and its decision goes to a person. "
-        "Where the deployment has not vouched for the agent (a community agent, or one from a "
-        "registry before its organization approves its digest), nothing it proposes is "
-        "released without a person.",
+        "Where the deployment has not vouched for the agent (one from a registry before its "
+        "organization approves its digest), nothing it proposes is released without a person.",
         "",
         "| Action | Does | Effect | Released | Arguments |",
         "|---|---|---|---|---|",
     ]
     for name, spec in declared.items():
-        gate = gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=not pack.community)
+        gate = gate_of(spec.effect, allow_auto=spec.allow_auto)
         schema = spec.json_schema
         named = list((schema or {}).get("properties") or {})
         if schema is None:

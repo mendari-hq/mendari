@@ -9,12 +9,13 @@ will run, at most `MAX_PATTERN_CHARS` long, and a pack holds at most `MAX_PACK_P
 bad one is a `PackValidationError` naming the pack, the file and the rule, never a traceback in
 `mendari validate` or an error answer from `/api/health`.
 
-One engine choice, `compile` (and `search`), runs every one of them. Its keyword `community`
-names the B11 community engine, which runs the packs the deployment does not own
-(`Pack.bounded`, `core/origin.py`, ADR-0009):
+One engine choice, `compile` (and `search`), runs every one of them. Its keyword `bounded`
+names the bounded engine, which runs the agents the deployment does not own (`Pack.bounded`,
+`core/origin.py`, ADR-0009):
 
-- **A pack the deployment does not own** (a community pack, or one pulled from a registry whose
-  digest is not a bundled agent's of this release) has its patterns run on RE2 (`google-re2`),
+- **An agent the deployment does not own** (one pulled from a registry, or kept in an
+  organization's agent store, whose digest is not a bundled agent's of this release) has its
+  patterns run on RE2 (`google-re2`),
   which never backtracks: its time grows with the text's length times the pattern's compiled
   size, never exponentially, so no pattern can stall a worker the way `(a+)+$` stalls `re`.
   Each is rewritten for RE2 to mean what `re` means (`core/re2_syntax.py`, which lists the
@@ -28,10 +29,10 @@ names the B11 community engine, which runs the packs the deployment does not own
 
 Mendari's own patterns (dosing, CQL headers, the rules provider's scope, word and negation
 patterns) are not pack content and stay on `re`. RE2 and the rewriting are imported only when a
-pattern of a pack on the community engine is compiled, so a deployment without one never loads
+pattern of an agent on the bounded engine is compiled, so a deployment without one never loads
 them.
 
-The patterns of a pack on the community engine, and its input schema's checks, share one time
+The patterns of an agent on the bounded engine, and its input schema's checks, share one time
 budget per decision (`time_budget`, set by `Decision.decide`), counted in the CPU time of the
 decision's own thread (`time.thread_time`): waiting for a model or for another request costs it
 nothing, so the same input decides the same way on a busy server. RE2's time is linear and the
@@ -62,17 +63,17 @@ from mendari.errors import MendariError
 MAX_PATTERN_CHARS = 2_000
 MAX_PACK_PATTERNS = 500
 RULES_FLAGS = re.IGNORECASE  # as `providers/rules.py` compiles them
-COMMUNITY_TIME_BUDGET_S = 1.0  # a community pack's patterns, together, in one decision
-_DEADLINE: ContextVar[float | None] = ContextVar("community_pattern_deadline", default=None)
+BOUNDED_TIME_BUDGET_S = 1.0  # a bounded agent's patterns, together, in one decision
+_DEADLINE: ContextVar[float | None] = ContextVar("bounded_pattern_deadline", default=None)
 
 
 class OutOfTime(MendariError):
-    """A community pack's patterns used their time budget for this decision."""
+    """A bounded agent's patterns used their time budget for this decision."""
 
 
 @contextmanager
-def time_budget(seconds: float = COMMUNITY_TIME_BUDGET_S) -> Iterator[None]:
-    """The CPU time (this thread's) a community pack's patterns and schema checks may take,
+def time_budget(seconds: float = BOUNDED_TIME_BUDGET_S) -> Iterator[None]:
+    """The CPU time (this thread's) a bounded agent's patterns and schema checks may take,
     together, inside this block (one decision). Held in a context variable, so concurrent
     decisions keep their own."""
     token = _DEADLINE.set(time.thread_time() + seconds)
@@ -83,7 +84,7 @@ def time_budget(seconds: float = COMMUNITY_TIME_BUDGET_S) -> Iterator[None]:
 
 
 def budget_active() -> bool:
-    """Whether a time budget holds here (inside a community pack's decision)."""
+    """Whether a time budget holds here (inside a bounded agent's decision)."""
     return _DEADLINE.get() is not None
 
 
@@ -92,7 +93,7 @@ def check_time() -> None:
     deadline = _DEADLINE.get()
     if deadline is not None and time.thread_time() > deadline:
         raise OutOfTime(
-            f"its patterns and schema checks took more than {COMMUNITY_TIME_BUDGET_S:g} s"
+            f"its patterns and schema checks took more than {BOUNDED_TIME_BUDGET_S:g} s"
         )
 
 
@@ -177,25 +178,25 @@ def _re2(text: str, flags: int) -> _Re2Pattern:
     return _Re2Pattern(re2.compile(translate(text, flags), _options()))
 
 
-def compile(text: str, flags: int = 0, *, community: bool = False) -> Matcher:
+def compile(text: str, flags: int = 0, *, bounded: bool = False) -> Matcher:
     """A pack's pattern compiled for the engine its pack's patterns run on (module docstring):
-    `community` for a pack on the community engine (`Pack.bounded`); for any other pack, this is
+    `bounded` for an agent on the bounded engine (`Pack.bounded`); for any other, this is
     `re.compile(text, flags)`."""
-    if community:
+    if bounded:
         return _re2(text, flags)
     return re.compile(text, flags)
 
 
-def search(pattern: str, text: str, *, community: bool = False) -> bool:
+def search(pattern: str, text: str, *, bounded: bool = False) -> bool:
     """Whether a pack's pattern (an input schema's, so no flags) matches anywhere in `text`."""
-    if community:
+    if bounded:
         return _re2(pattern, 0).search(text) is not None
     return re.search(pattern, text) is not None
 
 
-def problem(text: str, flags: int = 0, *, community: bool = False) -> str | None:
+def problem(text: str, flags: int = 0, *, bounded: bool = False) -> str | None:
     """Why `text` may not be a pack pattern compiled with `flags`, or None. A pattern of a pack
-    on the community engine (`community`, `Pack.bounded`) must also run on RE2."""
+    on the bounded engine (`bounded`, `Pack.bounded`) must also run on RE2."""
     if len(text) > MAX_PATTERN_CHARS:
         return f"longer than {MAX_PATTERN_CHARS} characters"
     with warnings.catch_warnings():  # a FutureWarning is not a reason to refuse a pattern
@@ -204,7 +205,7 @@ def problem(text: str, flags: int = 0, *, community: bool = False) -> str | None
             re.compile(text, flags)
         except (re.error, OverflowError, RecursionError, ValueError) as error:
             return f"invalid regular expression: {error}"
-        if not community:
+        if not bounded:
             return None
         import re2
 
@@ -221,9 +222,9 @@ def problem(text: str, flags: int = 0, *, community: bool = False) -> str | None
     return None
 
 
-# What a load-time message says RE2 is: it names no origin, as the same check refuses a pattern of
-# a community pack and of one from a registry.
-_RE2_ENGINE = "the engine community agents and agents from a registry run on"
+# What a load-time message says RE2 is: it names no one origin, as the same check refuses a
+# pattern of an agent from a registry and of one from a store.
+_RE2_ENGINE = "the engine agents from a registry or a store run on"
 
 
 def _re2_problem(message: str) -> str:

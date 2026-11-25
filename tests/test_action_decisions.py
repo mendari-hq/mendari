@@ -376,8 +376,8 @@ def test_a_mock_file_whose_response_proposes_what_the_contract_does_not_allow_is
 # -- an agent the deployment does not vouch for ---------------------------------------------------
 
 
-def community(raw: dict[str, Any]) -> None:
-    raw["policy"]["rules"] = []  # a community agent's rule may not BLOCK
+def unblocked(raw: dict[str, Any]) -> None:
+    raw["policy"]["rules"] = []  # no rule BLOCKs: what is held is held by the gate alone
     raw["questions"].pop("abusive")
     raw["providers"]["reader"]["answers"] = ["request"]
 
@@ -387,32 +387,10 @@ def one_question(mock: dict[str, Any]) -> None:
         response["answers"].pop("abusive")
 
 
-def test_a_community_agent_gets_nothing_released_without_a_person(tmp_path: Path) -> None:
-    folder = copy_of(tmp_path, manifest=community, mock=one_question)
-    owned = Decision(load_pack(folder))
-    unowned = Decision(load_pack(folder, origin="community"))
-    assert owned.vouched() and not unowned.vouched()
-    assert unowned.automation_stopped() == "a community agent never automates"
-    body = message("I need to move my appointment.")  # goes to a person either way
-    assert shown(owned(body))[0] == ("look_up_medications", "read", "released", "with_decision")
-    assert shown(unowned(body)) == [
-        ("look_up_medications", "read", "held", "awaiting_review"),
-        ("file_note", "write", "held", "awaiting_review"),
-        ("send_reply", "contact", "held", "awaiting_review"),
-    ]
-    # What would be automated is not, and so nothing is released: its effects are claims.
-    refill = unowned(message("Could you refill my lisinopril?"))
-    assert refill.outcome is Outcome.HUMAN_REVIEW
-    assert {disposition for _, _, disposition, _ in shown(refill)} == {"held"}
-    assert owned(message("Could you refill my lisinopril?")).outcome is Outcome.AUTO
-    for text in ("It is unclear what I want.", "Please renew my prescription."):
-        assert "released" not in {d for _, _, d, _ in shown(unowned(message(text)))}, text
-
-
 def test_a_registry_agent_is_vouched_for_once_its_organization_approves_its_digest(
     tmp_path: Path,
 ) -> None:
-    folder = copy_of(tmp_path, manifest=community, mock=one_question)
+    folder = copy_of(tmp_path, manifest=unblocked, mock=one_question)
     pulled = load_pack(folder, origin="hub")
     unapproved = Decision(pulled)
     approved = Decision(pulled, origin_approval=lambda pack: True)

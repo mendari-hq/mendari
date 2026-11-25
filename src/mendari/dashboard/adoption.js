@@ -27,7 +27,6 @@ const SOURCE = {
   maintained: "Bundled with Mendari.",
   local: "Your organization's own agent, served from this deployment.",
   store: "From your organization's agent store, promoted by someone who did not write it.",
-  community: "A community agent: it recommends, and a person confirms every decision.",
 };
 
 // [state, evidence, action] for each step; state is "done", "todo" or "blocked".

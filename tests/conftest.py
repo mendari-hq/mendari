@@ -115,7 +115,7 @@ PHI_KEY_B64 = base64.b64encode(PHI_KEY).decode()
 # test marked core would run.
 CORE = {
     "test_spec.py", "test_spec_02.py", "test_pack_status.py", "test_input_schema.py",
-    "test_patterns.py", "test_templates.py", "test_community_caps.py", "test_new_pack.py",
+    "test_patterns.py", "test_templates.py", "test_bounded_caps.py", "test_new_pack.py",
     "test_decision.py", "test_providers.py", "test_policy.py", "test_safety_invariant.py",
     "test_governance.py", "test_hold.py", "test_gate.py", "test_audit.py", "test_evals.py",
     "test_registry_engine.py", "test_rater_agreement.py", "test_stats.py", "test_spec_04.py",
@@ -184,15 +184,6 @@ def _own_hub_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MENDARI_REGISTRY_URL", raising=False)
     monkeypatch.delenv("MENDARI_REGISTRY_TOKEN", raising=False)
     monkeypatch.delenv("MENDARI_REGISTRY_COUNTERSIGNATURE", raising=False)
-
-
-@pytest.fixture(autouse=True)
-def _no_community_packs(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Community packs are off unless a test turns them on (tests/test_community_packs.py), as
-    in a deployment that never set MENDARI_COMMUNITY_AGENTS (nor MENDARI_COMMUNITY_PACKS, the
-    name it had before)."""
-    monkeypatch.delenv("MENDARI_COMMUNITY_AGENTS", raising=False)
-    monkeypatch.delenv("MENDARI_COMMUNITY_PACKS", raising=False)
 
 
 @pytest.fixture(autouse=True)

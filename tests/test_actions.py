@@ -267,7 +267,7 @@ def test_what_released_and_held_mean(gate: Gate, state: dict[str, Any]) -> None:
 def test_an_agent_nobody_vouched_for_gets_nothing_released_without_a_person(
     effect: Effect, allow_auto: bool, state: dict[str, Any]
 ) -> None:
-    """Such an agent never automates (`apply_policy`'s community and registry caps), so with
+    """Such an agent never automates (`apply_policy`'s registry cap), so with
     its decisions never AUTO nothing it proposes is released by the table."""
     gate = gate_of(effect, allow_auto=allow_auto, vouched=False)
     assert gate is not DECISION

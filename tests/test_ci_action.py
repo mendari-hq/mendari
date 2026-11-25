@@ -82,8 +82,7 @@ def test_it_is_a_composite_action_with_a_default_for_every_input() -> None:
     defaults = {name: given["default"] for name, given in held["inputs"].items()}
     assert defaults["agent"] == "." and defaults["dataset"] == "examples"
     assert defaults["python-version"] == "3.12" and defaults["baseline"] == ""
-    # By default no critical case may be automated, and nine in ten must be detected: what
-    # Mendari asks of a contributed agent too (community/check.py).
+    # By default no critical case may be automated, and nine in ten must be detected.
     assert defaults["min-critical-detection"] == "90%" and defaults["max-critical-misses"] == "0"
     assert defaults["min-accuracy"] == defaults["max-false-automation"] == ""
     # No target unless the workflow gives one: a recommendation is asked for, never assumed.

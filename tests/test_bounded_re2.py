@@ -64,7 +64,7 @@ IDS = [
 LIMIT_S = 1.0
 
 
-def community_pack(
+def bounded_pack(
     base: Path,
     *,
     rules: Sequence[str] = (),
@@ -105,10 +105,10 @@ def timed(decision: Decision, inputs: dict[str, Any]) -> tuple[float, Any]:
 
 
 @pytest.mark.parametrize(("pattern", "text"), SLOW, ids=IDS)
-def test_a_community_packs_rules_decide_slow_patterns_fast(
+def test_a_bounded_packs_rules_decide_slow_patterns_fast(
     tmp_path: Path, pattern: str, text: str
 ) -> None:
-    pack = pulled(community_pack(tmp_path, rules=[pattern]))
+    pack = pulled(bounded_pack(tmp_path, rules=[pattern]))
     decision = Decision(pack)
     timed(decision, {"message": "warm"})  # translation tables, compiled once a process
     seconds, result = timed(decision, {"message": text[:9_990]})  # with the key: 9,997
@@ -117,11 +117,11 @@ def test_a_community_packs_rules_decide_slow_patterns_fast(
 
 
 @pytest.mark.parametrize(("pattern", "text"), SLOW, ids=IDS)
-def test_a_community_packs_schema_patterns_decide_slow_patterns_fast(
+def test_a_bounded_packs_schema_patterns_decide_slow_patterns_fast(
     tmp_path: Path, pattern: str, text: str
 ) -> None:
     schema = {"not": {"pattern": pattern}}  # runs the pattern on every message
-    root = community_pack(tmp_path, schema=schema)
+    root = bounded_pack(tmp_path, schema=schema)
     document = json.loads((root / SCHEMA).read_text())
     document["properties"]["extra"] = {"type": "object", "patternProperties": {pattern: {}}}
     document["properties"]["names"] = {"type": "object", "propertyNames": {"pattern": pattern}}
@@ -137,7 +137,7 @@ def test_a_community_packs_schema_patterns_decide_slow_patterns_fast(
 
 def test_the_same_patterns_stay_on_re_in_any_other_pack(tmp_path: Path) -> None:
     """The deployment's own agent. Never run on the slow texts: `re` would take minutes."""
-    root = community_pack(tmp_path, rules=[p for p, _ in SLOW], pack_id="local/visit-sorter")
+    root = bounded_pack(tmp_path, rules=[p for p, _ in SLOW], pack_id="local/visit-sorter")
     pack = load_pack(root)
     assert not pack.bounded
     for text, _ in SLOW:
@@ -151,8 +151,8 @@ def test_the_same_patterns_stay_on_re_in_any_other_pack(tmp_path: Path) -> None:
     assert type(validator) is Draft202012Validator
 
 
-def test_a_community_packs_rules_run_on_re2(tmp_path: Path) -> None:
-    pack = pulled(community_pack(tmp_path, rules=[r"\bbill(?:ing)?\b"]))
+def test_a_bounded_packs_rules_run_on_re2(tmp_path: Path) -> None:
+    pack = pulled(bounded_pack(tmp_path, rules=[r"\bbill(?:ing)?\b"]))
     decision = Decision(pack)
     assert all(type(regex) is not re.Pattern for regex in billing_patterns(decision))
     assert decision.decide({"message": "A BILLING question"}).answers["topic"].label == "billing"
@@ -173,25 +173,22 @@ def test_a_community_packs_rules_run_on_re2(tmp_path: Path) -> None:
         (r"pain++", "a possessive quantifier"),
     ],
 )
-def test_a_pattern_re2_cannot_run_makes_a_community_pack_invalid(
+def test_a_pattern_re2_cannot_run_makes_a_bounded_pack_invalid(
     tmp_path: Path, pattern: str, says: str
 ) -> None:
-    root = community_pack(tmp_path, rules=[pattern])
+    root = bounded_pack(tmp_path, rules=[pattern])
     with pytest.raises(PackValidationError) as raised:
         pulled(root)
     (problem,) = raised.value.problems
     assert problem.startswith(f"{RULES}: questions.topic.labels.billing[0] (p0): uses {says}")
-    assert (
-        "RE2 (the engine community agents and agents from a registry run on) does not have: "
-        in problem
-    )
-    root = community_pack(tmp_path / "schema", schema={"pattern": pattern})
+    assert "RE2 (the engine agents from a registry or a store run on) does not have: " in problem
+    root = bounded_pack(tmp_path / "schema", schema={"pattern": pattern})
     with pytest.raises(PackValidationError) as raised:
         pulled(root)
     (problem,) = raised.value.problems
     assert problem.startswith(f"input schema: properties/message/pattern: uses {says}")
     # The same pattern, in an agent the deployment owns, loads as before.
-    load_pack(community_pack(tmp_path / "local", rules=[pattern], pack_id="local/sorter"))
+    load_pack(bounded_pack(tmp_path / "local", rules=[pattern], pack_id="local/sorter"))
 
 
 @pytest.mark.parametrize(
@@ -203,17 +200,17 @@ def test_a_pattern_re2_cannot_run_makes_a_community_pack_invalid(
 )
 def test_a_pattern_re2_cannot_compile_is_named(tmp_path: Path, pattern: str, says: str) -> None:
     with pytest.raises(PackValidationError) as raised:
-        pulled(community_pack(tmp_path, rules=[pattern]))
+        pulled(bounded_pack(tmp_path, rules=[pattern]))
     (problem,) = raised.value.problems
     assert says in problem
 
 
-def test_a_community_schema_may_not_hold_unevaluated_and_pattern_properties(
+def test_a_bounded_schema_may_not_hold_unevaluated_and_pattern_properties(
     tmp_path: Path,
 ) -> None:
     """jsonschema's `unevaluatedProperties` searches `patternProperties` with `re`."""
     schema = {"type": "object", "patternProperties": {"^x": {}}, "unevaluatedProperties": False}
-    root = community_pack(tmp_path, schema={})
+    root = bounded_pack(tmp_path, schema={})
     document = json.loads((root / SCHEMA).read_text())
     document["properties"]["extra"] = schema
     (root / SCHEMA).write_text(json.dumps(document))
@@ -243,12 +240,12 @@ def test_a_community_schema_may_not_hold_unevaluated_and_pattern_properties(
 def test_a_refused_pattern_says_what_to_write_instead(pattern: str, says: str, never: str) -> None:
     """The last check: "write the group's pattern again" turned `([a-z])\\1` into `[a-z][a-z]`,
     which matches "ab", and a negative lookbehind's advice never named negation_cues."""
-    problem = patterns.problem(pattern, patterns.RULES_FLAGS, community=True)
+    problem = patterns.problem(pattern, patterns.RULES_FLAGS, bounded=True)
     assert problem is not None and says in problem and never not in problem
-    assert problem.endswith('(see "Patterns run on RE2" in docs/guides/contributing-an-agent.md)')
+    assert problem.endswith('(see "Patterns run on RE2" in docs/guides/authoring-an-agent.md)')
 
 
-def test_a_deployment_without_community_packs_never_imports_re2(tmp_path: Path) -> None:
+def test_a_deployment_without_bounded_packs_never_imports_re2(tmp_path: Path) -> None:
     """RE2, the rewriting and the caps are imported only for an agent the deployment does not
     own: the Vercel function (and every deployment until it runs one) loads none of them."""
     code = (
@@ -262,8 +259,8 @@ def test_a_deployment_without_community_packs_never_imports_re2(tmp_path: Path) 
     assert ran.stdout.strip() == "[]"
 
 
-def test_a_community_packs_validator_checks_keys_and_texts_on_re2(tmp_path: Path) -> None:
-    root = community_pack(tmp_path, schema={"pattern": r"^\S"})
+def test_a_bounded_packs_validator_checks_keys_and_texts_on_re2(tmp_path: Path) -> None:
+    root = bounded_pack(tmp_path, schema={"pattern": r"^\S"})
     document = json.loads((root / SCHEMA).read_text())
     document["properties"]["codes"] = {
         "type": "object",
@@ -273,7 +270,7 @@ def test_a_community_packs_validator_checks_keys_and_texts_on_re2(tmp_path: Path
     }
     (root / SCHEMA).write_text(json.dumps(document))
     pack = pulled(root)
-    validator = input_schema.validator(pack.input_schema, community=True)
+    validator = input_schema.validator(pack.input_schema, bounded=True)
     assert type(validator) is not Draft202012Validator
     decision = Decision(pack)
     assert decision.validate({"message": "ok", "codes": {"ab": 1, "été": 2}}) == [
@@ -294,7 +291,7 @@ def test_a_community_packs_validator_checks_keys_and_texts_on_re2(tmp_path: Path
 
 
 def test_a_lone_surrogate_in_a_text_is_read_as_a_replacement_character(tmp_path: Path) -> None:
-    pack = pulled(community_pack(tmp_path, rules=[r"bill.?\?"]))
+    pack = pulled(bounded_pack(tmp_path, rules=[r"bill.?\?"]))
     decision = Decision(pack)
     result = decision.decide({"message": "bill\ud800?"})
     assert result.answers["topic"].label == "billing"
@@ -361,7 +358,7 @@ SAME = [
 @pytest.mark.parametrize(("pattern", "flags", "text"), SAME)
 def test_re2_matches_where_re_does(pattern: str, flags: int, text: str) -> None:
     expected = re.search(pattern, text, flags)
-    found = patterns.compile(pattern, flags, community=True).search(text)
+    found = patterns.compile(pattern, flags, bounded=True).search(text)
     assert (found and found.start()) == (expected and expected.start()), translate(pattern, flags)
 
 
@@ -383,7 +380,7 @@ def test_the_differences_left_are_the_ones_written_down(
     pattern: str, flags: int, text: str, on_re2: bool
 ) -> None:
     assert bool(re.search(pattern, text, flags)) is not on_re2
-    assert bool(patterns.compile(pattern, flags, community=True).search(text)) is on_re2
+    assert bool(patterns.compile(pattern, flags, bounded=True).search(text)) is on_re2
     written = " ".join((ROOT / "src" / "mendari" / "core" / "re2_syntax.py").read_text().split())
     assert '`\\bpie` also matches in "épie", `\\bma\\b` inside "mañana"' in written
     assert '`\\bрак\\b` inside "практика"' in written  # noqa: RUF001
@@ -421,7 +418,7 @@ def test_ignoring_case_matches_what_re_matches_for_every_class() -> None:
     ]:
         for flags in (re.I, re.I | re.A):
             expected = {m.start() for m in re.finditer(pattern, every, flags)}
-            found = patterns.compile(pattern, flags, community=True)
+            found = patterns.compile(pattern, flags, bounded=True)
             assert {m.start() for m in found.finditer(every)} == expected, (pattern, flags)
 
 
@@ -469,13 +466,13 @@ def test_every_maintained_pattern_means_the_same_on_re2() -> None:
     cases = maintained_cases()
     differ, refused, compared = [], [], 0
     for pack_id, where, flags, (pattern, *texts) in cases:
-        problem = patterns.problem(pattern, flags, community=True)
+        problem = patterns.problem(pattern, flags, bounded=True)
         if problem:
             refused.append((pack_id, where, problem))
             continue
         compared += 1
         expected = re.compile(pattern, flags)
-        found = patterns.compile(pattern, flags, community=True)
+        found = patterns.compile(pattern, flags, bounded=True)
         for text in texts:
             a, b = expected.search(text), found.search(text)
             if (a and a.start()) != (b and b.start()):

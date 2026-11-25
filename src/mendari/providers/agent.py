@@ -242,7 +242,7 @@ class AgentProvider(Provider):
         if settings.endpoint is not None:
             if bounded:
                 return None, [
-                    f"{where}: an `agent` variant of a community or registry agent may not set "
+                    f"{where}: an `agent` variant of a registry or store agent may not set "
                     f"endpoint; configure {ENDPOINT_ENV} in the deployment"
                 ]
             try:
