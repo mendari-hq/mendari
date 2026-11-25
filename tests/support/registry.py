@@ -62,29 +62,22 @@ def edit_json(path: Path, change: Callable[[Any], None]) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
-def outside_agent(
+Edit = Callable[[dict[str, Any]], None]
+
+
+def triage_copy(
     base: Path,
+    agent_id: str,
     *,
-    rules: Callable[[dict[str, Any]], None] | None = None,
-    schema: Callable[[dict[str, Any]], None] | None = None,
-    manifest: Callable[[dict[str, Any]], None] | None = None,
-    agent_id: str = OUTSIDE_ID,
+    rules: Edit | None = None,
+    schema: Edit | None = None,
+    manifest: Edit | None = None,
 ) -> Path:
-    """The triage fixture as an outside publisher's agent, in `base`: under its own id, its
-    screen on its canned agent and its bills automatable, so a confident decision automates
-    once the organization approves it; its router's LLM variant pins a model of its own (a
-    deployment's model replaces it). `rules`, `schema` and `manifest` change the router's rules,
-    the input schema and the manifest last. Load it with `origin="hub"` to have it as pulled."""
+    """The triage fixture under `agent_id`, in `base`: `rules`, `schema` and `manifest` change
+    the router's rules, the input schema and the manifest."""
     root = base / agent_id.replace("/", "-")
     shutil.copytree(TRIAGE_DIR, root)
-
-    def outside(data: dict[str, Any]) -> None:
-        data["id"] = agent_id
-        data["providers"]["screen"]["use"] = "agent"
-        data["providers"]["router"]["variants"]["llm"]["model"] = "example/pinned-model"
-        del data["policy"]["labels"]["billing"]
-
-    edit_yaml(root / "agent.yaml", outside)
+    edit_yaml(root / "agent.yaml", lambda data: data.update(id=agent_id))
     if rules is not None:
         edit_yaml(root / ROUTER_RULES, rules)
     if schema is not None:
@@ -92,6 +85,30 @@ def outside_agent(
     if manifest is not None:
         edit_yaml(root / "agent.yaml", manifest)
     return root
+
+
+def outside_agent(
+    base: Path,
+    *,
+    rules: Edit | None = None,
+    schema: Edit | None = None,
+    manifest: Edit | None = None,
+    agent_id: str = OUTSIDE_ID,
+) -> Path:
+    """The triage fixture as an outside publisher's agent, in `base`: under its own id, its
+    screen on its canned agent and its bills automatable, so a confident decision automates
+    once the organization approves it; its router's LLM variant pins a model of its own (a
+    deployment's model replaces it). `rules`, `schema` and `manifest` change the router's rules,
+    the input schema and the manifest last. Load it with `origin="hub"` to have it as pulled."""
+
+    def outside(data: dict[str, Any]) -> None:
+        data["providers"]["screen"]["use"] = "agent"
+        data["providers"]["router"]["variants"]["llm"]["model"] = "example/pinned-model"
+        del data["policy"]["labels"]["billing"]
+        if manifest is not None:
+            manifest(data)
+
+    return triage_copy(base, agent_id, rules=rules, schema=schema, manifest=outside)
 
 
 def slow_rules() -> Callable[[dict[str, Any]], None]:
