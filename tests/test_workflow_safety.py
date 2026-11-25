@@ -395,12 +395,10 @@ def test_every_ref_is_scanned_weekly_with_a_positive_control() -> None:
     assert runs.index(SCAN["run"]) < runs.index("uv build")
 
 
-# Each conformance job, the compose file it runs, and the command that runs its suite: DTR's
-# headless `inferno execute`, the scripted suites' driver (scripts/inferno_session.py).
+# Each conformance job, the compose file it runs, and the command that runs its suite: the
+# scripted suites' driver (scripts/inferno_session.py).
 SCRIPTED_COMPOSE = "sandbox/inferno/scripted/docker-compose.yml"
 CONFORMANCE_JOBS = {
-    "dtr-payer": ("sandbox/inferno/docker-compose.yml", "inferno execute", "dtr_payer_server_v220"),
-    "crd-server": (SCRIPTED_COMPOSE, "inferno_session.py", "crd_server_v221"),
     "smart-client": (SCRIPTED_COMPOSE, "inferno_session.py", "smart_client_stu2_2"),
     "bulk-client": (SCRIPTED_COMPOSE, "inferno_session.py", "bulk_data_v200_client"),
 }
@@ -409,10 +407,9 @@ CONFORMANCE_JOBS = {
 def test_conformance_runs_weekly_or_by_hand_with_no_secret_and_commits_nothing() -> None:
     """conformance.yml (sandbox/inferno/README.md): Inferno against the engines on synthetic
     data, never on a pull request, with a read-only token and no secret. Each suite is a job of
-    its own, so each has its own verdict, the checker's: only Inferno's own exit status (3 when a
-    test does not pass) is set aside, and the raw output, which can quote payloads, is an
-    artifact for 7 days, never committed; each job ends by removing its containers and
-    volumes."""
+    its own, so each has its own verdict, the checker's, and the driver's status counts too
+    (nothing is set aside); the raw output, which can quote payloads, is an artifact for 7
+    days, never committed; each job ends by removing its containers and volumes."""
     path = ROOT / ".github" / "workflows" / "conformance.yml"
     workflow = _workflow(path)
     assert set(_triggers(workflow)) == {"schedule", "workflow_dispatch"}
@@ -444,31 +441,11 @@ def test_conformance_runs_weekly_or_by_hand_with_no_secret_and_commits_nothing()
             command = step.get("run", "")
             if "docker compose" in command:
                 assert f"docker compose -f {compose}" in command, (name, command)
-    dtr = workflow["jobs"]["dtr-payer"]["steps"]
-    (execute,) = [s for s in dtr if "inferno execute" in s.get("run", "")]
-    assert "--groups 1 3 4" in execute["run"]  # group 2, Backend Services, waits for LP-23
-    assert execute["run"].rstrip().endswith('|| echo "inferno execute exited $?"')
-    for name in ("crd-server", "smart-client", "bulk-client"):  # the driver's status counts
+    for name in CONFORMANCE_JOBS:  # the driver's status counts
         (execute,) = [
             s for s in workflow["jobs"][name]["steps"] if "inferno_session.py" in s.get("run", "")
         ]
         assert "||" not in execute["run"], name
-
-
-def test_the_signed_in_engines_keys_are_made_in_the_job_for_the_job_alone() -> None:
-    """crd-server's engine signs in, which never runs PHI mode `off`: its two keys are made in
-    the job (os.urandom), masked, and handed to the later compose calls through $GITHUB_ENV, as
-    ci.yml's sandbox-e2e does; never a secret, never in the repository."""
-    steps = _workflow(ROOT / ".github" / "workflows" / "conformance.yml")["jobs"]["crd-server"][
-        "steps"
-    ]
-    (keys,) = [s for s in steps if "MENDARI_PHI_KEY" in s.get("run", "")]
-    assert "os.urandom(32)" in keys["run"] and 'echo "::add-mask::$key"' in keys["run"]
-    assert '>> "$GITHUB_ENV"' in keys["run"]
-    started = next(
-        i for i, s in enumerate(steps) if "up -d --wait engine-signin" in s.get("run", "")
-    )
-    assert steps.index(keys) < started
 
 
 # -- the FHIR packages the HL7 validator loads (DV-b) ---------------------------------------------
@@ -556,10 +533,10 @@ def test_the_package_check_catches_a_package_by_name() -> None:
 
 def test_the_validator_loads_only_the_locked_packages_each_checked() -> None:
     """The fhir-conformance job downloads each package the lock pins and checks it with
-    `sha256sum -c`, every run (a cached tarball too), before the validator first runs; each
-    validator run then builds a package cache of its own from them (`--offline`), so no step
-    fills a cache the runs share. Its cache key follows the lock, and no validator's package
-    cache is ever restored."""
+    `sha256sum -c`, every run (a cached tarball too), before the validator runs; the validator
+    run then builds a package cache of its own from them (`--offline`), so no step fills a
+    shared cache. Its cache key follows the lock, and no validator's package cache is ever
+    restored."""
     job = _workflow(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]["fhir-conformance"]
     steps = job["steps"]
     (cache,) = [s for s in steps if s.get("uses", "").startswith("actions/cache@")]
@@ -576,7 +553,7 @@ def test_the_validator_loads_only_the_locked_packages_each_checked() -> None:
     assert script.index("fi\n") < script.index("sha256sum -c")  # checked, downloaded or cached
     assert not [run for run in runs if "scripts/fhir_packages.py" in run]
     validations = [i for i, run in enumerate(runs) if "scripts/fhir_validate.py" in run]
-    assert len(validations) == 2 and download < min(validations)
+    assert len(validations) == 1 and download < min(validations)  # US Core, with Mendari's terms
     assert all("--offline" in runs[i].split() for i in validations)
     # The validator these packages were read from is the one the job downloads.
     lock_script = (ROOT / "scripts" / "fhir_packages.py").read_text()
@@ -602,7 +579,7 @@ def test_terminology_validation_runs_on_a_schedule_and_never_on_a_pull_request()
     assert job["env"] == offline["env"]
     runs = [step.get("run", "") for step in job["steps"]]
     validations = [run for run in runs if "scripts/fhir_validate.py" in run]
-    assert len(validations) == 2
+    assert len(validations) == 1
     assert all(_tx_values(run.split()) == [TX] for run in validations)
     as_offline = [
         {**step, "run": step["run"].replace(f"--tx {TX}", "--offline")}
@@ -644,41 +621,10 @@ def test_pack_check_runs_on_every_pull_request() -> None:
     find = next(step for step in steps if step.get("name") == "Find the changed agents")
     assert "no agent changes" in find["run"]
     maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
-    assert 'case "$dir" in agents/*)' in maintained["run"]  # community packs go the other way
-    (community,) = [step for step in steps if "community_check.py" in step.get("run", "")]
-    # Who made the change reaches the script through `env` only. The author is the pull
-    # request's, never `github.actor` (whoever caused the run: the owner updating a fork's branch
-    # would be it); the branch must be in this repository and the pull request into the default
-    # branch. Who owns the repository is the person the base's CODEOWNERS names (the script
-    # reads it), never `github.repository_owner`: since the move to mendari-hq, an organization,
-    # which no pull request's author is.
-    assert community["env"] == {
-        "BASE": "${{ github.event.pull_request.base.sha }}",
-        "BASE_REF": "${{ github.event.pull_request.base.ref }}",
-        "DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
-        "AUTHOR": "${{ github.event.pull_request.user.login }}",
-        "HEAD_REPO": "${{ github.event.pull_request.head.repo.full_name }}",
-        "REPO": "${{ github.repository }}",
-    }
-    for argument in (
-        '--base "$BASE"',
-        '--actor "$AUTHOR"',
-        '--head-repo "$HEAD_REPO"',
-        '--repo "$REPO"',
-        '--base-ref "$BASE_REF"',
-        '--default-branch "$DEFAULT_BRANCH"',
-    ):
-        assert argument in community["run"]
-    step = json.dumps(community)
-    for unwanted in ("github.actor", "repository_owner", "--owner"):
-        assert unwanted not in step, unwanted
-
-
-def test_ci_runs_every_community_packs_tests() -> None:
-    ci = _workflow(ROOT / ".github" / "workflows" / "ci.yml")
-    scripts = [step.get("run", "") for step in ci["jobs"]["test"]["steps"]]
-    (loop,) = [run for run in scripts if "community-agents/*/agent.yaml; do" in run]
-    assert 'uv run mendari test "$(dirname "$manifest")"' in loop and "exit $failed" in loop
+    assert 'case "$dir" in agents/*)' in maintained["run"]  # only the bundled agents' folders
+    # No step reads who made the change or owns the repository: nothing is decided by person.
+    for unwanted in ("github.actor", "repository_owner", "user.login"):
+        assert unwanted not in json.dumps(steps), unwanted
 
 
 def test_the_pack_workflow_finds_a_manifest_by_its_name() -> None:
@@ -690,8 +636,8 @@ def test_the_pack_workflow_finds_a_manifest_by_its_name() -> None:
     maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
     removed = 'if [ ! -f "$dir/agent.yaml" ]; then'
     assert removed in maintained["run"] and "was removed" in maintained["run"]
-    (data,) = [step for step in steps if step.get("name", "").endswith("dataset checks")]
-    assert '[ -f "$dir/agent.yaml" ] || continue' in data["run"]
+    # Its dataset checks run after that, on a folder that has the manifest.
+    assert maintained["run"].index(removed) < maintained["run"].index("mendari data check")
     for step in steps:  # no step that asks for a manifest by another name
         for line in step.get("run", "").splitlines():
             if "pack.yaml" in line:

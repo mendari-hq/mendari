@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The Inferno checker (scripts/inferno_check.py, the verdict of conformance.yml's `dtr-payer`):
-a run passes only when every test gives the result its expected results list, so a new failure,
+"""The Inferno checker (scripts/inferno_check.py, the verdict of each conformance.yml job): a
+run passes only when every test gives the result its expected results list, so a new failure,
 a known gap that now passes, a test the run skipped over and a test nobody listed all fail. The
 expected results themselves name a reason for every result that is not a pass, and the kit,
 suite and groups the workflow runs. No Inferno and no Docker here: the runs are fixtures."""
@@ -20,9 +20,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "inferno_check.py"
-EXPECTED = ROOT / "sandbox" / "inferno" / "dtr_payer_server_v220_expected.json"
 WORKFLOW = ROOT / ".github" / "workflows" / "conformance.yml"
-DOCKERFILE = ROOT / "sandbox" / "inferno" / "Dockerfile"
 
 
 def _script() -> Any:
@@ -204,52 +202,9 @@ def test_writing_keeps_each_reason_whose_result_did_not_change(
     assert [e["short_id"] for e in written.values()] == ["3.3.01", "3.6.01", "3.6.03"]
 
 
-# -- the expected results this repository runs against ---------------------------------------
-
-
-def _expected() -> dict[str, Any]:
-    loaded = json.loads(EXPECTED.read_text(encoding="utf-8"))
-    assert isinstance(loaded, dict)
-    return loaded
-
-
-def test_the_dtr_expected_results_are_valid_and_name_the_pinned_kit() -> None:
-    golden = _expected()
-    entries = check.expected_results(golden)
-    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
-    assert f"ARG KIT_COMMIT={golden['commit']}\n" in dockerfile
-    assert golden["suite"] == SUITE and golden["groups"] == ["1", "3", "4"]
-    assert golden["version"] == "0.18.0"
-    # Every test of groups 1, 3 and 4 is listed, with its short id and the kit's requirements.
-    shorts = [entry["short_id"] for entry in entries.values()]
-    assert len(shorts) == len(set(shorts)) and {s.split(".")[0] for s in shorts} == {"1", "3", "4"}
-    for entry in entries.values():
-        assert all(r.startswith("hl7.fhir.us.davinci-dtr_2.2.0@") for r in entry["requirements"])
-        assert entry["id"].startswith(f"{SUITE}-")
-
-
-def test_the_dtr_error_handling_dv_a_fixed_passes() -> None:
-    """DV-a's fixes, as Inferno sees them: the unknown questionnaire's warning (oper-9) and the
-    4xx for source data that names no decision (spec-130)."""
-    by_short = {entry["short_id"]: entry for entry in _expected()["tests"]}
-    assert by_short["3.6.01"]["result"] == "pass"
-    assert by_short["3.6.02"]["result"] == "pass"
-
-
-def test_the_workflow_runs_what_the_expected_results_list() -> None:
-    golden = _expected()
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    runs = "\n".join(step.get("run", "") for step in workflow["jobs"]["dtr-payer"]["steps"])
-    groups = " ".join(golden["groups"])
-    assert f"--suite {golden['suite']} --groups {groups}" in runs
-    assert f"list_tests.rb {golden['suite']} {groups}" in runs
-    assert "--expected sandbox/inferno/dtr_payer_server_v220_expected.json" in runs
-
-
 # -- the scripted suites (LP-23l): run through Inferno's web app by scripts/inferno_session.py --
 
 SCRIPTED_JOBS = {
-    "crd-server": ("crd_server_v221", "davinci-crd-test-kit", "hl7.fhir.us.davinci-crd_2.2.1@"),
     "smart-client": ("smart_client_stu2_2", "smart-app-launch-test-kit", "hl7.fhir.uv."),
     "bulk-client": ("bulk_data_v200_client", "bulk-data-test-kit", "hl7.fhir.uv."),
 }

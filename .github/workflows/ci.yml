@@ -84,15 +84,6 @@ jobs:
           MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
           MENDARI_DATASETS_PATH: tests/fixtures/datasets
         run: for agent in tests/fixtures/reference-agents/*/; do uv run mendari test "$agent"; done
-      - name: Every community agent passes its behaviour tests (a core change that breaks one shows here)
-        if: matrix.python == '3.12'
-        run: |
-          failed=0
-          for manifest in community-agents/*/agent.yaml; do
-            [ -f "$manifest" ] || continue
-            uv run mendari test "$(dirname "$manifest")" || failed=1
-          done
-          exit $failed
       - name: Postgres container logs on failure
         if: failure() && matrix.python == '3.12'
         run: docker logs --tail 80 mendari-pg || true
@@ -163,8 +154,8 @@ jobs:
     # terminology is loaded as a folder, so a code it emits that its CodeSystem lacks is an error.
     # The validator loads only the FHIR packages scripts/fhir_packages.lock pins, each checked
     # against its sha256, and runs with no HTTP access (--offline), so it can fetch nothing else.
-    # Each run has a package cache of its own with only what it loads, so the US Core run holds
-    # no other US Core and no Da Vinci guide for a canonical a resource cites to pull in.
+    # The run has a package cache of its own with only what it loads, so it holds no other US
+    # Core, and no guide a canonical that a resource cites could pull in.
     runs-on: ubuntu-latest
     env:
       VALIDATOR_VERSION: "6.10.4"
@@ -217,49 +208,30 @@ jobs:
       - run: uv run python scripts/fhir_terminology.py var/fhir-terminology
       - run: uv run python scripts/audit_fhir_sample.py var/fhir-samples/audit-export.json
       - run: uv run python scripts/task_fhir_sample.py var/fhir-samples
-      - run: uv run python scripts/sandbox_fhir_sample.py var/fhir-samples
+      - name: What the sandbox posts, for the demo agent and for the test fixtures' message agent
+        run: >-
+          uv run python scripts/sandbox_fhir_sample.py var/fhir-samples
+          --agent tests/fixtures/reference-agents/triage
       - name: What Mendari makes of FHIR input, for the demo agent and for each test-fixture agent on its US Core fixture
         run: >-
           uv run python scripts/fhir_output_sample.py var/fhir-samples
-          --fixture inbox=tests/fixtures/reference-agents/patient-inbox-router
-          --fixture prior-auth=tests/fixtures/reference-agents/prior-auth-preflight
-          --fixture referral=tests/fixtures/reference-agents/referral-router
-          --fixture trial=tests/fixtures/reference-agents/clinical-trial-prescreener
-          --record tests/fixtures/reference-agents/clinical-trial-prescreener/data/test.jsonl
+          --fixture chart=tests/fixtures/reference-agents/chart-summary
       - run: >-
           uv run python scripts/fhir_validate.py --offline
           --ig var/fhir-terminology
           --valid tests/fixtures/us-core/*.json var/fhir-samples/*.json var/fhir-terminology/*.json
           --invalid tests/fixtures/us-core/invalid/*.json
-      - name: The Da Vinci samples (CRD, DTR, PAS), decided by the test fixtures' prior-authorization agent
-        run: >-
-          uv run python scripts/davinci_sample.py var/fhir-samples/davinci
-          --agent tests/fixtures/reference-agents/prior-auth-preflight
-      - name: Da Vinci resources conform to their implementation guides
-        # With the CapabilityStatement (scripts/fhir_output_sample.py), which cites DTR's operation.
-        run: >-
-          uv run python scripts/fhir_validate.py --offline
-          --ig var/fhir-terminology
-          --ig var/fhir-packages/hl7.fhir.us.davinci-crd-2.2.1.tgz
-          --ig var/fhir-packages/hl7.fhir.us.davinci-dtr-2.2.0.tgz
-          --ig var/fhir-packages/hl7.fhir.us.davinci-pas-2.2.1.tgz
-          --valid var/fhir-samples/davinci/*.json
 
   sandbox-e2e:
     # The roadmap's v0.4 exit on the real sandbox (docker compose): HAPI FHIR, the SMART launcher
-    # and the engine. First the sandbox as it ships, on the bundled demo agent: its portal
-    # messages run from a scripted SMART EHR launch, and every input it decides on conforms to US
-    # Core. A second engine (profile `signin`) has sign-in on and the launcher registered for
+    # and the engine, as the sandbox ships, on the bundled demo agent: its portal messages run
+    # from a scripted SMART EHR launch, and every input it decides on conforms to US Core. A
+    # second engine (profile `signin`) has sign-in on and the launcher registered for
     # organization `pilot` (ADR-0006): its launches must decide in that organization, chained as
     # the launcher's `<issuer>|<subject>`. A Bulk export of the sandbox evaluates as the agent's
     # own dataset does, and a signed CDS client (compose service `cds-client`, LP-23e) calls both
     # engines' CDS Hooks services over HTTP with its own tokens.
-    # Then the same on the test fixtures' agents (sandbox/fixtures.compose.yml, each named by its
-    # folder), for what the demo agent has no use for: a launch on orders, the Bulk export of a
-    # record, and the standard hooks on the vendor-shaped EHR profile.
     runs-on: ubuntu-latest
-    env:
-      FIXTURES: -f docker-compose.yml -f sandbox/fixtures.compose.yml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -314,51 +286,6 @@ jobs:
         # a 200, a hook answer that is not CDS Hooks', or a card saying a read failed, fails the
         # job.
         run: docker compose --profile signin run --rm -T --use-aliases cds-client
-      - name: The engines again, serving the test fixtures' agents too
-        # sandbox/fixtures.compose.yml mounts tests/ into the engines, which now also serve the
-        # agents under tests/fixtures/reference-agents. New containers, so each fetches the next
-        # signed client's keys afresh.
-        run: docker compose $FIXTURES --profile signin up -d --wait engine engine-signin
-      - name: Seed a test-fixture agent's referrals
-        run: >-
-          docker compose $FIXTURES exec -T engine python -m tests.support.sandbox seed
-          --fhir http://fhir:8080/fhir --count 40
-          --agent tests/fixtures/reference-agents/referral-router
-      - name: SMART launch, a test-fixture agent on referrals
-        run: >-
-          docker compose $FIXTURES exec -T engine mendari sandbox smart-launch --strict
-          --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
-          --agent tests/fixtures/reference-agents/referral-router
-      - name: SMART launch, a test-fixture agent on portal messages
-        run: >-
-          docker compose $FIXTURES exec -T engine mendari sandbox smart-launch --strict
-          --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
-          --agent tests/fixtures/reference-agents/patient-inbox-router
-      - name: SMART launch with sign-in on, the agent on referrals, in the registered organization
-        run: >-
-          docker compose $FIXTURES exec -T engine-signin mendari sandbox smart-launch --strict
-          --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
-          --agent tests/fixtures/reference-agents/referral-router
-          --expect-org pilot --db /data/mendari.db
-      - name: SMART launch with sign-in on, the agent on portal messages, in the registered organization
-        run: >-
-          docker compose $FIXTURES exec -T engine-signin mendari sandbox smart-launch --strict
-          --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
-          --agent tests/fixtures/reference-agents/patient-inbox-router
-          --expect-org pilot --db /data/mendari.db
-      - name: Bulk export -> dataset -> mendari eval (the agent on referrals)
-        # The export's cases must evaluate exactly like the same cases read from the dataset file.
-        run: >-
-          docker compose $FIXTURES exec -T engine mendari sandbox bulk-check
-          --fhir http://fhir:8080/fhir
-          --agent tests/fixtures/reference-agents/referral-router
-          --dataset tests/fixtures/datasets/referral-local-site-example.jsonl
-      - name: The signed CDS client on the vendor-shaped EHR profile, both engines
-        # LP-23e: the container seeds the profile and calls discovery and every standard hook of
-        # the fixture agents (tests/support/sandbox.py). Any answer but a 200, a hook answer
-        # that is not CDS Hooks', or a card saying a read failed (anything unread but an RTF
-        # note, `notes: unsupported_type`), fails the job.
-        run: docker compose $FIXTURES --profile signin run --rm -T --use-aliases cds-client
       - if: failure()
         run: docker compose --profile signin logs --tail 200
 
@@ -466,58 +393,6 @@ jobs:
           /tmp/clean/bin/mendari search --risk 0
           /tmp/clean/bin/mendari new /tmp/refill-router --id my-clinic/refill-router
           /tmp/clean/bin/mendari test /tmp/refill-router
-
-  cql:
-    # v0.7: a test-fixture agent's criteria in CQL (logic/criteria.cql) must answer exactly like the
-    # `criteria` provider on every test and dataset case, on HAPI FHIR's Clinical Reasoning module.
-    runs-on: ubuntu-latest
-    env:
-      # Port 18090 stays outside Linux's 32768-60999 ephemeral range (58090 collided with
-      # outbound sockets during image pull).
-      MENDARI_CQL_URL: http://127.0.0.1:18090/fhir
-      MENDARI_FHIR_ALLOWED_SERVERS: http://127.0.0.1:18090
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Sign in to Docker Hub (this repository's own runs; forks and Dependabot pull anonymously)
-        if: (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]'
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
-        continue-on-error: true
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Start HAPI FHIR with Clinical Reasoning
-        run: >-
-          docker run -d --rm --name mendari-cql
-          -p 127.0.0.1:18090:8080
-          -e HAPI_FHIR_FHIR_VERSION=R4
-          -e HAPI_FHIR_CR_ENABLED=true
-          hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
-        with:
-          version: "0.13.6"
-          python-version: "3.12"
-      - run: uv sync --locked
-      - name: Wait for the CQL engine
-        run: for i in $(seq 1 90); do curl -sf "$MENDARI_CQL_URL/metadata" > /dev/null && exit 0; sleep 3; done; exit 1
-      # The agent with CQL beside its criteria is a test fixture, named by its directory: the
-      # product bundles no agent that reads a patient's record.
-      - name: CQL agrees with criteria on the agent's tests and datasets
-        run: >-
-          uv run mendari agreement tests/fixtures/reference-agents/clinical-trial-prescreener
-          --slot structured --variants criteria cql
-      - name: and on the local-site example (other units, codes and languages)
-        run: >-
-          uv run mendari agreement tests/fixtures/reference-agents/clinical-trial-prescreener
-          --slot structured --variants criteria cql
-          --dataset tests/fixtures/datasets/trial-local-site-example.jsonl
-      - name: The agent's behaviour tests pass with the CQL variant deployed
-        run: >-
-          uv run mendari test tests/fixtures/reference-agents/clinical-trial-prescreener
-          --provider structured=cql
-      - if: failure()
-        run: docker logs --tail 100 mendari-cql
 
   security:
     # v1.0 security review, on every change (docs/security/threat-model.md): no known-vulnerable
@@ -807,7 +682,7 @@ jobs:
       - name: The pilot on the demo agent, the committee approving a risk level 2 agent
         run: >-
           uv run mendari sandbox pilot-check --engine http://127.0.0.1:8000
-          --approve tests/fixtures/reference-agents/clinical-trial-prescreener
+          --approve tests/fixtures/reference-agents/clinical-review
       - if: failure()
         run: tail -100 /tmp/engine.log
 
