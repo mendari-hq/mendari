@@ -343,11 +343,7 @@ function WhatWasEvaluated({ evaluation, namespace }: { evaluation: AgentEvaluati
             </span>
           </Item>
         ))}
-        <Item term="Engine">
-          {engines.every((engine) => engine === null)
-            ? "Not stated in the signed records."
-            : `Mendari ${engines.filter(Boolean).join(", ")}, as stated by the publisher.`}
-        </Item>
+        <Item term="Engine">{`Mendari ${engines.join(", ")}, as stated by the publisher.`}</Item>
       </dl>
     </section>
   );

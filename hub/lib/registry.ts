@@ -12,9 +12,9 @@ export type Checked = {
   signature: { algorithm: string; key_id: string; verified: boolean };
   archive_sha256: string;
   digest: string;
-  engine: "bounded" | "maintained" | null; // null: published before the registry recorded it
+  engine: "bounded" | "maintained";
   engine_release?: string | null; // the registry's release whose bundled agents chose the engine
-  card: "rendered" | "not_rendered";
+  card: "rendered";
   status_label: string | null;
   // The newest review of this version by the registry's reviewers, if any.
   review:
@@ -54,7 +54,7 @@ const REGRESSION_STATUS: Record<string, string> = {
 
 // The regression check in a sentence. Its figure is the registry's own, on the publisher's set.
 export function regressionWords(check: Regression | null | undefined, shown: (f: Figure | null | undefined) => string): string {
-  if (!check) return "None: published before the registry ran the check";
+  if (!check) return "None: the registry ran no check when it was published";
   if (check.status !== "measured") return REGRESSION_STATUS[check.status] ?? check.status;
   const on = check.test_set?.name ? ` on its set ${check.test_set.name}` : "";
   const against = check.compared_with
@@ -116,8 +116,8 @@ export type Yank = {
 export type Deleted = { reason: string; at: string };
 export type Recalled = { version: string; yank: Yank | null; deleted: Deleted | null };
 
-// The card the registry rendered from the pack's own files; null for a version published before.
-export type PackVersion = PackSummary & { card_markdown: string | null; yank?: Yank | null; deleted?: Deleted | null };
+// The card the registry rendered from the agent's own files.
+export type PackVersion = PackSummary & { card_markdown: string; yank?: Yank | null; deleted?: Deleted | null };
 
 // `latest` is the newest version that is not recalled: null when every version is.
 export type PackDetail = { id: string; versions: string[]; recalled?: Recalled[]; latest: PackVersion | null };
@@ -127,9 +127,8 @@ export type Namespace = {
   display_name: string;
   publisher_type: string;
   created_at: string;
-  // `revoked_at`: when the registry's operator revoked the key, null while it is live (a registry
-  // from before it sends none: read as live).
-  keys: { key_id: string; created_at: string; revoked_at?: string | null }[];
+  // `revoked_at`: when the registry's operator revoked the key, null while it is live.
+  keys: { key_id: string; created_at: string; revoked_at: string | null }[];
   packs: string[];
 };
 
@@ -270,7 +269,7 @@ export type EvaluationFigures = {
   outcomes: Record<string, { count: number; share: Figure | null }>;
 };
 // The publisher's own figures of a run, never a count: `failed_cases` (the cases a provider
-// failed on) only in a record that states it.
+// failed on) in every record shown; none of them for a record that no longer verifies.
 export type EvaluationClaimed = {
   latency_ms_p50?: number | null;
   latency_ms_p95?: number | null;
@@ -288,10 +287,9 @@ export type PublisherEvaluation = {
   models: string[];
   claimed: EvaluationClaimed;
   created_at: string;
-  // "key revoked" or "not verified": listed, left out of the comparison. A registry from before
-  // it checked a record again on every read sends no `signature`.
+  // "key revoked" or "not verified": listed, left out of the comparison.
   excluded: string | null;
-  signature?: { key_id: string; verified: boolean; problem: string | null };
+  signature: { key_id: string; verified: boolean; problem: string | null };
   figures: EvaluationFigures | null;
 };
 export type PublisherEvaluations = {
@@ -303,7 +301,7 @@ export type PublisherEvaluations = {
   superseded: number;
 };
 
-// null: no such version, or a registry from before publisher evaluations (no such route).
+// null: no such version.
 export const publisherEvaluations = (namespace: string, name: string, version: string) =>
   get<PublisherEvaluations>(`${agentPath(namespace, name)}/${encodeURIComponent(version)}/evaluations`);
 
@@ -326,10 +324,9 @@ export type Comparison = {
   separated: boolean | null; // whether the two intervals keep apart; false: it could be chance
   // The first configuration and every other the counts cannot tell from it, in the order shown;
   // and the one that did best, which the registry names only when it is alone there (ADR-0020,
-  // amended 2026-11-24). A registry from before that amendment sends neither: this site then
-  // names none as best.
-  first_band?: string[];
-  best?: string | null;
+  // amended 2026-11-24).
+  first_band: string[];
+  best: string | null;
 };
 export type EvaluatedConfiguration = {
   id: string; // the signed record's id: the SHA-256 of its canonical JSON
@@ -337,7 +334,7 @@ export type EvaluatedConfiguration = {
   label: string; // "slot=variant, slot=variant"
   providers: Record<string, { variant: string; type: string; model: string | null }>;
   models: string[];
-  engine: string | null; // null: the record's format does not state it
+  engine: string; // the Mendari release that ran it, as the publisher states
   record_format: string;
   signed: { key_id: string; at: string; verified: true };
   rerun: "matched" | "calls_a_model";
@@ -353,7 +350,7 @@ export type EvaluatedDataset = {
   name: string;
   sha256: string;
   n: number;
-  provenance: "synthetic" | "de_identified" | "site_records" | null; // null: no record states it
+  provenance: "synthetic" | "de_identified" | "site_records" | null; // null: the manifest does not say
   labelled_by: string[]; // the publisher's own words
   critical: { question: string; label: string; n: number }[];
   comparison: Comparison;
@@ -390,7 +387,7 @@ export type AgentEvaluation = {
   badge: BadgeWords;
 };
 
-// null: no such agent (or version), or a registry from before evaluation pages.
+// null: no such agent (or version).
 export const agentEvaluation = (namespace: string, name: string, version?: string) =>
   get<AgentEvaluation>(
     `${agentPath(namespace, name)}/evaluation${version ? `?version=${encodeURIComponent(version)}` : ""}`,

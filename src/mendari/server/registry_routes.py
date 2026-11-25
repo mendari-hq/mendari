@@ -476,8 +476,7 @@ def add_registry_review_routes(
     )
     def one_version(request: Request, namespace: str, name: str, version: str) -> dict[str, Any]:
         """One version of any namespace, listed or not, as the queue shows it, with the card
-        the registry rendered from its archive (`card_markdown`; null for a version from before
-        the registry rendered its own)."""
+        the registry rendered from its archive (`card_markdown`)."""
         reviewer(request)
         _a_version(namespace, name, version)
         found = _asked(lambda: registry.version(namespace, name, version, REVIEWER))

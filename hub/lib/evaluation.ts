@@ -167,7 +167,7 @@ function compared(dataset: EvaluatedDataset): ComparisonWords {
       // Named by the registry, and only the one it lists first: anything else names none.
       const best = comparison.best && comparison.best === comparison.first ? comparison.best : null;
       // The others in the first band: those the counts cannot tell from the first.
-      const close = (comparison.first_band ?? []).filter((id) => id !== comparison.first).map((id) => labelOf(dataset, id));
+      const close = comparison.first_band.filter((id) => id !== comparison.first).map((id) => labelOf(dataset, id));
       const closeButSecond = close.filter((label) => label !== second);
       const detail = [
         measure ? decided(measure, comparison, second) : "",
@@ -187,10 +187,7 @@ function compared(dataset: EvaluatedDataset): ComparisonWords {
         : "";
       const headline = best
         ? `${first} did best on this dataset${still}.`
-        : close.length
-          ? `No configuration is clearly best on this dataset: ${first} is listed first, but it is not clearly ahead of ${listed(close, "or")}.`
-          : // A registry that does not say which are close (one from before it named a best one).
-            `No configuration is named as best on this dataset: ${first} is listed first.`;
+        : `No configuration is clearly best on this dataset: ${first} is listed first, but it is not clearly ahead of ${listed(close, "or")}.`;
       return { headline, detail, best, tone: through ? "warn" : best ? "ok" : tone };
     }
   }
@@ -243,8 +240,8 @@ export function claimedWords(claimed: EvaluationClaimed): string {
   return `${speed.length ? speed.join(", ") : "speed not reported"}; ${cost}`;
 }
 
-// The cases a provider failed on (there the engine sends the case to a person); null for a
-// record that does not state it.
+// The cases a provider failed on (there the engine sends the case to a person); null where
+// nothing is claimed.
 export function failedWords(claimed: EvaluationClaimed, n: number): string | null {
   if (claimed.failed_cases == null) return null;
   if (claimed.failed_cases === 0) return `No provider failure in the ${counted(n, "case")}.`;
