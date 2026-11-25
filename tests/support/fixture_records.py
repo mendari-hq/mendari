@@ -336,7 +336,7 @@ class Case:
         Practitioner, Conditions, MedicationStatements, then each MedicationRequest after the
         Medication it names beside it, notes (a Binary after its DocumentReference), a lab
         result, the order."""
-        return [_entry(resource) for resource in self.resources(today, site=site)]
+        return [bundle_entry(resource) for resource in self.resources(today, site=site)]
 
     def bundle(self, today: date = TODAY, *, site: Site = None) -> dict[str, Any]:
         """The case's record as a collection Bundle (`entries`)."""
@@ -371,7 +371,7 @@ class Case:
         return found
 
 
-def _entry(resource: dict[str, Any]) -> dict[str, Any]:
+def bundle_entry(resource: dict[str, Any]) -> dict[str, Any]:
     """A collection Bundle's entry: the resource, at its URL under `BASE`."""
     return {"fullUrl": f"{BASE}/{resource['resourceType']}/{resource['id']}", "resource": resource}
 
@@ -403,7 +403,7 @@ def born(age: int, today: date) -> str:
     return (today - timedelta(days=round(age * 365.25) + 180)).isoformat()
 
 
-def _tagged(resource: dict[str, Any], profile: str | None = None) -> dict[str, Any]:
+def tagged(resource: dict[str, Any], profile: str | None = None) -> dict[str, Any]:
     """`resource` with its `meta`: the US Core profile it claims, if any, and the sandbox tag."""
     resource["meta"] = meta(profile) if profile else {"tag": [SANDBOX_TAG]}
     return resource
@@ -415,7 +415,7 @@ def _patient(case: Case, today: date) -> dict[str, Any]:
 
 
 def _practitioner() -> dict[str, Any]:
-    return _tagged(
+    return tagged(
         {
             "resourceType": "Practitioner",
             "id": PRESCRIBER,
@@ -452,7 +452,7 @@ def _condition(
         SITE_DIAGNOSES,
         site,
     )
-    return _tagged(
+    return tagged(
         {
             "resourceType": "Condition",
             "id": f"{case.id}-condition-{n}",
@@ -483,7 +483,7 @@ def _statement(
     period = {"start": medication.start}
     if medication.end is not None:
         period["end"] = medication.end
-    return _tagged(
+    return tagged(
         {
             "resourceType": "MedicationStatement",
             "id": f"{case.id}-statement-{n}",
@@ -496,7 +496,7 @@ def _statement(
 
 
 def _medication(case: Case, n: int, medication: Medication, site: Site) -> dict[str, Any]:
-    return _tagged(
+    return tagged(
         {"resourceType": "Medication", "id": f"{case.id}-drug-{n}", "code": _drug(medication, site)}
     )
 
@@ -535,7 +535,7 @@ def _request(
     else:
         request["authoredOn"] = medication.start
     request["requester"] = {"reference": f"Practitioner/{PRESCRIBER}"}
-    return _tagged(request, "us-core-medicationrequest")
+    return tagged(request, "us-core-medicationrequest")
 
 
 def _base64(text: str) -> str:
@@ -553,7 +553,7 @@ def _note(case: Case, n: int, note: Note, subject: dict[str, str]) -> list[dict[
     else:
         attachment = {"contentType": "text/plain", "data": _base64(note.text)}
     found = [
-        _tagged(
+        tagged(
             {
                 "resourceType": "DocumentReference",
                 "id": reference,
@@ -574,14 +574,14 @@ def _note(case: Case, n: int, note: Note, subject: dict[str, str]) -> list[dict[
             "contentType": "text/plain",
             "data": _base64(note.text),
         }
-        found.append(_tagged(binary))
+        found.append(tagged(binary))
     return found
 
 
 def _inr(case: Case, subject: dict[str, str]) -> dict[str, Any]:
     """An INR result (LOINC 6301-6, in UCUM's `{INR}`), which the agent does not read."""
     laboratory = {"system": f"{TERMINOLOGY}/observation-category", "code": "laboratory"}
-    return _tagged(
+    return tagged(
         {
             "resourceType": "Observation",
             "id": f"{case.id}-inr",
@@ -601,7 +601,7 @@ def _order(case: Case, subject: dict[str, str], site: Site) -> dict[str, Any]:
     codings = _codings(
         _coding(ICD10PCS, case.order, title), SITE_ORDER_CODES.get(case.order), SITE_ORDERS, site
     )
-    return _tagged(
+    return tagged(
         {
             "resourceType": "ServiceRequest",
             "id": f"{case.id}-order",
@@ -828,7 +828,7 @@ def us_core_invalid_chart() -> dict[str, Any]:
     myself = {"coding": [{"system": f"{TERMINOLOGY}/subscriber-relationship", "code": "self"}]}
     resources: list[dict[str, Any]] = [
         {"resourceType": "Patient", "id": pid, **_without_type(person)},
-        _tagged(
+        tagged(
             {
                 "resourceType": "Condition",
                 "id": f"{pid}-condition",
@@ -838,7 +838,7 @@ def us_core_invalid_chart() -> dict[str, Any]:
             },
             "us-core-condition-problems-health-concerns",
         ),
-        _tagged(
+        tagged(
             {
                 "resourceType": "MedicationStatement",
                 "id": f"{pid}-statement",
@@ -847,7 +847,7 @@ def us_core_invalid_chart() -> dict[str, Any]:
                 "subject": subject,
             }
         ),
-        _tagged(
+        tagged(
             {
                 "resourceType": "MedicationRequest",
                 "id": f"{pid}-request",
@@ -858,7 +858,7 @@ def us_core_invalid_chart() -> dict[str, Any]:
             },
             "us-core-medicationrequest",
         ),
-        _tagged(
+        tagged(
             {
                 "resourceType": "DocumentReference",
                 "id": f"{pid}-note",
@@ -870,7 +870,7 @@ def us_core_invalid_chart() -> dict[str, Any]:
             },
             "us-core-documentreference",
         ),
-        _tagged(
+        tagged(
             {
                 "resourceType": "ServiceRequest",
                 "id": f"{pid}-order",
@@ -881,7 +881,7 @@ def us_core_invalid_chart() -> dict[str, Any]:
             },
             "us-core-servicerequest",
         ),
-        _tagged(
+        tagged(
             {
                 "resourceType": "Observation",
                 "id": f"{pid}-lab",
@@ -894,7 +894,7 @@ def us_core_invalid_chart() -> dict[str, Any]:
             },
             "us-core-observation-lab",
         ),
-        _tagged(
+        tagged(
             {
                 "resourceType": "DiagnosticReport",
                 "id": f"{pid}-report",
@@ -905,7 +905,7 @@ def us_core_invalid_chart() -> dict[str, Any]:
             },
             "us-core-diagnosticreport-note",
         ),
-        _tagged(
+        tagged(
             {
                 "resourceType": "Coverage",
                 "id": f"{pid}-coverage",
@@ -916,7 +916,7 @@ def us_core_invalid_chart() -> dict[str, Any]:
             },
             "us-core-coverage",
         ),
-        _tagged(
+        tagged(
             {
                 "resourceType": "Procedure",
                 "id": f"{pid}-procedure",
@@ -932,7 +932,7 @@ def us_core_invalid_chart() -> dict[str, Any]:
         "id": INVALID_BUNDLE,
         "meta": {"tag": [SANDBOX_TAG]},
         "type": "collection",
-        "entry": [_entry(resource) for resource in resources],
+        "entry": [bundle_entry(resource) for resource in resources],
     }
 
 
