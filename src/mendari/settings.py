@@ -24,6 +24,25 @@ MAX_DECISION_DEADLINE_S = 270
 FhirValidation = Literal["off", "warn", "enforce"]
 
 
+# The prefix the settings had under the project's former name. None is read any more, and a
+# deployment that still sets one would run without what it names (sign-in among them), so the
+# server refuses to start while one is set.
+FORMER_PREFIX = "OPENHEALTH_"
+
+
+def refuse_former_settings() -> None:
+    """Refuse, at startup, a deployment that still sets a setting under the project's former
+    name: it is read no more, and sign-in named so would leave the server open. Names only,
+    never a value."""
+    former = sorted(name for name in os.environ if name.startswith(FORMER_PREFIX))
+    if former:
+        raise MendariError(
+            f"{', '.join(former)}: settings under this name are read no more. Set each under its "
+            "MENDARI_ name instead (docs/deploying-with-phi.md lists them), unset these, then "
+            "start again."
+        )
+
+
 def display_timezone() -> ZoneInfo:
     """The time zone people see: calendar days, daily counters and displayed times
     ($MENDARI_TIMEZONE, an IANA name; default US Eastern). Stored timestamps stay UTC."""

@@ -98,7 +98,8 @@ LIVE_SETTINGS = (
     "MENDARI_CDS_CLIENTS", "MENDARI_SITE_CODES", "MENDARI_EHR_DECLARATIONS",
     "MENDARI_AGENT_URL", "MENDARI_AGENT_TOKEN",
 )  # fmt: skip
-for _name in LIVE_SETTINGS:
+# And every setting under the project's former name, which stops a server at startup.
+for _name in [*LIVE_SETTINGS, *(name for name in os.environ if name.startswith("OPENHEALTH_"))]:
     os.environ.pop(_name, None)
 # An input hash key (MENDARI_INPUT_HASH_KEY), which PHI modes hash and encrypt require.
 INPUT_HASH_KEY = secrets.token_bytes(32)

@@ -143,3 +143,21 @@ def test_an_empty_daily_limit_is_unset_not_a_startup_failure(
     """Every other setting reads an empty value as unset; this one refused to start."""
     monkeypatch.setenv("MENDARI_LLM_DAILY_LIMIT", "  ")
     assert mendari_settings.daily_limits()["llm"] == mendari_settings.DEFAULT_LLM_DAILY_LIMIT
+
+
+def test_a_setting_under_the_former_name_stops_the_server_and_names_only_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A setting named `OPENHEALTH_...` is read no more: a deployment that still sets one (its
+    sign-in, say) would run without it, so the server refuses to start, naming the variables and
+    never their values."""
+    monkeypatch.setenv("OPENHEALTH_OIDC_ISSUER", "https://idp.example.org/secret-tenant")
+    monkeypatch.setenv("OPENHEALTH_OIDC_CLIENT_ID", "mendari")
+    with pytest.raises(MendariError) as refused:
+        create_app(db_path=tmp_path / "a.db")
+    said = str(refused.value)
+    assert said.startswith("OPENHEALTH_OIDC_CLIENT_ID, OPENHEALTH_OIDC_ISSUER: settings")
+    assert "secret-tenant" not in said and "MENDARI_" in said
+    monkeypatch.delenv("OPENHEALTH_OIDC_ISSUER")
+    monkeypatch.delenv("OPENHEALTH_OIDC_CLIENT_ID")
+    assert TestClient(create_app(db_path=tmp_path / "b.db")).get("/api/health").status_code == 200

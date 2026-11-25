@@ -532,6 +532,7 @@ def create_app(
     """`providers` are the deployment's provider settings (`settings.parse_providers`);
     `default_providers` (agent id -> slot -> variant) fill each slot those settings choose
     nothing for, before the agent's own default."""
+    settings.refuse_former_settings()  # a setting under the former name stops startup here
     timezone = clock.zone().key  # an invalid MENDARI_TIMEZONE fails here, at startup
     validation = fhir_validation or settings.fhir_validation()  # likewise
     fhir_servers = sorted(allowed_servers())  # likewise
