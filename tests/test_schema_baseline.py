@@ -84,13 +84,13 @@ def execute(target: str, *statements: str) -> None:
     if postgres(target):
         import psycopg
 
-        with psycopg.connect(target, autocommit=True) as connection:
+        with psycopg.connect(target, autocommit=True) as served:
             for statement in statements:
-                connection.execute(statement)
+                served.execute(statement)
         return
-    with closing(sqlite3.connect(target)) as connection, connection:
+    with closing(sqlite3.connect(target)) as local, local:
         for statement in statements:
-            connection.execute(statement)
+            local.execute(statement)
 
 
 def snapshot(target: str) -> dict[str, list[str]]:
@@ -123,7 +123,7 @@ def snapshot(target: str) -> dict[str, list[str]]:
 
 
 def marks(target: str, baseline: Baseline) -> list[str]:
-    """The values of the store's mark rows (one, once its schema is made)."""
+    """The store's mark rows, as `snapshot` shows them (one, once its schema is made)."""
     rows = snapshot(target).get(baseline.table, [])
     return [row for row in rows if row.startswith("('schema',")]
 

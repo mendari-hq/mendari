@@ -352,8 +352,10 @@ def test_sign_in_sessions_are_untouched(db_target: str, monkeypatch: pytest.Monk
         with AuditStore(db_target) as store:
             sid = "zap-session-id"
             until = int(time.time()) + 7200
-            row = {"sub": "zap", "name": "zap", "roles": ["admin"], "org": "default"}
-            row["absolute_at"] = until
+            row = {
+                "sub": "zap", "name": "zap", "roles": ["admin"], "org": "default",
+                "absolute_at": until,
+            }  # fmt: skip
             store.smart_put(sid, "user", row, until)
             assert store.smart_get(sid, "user") == row
             viewer = signed_in(store, role="viewer")
