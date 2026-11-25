@@ -2,8 +2,9 @@
 """The structural R4 gate (standards/fhir_structure.py) and the file it reads.
 
 jsonschema is the oracle: the same derived schema, run by a JSON Schema implementation, must give
-the walker's verdicts on the fixtures, the sandbox and Da Vinci samples, and their mistyped
-variants. `uv run pytest -m slow` also runs the gate over HL7's R4 examples, when cached.
+the walker's verdicts on the US Core fixtures, the sandbox's samples and a vendor-shaped EHR's
+records, and their mistyped variants. `uv run pytest -m slow` also runs the gate over HL7's R4
+examples, when cached.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import io
+import itertools
 import json
 import re
 import tarfile
@@ -23,20 +25,26 @@ from fastapi.testclient import TestClient
 from jsonschema import Draft6Validator, ValidationError, validators
 
 from mendari.core.decision import Decision
+from mendari.core.pack import load_pack
 from mendari.core.spec import Outcome
 from mendari.errors import FhirStructureError
+from mendari.sandbox import fhir_workflow
 from mendari.server.app import create_app
 from mendari.standards import fhir_structure, us_core
 from mendari.standards.fhir_structure import check
 from mendari.standards.us_core import Issue
-from tests.support.sandbox import EHR_PROFILE, INBOX, REFERRAL, seed_bundle
+from tests.conftest import DEMO_AGENT_DIR, TRIAGE_DIR
+from tests.support import fixture_records as records
+from tests.support.chart_ehr import ChartEhr
 from tests.test_fhir_errors import WRONG_TYPES, element_paths, replaced
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures" / "us-core"
 EXAMPLES = ROOT / "var" / "fhir-packages" / "hl7.fhir.r4.examples-4.0.1.tgz"
 SECRET = "Synthetic secret: chest pain since noon"  # must never come back in an issue
-REFERRAL_PACK = "mendari/referral-router"
+CHART = "mendari-test/chart-summary"  # it decides chart.json, a patient's record
+PATIENT = f"Patient/{records.SHOWCASE.id}"  # chart.json's Patient, the record's focus
+US_CORE_FIXTURES = ("triage.json", "chart.json")
 EXTENSION = "https://mendari.co/fhir/test/x"
 DIAGNOSTICS = re.compile(
     r"(?P<element>_?[A-Za-z][A-Za-z0-9]*|an element|resourceType) ("
@@ -214,31 +222,26 @@ def jsonschema_check() -> Callable[[Any], list[ValidationError]]:
 
 
 @pytest.fixture(scope="module")
-def samples(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    """The US Core fixtures, and what `scripts/sandbox_fhir_sample.py` and
-    `scripts/davinci_sample.py` write for the HL7 validator in CI."""
-    names = ("inbox.json", "referral.json", "prior-auth.json", "trial.json")
-    documents = {name: load(name) for name in names}
-    documents["sandbox-inbox"] = seed_bundle(INBOX, 20)
-    documents["sandbox-referral"] = seed_bundle(REFERRAL, 40)
-    documents["sandbox-ehr-profile"] = seed_bundle(EHR_PROFILE, 0)  # LP-23e
-    davinci = tmp_path_factory.mktemp("davinci")
-    # As CI gives it: the prior-authorization agent of the test fixtures, by its directory.
-    agent = ROOT / "tests" / "fixtures" / "reference-agents" / "prior-auth-preflight"
-    load_script("davinci_sample").main(davinci, agent)
-    for path in sorted(davinci.glob("*.json")):
-        documents[path.stem] = json.loads(path.read_text(encoding="utf-8"))
+def samples() -> dict[str, Any]:
+    """The US Core fixtures; what `mendari sandbox seed` loads for an agent of messages (the
+    bundled demo agent's, as `scripts/sandbox_fhir_sample.py` writes it for the HL7 validator in
+    CI, and the triage fixture's); and a vendor-shaped EHR's records of chart fixture patients
+    (tests/support/chart_ehr.py, LP-23e): each note's Binaries plain, HTML, RTF, or HTML with an
+    RTF twin, every drug a Medication beside its request."""
+    documents = {name: load(name) for name in US_CORE_FIXTURES}
+    documents["sandbox-messages"] = fhir_workflow.seed_bundle(load_pack(DEMO_AGENT_DIR), 20)
+    documents["sandbox-triage"] = fhir_workflow.seed_bundle(load_pack(TRIAGE_DIR), 20)
+    charts = records.cases("test")[:8]
+    renditions = itertools.cycle(("plain", "html", "rtf", "twin"))
+    rendition = {case.id: next(renditions) for case in charts}
+    documents["vendor-shaped-charts"] = ChartEhr.of(*charts, rendition=rendition).bundle()
     return documents
 
 
 def test_the_samples_are_clean_for_both(
     samples: dict[str, Any], jsonschema_check: Callable[[Any], list[ValidationError]]
 ) -> None:
-    # 12 Da Vinci samples: PAS with every X12 code, only required, and a request that needs
-    # attention with its completed QuestionnaireResponse; DTR with a warning too; CRD's
-    # `indeterminate` coverage over a record that could not be read (LP-23d); and the sandbox's
-    # vendor-shaped EHR profile (LP-23e)
-    assert len(samples) == 19
+    assert len(samples) == 5
     for name, document in samples.items():
         assert check(document) == [], name
         assert jsonschema_check(document) == [], name
@@ -247,9 +250,9 @@ def test_the_samples_are_clean_for_both(
 def test_the_walker_and_jsonschema_agree_on_mistyped_fixtures(
     samples: dict[str, Any], jsonschema_check: Callable[[Any], list[ValidationError]]
 ) -> None:
-    """Every element of the four US Core fixtures, replaced by each wrong JSON type."""
+    """Every element of the US Core fixtures, replaced by each wrong JSON type."""
     compared = 0
-    for name in ("inbox.json", "referral.json", "prior-auth.json", "trial.json"):
+    for name in US_CORE_FIXTURES:
         seed = samples[name]
         for path in element_paths(seed):
             for wrong in WRONG_TYPES:
@@ -263,8 +266,9 @@ def test_the_walker_and_jsonschema_agree_on_mistyped_fixtures(
 def test_the_walker_and_jsonschema_agree_on_mistyped_samples(
     samples: dict[str, Any], jsonschema_check: Callable[[Any], list[ValidationError]]
 ) -> None:
-    """The sandbox and Da Vinci samples: one resource of each type in each, every element
-    replaced by one wrong JSON type in turn (all four would take seconds and find nothing new)."""
+    """The sandbox's and the vendor-shaped EHR's samples: one resource of each type in each,
+    every element replaced by one wrong JSON type in turn (all four would take seconds and find
+    nothing new)."""
     compared = 0
     for name, document in samples.items():
         if name.endswith(".json"):
@@ -275,7 +279,7 @@ def test_the_walker_and_jsonschema_agree_on_mistyped_samples(
                 theirs = verdict_of_oracle(jsonschema_check(mistyped))
                 assert verdict(check(mistyped)) == theirs, (name, resource["resourceType"], path)
                 compared += 1
-    assert compared > 700
+    assert compared > 200
 
 
 def one_of_each_type(document: dict[str, Any]) -> list[dict[str, Any]]:
@@ -311,7 +315,7 @@ def test_the_issue_codes_and_their_vocabulary() -> None:
 def test_every_diagnostic_on_the_mistyped_fixtures_is_from_the_vocabulary(
     samples: dict[str, Any],
 ) -> None:
-    seed = samples["referral.json"]
+    seed = samples["chart.json"]
     for path in element_paths(seed):
         for wrong in WRONG_TYPES:
             for issue in check(replaced(seed, path, wrong)):
@@ -467,7 +471,7 @@ def test_a_resource_is_labelled_by_its_id_only_when_it_is_an_id(resource_id: Any
 def test_issues_never_contain_values_or_client_text(samples: dict[str, Any]) -> None:
     """A marked synthetic string as every value, as an unknown key at every level, as a
     resource type and as an id: it is never in an issue."""
-    seed = samples["referral.json"]
+    seed = samples["chart.json"]
     texts: list[str] = []
     for path in element_paths(seed):
         texts += [json.dumps([i.to_dict() for i in check(replaced(seed, path, SECRET))])]
@@ -511,8 +515,9 @@ def test_a_profile_issue_replaces_the_same_base_issue() -> None:
 # -- decisions ----------------------------------------------------------------------------------
 
 
-def referral(**changes: Any) -> dict[str, Any]:
-    bundle = copy.deepcopy(load("referral.json"))
+def chart(**changes: Any) -> dict[str, Any]:
+    """chart.json, its Patient changed."""
+    bundle = copy.deepcopy(load("chart.json"))
     found_patient = next(
         e["resource"] for e in bundle["entry"] if e["resource"]["resourceType"] == "Patient"
     )
@@ -523,9 +528,7 @@ def referral(**changes: Any) -> dict[str, Any]:
 def test_a_malformed_primitive_is_a_structure_error_in_every_mode() -> None:
     for mode in ("off", "warn", "enforce"):
         with pytest.raises(FhirStructureError) as raised:
-            Decision.from_hub(REFERRAL_PACK, fhir_validation=mode).decide_fhir(
-                referral(birthDate="May 1st")
-            )
+            Decision.from_hub(CHART, fhir_validation=mode).decide_fhir(chart(birthDate="May 1st"))
         assert raised.value.issues == [
             {
                 "code": "value",
@@ -536,39 +539,39 @@ def test_a_malformed_primitive_is_a_structure_error_in_every_mode() -> None:
 
 
 def test_base_r4_findings_follow_fhir_validation() -> None:
-    bundle = referral(text={"status": "generated"})  # a narrative without its div
-    off, _ = Decision.from_hub(REFERRAL_PACK, fhir_validation="off").decide_fhir(bundle)
-    warn, _ = Decision.from_hub(REFERRAL_PACK, fhir_validation="warn").decide_fhir(bundle)
+    bundle = chart(text={"status": "generated"})  # a narrative without its div
+    off, _ = Decision.from_hub(CHART, fhir_validation="off").decide_fhir(bundle)
+    warn, _ = Decision.from_hub(CHART, fhir_validation="warn").decide_fhir(bundle)
     assert off.input_issues == ()
     assert [(i["expression"], i["code"], i["profile"]) for i in warn.input_issues] == [
         ("Patient.text.div", "required", "http://hl7.org/fhir/StructureDefinition/Patient")
     ]
     assert (warn.outcome, warn.recommendation) == (off.outcome, off.recommendation)
-    enforced, _ = Decision.from_hub(REFERRAL_PACK, fhir_validation="enforce").decide_fhir(bundle)
+    enforced, _ = Decision.from_hub(CHART, fhir_validation="enforce").decide_fhir(bundle)
     assert enforced.outcome is Outcome.BLOCK and enforced.answers == {}
     assert enforced.reasons == (
-        "input rejected: not R4 Patient: Patient/ref-p1 Patient.text.div: div is required",
+        f"input rejected: not R4 Patient: {PATIENT} Patient.text.div: div is required",
     )
 
 
 def test_each_rejection_names_its_own_profile() -> None:
-    bundle = referral(text={"status": "generated"})
+    bundle = chart(text={"status": "generated"})
     patient_resource = next(
         e["resource"] for e in bundle["entry"] if e["resource"]["resourceType"] == "Patient"
     )
     patient_resource.pop("name")
-    result, _ = Decision.from_hub(REFERRAL_PACK, fhir_validation="enforce").decide_fhir(bundle)
+    result, _ = Decision.from_hub(CHART, fhir_validation="enforce").decide_fhir(bundle)
     assert result.reasons == (
-        "input rejected: not US Core 6.1.0: Patient/ref-p1 Patient.name: name is required "
+        f"input rejected: not US Core 6.1.0: {PATIENT} Patient.name: name is required "
         "(US Core Patient Profile)",
-        "input rejected: not R4 Patient: Patient/ref-p1 Patient.text.div: div is required",
+        f"input rejected: not R4 Patient: {PATIENT} Patient.text.div: div is required",
     )
 
 
 def test_an_issue_keeps_its_code_in_the_operation_outcome(tmp_path: Path) -> None:
     client = TestClient(create_app(db_path=tmp_path / "s.db"), raise_server_exceptions=False)
-    url = f"/api/agents/{REFERRAL_PACK}/fhir/decide"
-    response = client.post(url, json=referral(birthDate="May 1st", nickname="Al"))
+    url = f"/api/agents/{CHART}/fhir/decide"
+    response = client.post(url, json=chart(birthDate="May 1st", nickname="Al"))
     assert response.status_code == 400
     assert [(i["code"], i["expression"]) for i in response.json()["issue"]] == [
         ("value", ["Patient.birthDate"]),
