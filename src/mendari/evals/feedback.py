@@ -16,7 +16,7 @@ behaviour test a person writes for the agent. Nothing here changes an agent; imp
 reviewed and versioned.
 
 Every record says it was exported (`attributes.exported_by`, `core/site_cases.py`). It is a
-site's case wherever the file goes, and may be patient text: no archive is made of a pack that
+site's case wherever the file goes, and may be patient text: no archive is made of an agent that
 holds one, as the file an export wrote or as records copied into the agent's datasets.
 
 Reviewed cases are not a sample of what an agent sees. They are the decisions it sent to a person

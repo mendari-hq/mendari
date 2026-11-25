@@ -155,8 +155,7 @@ DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
 VENDOR_DIR = DASHBOARD_DIR / "vendor"  # third-party front-end code (scripts/vendor_docs_ui.py)
 DEMO_AGENT = "mendari/portal-message-agent"  # the one agent a release bundles
 JsonBody = Annotated[dict[str, Any], Body()]
-# The agent a request names by `pack_id`: the parameter keeps its name on the wire, and the API
-# description shows it as what it is.
+# The agent a request names by `agent_id`, titled for the API description.
 AgentId = Annotated[str, Query(title="Agent id")]
 AgentFilter = Annotated[str | None, Query(title="Agent id")]
 _DATASET_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")

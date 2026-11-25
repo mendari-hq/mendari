@@ -87,7 +87,7 @@ SLOW_SHARE = 0.05
 # The days a report may cover: two whole weeks at least, so the week before always exists.
 MIN_DAYS = 14
 MAX_DAYS = 180
-# A local provider's model is its type and a hash of the pack's files (`rules@661449489daf`):
+# A local provider's model is its type and a hash of the agent's files (`rules@661449489daf`):
 # the agent's digest fixes it. Any other model (an LLM's, a composite's) is a setting.
 _LOCAL_MODEL = re.compile(r"^[a-z_]+@[0-9a-f]+$")
 # The deployment records read to find the current configuration and what runs.

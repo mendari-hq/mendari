@@ -116,9 +116,9 @@ class Agent:
 
     @property
     def pulled(self) -> dict[str, Any]:
-        """For a pack from a registry, what its verified marker records of where it came from
+        """For an agent from a registry, what its verified marker records of where it came from
         (`core/origin.py` `pulled_record`), or, for one an organization's agent store keeps,
-        the record the database holds (`origin_record`); for any other pack, nothing."""
+        the record the database holds (`origin_record`); for any other agent, nothing."""
         if self.origin != "hub":
             return {}
         if self.origin_record is not None:
@@ -316,19 +316,19 @@ def manifests_under(base: Path) -> list[Path]:
 
 def load_agent(path: str | Path, *, origin: Origin = "local") -> Agent:
     """Load and validate an agent. `origin` is where it was found (`core/registry.py` knows).
-    A pack the deployment does not own (`Agent.bounded`: a pack from a registry or a store that
+    An agent the deployment does not own (`Agent.bounded`: one from a registry or a store that
     is not a bundled agent of this release) is checked as it will run: its patterns on RE2, its
     schema's keywords and its caps; and one from a registry never has a bundled agent's id and
     version with other files (`_shadow_problem`). Every other agent's input schema is held to the
     expansion bounds (`core/input_schema.py` `expansion_problems`).
 
     Every provider variant and composite member is checked against its provider's closed config
-    and its pack files (`providers.config_problems`, without the environment or the network),
+    and the agent's files (`providers.config_problems`, without the environment or the network),
     and its CDS Hooks prefetch and card templates are held to relative reads and searches and
-    bare placeholders (`manifest_template_problems`): a pack the deployment does not own is
+    bare placeholders (`manifest_template_problems`): an agent the deployment does not own is
     refused for any problem, and its FHIR mapping and Task text are checked too; an owned one
-    loads, with the problems as its `warnings`, and a variant with one fails when it is built,
-    as before."""
+    loads, with the problems as its `warnings`, and a variant with one fails when it is
+    built."""
     root = Path(path).resolve()
     links = _outside_links(root)
     if links:
@@ -483,12 +483,12 @@ def manifest_template_problems(manifest: AgentManifest) -> list[str]:
 
 
 def _shadow_problem(manifest: AgentManifest, origin: Origin, digest: str, root: Path) -> str | None:
-    """Why a pack of an origin the deployment does not own (`NOT_OWNED`: a registry's, LP-20's
+    """Why an agent of an origin the deployment does not own (`NOT_OWNED`: a registry's, LP-20's
     store) may not load: it has the id of a bundled agent of this release and a version that
     ties that agent's (`version_key`: `0.4.1-x` and `0.04.1` tie `0.4.1`), but other files (its
     digest is no bundled agent's). It would take the bundled agent's place: the search path
     serves the first of two tying versions, and the registry cache comes before the bundled
-    packs. None for every other agent: an operator's local copy (its choice), a copy of a
+    agents. None for every other agent: an operator's local copy (its choice), a copy of a
     bundled agent, and any other version."""
     if origin not in NOT_OWNED:
         return None
@@ -686,7 +686,7 @@ def _pattern_problems(
 
 
 class PatternsRefused(AgentValidationError):
-    """A pack refused at load with its own patterns among the reasons: `patterns` are those of
+    """An agent refused at load with its own patterns among the reasons: `patterns` are those of
     `problems` that `_pattern_problems` found (too many, too long, or not compiling as they run),
     so a caller can tell them from the agent's other problems."""
 

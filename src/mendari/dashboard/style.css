@@ -225,7 +225,7 @@ button.other-stat-pill:hover { opacity: 0.9; }
   background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted);
 }
 .agent-picker { min-width: 0; }  /* long agent names shrink the picker, not widen the page */
-/* Its width is fixed from first paint: filled in later with long pack names, it used to wrap the top
+/* Its width is fixed from first paint: filled in later with long agent names, it used to wrap the top
    bar at tablet widths and shift the whole page (a 0.50 layout shift at 768 px). */
 .agent-picker select { width: 15rem; max-width: 100%; }
 /* Memberships mode: the organization a person in several acts for (main.js), and choosing one

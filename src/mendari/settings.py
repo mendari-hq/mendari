@@ -394,7 +394,7 @@ def principal_daily_limit() -> int | None:
 
 
 def applies_to(key: str, agent_id: str, slots: Collection[str], *, named_only: bool) -> bool:
-    """Whether a provider setting (`slot` or `namespace/name:slot`) names a slot of this pack: an
+    """Whether a provider setting (`slot` or `namespace/name:slot`) names a slot of this agent: an
     unscoped one any agent with that slot that takes unscoped settings (not `named_only`), a
     scoped one only its own agent."""
     target, sep, slot = key.rpartition(":")

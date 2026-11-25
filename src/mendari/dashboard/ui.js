@@ -522,7 +522,7 @@ export function actionDialog({ title, body, action, danger = false, run }) {
   });
 }
 
-// Which pack, how risky, and what is deployed, in words; the exact identifiers stay one line below
+// Which agent, how risky, and what is deployed, in words; the exact identifiers stay one line below
 // (decision 1 in notes/ui-ux-review.md: plain words first, codes one step away).
 export const slotText = (slot) => {
   const s = String(slot ?? "");

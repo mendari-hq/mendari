@@ -5,17 +5,16 @@ For each agent it serves that came from a registry, the server reads that regist
 recalled versions (`GET /v1/yanks`) in a thread of its own, so no decision waits for it. A
 decision for one of the registry's agents starts the read once the last one is older than
 `MENDARI_REGISTRY_RECALL_CHECK_S` seconds (300 unless set); that decision, and any made while
-the read runs, use the list read before, and nothing reads while no decision is made. A pack the
-list recalls (its id, version and digest) stops automating, and its own BLOCK goes to a person,
-as before its organization approved it (`core/decision.py`). So does a pack whose registry has
-not been read in `MENDARI_REGISTRY_RECALL_STALE_S` seconds (86400 unless set), one whose
-registry was never read since the server started, and one whose verified marker names no
-registry (pulled before LP-18d: pull it again): what cannot be checked is treated as recalled,
-the safe direction.
+the read runs, use the list read before, and nothing reads while no decision is made. An agent
+the list recalls (its id, version and digest) stops automating, and its own BLOCK goes to a
+person, as before its organization approved it (`core/decision.py`). So does an agent whose
+registry has not been read in `MENDARI_REGISTRY_RECALL_STALE_S` seconds (86400 unless set), one
+whose registry was never read since the server started, and one whose verified marker names no
+registry: what cannot be checked is treated as recalled, the safe direction.
 
 The same read asks whether the registry publishes a signing key (`GET /v1/registry-key`, 200 or
-404). Once it does, a pack whose marker does not record `accepted: true` (pulled while the
-registry counter-signed nothing, or before LP-19i) stops automating as a recalled one does, until
+404). Once it does, an agent whose marker does not record `accepted: true` (pulled while the
+registry counter-signed nothing) stops automating as a recalled one does, until
 `mendari pull` fetches it again with the registry's counter-signature (LP-19i, ADR-0015); the
 copy in the cache is never removed. A registry with no key changes nothing, and a read that fails
 keeps what was known, as for recalls.

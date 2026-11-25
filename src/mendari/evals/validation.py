@@ -2,7 +2,7 @@
 """One validation function for an agent (LP-20b).
 
 `mendari validate`, the registry's publish and the agent store all call
-`validate` or `problems` here, so a pack one of them takes the others take too. It is what
+`validate` or `problems` here, so an agent one of them takes the others take too. It is what
 `load_agent` does not check: the CDS Hooks templates and provider configs held to the rules an
 agent the deployment does not own is refused for (an owned agent loads with them as warnings),
 every provider variant built, the FHIR mapping loaded, the behaviour tests' inputs against the
@@ -122,7 +122,7 @@ def grades_problems(agent: Agent) -> list[Problem]:
 
 def _said(error: Exception) -> str:
     """An error's own words when it is one of Mendari's (they never quote a case), else only its
-    type: the pack's content may be someone else's."""
+    type: the agent's content may be someone else's."""
     if isinstance(error, MendariError):
         return str(error)
     return f"it cannot be built ({type(error).__name__})"

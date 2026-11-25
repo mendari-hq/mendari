@@ -94,7 +94,7 @@ class DecisionResult:
     # no values.
     input_issues: tuple[dict[str, str], ...] = ()
     # What a FHIR decision looked for in the record and found (`standards/data_coverage.py`,
-    # `mendari.data-coverage/1`): counts, reason codes and the pack's own words, never a value.
+    # `mendari.data-coverage/1`): counts, reason codes and the agent's own words, never a value.
     # None for a decision on JSON input.
     data_coverage: dict[str, Any] | None = None
     # The site code map a FHIR decision read its record with (`core/site_codes.py`, LP-23i): the
@@ -600,12 +600,11 @@ class Decision:
         and which rule of the schema, never the value: jsonschema's own messages quote the
         input, and reasons are stored in the audit trail and copied into the FHIR Task.
 
-        The check of an agent on the bounded engine (`Pack.bounded`: one from a registry or a
-        store) holds to its input limits (`origin.shape_problem`) and to a time
-        budget: the decision's, or one of its own when called alone. It checks
-        the budget after each error and stops at `MAX_SCHEMA_ERRORS`. Inside a decision, a
-        budget spent before any error is found raises `OutOfTime` (the decision abstains);
-        alone, it is a reason."""
+        The check of an agent on the bounded engine (`Agent.bounded`: one from a registry or a
+        store) holds to its input limits (`origin.shape_problem`) and to a time budget: the
+        decision's, or one of its own when called alone. It checks the budget after each error
+        and stops at `MAX_SCHEMA_ERRORS`. Inside a decision, a budget spent before any error is
+        found raises `OutOfTime` (the decision abstains); alone, it is a reason."""
         bounded = self.agent.bounded
         reader = bounded_reader(self.agent.origin)
         if bounded and (shape := shape_problem(inputs, reader)) is not None:
@@ -1121,7 +1120,7 @@ def _short(name: str, limit: int = 40) -> str:
 
 def _schema_rule(error: ValidationError, bounded: bool = False) -> str:
     """What the schema requires, in words built from the schema alone (`validator_value` is the
-    pack's own schema), never from the instance. The patterns of an agent on the bounded engine
+    agent's own schema), never from the instance. The patterns of an agent on the bounded engine
     (`bounded`) run on RE2 (`core/patterns.py`)."""
     keyword, expected = error.validator, error.validator_value
     present = error.instance if isinstance(error.instance, Mapping) else {}

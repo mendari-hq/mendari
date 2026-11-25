@@ -405,7 +405,7 @@ function holdSection(holds, d) {
   return listed + form;
 }
 
-// What lifting `hold` does, in the words of the dialog that asks first: the pack decides on its
+// What lifting `hold` does, in the words of the dialog that asks first: the agent decides on its
 // own again, and what still stops it from automating stays.
 function liftText(hold, d) {
   const who = hold?.agent_id

@@ -81,7 +81,7 @@ MAX_REASON_CHARS = 500
 MAX_KEYS = 20  # an organization's authors' keys that are not revoked
 MAX_PENDING_UPLOADS = 3  # an organization's archives under way in parts at once
 MAX_PARTS = 64
-# Namespaces no store pack takes, whatever an organization is called.
+# Namespaces no agent in a store may take, whatever an organization is called.
 STORE_RESERVED = ("mendari", "openhealth")
 
 

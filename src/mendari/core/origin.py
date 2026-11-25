@@ -67,7 +67,7 @@ NOT_OWNED_CAPS: Mapping[str, Mapping[str, int | float]] = {
     "llm": {"max_tokens": 4096, "timeout_ms": 30_000},
     "agent": {"timeout_seconds": 15.0},
 }
-# Variant keys a pack from a store (LP-20e) may set but the deployment decides, beyond those of
+# Variant keys an agent from a store (LP-20e) may set but the deployment decides, beyond those of
 # any agent it does not own: whether it shares a call with the decision's other questions, and an
 # LLM's temperature. Dropped, so the provider's defaults apply. An agent from a registry keeps
 # them (a change would change its decisions).

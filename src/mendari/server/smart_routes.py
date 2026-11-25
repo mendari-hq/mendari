@@ -1,16 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """SMART on FHIR endpoints: the EHR launch, the session, and the patient's work items.
 
-- `GET /smart/launch?iss=&launch=[&pack=]` and `GET /smart/callback` run the launch
+- `GET /smart/launch?iss=&launch=[&agent=]` and `GET /smart/callback` run the launch
   (`standards/smart.py`), tied to the browser that started it (and so begun on
   `MENDARI_PUBLIC_URL`, where the callback lands); the callback sets an opaque,
   HttpOnly, SameSite=Lax `__Host-` session cookie (ending the launch the browser held until
   then: one browser, one launch) and sends the browser to the dashboard's "This patient" view
-  for the pack (`/?agent=<id>`, as the dashboard's address names it; the launch route's own
-  parameter stays `pack`, which an EHR's registered launch may hold), pinned to this launch
-  (`#patient/<launch_id>`: a window whose launch another launch in the same browser replaced
-  says so, and never shows the other patient). The session ends after 30 minutes idle, 8 hours,
-  or when the EHR's token expires, whichever is first (`server/sessions.py`).
+  for the agent (`/?agent=<id>`), pinned to this launch (`#patient/<launch_id>`: a window whose
+  launch another launch in the same browser replaced says so, and never shows the other
+  patient). The session ends after 30 minutes idle, 8 hours, or when the EHR's token expires,
+  whichever is first (`server/sessions.py`).
 - `GET /api/smart/session` (`{"active": false}` without one), `POST /api/smart/logout`: public.
   The session names the launch (`launch_id`, not a secret) and the agents it may use (id, name,
   origin and its label), so a browser that only launched opens the dashboard on the patient

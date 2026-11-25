@@ -59,8 +59,8 @@ if TYPE_CHECKING:
 
 OUTCOME_SYSTEM = "https://mendari.co/fhir/CodeSystem/decision-outcome"
 DECISION_ID_SYSTEM = "https://mendari.co/fhir/NamingSystem/decision-id"
-# A pack version (`namespace/name@version`) is a code in `meta.tag` (the CodeSystem), and an
-# identifier when it acts as the engine, an agent (the NamingSystem).
+# An agent version (`namespace/name@version`) is a code in `meta.tag` (the CodeSystem), and an
+# identifier when it acts as the engine, an AuditEvent `agent` (the NamingSystem).
 AGENT_TAG_SYSTEM = "https://mendari.co/fhir/CodeSystem/agent-version"
 AGENT_ID_SYSTEM = "https://mendari.co/fhir/NamingSystem/agent-version"
 MANUAL_TRIAGE = "manual-triage"  # the performer when there is no recommendation
