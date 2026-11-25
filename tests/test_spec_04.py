@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Spec 0.4: the one spec version Mendari reads, and the manifest's `actions` section
-(docs/spec/agent-manifest-0.4.md section 2).
+(docs/spec/agent-manifest.md section 13).
 
 A manifest says `spec_version: "0.4"`; any other is refused, saying so. It declares what an agent
 may ask to have done, each action with an effect from a closed set and, optionally, a JSON Schema
-for its arguments from a closed keyword subset, and it has every feature the spec documents of
-0.2 and 0.3 add (the card keys, the FHIR mapping's)."""
+for its arguments from a closed keyword subset, and it has every other feature the spec
+documents (the card keys, the FHIR mapping's)."""
 
 from __future__ import annotations
 

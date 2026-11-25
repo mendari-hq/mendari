@@ -21,13 +21,13 @@ sides of that contract for the agent's author, so a handler only has to answer:
 with any ASGI server (`uvicorn module:app`). The handler gets a parsed, checked `Case` and
 returns what `respond` builds; it may be a plain or an `async` function.
 
-An agent whose manifest declares actions (spec 0.4) gets them in `case.actions` and may propose
+An agent whose manifest declares actions (spec §13) gets them in `case.actions` and may propose
 some with its answers: `respond(case, answers, actions=[("assign_queue", {"queue": "refill"})])`.
 Proposing is asking: Mendari answers each with `released`, `held` or `blocked`, and runs none.
 The code that runs a tool calls `authorize` right before, and runs it only when
 `authorize(...).released`.
 
-An agent whose manifest asks it to write (spec 0.4: a draft reply, a summary) gets what is asked
+An agent whose manifest asks it to write (spec §15: a draft reply, a summary) gets what is asked
 in `case.outputs` and returns the texts with its answers:
 `respond(case, answers, outputs={"reply_draft": "Thank you for your message. ..."})`.
 
@@ -78,12 +78,12 @@ MAX_TOOL_NAME_CHARS = 128
 MAX_CALL_TOKENS = 10_000_000
 MAX_CALL_COST_USD = 1_000.0
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$")
-# Proposed actions (spec 0.4 section 4.2; the engine's `core/actions.py`).
+# Proposed actions (spec section 13.6; the engine's `core/actions.py`).
 MAX_ACTIONS = 16
 MAX_ARGUMENT_CHARS = 16_000
 MAX_ARGUMENT_DEPTH = 8
 ACTION_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}\Z")
-# Written outputs (spec 0.4 section 17; the engine's `core/spec.py`).
+# Written outputs (spec section 15.2; the engine's `core/spec.py`).
 MAX_OUTPUTS = 8
 MAX_OUTPUT_CHARS = 8_000
 # Where `authorize` asks, and with what key: the Mendari that made the decision.
@@ -115,7 +115,7 @@ class Question:
 
 @dataclass(frozen=True)
 class Action:
-    """One action the agent's manifest declares (spec 0.4): what the agent may propose."""
+    """One action the agent's manifest declares (spec §13): what the agent may propose."""
 
     name: str
     description: str
@@ -125,7 +125,7 @@ class Action:
 
 @dataclass(frozen=True)
 class Output:
-    """One text the agent's manifest asks it to write (spec 0.4): a draft reply, a summary."""
+    """One text the agent's manifest asks it to write (spec §15): a draft reply, a summary."""
 
     name: str
     description: str  # what to write, in the manifest's words
@@ -235,13 +235,13 @@ def respond(
     should never repeat personal details from the case. `usage` is `{input_tokens,
     output_tokens, cost_usd?}`; `tool_calls` are names or objects with a `name`.
 
-    `actions` are the actions the agent proposes (spec 0.4), each `(name, arguments)` or
+    `actions` are the actions the agent proposes (spec §13.6), each `(name, arguments)` or
     `{"name": ..., "arguments": ...}`, among those the case offers (`case.actions`). Proposing
     is asking: never run a proposed action that writes, contacts a patient or orders before
     Mendari releases it. The kit checks the name and the limits, not the action's schema:
     Mendari does, and blocks an action whose arguments do not match.
 
-    `outputs` are the texts the agent wrote (spec 0.4), by name, among those the case asks for
+    `outputs` are the texts the agent wrote (spec §15.2), by name, among those the case asks for
     (`case.outputs`), each no longer than its `max_chars`. One left out, or blank, is no output.
 
     An answer that cannot be given raises `AgentError` (502), which `create_app` returns, so

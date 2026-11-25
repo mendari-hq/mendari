@@ -230,7 +230,7 @@ class Agent:
             }
             for key, question in m.questions.items()
         }
-        # What the agent proposed to have done, each with what may be done with it (spec 0.4):
+        # What the agent proposed to have done, each with what may be done with it (spec §13.7):
         # only for an agent that declares actions, so every other agent's schema is as it was.
         proposed = {
             "actions": {
@@ -444,7 +444,7 @@ def load_agent(path: str | Path, *, origin: Origin = "local") -> Agent:
 
     problems = config_problems(agent)
     if manifest.rubrics:
-        # Each rubric's canned judge, as `mendari validate` checks it (spec 0.4 section 18.2).
+        # Each rubric's canned judge, as `mendari validate` checks it (spec section 15.4).
         from mendari.providers.judge import rubric_problems  # imports this module
 
         problems += rubric_problems(agent)

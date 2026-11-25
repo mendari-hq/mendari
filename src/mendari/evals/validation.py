@@ -110,7 +110,7 @@ def _collect(agent: Agent, *, raising: bool) -> list[Problem]:
 
 
 def grades_problems(agent: Agent) -> list[Problem]:
-    """Each grades file the agent declares (`evaluation.grades`, spec 0.4 section 19) reads as
+    """Each grades file the agent declares (`evaluation.grades`, spec section 15.6) reads as
     one, grades the rubric's criteria with their levels, and names the rubric's wording and its
     dataset as they are now (`evals/written.py` `grades_problems`)."""
     if not agent.manifest.evaluation.grades:

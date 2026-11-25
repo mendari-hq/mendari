@@ -7,7 +7,7 @@ A CDS hook and the SMART launch's decide read a decision's record from the EHR (
 Binary (`attachment_text`), and a reference a field follows (`follow`: the payer behind
 `Coverage.payor`, the drug behind `medicationReference`). What the record holds resolves inside
 it (`fhir.resolve`: contained, a Bundle entry, `Type/id`). What it does not, `Linker.read` reads
-and adds to the record (`Indexed.link`), as spec 0.3 §2.3 allows a runtime to; the mapping itself
+and adds to the record (`Indexed.link`), as spec §9.4 allows a runtime to; the mapping itself
 never fetches. Each read:
 
 - goes through `FhirClient`: to the request's `fhirServer` only (on the allow-list), under its
@@ -117,7 +117,7 @@ def _now() -> float:
 
 def reads_links(mapping: FhirMapping) -> bool:
     """Whether a mapping can reach anything by a link: a `follow`, or an `attachment_text`
-    note (spec 0.3)."""
+    note (spec §9.5)."""
     return any(
         mapped.follow is not None or mapped.transform == "attachment_text"
         for _, _, mapped in located_fields(mapping)

@@ -14,7 +14,7 @@ The tools:
 - `decide`: one decision by one agent: outcome, recommendation, priority, confidence, reasons,
   and each action the agent proposed with what may be done with it.
 - `authorize_action`: whether one action an agent declares may be run for a decision made here
-  (spec 0.4): released, held, blocked or denied. Mendari runs nothing.
+  (spec §13.8): released, held, blocked or denied. Mendari runs nothing.
 - `review_queue`: the decisions waiting for a person, most urgent first (ids and outcomes only,
   never the input).
 - `verify_audit`: whether the audit trail's hash chain is intact.
@@ -291,7 +291,7 @@ def _describe(agent: Agent) -> dict[str, Any]:
             for key, question in m.questions.items()
         },
     }
-    if m.actions:  # what it may ask to have done (spec 0.4): authorize_action takes these names
+    if m.actions:  # what it may ask to have done (spec §13): authorize_action takes these names
         described["actions"] = [
             {"name": name, "description": spec.description, "effect": spec.effect.value}
             for name, spec in m.actions.items()

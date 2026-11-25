@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Proposed actions in the console (spec 0.4): the review queue shows what confirming a decision
+"""Proposed actions in the console (spec §13): the review queue shows what confirming a decision
 releases, the audit view shows a decision's actions and their events, and the Decision Card lists
 what an agent may ask to have done. On a server of its own, serving the actions fixture."""
 

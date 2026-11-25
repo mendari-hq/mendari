@@ -9,9 +9,7 @@ that refused its input (`refused`) and a policy rule's match (`cds_hooks.card.al
 `actions` say what an agent may ask to have done besides answer, each with an effect; what an
 effect needs before it is released is the runtime's (`core/policy.py`). Written output:
 `outputs` (what an agent writes), `rubrics` (how a clinician and a model judge grade it) and
-`evaluation.grades` (clinicians' grades in a file). The documents: docs/spec/agent-manifest-0.2.md
-(the manifest), -0.3.md (the FHIR mapping) and -0.4.md (actions, calibration, the second signal
-and written output).
+`evaluation.grades` (clinicians' grades in a file). The document: docs/spec/agent-manifest.md.
 """
 
 from __future__ import annotations
@@ -34,7 +32,7 @@ from mendari.core.templates import (
 SPEC_VERSION = "0.4"  # the one spec version this engine reads: a manifest says it
 MAX_VERSION_CHARS = 64
 
-# Actions (spec 0.4 section 2): how many an agent declares, and the bounds of each.
+# Actions (spec section 13.1): how many an agent declares, and the bounds of each.
 MAX_ACTIONS = 16
 MAX_ACTION_NAME_CHARS = 64
 MAX_ACTION_DESCRIPTION = 300
@@ -45,7 +43,7 @@ MAX_ACTION_ENUM = 100
 MAX_ACTION_ENUM_CHARS = 200
 MAX_ACTIONS_CHARS = 32_000  # the declared actions as one request sends them, as JSON
 
-# Written output (spec 0.4 sections 16 to 19): the texts an agent writes and the rubrics they
+# Written output (spec sections 15.1 to 15.6): the texts an agent writes and the rubrics they
 # are graded against.
 MAX_OUTPUTS = 8
 MAX_OUTPUT_CHARS = 8_000  # one written text; a response stays under the agent contract's bytes
@@ -212,7 +210,7 @@ def version_key(version: str) -> tuple[tuple[int, str], ...]:
 
 
 # Variant keys that once named the environment variables a remote provider reads its endpoint,
-# model or key from. Those variables are the deployment's (spec section 5), so an agent that sets
+# model or key from. Those variables are the deployment's (spec section 5.5), so an agent that sets
 # one is invalid: it could send any process secret anywhere.
 DEPLOYMENT_ENV_KEYS: dict[str, frozenset[str]] = {
     "llm": frozenset({"api_key_env", "base_url_env", "local_key_env", "model_env"}),
@@ -262,7 +260,7 @@ class Priority(StrEnum):
 
 
 class Effect(StrEnum):
-    """What a declared action does (spec 0.4 section 2.1), mildest first: an action that fits
+    """What a declared action does (spec section 13.2), mildest first: an action that fits
     two takes the later one. The author's declaration, as the risk level is; what each needs
     before an action is released is the runtime's (`core/policy.py` `EFFECT_GATES`)."""
 
@@ -546,7 +544,7 @@ class Evaluation(_Strict):
     critical: list[CriticalLabel] = []
     subgroups: list[str] = []
     degradation_tolerance: float = Field(default=0.03, gt=0.0, lt=1.0)
-    # Clinicians' grades of written output, by rubric (spec 0.4 section 19).
+    # Clinicians' grades of written output, by rubric (spec section 15.6).
     grades: dict[str, RubricGrades] = {}
 
 
@@ -554,7 +552,7 @@ class AuditConfig(_Strict):
     store_input: Literal["full", "hash"] = "full"
 
 
-# The JSON Schema keywords an action's arguments schema may use (spec 0.4 section 2.2): no
+# The JSON Schema keywords an action's arguments schema may use (spec section 13.3): no
 # pattern, format, `$ref` or combinator, so checking arguments a model wrote costs no more than
 # reading them.
 ACTION_SCHEMA_KEYWORDS = frozenset(
@@ -578,7 +576,7 @@ def _scalar(value: Any) -> bool:
 
 
 def action_schema_problems(schema: Any) -> list[str]:
-    """Why `schema` is not an arguments schema spec 0.4 section 2.2 allows, or nothing: the
+    """Why `schema` is not an arguments schema spec section 13.3 allows, or nothing: the
     closed keyword set, each keyword's own shape, and the bounds. Walked with a stack, never by
     recursion: a manifest is another party's file. Each problem names where in the schema,
     never a value."""
@@ -669,7 +667,7 @@ def _keyword_problems(node: Mapping[str, Any]) -> list[str]:
 
 
 class ActionSpec(_Strict):
-    """One action an agent may propose (spec 0.4 section 2): what it does in words a reviewer
+    """One action an agent may propose (spec section 13.1): what it does in words a reviewer
     reads (shown on the Decision Card and sent to the agent as written), its effect, and
     optionally a JSON Schema for its arguments. `allow_auto: false` only tightens: the action is
     then never released without a person, whatever its effect. No key loosens the runtime's rule
@@ -699,7 +697,7 @@ class ActionSpec(_Strict):
         return value
 
     def request(self, name: str) -> dict[str, Any]:
-        """The action as a request to the agent declares it (spec 0.4 section 4.1)."""
+        """The action as a request to the agent declares it (spec section 13.5)."""
         declared: dict[str, Any] = {
             "name": name,
             "description": self.description,
@@ -714,7 +712,7 @@ _FIELD = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}(?:\.[A-Za-z0-9_][A-Za-z0-
 
 
 class WrittenOutput(_Strict):
-    """A text an agent writes (spec 0.4 section 16): a draft reply, a summary, a note. It comes
+    """A text an agent writes (spec section 15.1): a draft reply, a summary, a note. It comes
     from the agent behind `slot`, in its response, or it is already in the input at `input` (a
     dotted field, such as `draft`). Exactly one of the two. `description` is what the agent is
     asked for and what a grader is told the text is."""
@@ -740,12 +738,12 @@ class WrittenOutput(_Strict):
         return f"slot:{self.slot}" if self.slot is not None else f"input:{self.input}"
 
     def request(self, name: str) -> dict[str, Any]:
-        """The output as a request to the agent declares it (spec 0.4 section 17)."""
+        """The output as a request to the agent declares it (spec section 15.2)."""
         return {"name": name, "description": self.description, "max_chars": self.max_chars}
 
 
 class RubricCriterion(Question):
-    """One criterion of a rubric (spec 0.4 section 18): a `boolean` or a `score` question, read
+    """One criterion of a rubric (spec section 15.3): a `boolean` or a `score` question, read
     by the clinician and by the judge in the same words. On a yes/no criterion `yes` passes: it
     is worded so that yes is good. A `score` criterion names `pass_from`, the lowest level that
     passes; its scores are distinct, and a higher score is better. `must_pass` marks a criterion
@@ -794,7 +792,7 @@ def _by_score(level: tuple[str, float]) -> float:
 
 
 class JudgeConfig(_Strict):
-    """The model judge of a rubric (spec 0.4 section 18.2): the model settings an `llm` variant
+    """The model judge of a rubric (spec section 15.4): the model settings an `llm` variant
     takes, and a fixture of canned grades for when no judge model is set. The endpoint, the
     credentials and the default model are the deployment's."""
 
@@ -817,7 +815,7 @@ class RubricFloors(_Strict):
 
 
 class Rubric(_Strict):
-    """How one written output is graded (spec 0.4 section 18): its criteria, the input fields a
+    """How one written output is graded (spec section 15.3): its criteria, the input fields a
     grader reads beside the text (none unless named: minimum necessary), the judge and the
     floors."""
 
@@ -1136,7 +1134,7 @@ def _named(kind: str, name: str) -> str | None:
 
 
 def written_problems(m: AgentManifest) -> list[str]:
-    """What spec 0.4 holds `outputs`, `rubrics` and `evaluation.grades` to beyond their own
+    """What spec section 15 holds `outputs`, `rubrics` and `evaluation.grades` to beyond their own
     shapes: the names, how many, what each refers to and the floors. An empty mapping is the
     default a dumped manifest carries: it counts as left out."""
     if not (m.outputs or m.rubrics or m.evaluation.grades):
@@ -1194,8 +1192,8 @@ def written_problems(m: AgentManifest) -> list[str]:
 
 
 def action_problems(m: AgentManifest) -> list[str]:
-    """What spec 0.4 holds the `actions` section to beyond each action's own shape: the names,
-    how many, and how long they are together as one request sends them. An empty `actions` is
+    """What spec section 13.1 holds the `actions` section to beyond each action's own shape: the
+    names, how many, and how long they are together as one request sends them. An empty `actions` is
     the default a dumped manifest carries: it counts as left out."""
     if not m.actions:
         return []

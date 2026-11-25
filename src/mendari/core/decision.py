@@ -141,7 +141,7 @@ class DecisionResult:
     # agent changed since its confidence was calibrated, a second signal disagreed), with what
     # an evaluation counts from. In memory only, like `rejected`: the reasons say it in the record.
     signals: Signals = field(default_factory=Signals, compare=False, repr=False)
-    # What the agent wrote with its answers (spec 0.4 section 17), by the output's name. In
+    # What the agent wrote with its answers (spec section 15.2), by the output's name. In
     # memory only, like `rejected`: not in `to_dict` or `to_record`, so the audit record keeps
     # its shape and no stored record holds a written text. The caller's answer carries it.
     outputs: Mapping[str, str] = field(default_factory=dict, compare=False, repr=False)
@@ -370,7 +370,7 @@ class Decision:
         if connection_source is not None:
             for leaf in self.agent_providers():
                 leaf.use_connection(connection_source)
-        # What checks the arguments of each declared action that has a schema (spec 0.4).
+        # What checks the arguments of each declared action that has a schema (spec §13.3).
         self._action_checkers = actions.validators(agent.manifest)
         # An agent the deployment does not own runs on the bounded engine (`Agent.bounded`).
         self._validator = input_schema.validator(agent.input_schema, bounded=agent.bounded)
@@ -478,7 +478,7 @@ class Decision:
         self, decision_id: str, name: str, arguments: Mapping[str, Any]
     ) -> dict[str, Any]:
         """Whether one action with these arguments may be run for a decision this agent made
-        and its store recorded (spec 0.4 section 6): the action's id, its declared name and
+        and its store recorded (spec section 13.8): the action's id, its declared name and
         effect, its disposition and the reason, as the same gate that judged the proposals made
         with the answer gives them, by the decision as it stands now.
 
@@ -699,8 +699,8 @@ class Decision:
         cost: float | None = 0.0
         canned: str | None = None  # why an answer is canned (`ProviderOutput.canned`), if one is
         policy_inputs: PolicyInputs | None = None  # what the policy decides from, when it does
-        proposed: list[Proposed] = []  # the actions the agent asks for (spec 0.4), in order
-        written: dict[str, str] = {}  # what the agent wrote (spec 0.4), by the output's name
+        proposed: list[Proposed] = []  # the actions the agent asks for (spec §13.6), in order
+        written: dict[str, str] = {}  # what the agent wrote (spec §15.2), by the output's name
         checked: list[Checked] = []  # each held against the manifest, once the providers answered
         vouched = True
         signals = Signals()  # what its providers found that can only lower automation
@@ -918,7 +918,7 @@ class Decision:
         agent's own by default), so a required resource whose read failed is not refused as
         missing. A key that still holds what the client sent (a value that is not a resource)
         excuses nothing: a required resource it does not hold is refused, as before. Those keys,
-        and a note whose data does not decode or that is only a link (for a spec 0.3
+        and a note whose data does not decode or that is only a link (for an
         `attachment_text` note, also one of a type it cannot read: `unreadable_notes`, and notes
         whose joined text is longer than the agent's input schema lets the field be, left out of
         the input: `fhir.overlong`, `too_large`), make the decision ABSTAIN unless its input is

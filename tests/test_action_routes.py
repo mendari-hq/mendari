@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Actions over HTTP (spec 0.4 section 6): a decision's `actions` in `POST …/decide`, the
+"""Actions over HTTP (spec section 13.8): a decision's `actions` in `POST …/decide`, the
 authorization route `POST /api/agents/{namespace}/{name}/actions`, and the review that releases
 or denies (`POST /api/review/{id}` with `deny_actions`).
 
@@ -344,7 +344,7 @@ def test_an_unknown_decision_another_agents_and_an_unknown_agent_are_404s(
 
 
 def test_an_agent_older_than_0_4_authorizes_nothing_over_http(client: TestClient) -> None:
-    """An agent that declares no actions, as none did before spec 0.4 (the triage fixture):
+    """An agent that declares no actions (the triage fixture):
     whatever is asked of it is blocked, as undeclared."""
     plain = client.post(f"/api/agents/{PLAIN}/decide", json=message("Crushing chest pain")).json()
     asked = client.post(

@@ -31,7 +31,7 @@ Order of evaluation:
    ABSTAIN) keeps its outcome and gets the same reason; a BLOCK stands, with the cap as a note
    (a block is final: no person decides). Nothing lifts one, governance included, and no
    manifest switches one off.
-8. The `actions` cap (spec 0.4, ADR-0023), last: what the agent asks to do, once what it
+8. The `actions` cap (spec §13.7, ADR-0023), last: what the agent asks to do, once what it
    answered is settled. A proposed action that could not be released with an AUTO decision (one
    the manifest does not declare, arguments that do not match their schema, a composite
    member's proposal, or an action never released without a person) turns AUTO into
@@ -316,7 +316,7 @@ def _action_capped(result: PolicyResult, stops: Sequence[str]) -> PolicyResult:
     return replace(result, outcome=outcome, reasons=(*result.reasons, *added))
 
 
-# -- actions (spec 0.4, ADR-0023) -----------------------------------------------------------------
+# -- actions (spec §13, ADR-0023) -----------------------------------------------------------------
 # What a declared action needs before it is released. The runtime's, as the risk caps are
 # (ADR-0002): a manifest names an action's effect and may tighten its gate (`allow_auto:
 # false`); nothing in a manifest, and nothing an agent proposes, loosens one.
@@ -418,7 +418,7 @@ def disposition(
     refused_before: bool = False,
 ) -> tuple[Disposition, Reason]:
     """What may be done with a declared, well-formed action, by its gate and its decision's
-    state (the table of spec 0.4 section 5, its rules in this order):
+    state (the table of spec section 13.7, its rules in this order):
 
     1. A BLOCK decision blocks every action.
     2. The gate `decision` needs nothing more: released.

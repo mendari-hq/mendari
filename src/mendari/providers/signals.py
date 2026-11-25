@@ -21,7 +21,7 @@ A disagreement caps only on a question the decision turns on (`deciding_question
 question, a critical one (`evaluation.critical`) and one a policy rule reads. On another question
 it is written in the answer's evidence and nothing else.
 
-A second signal that did not agree on a proposed action (spec 0.4: only some of the repeated
+A second signal that did not agree on a proposed action (spec §13.7: only some of the repeated
 runs proposed it, or the member that checks proposed another) caps too, whatever the action:
 the reason names the action when the manifest declares it, and the proposal is carried
 `disputed`, which no decision releases without a person (`policy.gate_of`).

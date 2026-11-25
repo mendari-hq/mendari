@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Spec 0.4: the manifest's `outputs`, `rubrics` and `evaluation.grades` (written output,
-docs/spec/agent-manifest-0.4.md sections 16 to 19). Each validation rule, the names a refusal
+docs/spec/agent-manifest.md sections 15.1 to 15.6). Each validation rule, the names a refusal
 gives, and the rule that a manifest may raise a floor and never lower it. That 0.4 is the one
 version read is tests/test_spec_04.py's."""
 

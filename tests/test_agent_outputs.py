@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""What an agent writes with its answers (spec 0.4 section 17): the request names the outputs the
+"""What an agent writes with its answers (spec section 15.2): the request names the outputs the
 manifest declares for the slot, the response's `outputs` are held to them (an undeclared name, a
 value that is not text or a text over its length fails the slot closed), the agent kit builds
 and refuses the same, and `POST …/decide` returns the texts without keeping them: the stored

@@ -1250,7 +1250,7 @@ def refusals(world: World, x: Org, o: Org) -> None:
         for entry in replayed.get("entry", []):
             if entry.get("search", {}).get("mode") == "match":
                 assert entry["resource"]["id"].startswith(owned), (kind, entry["resource"]["id"])
-    # Authorizing an action for their decision (spec 0.4): unknown here, and nothing is chained.
+    # Authorizing an action for their decision (spec §13.8): unknown here, and nothing is chained.
     refused(
         service,
         ("POST", "/api/agents/{namespace}/{name}/actions"),

@@ -81,10 +81,10 @@ class ProviderOutput:
     # Why the answers are canned rather than a live call's (an agent's `mock_file`, read while
     # `MENDARI_AGENT_URL` is unset), or None. A server with sign-in never automates on them.
     canned: str | None = None
-    # The actions an agent proposed with its answers (spec 0.4): asked for, never run. Only an
+    # The actions an agent proposed with its answers (spec §13): asked for, never run. Only an
     # `agent` variant proposes any.
     actions: tuple[Proposed, ...] = ()
-    # What the agent wrote with its answers (spec 0.4 section 17), by the output's name: only
+    # What the agent wrote with its answers (spec section 15.2), by the output's name: only
     # the outputs the manifest declares for its slot, each within its length. In memory only.
     outputs: dict[str, str] = field(default_factory=dict)
     # What can only lower the decision's automation (`providers/signals.py`): the agent changed
@@ -178,7 +178,7 @@ class Provider(ABC):
     type: ClassVar[str]
     # Remote providers make network calls: they are metered, rate-limited and parallelised.
     remote: bool = False
-    # Whether its output may propose actions (spec 0.4): an `agent` variant's may.
+    # Whether its output may propose actions (spec §13.6): an `agent` variant's may.
     proposes: bool = False
 
     def __init__(

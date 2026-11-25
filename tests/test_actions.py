@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The gate on actions (spec 0.4 sections 3 and 5, ADR-0023): `core/policy.py` says what each
+"""The gate on actions (spec sections 13.4 and 13.7, ADR-0023): `core/policy.py` says what each
 effect needs before an action is released, and `core/actions.py` checks a proposal against the
 manifest.
 
@@ -150,7 +150,7 @@ def test_every_cell_of_the_table(
 
 
 def test_the_rows_the_spec_prints() -> None:
-    """Spec 0.4 section 5's own table, as a decision made with the answer reads it."""
+    """Spec section 13.7's own table, as a decision made with the answer reads it."""
 
     def cell(gate: Gate, outcome: Outcome, recommendation: str | None) -> Cell:
         review: Review = "pending" if outcome in (Outcome.HUMAN_REVIEW, Outcome.ABSTAIN) else "none"

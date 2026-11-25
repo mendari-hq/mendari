@@ -229,7 +229,7 @@ def test_an_unexpected_failure_logs_its_type_never_its_message(
     assert "RuntimeError" in err and "chest pain" not in err
 
 
-# -- actions (spec 0.4): what the agent proposed, and authorize_action ----------------------------
+# -- actions (spec §13): what the agent proposed, and authorize_action ----------------------------
 
 QUESTION = {"message": {"body": "Did my lab results come back yet?"}}  # HUMAN_REVIEW, two held
 

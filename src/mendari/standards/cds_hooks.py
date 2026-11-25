@@ -16,7 +16,7 @@ The hook always answers (LP-23d). A key that could not be read (each read on its
 fetch, an OperationOutcome, a resource or search page Mendari fetched that is not R4, a page
 cap) makes the decision ABSTAIN with its reason, recorded like any other, and the card says so
 whatever the agent's `show` says. Card wording comes from the agent's `cds_hooks.card`; without it,
-the card describes a routing decision. Two of its keys (spec 0.3 §5): `refused`, for a decision
+the card describes a routing decision. Two of its keys (spec §9.13): `refused`, for a decision
 that refused its input, whose card lists why whatever the links (a template that does not name it
 words such a decision as `none`), and `also_show`, the policy rules whose match shows a card for
 a recommendation `show` leaves out, in the rule's own words.
@@ -104,7 +104,7 @@ UNREADABLE_DETAIL = (
     "Mendari could not read part of this patient's record, so it made no recommendation and a "
     "person decides. Not read:"
 )
-# What a card keyed `refused` says (spec 0.3 §5): fixed words, then each reason the input was
+# What a card keyed `refused` says (spec §9.13): fixed words, then each reason the input was
 # refused, as the audit record keeps them (where in the input and which rule of the schema, a
 # resource by its type and position: never a value or an id).
 REFUSED_DETAIL = (
@@ -340,7 +340,7 @@ def fetch(
 
 def linker(decision: Decision, request: Mapping[str, Any]) -> Linker | None:
     """The linked reads of one hook request (LP-23h): from its `fhirServer`, with its token, for
-    an agent whose mapping reaches anything by a link (spec 0.3). None without a `fhirServer` or
+    an agent whose mapping reaches anything by a link (spec §9.4). None without a `fhirServer` or
     for any other agent: nothing is read. The client opens when a link first needs it, so a
     request whose record holds every link opens none. A request fault is refused before anything
     is decided, as for the prefetch (`fetch`): a `fhirAuthorization` that is not a Bearer token,
@@ -526,7 +526,7 @@ def source_label(agent: Agent) -> str:
 def card_key(template: CdsCard | None, result: DecisionResult) -> str:
     """Which of a card template's keys words a decision's card: its recommendation, `none`
     without one, or `refused` for a decision that refused its input (a BLOCK before any
-    provider ran) when the template names `refused` (spec 0.3 §5); one that does not reads it
+    provider ran) when the template names `refused` (spec §9.13); one that does not reads it
     as `none`."""
     if result.recommendation is not None:
         return result.recommendation
@@ -536,7 +536,7 @@ def card_key(template: CdsCard | None, result: DecisionResult) -> str:
 
 def rule_card(template: CdsCard | None, result: DecisionResult) -> RuleCard | None:
     """The wording of the policy rule that decided, for a recommendation `show` leaves out
-    (`also_show`, spec 0.3 §5); None for one `show` names, or any other decision."""
+    (`also_show`, spec §9.13); None for one `show` names, or any other decision."""
     if template is None or template.show is None or result.rule is None:
         return None
     if card_key(template, result) in template.show:

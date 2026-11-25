@@ -149,8 +149,8 @@ def profile_server(**options: Any) -> ChartEhr:
 # -- what each agent cannot read (the regression fixture) ------------------------------------------
 
 RTF_NOTE = (
-    "the note's Binary is RTF, which an agent never reads as text (`unsupported_type`, spec 0.3 "
-    "§2.4): the hook reads text/plain and text/html Binaries through the allow-listed client "
+    "the note's Binary is RTF, which an agent never reads as text (`unsupported_type`, spec "
+    "§9.5): the hook reads text/plain and text/html Binaries through the allow-listed client "
     "(LP-23h), and of a note kept in two renditions the readable one"
 )
 ENDED_AS_ACTIVE = (
@@ -313,7 +313,7 @@ def test_what_each_agent_cannot_read_yet_is_pinned(
 def test_the_shipped_agents_read_the_profiles_linked_notes_through_the_allow_listed_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The agents read a note through spec 0.3's `attachment_text`, and their hooks read what a
+    """The agents read a note through `attachment_text` (spec §9.5), and their hooks read what a
     note links to (LP-23h): each text/plain and text/html note's Binary is read once for a
     decision, from the profile's FHIR server under its base, with a GET, and the decision's notes
     are the case's own words. An RTF note's Binary is never read (its content type is checked

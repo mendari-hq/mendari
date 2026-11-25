@@ -3,7 +3,7 @@
 every FHIR decision says, for each mapped field and list, what it looked for (paths, the code
 systems the agent declares, the agent's own codes) and what it found, as counts, with what could
 not be read by reason code. It never holds a value, an id, text, a patient's code or a system
-the agent does not declare; JSON decisions carry none. A spec 0.3 mapping (LP-23g) is counted
+the agent does not declare; JSON decisions carry none. A mapping (LP-23g) is counted
 against what the adapter says each field looks for. Shown on the chart fixture
 (`mendari-test/chart-summary`, a patient's record in) and copies of it with their mapping
 changed (`tests/support/chart_fixture.py`)."""
@@ -360,8 +360,8 @@ def test_no_note_text_patient_code_or_id_reaches_the_record_or_the_chain(tmp_pat
 
 
 def test_the_unreadable_notes_are_counted_by_reason(tmp_path: Path) -> None:
-    """`unreadable_notes` counts each attachment of a `base64_text` note (spec 0.2's transform,
-    on its data) once, by reason, and leaves out a note that reads, an empty one and an
+    """`unreadable_notes` counts each attachment of a `base64_text` note (the transform
+    that decodes its data) once, by reason, and leaves out a note that reads, an empty one and an
     attachment with neither data nor a link. (The chart fixture's own notes are
     `attachment_text`, whose reasons `test_an_attachment_text_note_...` below counts.)"""
     notes = {"path": "DocumentReference.content.attachment.data", "transform": "base64_text"}
@@ -432,7 +432,7 @@ OUT_OF_SET = "J06.9"  # a patient's ICD-10-CM code the test's code set does not 
 
 
 def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Path) -> None:
-    """A spec 0.3 mapping (LP-23g) is counted against `FhirAdapter.looked_for`: a field's paths
+    """A mapping (LP-23g) is counted against `FhirAdapter.looked_for`: a field's paths
     in the order it tries them, the systems it selects on and its code set's codes; what the
     paths it read found (in order, until one gave the field its value); a `follow`'s references
     and how many it reached, and (LP-23h) each link among them the record does not hold, as
@@ -655,7 +655,7 @@ def test_a_0_3_mapping_is_counted_against_what_each_field_looks_for(tmp_path: Pa
 
 def test_an_attachment_text_note_that_cannot_be_read_abstains_with_its_reason() -> None:
     """As a `base64_text` note that cannot be read does (LP-23d), an `attachment_text` one
-    (spec 0.3, the chart fixture's) makes the decision ABSTAIN before any provider, with its
+    (spec §9.5, the chart fixture's) makes the decision ABSTAIN before any provider, with its
     reason; a note that reads, or an attachment with nothing in it, does not."""
     decision = Decision(load_agent(CHART_DIR))
 

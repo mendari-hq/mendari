@@ -161,7 +161,7 @@ def parse(raw: str, *, signed_in: bool) -> SiteCodeMaps:
 
 
 def check(maps: SiteCodeMaps, agents: Iterable[Agent]) -> None:
-    """Each map against the code sets `agents` declare (spec 0.3 `code_sets`): every set a map
+    """Each map against the code sets `agents` declare (spec §9.6 `code_sets`): every set a map
     names is declared by one of them, and every translation's `as` is a code that set declares
     in one of them. A translation then applies in an agent whose set of that name lists its `as`,
     and in no other (`standards.fhir.pick_code`). An agent whose mapping cannot be read declares no

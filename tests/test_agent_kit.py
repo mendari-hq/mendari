@@ -79,7 +79,7 @@ def test_the_kits_limits_are_the_engines() -> None:
     assert agent_kit.ID_PATTERN.pattern == provider.SERVICE_ID_PATTERN
     assert agent_kit.MAX_CALL_TOKENS == base.MAX_CALL_TOKENS
     assert agent_kit.MAX_CALL_COST_USD == base.MAX_CALL_COST_USD
-    # Proposed actions (spec 0.4): the engine's own limits and its name's shape.
+    # Proposed actions (spec §13.6): the engine's own limits and its name's shape.
     assert agent_kit.MAX_ACTIONS == engine_actions.MAX_PROPOSED == spec.MAX_ACTIONS
     assert agent_kit.MAX_ARGUMENT_CHARS == engine_actions.MAX_ARGUMENT_CHARS
     assert agent_kit.MAX_ARGUMENT_DEPTH == engine_actions.MAX_ARGUMENT_DEPTH
@@ -508,7 +508,7 @@ def test_async_and_sync_handlers_both_answer(token: str) -> None:
     assert threads[0] != threads[1]
 
 
-# -- actions (spec 0.4): what the case offers, what the agent proposes, and asking before running --
+# -- actions (spec §13): what the case offers, what the agent proposes, and asking before running --
 
 DECLARED = {
     "look_up": ActionSpec.model_validate({"description": "Read the list.", "effect": "read"}),

@@ -90,7 +90,7 @@ class PhiPolicy:
         return f"hmac-sha256:{key_id(self.hash_key)}:{digest.hexdigest()}"
 
     def arguments_hash(self, arguments: Any) -> str:
-        """The hash of a proposed action's arguments (spec 0.4), as `input_hash` hashes an
+        """The hash of a proposed action's arguments (spec §13.7), as `input_hash` hashes an
         input: keyed under the hash key, with its own prefix so it never equals the input hash
         of the same value, else the plain `sha256:<64 hex>`."""
         canonical = _canonical(arguments).encode()

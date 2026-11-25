@@ -142,7 +142,7 @@ class AgentConfig(BaseModel):
     state_fields: list[str] | None = None
     # Agent-relative JSON or YAML fixture for offline testing and evaluation.
     mock_file: str | None = None
-    # Spec 0.4 (ADR-0024). Per-question temperatures fitted by `mendari calibrate` (a file in
+    # Spec §14.2 (ADR-0024). Per-question temperatures fitted by `mendari calibrate` (a file in
     # the agent), for the agent version its service reported then: `agent_calibration.py`.
     calibration: str | None = None
     # Ask each case this many times and never automate when the runs disagree: `repeat.py`.
@@ -172,7 +172,7 @@ class AgentProvider(Provider):
         self._client = client
         self._connection: ConnectionSource | None = None
         self._mock: dict[str, Any] | None = None
-        # What the manifest asks this slot's agent to write (spec 0.4 section 17). A composite's
+        # What the manifest asks this slot's agent to write (spec section 15.2). A composite's
         # member writes nothing: its response's `outputs` key is not read.
         self.outputs = slot_outputs(self.agent.manifest, self.info.slot, self.info.variant)
         if self.settings.mock_file is not None:
@@ -525,9 +525,9 @@ def request_body(
     outputs: Mapping[str, WrittenOutput] | None = None,
 ) -> dict[str, Any]:
     """The JSON payload POSTed to an external agent endpoint. `actions` are the actions the
-    agent's manifest declares (spec 0.4 section 4.1), sent in the manifest's order; an agent
+    agent's manifest declares (spec section 13.5), sent in the manifest's order; an agent
     that declares none gets no `actions` key, and its requests are what they always were.
-    `outputs` are the texts the manifest asks this slot's agent to write (section 17), each
+    `outputs` are the texts the manifest asks this slot's agent to write (section 15.2), each
     `{name, description, max_chars}`, likewise left out when there are none."""
     state = select_fields(inputs, state_fields) if state_fields is not None else dict(inputs)
     body: dict[str, Any] = {
@@ -617,7 +617,7 @@ _OUTPUT_CTRL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]+")
 
 
 def _validate_outputs(raw: Any, declared: Mapping[str, WrittenOutput]) -> dict[str, str]:
-    """What a response wrote (spec 0.4 section 17), by name: an object of texts, each for an
+    """What a response wrote (spec section 15.2), by name: an object of texts, each for an
     output the manifest declares for this slot and no longer than its `max_chars`. Anything else
     is a malformed response (`invalid_response`), and the detail never echoes a text. Control
     characters other than the newline and the tab become a space; a text that is then blank is
@@ -650,7 +650,7 @@ def clean_output(text: str) -> str:
 
 
 def _validate_actions(raw: Any) -> list[dict[str, Any]]:
-    """The actions a response proposes (spec 0.4 section 4.2), each `{name, arguments}`: a list
+    """The actions a response proposes (spec section 13.6), each `{name, arguments}`: a list
     of at most `MAX_PROPOSED` objects with `name` and optional `arguments` (an object within
     the limits) and no other key. Anything else is a malformed response (`invalid_response`),
     and the detail never echoes a name or a value. Whether a name is declared, and whether its

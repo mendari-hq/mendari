@@ -1025,7 +1025,7 @@ def test_a_packet_without_a_deployment_keeps_what_the_runtime_enforces() -> None
     assert "none standing" not in packet.render_html(alone)  # no registry was asked
 
 
-# -- actions, a checked confidence and a second signal (spec 0.4) ----------------------------------
+# -- actions, a checked confidence and a second signal (spec §13, §14) -----------------------------
 
 
 def test_the_packet_says_what_the_agent_may_ask_to_have_done_and_how_each_is_gated() -> None:
@@ -1071,7 +1071,7 @@ def test_an_agent_that_declares_no_action_has_it_said_as_not_stated(tmp_path: Pa
     shutil.copytree(DEMO_AGENT_DIR, folder)
     manifest = yaml.safe_load((folder / "agent.yaml").read_text())
     del manifest["actions"]
-    # What it writes goes with its agent variant: only an agent writes (spec 0.4).
+    # What it writes goes with its agent variant: only an agent writes (spec §15.1).
     del manifest["outputs"], manifest["rubrics"], manifest["evaluation"]["grades"]
     manifest["providers"]["reader"]["use"] = "rules"
     del manifest["providers"]["reader"]["variants"]["agent"]

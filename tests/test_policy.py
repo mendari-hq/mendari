@@ -208,7 +208,7 @@ def test_automation_can_require_provider_variants(triage_agent: Agent) -> None:
     assert "unknown: ['nope']" in str(error.value)
 
 
-# -- the actions cap (spec 0.4): a proposal that could not be released with AUTO ---------------
+# -- the actions cap (spec §13): a proposal that could not be released with AUTO ---------------
 
 STOP = "action 'renew_prescription' (order) is never released without a person"
 UNDECLARED = "the agent proposed an action its manifest does not declare"

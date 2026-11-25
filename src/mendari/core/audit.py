@@ -134,7 +134,7 @@ DECISION_KINDS = frozenset(
         # A clinician's feedback on a CDS Hooks card (LP-23f): codes and ids only.
         CARD_FEEDBACK,
         # An action an agent proposed, or a caller asked about, and a held action's release or
-        # denial by the decision's reviewer (spec 0.4, ADR-0023): ids, the declared name, the
+        # denial by the decision's reviewer (spec §13.8, ADR-0023): ids, the declared name, the
         # effect, the disposition, a reason code and a hash of the arguments. Never the
         # arguments, nor a name the manifest does not declare.
         "action.proposed",
@@ -1269,7 +1269,7 @@ class AuditStore(RateBuckets):
             self._append(
                 db, result.id, "decision.created", self._bound("decision.created", created, org)
             )
-            # Each action proposed with the answer (spec 0.4), in the same transaction: what the
+            # Each action proposed with the answer (spec §13.9), in the same transaction: what the
             # chain keeps of it (`ActionResult.chained`), and its arguments apart, as a note,
             # exactly when the decision's input is kept.
             proposed = [
@@ -1321,7 +1321,7 @@ class AuditStore(RateBuckets):
         of its primary question (`_check_label`). A note is kept apart from the chain (`notes`);
         the answer repeats it to whoever wrote it.
 
-        The decision's held actions (spec 0.4) are resolved with it, in the same transaction,
+        The decision's held actions (spec §13.8) are resolved with it, in the same transaction,
         one `action.resolved` each: released when the reviewer's label is the recommendation,
         denied when it is another. `deny_actions` names held actions (by id) the reviewer
         refuses while confirming the label, so refusing an action never takes a false override:
@@ -1410,7 +1410,7 @@ class AuditStore(RateBuckets):
         ask: Callable[[Mapping[str, Any], Sequence[Mapping[str, Any]]], actions.Asked],
     ) -> dict[str, Any]:
         """Record that a caller asked whether one action may be run for a decision of agent
-        `agent_id` (`Decision.authorize_action`, spec 0.4 section 6), and answer how the action
+        `agent_id` (`Decision.authorize_action`, spec section 13.8), and answer how the action
         stands. In one exclusive session: `ask` judges it from the decision's row (its record
         parsed) and its events; an action already proposed on the decision (the same chained
         name, the same arguments' hash; for an action with no chained name, also the same
@@ -2137,7 +2137,7 @@ class AuditStore(RateBuckets):
     def get(self, decision_id: str, *, reader: str | None = None) -> dict[str, Any] | None:
         """A decision with its events; under PHI mode `encrypt`, its input only for a `reader`,
         and its events' notes as `reveal_inputs` shows them (the read it chains is the last
-        event). A decision with proposed actions (spec 0.4) has `actions`: each as it stands
+        event). A decision with proposed actions (spec §13.7) has `actions`: each as it stands
         (`actions.state`), its arguments as its event's note is shown."""
         with self._db.session(exclusive=False) as db:
             item = _decision(db, decision_id)
@@ -5300,7 +5300,7 @@ class AuditStore(RateBuckets):
         self, agent_id: str | None = None, limit: int = 50, *, reader: str | None = None
     ) -> list[dict[str, Any]]:
         """The queue, most urgent first; under PHI mode `encrypt`, with inputs for a `reader`.
-        A decision with proposed actions (spec 0.4) has `actions`, each as it stands, so a
+        A decision with proposed actions (spec §13.7) has `actions`, each as it stands, so a
         reviewer sees what confirming the decision releases; their arguments are shown as
         inputs are (to a `reader`, the read chained)."""
         items = self.query(agent_id=agent_id, review_status="pending", limit=limit)

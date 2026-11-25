@@ -202,7 +202,7 @@ def test_text_that_composing_would_lengthen_stays_as_it_is() -> None:
 
 
 def test_the_spec_lists_every_character_the_plain_form_writes_another_way() -> None:
-    """Spec §5 names each by its code point (an agent author writes patterns by that list): the
+    """Spec §5.3 names each by its code point (an agent author writes patterns by that list): the
     table's, and the zero-width space, which becomes a space."""
     pages = sorted((ROOT / "docs" / "spec").glob("agent-manifest*.md"))
     spec = "\n".join(page.read_text(encoding="utf-8") for page in pages)

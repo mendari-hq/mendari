@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Repeated runs: ask the same question N times, and never automate when the runs disagree
-(ADR-0024; spec 0.4, `repeat` on an `agent` or `llm` variant, 2 to 5).
+(ADR-0024; spec §14.3, `repeat` on an `agent` or `llm` variant, 2 to 5).
 
     agent:
       type: agent
@@ -21,7 +21,7 @@ with each. So, for each of the slot's questions:
 
 Agreement changes nothing: it raises no confidence and lifts no cap.
 
-The actions the runs proposed (spec 0.4, an `agent` variant) are held to the same rule
+The actions the runs proposed (spec §14.3, an `agent` variant) are held to the same rule
 (`_proposals`). The slot proposes each distinct one, a name with its arguments, in the order
 first proposed. One that every one of the N runs proposed is carried as it is. One that only
 some runs proposed (a run that failed proposed nothing) is carried `disputed`: the decision is
