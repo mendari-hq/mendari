@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""What the triage fixture (`mendari-test/triage`, tests/fixtures/reference-agents/triage)
-decides, offline: the test fixture most engine tests decide with, so what they rely on is held
-here. Every message is synthetic.
+"""What the triage fixture (`mendari-test/triage`, `TRIAGE_DIR`) decides, offline: the test
+fixture most engine tests decide with, so what they rely on is held here. Every message is
+synthetic.
 
 - Its default providers are the keyword rules, in both slots, and its policy automates only
   while its screen runs an agent (`automation_requires`): by default nothing is automated.
@@ -59,7 +59,7 @@ def decided(decision: Decision, body: str, **extra: Any) -> tuple[Outcome, str |
 
 
 @pytest.fixture(scope="module")
-def screened(triage_agent: Pack) -> Decision:
+def agent_screen(triage_agent: Pack) -> Decision:
     """The keyword router, with the screen's canned agent: the configuration that automates."""
     return Decision(triage_agent, providers={"screen": "agent"})
 
@@ -108,24 +108,24 @@ def test_by_default_each_team_and_no_suggestion(triage: Decision) -> None:
 # -- the screen's agent: what is automated, and what is not ---------------------------------------
 
 
-def test_with_the_screens_agent_a_confident_team_is_automated(screened: Decision) -> None:
-    assert decided(screened, REFILL) == (Outcome.AUTO, "pharmacy", Priority.ROUTINE)
-    assert decided(screened, RASH) == (Outcome.AUTO, "nurse", Priority.ROUTINE)
-    appointment = screened(message(APPOINTMENT))
+def test_with_the_screens_agent_a_confident_team_is_automated(agent_screen: Decision) -> None:
+    assert decided(agent_screen, REFILL) == (Outcome.AUTO, "pharmacy", Priority.ROUTINE)
+    assert decided(agent_screen, RASH) == (Outcome.AUTO, "nurse", Priority.ROUTINE)
+    appointment = agent_screen(message(APPOINTMENT))
     assert (appointment.outcome, appointment.recommendation) == (Outcome.AUTO, "front_desk")
     assert appointment.reasons == ("confidence 0.98 >= auto threshold 0.95",)
 
 
-def test_billing_is_never_automated(screened: Decision) -> None:
-    bill = screened(message(BILL))
+def test_billing_is_never_automated(agent_screen: Decision) -> None:
+    bill = agent_screen(message(BILL))
     assert (bill.outcome, bill.recommendation) == (Outcome.HUMAN_REVIEW, "billing")
     assert bill.answers["destination"].confidence > 0.95
     assert bill.reasons[-1] == "policy never automates 'billing'"
 
 
-def test_the_front_desk_needs_more_confidence_than_the_others(screened: Decision) -> None:
+def test_the_front_desk_needs_more_confidence_than_the_others(agent_screen: Decision) -> None:
     """A records request is 0.92: above the policy's 0.90, below the front desk's own 0.95."""
-    records = screened(message(RECORDS))
+    records = agent_screen(message(RECORDS))
     assert (records.outcome, records.recommendation) == (Outcome.HUMAN_REVIEW, "front_desk")
     assert 0.90 < records.answers["destination"].confidence < 0.95
     assert records.reasons == ("confidence 0.92 is below the auto threshold 0.95 for 'front_desk'",)
@@ -150,8 +150,8 @@ def test_a_canned_answer_at_each_confidence(triage_agent: Pack) -> None:
 # -- the policy's rules ---------------------------------------------------------------------------
 
 
-def test_a_possible_emergency_goes_to_a_nurse_now(triage: Decision, screened: Decision) -> None:
-    for decision in (triage, screened):
+def test_a_possible_emergency_goes_to_a_nurse_now(triage: Decision, agent_screen: Decision) -> None:
+    for decision in (triage, agent_screen):
         result = decision(message(f"{REFILL} {CHEST_PAIN}"))
         assert (result.outcome, result.recommendation, result.priority) == (
             Outcome.HUMAN_REVIEW,
@@ -162,12 +162,12 @@ def test_a_possible_emergency_goes_to_a_nurse_now(triage: Decision, screened: De
         assert result.reasons[0].startswith("rule possible-emergency: ")
 
 
-def test_the_emergency_rule_acts_on_a_probability(screened: Decision) -> None:
+def test_the_emergency_rule_acts_on_a_probability(agent_screen: Decision) -> None:
     """`min_probability: 0.35`: urgent at 0.75 matches, and so does "not urgent" at 0.60, whose
     probability of urgent is 0.40."""
-    dizzy = screened(message(DIZZY))
+    dizzy = agent_screen(message(DIZZY))
     assert (dizzy.answers["urgency"].label, dizzy.rule) == ("yes", "possible-emergency")
-    off = screened(message(FEEL_OFF))
+    off = agent_screen(message(FEEL_OFF))
     assert off.answers["urgency"].label == "no"
     assert off.answers["urgency"].probabilities["yes"] == pytest.approx(0.40)
     assert (off.outcome, off.recommendation, off.priority, off.rule) == (
@@ -327,12 +327,12 @@ def test_with_sign_in_canned_answers_never_automate_and_live_ones_do(
 # -- the critical label ---------------------------------------------------------------------------
 
 
-def critical_cases(pack: Pack) -> list[dict[str, Any]]:
+def critical_cases(agent: Pack) -> list[dict[str, Any]]:
     """Every true critical case (`urgency` = `yes`) of every dataset of the fixture."""
     return [
         record
-        for name in pack.manifest.evaluation.datasets
-        for record in resolve_dataset(pack, name).records
+        for name in agent.manifest.evaluation.datasets
+        for record in resolve_dataset(agent, name).records
         if record["labels"]["urgency"] == "yes"
     ]
 
@@ -347,7 +347,7 @@ def test_no_critical_case_is_automated_by_default(triage_agent: Pack, triage: De
 
 
 def test_the_rules_miss_emergencies_worded_as_a_patient_might(
-    triage_agent: Pack, triage: Decision, screened: Decision
+    triage_agent: Pack, triage: Decision, agent_screen: Decision
 ) -> None:
     """On purpose, as the card says: the screen's rules find every same-day symptom a keyword
     list words, and none worded as a patient might. With the screen's agent, some of those are
@@ -357,12 +357,12 @@ def test_the_rules_miss_emergencies_worded_as_a_patient_might(
     found = {r["id"] for r in cases if triage(r["input"]).answers["urgency"].label == "yes"}
     assert {kinds[case] for case in found} == {"urgent_plain", "abusive_urgent"}
     assert {kinds[case] for case in set(kinds) - found} == {"urgent_paraphrased"}
-    automated = [r["id"] for r in cases if screened(r["input"]).outcome is Outcome.AUTO]
+    automated = [r["id"] for r in cases if agent_screen(r["input"]).outcome is Outcome.AUTO]
     assert automated and {kinds[case] for case in automated} <= {
         "urgent_plain",  # one the agent misses, but routed to a nurse
         "urgent_paraphrased",
     }
-    assert screened(message(MISSED)).outcome is Outcome.AUTO
+    assert agent_screen(message(MISSED)).outcome is Outcome.AUTO
 
 
 def test_without_its_gate_the_rules_would_automate_critical_cases(

@@ -22,9 +22,9 @@ a fixture hold the same text.
   miss on purpose), alone or beside a request; symptoms said not to be there (`denied`); and
   mild synthetic insults (`abusive`, `abusive_urgent`). Each message has a channel (portal, SMS
   or email), and some a subject.
-- `critical` (40): same-day symptoms only, most worded as a patient might, half of them beside a
-  request: the rules miss them, and without the policy's `automation_requires` they would
-  automate some (the safety invariant's test of its own check).
+- `critical` (40): same-day symptoms only, most worded as a patient might, about half of them
+  beside a request: the rules miss those worded so, and without the policy's
+  `automation_requires` they would automate some (the safety invariant's test of its own check).
 
 `mendari-test/clinical-review` (`clinical-review/`), synthetic triage notes: `examples` (12) and
 `test` (120), from a symptom, how long it has lasted and how severe it is; a severe symptom told
@@ -33,7 +33,10 @@ in other words (`severe_paraphrased`) is missed by the fixture's rules on purpos
 Each fixture's `DECISION_CARD.md` is the card the engine renders for it as a bundled agent, from
 the files written here (its digest covers the data): rendered in a copy of the folder, so the
 committed folder is only read. Manifests, rules, schemas, canned answers and behaviour tests
-are written by hand. A fixture whose files another module generates is one entry of `FIXTURES`.
+are written by hand. Each fixture's folder is the one `tests/conftest.py` names, so a test and
+this module never disagree on where it is. Another fixture's datasets are one more `Fixture` in
+`FIXTURES`; files of another kind (a fixture's FHIR records) one more mapping in `files`.
+`--root DIR` writes, or compares, under DIR instead of this repository.
 """
 
 from __future__ import annotations
@@ -49,9 +52,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-# The folder the engine reads bundled agents from in the tests (tests/conftest.py).
-AGENTS = ROOT / "tests" / "fixtures" / "reference-agents"
+from tests.conftest import CLINICAL_DIR, ROOT, TRIAGE_DIR
+
 SOURCE = "synthetic"  # every case's `source` attribute
 CARD = "DECISION_CARD.md"
 # A case is redrawn while another case of its fixture holds the same text; this many tries at
@@ -62,7 +64,6 @@ Case = dict[str, Any]
 
 # -- mendari-test/triage --------------------------------------------------------------------------
 
-TRIAGE = AGENTS / "triage"
 TEAMS = ("front_desk", "pharmacy", "billing", "nurse")
 MEDICINES = (
     "metformin", "lisinopril", "atorvastatin", "levothyroxine", "amlodipine", "omeprazole",
@@ -256,7 +257,6 @@ def _triage_case(rng: random.Random, kind: str) -> Case:
 
 # -- mendari-test/clinical-review -----------------------------------------------------------------
 
-CLINICAL = AGENTS / "clinical-review"
 SYMPTOMS = (
     "head pain", "throat pain", "back pain", "coughing", "stomach pain", "ear pain", "itching",
     "knee pain",
@@ -375,8 +375,8 @@ class Fixture:
 
 
 FIXTURES = (
-    Fixture(TRIAGE, TRIAGE_COUNTS, TRIAGE_IDS, _triage_case),
-    Fixture(CLINICAL, CLINICAL_COUNTS, CLINICAL_IDS, _clinical_case),
+    Fixture(TRIAGE_DIR, TRIAGE_COUNTS, TRIAGE_IDS, _triage_case),
+    Fixture(CLINICAL_DIR, CLINICAL_COUNTS, CLINICAL_IDS, _clinical_case),
 )
 
 

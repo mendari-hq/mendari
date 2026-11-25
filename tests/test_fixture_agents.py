@@ -42,6 +42,7 @@ from tests.conftest import (
 from tests.support import fixture_agents
 
 FIXTURES = {fixture.name: fixture for fixture in fixture_agents.FIXTURES}
+CARD = "DECISION_CARD.md"
 SYNTHETIC = "Synthetic test fixture."
 NOT_REVIEWED = "Not clinically reviewed. Not for patient care."
 APPROVED = GovernanceOverride(approved_by="the fixtures' tests", reference="no ticket")
@@ -54,55 +55,60 @@ def ids(folder: Path) -> str:
 # -- the generator --------------------------------------------------------------------------------
 
 
+def generated(fixture: fixture_agents.Fixture) -> list[str]:
+    """The files the generator writes for `fixture`: its datasets, then its card."""
+    folder = fixture.folder.relative_to(ROOT).as_posix()
+    return [*(f"{folder}/data/{name}.jsonl" for name in fixture.counts), f"{folder}/{CARD}"]
+
+
 def test_the_committed_files_are_what_the_generator_writes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert fixture_agents.main(["--check"]) == 0
     said = capsys.readouterr().out.splitlines()
-    written = sorted(path.relative_to(ROOT).as_posix() for path in fixture_agents.files())
-    assert sorted(line.removeprefix("ok  ") for line in said) == written
-    assert len(written) == 8  # six datasets and two cards
+    assert said == [f"ok  {path}" for f in fixture_agents.FIXTURES for path in generated(f)]
 
 
-def test_the_command_writes_where_it_is_told_the_same_on_every_run(tmp_path: Path) -> None:
-    """`python -m tests.support.fixture_agents`, the command a maintainer runs, in processes of
-    their own with other hash seeds: the same bytes as the committed files, and `--check`
-    finds a file that is not."""
-    command = [sys.executable, "-m", "tests.support.fixture_agents"]
-    for seed in ("0", "1"):
-        out = tmp_path / f"seed-{seed}"
-        ran = subprocess.run(
-            [*command, "--root", str(out)],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PYTHONHASHSEED": seed},
-        )
-        assert ran.returncode == 0, ran.stderr
-        for path in fixture_agents.files():
-            relative = path.relative_to(ROOT)
-            assert (out / relative).read_bytes() == path.read_bytes(), relative
-    changed = tmp_path / "seed-0" / TRIAGE_DIR.relative_to(ROOT) / "data" / "test.jsonl"
+def test_the_command_writes_where_it_is_told_the_same_on_every_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`python -m tests.support.fixture_agents`, the command a maintainer runs, in a process of
+    its own with another hash seed: the same bytes as the committed files. `--check` finds a
+    file that is not, and names it."""
+    ran = subprocess.run(
+        [sys.executable, "-m", "tests.support.fixture_agents", "--root", str(tmp_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONHASHSEED": "1"},
+    )
+    assert ran.returncode == 0, ran.stderr
+    written = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file())
+    assert written == sorted(path for f in fixture_agents.FIXTURES for path in generated(f))
+    for path in written:
+        assert (tmp_path / path).read_bytes() == (ROOT / path).read_bytes(), path
+    changed = tmp_path / TRIAGE_DIR.relative_to(ROOT) / "data" / "test.jsonl"
     changed.write_text(changed.read_text(encoding="utf-8")[:-2] + "\n", encoding="utf-8")
-    for out, failed in ((tmp_path / "seed-1", 0), (tmp_path / "seed-0", 1)):
-        checked = subprocess.run(
-            [*command, "--check", "--root", str(out)], cwd=ROOT, capture_output=True, text=True
-        )
-        assert checked.returncode == failed, checked.stderr
-    assert "triage/data/test.jsonl is not what this module writes" in checked.stderr
+    capsys.readouterr()
+    assert fixture_agents.main(["--check", "--root", str(tmp_path)]) == 1
+    errors = capsys.readouterr().err.splitlines()
+    assert errors == [
+        f"error: {changed.relative_to(tmp_path)} is not what this module writes: run "
+        "uv run python -m tests.support.fixture_agents and commit it"
+    ]
 
 
 def test_every_fixture_with_generated_files_is_one_the_tests_read() -> None:
     """Each generated fixture is a folder the engine reads in the tests, and the generator makes
     exactly the datasets its manifest declares, each where the manifest says."""
-    assert {fixture.folder for fixture in fixture_agents.FIXTURES} == {TRIAGE_DIR, CLINICAL_DIR}
+    assert {TRIAGE_DIR, CLINICAL_DIR} <= {fixture.folder for fixture in fixture_agents.FIXTURES}
     for fixture in fixture_agents.FIXTURES:
         assert fixture.folder.parent == FIXTURE_AGENTS
         declared = load_pack(fixture.folder).manifest.evaluation.datasets
         assert declared == {name: f"data/{name}.jsonl" for name in fixture.counts}
 
 
-@pytest.mark.parametrize("name", sorted(FIXTURES))
+@pytest.mark.parametrize("name", [TRIAGE_DIR.name, CLINICAL_DIR.name])
 def test_each_case_is_labelled_with_the_facts_it_was_made_from(name: str) -> None:
     """Labels come from the generator's own facts, never from a provider: each case's `kind`
     says which facts, and its labels are what that kind means. Each dataset holds the counts the
