@@ -195,7 +195,7 @@ def test_an_engine_that_does_not_answer_as_the_suite_needs_writes_no_preset(
 ) -> None:
     """Without the prior-authorization pack there is no order-sign service: the script stops
     and writes nothing, rather than a preset that would test nothing."""
-    monkeypatch.setenv("MENDARI_PACKS", "mendari/referral-router")
+    monkeypatch.setenv("MENDARI_AGENTS", "mendari/referral-router")
     refused = pytest.raises(inputs.InputsError, match="order-sign needs-attention: HTTP 404")
     with TestClient(create_app(db_path=tmp_path / "other.db")) as other, refused:
         inputs.build(other, FHIR_BASE, resolve_pack(str(AGENT_DIR)))

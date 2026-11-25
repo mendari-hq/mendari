@@ -122,7 +122,7 @@ def _served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient
     (target / MARKER).write_text(
         json.dumps({"format": ORIGIN_FORMAT, "registry": "https://hub.example.org"})
     )
-    monkeypatch.setenv("MENDARI_PACKS", "someone/visit-sorter")
+    monkeypatch.setenv("MENDARI_AGENTS", "someone/visit-sorter")
     return TestClient(create_app(db_path=tmp_path / "engine.db")), pack.digest, BILL
 
 

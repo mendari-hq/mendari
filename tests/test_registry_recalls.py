@@ -195,7 +195,7 @@ def test_a_running_server_stops_automating_a_pack_its_registry_recalls(
     pulled = pull("someone/visit-sorter", hub.client())
     assert pulled.pulled["registry"] == hub.url
     assert pulled.root.is_relative_to(packs_cache())
-    monkeypatch.setenv("MENDARI_PACKS", "someone/visit-sorter")
+    monkeypatch.setenv("MENDARI_AGENTS", "someone/visit-sorter")
     with TestClient(create_app(db_path=tmp_path / "engine.db")) as client:
         watch = client.app.state.recall_watch  # type: ignore[attr-defined]
         watch.refresh(hub.url)
@@ -234,7 +234,7 @@ def test_a_running_server_holds_a_copy_its_registry_never_counter_signed(
     hub.client(token).push(outside_sorter(tmp_path / "source"), key)
     pulled = pull("someone/visit-sorter", hub.client())
     assert pulled.pulled["accepted"] is None
-    monkeypatch.setenv("MENDARI_PACKS", "someone/visit-sorter")
+    monkeypatch.setenv("MENDARI_AGENTS", "someone/visit-sorter")
     decide = "/api/agents/someone/visit-sorter/decide"
     with TestClient(create_app(db_path=db_target)) as client:
         watch = client.app.state.recall_watch  # type: ignore[attr-defined]
