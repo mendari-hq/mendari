@@ -11,14 +11,15 @@ from typing import Any
 import pytest
 from playwright.sync_api import Page, Route, expect
 
-from tests.browser.test_dashboard import INBOX, open_pack
+from tests.browser.conftest import CLINICAL, TRIAGE
+from tests.browser.test_dashboard import open_pack
 
 pytestmark = pytest.mark.browser
 
 HOLD = {
     "id": "abc123",
     "org": "default",
-    "pack_id": INBOX,
+    "pack_id": TRIAGE,
     "pack_digest": None,
     "reason": "a missed emergency, checking",
     "set_by": "ops@clinic.example.org",
@@ -42,10 +43,10 @@ def holds(page: Page, listed: list[dict[str, Any]], sent: list[tuple[str, str]])
 
 def test_the_overview_says_a_hold_covers_the_pack(page: Page) -> None:
     holds(page, [HOLD], [])
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     expect(page.locator(".hold-notice")).to_contain_text("Automation is on hold.")
-    holds(page, [{**HOLD, "pack_id": "mendari/referral-router"}], [])
-    open_pack(page, INBOX)
+    holds(page, [{**HOLD, "pack_id": CLINICAL}], [])
+    open_pack(page, TRIAGE)
     expect(page.locator(".hold-notice")).to_have_count(0)
 
 
@@ -56,7 +57,7 @@ def lifts(sent: list[tuple[str, str]]) -> bool:
 def test_the_card_holds_and_lifts(page: Page) -> None:
     sent: list[tuple[str, str]] = []
     holds(page, [HOLD], sent)
-    open_pack(page, INBOX, "card")
+    open_pack(page, TRIAGE, "card")
     section = page.locator("#card-approval")
     expect(section).to_contain_text("a missed emergency, checking")
     # Lifting raises automation again: it asks first, and Cancel keeps the hold.

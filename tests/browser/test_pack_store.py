@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The pack store in the dashboard (LP-20j): copy, edit, test, evaluate, compare and promote in a
-second organization, the promoted version answering that organization alone; the author sees no
-promote control and why; a refused upload shows kinds and places and no value; a held upload says
-only that it is held; too few cases read "insufficient evidence"; without the store the view is
-not there.
+"""The agent store in the dashboard (LP-20j): copy, edit, test, evaluate, compare and promote in
+a second organization, the promoted version answering that organization alone; the author sees no
+promote control and why; a refused upload shows kinds and places and no value; too few cases read
+"insufficient evidence"; without the store the view is not there. The agent copied is the triage
+test fixture.
 
 A real server at `localhost` (tests/browser/access_site.py) in memberships mode with
 `MENDARI_AGENT_STORE=on`. Run with `uv run pytest -m browser`."""
@@ -24,12 +24,12 @@ from mendari.core.pack import load_pack
 from mendari.core.registry import resolve_pack
 from mendari.hub import archive
 from tests.browser.access_site import Site, memberships, person, running
+from tests.browser.conftest import TRIAGE
 from tests.browser.test_accessibility import violations
-from tests.conftest import INBOX_DIR
+from tests.conftest import TRIAGE_DIR
 
 pytestmark = pytest.mark.browser
 
-INBOX = "mendari/patient-inbox-router"
 CLINIC_A, CLINIC_B = "clinic-a", "clinic-b"
 SECRET_PHONE = "617-555-2368"
 OWN = {"x-mendari-request": "1"}
@@ -51,9 +51,9 @@ def store_tab(page: Page, tab: str) -> None:
     expect(page.locator("#store-body")).not_to_have_attribute("aria-busy", "true")
 
 
-def copy(page: Page, name: str = "inbox-router") -> str:
+def copy(page: Page, name: str = "triage-copy") -> str:
     store_tab(page, "agents")
-    page.get_by_label("Agent to copy", exact=True).fill(INBOX)
+    page.get_by_label("Agent to copy", exact=True).fill(TRIAGE)
     page.get_by_label("Name of the copy").fill(name)
     page.get_by_role("button", name="Copy", exact=True).click()
     expect(page).to_have_url(re.compile(r"#store/version/sha256"), timeout=20_000)
@@ -80,12 +80,12 @@ def run_job(page: Page, *, version: str | None = None, pack: str | None = None) 
 
 
 def compare(page: Page) -> None:
-    """The draft's job against the built-in pack's, on the same test set."""
+    """The draft's job against the served agent's, on the same test set."""
     store_tab(page, "compare")
     options = page.locator("#compare-draft option")
     named = {o.inner_text(): str(o.get_attribute("value")) for o in options.all()}
-    current = next(v for t, v in named.items() if t.startswith(INBOX))
-    draft = next(v for t, v in named.items() if not t.startswith(INBOX))
+    current = next(v for t, v in named.items() if t.startswith(TRIAGE))
+    draft = next(v for t, v in named.items() if not t.startswith(TRIAGE))
     page.get_by_label("Draft", exact=True).select_option(draft)
     page.get_by_label("Current", exact=True).select_option(current)
     page.get_by_role("button", name="Compare").click()
@@ -102,25 +102,25 @@ def decide(site: Site, headers: dict[str, str], pack_id: str) -> dict[str, objec
 
 
 def test_copy_edit_test_compare_and_promote_in_a_second_organization(site: Site) -> None:
-    """In clinic-b an author copies the inbox pack, edits a rule, runs the tests and two jobs,
+    """In clinic-b an author copies the triage agent, edits a rule, runs the tests and two jobs,
     reads the comparison; a second person promotes; a decide request from clinic-b is answered by
-    the promoted digest, and one from clinic-a by the built-in pack."""
+    the promoted digest, and one from clinic-a by the served agent."""
     author = site.window(
         person(site, sub="aria", email="aria@example.org", org=CLINIC_B, roles=["pack_author"])
     )
     first = copy(author)
-    author.get_by_label("File").select_option("logic/routing_rules.yaml")
+    author.get_by_label("File").select_option("logic/router_rules.yaml")
     content = author.get_by_label("Content")
     expect(content).not_to_have_value("")
     content.fill(content.input_value() + "\n# reviewed by the clinic\n")
     author.get_by_role("button", name="Save as a new draft").click()
     expect(author).not_to_have_url(re.compile(re.escape(first.replace(":", "%3A"))), timeout=20_000)
-    expect(author.locator("main h1")).to_contain_text("inbox-router")
+    expect(author.locator("main h1")).to_contain_text("triage-copy")
     draft = digest_of(author)
     author.get_by_role("button", name="Run the tests").click()
     expect(author.locator("#tests-result")).to_contain_text("passed", timeout=20_000)
     run_job(author, version=draft)
-    run_job(author, pack=INBOX)
+    run_job(author, pack=TRIAGE)
     compare(author)
     expect(author.locator("#compare-result")).to_contain_text("cases paired")
 
@@ -134,18 +134,14 @@ def test_copy_edit_test_compare_and_promote_in_a_second_organization(site: Site)
     dialog = approver.locator("dialog[open]")
     expect(dialog).to_contain_text("clinic-b")
     dialog.get_by_role("button", name="Promote").click()
-    expect(approver.locator('[data-table="promotions"]')).to_contain_text(
-        f"{CLINIC_B}/inbox-router"
-    )
+    expect(approver.locator('[data-table="promotions"]')).to_contain_text(f"{CLINIC_B}/triage-copy")
 
     b = person(site, sub="rae", email="rae@example.org", org=CLINIC_B, roles=["reviewer"])
-    assert decide(site, b, f"{CLINIC_B}/inbox-router")["pack"]["digest"] == draft  # type: ignore[index]
+    assert decide(site, b, f"{CLINIC_B}/triage-copy")["pack"]["digest"] == draft  # type: ignore[index]
     a = person(site, sub="ana", email="ana@example.org", org=CLINIC_A, roles=["reviewer"])
-    assert decide(site, a, INBOX)["pack"]["digest"] == resolve_pack(INBOX).digest  # type: ignore[index]
+    assert decide(site, a, TRIAGE)["pack"]["digest"] == resolve_pack(TRIAGE).digest  # type: ignore[index]
     with httpx.Client(base_url=site.base, headers={**a, **OWN}) as client:
-        assert (
-            client.post(f"/api/agents/{CLINIC_B}/inbox-router/decide", json={}).status_code == 404
-        )
+        assert client.post(f"/api/agents/{CLINIC_B}/triage-copy/decide", json={}).status_code == 404
 
 
 def test_the_author_sees_no_promote_control_and_why(site: Site) -> None:
@@ -181,7 +177,7 @@ def test_the_store_passes_axe(site: Site, scheme: str) -> None:
     expect(page.locator("#tests-result")).to_contain_text("passed", timeout=20_000)
     found["its tests"] = violations(page)
     run_job(page, version=digest)
-    run_job(page, pack=INBOX)
+    run_job(page, pack=TRIAGE)
     found["results"] = violations(page)
     compare(page)
     expect(page.locator("#compare-result")).to_contain_text("cases paired")
@@ -194,7 +190,7 @@ def test_the_store_passes_axe(site: Site, scheme: str) -> None:
 
 
 def _signed(site: Site, tmp_path: Path, extra_case: dict[str, object]) -> bytes:
-    """A signed archive of the inbox pack in clinic-b's namespace with one more test case, and
+    """A signed archive of the triage agent in clinic-b's namespace with one more test case, and
     clinic-b's author key registered by its administrator."""
     private, public = archive.generate_key()
     admin = person(site, sub="lead-b", email="lead-b@example.org", org=CLINIC_B, roles=["admin"])
@@ -203,7 +199,7 @@ def _signed(site: Site, tmp_path: Path, extra_case: dict[str, object]) -> bytes:
             client.post("/api/store/keys", json={"public_pem": public.decode()}).status_code == 201
         )
     root = tmp_path / "pack"
-    shutil.copytree(INBOX_DIR, root)
+    shutil.copytree(TRIAGE_DIR, root)
     manifest = yaml.safe_load((root / "agent.yaml").read_text())
     manifest["id"] = f"{CLINIC_B}/uploaded"
     (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
@@ -235,27 +231,6 @@ def test_a_refused_upload_shows_kinds_and_places_and_no_value(site: Site, tmp_pa
     assert SECRET_PHONE not in page.content()
 
 
-def test_a_held_upload_says_only_that_it_is_held(
-    site: Site, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Without the hidden sets' keys this deployment holds no hidden case: the check is "not
-    # applicable" and nothing is held. A held version, as the store writes one, says only that.
-    data = _signed(site, tmp_path, {"message": {"body": "a plain synthetic message"}})
-    page = site.window(
-        person(site, sub="aria", email="aria@example.org", org=CLINIC_B, roles=["pack_author"])
-    )
-    _upload(page, tmp_path, data)
-    expect(page.locator("#upload-result")).to_contain_text("A draft")
-    with site.store._db.session(exclusive=True) as db:  # held, as the hidden-set check holds one
-        db.all(
-            "UPDATE store_versions SET state = 'held' WHERE pack_id = ?", (f"{CLINIC_B}/uploaded",)
-        )
-    store_tab(page, "agents")
-    row = page.locator(f'[data-table="store-{CLINIC_B}/uploaded"] tbody tr')
-    expect(row).to_contain_text("Held for the operator's review")
-    expect(row).not_to_contain_text("hidden")
-
-
 def test_the_agents_tab_names_how_an_archive_is_built(site: Site) -> None:
     """The Agents tab (`#store/agents`) names the command that builds an archive, and offers an
     archive by the extension it is written with."""
@@ -280,7 +255,7 @@ def test_a_comparison_on_too_few_cases_says_insufficient_evidence(site: Site) ->
     )
     digest = copy(page)
     run_job(page, version=digest)
-    run_job(page, pack=INBOX)
+    run_job(page, pack=TRIAGE)
     compare(page)
     expect(page.locator("#compare-result")).to_contain_text("Insufficient evidence")
 

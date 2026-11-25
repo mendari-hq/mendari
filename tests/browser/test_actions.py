@@ -16,9 +16,9 @@ import pytest
 from playwright.sync_api import Browser, Page, expect
 
 from mendari.server.app import create_app
-from tests.browser.conftest import serving
+from tests.browser.conftest import TRIAGE, serving
 from tests.browser.test_dashboard import open_pack, show
-from tests.conftest import INBOX_DIR, ROOT, message
+from tests.conftest import ROOT, TRIAGE_DIR, message
 
 pytestmark = pytest.mark.browser
 
@@ -35,7 +35,7 @@ UNDECLARED = "Try an undeclared thing."  # an action the manifest does not decla
 def actions_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     root = Path(tmp_path_factory.mktemp("actions"))
     shutil.copytree(MINI, root / "agents" / "actions-mini")
-    shutil.copytree(INBOX_DIR, root / "agents" / "patient-inbox-router")
+    shutil.copytree(TRIAGE_DIR, root / "agents" / "triage")
     app = create_app(db_path=root / "mendari.db", packs_paths=[root / "agents"])
     with serving(app) as port:
         yield f"http://127.0.0.1:{port}"
@@ -126,13 +126,13 @@ def test_another_label_denies_the_held_actions(console: Page, actions_server: st
 def test_a_decision_with_nothing_held_confirms_in_one_tap_as_before(
     console: Page, actions_server: str
 ) -> None:
-    inbox = httpx.post(
-        f"{actions_server}/api/agents/mendari/patient-inbox-router/decide",
+    triage = httpx.post(
+        f"{actions_server}/api/agents/{TRIAGE}/decide",
         json={"message": {"body": "Crushing chest pain and my left arm is numb"}},
         timeout=30,
     ).json()
-    open_pack(console, "mendari/patient-inbox-router", "review")
-    card = console.locator(f'.review-card[data-id="{inbox["id"]}"]')
+    open_pack(console, TRIAGE, "review")
+    card = console.locator(f'.review-card[data-id="{triage["id"]}"]')
     expect(card.locator(".actions-list")).to_have_count(0)  # an older agent's card is as it was
     expect(card.get_by_role("heading", name="Proposed actions")).to_have_count(0)
     card.get_by_role("button", name=re.compile("^Confirm Nurse")).click()
@@ -211,7 +211,7 @@ def test_the_card_lists_the_declared_actions_and_how_each_is_gated(console: Page
     expect(rows.nth(3)).to_contain_text("medication")
     expect(rows.nth(5).locator(".chip")).to_have_text("order")
     # An agent that declares none has no such section, and no link to one.
-    open_pack(console, "mendari/patient-inbox-router", "card")
+    open_pack(console, TRIAGE, "card")
     expect(console.locator("#card-actions")).to_have_count(0)
     expect(console.locator('.toc a[href="#card/actions"]')).to_have_count(0)
 

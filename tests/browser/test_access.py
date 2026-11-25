@@ -15,15 +15,15 @@ from typing import Any
 import pytest
 from playwright.sync_api import Page, Route, expect
 
+from tests.browser.conftest import TRIAGE
 from tests.browser.test_accessibility import violations
 from tests.browser.test_dashboard import (
-    INBOX,
     LAYOUT_SHIFT,
     PERMISSIONS,
     PHONE,
     SMART_ITEMS,
     SMART_PATIENT,
-    decide_inbox,
+    decide_triage,
     launched_as,
     open_pack,
     signed_in_as,
@@ -102,7 +102,7 @@ def member_of(
 
 def test_a_person_of_no_organization_sees_the_access_page_and_nothing_else(page: Page) -> None:
     asked = member_of(page, [], None, [])
-    page.goto(f"/?agent={INBOX}#review")  # whatever the address says
+    page.goto(f"/?agent={TRIAGE}#review")  # whatever the address says
     expect(page.locator("main h1")).to_have_text("You don't have access yet")
     expect(page.locator("main")).to_contain_text("Signed in as kim@clinic.example.org")
     expect(page.locator("#signed-in-name")).to_have_text("Nurse Kim · no organization")
@@ -111,7 +111,7 @@ def test_a_person_of_no_organization_sees_the_access_page_and_nothing_else(page:
     expect(page.locator(".org-picker")).to_be_hidden()
     paths = {path for _, path, _ in asked}
     assert paths <= {"/api/health", "/api/smart/session", "/api/auth/me"}, paths
-    page.goto(f"/?agent={INBOX}#access")
+    page.goto(f"/?agent={TRIAGE}#access")
     expect(page.locator("main h1")).to_have_text("You don't have access yet")
 
 
@@ -175,7 +175,7 @@ def test_a_role_is_named_never_shown_by_its_key(page: Page) -> None:
 def test_the_bar_names_the_roles_of_who_is_signed_in(page: Page) -> None:
     held = [{**CLINICS[1], "roles": ["reviewer", "pack_author"]}]
     member_of(page, held, "clinic-b", ["reviewer", "pack_author"])
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     expect(page.locator("#signed-in-name")).to_have_text(
         "Nurse Kim · Clinic B · Reviewer, Agent author"
     )
@@ -184,17 +184,16 @@ def test_the_bar_names_the_roles_of_who_is_signed_in(page: Page) -> None:
 def test_a_member_who_only_labels_is_told_so_and_the_page_asks_for_nothing_else(
     page: Page,
 ) -> None:
-    """LP-11: a labeller and nothing else holds `label` only: no packs, no notice, no review
+    """LP-11: a labeller and nothing else holds `label` only: no agents, no notice, no review
     queue. Where no labelling route is served (the open-mode test server here), they are told
-    what they do, and the page reads nothing but who they are, health and their counts, of
-    hidden cases and of written output (which say whether the routes are served;
-    tests/browser/test_labelling.py and test_written.py where they are)."""
+    what they do, and the page reads nothing but who they are, health and their counts (which
+    say whether the routes are served; tests/browser/test_written.py where they are)."""
     held = [{"org": "clinic-b", "name": "Clinic B", "roles": ["labeller"]}]
     seen = pins(page)
     member_of(page, held, "clinic-b", ["labeller"])
     page.goto("/")
     expect(page.locator("main h1")).to_have_text("Nothing to do here yet")
-    expect(page.locator("main")).to_contain_text("You label cases for hidden evaluation sets")
+    expect(page.locator("main")).to_contain_text("You label cases")
     for section in ("overview", "review", "try", "labelling", "written"):
         expect(page.locator(f'.nav a[data-view="{section}"]')).to_be_hidden()
     asked = {"/api/health", "/api/labelling", "/api/written/labelling"}
@@ -218,7 +217,7 @@ def test_roles_that_grant_nothing_still_offer_the_persons_other_organizations(
 
 def test_someone_in_several_organizations_switches_between_them(page: Page) -> None:
     asked = member_of(page, CLINICS, "default", ["reviewer"])
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     expect(page.locator("#signed-in-name")).to_have_text(
         "Nurse Kim · Reviewer"
     )  # the list names it
@@ -240,7 +239,7 @@ def test_a_refused_switch_says_why_and_keeps_the_organization(page: Page) -> Non
         "detail": "you hold no membership of that organization in force",
     }
     page.route("**/api/auth/organization", lambda route: route.fulfill(status=403, json=refused))
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     page.locator("#org-select").select_option("clinic-b")
     page.get_by_role("button", name="Switch").click()
     expect(page.locator("#toast")).to_have_text(refused["detail"])
@@ -251,7 +250,7 @@ def test_a_refused_switch_says_why_and_keeps_the_organization(page: Page) -> Non
 def test_switching_sends_a_held_override_first_in_the_organization_it_was_made_in(
     page: Page, live_server: str
 ) -> None:
-    decision = decide_inbox(live_server, "Crushing chest pain and sweating, before a switch")
+    decision = decide_triage(live_server, "Crushing chest pain and sweating, before a switch")
     order: list[tuple[str, str | None]] = []
 
     def posted(request: Any) -> None:
@@ -262,7 +261,7 @@ def test_switching_sends_a_held_override_first_in_the_organization_it_was_made_i
 
     page.on("request", posted)
     member_of(page, CLINICS, "default", ["reviewer"])
-    open_pack(page, INBOX, "review")
+    open_pack(page, TRIAGE, "review")
     card = page.locator(f'.review-card[data-id="{decision["id"]}"]')
     card.get_by_role("button", name="Billing", exact=True).click()  # held, in its undo window
     page.locator("#org-select").select_option("clinic-b")
@@ -293,31 +292,31 @@ def pins(page: Page) -> list[tuple[str, str, str | None]]:
 
 def decide_and_download(page: Page) -> None:
     """A decision (a POST), then the wrong cases' download, as the person would."""
-    page.goto(f"/?agent={INBOX}#try")
+    page.goto(f"/?agent={TRIAGE}#try")
     page.get_by_role("button", name="Chest pain").click()
     page.locator("#decide").click()
     expect(page.locator("#result")).to_contain_text("nurse")
-    page.goto(f"/?agent={INBOX}#feedback")
+    page.goto(f"/?agent={TRIAGE}#feedback")
     with page.expect_download() as saved:
         page.locator("#feedback-export").click()
-    assert saved.value.suggested_filename == "patient-inbox-router-feedback-down.jsonl"
+    assert saved.value.suggested_filename == "triage-feedback-down.jsonl"
 
 
 def test_every_request_names_the_organization_the_window_shows(page: Page) -> None:
     """Reads, writes and the download a link starts alike (it is fetched to carry the header)."""
     seen = pins(page)
     member_of(page, CLINICS, "default", ["reviewer"])
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     decide_and_download(page)
     assert {"GET", "POST"} <= {method for method, _, _ in seen}
-    assert f"/api/agents/{INBOX}/feedback/export" in {path for _, path, _ in seen}
+    assert f"/api/agents/{TRIAGE}/feedback/export" in {path for _, path, _ in seen}
     assert {org for _, _, org in seen} == {"default"}, seen
 
 
 def test_claims_mode_sends_no_organization(page: Page) -> None:
     seen = pins(page)
     signed_in_as(page, "reviewer")
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     expect(page.locator("#signed-in-name")).to_have_text("Nurse Kim · Reviewer")
     expect(page.locator(".org-picker")).to_be_hidden()
     decide_and_download(page)
@@ -327,17 +326,17 @@ def test_claims_mode_sends_no_organization(page: Page) -> None:
 
 def test_a_download_for_an_organization_changed_since_is_refused_and_said(page: Page) -> None:
     member_of(page, CLINICS, "default", ["reviewer"])
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     moved = {"error": "OrganizationChanged", "detail": "this window shows another organization"}
     page.route("**/feedback/export*", lambda route: route.fulfill(status=409, json=moved))
-    page.goto(f"/?agent={INBOX}#feedback")
+    page.goto(f"/?agent={TRIAGE}#feedback")
     page.locator("#feedback-export").click()
     expect(page.locator("#org-changed")).to_be_visible()
 
 
 def test_who_is_signed_in_must_be_known_to_show_anything(page: Page) -> None:
     page.route("**/api/auth/me", lambda route: route.fulfill(status=503, json={"detail": "down"}))
-    page.goto(f"/?agent={INBOX}#overview")
+    page.goto(f"/?agent={TRIAGE}#overview")
     expect(page.locator("main")).to_contain_text("Could not reach the Mendari API")
     expect(page.locator("#pack-select option")).to_have_count(0)
 
@@ -377,7 +376,7 @@ def test_nothing_shifts_while_a_member_of_several_loads(page: Page, width: int) 
     page.set_viewport_size({"width": width, "height": 900})
     page.add_init_script(LAYOUT_SHIFT)
     member_of(page, CLINICS, "default", ["reviewer"])
-    page.goto(f"/?agent={INBOX}#overview")
+    page.goto(f"/?agent={TRIAGE}#overview")
     expect(page.locator(".stats-primary")).to_be_visible()
     page.wait_for_timeout(300)
     assert page.evaluate("window.__cls") < 0.1
@@ -385,12 +384,12 @@ def test_nothing_shifts_while_a_member_of_several_loads(page: Page, width: int) 
 
 def test_access_that_ended_mid_session_says_so(page: Page) -> None:
     member_of(page, CLINICS, "default", ["reviewer"])
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     banner = page.locator("#access-ended")
     expect(banner).to_be_hidden()
     ended = {"error": "NoOrganization", "detail": "you have no organization here"}
     page.route("**/api/review?*", lambda route: route.fulfill(status=403, json=ended))
-    page.goto(f"/?agent={INBOX}#review")
+    page.goto(f"/?agent={TRIAGE}#review")
     expect(banner).to_be_visible()
     expect(banner).to_contain_text("Your access to this organization ended.")
     expect(page.locator("#announce-alert")).to_have_text("Your access to this organization ended.")
@@ -398,10 +397,10 @@ def test_access_that_ended_mid_session_says_so(page: Page) -> None:
 
 def test_a_window_on_an_organization_changed_since_says_so(page: Page) -> None:
     member_of(page, CLINICS, "default", ["reviewer"])
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     moved = {"error": "OrganizationChanged", "detail": "this window shows another organization"}
     page.route("**/api/review?*", lambda route: route.fulfill(status=409, json=moved))
-    page.goto(f"/?agent={INBOX}#review")
+    page.goto(f"/?agent={TRIAGE}#review")
     banner = page.locator("#org-changed")
     expect(banner).to_be_visible()
     expect(banner.get_by_role("button", name="Reload it")).to_be_visible()
@@ -436,7 +435,7 @@ def test_the_access_page_fits_a_phone(page: Page) -> None:
 def test_the_switcher_is_in_the_phone_settings_sheet(page: Page) -> None:
     page.set_viewport_size(PHONE)
     member_of(page, CLINICS, "default", ["reviewer"])
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     page.locator("#settings-button").click()
     expect(page.locator("#org-select")).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")

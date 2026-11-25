@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Two EHR launches in one browser, through the real server (sign-in on, an EHR registered to
-the one organization, no one signed in) and the fake EHR of tests/test_smart.py: run with
-`uv run pytest -m browser`."""
+the one organization, no one signed in) and the fake EHR of tests/test_smart.py, serving two of
+the chart fixture's synthetic patients: run with `uv run pytest -m browser`."""
 
 from __future__ import annotations
 
@@ -22,24 +22,26 @@ import tests.test_smart as fake
 from mendari.server import smart_routes
 from mendari.server.app import create_app
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
-from tests.browser.conftest import serving
+from tests.browser.conftest import CHART, serving
 from tests.conftest import encrypt_mode
+from tests.support.fixture_records import SHOWCASE
 
 pytestmark = pytest.mark.browser
 
-FIRST, SECOND = "Case ref-us-core-1 Synthetic", "Second Synthetic"  # ref-p1, ref-p2
+# The chart fixture's showcase patient and a second one, by their ids and names.
+FIRST_ID, SECOND_ID = SHOWCASE.id, "chart-p2"
+FIRST, SECOND = f"Case {SHOWCASE.id} Synthetic", "Second Synthetic"
 
 
 def two_patients() -> fake.FakeEhr:
-    """The fake EHR, with a second synthetic patient and their own referral."""
+    """The fake EHR, serving the chart fixture's showcase record (its patient is the work item
+    the fixture decides about) and a second synthetic patient."""
     ehr = fake.FakeEhr()
-    patient = next(r for r in ehr.resources if r["resourceType"] == "Patient")
-    referral = next(r for r in ehr.resources if r["resourceType"] == "ServiceRequest")
-    other = copy.deepcopy(patient) | {"id": "ref-p2"}
+    record = [entry["resource"] for entry in SHOWCASE.bundle()["entry"]]
+    patient = next(r for r in record if r["resourceType"] == "Patient")
+    other = copy.deepcopy(patient) | {"id": SECOND_ID}
     other["name"] = [{"given": ["Second"], "family": "Synthetic"}]
-    theirs = copy.deepcopy(referral) | {"id": "ref-sr2"}
-    theirs["subject"] = {"reference": "Patient/ref-p2"}
-    ehr.resources += [other, theirs]
+    ehr.resources = [*record, other]
     return ehr
 
 
@@ -104,7 +106,7 @@ def launch(context: BrowserContext, base: str, ehr: fake.FakeEhr, patient: str) 
     """The EHR opens Mendari in a new window, on `patient`."""
     ehr.patient = patient
     page = context.new_page()
-    query = urlencode({"iss": fake.ISS, "launch": "xyz", "pack": fake.REFERRAL})
+    query = urlencode({"iss": fake.ISS, "launch": "xyz", "pack": CHART})
     page.goto(f"{base}/smart/launch?{query}")
     return page
 
@@ -118,7 +120,7 @@ def test_a_launch_that_replaces_the_window_s_mid_render_is_never_shown(
     other patient, while the second window shows its own."""
     base, ehr = site
     context = browser.new_context()
-    a = launch(context, base, ehr, "ref-p1")
+    a = launch(context, base, ehr, FIRST_ID)
     expect(a.locator(".patient-name")).to_have_text(FIRST)
     a.evaluate(
         """window.seen = [];
@@ -135,7 +137,7 @@ def test_a_launch_that_replaces_the_window_s_mid_render_is_never_shown(
             return
         held["armed"] = False
         answer = route.fetch()  # A's launch, still the browser's
-        b = launch(context, base, ehr, "ref-p2")  # replaces it before A reads the patient
+        b = launch(context, base, ehr, SECOND_ID)  # replaces it before A reads the patient
         expect(b.locator(".patient-name")).to_have_text(SECOND)
         windows.append(b)
         route.fulfill(response=answer)

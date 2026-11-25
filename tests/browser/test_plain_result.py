@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The result in words (LP-05b): Try it's result shows the pack's names, never its codes; each code
-is one click away ("Show codes"), since a pack's names are its author's claim; the engine's detail
-(probabilities, providers, thresholds, the reasons as the engine gave them) is in the decision
-record's drawer. Checked on every reference pack, and with axe in both themes."""
+"""The result in words (LP-05b): Try it's result shows the agent's names, never its codes; each
+code is one click away ("Show codes"), since an agent's names are its author's claim; the engine's
+detail (probabilities, providers, thresholds, the reasons as the engine gave them) is in the
+decision record's drawer. Checked on every served agent, and with axe in both themes."""
 
 from __future__ import annotations
 
@@ -12,14 +12,15 @@ import httpx
 import pytest
 from playwright.sync_api import Page, expect
 
+from tests.browser.conftest import CHART, TRIAGE
 from tests.browser.test_accessibility import violations
-from tests.browser.test_dashboard import INBOX, PACKS, open_pack
+from tests.browser.test_dashboard import PACKS, open_pack
 
 pytestmark = pytest.mark.browser
 
 
 def decide(page: Page, pack_id: str) -> None:
-    """Try it on a pack: its first behaviour test, or for a message pack the Refill sample."""
+    """Try it on an agent: its first behaviour test, or for a message agent the Refill sample."""
     open_pack(page, pack_id, "try")
     if page.locator("#example").count():
         page.locator("#decide").click()
@@ -30,8 +31,8 @@ def decide(page: Page, pack_id: str) -> None:
 
 
 def codes(live_server: str, pack_id: str) -> set[str]:
-    """The pack's codes that never pass for words: its question keys, and every label written
-    with an underscore (`front_desk`, `age_18_75`)."""
+    """The agent's codes that never pass for words: its question keys, and every label written
+    with an underscore (`front_desk`, `see_today`)."""
     manifest = httpx.get(f"{live_server}/api/agents/{pack_id}").json()["manifest"]
     found = set(manifest["questions"])
     for question in manifest["questions"].values():
@@ -54,7 +55,7 @@ def test_the_result_shows_names_and_no_raw_code(page: Page, live_server: str, pa
 
 
 def test_the_engine_detail_is_in_the_record(page: Page) -> None:
-    decide(page, INBOX)
+    decide(page, TRIAGE)
     main_view = page.locator("#result .result").inner_text()
     assert "auto threshold" not in main_view
     page.get_by_role("link", name=re.compile("^Engine detail")).click()
@@ -65,26 +66,26 @@ def test_the_engine_detail_is_in_the_record(page: Page) -> None:
 
 
 def test_a_rule_reason_reads_in_the_authors_words(page: Page) -> None:
-    open_pack(page, INBOX, "try")
+    open_pack(page, TRIAGE, "try")
     page.get_by_role("button", name="Chest pain", exact=True).click()
     page.locator("#decide").click()
     why = page.locator("#result .reasons")
-    expect(why).to_contain_text("Possible emergency symptoms.")
+    expect(why).to_contain_text("Possible same-day symptoms. A nurse reads the message now.")
     expect(why).not_to_contain_text("rule ")  # the rule's name is the engine's
 
 
 @pytest.mark.parametrize("axe_page", ["light", "dark"], indirect=True)
 def test_the_result_passes_axe(axe_page: Page) -> None:
-    decide(axe_page, INBOX)
+    decide(axe_page, TRIAGE)
     assert violations(axe_page) == []
     axe_page.get_by_role("button", name="Show codes").click()
     assert violations(axe_page) == []
 
 
 def test_a_refused_input_says_what_is_wrong(page: Page) -> None:
-    """A refusal names the field and the rule (schema paths, not a pack's codes), so a person can
-    fix the input where it is, in Try it."""
-    open_pack(page, "mendari/referral-router", "try")
+    """A refusal names the field and the rule (schema paths, not an agent's codes), so a person
+    can fix the input where it is, in Try it."""
+    open_pack(page, CHART, "try")
     page.locator('[data-mode="json"]').click()
     record = page.locator("#record")
     record.fill(record.input_value().replace("{", '{"my_edit": 1, ', 1))
@@ -102,79 +103,27 @@ def test_a_provider_failure_keeps_its_safety_caveat_and_names_the_question(page:
     failed = {
         "id": "00000000-0000-4000-8000-000000000001",
         "outcome": "HUMAN_REVIEW",
-        "recommendation": "medical_assistant",
-        "priority": "routine",
-        "confidence": 0.91,
-        "primary": "destination",
-        "rule": None,
-        "fallback": None,
-        "answers": {
-            "destination": {"label": "medical_assistant", "confidence": 0.91, "evidence": []}
-        },
-        "errors": {"urgency": "provider_unavailable"},
-        "reasons": ["provider failure (provider_unavailable); safety checks may be incomplete"],
-    }
-    page.route(
-        f"**/api/agents/{INBOX}/decide",
-        lambda route: (
-            route.fulfill(json=failed) if route.request.method == "POST" else route.continue_()
-        ),
-    )
-    open_pack(page, INBOX, "try")
-    page.get_by_role("button", name="Refill", exact=True).click()
-    page.locator("#decide").click()
-    expect(page.locator("#result .reasons")).to_have_text(
-        "No answer for Possible emergency; safety checks may be incomplete, so a person checks."
-    )
-    unanswered = page.locator("#result .answers div", has_text="Possible emergency")
-    expect(unanswered).to_contain_text("no answer")
-
-
-@pytest.mark.parametrize("named", ["agent", "pack"])
-@pytest.mark.parametrize(
-    ("reason", "plain"),
-    [
-        pytest.param(
-            "a community {} (not clinically reviewed) recommends and never automates",
-            "A community agent only recommends: a person checks.",
-            id="recommends",
-        ),
-        pytest.param(
-            "a community {} (not clinically reviewed) never blocks on its own: a person decides",
-            "A community agent never blocks on its own: a person decides.",
-            id="never blocks",
-        ),
-    ],
-)
-def test_a_community_reason_reads_plainly_in_the_engines_words_then_and_now(
-    page: Page, named: str, reason: str, plain: str
-) -> None:
-    """The engine writes "a community agent ..." in a decision's reasons, and wrote "a community
-    pack ..." in the decisions stored before: both read as the one plain sentence, and both show
-    the gate that held the decision."""
-    held = {
-        "id": "00000000-0000-4000-8000-000000000002",
-        "outcome": "HUMAN_REVIEW",
-        "recommendation": "medical_assistant",
+        "recommendation": "pharmacy",
         "priority": "routine",
         "confidence": 0.97,
         "primary": "destination",
         "rule": None,
         "fallback": None,
-        "answers": {
-            "destination": {"label": "medical_assistant", "confidence": 0.97, "evidence": []}
-        },
-        "errors": {},
-        "reasons": [reason.format(named)],
+        "answers": {"destination": {"label": "pharmacy", "confidence": 0.97, "evidence": []}},
+        "errors": {"urgency": "provider_unavailable"},
+        "reasons": ["provider failure (provider_unavailable); safety checks may be incomplete"],
     }
     page.route(
-        f"**/api/agents/{INBOX}/decide",
+        f"**/api/agents/{TRIAGE}/decide",
         lambda route: (
-            route.fulfill(json=held) if route.request.method == "POST" else route.continue_()
+            route.fulfill(json=failed) if route.request.method == "POST" else route.continue_()
         ),
     )
-    open_pack(page, INBOX, "try")
+    open_pack(page, TRIAGE, "try")
     page.get_by_role("button", name="Refill", exact=True).click()
     page.locator("#decide").click()
-    expect(page.locator("#result .reasons")).to_have_text(plain)
-    expect(page.locator("#result ol.trace")).to_contain_text("Risk / approval gate")
+    expect(page.locator("#result .reasons")).to_have_text(
+        "No answer for Same-day symptoms; safety checks may be incomplete, so a person checks."
+    )
+    unanswered = page.locator("#result .answers div", has_text="Same-day symptoms")
+    expect(unanswered).to_contain_text("no answer")

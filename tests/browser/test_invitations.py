@@ -37,9 +37,16 @@ from tests.browser.access_site import (
     row,
     running,
 )
+from tests.browser.conftest import TRIAGE
 from tests.browser.test_access import member_of, pins
 from tests.browser.test_accessibility import violations
-from tests.browser.test_dashboard import INBOX, PHONE, SMALL_TARGETS, open_pack, signed_in_as
+from tests.browser.test_dashboard import (
+    CHART_NAME,
+    PHONE,
+    SMALL_TARGETS,
+    open_pack,
+    signed_in_as,
+)
 from tests.conftest import security_lines
 from tests.test_auth import IDP, FakeIdp
 
@@ -572,7 +579,7 @@ def test_the_access_view_does_not_wait_for_the_packs_details(site: Site) -> None
     admin.locator('.nav a[data-view="overview"]').click()
     expect(admin.locator("#view")).to_have_attribute("aria-busy", "true")
     held[0].continue_()
-    expect(admin.locator("main h1")).to_have_text("AI Guard")
+    expect(admin.locator("main h1")).to_have_text(CHART_NAME)
     expect(admin.locator("#view")).not_to_have_attribute("aria-busy", "true")
 
 
@@ -592,7 +599,7 @@ def test_a_pack_that_did_not_load_is_asked_for_again(site: Site) -> None:
     expect(admin.locator("main h1")).to_have_text("Could not load this view")
     expect(admin.locator("main")).to_contain_text("down for a moment")
     admin.get_by_role("button", name="Try again").click()
-    expect(admin.locator("main h1")).to_have_text("AI Guard")
+    expect(admin.locator("main h1")).to_have_text(CHART_NAME)
     assert len(asked) == 2
 
 
@@ -771,9 +778,9 @@ def test_the_access_view_is_hidden_from_everyone_but_administrators(page: Page) 
     seen = pins(page)
     reviewer = [{"org": "clinic-a", "name": "Clinic A", "roles": ["reviewer"]}]
     member_of(page, reviewer, "clinic-a", ["reviewer"])
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     expect(page.locator('.nav a[data-view="admin"]')).to_be_hidden()
-    page.goto(f"/?agent={INBOX}#admin/members")
+    page.goto(f"/?agent={TRIAGE}#admin/members")
     expect(page.locator('.nav a[data-view="overview"]')).to_have_class(re.compile("active"))
     expect(page.locator("#view")).not_to_have_attribute("aria-busy", "true")
     assert not [path for _, path, _ in seen if PEOPLE.match(path)]
@@ -782,9 +789,9 @@ def test_the_access_view_is_hidden_from_everyone_but_administrators(page: Page) 
 def no_access_view(page: Page) -> None:
     """The section list has no Access link, and `#admin` is the overview, with no list fetched."""
     seen = pins(page)
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     expect(page.locator('.nav a[data-view="admin"]')).to_be_hidden()
-    page.goto(f"/?agent={INBOX}#admin")
+    page.goto(f"/?agent={TRIAGE}#admin")
     expect(page.locator('.nav a[data-view="overview"]')).to_have_class(re.compile("active"))
     expect(page.locator("#view")).not_to_have_attribute("aria-busy", "true")
     assert not [path for _, path, _ in seen if CREDENTIALS.match(path) or PEOPLE.match(path)]
@@ -804,7 +811,7 @@ def test_a_viewer_by_claims_has_no_access_view(page: Page) -> None:
 
 def test_an_administrator_sees_the_access_view(page: Page) -> None:
     administering(page)
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     link = page.locator('.nav a[data-view="admin"]')
     expect(link).to_be_visible()
     link.click()
@@ -849,8 +856,8 @@ def test_inviting_waits_for_the_notice(page: Page) -> None:
     page.route("**/api/notice", notice)
     page.route("**/api/notice/acknowledge", acknowledge)
     page.route("**/api/auth/invitations", invitations)
-    open_pack(page, INBOX)
-    page.goto(f"/?agent={INBOX}#admin/invitations")
+    open_pack(page, TRIAGE)
+    page.goto(f"/?agent={TRIAGE}#admin/invitations")
     page.fill("#invite-email", "ada@example.org")
     page.get_by_role("button", name="Create link").click()
     page.get_by_role("button", name="I understand: synthetic data only").click()
@@ -872,8 +879,8 @@ def test_a_refused_invitation_says_why_in_words(page: Page) -> None:
         route.fulfill(status=422, json={"detail": [problem]})
 
     page.route("**/api/auth/invitations", refused)
-    open_pack(page, INBOX)
-    page.goto(f"/?agent={INBOX}#admin/invitations")
+    open_pack(page, TRIAGE)
+    page.goto(f"/?agent={TRIAGE}#admin/invitations")
     page.fill("#invite-email", "ada@example.org")
     page.get_by_role("button", name="Create link").click()
     expect(page.locator("#toast")).to_have_text(
@@ -885,11 +892,11 @@ def test_a_refused_invitation_says_why_in_words(page: Page) -> None:
 def test_every_people_request_names_the_organization(page: Page) -> None:
     seen = pins(page)
     administering(page)
-    open_pack(page, INBOX)
+    open_pack(page, TRIAGE)
     for tab in ("members", "invitations", "requests"):
-        page.goto(f"/?agent={INBOX}#admin/{tab}")
+        page.goto(f"/?agent={TRIAGE}#admin/{tab}")
         expect(page.locator(f'.tabs a[data-tab="{tab}"]')).to_have_attribute("aria-current", "page")
-    page.goto(f"/?agent={INBOX}#admin/invitations")
+    page.goto(f"/?agent={TRIAGE}#admin/invitations")
     page.get_by_role("button", name="Revoke the invitation for ada@example.org").click()
     page.locator("dialog[open]").get_by_role("button", name="Revoke").click()
     expect(page.locator("dialog")).to_have_count(0)
@@ -898,7 +905,7 @@ def test_every_people_request_names_the_organization(page: Page) -> None:
     assert {org for _, _, org in people} == {"clinic-a"}, people
     moved = {"error": "OrganizationChanged", "detail": "this window shows another organization"}
     page.route("**/api/auth/members/**", lambda route: route.fulfill(status=409, json=moved))
-    page.goto(f"/?agent={INBOX}#admin/members")
+    page.goto(f"/?agent={TRIAGE}#admin/members")
     row(page, "members", "Bo").get_by_role("button", name="Remove Bo").click()
     page.locator("dialog[open]").get_by_role("button", name="Remove").click()
     expect(page.locator("dialog[open] .error")).to_contain_text("another organization")
