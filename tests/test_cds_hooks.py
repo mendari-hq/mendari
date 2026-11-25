@@ -7,30 +7,29 @@ one, which `mendari validate` refuses; every shipped template passes."""
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
-import yaml
 
 from mendari import Decision, load_pack
 from mendari.core.origin import Origin
 from mendari.core.spec import PREFETCH, prefetch_problems
 from mendari.errors import PackValidationError
 from mendari.evals.pack_tests import validate_pack
-from tests.conftest import INBOX_DIR, fixture_agents
-from tests.test_fhir_lists import BUNDLE, MINI
+from tests.conftest import CHART_DIR, DEMO_AGENT_DIR, TRIAGE_DIR, fixture_agents
+from tests.support.chart_fixture import chart_copy
+from tests.support.fixture_records import SHOWCASE
 
 
 def with_prefetch(tmp_path: Path, template: str) -> Path:
-    """The prescreen fixture (not a reference pack: from a registry, it is bounded) with its
-    `patient` prefetch template replaced."""
-    root = tmp_path / "pack"
-    shutil.copytree(MINI, root)
-    manifest = yaml.safe_load((root / "agent.yaml").read_text())
-    manifest["cds_hooks"]["prefetch"]["patient"] = template
-    (root / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    return root
+    """A copy of the chart fixture under its own id (not a bundled agent: from a registry, it
+    is bounded) with its `patient` prefetch template replaced."""
+
+    def replaced(manifest: dict[str, Any]) -> None:
+        manifest["cds_hooks"]["prefetch"]["patient"] = template
+
+    return chart_copy(tmp_path, manifest=replaced)
 
 
 @pytest.mark.parametrize(
@@ -60,7 +59,7 @@ def test_a_prefetch_template_must_be_a_relative_read_or_search(
     assert problem.startswith("cds_hooks.prefetch.patient ") and "relative to the EHR" in problem
     owned = load_pack(root)
     assert owned.warnings == (problem,)
-    assert Decision(owned).decide_fhir(BUNDLE)[0].recommendation is not None
+    assert Decision(owned).decide_fhir(SHOWCASE.bundle())[0].recommendation is not None
     with pytest.raises(PackValidationError, match=r"cds_hooks\.prefetch\.patient"):
         validate_pack(owned)
 
@@ -77,15 +76,16 @@ def test_a_relative_read_or_search_loads_from_a_registry(tmp_path: Path) -> None
 
 
 def test_every_shipped_prefetch_template_is_a_relative_read_or_search() -> None:
-    """The reference packs' 16 templates and the fixtures': each a read or a search, so none is
-    warned of, and none would be refused from a registry."""
+    """The bundled demo agent's templates and every test fixture's (the chart fixture's five
+    searches and reads, the triage fixture's two reads among them): each a read or a search, so
+    none is warned of, and none would be refused from a registry."""
     found = []
-    roots = [p for p in sorted(INBOX_DIR.parent.iterdir()) if (p / "agent.yaml").is_file()]
-    roots += fixture_agents()
+    roots = [DEMO_AGENT_DIR, *fixture_agents()]
+    assert CHART_DIR in roots and TRIAGE_DIR in roots
     for root in roots:
         origin: Origin = "community" if root.parent.name == "community-agents" else "local"
         hooks = load_pack(root, origin=origin).manifest.cds_hooks
         assert prefetch_problems(hooks) == [], root
         found += [] if hooks is None else list(hooks.prefetch.values())
-    assert len(found) >= 16
+    assert len(found) >= 9
     assert all(PREFETCH.fullmatch(template) for template in found)
