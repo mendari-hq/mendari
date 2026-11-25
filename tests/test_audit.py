@@ -15,6 +15,9 @@ from tests.conftest import message
 
 Decide = Callable[[str], DecisionResult]
 
+# The triage fixture's messages, decided (`decide`) with its screen's canned agent, without which
+# its policy automates nothing (`automation_requires`).
+SCREENED = {"screen": "agent"}
 REVIEW = "hello?"  # abstains: no recommendation
 EMERGENCY = "Crushing chest pain and my left arm is numb"  # stat HUMAN_REVIEW -> nurse
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO (`decide`)
@@ -27,8 +30,8 @@ def tamper(store: AuditStore, sql: str, params: tuple[Any, ...] = ()) -> None:
 
 
 @pytest.fixture
-def decide(inbox_pack: Pack, store: AuditStore, screened: dict[str, str]) -> Decide:
-    decision = Decision(inbox_pack, providers=screened, store=store)
+def decide(triage_agent: Pack, store: AuditStore) -> Decide:
+    decision = Decision(triage_agent, providers=SCREENED, store=store)
     return lambda body: decision(message(body))
 
 
@@ -49,7 +52,7 @@ def test_confirming_is_not_an_override(store: AuditStore, decide: Decide) -> Non
 
 def test_correcting_is_an_override(store: AuditStore, decide: Decide) -> None:
     result = decide(EMERGENCY)
-    assert store.resolve_review(result.id, final_label="physician", reviewer="rn-1")[
+    assert store.resolve_review(result.id, final_label="pharmacy", reviewer="rn-1")[
         "human_override"
     ]
     with pytest.raises(ReviewError, match="not awaiting review"):
@@ -87,7 +90,7 @@ def test_downstream_outcomes_feed_observed_accuracy(store: AuditStore, decide: D
 def test_daily_review_counts_add_up_to_the_rates(store: AuditStore, decide: Decide) -> None:
     confirmed, overridden = decide(EMERGENCY), decide(EMERGENCY)
     store.resolve_review(confirmed.id, final_label="nurse", reviewer="rn-1")
-    store.resolve_review(overridden.id, final_label="physician", reviewer="rn-1")
+    store.resolve_review(overridden.id, final_label="pharmacy", reviewer="rn-1")
     store.resolve_review(decide(REVIEW).id, final_label="front_desk", reviewer="fd-1")  # abstained
     store.record_outcome(
         decide(ROUTINE).id, final_label="nurse", source="staff-reroute", recorded_by="rn-9"
@@ -127,8 +130,8 @@ def test_hash_chain_detects_deleted_events(store: AuditStore, decide: Decide) ->
     assert store.verify() == {"ok": False, "events": 2, "broken_at": 3}
 
 
-def test_hash_only_input_storage(inbox_pack: Pack, store: AuditStore) -> None:
-    result = Decision(inbox_pack)(message(ROUTINE))
+def test_hash_only_input_storage(triage_agent: Pack, store: AuditStore) -> None:
+    result = Decision(triage_agent)(message(ROUTINE))
     store.record(result, message(ROUTINE), store_input="hash")
     record = store.get(result.id)
     assert record is not None and record["record"]["input"] is None
@@ -137,28 +140,29 @@ def test_hash_only_input_storage(inbox_pack: Pack, store: AuditStore) -> None:
 
 def test_daily_budget_is_enforced(store: AuditStore) -> None:
     for _ in range(3):
-        store.consume("jev", daily_limit=3)
+        store.consume("llm", daily_limit=3)
     with pytest.raises(ProviderError, match="budget_exhausted"):
-        store.consume("jev", daily_limit=3)
-    assert store.usage("jev") == 3
+        store.consume("llm", daily_limit=3)
+    assert store.usage("llm") == 3
     assert store.usage("other") == 0
 
 
 def test_a_lifted_budget_still_counts_calls(store: AuditStore) -> None:
     for _ in range(5):
-        store.consume("jev", daily_limit=None)
-    assert store.usage("jev") == 5
+        store.consume("llm", daily_limit=None)
+    assert store.usage("llm") == 5
 
 
 def test_exhausted_budget_falls_back_instead_of_automating(
-    inbox_pack: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
-    monkeypatch.setenv("JEV_MODEL", "jev-test-model")
-    monkeypatch.setenv("JEV_API_KEY", "test-key")  # credentials fine: the budget refuses
-    monkeypatch.delenv("JEV_CONNECTOR", raising=False)
+    monkeypatch.setenv("LLM_BASE_URL", "https://llm.test/v1")
+    monkeypatch.setenv("LLM_MODEL", "test-model")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")  # credentials fine: the budget refuses
     decision = Decision(
-        inbox_pack, providers={"router": "jev"}, budget=CallBudget(store, {"jev": 0})
+        triage_agent,
+        providers={**SCREENED, "router": "llm"},  # automated, were its router to answer
+        budget=CallBudget(store, {"llm": 0}),
     )
     result = decision(message(ROUTINE))
     assert result.outcome is Outcome.ABSTAIN
@@ -166,15 +170,16 @@ def test_exhausted_budget_falls_back_instead_of_automating(
 
 
 def test_unconfigured_provider_does_not_spend_budget(
-    inbox_pack: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
+    triage_agent: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("JEV_API_URL", raising=False)
-    monkeypatch.setenv("JEV_MODEL", "jev-test-model")
+    monkeypatch.setenv("LLM_BASE_URL", "https://llm.test/v1")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.delenv("LLM_MODEL", raising=False)  # no model: never called
     decision = Decision(
-        inbox_pack, providers={"router": "jev"}, budget=CallBudget(store, {"jev": 10})
+        triage_agent, providers={"router": "llm"}, budget=CallBudget(store, {"llm": 10})
     )
     assert decision(message(ROUTINE)).errors == {"destination": "not_configured"}
-    assert store.usage("jev") == 0
+    assert store.usage("llm") == 0
 
 
 def test_postgres_store_survives_server_closed_connections(db_target: str) -> None:
@@ -199,12 +204,12 @@ def test_postgres_store_survives_server_closed_connections(db_target: str) -> No
 # -- scoped, read-only reads for the FHIR routes (Task, AuditEvent, Provenance) ----------------
 
 
-def test_item_is_get_without_a_reader_and_never_writes(inbox_pack: Pack, db_target: str) -> None:
+def test_item_is_get_without_a_reader_and_never_writes(triage_agent: Pack, db_target: str) -> None:
     """Under PHI mode `encrypt`, `get(reader=...)` chains an `input.read`; the FHIR reads must
     not, whatever they read."""
     phi = PhiPolicy(mode="encrypt", key=os.urandom(32))
     with AuditStore(db_target, phi=phi) as store:
-        decide = Decision(inbox_pack, store=store)
+        decide = Decision(triage_agent, store=store)
         result = decide(message(EMERGENCY))
         store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
         chained = store.verify()["events"]
@@ -246,9 +251,9 @@ def test_one_event_by_decision_and_seq(store: AuditStore, decide: Decide) -> Non
     assert store.event(first.id, 10_000) is None
 
 
-def test_another_organization_reads_nothing(store: AuditStore, inbox_pack: Pack) -> None:
+def test_another_organization_reads_nothing(store: AuditStore, triage_agent: Pack) -> None:
     with tenancy.acting_for("clinic-a"):
-        result = Decision(inbox_pack, store=store)(message(EMERGENCY))
+        result = Decision(triage_agent, store=store)(message(EMERGENCY))
         seq = store.events()[0]["seq"]
     with tenancy.acting_for("clinic-b"):
         assert store.item(result.id) is None
@@ -278,8 +283,8 @@ def test_a_limit_of_zero_counts_nothing(store: AuditStore) -> None:
     """The first call of a day went through the INSERT, which the `calls < limit` guard does not
     cover: a limit of 0 refused the call but counted it, so usage said one was made."""
     with pytest.raises(ProviderError, match="budget_exhausted"):
-        store.consume("jev", daily_limit=0)
-    assert store.usage("jev") == 0
+        store.consume("llm", daily_limit=0)
+    assert store.usage("llm") == 0
     assert store.consume_org("north", "decisions", daily_limit=0) is None
     assert store.org_usage("north").get("decisions", 0) == 0
     assert store.consume_org("north", "decisions", daily_limit=1) == 1
