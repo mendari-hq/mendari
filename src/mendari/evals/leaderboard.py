@@ -267,24 +267,21 @@ def _question_table(
     rows: list[dict[str, Any]], config: Callable[[Mapping[str, Any]], str]
 ) -> list[str]:
     """Accuracy and ECE of the other questions, for those whose results differ between the
-    configurations (the ones the providers being compared actually answer). A row without
-    them is left out."""
-    rows = [item for item in rows if "questions" in item]
-    keys = sorted({key for item in rows for key in item.get("questions", {})})
+    configurations (the ones the providers being compared actually answer)."""
+    keys = sorted({key for item in rows for key in item["questions"]})
     varying = [
         key
         for key in keys
-        if len({json.dumps(item.get("questions", {}).get(key), sort_keys=True) for item in rows})
-        > 1
+        if len({json.dumps(item["questions"].get(key), sort_keys=True) for item in rows}) > 1
     ]
     if not varying:
         return []
 
     def cell(item: Mapping[str, Any], key: str) -> str:
-        metrics = item.get("questions", {}).get(key)
+        metrics = item["questions"].get(key)
         if metrics is None:
             return "n/a"
-        return f"{shown(counted(metrics['accuracy'], metrics.get('n')))} / {num(metrics['ece'])}"
+        return f"{shown(counted(metrics['accuracy'], metrics['n']))} / {num(metrics['ece'])}"
 
     return [
         "Other questions (accuracy / ECE):",

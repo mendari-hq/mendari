@@ -186,8 +186,8 @@ function costChart(rows, varying, group) {
 
 // Accuracy of the non-primary questions that differ between configurations, weak cells marked.
 function otherQuestions(rows, varying, group) {
-  const keys = [...new Set(rows.flatMap((r) => Object.keys(r.questions ?? {})))].sort();
-  const changing = keys.filter((k) => new Set(rows.map((r) => JSON.stringify(r.questions?.[k] ?? null))).size > 1);
+  const keys = [...new Set(rows.flatMap((r) => Object.keys(r.questions)))].sort();
+  const changing = keys.filter((k) => new Set(rows.map((r) => JSON.stringify(r.questions[k] ?? null))).size > 1);
   if (!changing.length) return "";
   const shade = (part) => (part === null ? "" : part < 0.8 ? "cell-bad" : part < 0.9 ? "cell-warn" : "");
   const name = (r) => configName(r, varying);
@@ -201,10 +201,10 @@ function otherQuestions(rows, varying, group) {
       columns: [
         { key: "config", label: "Configuration", className: "config-cell", sort: name, cell: (r) => `<span title="${esc(r.config)}">${esc(name(r))}</span>` },
         ...changing.map((k) => ({
-          key: k, label: `<code>${esc(k)}</code>`, numeric: true, sort: (r) => share(r.figures.questions?.[k]),
+          key: k, label: `<code>${esc(k)}</code>`, numeric: true, sort: (r) => share(r.figures.questions[k]),
           cell: (r) => {
-            const m = r.questions?.[k];
-            const figure = r.figures.questions?.[k];
+            const m = r.questions[k];
+            const figure = r.figures.questions[k];
             return m ? `<span class="${shade(share(figure))}" title="ECE ${num(m.ece)}">${figureHtml(figure)}</span>` : "n/a";
           },
         })),

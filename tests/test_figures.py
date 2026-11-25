@@ -177,7 +177,8 @@ def test_a_rate_beyond_any_share_is_never_multiplied() -> None:
 
 
 def test_a_registry_leaderboard_too_large_to_work_out_on_every_read_is_none() -> None:
-    rows = [{"config": "a", "dataset": "d", "n": i + 1, "critical": []} for i in range(16500)]
+    row = {"config": "a", "dataset": "d", "critical": [], "questions": {}}
+    rows = [{**row, "n": i + 1} for i in range(16500)]
     started = time.monotonic()
     served = figures.registry({"leaderboard": {"rows": rows}, "digest": None, "version": "1"})
     assert served["leaderboard"] is None and time.monotonic() - started < 0.2
@@ -218,7 +219,7 @@ def rows_on(digest: str, sha: str = "d" * 64) -> list[dict[str, Any]]:
         "dataset": "test", "dataset_sha256": sha, "n": 600, "agent_digest": digest,
         "agent_version": "1.0.0", "auto_rate": 0.0, "cost_per_decision_usd": 0.0, "errors": 0,
         "macro_f1": 0.9, "ece": 0.02, "latency_p50_ms": 1.0,
-        "false_automation": stats.proportion(0, 600).to_dict(),
+        "false_automation": stats.proportion(0, 600).to_dict(), "questions": {},
     }  # fmt: skip
     return [
         {**base, "config": config, "accuracy_proportion": stats.proportion(k, 600).to_dict(),
@@ -285,9 +286,11 @@ def test_a_stored_bound_is_never_trusted_for_the_ranking() -> None:
             {"question": "q", "label": "y", "n": 5, "auto_missed": 0}]}],
         [{"config": "a", "dataset": "t", "n": 5, "critical": [],
           "accuracy_proportion": {"k": 9, "n": 5}}],
+        # Every row a leaderboard is built of holds its other questions, if none.
+        [{"config": "a", "dataset": "t", "n": 5, "critical": []}],
     ],
     ids=["number", "no-dataset", "n-text", "n-huge", "detected-over-n", "bool", "no-detected",
-         "accuracy-over-n"],
+         "accuracy-over-n", "no-questions"],
 )  # fmt: skip
 def test_a_malformed_board_is_refused_and_the_registry_shows_none(rows: list[Any]) -> None:
     started = time.monotonic()

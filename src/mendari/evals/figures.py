@@ -305,10 +305,7 @@ def _row(row: Mapping[str, Any]) -> dict[str, Any]:
         # Each critical figure says its label when the agent has several, as the card does
         # (`leaderboard.critical_text`), whether or not they all have positives here.
         "critical_named": len(row["critical"]) > 1,
-        "questions": {
-            key: counted(m.get("accuracy"), m.get("n"))
-            for key, m in (row.get("questions") or {}).items()
-        },
+        "questions": {key: counted(m["accuracy"], m["n"]) for key, m in row["questions"].items()},
     }
 
 
@@ -342,7 +339,7 @@ def _check(row: Any) -> None:
     if cost is not None and (isinstance(cost, bool) or not isinstance(cost, int | float)):
         raise TypeError("a row's cost is a number")
     questions = row.get("questions")
-    if questions is not None and not (
+    if not (
         isinstance(questions, Mapping) and all(isinstance(m, Mapping) for m in questions.values())
     ):
         raise TypeError("a row's questions are objects")
