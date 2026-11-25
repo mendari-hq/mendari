@@ -96,6 +96,43 @@ def test_what_the_watch_holds_and_when(tmp_path: Path) -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "unread",
+    [
+        {"pack": "a/b", "version": "1.0.0", "yank": {"severity": "high"}},  # another format's key
+        {"agent": "a/b", "yank": {"severity": "high"}},
+        "a/b@1.0.0",
+    ],
+)
+def test_a_recall_this_release_cannot_read_fails_the_read_and_never_lets_it_automate(
+    tmp_path: Path, unread: Any
+) -> None:
+    """One item the feed lists that names no agent and version fails the whole read: what was
+    known stands, and once it is stale every agent from the registry is held, so a recall in a
+    shape this release does not read is never skipped while its version automates."""
+    agent = _pulled(tmp_path)
+    listed: list[Any] = [unread]
+    clock = Clock()
+    watch = RecallWatch(
+        [agent], fetch=lambda _: listed, fetch_key=no_key, clock=clock, check_s=300,
+        stale_s=3600, background=False,
+    )  # fmt: skip
+    watch.refresh(REGISTRY)
+    assert watch.held(agent) == "its registry has not been checked for recalls yet"
+    assert watch.status()[REGISTRY]["failing"] == "ValueError"
+    listed[:] = [{"agent": agent.id, "version": agent.version, "yank": {"severity": "high"}}]
+    watch.refresh(REGISTRY)
+    assert watch.held(agent) == "recalled (high) by its registry"
+    listed.append(unread)
+    clock.now += 3000
+    watch.refresh(REGISTRY)  # the recall read before stands
+    assert watch.held(agent) == "recalled (high) by its registry"
+    listed[:] = [unread]
+    clock.now += 1000
+    watch.refresh(REGISTRY)
+    assert watch.held(agent) == "its registry could not be checked for recalls"
+
+
 def test_an_agent_that_names_no_registry_is_held_and_others_are_not(tmp_path: Path) -> None:
     unnamed = _pulled(tmp_path / "a", registry=None)
     watch = RecallWatch(

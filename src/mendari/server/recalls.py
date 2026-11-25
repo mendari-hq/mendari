@@ -129,6 +129,28 @@ class _Registry:
     signs: bool = False  # it published a signing key at the last read that worked
 
 
+def _recalls(listed: Any) -> dict[tuple[str, str], str]:
+    """The recalled versions a registry's feed lists, by (agent id, version): why each is held.
+    An item this release cannot read (no agent id or version, or a feed of another shape) fails
+    the whole read, never only that item: a recall skipped would let its version automate, so
+    the read fails and what was known stands, until it is stale and every agent from the
+    registry is held."""
+    if not isinstance(listed, list):
+        raise ValueError("the registry's recalls are not a list")
+    recalled: dict[tuple[str, str], str] = {}
+    for item in listed:
+        agent = item.get("agent") if isinstance(item, Mapping) else None
+        version = item.get("version") if isinstance(item, Mapping) else None
+        if not isinstance(agent, str) or not isinstance(version, str):
+            raise ValueError("a recall the registry lists names no agent and version")
+        yank = item.get("yank")
+        stated = yank.get("severity") if isinstance(yank, Mapping) else None
+        severity = stated if isinstance(stated, str) and stated in SEVERITIES else "unknown"
+        why = "deleted" if item.get("deleted") is not None else f"recalled ({severity})"
+        recalled[(agent, version)] = why
+    return recalled
+
+
 class RecallWatch:
     """The recalls of the registries the served agents came from, read in the background."""
 
@@ -174,7 +196,8 @@ class RecallWatch:
         try:
             listed = (self._fetch or fetch_yanks)(registry)
             signs = (self._fetch_key or fetch_signs)(registry)
-        except Exception as error:  # unreachable, refused, not JSON: what was known stands
+            recalled = _recalls(listed)
+        except Exception as error:  # unreachable, refused, not JSON or not read: as was known
             kind = type(error).__name__
             with self._lock:
                 state.reading_since = None
@@ -183,16 +206,6 @@ class RecallWatch:
             if changed:  # once a change of state, never the registry's own words
                 log.warning("a registry's recalls could not be read (%s)", kind)
             return
-        recalled: dict[tuple[str, str], str] = {}
-        for item in listed:
-            agent, version = item.get("agent"), item.get("version")
-            if not isinstance(agent, str) or not isinstance(version, str):
-                continue
-            yank = item.get("yank")
-            stated = yank.get("severity") if isinstance(yank, Mapping) else None
-            severity = stated if isinstance(stated, str) and stated in SEVERITIES else "unknown"
-            why = "deleted" if item.get("deleted") is not None else f"recalled ({severity})"
-            recalled[(agent, version)] = why
         with self._lock:
             state.recalled, state.checked_at, state.signs = recalled, self._clock(), signs
             state.reading_since, state.failed_at, state.failing = None, None, None
