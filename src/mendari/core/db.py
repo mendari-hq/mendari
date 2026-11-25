@@ -9,11 +9,13 @@ on Postgres. The schema is made under that same lock, in one transaction.
 
 **The baseline** (`Baseline`). The first release's schema is each store's baseline: the
 transaction that makes a store's schema also marks it, a row `schema` naming `<store>/<version>`
-(`mendari-engine/1`, `mendari-registry/1`). Every open, read-only included, reads the mark in
-the schema lock before anything else. A store whose anchor table is there without its mark was
-made by a pre-release Mendari: it is refused (`PRE_RELEASE`), never read or migrated. A mark
-naming a newer version is refused too. A store that shares its database with another (the
-engine and the registry, deployed) checks only its own anchor and mark.
+(`mendari-engine/1`, `mendari-registry/1`). Every open, read-only included, reads the mark
+before anything else: a write open in the schema lock, a read-only one in one snapshot (it never
+waits for a writer), which holds a schema and its mark together since they commit together. A
+store whose anchor table is there without its mark was made by a pre-release Mendari: it is
+refused (`PRE_RELEASE`), never read or migrated. A mark naming a newer version is refused too. A
+store that shares its database with another (the engine and the registry, deployed) checks only
+its own anchor and mark.
 
 `read_only` opens an existing database to read it and nothing else (LP-15: `audit verify`,
 `audit export`, `feedback export`, `monitor`): no file or folder is created, no schema written,
@@ -75,9 +77,9 @@ class Baseline:
 
 def check_baseline(db: Session, baseline: Baseline) -> int | None:
     """The version of the store's schema this database holds, None when it holds none yet.
-    Run in the schema lock before anything else is read: a store a pre-release Mendari made
-    (its anchor, no mark) is refused (`PRE_RELEASE`), and so are a mark this release does not
-    write and one naming a newer schema. Reads the catalog and the mark only."""
+    Run before anything else is read, in the schema lock or one snapshot: a store a pre-release
+    Mendari made (its anchor, no mark) is refused (`PRE_RELEASE`), and so are a mark this
+    release does not write and one naming a newer schema. Reads the catalog and the mark only."""
     marked = None
     if db.columns(baseline.table):
         row = db.one(f"SELECT value FROM {baseline.table} WHERE {baseline.key} = ?", (SCHEMA_ROW,))
@@ -397,14 +399,15 @@ class PostgresBackend(Backend):
 
         if read_only:
             # Reached first, directly: a wrong URL or a missing database fails now, not after
-            # the pool's timeout. The mark is read there, under the schema lock (shared: it
-            # waits for a schema being made, and for nothing else that reads).
+            # the pool's timeout. The mark is read there, in one snapshot (REPEATABLE READ): a
+            # schema and its mark commit together, so the snapshot holds both or neither. No
+            # lock is taken: a reader never waits for a writer, even one in its own process.
             with psycopg.connect(
                 url, prepare_threshold=None, connect_timeout=15, row_factory=dict_row
             ) as connection:
-                _read_only_connection(connection)
+                connection.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+                connection.read_only = True
                 with connection.transaction():
-                    connection.execute("SELECT pg_advisory_xact_lock_shared(%s)", (lock_key,))
                     found = (
                         None
                         if baseline is None

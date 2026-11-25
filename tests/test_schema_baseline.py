@@ -11,6 +11,7 @@ committed. SQLite and Postgres."""
 from __future__ import annotations
 
 import sqlite3
+import threading
 from collections.abc import Callable
 from contextlib import closing
 from typing import Any
@@ -181,6 +182,23 @@ def test_a_schema_and_its_mark_are_made_in_one_transaction(db_target: str) -> No
     assert snapshot(db_target) == {}
     opened("engine", db_target)
     assert marks(db_target, ENGINE_SCHEMA) == [repr(("schema", "mendari-engine/1"))]
+
+
+def test_a_read_only_open_never_waits_for_a_writer(db_target: str) -> None:
+    """A read-only open reads the mark in one snapshot, never in the schema lock: it opens while
+    a writer holds that lock (a chain append under way), even in its own process."""
+    done = threading.Event()
+
+    def read() -> None:
+        with AuditStore(db_target, read_only=True) as reading:
+            assert reading.verify()["ok"]
+        done.set()
+
+    with AuditStore(db_target) as store, store._db.session(exclusive=True):
+        reader = threading.Thread(target=read, daemon=True)
+        reader.start()
+        reader.join(timeout=20)
+    assert done.is_set()
 
 
 def test_each_chain_is_unique_from_the_first_release_on(db_target: str) -> None:
