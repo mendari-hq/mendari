@@ -54,7 +54,7 @@ uv run mendari written eval mendari/portal-message-agent --rubric acknowledgemen
 
 ## 1. Declare what the agent writes
 
-Add `outputs` and `rubrics` to `agent.yaml`, and set `spec_version: "0.4"`:
+Add `outputs` and `rubrics` to `agent.yaml`:
 
 ```yaml
 outputs:

@@ -36,11 +36,9 @@ reviewer confirmed the decision. An action the agent never declared was blocked.
 
 ## 1. Declare what the agent may do
 
-Add an `actions` section to `agent.yaml`, and set `spec_version: "0.4"`. The demo agent's:
+Add an `actions` section to `agent.yaml`. The demo agent's:
 
 ```yaml
-spec_version: "0.4"
-# ...
 actions:
   assign_queue:
     description: Put the message in the refill, scheduling or front-desk queue.
