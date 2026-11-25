@@ -21,16 +21,15 @@ then its ids), so a ciphertext never opens as another kind, nor for another deci
 Key rotation (LP-09). `$MENDARI_PHI_KEY` is the current key, the only one that seals.
 `$MENDARI_PHI_READ_KEYS` lists other keys this deployment opens but never seals with: the previous
 key while a rotation re-seals what it holds (`mendari phi rotate`), or the next key before it
-becomes current. Once a rotation begins (the database is marked, `core/audit.py`), each token
-names its key: `v2:<key id>:<base64>`; older tokens (plain base64) are opened by trying every key
-of the ring. A key id is public (`key_id`), never a fragment of the key.
+becomes current. Each token names its key, `v2:<key id>:<base64>`, and opens only with the key it
+names. A key id is public (`key_id`), never a fragment of the key.
 
 The input hash in every record is keyed in `hash` and `encrypt`: an HMAC-SHA256 under
 `$MENDARI_INPUT_HASH_KEY` (32 bytes, base64; its own key, so rotating the PHI key leaves hashes
 alone, and `hash` mode, which has no PHI key, still has one). A plain SHA-256 of a short or
 structured input can be found by guessing (an age, a sex and an order code take a few thousand
 tries), and anyone who may read a decision sees its hash. Without the key (mode `off` only) the
-hash stays the plain `sha256:` of earlier releases.
+hash is the plain `sha256:`.
 """
 
 from __future__ import annotations
@@ -64,10 +63,6 @@ class PhiPolicy:
     hash_key: bytes = field(default=b"", repr=False)
     # $MENDARI_PHI_READ_KEYS: keys that open, never seal (a rotation's previous or next key).
     read_keys: tuple[bytes, ...] = field(default=(), repr=False)
-    # Whether new tokens name their key (`v2:<key id>:`): from the first rotation on, which the
-    # database records (`core/audit.py`), so a release that predates key ids can still read
-    # what was sealed before.
-    tag_tokens: bool = False
 
     @property
     def key_ids(self) -> dict[str, str | list[str]]:
@@ -76,7 +71,7 @@ class PhiPolicy:
 
     def current_only(self) -> PhiPolicy:
         """This policy without its read keys: what opens once they are dropped."""
-        return PhiPolicy(self.mode, self.key, self.hash_key, (), self.tag_tokens)
+        return PhiPolicy(self.mode, self.key, self.hash_key, ())
 
     @property
     def hash_kind(self) -> str:
@@ -143,41 +138,41 @@ class PhiPolicy:
         return tuple(k for k in (self.key, *self.read_keys) if k)
 
     def _seal(self, aad: bytes, value: Any) -> str:
-        return seal_with(self.key, aad, value, tag=self.tag_tokens)
+        return seal_with(self.key, aad, value)
 
     def _open(self, aad: bytes, token: str, what: str) -> tuple[Any, str]:
         return open_with(self._ring(), aad, token, what)
 
 
-def seal_with(key: bytes, aad: bytes, value: Any, *, tag: bool = True) -> str:
+def seal_with(key: bytes, aad: bytes, value: Any) -> str:
     """`value` (as canonical JSON) sealed with AES-256-GCM under `key`, bound to `aad`: a fresh
-    nonce for every seal, re-seals included; `v2:<key id>:<base64>`, or plain base64 (`tag`
-    False: a PHI token before the database's first rotation). Shared by the PHI policy and the
-    evaluation-set keys (`core/evalset_keys.py`), which each bind their own associated data."""
+    nonce for every seal, re-seals included; `v2:<key id>:<base64>`. Shared by the PHI policy
+    and the evaluation-set keys (`core/evalset_keys.py`), which each bind their own associated
+    data."""
     nonce = secrets.token_bytes(12)
     plain = _canonical(value).encode()
     sealed = base64.b64encode(nonce + AESGCM(key).encrypt(nonce, plain, aad)).decode()
-    return f"v2:{key_id(key)}:{sealed}" if tag else sealed
+    return f"v2:{key_id(key)}:{sealed}"
 
 
 def open_with(ring: Sequence[bytes], aad: bytes, token: str, what: str) -> tuple[Any, str]:
-    """A token `seal_with` made, opened with the key of `ring` it names (every key of the ring
-    for a token sealed before key ids): the value, and the id of the key that opened it. A
-    `MendariError` names `what`, never the token or a key."""
+    """A token `seal_with` made, opened with the key of `ring` it names: the value, and the id
+    of the key that opened it. A token that names no key opens with none. A `MendariError`
+    names `what`, never the token or a key."""
     named, raw = parse_token(token, what)
-    keys = ring if named is None else tuple(k for k in ring if key_id(k) == named)
-    if named is not None and not keys:
+    if named is None:
+        raise MendariError(f"{what} does not name its key")
+    key = next((k for k in ring if key_id(k) == named), None)
+    if key is None:
         raise MendariError(f"{what} is sealed under key {named}, which this deployment lacks")
-    for key in keys:
-        try:
-            plain = AESGCM(key).decrypt(raw[:12], raw[12:], aad)
-        except InvalidTag:
-            continue
-        try:
-            return json.loads(plain), key_id(key)
-        except ValueError:
-            raise MendariError(f"{what} is not a stored value") from None
-    raise MendariError(f"{what} does not decrypt with this deployment's keys")
+    try:
+        plain = AESGCM(key).decrypt(raw[:12], raw[12:], aad)
+    except InvalidTag:
+        raise MendariError(f"{what} does not decrypt with this deployment's keys") from None
+    try:
+        return json.loads(plain), named
+    except ValueError:
+        raise MendariError(f"{what} is not a stored value") from None
 
 
 # A note's associated data: its kind, then its id and its decision's, NUL-separated (ids never
@@ -200,12 +195,11 @@ GENERATE = '`python -c "import os,base64;print(base64.b64encode(os.urandom(32)).
 _GENERATE = GENERATE
 
 
-# What a sealed token is, and nothing else: `v2:<16 hex>:` then strict base64, or (sealed before
-# key ids) strict base64 alone, at least a nonce and a tag (28 bytes). A plain-JSON note (mode
-# `off`) starts with "{" and is never opened.
+# What a sealed token is, and nothing else: `v2:<16 hex>:` then strict base64 of at least a
+# nonce and a tag (28 bytes). Strict base64 of that size without the prefix names no key, and
+# opens with none. A plain-JSON note (mode `off`) starts with "{" and is never opened.
 _V2 = re.compile(r"v2:([0-9a-f]{16}):")
 _MIN_SEALED = 12 + 16
-LEGACY = "legacy"  # a token sealed before key ids: the ring is tried
 READ_KEYS_MAX = 4
 Sealed = Literal["input", "details", "note", "dataset", "connection", "written"]
 _WHAT: dict[str, str] = {
@@ -219,13 +213,13 @@ _WHAT: dict[str, str] = {
 
 
 def token_key(token: str) -> str:
-    """The key id a token names, `legacy` for one sealed before key ids, `invalid` for a value
-    that is no sealed token. Reads the token's prefix only: nothing is opened."""
+    """The key id a token names, `invalid` for a value that is no sealed token or names no key.
+    Reads the token's prefix only: nothing is opened."""
     try:
         named, _ = parse_token(token, "a token")
     except MendariError:
         return "invalid"
-    return LEGACY if named is None else named
+    return "invalid" if named is None else named
 
 
 def _aad(kind: Sealed, ids: tuple[str, ...]) -> bytes:
@@ -253,7 +247,8 @@ def _aad(kind: Sealed, ids: tuple[str, ...]) -> bytes:
 
 
 def parse_token(token: str, what: str) -> tuple[str | None, bytes]:
-    """A token's key id (None: sealed before key ids) and its nonce and ciphertext."""
+    """A token's key id (None: it names none, and opens with none) and its nonce and
+    ciphertext."""
     named = _V2.match(token)
     body = token[named.end() :] if named else token
     try:

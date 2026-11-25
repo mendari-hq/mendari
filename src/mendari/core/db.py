@@ -3,13 +3,25 @@
 (hosted), running the same SQL written with `?` placeholders.
 
 A store passes its schema (a DDL template with `{real}`, `{serial}` and `{blob}`), its migration
-and its Postgres advisory-lock key. Exclusive sessions are transactions serialised with each
-other: an IMMEDIATE transaction on SQLite, the advisory lock on Postgres.
+hook, its Postgres advisory-lock key and its baseline (below). Exclusive sessions are
+transactions serialised with each other: an IMMEDIATE transaction on SQLite, the advisory lock
+on Postgres. The schema is made under that same lock, in one transaction.
+
+**The baseline** (`Baseline`). The first release's schema is each store's baseline: the
+transaction that makes a store's schema also marks it, a row `schema` naming `<store>/<version>`
+(`mendari-engine/1`, `mendari-registry/1`). Every open, read-only included, reads the mark
+before anything else: a write open in the schema lock, a read-only one in one snapshot (it never
+waits for a writer), which holds a schema and its mark together since they commit together. A
+store whose anchor table is there without its mark was made by a pre-release Mendari: it is
+refused (`PRE_RELEASE`), never read or migrated. A mark naming a newer version is refused too. A
+store that shares its database with another (the engine and the registry, deployed) checks only
+its own anchor and mark.
 
 `read_only` opens an existing database to read it and nothing else (LP-15: `audit verify`,
 `audit export`, `feedback export`, `monitor`): no file or folder is created, no schema written,
 nothing migrated, no journal mode changed, and the connection itself refuses writes (SQLite
-`mode=ro`; Postgres `READ ONLY` transactions). A target that does not exist is an error.
+`mode=ro`; Postgres `READ ONLY` transactions). A target that does not exist is an error, and so
+is one without the store's schema (`Baseline.missing`).
 
 `ping` runs one statement to tell whether the database answers now (the readiness route,
 LP-21), waiting a bounded time and creating nothing: a SQLite file deleted under a running
@@ -18,17 +30,99 @@ server stays missing.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from mendari.errors import MendariError
 
 Migrate = Callable[["Session"], None]
+
+# What an open says of a store a pre-release Mendari made: its anchor table without a mark.
+PRE_RELEASE = (
+    "This database was made by a pre-release version of Mendari and cannot be read or "
+    "migrated. Give the server an empty database (docs/operations/incident-runbook.md, "
+    "'Starting over')."
+)
+# The row that names a store's schema, in its baseline's table.
+SCHEMA_ROW = "schema"
+_VERSION = re.compile(r"[1-9][0-9]{0,8}")
+
+
+@dataclass(frozen=True)
+class Baseline:
+    """How a store's schema is marked and recognised (`connect`): the row `SCHEMA_ROW` of
+    `table` (its key column `key`, its `value` column) holds `<name>/<version>`, written in the
+    transaction that makes the schema. `anchor` is the table every schema of the store has:
+    there without the mark, the store was made by a pre-release Mendari. `missing` is the
+    refusal of a read-only open of a database that does not hold the store at all."""
+
+    name: str
+    version: int
+    anchor: str
+    table: str
+    key: str
+    missing: str
+
+    @property
+    def mark(self) -> str:
+        return f"{self.name}/{self.version}"
+
+
+def check_baseline(db: Session, baseline: Baseline) -> int | None:
+    """The version of the store's schema this database holds, None when it holds none yet.
+    Run before anything else is read, in the schema lock or one snapshot: a store a pre-release
+    Mendari made (its anchor, no mark) is refused (`PRE_RELEASE`), and so are a mark this
+    release does not write and one naming a newer schema. Reads the catalog and the mark only."""
+    marked = None
+    if db.columns(baseline.table):
+        row = db.one(f"SELECT value FROM {baseline.table} WHERE {baseline.key} = ?", (SCHEMA_ROW,))
+        marked = None if row is None else str(row["value"])
+    if marked is None:
+        if db.columns(baseline.anchor):
+            raise MendariError(PRE_RELEASE)
+        return None
+    name, _, version = marked.partition("/")
+    if name != baseline.name or not _VERSION.fullmatch(version):
+        raise MendariError(
+            f"This database's {baseline.name} schema is marked with something no Mendari "
+            "writes: give the server its own database (docs/operations/incident-runbook.md, "
+            "'Starting over')."
+        )
+    if int(version) > baseline.version:
+        raise MendariError(
+            f"This database was made by a newer Mendari (schema {marked}; this release reads "
+            f"{baseline.mark}): run that release or a later one on it."
+        )
+    return int(version)
+
+
+def _mark(db: Session, baseline: Baseline) -> None:
+    """Mark a schema made in this session as the baseline's (`check_baseline` reads it)."""
+    db.all(
+        f"INSERT INTO {baseline.table} ({baseline.key}, value) VALUES (?, ?)",
+        (SCHEMA_ROW, baseline.mark),
+    )
+
+
+def _statements(script: str) -> list[str]:
+    """A DDL script as its statements, one by one (`sqlite3.complete_statement` decides where
+    each ends, so a `;` in a literal or a trigger stays in it): SQLite's `executescript` would
+    commit the schema lock's transaction before running it."""
+    statements, pending = [], ""
+    for piece in script.split(";"):
+        pending += piece + ";"
+        if sqlite3.complete_statement(pending):
+            if pending.strip(" \t\r\n;"):
+                statements.append(pending)
+            pending = ""
+    return statements
 
 
 class Session(ABC):
@@ -92,9 +186,18 @@ class SqliteSession(Session):
 class SqliteBackend(Backend):
     kind = "sqlite"
 
-    def __init__(self, path: str, *, schema: str, migrate: Migrate, read_only: bool = False):
+    def __init__(
+        self,
+        path: str,
+        *,
+        schema: str,
+        migrate: Migrate,
+        baseline: Baseline | None = None,
+        read_only: bool = False,
+    ):
         self.path = path
         self.read_only = read_only
+        self._lock = threading.RLock()  # serialises access to the shared in-memory connection
         if read_only:
             if path in ("", ":memory:") or not Path(path).is_file():
                 raise MendariError(
@@ -102,7 +205,15 @@ class SqliteBackend(Backend):
                     "or a postgresql:// URL)"
                 )
             self._memory = None
-            self._lock = threading.RLock()
+            if baseline is not None:
+                with self._connect() as connection:
+                    connection.execute("BEGIN")  # one snapshot: the mark and the anchor together
+                    try:
+                        found = check_baseline(SqliteSession(connection), baseline)
+                    finally:
+                        connection.execute("ROLLBACK")
+                if found is None:
+                    raise MendariError(baseline.missing)
             return
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -111,12 +222,15 @@ class SqliteBackend(Backend):
             if path == ":memory:"
             else None
         )
-        self._lock = threading.RLock()  # serialises access to the shared in-memory connection
-        with self._connect() as connection:
-            connection.executescript(
-                schema.format(real="REAL", serial="INTEGER PRIMARY KEY AUTOINCREMENT", blob="BLOB")
-            )
-        with self.session(exclusive=True) as db:  # IMMEDIATE: one process migrates at a time
+        ddl = schema.format(real="REAL", serial="INTEGER PRIMARY KEY AUTOINCREMENT", blob="BLOB")
+        # IMMEDIATE, the schema lock: one process makes, marks or migrates the schema at a time,
+        # and a schema is made and marked in one transaction or not at all.
+        with self.session(exclusive=True) as db:
+            found = None if baseline is None else check_baseline(db, baseline)
+            for statement in _statements(ddl):
+                db.all(statement)
+            if baseline is not None and found is None:
+                _mark(db, baseline)
             migrate(db)
 
     @contextmanager
@@ -274,6 +388,7 @@ class PostgresBackend(Backend):
         schema: str,
         migrate: Migrate,
         lock_key: int,
+        baseline: Baseline | None = None,
         read_only: bool = False,
     ):
         self.lock_key = lock_key
@@ -284,9 +399,44 @@ class PostgresBackend(Backend):
 
         if read_only:
             # Reached first, directly: a wrong URL or a missing database fails now, not after
-            # the pool's timeout.
-            with psycopg.connect(url, prepare_threshold=None, connect_timeout=15):
-                pass
+            # the pool's timeout. The mark is read there, in one snapshot (REPEATABLE READ): a
+            # schema and its mark commit together, so the snapshot holds both or neither. No
+            # lock is taken: a reader never waits for a writer, even one in its own process.
+            with psycopg.connect(
+                url, prepare_threshold=None, connect_timeout=15, row_factory=dict_row
+            ) as connection:
+                connection.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+                connection.read_only = True
+                with connection.transaction():
+                    found = (
+                        None
+                        if baseline is None
+                        else check_baseline(PostgresSession(connection), baseline)
+                    )
+            if baseline is not None and found is None:
+                raise MendariError(baseline.missing)
+        else:
+            # Schema setup goes over the direct (unpooled) connection when one is given, as Neon
+            # recommends for DDL; the advisory lock serialises concurrent cold starts, and the
+            # schema is made and marked in one transaction or not at all.
+            ddl = schema.format(
+                real="DOUBLE PRECISION",
+                serial="BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
+                blob="BYTEA",
+            )
+            with psycopg.connect(
+                migrate_url or url, prepare_threshold=None, row_factory=dict_row
+            ) as connection:
+                _read_committed(connection)
+                with connection.transaction():
+                    connection.execute("SELECT pg_advisory_xact_lock(%s)", (lock_key,))
+                    db = PostgresSession(connection, exclusive=True)
+                    found = None if baseline is None else check_baseline(db, baseline)
+                    if ddl.strip():
+                        connection.execute(ddl)
+                    if baseline is not None and found is None:
+                        _mark(db, baseline)
+                    migrate(db)
 
         # prepare_threshold=None: prepared statements break behind transaction-mode poolers
         # (Neon's pooled endpoint, PgBouncer).
@@ -308,24 +458,6 @@ class PostgresBackend(Backend):
             configure=_read_only_connection if read_only else _read_committed,
             open=True,
         )
-        if read_only:
-            return
-        # Schema setup goes over the direct (unpooled) connection when one is given, as Neon
-        # recommends for DDL; the advisory lock serialises concurrent cold starts.
-        ddl = schema.format(
-            real="DOUBLE PRECISION",
-            serial="BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
-            blob="BYTEA",
-        )
-        with psycopg.connect(
-            migrate_url or url, prepare_threshold=None, row_factory=dict_row
-        ) as connection:
-            _read_committed(connection)
-            with connection.transaction():
-                connection.execute("SELECT pg_advisory_xact_lock(%s)", (lock_key,))
-                if ddl.strip():
-                    connection.execute(ddl)
-                migrate(PostgresSession(connection, exclusive=True))
 
     @contextmanager
     def session(self, *, exclusive: bool) -> Iterator[Session]:
@@ -354,12 +486,15 @@ def connect(
     schema: str,
     migrate: Migrate,
     lock_key: int,
+    baseline: Baseline | None = None,
     migrate_url: str | None = None,
     read_only: bool = False,
 ) -> Backend:
     """A SQLite path (or ":memory:") or a postgres:// / postgresql:// URL, with `schema` created
     (a DDL template with `{real}`, `{serial}` and `{blob}`) and `migrate` run under the lock.
     `lock_key` is the Postgres advisory lock that serialises schema setup and exclusive sessions.
+    `baseline` is how a store's schema is marked and checked at every open (above); None for a
+    database that is no Mendari store (an OMOP source), which is neither marked nor checked.
     `read_only` opens an existing database without writing anything (above). A URL of another
     scheme is refused, never taken for a file name (or printed: it can hold a password)."""
     if target.startswith(("postgres://", "postgresql://")):
@@ -369,6 +504,7 @@ def connect(
             schema=schema,
             migrate=migrate,
             lock_key=lock_key,
+            baseline=baseline,
             read_only=read_only,
         )
     if "://" in target:
@@ -376,7 +512,9 @@ def connect(
             "the database is neither a SQLite path nor a postgres:// or postgresql:// URL "
             "(a driver suffix such as +psycopg is not one)"
         )
-    return SqliteBackend(target, schema=schema, migrate=migrate, read_only=read_only)
+    return SqliteBackend(
+        target, schema=schema, migrate=migrate, baseline=baseline, read_only=read_only
+    )
 
 
 def _read_committed(connection: Any) -> None:

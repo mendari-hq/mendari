@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import sqlite3
-from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -182,19 +180,6 @@ def test_the_evaluation_route_records_its_calls(
         "jev",
         4,
     )
-
-
-def test_a_database_from_before_the_ledger_reads_as_having_none(
-    tmp_path: Path, inbox_pack: Pack
-) -> None:
-    db = tmp_path / "old.db"
-    with AuditStore(db) as store:
-        Decision(inbox_pack, store=store)(message("Refill please."))
-    with closing(sqlite3.connect(db)) as connection, connection:
-        connection.execute("DROP TABLE usage_ledger")
-    assert AuditStore(db, read_only=True).usage_ledger() == []
-    with AuditStore(db) as store:  # a server's store creates it
-        assert store.usage_ledger() == []
 
 
 def test_a_request_never_sent_is_never_counted(

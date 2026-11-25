@@ -7,8 +7,6 @@ cut short of it, is caught. On SQLite and Postgres (`db_target`)."""
 from __future__ import annotations
 
 import json
-import sqlite3
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -135,20 +133,6 @@ def test_a_chain_rewritten_from_before_a_checkpoint_or_cut_short_of_it_is_caught
             "checkpoint",
             checkpoint["seq"],
         )
-
-
-def test_a_database_from_before_checkpoints_is_verified_whole(
-    tmp_path: Path, inbox_pack: Pack
-) -> None:
-    db = tmp_path / "old.db"
-    with AuditStore(db) as store:
-        decide(store, inbox_pack, 2)
-    with closing(sqlite3.connect(db)) as connection, connection:
-        connection.execute("DROP TABLE audit_checkpoints")
-        connection.execute("PRAGMA journal_mode=DELETE")
-    with AuditStore(db, read_only=True) as old:
-        assert old.verify(since_checkpoint=True) == old.verify()
-        assert old.checkpoints() == []
 
 
 def test_the_commands_record_a_checkpoint_and_verify_from_it(

@@ -28,7 +28,6 @@ from tests.conftest import (
     Registry,
     share_signed,
     shared_benchmark,
-    site_ticket,
     verified_site,
 )
 
@@ -197,24 +196,6 @@ def test_the_registry_computes_every_rate_it_shows(registry: Registry, tmp_path:
     for item, counted in zip(figures["critical"], report["decisions"]["critical"], strict=True):
         assert (item["detected"]["k"], item["detected"]["n"]) == (counted["detected"], counted["n"])
         assert item["automated"]["k"] == counted["auto_missed"]
-
-
-def test_a_site_report_of_the_old_format_is_refused_and_names_the_new_one(
-    registry: Registry, db_target: str, tmp_path: Path
-) -> None:
-    registry.publish()
-    site = verified_site(registry, tmp_path)
-    issued = site_ticket(registry, site, shared_benchmark())
-    old = {**shared_benchmark(), "format": "mendari.site-report/1"}
-    answer = registry.client.post(
-        f"/v1/agents/mendari/referral-router/{REFERRAL.version}/reports",
-        json={"ticket": issued["ticket"]["id"], "report": old},
-        headers={"authorization": f"Bearer {issued['submit_secret']}"},
-    )
-    assert answer.status_code == 422
-    assert "mendari.site-report/2" in answer.json()["detail"]
-    with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
-        assert db.all("SELECT id FROM hub_site_reports") == []
 
 
 # -- a publisher's content is refused with a reason, never a server error ------------------------
@@ -633,34 +614,6 @@ def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_
     assert inbox.status_code == 201
     shown = registry.client.get(f"/v1/agents/{INBOX.id}/9.9.9").json()
     assert shown["checked"]["engine"] == "bounded"
-
-
-def test_a_version_published_before_the_registry_rendered_cards_serves_nothing_uploaded(
-    registry: Registry, db_target: str
-) -> None:
-    """Versions are immutable, so one stored before LP-18 keeps its metadata, but the card,
-    benchmark and leaderboard it stored as the pack carried them are never served (ADR-0012)."""
-    assert registry.publish().status_code == 201
-    with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
-        row = db.one("SELECT metadata FROM hub_versions")
-        assert row is not None
-        stored = json.loads(row["metadata"])
-        del stored["format"], stored["engine"]
-        stored["card_markdown"] = "# Uploaded card, risk 0"
-        stored["benchmark"] = {"dataset": "x", "n": 1000, "accuracy": 0.999}
-        stored["leaderboard"] = {"rows": [{"accuracy": 0.999}]}
-        db.all("UPDATE hub_versions SET metadata = ?", (json.dumps(stored),))
-    for version in (
-        registry.client.get(f"/v1/agents/{REFERRAL.id}/{REFERRAL.version}").json(),
-        registry.client.get(f"/v1/agents/{REFERRAL.id}").json()["latest"],
-        registry.client.get("/v1/search").json()[0],
-    ):
-        assert version.get("card_markdown") is None
-        assert "benchmark" not in version and "leaderboard" not in version
-        assert version["checked"]["card"] == "not_rendered"
-        assert version["checked"]["engine"] is None
-        assert version["figures"]["benchmark"] is None
-        assert "0.999" not in json.dumps(version) and "Uploaded card" not in json.dumps(version)
 
 
 def test_a_publish_that_shadows_a_reference_pack_is_refused(

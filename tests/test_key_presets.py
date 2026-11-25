@@ -325,25 +325,6 @@ def test_the_presets_list_is_an_administrators_with_each_keys_reach(
     assert not PEOPLE_ONLY & {permission_for(*r) for r in presets.PRESETS["rest"].calls}
 
 
-def test_a_database_from_before_presets_lists_its_keys_and_takes_the_column(tmp_path: Any) -> None:
-    import sqlite3
-    from contextlib import closing
-
-    db = tmp_path / "old.db"
-    with AuditStore(db) as store:
-        store.create_api_key(name="k", role="viewer", org="default", created_by="t")
-        store.record(*_decided())
-    with closing(sqlite3.connect(db)) as connection, connection:
-        connection.execute("ALTER TABLE api_keys DROP COLUMN preset")
-    with AuditStore(db, read_only=True) as older:  # read as it is
-        [listed] = older.api_keys()
-        assert listed["preset"] is None
-    with AuditStore(db) as store:  # a server's start adds it
-        assert store.api_keys()[0]["preset"] is None
-        store.create_api_key(name="p", role="service", org="default", created_by="t", preset="rest")
-        assert [k["preset"] for k in store.api_keys()] == [None, "rest"]
-
-
 def _decided() -> tuple[Any, Any]:
     from mendari import Decision
     from mendari.core.registry import resolve_pack

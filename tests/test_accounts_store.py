@@ -35,10 +35,11 @@ def dump(store: AuditStore, *tables: str) -> str:
         )
 
 
-def test_the_tables_are_added_and_no_older_database_reads_as_unmigrated(db_target: str) -> None:
+def test_the_tables_are_made_empty_and_read_so(db_target: str) -> None:
     store = AuditStore(db_target)
     assert store.organizations() == [] and store.memberships() == []
-    assert AuditStore(db_target, read_only=True).unmigrated == []
+    reading = AuditStore(db_target, read_only=True)
+    assert reading.organizations() == [] and reading.memberships() == []
 
 
 def test_the_bootstrap_adds_the_owner_once_and_rewrites_nothing(
@@ -500,28 +501,6 @@ def test_the_membership_roles_are_the_servers_and_the_reserved_ones() -> None:
         "labeller",
         "registry_reviewer",
     }
-
-
-def test_an_older_database_reads_as_having_no_records_every_row_defaults(
-    db_target: str, inbox_pack: Pack
-) -> None:
-    """Read-only, a database from before these records, or before tenancy's `org` column, is
-    read as it is (SQLite and Postgres): no memberships, no requests, every decision
-    `default`'s."""
-    store = AuditStore(db_target)
-    inputs = message("Can I get a refill?")
-    store.record(Decision(inbox_pack)(inputs), inputs)
-    with store._db.session(exclusive=True) as db:
-        for table in ("access_requests", "invitations", "memberships", "organizations"):
-            db.all(f"DROP TABLE {table}")
-        db.all("ALTER TABLE decisions DROP COLUMN org")
-    store.close()
-    older = AuditStore(db_target, read_only=True)
-    assert older.memberships() == [] and older.access_requests() == []
-    assert older.organizations() == []
-    assert older.organizations_in_use() == [
-        {"org": "default", "decisions": 1, "recorded": False, "recordable": True}
-    ]
 
 
 def test_a_persons_memberships_are_read_as_they_are_now(store: AuditStore) -> None:

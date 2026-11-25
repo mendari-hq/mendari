@@ -365,7 +365,7 @@ def test_each_administrative_event_renders_as_what_happened() -> None:
 def test_the_reader_leaves_out_an_event_whose_payload_names_another_organization(
     db_target: str,
 ) -> None:
-    with AuditStore(db_target, bind_org=True) as store:
+    with AuditStore(db_target) as store:
         key = store.create_api_key(name="k", role="service", org=ORGS[0], created_by="ops")
         with store._db.session(exclusive=True) as db:
             store._append(db, f"key:{key['id']}", "key.revoked", {"id": key["id"], "org": ORGS[1]})
@@ -465,7 +465,7 @@ def test_the_operator_exports_one_organization_or_every_event_on_no_decision(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], inbox_pack: Pack
 ) -> None:
     db = str(tmp_path / "cli.db")
-    with AuditStore(db, bind_org=True) as store:
+    with AuditStore(db) as store:
         made = {org: seed(store, org) for org in ORGS}
         store.purge(30, source="command")
         decided = {}

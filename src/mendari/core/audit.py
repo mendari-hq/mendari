@@ -22,20 +22,19 @@ import time
 import uuid
 from collections import Counter
 from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from mendari.core import accounts, actions, clock, tenancy
 from mendari.core.db import Backend as _Backend
+from mendari.core.db import Baseline, connect
 from mendari.core.db import Session as _Session
-from mendari.core.db import connect
 from mendari.core.evalset_keys import INDEX_ENV as EVALSET_INDEX_ENV
 from mendari.core.evalset_keys import KEY_ENV as EVALSET_KEY_ENV
 from mendari.core.evalset_keys import READ_ENV as EVALSET_READ_ENV
 from mendari.core.evalset_keys import EvalsetKeys, Kind
-from mendari.core.phi import GENERATE, LEGACY, NOTE_AAD, PhiPolicy, key_id, token_key
+from mendari.core.phi import GENERATE, NOTE_AAD, PhiPolicy, key_id, token_key
 from mendari.core.query import Atom, Page, Query, Within
 from mendari.core.rate_buckets import RateBuckets
 from mendari.core.session_seal import SealError, seal, unseal
@@ -78,12 +77,6 @@ QuestionLabels = Callable[[str, str], Sequence[str] | None]
 # decision is kept in `notes`, apart from the chain, which keeps `note: null` and a `note_ref`:
 # the note's id and sha256(prefix || salt || text). The 32-byte salt is only in the note's row,
 # so the commitment says nothing about the text, and once the row is erased it is noise.
-# Free text chained as is before then (by event) is never rewritten, only hidden when read.
-LEGACY_TEXT = {
-    "review.resolved": ("note",),
-    "feedback.recorded": ("note",),
-    "pas.submitted": ("authorization", "disposition"),
-}
 # Why a person erases a note (chained, so a code): it should not have been written, or was wrong.
 # Retention erases with its own reason, "retention".
 ERASE_REASONS = ("request", "error")
@@ -100,13 +93,12 @@ SESSIONS_CHAIN = "sessions"
 # `encrypt` (the first such mode): from then on no store under `off` keeps input text in it.
 PROTECTED = "phi_protected"
 # Key rotation (LP-09). Key events are chained under `KEYS_CHAIN` (`phi.rotated`,
-# `input_hash.epoch`), no decision's. `settings` rows: from the first rotation on, new tokens name
-# their key (`PHI_TOKENS_V2`); the key the last rotation re-sealed under (`ROTATION_TARGET`);
-# each key a rotation moved values off (`RETIRED` + its id), which then seals nothing more here;
-# each PHI key a deployment ever held (`KNOWN` + its id), so a value naming another was altered;
-# and each input hash key's epoch (`HASH_EPOCH` + its id: since when).
+# `input_hash.epoch`), no decision's. Every token names its key (`core/phi.py`). `settings`
+# rows: the key the last rotation re-sealed under (`ROTATION_TARGET`); each key a rotation moved
+# values off (`RETIRED` + its id), which then seals nothing more here; each PHI key a deployment
+# ever held (`KNOWN` + its id), so a value naming another was altered; and each input hash key's
+# epoch (`HASH_EPOCH` + its id: since when).
 KEYS_CHAIN = "keys"
-PHI_TOKENS_V2 = "phi_tokens_v2"
 ROTATION_TARGET = "phi_key_target"
 RETIRED = "phi_key_retired:"
 KNOWN = "phi_key_known:"
@@ -127,11 +119,9 @@ EVALSET_INDEX_EPOCH = "evalset_index_epoch:"
 EVALSET_INDEX_RETIRED = "evalset_index_retired:"
 # Rows per insert when chaining several events at once (`_append_many`): a page is at most 500.
 _APPEND_BATCH = 500
-# The organization in the chain (LP-12g, ADR-0008). A database a memberships-mode server opened
-# is marked (`ORG_BOUND`, a `settings` row, never removed): from then on every store that opens
-# it, the command line's and a claims-mode server's included, names in each event the
-# organization of the row it is about (`_bound`), and `verify` checks that name against the row.
-ORG_BOUND = "org_bound"
+# The organization in the chain (LP-12g, ADR-0008): every event but the deployment's names the
+# organization of the row it is about (`_bound`), whichever mode or command writes it, and
+# `verify` checks that name against the row.
 # The first administrator (`AuditStore.first_administrator`). A database on which the
 # first-administrator setting was honoured is marked (`FIRST_ADMIN`, a `settings` row holding the
 # membership it made, never removed): from then on the setting gives nothing here, whatever it
@@ -168,9 +158,6 @@ DECISION_KINDS = frozenset(
         "action.resolved",
     }
 )
-# The kinds on a decision that name its organization always: added after LP-12g, so no unmarked
-# database ever chained one without it.
-_ALWAYS_BOUND = frozenset({CARD_FEEDBACK, "action.proposed", "action.resolved"})
 # On a row of its own, under `<prefix>:<id>`: the table, its id column, and the row's
 # organization as SQL, mapped as `_org_of` maps it (NULL is `default`), except a hold's: NULL is
 # the deployment's, a hold set for every organization.
@@ -328,20 +315,13 @@ DEPLOYMENT_KINDS = frozenset(
         "user.recorded",
     }
 )
-# The kinds chained before LP-12g without their organization. They name it only on a marked
-# database, so an unmarked one's payloads are as they were; every other kind but the deployment's
-# names it always.
-BOUND_WHEN_MARKED = frozenset(
-    {
-        *(DECISION_KINDS - _ALWAYS_BOUND),  # LP-23f's and the actions' name it always
-        "governance.revoked",
-        "automation.lifted",
-        "key.rotated",
-        "key.revoked",
-        "client.revoked",
-    }
-)
 
+# The first release's schema, the engine's baseline (`core/db.py`): marked `mendari-engine/1`
+# when it is made, refused at open when made by a pre-release Mendari. One chain runs through
+# `audit_events` (`_append_many` reads its head over every row), so each event follows a
+# different one: no two rows share a `prev_hash`, the first row's GENESIS included. The unique
+# index `audit_events_prev_hash` makes the database itself refuse a second event chained after
+# the same head (a fork), whatever a future writer gets wrong.
 _TABLES = """
 CREATE TABLE IF NOT EXISTS decisions (
     id              TEXT PRIMARY KEY,
@@ -377,6 +357,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
     hash        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS audit_events_decision ON audit_events (decision_id, seq);
+CREATE UNIQUE INDEX IF NOT EXISTS audit_events_prev_hash ON audit_events (prev_hash);
 CREATE INDEX IF NOT EXISTS decisions_created ON decisions (created_at, id);
 CREATE TABLE IF NOT EXISTS eval_reports (
     id          TEXT PRIMARY KEY,
@@ -400,7 +381,6 @@ CREATE TABLE IF NOT EXISTS feedback (
     pack_id           TEXT NOT NULL,
     rating            TEXT NOT NULL,
     reporter          TEXT,
-    note              TEXT,
     expected_question TEXT,
     expected_label    TEXT,
     superseded_by     TEXT
@@ -935,16 +915,29 @@ CREATE INDEX IF NOT EXISTS written_assignments_user
 CREATE INDEX IF NOT EXISTS written_assignments_round
     ON written_assignments (round_id, item_id)
 """
+# Some columns, by table. `decisions`: `org`, the organization it was made for; `refused`, 1
+# when the input was refused before any provider ran (a FHIR Task `failed`, `task_fhir`);
+# `provider_errors`, how many of its questions have a provider error recorded (`errors`: a
+# provider failed, or a composite's member did, so the answer is missing or incomplete; or a
+# question they feed), for monitoring's provider error share (LP-21d), outside the chain;
+# `observed_label`, what a downstream system saw happen (`record_outcome`), apart from a
+# reviewer's `final_label`. `eval_reports.ledger`: the run's mendari.ledger/1 (LP-10).
+# `api_keys`: NULL `scopes` is a key with its role's permissions (ADR-0004); `replaced_by` is a
+# rotated key's replacement (LP-09), `preset` the integration path it was made for (LP-12i).
+# `oauth_clients.keys_version` (NULL is 0) is bumped each time the client's key set is replaced
+# (LP-12h), and a token carries the version its assertion was checked against.
+# `decision_inputs.details`: what a record leaves out beside its kept input, sealed (each
+# answer's evidence; NULL: none). `store_usage.datasets`: the datasets an organization's store
+# added that day (NULL: none yet).
+
 # The `evalset_` tables (LP-11e, ADR-0011, `core/evalsets.py`) hold hidden evaluation sets: every
 # input, attribute, header, freeze record and aggregate sealed under the evaluation-set key, the
 # rest ids, states, times and keyed hashes. The columns a set's freeze and retirement fill
-# (LP-11i) are created now, nullable, so no `_ADDED_COLUMNS` entry is needed for them; the sealed
-# freeze record is `freeze_record`, as FREEZE is a reserved word in Postgres. Blind labelling
-# (LP-11h) adds two: `evalset_assignments` (who labels which case, in which round: `first` or
-# `adjudication`; ended when labelled, or withdrawn when its membership no longer holds), all in
-# the clear, ids and times; and `evalset_labels` (one per assignment, its values sealed in
-# `body`, bound to the label's id). A database from before them (read-only) lacks both, and is
-# read as having none.
+# (LP-11i) are nullable; the sealed freeze record is `freeze_record`, as FREEZE is a reserved
+# word in Postgres. Blind labelling (LP-11h) adds two: `evalset_assignments` (who labels which
+# case, in which round: `first` or `adjudication`; ended when labelled, or withdrawn when its
+# membership no longer holds), all in the clear, ids and times; and `evalset_labels` (one per
+# assignment, its values sealed in `body`, bound to the label's id).
 
 # The `store_` tables (LP-20e, ADR-0016, `core/pack_store.py`) hold each organization's pack
 # store: `store_files` each file once by its SHA-256, whichever versions hold it;
@@ -978,65 +971,19 @@ CREATE INDEX IF NOT EXISTS written_assignments_round
 # under the PHI key in `encrypt`, kind `written`, bound to the row's id; plain under `off`,
 # never in a protected database; refused under `hash`) and is NULL once the round closes or
 # retention erased it; `written_assignments` who grades which item, and their grades (`grades`:
-# level names with a salt, whose commitment the chain holds). New tables only: a database from
-# before them (read-only) lacks all three, and is read as having none.
+# level names with a salt, whose commitment the chain holds).
 
-# The tables a read-only store reads (`_read_only_check`); the first two must be there.
-_READ_TABLES = ("audit_events", "decisions", "feedback", "decision_inputs", "notes", "settings")
-
-# Columns added after their table's first release. New databases get them from _TABLES; older
-# ones get them from _migrate(). Additive only: nullable, no default, never renamed or dropped.
-_ADDED_COLUMNS = (
-    ("feedback", "expected_question", "TEXT"),
-    ("feedback", "expected_label", "TEXT"),
-    ("feedback", "superseded_by", "TEXT"),
-    ("decisions", "org", "TEXT"),  # tenancy (v0.6); NULL is the default organization
-    ("eval_reports", "org", "TEXT"),
-    ("eval_reports", "ledger", "TEXT"),  # the run's mendari.ledger/1 (LP-10); NULL before it
-    # 1 when the input was refused before any provider ran (Phase 3); NULL on older rows, which
-    # fall back to "BLOCK without confidence" (_REFUSED, task_fhir.refused).
-    ("decisions", "refused", "INTEGER"),
-    # How many of a decision's questions have a provider error recorded (`errors`: a provider
-    # failed, or a composite's member did, so the answer is missing or incomplete; or a question
-    # they feed), for monitoring's provider error share (LP-21d): a count, outside the chain;
-    # NULL on rows from before it, which monitoring leaves out of the share.
-    ("decisions", "provider_errors", "INTEGER"),
-    # What a downstream system saw happen (`record_outcome`), apart from a reviewer's
-    # `final_label`, which it used to overwrite; `_split_observed_labels` moves older rows'
-    # outcome labels here from the chain.
-    ("decisions", "observed_label", "TEXT"),
-    # Scoped keys that expire (Phase 4, ADR-0004): NULL scopes is a key with its role's
-    # permissions; a NULL expiry is set once at startup (_expire_legacy_keys).
-    ("api_keys", "scopes", "TEXT"),
-    ("api_keys", "expires_at", "TEXT"),
-    ("api_keys", "revoked_by", "TEXT"),
-    ("api_keys", "replaced_by", "TEXT"),  # a rotated key's replacement (LP-09)
-    ("api_keys", "preset", "TEXT"),  # the integration path it was made for (LP-12i)
-    # A client's key set replaced (LP-12h): its version (NULL is 0), bumped on each replacement,
-    # and when; a token carries the version its assertion was checked against.
-    ("oauth_clients", "keys_version", "INTEGER"),
-    ("oauth_clients", "keys_replaced_at", "TEXT"),
-    ("oauth_tokens", "keys_version", "INTEGER"),
-    # What a record leaves out beside its kept input, sealed (Phase 4b): each answer's evidence.
-    # NULL: none, or a row from before.
-    ("decision_inputs", "details", "TEXT"),
-    # A pack store's datasets count against its organization's quotas: the datasets it adds a
-    # day (NULL: none yet that day) and each dataset's bytes as kept (NULL on rows from before
-    # it, counted by their length).
-    ("store_usage", "datasets", "INTEGER"),
-    ("store_datasets", "size", "INTEGER"),
-    # Where a version pulled from a registry came from (`core/pack_store.py`, source `hub`);
-    # NULL for every other version, and on rows from before it.
-    ("store_versions", "pulled", "TEXT"),
-    # The origin an operator allowed for an agent's connection, by whom and when
-    # (`core/connections.py`); NULL where none was, and on rows from before it.
-    ("agent_connections", "allowed_origin", "TEXT"),
-    ("agent_connections", "allowed_by", "TEXT"),
-    ("agent_connections", "allowed_at", "TEXT"),
+# How the engine's schema is marked and recognised at every open (`core/db.py`).
+ENGINE_SCHEMA = Baseline(
+    name="mendari-engine",
+    version=1,
+    anchor="audit_events",
+    table="settings",
+    key="name",
+    missing="not a Mendari database (no audit chain in it): give the server's --db",
 )
 # API keys (ADR-0004): machines are viewer or service; a key lives 90 days unless asked
-# otherwise, 365 at most; keys made before keys expired get 30 days from the first start of
-# the release that brought expiry.
+# otherwise, 365 at most.
 MACHINE_ROLES = ("viewer", "service")
 # A grading key's role (LP-11): minted only by `create_grading_key`, never one of MACHINE_ROLES.
 GRADING_ROLE = "grading"
@@ -1045,7 +992,6 @@ KEY_MAX_DAYS = 365
 # A rotated key keeps working this many hours (24 unless asked, a week at most), then expires.
 KEY_OVERLAP_HOURS = 24
 KEY_MAX_OVERLAP_HOURS = 168
-LEGACY_KEY_DAYS = 30
 # A subject's history is its newest events, this many at most (a key's chain holds 2 or 3).
 HISTORY_LIMIT = 200
 # Expired session-table rows one put deletes (smart_put).
@@ -1153,32 +1099,27 @@ _NO_ROW = object()  # a subject `verify` did not find (a hold's organization may
 
 
 def _subject_orgs(db: _Session) -> dict[str, Any]:
-    """Each administrative row's organization (`SUBJECT_TABLES`), by its chain id, from the
-    tables this database has (an older one, read as it is, may lack some)."""
+    """Each administrative row's organization (`SUBJECT_TABLES`), by its chain id."""
     found: dict[str, Any] = {}
     for prefix, (table, column, org) in SUBJECT_TABLES.items():
-        present = db.columns(table)
-        if column not in present or (org != column and "org" not in present):
-            continue
         for row in db.all(f"SELECT {column} AS id, {org} AS org FROM {table}"):
             found[f"{prefix}:{row['id']}"] = row["org"]
     return found
 
 
 def _attributed(
-    event: Mapping[str, Any], owners: Mapping[str, str] | None, subjects: Mapping[str, Any]
+    event: Mapping[str, Any], owners: Mapping[str, str], subjects: Mapping[str, Any]
 ) -> bool:
     """Whether an event names its row's organization, if it names one (`verify`). By kind: on a
-    decision, the decision's (`owners`; None for an older database without organizations);
-    an administrative kind, its subject's, which must be there. The deployment's kinds, a
-    person's (`PERSON_KINDS`) and kinds a later release added have no row to check, so a
-    rollback never fails on them."""
+    decision, the decision's (`owners`); an administrative kind, its subject's, which must be
+    there. The deployment's kinds, a person's (`PERSON_KINDS`) and kinds a later release added
+    have no row to check, so a rollback never fails on them."""
     payload = json.loads(event["payload"])
     if not isinstance(payload, dict) or "org" not in payload:
         return True
     kind, chain_id = event["event"], str(event["decision_id"])
     if kind in DECISION_KINDS:
-        return owners is None or owners.get(chain_id, _NO_ROW) == payload["org"]
+        return owners.get(chain_id, _NO_ROW) == payload["org"]
     prefix = ADMINISTRATIVE_KINDS.get(kind)
     if prefix is None:
         return True
@@ -1189,9 +1130,7 @@ def _attributed(
 OFF_DECISION_KINDS = (*ADMINISTRATIVE_KINDS, *sorted(PERSON_KINDS), *sorted(DEPLOYMENT_KINDS))
 
 
-def _administrative(
-    db: _Session, org: str | None, subject: str | None
-) -> tuple[str, str, list[Any]] | None:
+def _administrative(org: str | None, subject: str | None) -> tuple[str, str, list[Any]] | None:
     """What `administrative_events` reads (`FROM`, a `WHERE` condition and its parameters):
     for an organization, the events of each row it owns, one indexed lookup per row; for none,
     every event on no decision. None: `subject` names nothing here."""
@@ -1206,9 +1145,6 @@ def _administrative(
     for name, (table, column, expression) in SUBJECT_TABLES.items():
         if subject is not None and name != prefix:
             continue
-        present = db.columns(table)
-        if column not in present or (expression != column and "org" not in present):
-            continue  # an older database, read as it is, lacks it
         one = f" AND {column} = ?" if subject is not None else ""
         parts.append(
             f"SELECT '{name}:' || {column} AS subject, {expression} AS org FROM {table} "
@@ -1269,102 +1205,9 @@ def _canonical(value: Any) -> str:
 
 
 def _migrate(db: _Session) -> None:
-    """Bring a database created by an earlier release up to _TABLES. Runs under the schema lock
-    (SQLite: an IMMEDIATE transaction; Postgres: the advisory lock), so cold starts don't race.
-    Everything here is one transaction: a step that refuses leaves the database as it was."""
-    _index_chain_links(db)
-    added = set()
-    columns: dict[str, set[str]] = {}
-    for table, column, kind in _ADDED_COLUMNS:
-        present = columns.get(table)
-        if present is None:
-            present = columns[table] = db.columns(table)
-        if column not in present:
-            db.all(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
-            present.add(column)
-            added.add(column)
-    if "superseded_by" in added:
-        _supersede_earlier_ratings(db)
-    if "observed_label" in added:
-        _split_observed_labels(db)
-    _expire_legacy_keys(db)
-
-
-# One chain runs through the whole table (`_append_many` reads its head over every row), so each
-# event follows a different one: no two rows share a `prev_hash`, the first row's GENESIS
-# included. The unique index makes the database itself refuse a second event chained after the
-# same head (a fork), whatever a future writer gets wrong.
-_CHAIN_LINKS_INDEX = "audit_events_prev_hash"
-
-
-def _index_chain_links(db: _Session) -> None:
-    """Create the chain's unique `prev_hash` index on a database from before it. A database
-    that already holds a fork cannot take it: refused, naming no event, so the operator finds
-    the fork with `audit verify` rather than the start half-migrating. Once the index is there
-    nothing is scanned again."""
-    if _CHAIN_LINKS_INDEX in db.indexes("audit_events"):
-        return
-    forked = db.one(
-        "SELECT prev_hash FROM audit_events GROUP BY prev_hash HAVING COUNT(*) > 1 LIMIT 1"
-    )
-    if forked is not None:
-        raise MendariError(
-            "the audit chain forks (two events follow the same one), so it cannot be given the "
-            "index that keeps it from forking: nothing was migrated. Run `mendari audit verify "
-            "--db <this database>` (read-only) to find where it breaks, and restore the database "
-            "from a backup taken before that point (docs/operations/incident-runbook.md)"
-        )
-    db.all(f"CREATE UNIQUE INDEX {_CHAIN_LINKS_INDEX} ON audit_events (prev_hash)")
-
-
-def _expire_legacy_keys(db: _Session) -> None:
-    """Keys from before keys expired (expires_at NULL) expire LEGACY_KEY_DAYS after the first
-    start that finds them. Idempotent: only rows still NULL change, and every new key has an
-    expiry. A key lookup refuses a NULL expiry (one written by an older instance during a
-    rollout) until the next start gives it one."""
-    db.all(
-        "UPDATE api_keys SET expires_at = ? WHERE expires_at IS NULL",
-        (_later(timedelta(days=LEGACY_KEY_DAYS)),),
-    )
-
-
-def _split_observed_labels(db: _Session) -> None:
-    """Databases from before `observed_label`: `record_outcome` wrote the outcome's label into
-    `final_label`, over a reviewer's when there was one. The chain holds both, so each goes back
-    where it belongs: a decision's `final_label` is its `review.resolved` label (none when it was
-    never reviewed), its `observed_label` the latest `outcome.recorded` one. The chain is
-    untouched."""
-    rows = db.all(
-        "SELECT decision_id, event, payload FROM audit_events "
-        "WHERE event IN ('review.resolved', 'outcome.recorded') ORDER BY seq"
-    )
-    reviewed: dict[str, str] = {}
-    observed: dict[str, str] = {}
-    for row in rows:
-        try:
-            label = json.loads(row["payload"]).get("final_label")
-        except (ValueError, AttributeError):
-            continue
-        if isinstance(label, str):
-            kept = reviewed if row["event"] == "review.resolved" else observed
-            kept[row["decision_id"]] = label
-    for decision_id, label in observed.items():
-        db.all("UPDATE decisions SET observed_label = ? WHERE id = ?", (label, decision_id))
-    for decision_id, label in reviewed.items():
-        db.all("UPDATE decisions SET final_label = ? WHERE id = ?", (label, decision_id))
-    db.all("UPDATE decisions SET final_label = NULL WHERE review_status <> 'resolved'")
-
-
-def _supersede_earlier_ratings(db: _Session) -> None:
-    """Ratings given before ratings could be changed: in each (decision, reporter) group only the
-    latest counts, and the earlier ones point to it, as if each had been changed in turn. The
-    hash chain is untouched: it already holds every rating."""
-    rows = db.all("SELECT id, decision_id, reporter FROM feedback ORDER BY created_at, id")
-    latest = {(row["decision_id"], row["reporter"]): row["id"] for row in rows}
-    for row in rows:
-        current = latest[(row["decision_id"], row["reporter"])]
-        if row["id"] != current:
-            db.all("UPDATE feedback SET superseded_by = ? WHERE id = ?", (current, row["id"]))
+    """Bring the schema of an earlier release up to this one's, under the schema lock and after
+    the baseline check (`core/db.py`), in the transaction that made or checked it. The first
+    release's schema is the baseline (`ENGINE_SCHEMA`): there is nothing to migrate yet."""
 
 
 # -- store ---------------------------------------------------------------------------------
@@ -1387,11 +1230,12 @@ class AuditStore(RateBuckets):
         `phi` is how inputs are kept (`core/phi.py`; default: as the pack says). `marks`
         (default): opening marks the database with this store's PHI mode and keys (`_protected`);
         a read-only tool passes False and only reads the marks. `read_only` opens an existing
-        Mendari database and writes nothing to it, not even a mark or a migration
-        (`core/db.py`); a database written by an older Mendari is read as it is
-        (`unmigrated`, `require_current`). `bind_org` (a memberships-mode server, with `marks`)
-        marks the database so each event names its organization (`ORG_BOUND`); a store that
-        finds the mark binds whatever it was opened with (`binds_org`).
+        Mendari database and writes nothing to it, not even a mark (`core/db.py`). Every open
+        checks the schema's baseline first (`ENGINE_SCHEMA`): a database a pre-release or a
+        newer Mendari made is refused before anything is read.
+
+        `bind_org` is ignored: every event names its organization, whoever opens the database
+        (`_bound`). It stays only while `server/app.py` passes it.
         """
         self.phi = phi or PhiPolicy()
         self.read_only = read_only
@@ -1400,97 +1244,48 @@ class AuditStore(RateBuckets):
             schema=_TABLES,
             migrate=_migrate,
             lock_key=_CHAIN_LOCK,
+            baseline=ENGINE_SCHEMA,
             migrate_url=migrate_url,
             read_only=read_only,
         )
         self.path = str(target) if self._db.kind == "sqlite" else None
-        # Read-only: what an older database lacks that a migration would add (none otherwise).
+        # Always empty: a database that opened holds this release's schema. Read only by
+        # `core/evalsets.py`, until it goes.
         self.unmigrated: list[str] = []
         if read_only:
             marks = False
-            self.unmigrated = self._read_only_check()
         # environment -> (the CapabilityStatement version served, since when): capability_since
         self._capability_since: dict[str, tuple[str, str]] = {}
         self._hash_epoch: str | None = None  # the hash key id this process last recorded under
-        # Whether events name their organization: the `ORG_BOUND` mark as this store found it
-        # when it opened, fixed from then on (a store opened before the mark binds once it is
-        # opened again), so each write reads one answer.
-        self.protected, self.binds_org = self._protected(marks, bind_org=bind_org)
-
-    def _read_only_check(self) -> list[str]:
-        """A read-only store's target is a Mendari database: its chain and decisions tables are
-        there. Returns the tables and columns a migration would add that it lacks."""
-        with self._db.session(exclusive=False) as db:
-            present = {table: db.columns(table) for table in _READ_TABLES}
-            if not present["audit_events"] or not present["decisions"]:
-                self._db.close()
-                raise MendariError(
-                    "not a Mendari database (no audit chain in it): give the server's --db"
-                )
-            lacking = [table for table, columns in present.items() if not columns]
-            lacking += [
-                f"{table}.{column}"
-                for table, column, _ in _ADDED_COLUMNS
-                if present.get(table) and column not in present[table]
-            ]
-            return lacking
+        self.protected = self._protected(marks)
 
     def require_current(self, command: str) -> None:
-        """Refuses, in one line, a read-only command that needs what an older database lacks:
-        opening it read-only never migrates it (`mendari serve` on it once does)."""
-        if self.unmigrated:
-            raise MendariError(
-                f"{command}: this database was written by an older Mendari and lacks "
-                f"{', '.join(self.unmigrated[:3])}; start the server on it once (it migrates), "
-                "then run this again (`mendari audit verify` reads it as it is)"
-            )
+        """Nothing to refuse: a database that opened holds this release's schema (`core/db.py`
+        refuses any other as it opens). It stays only while `cli.py` calls it."""
 
-    def _protected_on(
-        self, db: _Session, marks: bool = True, *, bind_org: bool = False
-    ) -> tuple[str | None, bool]:
-        if "settings" in self.unmigrated:
-            return None, False
+    def _protected_on(self, db: _Session, marks: bool = True) -> str | None:
         if marks and self.phi.mode != "off":
             _mark(db, PROTECTED, self.phi.mode)
         if marks and self.phi.mode == "encrypt":
             taken = _evalset_marked(db, self.phi.ring_ids)
             for known in sorted(self.phi.ring_ids - taken):
                 _mark(db, KNOWN + known, _now())
-            if self.phi.read_keys:
-                _mark(db, PHI_TOKENS_V2, "1")
-        if marks and bind_org:
-            _mark(db, ORG_BOUND, _now())
-        found = {
-            row["name"]: str(row["value"])
-            for row in db.all(
-                "SELECT name, value FROM settings WHERE name IN (?, ?, ?)",
-                (PROTECTED, PHI_TOKENS_V2, ORG_BOUND),
-            )
-        }
-        if PHI_TOKENS_V2 in found and not self.phi.tag_tokens:
-            self.phi = replace(self.phi, tag_tokens=True)
-        return found.get(PROTECTED), ORG_BOUND in found
+        found = db.one("SELECT value FROM settings WHERE name = ?", (PROTECTED,))
+        return None if found is None else str(found["value"])
 
-    def _protected(self, marks: bool = True, *, bind_org: bool = False) -> tuple[str | None, bool]:
+    def _protected(self, marks: bool = True) -> str | None:
         """The PHI mode that first protected this database (`hash` or `encrypt`), marking it now
         (with `marks`) if this store's mode is one; None while only mode `off` has opened it. A
         store under `encrypt` also marks each key it holds as known (but not one this database
         knows as an evaluation-set key: `ready_to_keep` refuses that key, and marking it would
-        lock the evaluation sets out, LP-11e), and, with read keys (a rotation under way), that
-        tokens name their key from now on; every store that finds that mark seals so. Likewise
-        `bind_org` marks that events name their organization (`ORG_BOUND`); the second value is
-        whether the database is so marked."""
-        if "settings" in self.unmigrated:
-            return None, False  # an older database, read as it is: nothing marked it
+        lock the evaluation sets out, LP-11e)."""
         with self._db.session(exclusive=False) as db:
-            return self._protected_on(db, marks=marks, bind_org=bind_org)
+            return self._protected_on(db, marks=marks)
 
     def _bound(self, kind: str, payload: Mapping[str, Any], org: str | None) -> dict[str, Any]:
-        """A payload as chained: with the organization of the row it is about (`org`, which the
-        caller read in the same transaction, mapped by `_org_of`), unless it is one of the kinds
-        an unmarked database chains as before (`BOUND_WHEN_MARKED`)."""
-        if kind in BOUND_WHEN_MARKED and not self.binds_org:
-            return dict(payload)
+        """A payload as chained (`kind`): with the organization of the row it is about (`org`,
+        which the caller read in the same transaction, mapped by `_org_of`). Every kind but the
+        deployment's names it (`_append_many` refuses one that does not)."""
         return {**payload, "org": org}
 
     def ready_to_keep(self) -> None:
@@ -1640,7 +1435,7 @@ class AuditStore(RateBuckets):
         if self.phi.mode != "off":
             return
         if self.protected is None:
-            self.protected = self._protected_on(db)[0]
+            self.protected = self._protected_on(db)
         if self.protected:
             raise MendariError(
                 f"This database is protected (first kept under PHI mode {self.protected}): run "
@@ -1656,7 +1451,7 @@ class AuditStore(RateBuckets):
         if self.phi.mode != "off":
             return
         if self.protected is None:
-            self.protected = self._protected()[0]
+            self.protected = self._protected()
         if self.protected:
             raise MendariError(
                 f"This database is protected (first kept under PHI mode {self.protected}): run "
@@ -2107,7 +1902,6 @@ class AuditStore(RateBuckets):
                 "AND superseded_by IS NULL",
                 (decision_id, reporter or ""),
             )
-            # The `note` column is only read now: rows from before notes left the chain.
             db.all(
                 "INSERT INTO feedback (id, decision_id, created_at, pack_id, rating, reporter, "
                 "expected_question, expected_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -2225,16 +2019,13 @@ class AuditStore(RateBuckets):
         purpose (`USAGE_PURPOSES`), of `org` if given (None: every organization), from `since`
         to `until` (local calendar days, ISO dates, both included). Each row has its calls, the
         calls that were priced, their tokens, and `cost_usd`: the cost, or None (unknown)
-        unless every call was priced, never a partial sum. A database from before the ledger
-        has none."""
+        unless every call was priced, never a partial sum."""
         where, params = ["1 = 1"], []
         for clause, value in (("org = ?", org), ("day >= ?", since), ("day <= ?", until)):
             if value is not None:
                 where.append(clause)
                 params.append(value)
         with self._db.session(exclusive=False) as db:
-            if not db.columns("usage_ledger"):
-                return []
             rows = db.all(
                 "SELECT day, org, provider_type, purpose, calls, priced_calls, input_tokens, "
                 f"output_tokens, cost_usd FROM usage_ledger WHERE {' AND '.join(where)} "
@@ -2341,11 +2132,9 @@ class AuditStore(RateBuckets):
         """For the operator's checks: the newest alert sent (`last`) and the newest one the
         webhook took (`delivered`), each as its event, status, when it was last tried, the
         webhook's HTTP status and the fixed error code. Never a body, a URL or a secret. None
-        for none, and in a database from before alerts were recorded (read-only)."""
+        for none."""
         columns = "event, status, updated_at, last_status, last_error"
         with self._db.session(exclusive=False) as db:
-            if not db.columns("alert_deliveries"):
-                return {"last": None, "delivered": None}
             last = db.one(
                 f"SELECT {columns} FROM alert_deliveries ORDER BY updated_at DESC LIMIT 1"
             )
@@ -2379,11 +2168,8 @@ class AuditStore(RateBuckets):
         return run
 
     def runs(self) -> dict[str, dict[str, Any]]:
-        """Each job's last recorded run, by job (`record_run`); none in a database from before
-        runs were recorded (read-only)."""
+        """Each job's last recorded run, by job (`record_run`)."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("system_runs"):
-                return {}
             rows = db.all("SELECT job, ran_at, outcome, detail FROM system_runs")
         return {str(row["job"]): dict(row) for row in rows}
 
@@ -2395,10 +2181,8 @@ class AuditStore(RateBuckets):
 
     def last_checkpoint(self) -> dict[str, Any] | None:
         """The newest recorded checkpoint (`record_checkpoint`): its event's place, its hash and
-        when it was recorded; None without one, and in a database from before them."""
+        when it was recorded; None without one."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("audit_checkpoints"):
-                return None
             return db.one(
                 "SELECT seq, hash, created_at FROM audit_checkpoints ORDER BY seq DESC LIMIT 1"
             )
@@ -2461,11 +2245,10 @@ class AuditStore(RateBuckets):
         `prev_hash` is the row before's `hash`, so `verify()` holds only if `seq` follows the
         insert's order, as an identity column does. The events, as `_events_of` gives them.
 
-        Every kind but the deployment's names its organization (`_bound`), the kinds chained
-        before LP-12g only on a marked database: a writer that forgets is refused here, before
-        anything is chained, so a new kind cannot leave it out. So is a session that is not
-        exclusive (`db.Session.exclusive`): only the chain's lock keeps the head read here the
-        head the insert follows."""
+        Every kind but the deployment's names its organization (`_bound`): a writer that
+        forgets is refused here, before anything is chained, so a new kind cannot leave it out.
+        So is a session that is not exclusive (`db.Session.exclusive`): only the chain's lock
+        keeps the head read here the head the insert follows."""
         if not entries:
             return []
         # A separator in either would let two different events hash alike (`_chain_hash`).
@@ -2474,7 +2257,7 @@ class AuditStore(RateBuckets):
         if not db.exclusive:
             # Outside the chain's lock two writers read the same head and fork the chain.
             raise RuntimeError("the audit chain is appended to in an exclusive session only")
-        if event not in DEPLOYMENT_KINDS and (self.binds_org or event not in BOUND_WHEN_MARKED):
+        if event not in DEPLOYMENT_KINDS:
             for _, payload in entries:
                 if not (isinstance(payload, Mapping) and "org" in payload):
                     raise ValueError(f"a {event} event names its organization: chain it bound")
@@ -2710,12 +2493,11 @@ class AuditStore(RateBuckets):
 
         Notes follow inputs (see "notes"): those of the item's `events` (`get`) and, with
         `own_notes`, the item's own (a rating's note has the rating's id). Each such event or
-        item gets `note` (the text, or None) and `note_status` ("open", "sealed" or "erased");
-        an event chained with its note in the payload, before notes left the chain, shows it only
-        to a `reader` and otherwise has it blanked. A decision whose input or notes a `reader`
-        opened gets one `input.read` (naming the notes), all chained with one append and added
-        to the item's `events`; each item of such a decision gets `input_read: true`. Outside
-        mode `off`, what a record holds itself (`_held_input`) is shown as a kept input is."""
+        item gets `note` (the text, or None) and `note_status` ("open", "sealed" or "erased").
+        A decision whose input or notes a `reader` opened gets one `input.read` (naming the
+        notes), all chained with one append and added to the item's `events`; each item of such
+        a decision gets `input_read: true`. Outside mode `off`, what a record holds itself
+        (`_held_input`) is shown as a kept input is."""
         ids = list(dict.fromkeys(str(item[id_key]) for item in items))
         if not ids:
             return items
@@ -2760,37 +2542,38 @@ class AuditStore(RateBuckets):
             views[row["id"]] = view = self._note_view(row, reader)
             if gated and view[0] == "open":
                 reads.setdefault(row["decision_id"], []).append(row["id"])
-        # A record that holds input values itself (its input, kept under mode `off`, or its
-        # answers' evidence, on any record written before 2026-10-02): outside `off`, only a
-        # reader sees them (and the read is chained), as with a sealed input.
-        legacy = {
+        # A record that holds its input itself (kept under mode `off`, with its answers'
+        # evidence): outside `off`, only a reader sees it (and the read is chained), as with a
+        # sealed input.
+        held = {
             str(item[id_key])
             for item in items
             if gated and str(item[id_key]) not in opened and _held_input(item)
         }
-        if gated and reader:
-            for item in items:
-                if _legacy_text(item, own_notes) or str(item[id_key]) in legacy:
-                    reads.setdefault(str(item[id_key]), [])
+        if reader:
+            for decision_id in held:
+                reads.setdefault(decision_id, [])
         chained: list[dict[str, Any]] = []
         if reads:
-            entries = [
-                (decision_id, {"reader": reader, **({"notes": named} if named else {})})
-                for decision_id, named in reads.items()
-            ]
+            marks = ", ".join("?" for _ in reads)
             with self._db.session(exclusive=True) as db:
-                if self.binds_org:
-                    marks = ", ".join("?" for _ in reads)
-                    orgs = {
-                        row["id"]: _org_of(row["org"])
-                        for row in db.all(
-                            f"SELECT id, org FROM decisions WHERE id IN ({marks})", list(reads)
-                        )
-                    }
-                    entries = [
-                        (decision_id, self._bound("input.read", payload, orgs.get(decision_id)))
-                        for decision_id, payload in entries
-                    ]
+                orgs = {
+                    row["id"]: _org_of(row["org"])
+                    for row in db.all(
+                        f"SELECT id, org FROM decisions WHERE id IN ({marks})", list(reads)
+                    )
+                }
+                entries = [
+                    (
+                        decision_id,
+                        self._bound(
+                            "input.read",
+                            {"reader": reader, **({"notes": named} if named else {})},
+                            orgs.get(decision_id),
+                        ),
+                    )
+                    for decision_id, named in reads.items()
+                ]
                 chained = self._append_many(db, "input.read", entries)
         for item in items:
             decision_id = str(item[id_key])
@@ -2800,16 +2583,16 @@ class AuditStore(RateBuckets):
                 item["record"]["input"] = opened[decision_id]
                 item["input_restricted"] = False
                 _give_evidence(item["record"], details.get(decision_id, {}).get("evidence", {}))
-            elif decision_id in sealed or decision_id in legacy:
+            elif decision_id in sealed or decision_id in held:
                 # A sealed input not opened stays sealed; what the record holds itself is shown
                 # to a reader (the read chained above) and to no one else.
                 item["input_restricted"] = decision_id in sealed or not reader
-                if decision_id in legacy and not reader:
+                if decision_id in held and not reader:
                     _withhold(item["record"])
             for event in item.get("events") or ():
-                _show_note(event, views, reader)
+                _show_note(event, views)
             if own_notes:
-                _show_own_note(item, views, reader)
+                _show_own_note(item, views)
             if "events" in item:
                 item["events"] += [
                     {k: v for k, v in event.items() if k != "decision_id"}
@@ -2834,11 +2617,11 @@ class AuditStore(RateBuckets):
         """Erase what one decision keeps apart from the chain, on request (`mendari phi erase`):
         its sealed input and evidence are deleted (`input.erased`) and its notes erased (one
         `note.erased` each), all chained with who and why. Its record and the chain are
-        untouched, so `audit verify` still passes. What the chain itself holds (an input kept
-        under PHI mode `off`, evidence on a record written before 2026-10-02, a note chained
-        before notes left the chain) nothing erases without breaking it: `still_in_chain` says
-        so, and retiring that database removes it (docs/deploying-with-phi.md). Backups, the
-        database's history and earlier exports still hold what was erased."""
+        untouched, so `audit verify` still passes. What the chained record holds itself (an
+        input kept under PHI mode `off`, with its answers' evidence) nothing erases without
+        breaking the chain: `still_in_chain` says so, and retiring that database removes it
+        (docs/deploying-with-phi.md). Backups, the database's history and earlier exports still
+        hold what was erased."""
         if reason not in ERASE_REASONS:
             raise NoteError(f"the reason is one of {ERASE_REASONS}")
         if not erased_by.strip() or len(erased_by) > 200 or not erased_by.isprintable():
@@ -2847,8 +2630,7 @@ class AuditStore(RateBuckets):
             item = _decision(db, decision_id)
             if item is None:
                 raise NoteError(f"no decision {decision_id}")
-            events = _events_of(db, [decision_id])[decision_id]
-            in_chain = _held_input(item) or _legacy_text({"events": events}, own_notes=False)
+            in_chain = _held_input(item)
             kept = db.one(
                 "SELECT decision_id FROM decision_inputs WHERE decision_id = ?", (decision_id,)
             )
@@ -2864,8 +2646,8 @@ class AuditStore(RateBuckets):
                 if in_chain:
                     raise NoteError(
                         f"decision {decision_id} keeps nothing apart from the chain: its chained "
-                        "record or events hold its input, evidence or note text, which only "
-                        "retiring the database removes (docs/deploying-with-phi.md)"
+                        "record holds its input and evidence, which only retiring the database "
+                        "removes (docs/deploying-with-phi.md)"
                     )
                 raise NoteError(f"decision {decision_id} keeps no input or note to erase")
             erased_at = _now()
@@ -3045,8 +2827,6 @@ class AuditStore(RateBuckets):
                 "ON CONFLICT (name) DO UPDATE SET value = excluded.value",
                 (ROTATION_TARGET, to),
             )
-            _mark(db, PHI_TOKENS_V2, "1")
-        self.phi = replace(self.phi, tag_tokens=True)
         summary: dict[str, Any] = {
             "to": to,
             "inputs": 0,
@@ -3327,8 +3107,8 @@ class AuditStore(RateBuckets):
     def phi_check(self, *, batch: int = 500) -> dict[str, Any]:
         """Reads only (`mendari phi rotate --check`, on a store opened with `marks=False`): whether
         every sealed value opens with the current key alone, as dropping the read keys
-        requires. Counts sealed values by the key each names (`legacy`: sealed before key
-        ids), with the newest under each other key; opens every kept input, its details and
+        requires. Counts sealed values by the key each names (`invalid`: a value that names
+        none), with the newest under each other key; opens every kept input, its details and
         every note with the current key only; recomputes the input hash of each record
         hashed under the current hash key, and checks each note against the commitment its
         event chained. Lists the input hash epochs (key id, first and last decision, how
@@ -3412,11 +3192,7 @@ class AuditStore(RateBuckets):
                     failures.append({"kind": "note", "id": row["id"], "key": "commitment"})
         # A pack store's sealed datasets (LP-20g), counted only where there are any.
         with self._db.session(exclusive=False) as db:
-            sealed_sets = (
-                db.all("SELECT id, created_at, data FROM store_datasets WHERE sealed = 1")
-                if db.columns("store_datasets")
-                else []
-            )
+            sealed_sets = db.all("SELECT id, created_at, data FROM store_datasets WHERE sealed = 1")
         for row in sealed_sets:
             by_key.setdefault("datasets", Counter())
             named = seen("datasets", row["data"], row["created_at"])
@@ -3426,13 +3202,9 @@ class AuditStore(RateBuckets):
                 failures.append({"kind": "dataset", "id": row["id"], "key": named})
         # Agents' connection tokens (ADR-0021), counted only where there are any.
         with self._db.session(exclusive=False) as db:
-            sealed_tokens = (
-                db.all(
-                    "SELECT id, org, pack_id, token, token_set_at FROM agent_connections "
-                    "WHERE token IS NOT NULL"
-                )
-                if db.columns("agent_connections")
-                else []
+            sealed_tokens = db.all(
+                "SELECT id, org, pack_id, token, token_set_at FROM agent_connections "
+                "WHERE token IS NOT NULL"
             )
         for row in sealed_tokens:
             by_key.setdefault("connections", Counter())
@@ -3445,13 +3217,9 @@ class AuditStore(RateBuckets):
                 failures.append({"kind": "connection", "id": row["id"], "key": named})
         # Written outputs a grading round keeps (ADR-0025), counted only where there are any.
         with self._db.session(exclusive=False) as db:
-            sealed_texts = (
-                db.all(
-                    "SELECT id, created_at, body FROM written_items "
-                    "WHERE sealed = 1 AND body IS NOT NULL"
-                )
-                if db.columns("written_items")
-                else []
+            sealed_texts = db.all(
+                "SELECT id, created_at, body FROM written_items "
+                "WHERE sealed = 1 AND body IS NOT NULL"
             )
         for row in sealed_texts:
             by_key.setdefault("written", Counter())
@@ -3630,9 +3398,8 @@ class AuditStore(RateBuckets):
     # delete is scoped to its kind. Rows expire; each put and each claim purges up to 100 expired
     # ones. Not part of the audit chain, so no operation here takes the chain's lock: a take is
     # one `DELETE ... RETURNING`, a claim one `INSERT ... ON CONFLICT`, each atomic on its own.
-    # Rows keyed before the kind was in the digest are never found again and expire.
     # Rows of `SEALED_KINDS` are sealed under `secret` (by default the row's own value): a row
-    # that does not open (another row's data, a changed byte, plaintext from before sealing) is
+    # that does not open (another row's data, a changed byte, a row that is not sealed) is
     # deleted and read as absent, and a take of one raises `SealError` (the row is gone too).
 
     def smart_put(
@@ -3711,8 +3478,8 @@ class AuditStore(RateBuckets):
         *,
         secret: str | None = None,
     ) -> bool:
-        """Replace a live row's data and expiry (a session from an earlier release taking up the
-        idle limit); an ended row stays ended. True if replaced."""
+        """Replace a live row's data and expiry (a person's session that now acts for another
+        organization); an ended row stays ended. True if replaced."""
         row_key = _session_key(kind, key)
         stored = _sealed(row_key, kind, key, data, secret)
         with self._db.session(exclusive=False) as db:
@@ -4393,20 +4160,10 @@ class AuditStore(RateBuckets):
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
-            # An older database, read as it is (`mendari access keys`): what it lacks is NULL
-            # (no scope, no expiry: refused, as `api_key` refuses it), and no table is no key.
-            present = db.columns("api_keys")
-            if not present:
-                return []
-            later = {"scopes": "scope", "expires_at": "expires_at", "revoked_by": "revoked_by",
-                     "replaced_by": "replaced_by", "preset": "preset"}  # fmt: skip
-            columns = ", ".join(
-                f"{name} AS {alias}" if name in present else f"NULL AS {alias}"
-                for name, alias in later.items()
-            )
             rows = db.all(
-                f"SELECT id, name, role, org, created_by, created_at, revoked_at, {columns} "
-                f"FROM api_keys {where} ORDER BY created_at",
+                "SELECT id, name, role, org, created_by, created_at, revoked_at, scopes AS scope, "
+                f"expires_at, revoked_by, replaced_by, preset FROM api_keys {where} "
+                "ORDER BY created_at",
                 params,
             )
         now = _now()
@@ -4502,17 +4259,9 @@ class AuditStore(RateBuckets):
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
-            if not db.columns("oauth_clients"):  # an older database, read as it is: none
-                return []
-            # A database from before key-set replacement (read as it is): none was replaced.
-            replaced = (
-                "keys_replaced_at"
-                if "keys_replaced_at" in db.columns("oauth_clients")
-                else "NULL AS keys_replaced_at"
-            )
             rows = db.all(
                 "SELECT client_id, name, role, org, scopes AS scope, jwks, created_by, "
-                f"created_at, revoked_at, revoked_by, {replaced} FROM oauth_clients {where} "
+                f"created_at, revoked_at, revoked_by, keys_replaced_at FROM oauth_clients {where} "
                 "ORDER BY created_at",
                 params,
             )
@@ -4797,10 +4546,8 @@ class AuditStore(RateBuckets):
         return created
 
     def organizations(self) -> list[dict[str, Any]]:
-        """Every organization's record; none in a database from before them (read-only)."""
+        """Every organization's record."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("organizations"):
-                return []
             return [dict(r) for r in db.all("SELECT * FROM organizations ORDER BY id")]
 
     def organization(self, org: str) -> dict[str, Any] | None:
@@ -4820,8 +4567,6 @@ class AuditStore(RateBuckets):
             where.append("user_id = ?")
             params.append(user_id)
         with self._db.session(exclusive=False) as db:
-            if not db.columns("memberships"):  # a database from before them, read as it is
-                return []
             rows = db.all(
                 f"SELECT * FROM memberships WHERE {' AND '.join(where)} ORDER BY created_at, id",
                 params,
@@ -5396,8 +5141,6 @@ class AuditStore(RateBuckets):
         """The open requests (to `org`, if given), oldest first."""
         where, params = ("AND org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
-            if not db.columns("access_requests"):  # a database from before them
-                return []
             rows = db.all(
                 f"SELECT * FROM access_requests WHERE handled_at IS NULL {where} "
                 "ORDER BY created_at, id",
@@ -5494,8 +5237,6 @@ class AuditStore(RateBuckets):
         """The membership the first-administrator setting made on this database (`FIRST_ADMIN`),
         or None while it has made none. Once it has, the setting is ignored here."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("settings"):
-                return None
             row = db.one("SELECT value FROM settings WHERE name = ?", (FIRST_ADMIN,))
         return None if row is None else str(row["value"])
 
@@ -5581,26 +5322,12 @@ class AuditStore(RateBuckets):
         )
         found: dict[str, dict[str, Any]] = {}
         with self._db.session(exclusive=False) as db:
-            recorded = (
-                {r["id"] for r in db.all("SELECT id FROM organizations")}
-                if db.columns("organizations")  # none before LP-12, read as it is
-                else set()
-            )
+            recorded = {r["id"] for r in db.all("SELECT id FROM organizations")}
             for table, column, live in tables:
-                present = db.columns(table)
-                if not present:  # an older database, read as it is
-                    continue
-                if "org" in present:
-                    rows = db.all(
-                        f"SELECT {column} AS org, COUNT(*) AS n FROM {table} WHERE {live} "
-                        f"GROUP BY {column}"
-                    )
-                else:  # before its `org` column (v0.6), every row was `default`'s
-                    rows = [
-                        {"org": tenancy.DEFAULT_ORG, "n": r["n"]}
-                        for r in db.all(f"SELECT COUNT(*) AS n FROM {table} WHERE {live}")
-                        if int(r["n"])
-                    ]
+                rows = db.all(
+                    f"SELECT {column} AS org, COUNT(*) AS n FROM {table} WHERE {live} "
+                    f"GROUP BY {column}"
+                )
                 for row in rows:
                     if row["org"] is None:  # a deployment-wide hold
                         continue
@@ -5649,8 +5376,8 @@ class AuditStore(RateBuckets):
         if limit < 1:
             return Page()
         with self._db.session(exclusive=False) as db:
-            listed = _administrative(db, org, subject)
-            if listed is None:  # no such subject here (or no table of its kind)
+            listed = _administrative(org, subject)
+            if listed is None:  # no such subject here
                 if after is not None:
                     raise ValueError("not a cursor of this list")
                 return Page()
@@ -6028,7 +5755,7 @@ class AuditStore(RateBuckets):
         with self._db.session(exclusive=False) as db:
             rows = db.all(
                 "SELECT f.id, f.decision_id, f.created_at, f.pack_id, f.rating, f.reporter, "
-                "f.note, f.expected_question, f.expected_label, d.record FROM feedback f "
+                "f.expected_question, f.expected_label, d.record FROM feedback f "
                 f"JOIN decisions d ON d.id = f.decision_id {where} "
                 "ORDER BY f.created_at DESC LIMIT ?",
                 (*params, limit),
@@ -6178,10 +5905,8 @@ class AuditStore(RateBuckets):
     def statements(self, *, until: str, limit: int = 7) -> list[dict[str, Any]]:
         """The newest signed checkpoint statements (LP-21k) of the days up to `until` (an ISO
         date), newest first, each with the day its row is filed under: for the published one,
-        which the caller checks (`/api/audit/checkpoint`). None in a database from before them."""
+        which the caller checks (`/api/audit/checkpoint`)."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("checkpoint_statements"):
-                return []
             rows = db.all(
                 "SELECT day, statement FROM checkpoint_statements WHERE day <= ? "
                 "ORDER BY day DESC LIMIT ?",
@@ -6193,13 +5918,11 @@ class AuditStore(RateBuckets):
         """The newest signed checkpoint statement (LP-21k) as stored, unchecked; None without
         one. What is published is checked first (`statements`)."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("checkpoint_statements"):
-                return None
             row = db.one("SELECT statement FROM checkpoint_statements ORDER BY day DESC LIMIT 1")
         return None if row is None else dict(json.loads(row["statement"]))
 
     def checkpoints(self) -> list[dict[str, Any]]:
-        """Every recorded checkpoint, oldest first (none in a database from before them)."""
+        """Every recorded checkpoint, oldest first."""
         with self._db.session(exclusive=False) as db:
             return _checkpoints(db)
 
@@ -6226,37 +5949,29 @@ class AuditStore(RateBuckets):
             counted = _chain_count(db, first, top)
             # `events` counts what is checked: from a checkpoint, not its own event.
             total = counted - 1 if start is not None and counted else counted
-            with_org = "decisions.org" not in self.unmigrated
-            columns = f"{', '.join(_DECISION_CHAINED)}, review_status, record"
-            columns += ", org" if with_org else ""
+            columns = f"{', '.join(_DECISION_CHAINED)}, review_status, record, org"
             # From a checkpoint, only the decisions the events read name (page by page, below).
             decided = db.all(f"SELECT {columns} FROM decisions") if start is None else []
             records = {row["id"]: json.loads(row["record"]) for row in decided}
             rows_of = {row["id"]: row for row in decided}
-            owners = {row["id"]: _org_of(row["org"]) for row in decided} if with_org else None
+            owners = {row["id"]: _org_of(row["org"]) for row in decided}
             # A full verification checks every decision row against the chain (`_unchained`):
             # the events chained since those read excuse a row written, or resolved, after them.
             later: dict[str, set[str]] = {}
             if start is None:
                 for row in db.all(
                     "SELECT decision_id, event FROM audit_events WHERE seq > ? "
-                    "AND event IN (?, ?, ?)",
+                    f"AND event IN ({', '.join('?' for _ in _DECISION_STATES)})",
                     (top or 0, *_DECISION_STATES),
                 ):
                     later.setdefault(str(row["decision_id"]), set()).add(str(row["event"]))
             subjects = _subject_orgs(db)
-            # An older database read as it is may have no notes table: nothing kept to check.
-            has_notes = notes and "notes" not in self.unmigrated
-            kept = db.all("SELECT id, decision_id, event, sealed FROM notes") if has_notes else []
+            kept = db.all("SELECT id, decision_id, event, sealed FROM notes") if notes else []
             held = None
             if evalsets is not False:
                 held = self._evalset_rows(db, top or 0)
             # A pack store's versions (LP-20e): each against its chained hash and newest state.
-            stored = (
-                {str(row["id"]): row for row in db.all("SELECT * FROM store_versions")}
-                if db.columns("store_versions")
-                else {}
-            )
+            stored = {str(row["id"]): row for row in db.all("SELECT * FROM store_versions")}
             # Grading rounds of written output (ADR-0025): each stored grade and each closed
             # round's stored report, against what the chain committed to (`_check_written`).
             graded_rounds = self._written_rows(db) if start is None else None
@@ -6292,8 +6007,7 @@ class AuditStore(RateBuckets):
                         ):
                             records[row["id"]] = json.loads(row["record"])
                             rows_of[row["id"]] = row
-                            if owners is not None:
-                                owners[row["id"]] = _org_of(row["org"])
+                            owners[row["id"]] = _org_of(row["org"])
                 for event in page:
                     breaks = _chain_break(
                         event, prev, expected, records, rows_of, stored, states, owners, subjects
@@ -6362,9 +6076,7 @@ class AuditStore(RateBuckets):
     ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, str]]:
         """The grading rounds' rows a full verification checks (`core/written.py`
         `check_stored`): each round's state and stored report, each assignment's grades, and
-        each item row's item id. Empty for a database from before the tables."""
-        if not db.columns("written_rounds"):
-            return {}, {}, {}
+        each item row's item id."""
         rounds = {
             str(row["id"]): row for row in db.all("SELECT id, state, report FROM written_rounds")
         }
@@ -6382,18 +6094,16 @@ class AuditStore(RateBuckets):
     ) -> tuple[int | None, dict[str, int], dict[str, int]]:
         """The `seq` of the first event whose note does not match its commitment (or None); how
         many notes were checked, found erased, or left unchecked (sealed, and this deployment not
-        in mode `encrypt`); and, by the key each names (`legacy`: sealed before key ids), the
-        notes no key of this deployment's ring opens. A note that fails under a key the ring has,
-        by the id it names, was altered: that breaks verification."""
+        in mode `encrypt`); and, by the key each names, the notes no key of this deployment's
+        ring opens. A note that fails under a key the ring has, by the id it names, was altered:
+        that breaks verification."""
         counts = {"checked": 0, "erased": 0, "unchecked": 0}
         unopenable: Counter[str] = Counter()
-        known: set[str] = set()
-        if "settings" not in self.unmigrated:  # an older database, read as it is, has none
-            with self._db.session(exclusive=False) as db:
-                known = {
-                    str(row["name"])[len(KNOWN) :]
-                    for row in db.all("SELECT name FROM settings WHERE name LIKE ?", (KNOWN + "%",))
-                }
+        with self._db.session(exclusive=False) as db:
+            known = {
+                str(row["name"])[len(KNOWN) :]
+                for row in db.all("SELECT name FROM settings WHERE name LIKE ?", (KNOWN + "%",))
+            }
         missing = known - self.phi.ring_ids  # keys this database held that this ring lacks
         payloads = [(event, json.loads(event["payload"])) for event in events]
         erased = {p.get("note_id") for e, p in payloads if e["event"] == "note.erased"}
@@ -6415,10 +6125,10 @@ class AuditStore(RateBuckets):
             try:
                 body = self._note_body(row)
             except MendariError:
-                # Unopenable only for want of a key this database held (a legacy token, if any
-                # is missing); anything else, a forged key id included, was altered.
+                # Unopenable only for want of a key this database held; anything else, a forged
+                # key id included, was altered.
                 named = token_key(str(row["sealed"]))
-                if not (named in missing or (named == LEGACY and missing)):
+                if named not in missing:
                     return event["seq"], counts, dict(unopenable)
                 unopenable[named] += 1
                 continue
@@ -7085,14 +6795,10 @@ def _joined(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 # -- searches (core/query.py) ----------------------------------------------------------------
-# A refused input: the stored `refused` flag, or, on rows from before it existed, a BLOCK
-# without confidence (no provider ran, so the primary question has none). The same predicate on
-# the same columns as `task_fhir.refused`, so that what a FHIR Task renders and what a search on
-# its status finds cannot disagree (a test checks both on every kind).
-_REFUSED = (
-    "(COALESCE(d.refused, CASE WHEN d.outcome = 'BLOCK' AND d.confidence IS NULL "
-    "THEN 1 ELSE 0 END) = 1)"
-)
+# A refused input: the stored `refused` flag. The same predicate on the same column as
+# `task_fhir.task_status`, so that what a FHIR Task renders and what a search on its status finds
+# cannot disagree (a test checks both on every kind).
+_REFUSED = "(d.refused = 1)"
 _STATES = {
     "refused": _REFUSED,
     "pending": f"(d.review_status = 'pending' AND NOT {_REFUSED})",
@@ -7257,8 +6963,8 @@ def _membership(row: Any) -> dict[str, Any]:
 
 def _key_status(row: Mapping[str, Any], now: str) -> str:
     """An API key's status at `now` (a `_now()` text), as `api_key` refuses it: revoked;
-    expired (no expiry is refused too, `_expire_legacy_keys`); replaced (rotated, in its
-    overlap); else active."""
+    expired (a key without an expiry is refused too); replaced (rotated, in its overlap); else
+    active."""
     if row["revoked_at"] is not None:
         return "revoked"
     if not row["expires_at"] or row["expires_at"] <= now:
@@ -7362,15 +7068,6 @@ def _commitment(salt: bytes, text: str) -> str:
     return hashlib.sha256(NOTE_AAD + salt + text.encode()).hexdigest()
 
 
-def _legacy_fields(event: Mapping[str, Any]) -> dict[str, Any]:
-    """The free text an event chained itself before notes left the chain (`LEGACY_TEXT`)."""
-    payload = event["payload"]
-    if not isinstance(payload, Mapping) or "note_ref" in payload:
-        return {}
-    fields = LEGACY_TEXT.get(event["event"], ())
-    return {key: payload[key] for key in fields if payload.get(key) is not None}
-
-
 def _take_evidence(record: dict[str, Any]) -> dict[str, list[str]]:
     """Empty each answer's evidence in a record about to be stored; what there was, by question
     (only questions that had some)."""
@@ -7390,89 +7087,30 @@ def _give_evidence(record: dict[str, Any], evidence: Mapping[str, list[str]]) ->
 
 
 def _held_input(item: Mapping[str, Any]) -> bool:
-    """Whether an item's record holds input values itself: its input (kept under PHI mode
-    `off`), or, in every mode before 2026-10-02, its answers' evidence or a resource's logical
-    id (which can be a medical record number) in its input issues and reasons."""
+    """Whether an item's record holds its input itself: kept under PHI mode `off`, with its
+    answers' evidence, which can quote it (`record`)."""
     record = item.get("record")
-    if not isinstance(record, dict):
-        return False
-    answers = record.get("answers") or {}
-    return (
-        record.get("input") is not None
-        or any(isinstance(answer, dict) and answer.get("evidence") for answer in answers.values())
-        or bool(_resource_ids(record))
-    )
-
-
-def _resource_ids(record: Mapping[str, Any]) -> dict[str, str]:
-    """The resources an older record names by logical id in its input issues ("Patient/p1"),
-    each with what it is shown as instead ("Patient"). Records since 2026-10-02 name one by type
-    and position ("Patient (entry 2)"), never with a "/"."""
-    return {
-        str(issue["resource"]): str(issue["resource"]).partition("/")[0]
-        for issue in record.get("input_issues") or ()
-        if isinstance(issue, dict) and "/" in str(issue.get("resource", ""))
-    }
+    return isinstance(record, dict) and record.get("input") is not None
 
 
 def _withhold(record: dict[str, Any]) -> None:
-    """A record without its input, its answers' evidence, which can quote it, and the logical
-    ids an older record names resources by (as `DecisionResult.to_record` names them now)."""
+    """A record without its input and its answers' evidence, which can quote it."""
     record["input"] = None
     for answer in (record.get("answers") or {}).values():
         if isinstance(answer, dict) and answer.get("evidence"):
             answer["evidence"] = []
-    ids = _resource_ids(record)
-    if not ids:
-        return
-    record["input_issues"] = [
-        {**issue, "resource": ids.get(str(issue.get("resource")), issue.get("resource"))}
-        if isinstance(issue, dict)
-        else issue
-        for issue in record["input_issues"]
-    ]
-    reasons = [str(reason) for reason in record.get("reasons") or ()]
-    for label, kept in ids.items():  # a label is followed by a space and a FHIRPath
-        reasons = [reason.replace(f": {label} ", f": {kept} ") for reason in reasons]
-    record["reasons"] = reasons
 
 
-def _legacy_text(item: Mapping[str, Any], own_notes: bool) -> bool:
-    """Whether an item carries free text from before notes left the chain: on one of its events,
-    or (a rating) in its own row's `note` column."""
-    if own_notes and item.get("note") is not None:
-        return True
-    return any(_legacy_fields(event) for event in item.get("events") or ())
-
-
-def _show_note(
-    event: dict[str, Any], views: Mapping[str, tuple[str, str | None]], reader: str | None
-) -> None:
+def _show_note(event: dict[str, Any], views: Mapping[str, tuple[str, str | None]]) -> None:
     """An event's note as `reveal_inputs` shows it (`note`, `note_status`), if it has one."""
     ref = event["payload"].get("note_ref")
     if isinstance(ref, Mapping):
         # A missing row (never deleted, only emptied) is for `verify --notes` to report.
         event["note_status"], event["note"] = views.get(str(ref.get("id")), ("missing", None))
-        return
-    legacy = _legacy_fields(event)
-    if not legacy:
-        return
-    if reader:
-        text = legacy.get("note") if set(legacy) == {"note"} else _canonical(legacy)
-        event["note_status"], event["note"] = "open", text
-        return
-    event["payload"] = {**event["payload"], **dict.fromkeys(legacy)}
-    event["note_status"], event["note"] = "sealed", None
 
 
-def _show_own_note(
-    item: dict[str, Any], views: Mapping[str, tuple[str, str | None]], reader: str | None
-) -> None:
-    """A rating's note: its row's `note` column before notes left the chain, else its note."""
-    if item.get("note") is not None:
-        item["note_status"] = "open" if reader else "sealed"
-        item["note"] = item["note"] if reader else None
-        return
+def _show_own_note(item: dict[str, Any], views: Mapping[str, tuple[str, str | None]]) -> None:
+    """A rating's note (kept under the rating's id), as `reveal_inputs` shows it."""
     item["note_status"], item["note"] = views.get(str(item["id"]), (None, None))
 
 
@@ -7524,7 +7162,7 @@ def _chain_break(
     rows_of: Mapping[str, Any],
     stored: Mapping[str, Any],
     states: dict[str, str],
-    owners: Mapping[str, str] | None,
+    owners: Mapping[str, str],
     subjects: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     """Where `event`, following `prev`, breaks the chain (`broken_at`, with a `reason` but for
@@ -7563,9 +7201,9 @@ _VERIFY_BATCH = 500
 _DECISION_CHAINED = (
     "id", "created_at", "pack_id", "pack_version", "outcome", "recommendation", "priority",
 )  # fmt: skip
-# The events that make a decision and settle its review: a reviewer's or, in a database from
-# before an outcome had to wait for a pending review, an outcome's (`_unsettled`).
-_DECISION_STATES = ("decision.created", "review.resolved", "outcome.recorded")
+# The events that make a decision and settle its review (`_unsettled`): only a reviewer's, as an
+# outcome waits for a pending review (`record_outcome`).
+_DECISION_STATES = ("decision.created", "review.resolved")
 
 
 def _row_as_chained(row: Mapping[str, Any], record: Any) -> bool:
@@ -7596,7 +7234,7 @@ def _unsettled(
 ) -> dict[str, Any] | None:
     """What a full `verify` finds wrong with the decision rows themselves (None: nothing): a
     decision that awaits review (HUMAN_REVIEW or ABSTAIN) taken off the queue with no chained
-    review or outcome (`broken_at` its `decision.created`, the earliest such), or rows that no
+    review (`broken_at` its `decision.created`, the earliest such), or rows that no
     `decision.created` chained (`unchained`, how many: a decision added past the store). Each
     row's events are those read (`settled`) and those chained since (`later`), so a decision
     made or resolved beside the verification never reads as a break."""
@@ -7610,7 +7248,7 @@ def _unsettled(
         if (
             row["outcome"] in _REVIEWABLE
             and row["review_status"] != "pending"
-            and not events & {"review.resolved", "outcome.recorded"}
+            and "review.resolved" not in events
             and decision_id in created
         ):
             dropped.append(created[decision_id])
@@ -7625,9 +7263,7 @@ def _at(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _checkpoints(db: _Session) -> list[dict[str, Any]]:
-    """The recorded checkpoints, oldest first (none in a database from before them)."""
-    if not db.columns("audit_checkpoints"):
-        return []
+    """The recorded checkpoints, oldest first."""
     return db.all("SELECT seq, hash, created_at FROM audit_checkpoints ORDER BY seq")
 
 

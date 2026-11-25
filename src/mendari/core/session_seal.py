@@ -12,13 +12,12 @@ the row is sealed under a key derived from that value:
 - **cipher**: AES-256-GCM with a random 96-bit nonce (one key per row and a few writes per row);
 - **associated data**: `mendari-session-v1` NUL kind NUL row key, so a sealed value opens
   neither as another kind nor in another row;
-- **stored as** `{"sealed": "s1:<base64(nonce || ciphertext || tag)>"}`, still JSON, so a
-  release that predates sealing fails closed on it instead of reading it as a session.
+- **stored as** `{"sealed": "s1:<base64(nonce || ciphertext || tag)>"}`, still JSON.
 
 A database reader, a backup, the WAL or a point-in-time copy opens nothing, and there is no key
 to provision, rotate or lose: the server itself can open a row only while a request carries its
-cookie. Anything that does not open (another row's or kind's value, a changed byte, a plaintext
-row from before sealing) is a `SealError`; the store deletes such a row and treats it as absent.
+cookie. Anything that does not open (another row's or kind's value, a changed byte, a row that
+is not sealed) is a `SealError`; the store deletes such a row and treats it as absent.
 """
 
 from __future__ import annotations
@@ -43,7 +42,7 @@ _NONCE = 12
 
 
 class SealError(Exception):
-    """A stored row does not open under this secret, kind and row (or was never sealed)."""
+    """A stored row does not open under this secret, kind and row (or is not sealed)."""
 
 
 def seal(data: Mapping[str, Any], *, secret: str, kind: str, row_key: str) -> dict[str, str]:

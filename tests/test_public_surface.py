@@ -24,7 +24,7 @@ from mendari.core import db as db_module
 from mendari.core.audit import _CHAIN_LOCK, SESSION_PURGE_BATCH, AuditStore
 from mendari.errors import FhirError, MendariError
 from mendari.server.app import create_app
-from mendari.server.auth import Auth, AuthSettings, Principal, person_id
+from mendari.server.auth import Auth, Principal, person_id
 from mendari.server.scopes import DECIDE
 from mendari.standards import oidc
 from mendari.standards.fhir_client import GuardedHttp
@@ -232,23 +232,6 @@ def test_each_principal_has_a_stable_id_that_names_nobody(
     signing_in.get("/api/audit", headers={"authorization": f"Bearer {created['key']}"})
     key = seen[-1]
     assert key is not None and key.id == f"key:{created['id']}"
-
-
-def test_a_session_from_before_the_issuer_was_stored_is_of_the_configured_issuer(
-    tmp_path: Path,
-) -> None:
-    settings = AuthSettings(IDP, "c", None, "roles", {}, None, None)
-    with AuditStore(tmp_path / "a.db") as store:
-        old = {"sub": "u1", "name": "Nurse Kim", "claims": {"roles": ["viewer"]}, "org": "default"}
-        store.smart_put("sid", "user", old, int(time.time()) + 60)
-        scope = {
-            "type": "http",
-            "method": "GET",
-            "path": "/",
-            "headers": [(b"cookie", b"mendari_session=sid")],
-        }
-        principal = Auth(settings, store).authenticate(Request(scope))
-    assert principal is not None and principal.id == person_id(IDP, "u1")
 
 
 def test_an_id_token_without_a_subject_signs_nobody_in(

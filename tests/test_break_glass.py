@@ -128,30 +128,6 @@ def test_revoking_all_of_an_organization_leaves_every_other_s(
     assert code == 1 and "no key or client of clinic-a in force" in err
 
 
-def test_the_listings_read_an_older_database_as_it_is(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """From before Phase 4 (keys without scopes, expiry or rotation) and before Backend Services
-    (no clients): keys listed as they are, none of them usable; no client."""
-    db = tmp_path / "old.db"
-    with AuditStore(db) as store:
-        key = store.create_api_key(name="k", role="service", org="clinic-a", created_by="Ada")
-    with closing(sqlite3.connect(db)) as connection, connection:
-        connection.execute("DROP TABLE oauth_tokens")
-        connection.execute("DROP TABLE oauth_clients")
-        for column in ("scopes", "expires_at", "revoked_by", "replaced_by", "preset"):
-            connection.execute(f"ALTER TABLE api_keys DROP COLUMN {column}")
-        connection.execute("PRAGMA journal_mode=DELETE")
-    before = db.read_bytes()
-    code, listed, _ = run(capsys, "access", "keys", "--db", str(db))
-    assert code == 0 and [(k["id"], k["status"], k["scope"]) for k in listed] == [
-        (key["id"], "expired", None)  # no expiry is refused, as the server refuses it
-    ]
-    code, listed, _ = run(capsys, "access", "clients", "--db", str(db))
-    assert code == 0 and listed == []
-    assert db.read_bytes() == before
-
-
 def put_every_kind(store: AuditStore) -> int:
     """A row of each kind the session table holds, and an expired person's session."""
     until = int(time.time()) + 600

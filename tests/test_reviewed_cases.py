@@ -289,20 +289,6 @@ def test_the_command_says_when_it_stopped_at_its_limit(
         assert "--limit is 1 to 100,000" in capsys.readouterr().err
 
 
-def test_a_decision_from_before_records_named_their_question_is_counted_not_exported(
-    inbox_pack: Pack, store: AuditStore
-) -> None:
-    result = Decision(inbox_pack, store=store)(message(CALL_BACK))
-    store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
-    with store._db.session(exclusive=True) as db:
-        row = db.one("SELECT record FROM decisions WHERE id = ?", (result.id,))
-        assert row is not None
-        record = json.loads(row["record"])
-        del record["primary"]  # as a record written before the engine named it
-        db.all("UPDATE decisions SET record = ? WHERE id = ?", (json.dumps(record), result.id))
-    assert reviewed_dataset(store, pack_id=inbox_pack.id) == ([], 1)
-
-
 def test_a_rating_filter_with_reviews_is_refused(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

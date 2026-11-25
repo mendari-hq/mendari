@@ -325,7 +325,6 @@ def test_case_and_index_hashes_are_keyed_and_name_the_index_key() -> None:
 # Tokens sealed by the PHI policy before its sealing moved into `seal_with` and `open_with`
 # (made with the previous code, under these fixed test keys): they must open unchanged.
 FIXED_KEY, FIXED_HASH_KEY = bytes(range(32)), bytes(range(32, 64))
-LEGACY_INPUT = "cBcxTgstq8TCrALODYWnpSQ7sPMi01YsGBhDrtcfq2HJTLa0o/du2rCMJQmccgV/jZeyprxg"
 TAGGED_INPUT = (
     "v2:1e325e07b495123f:D7Lg/0+q9pRADE7EzOSR5uY8k19mG/H/5ZI/pFiuKWhPSq+LMOZK0v7j+Qn86UHp1cbHg5h6"
 )
@@ -335,10 +334,7 @@ TAGGED_DETAILS = "v2:1e325e07b495123f:APA+QfD5ZVw/oi9bZHbfy8Hnt77+ZMk+OoS53T/Pd+
 
 def test_phi_tokens_sealed_before_the_move_still_open() -> None:
     policy = PhiPolicy("encrypt", FIXED_KEY, FIXED_HASH_KEY)
-    for token in (LEGACY_INPUT, TAGGED_INPUT):
-        assert policy.decrypt("d-1", token) == {"n": 1, "text": "synthetic"}
+    assert policy.decrypt("d-1", TAGGED_INPUT) == {"n": 1, "text": "synthetic"}
     assert policy.open_note("n-1", "d-1", TAGGED_NOTE) == "a synthetic note"
     assert policy.open_details("d-1", TAGGED_DETAILS) == [["evidence"]]
-    tagged = PhiPolicy("encrypt", FIXED_KEY, FIXED_HASH_KEY, tag_tokens=True)
-    assert tagged.encrypt("d-1", {}).startswith("v2:1e325e07b495123f:")
-    assert ":" not in policy.encrypt("d-1", {})  # untagged before the first rotation, as before
+    assert policy.encrypt("d-1", {}).startswith("v2:1e325e07b495123f:")

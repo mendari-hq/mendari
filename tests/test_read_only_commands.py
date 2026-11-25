@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """`audit verify`, `audit export`, `feedback export` and `monitor` open the server's database
 read-only (LP-15): a mistyped --db is one line and exit 1, never a new empty database that
-"verifies"; another application's database is refused, untouched; the server's database is left
-exactly as it was; and a database written by an older Mendari is verified as it is. A command
+"verifies"; another application's database is refused, untouched; and the server's database is
+left exactly as it was (a pre-release one is refused: tests/test_schema_baseline.py). A command
 that reads only a pack (`scoreboard arms`, LP-17c) takes no database and writes nothing, and
 neither does checking a signed scoreboard result (`scoreboard verify`, LP-17e)."""
 
@@ -161,26 +161,6 @@ def test_a_read_only_file_verifies(tmp_path: Path, inbox_pack: Pack) -> None:
         db.chmod(0o644)
 
 
-def test_an_older_database_is_verified_as_it_is_and_never_migrated(
-    tmp_path: Path, inbox_pack: Pack, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Before a release's migration has run on it, a database lacks the tables and columns that
-    release adds: `verify` reads only the chain and the records, which every release keeps, and
-    the commands that need the rest say what to do instead of migrating it."""
-    db = used_database(tmp_path / "mendari.db", inbox_pack)
-    with closing(sqlite3.connect(db)) as connection, connection:
-        connection.execute("DROP TABLE settings")
-        connection.execute("ALTER TABLE feedback DROP COLUMN superseded_by")
-    before = db.read_bytes()
-    assert main(["audit", "verify", "--db", str(db)]) == 0
-    assert main(["audit", "verify", "--notes", "--db", str(db)]) == 0
-    capsys.readouterr()
-    assert main(["monitor", "--db", str(db)]) == 1
-    (line,) = capsys.readouterr().err.splitlines()
-    assert "written by an older Mendari" in line and "start the server on it once" in line
-    assert db.read_bytes() == before  # still unmigrated
-
-
 def test_a_read_only_store_refuses_any_write(db_target: str, inbox_pack: Pack) -> None:
     with AuditStore(db_target) as store:  # the server's: created and used
         Decision(inbox_pack, store=store)({"message": {"body": "Refill please."}})
@@ -223,21 +203,6 @@ def test_a_wal_database_no_server_has_open_gains_no_files(tmp_path: Path, inbox_
         assert main(["audit", "verify", "--db", str(db)]) == 0
     finally:
         folder.chmod(0o755)
-
-
-def test_an_older_database_is_exported_purged_and_erased_as_it_is(
-    tmp_path: Path, inbox_pack: Pack
-) -> None:
-    """Every release has had the chain and the records: a database from before a release that
-    added tables (the automation hold, LP-06) is still Mendari's."""
-    db = used_database(tmp_path / "mendari.db", inbox_pack)
-    with closing(sqlite3.connect(db)) as connection, connection:
-        connection.execute("DROP TABLE automation_holds")
-        connection.execute("ALTER TABLE decision_inputs DROP COLUMN details")
-    out = tmp_path / "export.ndjson"
-    assert main(["audit", "export", "--db", str(db), "--out", str(out)]) == 0
-    assert out.read_text().count("\n") > 0
-    assert main(["phi", "purge", "--db", str(db)]) == 0  # its server migrates it, as before
 
 
 @pytest.mark.parametrize(

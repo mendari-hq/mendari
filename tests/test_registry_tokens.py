@@ -2,14 +2,12 @@
 """Owned publisher tokens (LP-19b, `hub/registry.py` `mint_token`, `publisher`, `revoke_token`):
 a token belongs to a person and an organization, ends, and can be revoked; each change is
 chained; the last day it was used is kept outside the chain. Since LP-19g it is the only thing
-that writes over the registry's routes: no shared secret, and no token from before owned tokens.
-On SQLite and Postgres."""
+that writes over the registry's routes: no shared secret. On SQLite and Postgres."""
 
 from __future__ import annotations
 
 import json
 import logging
-import secrets
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -23,7 +21,7 @@ from mendari.errors import HubError
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore, create_registry_app, token_id
-from tests.conftest import Registry, shared_benchmark
+from tests.conftest import Registry
 
 OWNER = "user:3f9a"  # a person as a chain names one: an id, never an address
 
@@ -323,91 +321,6 @@ def test_the_operators_token_names_its_database_without_the_password(
     assert "s3cret-pw" not in err
 
 
-def _legacy_token(store: RegistryStore, namespace: str) -> str:
-    """A token as registries issued them before owned tokens (`hub_tokens`, no owner, expiry or
-    revocation), written and chained as the store wrote them then."""
-    token = "ohr_" + secrets.token_urlsafe(32)
-    with store._db.session(exclusive=True) as db:
-        sha = registry_module._sha(token)
-        db.all(
-            "INSERT INTO hub_tokens (token_sha256, namespace, created_at) VALUES (?, ?, ?)",
-            (sha, namespace, registry_module._now()),
-        )
-        registry_module.record_event(
-            db,
-            "token.issued",
-            f"namespace:{namespace}",
-            {"namespace": namespace, "token_id": token_id(token), "by": "admin"},
-            row=("tokens", "token_sha256 = ?", (sha,)),
-        )
-    return token
-
-
-def test_a_database_from_before_owned_tokens_still_verifies(
-    db_target: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A database made before owned tokens has neither of their tables. Read as it is
-    (`mendari registry verify`, read-only) it verifies and lists no owned token; opened by a
-    registry it gains the tables, and its chain and every old row's hash are as they were. Its
-    token no longer writes (LP-19g); a token minted now does."""
-    referral = resolve_pack("mendari/referral-router")
-    private, public = archive.generate_key()
-    with RegistryStore(db_target) as store:  # as such a registry was written
-        store.create_namespace("mendari", "community", "Mendari", by="admin")
-        legacy = _legacy_token(store, "mendari")
-        store.add_key("mendari", public.decode(), by=f"token:{token_id(legacy)}")
-        data = archive.build(referral, archive.load_private_key(private))
-        by = f"token:{token_id(legacy)}"
-        store.publish("mendari", "referral-router", referral.version, data, by=by)
-    _write_raw_drop(db_target)
-    with RegistryStore(db_target, read_only=True) as store:
-        before = store.verify()
-        assert before["ok"], before
-        assert store.tokens() == []
-        with store._db.session(exclusive=False) as db:
-            events = db.all("SELECT * FROM hub_events ORDER BY seq")
-            assert not db.columns("hub_publisher_tokens")  # still as it was: nothing written
-    assert main(["registry", "tokens", "--db", db_target]) == 0
-    assert json.loads(capsys.readouterr().out) == []
-    assert _events(db_target) == events  # opened read-write: the tables come, no event does
-    assert _verify(db_target) == before
-    with TestClient(create_registry_app(db_target)) as client:
-        registry = Registry(client, legacy, archive.load_private_key(private), store)
-        assert _register_key(registry, legacy) == 403  # a token from before no longer writes
-        minted = _mint(db_target)
-        assert _register_key(registry, minted["token"]) == 201
-    assert _verify(db_target)["ok"]
-
-
-def test_a_token_from_before_owned_tokens_is_refused_and_the_chain_still_verifies(
-    registry: Registry, db_target: str
-) -> None:
-    """LP-19g: a `hub_tokens` row has no owner, expiry or revocation, so it no longer
-    authenticates anything: no key, publish, recall or site report, and it reads as the public.
-    Its row and its chained event stay, so the chain verifies."""
-    assert registry.publish().status_code == 201
-    legacy = _legacy_token(registry.operator, "mendari")
-    events = len(_events(db_target))
-    assert _verify(db_target)["ok"]
-    assert _register_key(registry, legacy) == 403
-    assert registry.publish(token=legacy, version="9.9.9").status_code == 403
-    path = f"/v1/agents/mendari/referral-router/{resolve_pack('mendari/referral-router').version}"
-    bearer = {"authorization": f"Bearer {legacy}"}
-    assert registry.client.post(f"{path}/yank", json={}, headers=bearer).status_code == 403
-    report = shared_benchmark()
-    shared = registry.client.post(
-        f"{path}/reports", json={"site": "Site A", "report": report}, headers=bearer
-    )
-    assert shared.status_code == 401
-    # A pending namespace is not shown to it: it reads as anyone does.
-    registry.operator.claim("acme", org="acme", by="user:3f9a")
-    assert registry.client.get("/v1/namespaces/acme", headers=bearer).status_code == 404
-    assert len(_events(db_target)) == events + 2  # the claim's two events; nothing else written
-    with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
-        assert db.all("SELECT namespace FROM hub_tokens") == [{"namespace": "mendari"}]
-    assert _verify(db_target)["ok"]
-
-
 # Every route that took the shared administrator token before LP-19g, by method.
 RETIRED = [
     ("POST", "/v1/namespaces", {"name": "x"}),
@@ -469,21 +382,3 @@ def test_no_shared_secret_publishes_creates_reviews_or_deletes(
         for path in paths:
             assert not path.endswith(("/tokens", "/review", "/delete")), path
         assert store.verify()["ok"]
-
-
-def _write_raw_drop(db_target: str) -> None:
-    """Drop the tables past the store: opening a `RegistryStore` to write creates them again."""
-    if db_target.startswith("postgres"):
-        import psycopg
-
-        with psycopg.connect(db_target, autocommit=True) as connection:
-            connection.execute("DROP TABLE IF EXISTS hub_publisher_tokens")
-            connection.execute("DROP TABLE IF EXISTS hub_token_use")
-        return
-    import sqlite3
-    from contextlib import closing
-
-    with closing(sqlite3.connect(db_target)) as connection:
-        connection.execute("DROP TABLE IF EXISTS hub_publisher_tokens")
-        connection.execute("DROP TABLE IF EXISTS hub_token_use")
-        connection.commit()

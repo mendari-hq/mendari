@@ -31,14 +31,12 @@ from mendari import AuditStore, Decision, Pack, load_pack
 from mendari import cli as cli_module
 from mendari.cli import main
 from mendari.core import audit as audit_module
-from mendari.core.decision import DecisionResult
 from mendari.core.phi import PhiMode, PhiPolicy
 from mendari.errors import MendariError, NoteError
 from mendari.server.app import create_app, mounted_routes
 from mendari.settings import retention_days
 from mendari.standards import audit_fhir
 from tests.conftest import (
-    HASH_KEY_B64,
     INPUT_HASH_KEY,
     PHI_KEY,
     ROOT,
@@ -75,14 +73,6 @@ def sign_in_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def chained(item: dict[str, Any], event: str) -> list[dict[str, Any]]:
     return [e for e in item["events"] if e["event"] == event]
-
-
-def as_before_october(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Record as releases before 2026-10-02 did: each answer's evidence stays in the chained
-    record, whatever the PHI mode (nothing is sealed beside it), and input issues and the
-    reasons that refuse over them name a resource by its logical id."""
-    monkeypatch.setattr(audit_module, "_take_evidence", lambda record: {})
-    monkeypatch.setattr(DecisionResult, "to_record", DecisionResult.to_dict)
 
 
 # -- the start-up guard ----------------------------------------------------------------------
@@ -307,74 +297,6 @@ def test_a_legacy_input_opens_only_for_a_reader_and_the_read_is_chained(
     store.close()
 
 
-@pytest.mark.parametrize("mode", ["hash", "encrypt"])
-def test_evidence_an_older_record_kept_opens_only_for_a_reader(
-    tmp_path: Path, trial: Pack, monkeypatch: pytest.MonkeyPatch, mode: PhiMode
-) -> None:
-    store = AuditStore(tmp_path / "a.db", phi=policy(mode))
-    with monkeypatch.context() as before:
-        as_before_october(before)
-        result, _ = Decision(trial, store=store).decide_fhir(marked_bundle())
-    hidden = store.get(result.id)
-    assert hidden is not None and hidden["input_restricted"] is True
-    assert LAB_VALUE not in evidence(hidden["record"]) and not chained(hidden, "input.read")
-    shown = store.get(result.id, reader="Nurse Kim")
-    assert shown is not None and LAB_VALUE in evidence(shown["record"])
-    assert [e["payload"]["reader"] for e in chained(shown, "input.read")] == ["Nurse Kim"]
-    listed = store.withhold_inputs(store.query())
-    assert LAB_VALUE not in evidence(listed[0]["record"]) and listed[0]["input_restricted"]
-    assert store.verify()["ok"] is True
-
-
-@pytest.mark.parametrize("validation", ["warn", "enforce"])
-def test_an_older_records_resource_ids_open_only_for_a_reader(
-    tmp_path: Path, trial: Pack, monkeypatch: pytest.MonkeyPatch, validation: str
-) -> None:
-    store = AuditStore(tmp_path / "a.db", phi=policy("encrypt"))
-    with monkeypatch.context() as october:
-        as_before_october(october)
-        decide = Decision(trial, store=store, fhir_validation=validation)  # type: ignore[arg-type]
-        result, _ = decide.decide_fhir(marked_bundle(conforming=False))
-    hidden = store.get(result.id)
-    assert hidden is not None and MRN not in json.dumps(hidden["record"])
-    assert hidden["record"]["input_issues"][0]["resource"] == "Patient"
-    listed = store.withhold_inputs(store.query())
-    assert MRN not in json.dumps(listed)
-    shown = store.get(result.id, reader="Nurse Kim")
-    assert shown is not None and MRN in json.dumps(shown["record"]["input_issues"])
-    assert chained(shown, "input.read")
-    if validation == "enforce":  # the refusal named it too
-        assert MRN in " ".join(shown["record"]["reasons"])
-        assert "Patient Patient.gender" in " ".join(hidden["record"]["reasons"])
-    erased = store.erase_input(result.id, erased_by="dpo@example.org", reason="request")
-    assert erased["still_in_chain"] is True
-    assert store.verify()["ok"] is True
-
-
-def test_under_off_or_hash_an_older_records_evidence_follows_the_reader(
-    tmp_path: Path, trial: Pack, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A record sealed under encrypt before 2026-10-02 (its evidence also in itself), read
-    later under `off` (as before: nothing withheld) and under `hash` (a reader sees what the
-    record holds, and the read is chained; the sealed input stays sealed)."""
-    db = tmp_path / "a.db"
-    with monkeypatch.context() as october:
-        as_before_october(october)
-        result, _ = Decision(trial, store=AuditStore(db, phi=policy("encrypt"))).decide_fhir(
-            marked_bundle()
-        )
-    off = AuditStore(db, phi=policy("off")).get(result.id)
-    assert off is not None and LAB_VALUE in evidence(off["record"])
-    assert not chained(off, "input.read")
-    hashed = AuditStore(db, phi=policy("hash"))
-    seen = hashed.get(result.id, reader="Nurse Kim")
-    assert seen is not None and LAB_VALUE in evidence(seen["record"])
-    assert seen["input_restricted"] is True and seen["record"]["input"] is None
-    assert [e["payload"]["reader"] for e in chained(seen, "input.read")] == ["Nurse Kim"]
-    hidden = hashed.get(result.id)
-    assert hidden is not None and LAB_VALUE not in evidence(hidden["record"])
-
-
 def test_under_off_a_record_still_carries_its_input(tmp_path: Path, trial: Pack) -> None:
     store = AuditStore(tmp_path / "a.db", phi=policy("off"))
     result, _ = Decision(trial, store=store).decide_fhir(marked_bundle())
@@ -471,9 +393,9 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
     """Every read route (and FHIR search) but `NOT_SWEPT`, as every kind of principal that can
     read (people in each role, keys in each role, and no one; a Backend Services client holds a
     key's roles, and an EHR launch reads none of these), under `encrypt` with sign-in on, over
-    decisions recorded under `off` before the switch, one sealed before 2026-10-02 (evidence and
-    a resource's id in its record) and one sealed now, with notes. Each read a reader is shown is
-    chained and logged. Hidden evaluation sets are on, so the routes they mount are swept too
+    decisions recorded under `off` before the switch and one sealed after it, with notes. Each
+    read a reader is shown is chained and logged. Hidden evaluation sets are on, so the routes
+    they mount are swept too
     (LP-11g); a labeller's (LP-11j) and an organization's curators' (LP-11k) are memberships
     mode's and take no placeholder a GET here fills: their hidden cases are swept in
     tests/test_evalset_leaks.py, their chained reads checked in tests/test_labelling_routes.py,
@@ -484,13 +406,9 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
     lab_off, _ = Decision(trial, store=before).decide_fhir(marked_bundle())
     before.close()
     store = AuditStore(db_target, phi=policy("encrypt"))
-    with monkeypatch.context() as october:
-        as_before_october(october)
-        decide = Decision(trial, store=store, fhir_validation="enforce")
-        lab_october, _ = decide.decide_fhir(marked_bundle(conforming=False))
     sealed = Decision(inbox_pack, store=store)(message(f"Crushing chest pain, {INPUT_MARK} now"))
     store.resolve_review(sealed.id, final_label="nurse", reviewer="rn-1", note=NOTE_MARK)
-    decisions = [message_off.id, lab_off.id, lab_october.id, sealed.id]
+    decisions = [message_off.id, lab_off.id, sealed.id]
 
     encrypt_mode(monkeypatch)
     sign_in_env(monkeypatch)
@@ -580,34 +498,6 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
     store.close()
 
 
-def test_under_hash_a_read_of_what_an_older_sealed_record_holds_is_logged_too(
-    tmp_path: Path,
-    trial: Pack,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Sealed under `encrypt` before 2026-10-02 (its evidence in itself too), read under `hash`:
-    the sealed input stays sealed, the evidence is shown to a reviewer, and the read is both
-    chained and logged."""
-    db = tmp_path / "a.db"
-    with monkeypatch.context() as october:
-        as_before_october(october)
-        result, _ = Decision(trial, store=AuditStore(db, phi=policy("encrypt"))).decide_fhir(
-            marked_bundle()
-        )
-    monkeypatch.setenv("MENDARI_PHI_MODE", "hash")
-    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
-    sign_in_env(monkeypatch)
-    client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
-    reviewer = signed_in(AuditStore(db, phi=policy("hash")), role="reviewer")
-    capsys.readouterr()
-    read = client.get(f"/api/audit/{result.id}", headers=reviewer).json()
-    assert LAB_VALUE in evidence(read["record"]) and read["input_restricted"] is True
-    assert read["input_read"] is True and chained(read, "input.read")
-    lines = security_lines(capsys.readouterr().out)
-    assert [line["ids"] for line in lines if line["event"] == "phi.inputs.read"] == [[result.id]]
-
-
 def test_a_decision_rated_twice_is_logged_as_read_once(
     tmp_path: Path,
     inbox_pack: Pack,
@@ -651,6 +541,7 @@ def test_erasing_a_kept_input_and_its_notes_keeps_the_chain(
     assert chained(shown, "input.erased")[0]["payload"] == {
         "reason": "request",
         "erased_by": "dpo@example.org",
+        "org": "default",
     }
     lab = store.get(result.id, reader="Nurse Kim")
     assert lab is not None and LAB_VALUE not in evidence(lab["record"])
@@ -662,9 +553,7 @@ def test_erasing_a_kept_input_and_its_notes_keeps_the_chain(
     store.close()
 
 
-def test_what_the_chain_holds_is_said_to_remain(
-    tmp_path: Path, trial: Pack, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_what_the_chain_holds_is_said_to_remain(tmp_path: Path, inbox_pack: Pack) -> None:
     db = tmp_path / "a.db"
     before = AuditStore(db, phi=policy("off"))
     legacy = Decision(inbox_pack, store=before)(message(URGENT))
@@ -675,11 +564,6 @@ def test_what_the_chain_holds_is_said_to_remain(
         store.erase_input(legacy.id, erased_by="dpo@example.org", reason="request")
     erased = store.erase_input(noted.id, erased_by="dpo@example.org", reason="request")
     assert (erased["input"], len(erased["notes"]), erased["still_in_chain"]) == (False, 1, True)
-    with monkeypatch.context() as october:
-        as_before_october(october)
-        older, _ = Decision(trial, store=store).decide_fhir(marked_bundle())
-    erased = store.erase_input(older.id, erased_by="dpo@example.org", reason="error")
-    assert (erased["input"], erased["still_in_chain"]) == (True, True)  # its evidence remains
     fresh = Decision(inbox_pack, store=store)(message(SECRET))
     erased = store.erase_input(fresh.id, erased_by="dpo@example.org", reason="request")
     assert erased["still_in_chain"] is False

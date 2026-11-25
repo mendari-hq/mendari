@@ -96,17 +96,11 @@ def test_rows_are_keyed_by_a_domain_separated_digest(store: AuditStore) -> None:
     assert hashlib.sha256(b"sid-1").hexdigest() not in keys and "sid-1" not in keys
 
 
-def test_rows_keyed_the_old_way_are_not_found_and_expire(store: AuditStore) -> None:
-    """Rows from before the digest included the kind: sessions and pending sign-ins are
-    short-lived, so after the deploy people sign in (and EHRs launch) again."""
+def test_a_put_purges_expired_rows_on_the_way(store: AuditStore) -> None:
+    """An ended session's row does not stay behind: the next put deletes it."""
     now = int(time.time())
-    with store._db.session(exclusive=False) as db:
-        db.all(
-            "INSERT INTO smart_sessions (key_sha256, kind, expires_at, data) VALUES (?, ?, ?, ?)",
-            (hashlib.sha256(b"old-sid").hexdigest(), "user", now + 1, "{}"),
-        )
-    assert store.smart_get("old-sid", "user") is None
-    store.smart_put("new-sid", "user", {}, now + LATER)  # purges expired rows on the way
+    for sid in ("sid-1", "sid-2"):
+        store.smart_put(sid, "user", {}, now + LATER)
     with store._db.session(exclusive=False) as db:
         db.all("UPDATE smart_sessions SET expires_at = ? WHERE kind = ?", (now - 1, "user"))
     store.smart_put("newer-sid", "user", {}, now + LATER)

@@ -78,9 +78,9 @@ def test_the_chain_commits_to_a_note_and_never_copies_it(
     decision_id = reviewed(store, inbox_pack)
     with store._db.session(exclusive=False) as db:
         payloads = [row["payload"] for row in db.all("SELECT payload FROM audit_events")]
-        [rating] = db.all("SELECT note FROM feedback")
+        [rating] = db.all("SELECT * FROM feedback")
         notes = db.all("SELECT * FROM notes ORDER BY created_at, event DESC")
-    assert SECRET not in "".join(payloads) and rating["note"] is None
+    assert SECRET not in "".join(payloads) and SECRET not in json.dumps(rating, default=str)
     chained = [json.loads(p) for p in payloads if '"note_ref"' in p]
     assert [p["note"] for p in chained] == [None, None]
     assert [p["note_ref"]["id"] for p in chained] == [n["id"] for n in notes]
@@ -122,7 +122,8 @@ def test_notes_open_for_readers_only_and_each_read_is_chained(
     read = shown["events"][-1]
     note_ids = [e["payload"]["note_ref"]["id"] for e in with_note(shown["events"])]
     assert read["event"] == "input.read"
-    assert read["payload"] == {"reader": "rn-7", "notes": note_ids}  # one read: input and notes
+    # One read: input and notes.
+    assert read["payload"] == {"reader": "rn-7", "notes": note_ids, "org": "default"}
     [rating] = store.feedback(reader="rn-7")
     assert (rating["note_status"], rating["note"]) == ("open", SECRET)
     assert store.verify(notes=True)["ok"] is True
@@ -252,6 +253,7 @@ def test_an_erased_note_is_gone_and_the_chain_still_verifies(
         "note_id": review_note,
         "reason": "request",
         "erased_by": "dpo@example.org",
+        "org": "default",
     }
     store.erase_note(rating_note, erased_by="dpo@example.org", reason="error")
     assert SECRET not in stored(store)
@@ -359,59 +361,6 @@ def test_a_sealed_note_without_the_key_is_unchecked_and_stays_sealed(
     assert item is not None
     assert [e["note_status"] for e in with_note(item["events"])] == ["sealed", "sealed"]
     assert switched.verify(notes=True)["notes"] == {"checked": 0, "erased": 0, "unchecked": 2}
-
-
-# -- notes chained before this stage -----------------------------------------------------------
-
-
-def legacy(store: AuditStore, pack: Pack) -> str:
-    """A decision reviewed, rated and sent for prior authorization as the code before Phase 4b
-    recorded them: the free text in the chained payloads and the rating's `note` column."""
-    decision_id = Decision(pack, store=store)(message(URGENT)).id
-    with store._db.session(exclusive=True) as db:
-        db.all(
-            "UPDATE decisions SET review_status = 'resolved', final_label = 'nurse' WHERE id = ?",
-            (decision_id,),
-        )
-        review = {"final_label": "nurse", "human_override": False, "reviewer": "rn-1"}
-        store._append(db, decision_id, "review.resolved", {**review, "note": SECRET})
-        db.all(
-            "INSERT INTO feedback (id, decision_id, created_at, pack_id, rating, reporter, note) "
-            "VALUES ('f-1', ?, '2026-09-01T00:00:00.000+00:00', ?, 'down', 'rn-2', ?)",
-            (decision_id, pack.id, SECRET),
-        )
-        rating = {"feedback_id": "f-1", "rating": "down", "reporter": "rn-2", "note": SECRET}
-        store._append(db, decision_id, "feedback.recorded", {**rating, "expected": None})
-        answer = {"outcome": "complete", "authorization": "AUTH-4821937", "disposition": SECRET}
-        store._append(db, decision_id, "pas.submitted", {**answer, "review_actions": ["A1"]})
-    return decision_id
-
-
-@pytest.mark.parametrize("mode", ["off", "encrypt"])
-def test_notes_chained_before_are_shown_only_to_readers_of_inputs(
-    db_target: str, inbox_pack: Pack, mode: PhiMode
-) -> None:
-    store = keeping(db_target, mode)
-    decision_id = legacy(store, inbox_pack)
-    hidden = store.get(decision_id)
-    assert hidden is not None
-    text = json.dumps(hidden)
-    assert SECRET not in text and "AUTH-4821937" not in text
-    assert [e["note_status"] for e in hidden["events"][1:]] == ["sealed"] * 3
-    assert [f["note_status"] for f in store.feedback()] == ["sealed"]
-    assert SECRET not in json.dumps(store.feedback())
-
-    shown = store.get(decision_id, reader="rn-7")
-    assert shown is not None
-    review, rating, payer = shown["events"][1:4]
-    assert review["note"] == rating["note"] == SECRET == review["payload"]["note"]
-    assert json.loads(payer["note"]) == {"authorization": "AUTH-4821937", "disposition": SECRET}
-    assert [f["note"] for f in store.feedback(reader="rn-7")] == [SECRET]
-    reads = [e for e in shown["events"] if e["event"] == "input.read"]
-    assert len(reads) == (1 if mode == "encrypt" else 0)  # off: no read is chained, as for inputs
-    assert store.verify(notes=True)["ok"] is True  # the chain itself was never rewritten
-    exported = json.dumps(list(audit_fhir.resources(store.iter_events())))
-    assert "AUTH-4821937" not in exported and SECRET not in exported
 
 
 # -- through the API, signed in ------------------------------------------------------------------
@@ -536,7 +485,9 @@ def test_a_payers_authorization_number_is_in_no_payload_or_export(
     assert "AUTH-4821937" not in stored(store)  # sealed (encrypt) or not kept (hash)
     record = client.get(f"/api/audit/{decision_id}").json()
     [event] = [e for e in record["events"] if e["event"] == "pas.submitted"]
-    assert set(event["payload"]) == {"outcome", "review_actions", "requested_by", "note_ref"}
+    assert set(event["payload"]) == {
+        "outcome", "review_actions", "requested_by", "note_ref", "org",
+    }  # fmt: skip
     assert (event["payload"]["note_ref"] is None) is (mode == "hash")
     for url in (f"/api/audit/{decision_id}", "/api/audit/export/fhir"):
         assert "AUTH-4821937" not in client.get(url).text, url
@@ -647,16 +598,17 @@ def chain(store: AuditStore) -> list[tuple[Any, ...]]:
 def test_append_many_writes_the_chain_n_appends_write(
     db_target: str, tmp_path: Path, ticking: Callable[[], None]
 ) -> None:
-    entries = [(f"d-{i}", {"reader": "rn-7", "n": i}) for i in range(7)]
+    # A deployment's kind: it names no organization, so no row stands behind each subject.
+    entries = [(f"d-{i}", {"inputs": i}) for i in range(7)]
     one_by_one = AuditStore(tmp_path / "single.db")
     batched = AuditStore(db_target)
     ticking()
     with one_by_one._db.session(exclusive=True) as db:
         for decision_id, payload in entries:
-            one_by_one._append(db, decision_id, "input.read", payload)
+            one_by_one._append(db, decision_id, "retention.purged", payload)
     ticking()
     with batched._db.session(exclusive=True) as db:
-        written = batched._append_many(db, "input.read", entries)
+        written = batched._append_many(db, "retention.purged", entries)
     assert chain(batched) == chain(one_by_one)
     seqs = [event["seq"] for event in written]
     assert [event["decision_id"] for event in written] == [d for d, _ in entries]
@@ -681,7 +633,8 @@ def test_a_page_of_reads_takes_the_lock_for_two_round_trips(
     db_target: str, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The review queue under encrypt: one `input.read` per decision, written with one read of
-    the chain's head and one insert, not two statements per decision."""
+    the decisions' organizations, one of the chain's head and one insert, not statements per
+    decision."""
     store = keeping(db_target)
     decide = Decision(inbox_pack, store=store)
     ids = [decide(message(URGENT)).id for _ in range(6)]
@@ -697,7 +650,7 @@ def test_a_page_of_reads_takes_the_lock_for_two_round_trips(
     monkeypatch.setattr(backend, "session", session)
     queue = store.pending_reviews(reader="rn-7")
     assert {item["id"] for item in queue} == set(ids)
-    assert len(locked) == 2, locked
+    assert len(locked) == 3, locked
     with real(exclusive=False) as db:
         reads = db.all("SELECT decision_id FROM audit_events WHERE event = 'input.read'")
     assert sorted(r["decision_id"] for r in reads) == sorted(ids)

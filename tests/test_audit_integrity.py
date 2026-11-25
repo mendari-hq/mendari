@@ -14,7 +14,6 @@ from urllib.parse import quote
 import pytest
 
 from mendari import AuditStore, Decision, DecisionResult, Pack
-from mendari.errors import MendariError
 from tests.conftest import message
 
 Decide = Callable[[str], DecisionResult]
@@ -117,44 +116,6 @@ def test_the_database_refuses_a_second_event_after_the_same_head(
             "VALUES ('x', 'deployment.recorded', '{}', '2026-01-01', ?, ?)",
             ("0" * 64, "e" * 64),
         )
-
-
-def test_a_database_that_already_forks_refuses_the_migration(
-    db_target: str, inbox_pack: Pack
-) -> None:
-    """A database from before the index that holds a fork: the start stops, says to run
-    `audit verify`, names no event or hash, and migrates nothing (the index is still absent,
-    so a fixed database takes it on the next start)."""
-    with AuditStore(db_target) as store:
-        Decision(inbox_pack, store=store)(message(ROUTINE))
-        Decision(inbox_pack, store=store)(message(ROUTINE))
-        tamper(store, f"DROP INDEX {LINKS}")
-        _fork(store)
-        with store._db.session(exclusive=False) as db:
-            hashes = [str(row["hash"]) for row in db.all("SELECT hash FROM audit_events")]
-    with pytest.raises(MendariError, match="mendari audit verify") as refused:
-        AuditStore(db_target)
-    said = str(refused.value)
-    assert "forks" in said and "nothing was migrated" in said
-    assert not any(digest in said for digest in hashes)
-    with AuditStore(db_target, read_only=True) as reader:
-        assert not _links_indexed(reader)
-        assert reader.verify()["ok"] is False  # what the operator is told to run finds it
-
-
-def test_a_clean_database_from_before_the_index_migrates(db_target: str, inbox_pack: Pack) -> None:
-    with AuditStore(db_target) as store:
-        for _ in range(3):
-            Decision(inbox_pack, store=store)(message(ROUTINE))
-        tamper(store, f"DROP INDEX {LINKS}")
-        assert not _links_indexed(store)
-    with AuditStore(db_target) as store:
-        assert _links_indexed(store)
-        assert store.verify()["ok"] is True
-        Decision(inbox_pack, store=store)(message(ROUTINE))
-        with pytest.raises(_refused_by_the_database()):
-            _fork(store)
-        assert store.verify()["ok"] is True
 
 
 # -- Postgres: a server whose default isolation is not READ COMMITTED -------------------------

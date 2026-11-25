@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """The organization in the chain (LP-12g, ADR-0008).
 
-A database a memberships-mode server opened is marked (`org_bound`): from then on every event
-names the organization of the row it is about, whichever store writes it (the command line's
-too), and `verify` checks that name against the row, so a row moved to another organization, or
-removed, breaks it. An unmarked database chains the kinds of before as it did, and the previous
-release's `verify` still passes a bound chain. On SQLite and Postgres (`db_target`)."""
+Every event but the deployment's names the organization of the row it is about, whichever store
+writes it (a server in any accounts mode, the command line), and `verify` checks that name
+against the row, so a row moved to another organization, or removed, breaks it. A verify written
+apart from the store's still passes such a chain. On SQLite and Postgres (`db_target`)."""
 
 from __future__ import annotations
 
@@ -23,7 +22,6 @@ from mendari.core import audit as audit_module
 from mendari.core import tenancy
 from mendari.core.audit import (
     ADMINISTRATIVE_KINDS,
-    BOUND_WHEN_MARKED,
     DECISION_KINDS,
     DEPLOYMENT_KINDS,
     PERSON_KINDS,
@@ -32,12 +30,10 @@ from mendari.core.audit import (
 from mendari.core.evalset_keys import EvalsetKeys
 from mendari.core.evalsets import EvalsetStore
 from mendari.core.phi import PhiPolicy, key_id
-from mendari.server.app import create_app
 from mendari.standards import audit_fhir
 from tests.conftest import (
     INBOX_DIR,
     ROOT,
-    encrypt_mode,
     evalset_keys_for_test,
     hand_written,
     message,
@@ -56,11 +52,11 @@ INBOX = "mendari/patient-inbox-router"
 CLINIC = "clinic-a"
 
 
-def keeping(target: str, *, bind_org: bool = False, **options: Any) -> AuditStore:
+def keeping(target: str, **options: Any) -> AuditStore:
     """A store under PHI mode `encrypt`, so inputs and notes are kept apart (and can be read,
     erased and purged)."""
     phi = PhiPolicy(mode="encrypt", key=KEY)
-    return AuditStore(target, phi=phi, bind_org=bind_org, **options)
+    return AuditStore(target, phi=phi, **options)
 
 
 def chained(store: AuditStore) -> list[dict[str, Any]]:
@@ -218,11 +214,10 @@ def every_writer(store: AuditStore, pack: Pack, org: str | None) -> dict[str, An
 
 
 @pytest.mark.parametrize("org", [CLINIC, None], ids=["as-a-server", "as-the-command-line"])
-def test_a_marked_database_names_its_row_s_organization_in_every_event(
+def test_every_event_names_its_row_s_organization(
     db_target: str, inbox_pack: Pack, org: str | None
 ) -> None:
-    with keeping(db_target, bind_org=True) as store:
-        assert store.binds_org
+    with keeping(db_target) as store:
         made = every_writer(store, inbox_pack, org)
         events = chained(store)
         with store._db.session(exclusive=False) as db:
@@ -230,7 +225,8 @@ def test_a_marked_database_names_its_row_s_organization_in_every_event(
             subjects = audit_module._subject_orgs(db)
         assert store.verify() == {"ok": True, "events": len(events), "head": events[-1]["hash"]}
     kinds = {event["event"] for event in events}
-    assert kinds >= BOUND_WHEN_MARKED  # each kind of before was written here
+    revoking = {"governance.revoked", "automation.lifted", "key.rotated", "key.revoked"}
+    assert kinds >= DECISION_KINDS | revoking | {"client.revoked"}  # each was written here
     for event in events:
         kind, payload = event["event"], event["payload"]
         if kind in DEPLOYMENT_KINDS:
@@ -245,61 +241,16 @@ def test_a_marked_database_names_its_row_s_organization_in_every_event(
     assert [e["payload"]["org"] for e in held] == [made["home"], None]  # NULL: every one's
 
 
-def test_an_unmarked_database_chains_the_kinds_of_before_as_it_did(
-    db_target: str, inbox_pack: Pack
-) -> None:
-    with keeping(db_target) as store:
-        assert not store.binds_org
-        every_writer(store, inbox_pack, CLINIC)
-        events = chained(store)
-        assert store.verify()["ok"]
-    before = [event for event in events if event["event"] in BOUND_WHEN_MARKED]
-    assert {event["event"] for event in before} == BOUND_WHEN_MARKED
-    assert [event for event in before if "org" in event["payload"]] == []
-    # The kinds that named it already still do, marked or not.
-    for event in events:
-        if event["event"] not in BOUND_WHEN_MARKED | DEPLOYMENT_KINDS:
-            assert "org" in event["payload"], event
-
-
 def test_an_answer_is_the_same_whether_its_event_is_bound(db_target: str, inbox_pack: Pack) -> None:
     """The review and rating answers repeat what was chained; binding adds `org` to the chained
     copy only."""
-    with keeping(db_target, bind_org=True) as store, acting(CLINIC):
+    with keeping(db_target) as store, acting(CLINIC):
         decision_id = Decision(inbox_pack, store=store)(message(URGENT)).id
         resolved = store.resolve_review(decision_id, final_label="nurse", reviewer="rn-1")
         rated = store.record_feedback(decision_id, rating="up")
         events = chained(store)
     assert "org" not in resolved and "org" not in rated
     assert {e["payload"].get("org") for e in events if e["event"] != "input_hash.epoch"} == {CLINIC}
-
-
-def test_the_mark_binds_every_store_opened_after_it(db_target: str) -> None:
-    with AuditStore(db_target) as fresh:
-        assert not fresh.binds_org
-    with AuditStore(db_target, bind_org=True, marks=False) as unmarking:
-        assert not unmarking.binds_org  # a read-only tool's `marks=False` marks nothing
-    with AuditStore(db_target, bind_org=True) as server:
-        assert server.binds_org
-    with AuditStore(db_target) as command, AuditStore(db_target, marks=False) as checking:
-        assert command.binds_org and checking.binds_org
-    with AuditStore(db_target, read_only=True) as reading:
-        assert reading.binds_org  # reads the mark, writes nothing
-
-
-def test_a_memberships_server_marks_its_database_and_a_claims_one_does_not(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
-    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
-    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
-    create_app(db_path=tmp_path / "claims.db")
-    with AuditStore(tmp_path / "claims.db") as store:
-        assert not store.binds_org
-    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
-    create_app(db_path=tmp_path / "members.db")
-    with AuditStore(tmp_path / "members.db") as store:
-        assert store.binds_org
 
 
 # -- verify -----------------------------------------------------------------------------------
@@ -494,18 +445,12 @@ def test_every_subject_table_is_checked() -> None:
 
 
 @pytest.mark.parametrize("change", ["moved", "removed"])
-@pytest.mark.parametrize(
-    ("subject", "marked"),
-    [(subject, True) for subject in sorted(SUBJECTS)]
-    # Claims mode (unmarked): every kind but a decision's named its organization already.
-    + [(subject, False) for subject in sorted(SUBJECTS) if subject != "decisions"],
-)
+@pytest.mark.parametrize("subject", sorted(SUBJECTS))
 def test_verify_finds_a_row_moved_to_another_organization_or_removed(
-    db_target: str, inbox_pack: Pack, subject: str, change: str, marked: bool
+    db_target: str, inbox_pack: Pack, subject: str, change: str
 ) -> None:
     table, column, make = SUBJECTS[subject]
-    with keeping(db_target, bind_org=marked) as store:
-        assert store.binds_org is marked
+    with keeping(db_target) as store:
         with tenancy.acting_for(CLINIC):
             store.create_organization(org=CLINIC, name="Clinic A", created_by="t")
             chain_id = make(store, inbox_pack)
@@ -533,104 +478,6 @@ def test_verify_finds_a_row_moved_to_another_organization_or_removed(
     }
 
 
-def test_an_unbound_older_decision_moved_by_sql_still_verifies(
-    db_target: str, inbox_pack: Pack
-) -> None:
-    """The residual (threat model T1): events chained before the mark name no organization, so
-    `verify` cannot tell where their row belonged."""
-    with keeping(db_target) as store:
-        with tenancy.acting_for(CLINIC):
-            decision_id = Decision(inbox_pack, store=store)(message(URGENT)).id
-        tamper(store, "UPDATE decisions SET org = 'clinic-z' WHERE id = ?", (decision_id,))
-    with keeping(db_target, bind_org=True) as store:
-        assert store.verify()["ok"]
-        with tenancy.acting_for("clinic-z"):  # bound from now on: its row's, as moved
-            store.resolve_review(decision_id, final_label="nurse", reviewer="rn-1")
-        assert chained(store)[-1]["payload"]["org"] == "clinic-z"
-        assert store.verify()["ok"]
-
-
-LATER = (
-    "review.resolved",
-    "outcome.recorded",
-    "feedback.recorded",
-    "pas.submitted",
-    "input.read",
-    "input.purged",
-    "input.erased",
-    "note.erased",
-    "card.feedback",
-)
-
-
-@pytest.mark.parametrize("kind", LATER)
-def test_verify_finds_a_decision_moved_after_a_bound_later_event(
-    db_target: str, inbox_pack: Pack, kind: str
-) -> None:
-    """The upgrade path: a decision made before the mark, whose first event names no
-    organization, is checked from its first event after it, of each kind on a decision."""
-    with keeping(db_target) as store, tenancy.acting_for(CLINIC):  # before the mark
-        decision_id = Decision(inbox_pack, store=store)(message(URGENT)).id
-        if kind == "outcome.recorded":
-            store.resolve_review(decision_id, final_label="nurse", reviewer="rn-1")
-        if kind == "note.erased":  # its only bound event: the note's erasure
-            rated = store.record_feedback(decision_id, rating="down", note="a note")
-    writes: dict[str, Callable[[AuditStore], object]] = {
-        "review.resolved": lambda s: s.resolve_review(
-            decision_id, final_label="nurse", reviewer="rn-1"
-        ),
-        "outcome.recorded": lambda s: s.record_outcome(
-            decision_id, final_label="nurse", source="ehr", recorded_by="ehr-feed"
-        ),
-        "feedback.recorded": lambda s: s.record_feedback(decision_id, rating="up"),
-        "pas.submitted": lambda s: s.record_event(
-            decision_id, "pas.submitted", {"outcome": "queued"}
-        ),
-        "input.read": lambda s: s.get(decision_id, reader="rn-7"),
-        "input.purged": lambda s: s.purge(0, source="command"),
-        "input.erased": lambda s: s.erase_input(decision_id, erased_by="dpo", reason="request"),
-        "note.erased": lambda s: s.erase_note(rated["id"], erased_by="dpo", reason="request"),
-        "card.feedback": lambda s: s.record_card_feedback(
-            inbox_pack.id, "s", [card_feedback(decision_id)]
-        ),
-    }
-    with keeping(db_target, bind_org=True) as store:
-        with tenancy.acting_for(CLINIC):
-            writes[kind](store)
-        assert store.verify()["ok"]
-        first = next(
-            e for e in chained(store) if e["decision_id"] == decision_id and "org" in e["payload"]
-        )
-        assert (first["event"], first["payload"]["org"]) == (kind, CLINIC)
-        tamper(store, "UPDATE decisions SET org = 'clinic-z' WHERE id = ?", (decision_id,))
-        result = store.verify()
-    assert result == {
-        "ok": False,
-        "events": result["events"],
-        "broken_at": first["seq"],
-        "reason": "organization",
-    }
-
-
-def test_a_store_opened_before_the_mark_chains_as_before_until_it_is_opened_again(
-    db_target: str, inbox_pack: Pack
-) -> None:
-    """A store reads the mark when it opens: one serving while another marks the database (a
-    deployment's previous instance) keeps chaining the kinds of before unbound, even where
-    mode `off` reads the database's marks again, so a write never finds the mark half-read."""
-    with AuditStore(db_target, phi=PhiPolicy(mode="off")) as warm:
-        decision_id = Decision(inbox_pack, store=warm)(message(URGENT)).id
-        with AuditStore(db_target, bind_org=True) as marking:
-            assert marking.binds_org
-        warm.refuse_plaintext()  # under `off`, reads the PHI marks again
-        assert not warm.binds_org
-        warm.resolve_review(decision_id, final_label="nurse", reviewer="rn-1", note="a note")
-        assert "org" not in chained(warm)[-1]["payload"]
-        assert warm.verify()["ok"]
-    with AuditStore(db_target, phi=PhiPolicy(mode="off")) as reopened:
-        assert reopened.binds_org
-
-
 def test_a_decision_from_before_tenancy_is_bound_as_default(
     db_target: str, inbox_pack: Pack
 ) -> None:
@@ -641,7 +488,7 @@ def test_a_decision_from_before_tenancy_is_bound_as_default(
         Decision(inbox_pack, store=store)(message(URGENT))
         held = Decision.from_path(PROPOSING, store=store)(message(HELD)).id
         tamper(store, "UPDATE decisions SET org = NULL")
-    with keeping(db_target, bind_org=True) as store, acting(tenancy.DEFAULT_ORG):
+    with keeping(db_target) as store, acting(tenancy.DEFAULT_ORG):
         proposing = Decision.from_path(PROPOSING, store=store)
         proposing.authorize_action(held, "file_note", {"note": "asked"})  # `action.proposed`
         store.resolve_review(held, final_label="refill", reviewer="rn-1")  # `action.resolved`
@@ -663,7 +510,7 @@ def test_a_decision_from_before_tenancy_is_bound_as_default(
 
 def test_the_empty_organization_is_bound_as_itself(db_target: str) -> None:
     """ "" is an organization (core/tenancy.py): bound as it is, never as `default`."""
-    with keeping(db_target, bind_org=True) as store:
+    with keeping(db_target) as store:
         key = store.create_api_key(name="k", role="service", org="", created_by="ops")
         store.rotate_api_key(key["id"], rotated_by="ops")
         store.revoke_api_key(key["id"], revoked_by="ops")
@@ -678,7 +525,7 @@ def test_a_batch_over_several_organizations_names_each_row_s_own(
     """The scheduled purge acts for no organization, so one batch spans them all: each
     `input.purged` and `note.erased` names its own decision's organization, as does each
     `input.read` of a read over several."""
-    with keeping(db_target, bind_org=True) as store:
+    with keeping(db_target) as store:
         owners: dict[str, str] = {}
         for org in (CLINIC, "clinic-b"):
             with tenancy.acting_for(org):
@@ -697,7 +544,7 @@ def test_a_batch_over_several_organizations_names_each_row_s_own(
 
 
 def previous_verify(store: AuditStore) -> bool:
-    """`verify` as the release before LP-12g had it: the hashes and each record's digest. Its
+    """`verify` written apart from the store's: the hashes and each record's digest. Its
     formulas are copied here, not imported, so a change to the hashing fails this test."""
     with store._db.session(exclusive=False) as db:
         events = db.all("SELECT * FROM audit_events ORDER BY seq")
@@ -722,38 +569,17 @@ def previous_verify(store: AuditStore) -> bool:
 
 
 def test_the_previous_verify_passes_a_bound_chain(db_target: str, inbox_pack: Pack) -> None:
-    """A rollback to the release before keeps verifying: what binding adds is in the hashed
-    payload, which that release recomputes as stored, and the mark is a settings row it never
-    reads."""
-    with keeping(db_target, bind_org=True) as store:
+    """The chain's hashing is fixed: a verify written apart from the store's passes a chain of
+    every kind of event, each naming its organization in its hashed payload."""
+    with keeping(db_target) as store:
         every_writer(store, inbox_pack, CLINIC)
         assert previous_verify(store) and store.verify()["ok"]
-
-
-def test_verify_reads_an_older_database_as_it_is(tmp_path: Any, inbox_pack: Pack) -> None:
-    """A database from before the subject tables, the decisions' organization and the mark,
-    read as it is: nothing to check against, and nothing fails for it."""
-    import sqlite3
-    from contextlib import closing
-
-    db = tmp_path / "older.db"
-    with AuditStore(db, bind_org=True) as store, tenancy.acting_for(CLINIC):
-        Decision(inbox_pack, store=store)(message(URGENT))  # bound: names clinic-a
-    with closing(sqlite3.connect(db)) as connection, connection:
-        for table in ("settings", *(table for table, _, _ in SUBJECT_TABLES.values())):
-            connection.execute(f"DROP TABLE {table}")
-        connection.execute("ALTER TABLE decisions DROP COLUMN org")
-    with AuditStore(db, read_only=True) as reading:
-        assert {"settings", "decisions.org"} <= set(reading.unmigrated)
-        assert not reading.binds_org
-        result = reading.verify()
-    assert result["ok"] and result["events"] == 1  # the decision
 
 
 def test_a_kind_from_a_later_release_is_left_unchecked(db_target: str) -> None:
     """A rollback meets kinds this release does not know: they name an organization, and there
     is no row here to check it against, so `verify` passes them."""
-    with AuditStore(db_target, bind_org=True) as store:
+    with AuditStore(db_target) as store:
         with store._db.session(exclusive=True) as db:
             store._append(db, "store:s1", "store.created", {"id": "s1", "org": "anyone"})
         assert store.verify()["ok"]
@@ -772,20 +598,15 @@ def test_record_event_refuses_a_payload_naming_an_organization(
 
 
 def test_a_writer_that_leaves_out_the_organization_is_refused(db_target: str) -> None:
-    """New kinds name it always; the kinds of before, on a marked database; the deployment's,
-    never. Refused before anything is chained."""
-    with AuditStore(db_target) as unmarked, unmarked._db.session(exclusive=True) as db:
-        with pytest.raises(ValueError, match="names its organization"):
-            unmarked._append(db, "store:s1", "store.created", {"id": "s1"})
-        unmarked._append(db, "key:k1", "key.revoked", {"id": "k1"})  # as before: unmarked
-        unmarked._append(db, "retention", "retention.purged", {"inputs": 0})
-    with AuditStore(db_target, bind_org=True) as marked:
-        with (
-            marked._db.session(exclusive=True) as db,
-            pytest.raises(ValueError, match="names its organization"),
-        ):
-            marked._append(db, "key:k1", "key.revoked", {"id": "k1"})
-        assert len(chained(marked)) == 2
+    """Every kind names it but the deployment's, which never does. Refused before anything is
+    chained."""
+    with AuditStore(db_target) as store:
+        with store._db.session(exclusive=True) as db:
+            for subject, kind in (("store:s1", "store.created"), ("key:k1", "key.revoked")):
+                with pytest.raises(ValueError, match="names its organization"):
+                    store._append(db, subject, kind, {"id": subject.partition(":")[2]})
+            store._append(db, "retention", "retention.purged", {"inputs": 0})
+        assert [event["event"] for event in chained(store)] == ["retention.purged"]
 
 
 def test_every_kind_is_in_exactly_one_class() -> None:
@@ -794,7 +615,6 @@ def test_every_kind_is_in_exactly_one_class() -> None:
     assert set().union(*classes) == recorded_kinds()
     assert set(audit_fhir._EVENTS) == DECISION_KINDS
     assert set().union(*classes[1:]) == NOT_ON_A_DECISION
-    assert DECISION_KINDS | set(ADMINISTRATIVE_KINDS) >= BOUND_WHEN_MARKED
     assert set(ADMINISTRATIVE_KINDS.values()) == set(SUBJECT_TABLES)
 
 
@@ -803,7 +623,7 @@ def test_a_subject_s_history_is_its_row_s_organization_s_and_a_deployment_hold_n
 ) -> None:
     """`subject_history` (LP-12h) reads `SUBJECT_TABLES` as `verify` does: a hold set for every
     organization (NULL) is the deployment's, never `default`'s."""
-    with AuditStore(db_target, bind_org=True) as store:
+    with AuditStore(db_target) as store:
         mine = store.hold_automation(
             org=CLINIC, pack_id=None, pack_digest=None, reason="r", set_by="o"
         )
@@ -821,13 +641,13 @@ def test_a_subject_s_history_is_its_row_s_organization_s_and_a_deployment_hold_n
 def test_mendari_audit_verify_passes_after_membership_invitation_and_key_events(
     db_target: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """LP-12's acceptance: the operator's `mendari audit verify` on a database a memberships-mode
-    server marked, after the owner's bootstrap, an organization, its memberships (made, bound,
-    changed, removed), invitations (made, accepted, revoked), a request to join, and keys and a
-    client (made, rotated, revoked), each event naming its organization."""
+    """LP-12's acceptance: the operator's `mendari audit verify` on a database, after the
+    owner's bootstrap, an organization, its memberships (made, bound, changed, removed),
+    invitations (made, accepted, revoked), a request to join, and keys and a client (made,
+    rotated, revoked), each event naming its organization."""
     from mendari.cli import main
 
-    with AuditStore(db_target, bind_org=True) as store:
+    with AuditStore(db_target) as store:
         store.bootstrap(email="owner@example.org", created_by="ops")
         store.create_organization(org=CLINIC, name="Clinic A", created_by="ops")
         lead = store.record_user(issuer="https://idp.example.org", subject="lead", email=None,

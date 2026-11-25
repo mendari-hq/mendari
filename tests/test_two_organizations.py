@@ -40,7 +40,6 @@ from mendari.core import audit as audit_module
 from mendari.core import tenancy
 from mendari.core.audit import (
     ADMINISTRATIVE_KINDS,
-    BOUND_WHEN_MARKED,
     DECISION_KINDS,
     DEPLOYMENT_KINDS,
     PERSON_KINDS,
@@ -2879,8 +2878,7 @@ def scan(world: World) -> None:
 
 def attribute(world: World) -> None:
     """Every event chained during an organization's calls is its own (the deployment's kinds
-    aside), and names it as the mode says: every one in memberships mode; in claims mode those
-    that named it before LP-12g, and no other."""
+    aside), and names it, in either accounts mode."""
     with world.store._db.session(exclusive=False) as db:
         events = {row["seq"]: row for row in db.all("SELECT * FROM audit_events")}
         decided = {row["id"]: row["org"] for row in db.all("SELECT id, org FROM decisions")}
@@ -2901,10 +2899,7 @@ def attribute(world: World) -> None:
                 owner = subjects[chain]
                 assert ADMINISTRATIVE_KINDS[kind] == chain.split(":")[0], (route, kind)
             assert owner == org, (route, kind, chain, owner)
-            if world.accounts == "memberships" or kind not in BOUND_WHEN_MARKED:
-                assert payload["org"] == org, (route, kind)
-            else:
-                assert "org" not in payload, (route, kind)
+            assert payload["org"] == org, (route, kind)
 
 
 def covered(world: World) -> None:

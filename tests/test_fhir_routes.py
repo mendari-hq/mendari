@@ -467,8 +467,7 @@ def test_a_policy_block_without_confidence_is_completed_not_failed(
     client: TestClient, db_target: str
 ) -> None:
     """Only a refused input is `failed`. A BLOCK rule on another question can leave the primary
-    unanswered (no confidence); the stored `refused` flag tells the two apart, and rows from
-    before the flag fall back to "BLOCK without confidence"."""
+    unanswered (no confidence); the stored `refused` flag tells the two apart."""
     decision = Decision.from_hub(INBOX)
     made = decision({"message": {"body": "Can you send a refill for metformin?"}})
     others = {k: v for k, v in made.answers.items() if k != made.primary}
@@ -484,6 +483,3 @@ def test_a_policy_block_without_confidence_is_completed_not_failed(
     assert ok(client.get(f"/fhir/Task/{refused.id}"))["status"] == "failed"
     found = ok(client.get("/fhir/Task", params={"status": "failed"}))
     assert [e["resource"]["id"] for e in found["entry"]] == [refused.id]
-    with AuditStore(db_target) as store, store._db.session(exclusive=True) as db:
-        db.all("UPDATE decisions SET refused = NULL")  # as written before the column
-    assert ok(client.get(f"/fhir/Task/{refused.id}"))["status"] == "failed"

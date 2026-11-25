@@ -28,8 +28,7 @@
 - **The chain.** Every write appends a hash-chained event in the same transaction
   (`hub_events`: namespaces, claims, publisher types, tokens, keys, publishes, site reports,
   reviews), and `RegistryStore.verify` (`mendari registry verify`) checks the chain and that
-  every row it covers is named by its event. A registry created before the chain records what
-  it held then (`registry.chain_started`). The chain is unkeyed, so with a signing key the
+  every row it covers is named by its event. The chain is unkeyed, so with a signing key the
   registry signs its head for a day (`hub/checkpoint.py`, `RegistryStore.checkpoint`, `mendari
   registry checkpoint`): kept outside the database, the statement shows a chain rewritten from
   before it (`verify(head=…)`). Nothing of it is stored here.
@@ -61,7 +60,7 @@
   there is a published version to look at. Until it is approved the publisher works as usual
   and nothing of the namespace is served to anyone else: every read takes a `Viewer`, and to the
   public a pending or refused namespace answers exactly as one that does not exist. A namespace
-  with no claim (one from before claims) stays listed.
+  with no claim (`create_namespace`, the store's own) is listed.
 - **Counter-signature** (LP-19i, `hub/acceptance.py`). With a signing key
   (`MENDARI_REGISTRY_SIGNING_KEY`) the registry signs a `mendari.registry-acceptance/1` record
   for each version when it becomes listed: at publish in a listed namespace, or at approval for
@@ -73,8 +72,7 @@
 - **Who writes** (LP-19g). Over this app, only a namespace's own publisher, with an owned token
   (`mint_token`: an organization, an owner, an expiry, revocable): it adds keys, publishes,
   recalls with a record it signed, and shares site reports. Tokens are random, shown once, and
-  stored as SHA-256. A token from before owned tokens (`hub_tokens`) no longer publishes; its
-  row and its event stay, so the chain verifies. There is no shared administrator token:
+  stored as SHA-256. There is no shared administrator token:
   claims, publisher types, reviews, the registry's recalls and deletions are a reviewer's
   (under the engine) or the operator's commands on the database (`mendari registry ...`).
 
@@ -110,7 +108,7 @@ from starlette.concurrency import run_in_threadpool
 from mendari import __version__
 from mendari.core import clock
 from mendari.core.audit import GENESIS, _canonical, _chain_hash
-from mendari.core.db import Backend, Session, connect
+from mendari.core.db import Backend, Baseline, Session, connect
 from mendari.core.https_only import is_local_host
 from mendari.core.pack import Pack
 from mendari.core.rate_buckets import SCHEMA as RATE_SCHEMA
@@ -118,14 +116,7 @@ from mendari.core.rate_buckets import RateBuckets
 from mendari.core.registry import version_key
 from mendari.errors import HubError, MendariError
 from mendari.evals import figures
-from mendari.evals.share import (
-    JOINERS,
-    SITE_REPORT_FORMAT,
-    SITE_REPORT_V2,
-    SiteReportV2,
-    composite_members,
-    where,
-)
+from mendari.evals.share import JOINERS, SiteReportV2, composite_members, where
 from mendari.hub import (
     acceptance,
     archive,
@@ -148,16 +139,31 @@ logger = logging.getLogger("mendari.registry")
 PublisherType = Literal["community", "verified", "institutional"]
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}\Z")  # `$` would take a final newline
 _VERSION = re.compile(r"^(?=.{1,64}\Z)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\Z")
-# Stored with each version published since the registry renders its own card (ADR-0012). A
-# version stored without it was published before: its uploaded card, benchmark and leaderboard
-# are never served.
+# What the registry stores of each version it publishes (`describe`): with the card it rendered
+# itself from the files the digest covers, never the uploaded card, benchmark or leaderboard
+# (ADR-0012).
 VERSION_FORMAT = "mendari.registry-version/2"
-UPLOADED = ("benchmark", "leaderboard", "card_markdown")
 # The card the registry renders, at most (a shipped one is about 30 KB): it is stored with the
 # version and sent with every read of the pack.
 MAX_CARD_BYTES = 1_000_000
 _LOCK = 0x0E4_4B0B  # the registry's Postgres advisory lock (the audit store has its own)
 
+# The first release's schema, the registry's baseline (`core/db.py`): marked
+# `mendari-registry/1` in `hub_meta` when it is made, refused at open when made by a pre-release
+# Mendari. It may share its database with the engine's: each checks only its own anchor and
+# mark. One chain runs through `hub_events` (`record_event` reads its head over every row), so
+# each event follows a different one: no two rows share a `prev_hash`, the first row's GENESIS
+# included. The unique index `hub_events_prev_hash` makes the database itself refuse a second
+# event chained after the same head (a fork), whatever a future writer gets wrong. As
+# `audit_events` (core/audit.py).
+REGISTRY_SCHEMA = Baseline(
+    name="mendari-registry",
+    version=1,
+    anchor="hub_events",
+    table="hub_meta",
+    key="key",
+    missing="not a Mendari registry (no registry chain in it): give the registry's --db",
+)
 SCHEMA = (
     """
 CREATE TABLE IF NOT EXISTS hub_namespaces (
@@ -172,11 +178,6 @@ CREATE TABLE IF NOT EXISTS hub_keys (
     public_pem  TEXT NOT NULL,
     created_at  TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS hub_tokens (
-    token_sha256  TEXT PRIMARY KEY,
-    namespace     TEXT NOT NULL,
-    created_at    TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS hub_versions (
     namespace       TEXT NOT NULL,
     name            TEXT NOT NULL,
@@ -190,16 +191,6 @@ CREATE TABLE IF NOT EXISTS hub_archives (
     archive_sha256  TEXT PRIMARY KEY,
     data            {blob} NOT NULL
 );
-CREATE TABLE IF NOT EXISTS hub_reports (
-    id          TEXT PRIMARY KEY,
-    namespace   TEXT NOT NULL,
-    name        TEXT NOT NULL,
-    version     TEXT NOT NULL,
-    site        TEXT NOT NULL,
-    submitted_by TEXT NOT NULL,
-    created_at  TEXT NOT NULL,
-    report      TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS hub_events (
     seq         {serial},
     subject     TEXT NOT NULL,
@@ -209,6 +200,7 @@ CREATE TABLE IF NOT EXISTS hub_events (
     prev_hash   TEXT NOT NULL,
     hash        TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS hub_events_prev_hash ON hub_events (prev_hash);
 CREATE TABLE IF NOT EXISTS hub_reviews (
     id          TEXT PRIMARY KEY,
     namespace   TEXT NOT NULL,
@@ -368,9 +360,10 @@ def reserved_namespace(name: str) -> bool:
 
 @dataclass(frozen=True)
 class Viewer:
-    """Who a read is for. A namespace is *listed* when its claim is approved or it has none (one
-    from before claims); one that is not is read only by its own token (`namespace`) and by a
-    reviewer. To everyone else it answers as a namespace that does not exist."""
+    """Who a read is for. A namespace is *listed* when its claim is approved or it has none
+    (`RegistryStore.create_namespace`); one that is not is read only by its own token
+    (`namespace`) and by a reviewer. To everyone else it answers as a namespace that does not
+    exist."""
 
     namespace: str | None = None
     reviewer: bool = False
@@ -387,14 +380,12 @@ REVIEWER = Viewer(reviewer=True)
 ROWS: dict[str, tuple[str, Callable[[Mapping[str, Any]], str]]] = {
     "namespaces": ("hub_namespaces", lambda row: str(row["name"])),
     "keys": ("hub_keys", lambda row: str(row["key_id"])),
-    "tokens": ("hub_tokens", lambda row: str(row["token_sha256"])[:16]),
     "publisher_tokens": ("hub_publisher_tokens", lambda row: str(row["id"])),
     "claims": ("hub_claims", lambda row: str(row["namespace"])),
     "versions": (
         "hub_versions",
         lambda row: _pack_subject(row["namespace"], row["name"], row["version"]),
     ),
-    "reports": ("hub_reports", lambda row: str(row["id"])),
     "reviews": ("hub_reviews", lambda row: str(row["id"])),
     "yanks": (
         "hub_yanks",
@@ -592,6 +583,7 @@ class RegistryStore(
             schema=SCHEMA,
             migrate=_migrate,
             lock_key=_LOCK,
+            baseline=REGISTRY_SCHEMA,
             migrate_url=migrate_url,
             read_only=read_only,
         )
@@ -614,9 +606,8 @@ class RegistryStore(
     def create_namespace(
         self, name: str, publisher_type: str, display_name: str, *, by: str = "operator"
     ) -> dict[str, Any]:
-        """A namespace with no claim, listed at once, as one from before claims. No route or
-        command makes one since LP-19g (a namespace is claimed, `claim`): this is the store's
-        own, for tests. Chained `namespace.created`."""
+        """A namespace with no claim, listed at once. No route or command makes one (a namespace
+        is claimed, `claim`): this is the store's own, for tests. Chained `namespace.created`."""
         if not _NAME.match(name):
             raise HubError("a namespace is lowercase letters, digits and dashes")
         with self._db.session(exclusive=True) as db:
@@ -669,33 +660,24 @@ class RegistryStore(
                 "ORDER BY created_at",
                 (name,),
             )
-            revoked: dict[str, str] = {}
-            if db.columns("hub_key_revocations"):  # a database from before revocations has none
-                revoked = {
-                    str(r["key_id"]): str(r["created_at"])
-                    for r in db.all(
-                        "SELECT key_id, created_at FROM hub_key_revocations WHERE namespace = ?",
-                        (name,),
-                    )
-                }
+            revoked = {
+                str(r["key_id"]): str(r["created_at"])
+                for r in db.all(
+                    "SELECT key_id, created_at FROM hub_key_revocations WHERE namespace = ?",
+                    (name,),
+                )
+            }
             keys = [{**key, "revoked_at": revoked.get(str(key["key_id"]))} for key in keys]
             claim = None
-            if (viewer.reviewer or viewer.namespace == name) and self._has_claims(db):
+            if viewer.reviewer or viewer.namespace == name:
                 claim = db.one("SELECT * FROM hub_claims WHERE namespace = ?", (name,))
         return {**row, "keys": keys, "listed": name not in unlisted, "claim": claim}
 
     # -- claims -------------------------------------------------------------------------------
 
-    def _has_claims(self, db: Session) -> bool:
-        """Whether the claims table is there: always, but in a database from before claims that
-        is read as it is (`read_only`)."""
-        return not self._db.read_only or bool(db.columns("hub_claims"))
-
     def _unlisted(self, db: Session) -> set[str]:
         """The namespaces that are not listed: each with a claim that is not approved. The one
         rule every read applies (`Viewer.reads`)."""
-        if not self._has_claims(db):
-            return set()
         rows = db.all("SELECT namespace FROM hub_claims WHERE status <> 'approved'")
         return {str(row["namespace"]) for row in rows}
 
@@ -829,8 +811,6 @@ class RegistryStore(
                 params.append(value)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._db.session(exclusive=False) as db:
-            if not self._has_claims(db):
-                return []
             return db.all(
                 f"SELECT * FROM hub_claims{where} ORDER BY created_at, namespace", tuple(params)
             )
@@ -859,14 +839,12 @@ class RegistryStore(
             owner = db.one("SELECT namespace FROM hub_keys WHERE key_id = ?", (key_id,))
             if owner and owner["namespace"] != namespace:
                 raise HubError("that key belongs to another namespace", 409)
-            if db.columns("hub_site_keys") and db.one(
+            if db.one(
                 "SELECT key_id FROM hub_site_keys WHERE key_id = ?", (key_id,)
             ):  # one key never signs in two roles (LP-22d)
                 raise HubError("that key is a site's key: a publisher key signs agents only", 409)
-            if (
-                owner is not None
-                and db.columns("hub_key_revocations")
-                and db.one("SELECT key_id FROM hub_key_revocations WHERE key_id = ?", (key_id,))
+            if owner is not None and db.one(
+                "SELECT key_id FROM hub_key_revocations WHERE key_id = ?", (key_id,)
             ):  # registered again, it would still sign nothing: said so, never a quiet 201
                 raise HubError(
                     "that key was revoked and signs nothing again: make a new key "
@@ -999,8 +977,6 @@ class RegistryStore(
             params.extend(ids)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_publisher_tokens"):  # read-only, from before owned tokens
-                return []
             rows = db.all(
                 f"SELECT {_TOKEN_FIELDS} FROM hub_publisher_tokens{where} ORDER BY created_at, id",
                 tuple(params),
@@ -1224,9 +1200,9 @@ class RegistryStore(
     def countersign(
         self, *, by: str, checkpoint: Mapping[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Counter-sign every listed version that has no record (LP-19i): those from before
-        the registry counter-signed, or published while it had no signing key. Never a deleted
-        version, nor one of a pending or refused namespace. Run again it signs nothing.
+        """Counter-sign every listed version that has no record (LP-19i): those published while
+        the registry had no signing key. Never a deleted version, nor one of a pending or
+        refused namespace. Run again it signs nothing.
 
         It signs after the fact, so it trusts nothing it has not checked: it refuses to run on
         a database whose chain does not verify (`verify`: a planted or changed row), and each
@@ -1278,10 +1254,7 @@ class RegistryStore(
     def _accepted(
         self, db: Session, where: str, params: tuple[str, ...]
     ) -> dict[tuple[str, str, str], dict[str, Any]]:
-        """The counter-signature of each version the clause selects that has one. None in a
-        database from before them that is read as it is (`read_only`)."""
-        if self._db.read_only and not db.columns("hub_acceptances"):
-            return {}
+        """The counter-signature of each version the clause selects that has one."""
         rows = db.all(f"SELECT * FROM hub_acceptances {where}", params)
         return {_key(row): json.loads(row["record"]) for row in rows}
 
@@ -1412,8 +1385,7 @@ class RegistryStore(
     def reports(self, namespace: str, name: str, viewer: Viewer = PUBLIC) -> dict[str, Any]:
         """A pack's signed site reports (LP-22f), for a viewer who reads the pack: each
         `verified: true`, with its site, key, ticket and figures, and the count of those
-        superseded by a correction. Unsigned reports stored before (`hub_reports`) are kept and
-        no longer served."""
+        superseded by a correction."""
         with self._db.session(exclusive=False) as db:
             if not viewer.reads(namespace, self._unlisted(db)):
                 return {"reports": [], "superseded": 0}
@@ -1626,12 +1598,10 @@ class RegistryStore(
 
     def verify(self, *, head: str | None = None) -> dict[str, Any]:
         """Check the chain and the rows it covers. Each event's hash and its order; then every
-        namespace, key, token, version, report, review and counter-signature must be the row its
-        newest event hashed (none changed, none removed, none without an event); every archive
-        must hash to its name and every version's archive be there; every key's id must be its
-        key's. Rows a
-        registry held when its chain started (`registry.chain_started`) are hashed there. The
-        head (`head`, `events`) is what an outside copy compares, as the chain is unkeyed: a
+        namespace, key, token, version, review and counter-signature must be the row its newest
+        event hashed (none changed, none removed, none without an event); every archive must
+        hash to its name and every version's archive be there; every key's id must be its key's.
+        The head (`head`, `events`) is what an outside copy compares, as the chain is unkeyed: a
         writer of the database could rewrite it whole, and only a head kept elsewhere shows it.
 
         With `head` (a signed checkpoint's, `stated_head`), the chain must also hold an event
@@ -1639,19 +1609,12 @@ class RegistryStore(
         `after_checkpoint` then counts the events appended since, which the checkpoint says
         nothing about."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_events"):
-                problem = "no chain yet: run `mendari registry serve` on this database once"
-                return _broken(None, problem, [], None)
             events = db.all("SELECT * FROM hub_events ORDER BY seq")
-            rows = {  # a database from before a kind, read as it is, has no table for it
-                kind: db.all(f"SELECT * FROM {table}") if db.columns(table) else []
-                for kind, (table, _) in ROWS.items()
-            }
+            rows = {kind: db.all(f"SELECT * FROM {table}") for kind, (table, _) in ROWS.items()}
             archives = {
                 str(r["archive_sha256"]): hashlib.sha256(bytes(r["data"])).hexdigest()
                 for r in db.all("SELECT archive_sha256, data FROM hub_archives")
             }
-            started = db.one("SELECT value FROM hub_meta WHERE key = 'chain'")
         prev = GENESIS
         chained: dict[tuple[str, str], str] = {}
         for event in events:
@@ -1665,16 +1628,9 @@ class RegistryStore(
                 return _broken(seq, "an event was changed", events, prev)
             prev = digest
             payload = json.loads(event["payload"])
-            if event["event"] == "registry.chain_started":
-                if seq != int(events[0]["seq"]):
-                    return _broken(seq, "the chain was started again", events, prev)
-                for kind, held in payload["rows"].items():
-                    chained.update({(kind, key): sha for key, sha in held.items()})
-            elif isinstance(payload.get("row"), dict):
+            if isinstance(payload.get("row"), dict):
                 written = payload["row"]
                 chained[(written["kind"], written["key"])] = written["sha256"]
-        if started is not None and not events:
-            return _broken(None, "the chain was emptied", events, prev)
         since: dict[str, int] = {}
         if head is not None:
             at = next((i for i, event in enumerate(events) if event["hash"] == head), None)
@@ -1775,51 +1731,10 @@ class RegistryStore(
         ]
 
 
-# One chain runs through the whole table (`record_event` reads its head over every row), so
-# each event follows a different one: no two rows share a `prev_hash`, the first row's GENESIS
-# included. The unique index makes the database itself refuse a second event chained after the
-# same head (a fork), whatever a future writer gets wrong. As `audit_events` (core/audit.py).
-_CHAIN_LINKS_INDEX = "hub_events_prev_hash"
-
-
-def _index_chain_links(db: Session) -> None:
-    """Create the chain's unique `prev_hash` index on a registry from before it. One that
-    already holds a fork cannot take it: refused, naming no event, so the operator finds the
-    fork with `registry verify` rather than the start half-migrating. Once the index is there
-    nothing is scanned again."""
-    if _CHAIN_LINKS_INDEX in db.indexes("hub_events"):
-        return
-    forked = db.one(
-        "SELECT prev_hash FROM hub_events GROUP BY prev_hash HAVING COUNT(*) > 1 LIMIT 1"
-    )
-    if forked is not None:
-        raise MendariError(
-            "the registry's chain forks (two events follow the same one), so it cannot be given "
-            "the index that keeps it from forking: nothing was migrated. Run `mendari registry "
-            "verify --db <this database>` (read-only) to find where it breaks, and restore the "
-            "database from a backup taken before that point (docs/operations/incident-runbook.md)"
-        )
-    db.all(f"CREATE UNIQUE INDEX {_CHAIN_LINKS_INDEX} ON hub_events (prev_hash)")
-
-
 def _migrate(db: Session) -> None:
-    """New tables come from the schema (`CREATE TABLE IF NOT EXISTS`); the chain's unique links
-    are indexed (`_index_chain_links`). The first time a registry opens with a chain, it marks
-    itself (`hub_meta`) and, if it held rows from before, hashes them once in its first event
-    (`registry.chain_started`). Marked, it never does again: a chain emptied later is reported
-    by `verify`, never started anew."""
-    _index_chain_links(db)
-    if db.one("SELECT value FROM hub_meta WHERE key = 'chain'") is not None:
-        return
-    db.all("INSERT INTO hub_meta (key, value) VALUES ('chain', ?)", (_now_ms(),))
-    if db.one("SELECT seq FROM hub_events LIMIT 1") is not None:
-        return
-    held = {
-        kind: {name(row): _row_sha(row) for row in db.all(f"SELECT * FROM {table}")}
-        for kind, (table, name) in ROWS.items()
-    }
-    if any(held.values()):
-        record_event(db, "registry.chain_started", "registry", {"rows": held})
+    """Bring the schema of an earlier release up to this one's, under the schema lock and after
+    the baseline check (`core/db.py`), in the transaction that made or checked it. The first
+    release's schema is the baseline (`REGISTRY_SCHEMA`): there is nothing to migrate yet."""
 
 
 def _broken(
@@ -1868,11 +1783,10 @@ def _version_row(
     listed: bool = True,
     accepted: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A version as every read serves it: what was stored at publish, without anything the pack
-    carried about itself (a version published before the registry rendered its own card stored
-    the uploaded one, its benchmark and leaderboard), and the two groups (ADR-0012)."""
+    """A version as every read serves it: what was stored at publish (`describe`: the card the
+    registry rendered, never anything the pack carried about itself), and the two groups
+    (ADR-0012)."""
     stored = json.loads(row["metadata"])
-    rendered = stored.get("format") == VERSION_FORMAT
     served = {
         "namespace": row["namespace"],
         "name": row["name"],
@@ -1882,8 +1796,7 @@ def _version_row(
         "archive_sha256": row["archive_sha256"],
         # The raw regression check is served only as `checked.regression` (its accuracy as a
         # figure, labelled), never beside it.
-        **{k: v for k, v in stored.items() if k not in UPLOADED and k != "regression"},
-        "card_markdown": stored.get("card_markdown") if rendered else None,
+        **{k: v for k, v in stored.items() if k != "regression"},
     }
     recall = recall or {}
     regression_of = stored.get("regression")
@@ -1895,7 +1808,7 @@ def _version_row(
         # False while its namespace's claim is not approved: only its own token and a reviewer
         # read it then (LP-19c).
         "listed": listed,
-        "checked": _checked(served, rendered, review, regression_of, accepted),
+        "checked": _checked(served, review, regression_of, accepted),
         "claimed": _claimed(served, review),
     }
 
@@ -1920,7 +1833,6 @@ def _review(version: Mapping[str, Any], review: Mapping[str, Any] | None) -> dic
 
 def _checked(
     version: Mapping[str, Any],
-    rendered: bool,
     review: Mapping[str, Any] | None = None,
     regression_of: Any = None,
     accepted: Mapping[str, Any] | None = None,
@@ -1938,7 +1850,7 @@ def _checked(
         # on another release may run a copy of a bundled agent on the bounded engine.
         "engine_release": version.get("engine_release"),
         # Rendered here from the files the digest covers, never the uploaded card.
-        "card": "rendered" if rendered else "not_rendered",
+        "card": "rendered",
         # Derived by the code from the manifest's provenance: it only ever lowers a claim.
         "status_label": version.get("status_label"),
         "review": _review(version, review),
@@ -2366,8 +2278,8 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
 
     def publisher_namespace(token: str, *, used: bool = False) -> str | None:
         """The namespace an owned token publishes to, while it is neither revoked nor expired;
-        None for any other token, one from before owned tokens included (LP-19g). `used` notes
-        the day the token was used, for a request it was let through on."""
+        None for any other token (LP-19g). `used` notes the day the token was used, for a
+        request it was let through on."""
         owned = store.publisher(token)
         if owned is None:
             return None
@@ -2746,12 +2658,6 @@ def _registry_app(store: RegistryStore, *, owned: bool) -> FastAPI:
             raise RequestValidationError([problem]) from None
         if not isinstance(parsed, dict):
             raise HubError(f"the body is a {site_signing.SUBMISSION} record")
-        old = parsed.get("report")
-        if isinstance(old, dict) and old.get("format") == SITE_REPORT_FORMAT:
-            raise HubError(
-                f"{SITE_REPORT_FORMAT} is no longer taken: send {SITE_REPORT_V2} (whole counts "
-                "only; mendari eval --share sends it)"
-            )
         return await run_in_threadpool(
             lambda: store.accept_submission(
                 namespace,

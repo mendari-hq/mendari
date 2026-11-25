@@ -1143,17 +1143,18 @@ def test_the_api_reference_asks_a_browser_to_sign_in(app: TestClient, idp: FakeI
 
 
 def legacy_key(db: Path | str, role: str, org: str = "default") -> str:
-    """A key as made before Phase 4 (ADR-0004): any role, no scopes, no expiry. Opening the
-    store afterwards is a start: the migration gives it its expiry."""
+    """A key of a role no route makes (keys are viewer or service, ADR-0004), with no scopes,
+    written past the store as someone with the database could: whatever its role, a key never
+    does what only a person may. It expires as every key does."""
     secret = "ohk_" + secrets.token_urlsafe(32)
     row = (secrets.token_hex(6), hashlib.sha256(secret.encode()).hexdigest(), f"old {role}")
+    expires = (datetime.now(UTC) + timedelta(days=30)).isoformat(timespec="milliseconds")
     with AuditStore(db) as store, store._db.session(exclusive=True) as session:
         session.all(
-            "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at) "
-            "VALUES (?, ?, ?, ?, ?, 'before', '2026-09-01T00:00:00.000+00:00')",
-            (*row, role, org),
+            "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at, "
+            "expires_at) VALUES (?, ?, ?, ?, ?, 'before', '2026-09-01T00:00:00.000+00:00', ?)",
+            (*row, role, org, expires),
         )
-    AuditStore(db).close()
     return secret
 
 
@@ -1689,29 +1690,6 @@ def test_keys_list_scope_expiry_and_who_revoked_them_never_the_key(
     assert [e["event"] for e in events] == ["key.created", "key.revoked"]
     assert made["key"] not in json.dumps(events)
     assert store.verify()["ok"] is True
-
-
-def test_keys_from_before_phase_4_expire_30_days_after_the_start(
-    app: TestClient, idp: FakeIdp, tmp_path: Path
-) -> None:
-    """They keep their role (an old reviewer key still reviews) until they expire; managing keys
-    they never may."""
-    reviewer = {"authorization": f"Bearer {legacy_key(tmp_path / 'a.db', 'reviewer')}"}
-    me = app.get("/api/auth/me", headers=reviewer).json()["principal"]
-    assert me["roles"] == ["reviewer"] and me["scope"] is None
-    left = (datetime.fromisoformat(me["expires_at"]) - datetime.now(UTC)) / timedelta(days=1)
-    assert 29.9 < left <= 30
-    emergency = message("Crushing chest pain and my left arm is numb")  # waits for review
-    decided = app.post(f"/api/agents/{INBOX}/decide", json=emergency, headers=reviewer).json()
-    assert (
-        app.post(
-            f"/api/review/{decided['id']}",
-            json={"final_label": "nurse", "reviewer": "x"},
-            headers=reviewer,
-        ).status_code
-        == 200
-    )
-    assert app.get("/api/auth/keys", headers=reviewer).status_code == 403
 
 
 def test_an_authorization_endpoint_with_a_query_keeps_it(app: TestClient, idp: FakeIdp) -> None:

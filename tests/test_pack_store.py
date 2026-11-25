@@ -398,18 +398,6 @@ def test_audit_verify_passes_after_every_store_event(
     assert store.subject_history("pack_version", stored.id, ORG_B) is None
 
 
-def test_a_database_from_before_the_store_opens_and_verifies(tmp_path: Path) -> None:
-    target = str(tmp_path / "old.db")
-    with AuditStore(target) as store, store._db.session(exclusive=True) as db:
-        for table in ("store_files", "store_versions", "store_usage"):
-            db.all(f"DROP TABLE {table}")
-    with AuditStore(target, read_only=True) as old:
-        assert old.verify()["ok"]
-    with AuditStore(target) as migrated:
-        assert migrated.verify()["ok"]
-        assert PackStore(migrated).versions(ORG_A) == []
-
-
 def test_the_operators_commands_list_verify_withdraw_and_purge(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -671,7 +671,7 @@ def test_a_key_rotation_reseals_the_texts_and_the_check_covers_them(
         before = {row["id"]: row["body"] for row in rows(store, "written_items")}
     with AuditStore(db_target, phi=PhiPolicy("encrypt", new, HASH, (old,))) as store:
         checked = store.phi_check()
-        assert checked["by_key"]["written"] == {"legacy": 5} and checked["failures"] == 5
+        assert checked["by_key"]["written"] == {key_id(old): 5} and checked["failures"] == 5
         assert {failure["kind"] for failure in checked["failed"]} == {"written"}
         summary = store.rotate_phi(to=key_id(new))
         assert summary["written"] == 5 and summary["unopenable"] == []
@@ -726,26 +726,7 @@ def test_retention_erases_the_texts_a_round_still_keeps(world: World) -> None:
     assert world.store.verify()["ok"]
 
 
-# -- an older database, and the command line ----------------------------------------------------
-
-
-def test_a_database_from_before_the_tables_reads_as_having_none(
-    world: World, db_target: str
-) -> None:
-    a = person(world.store, "grader-x")
-    with world.store._db.session(exclusive=True) as db:
-        for table in ("written_assignments", "written_items", "written_rounds"):
-            db.all(f"DROP TABLE {table}")
-    with AuditStore(db_target, read_only=True) as older:
-        rounds = WrittenStore(older)
-        assert rounds.rounds(None) == [] and rounds.rounds(CLINIC) == []
-        assert rounds.labelling(a, org=CLINIC) == {"sets": [], "remaining": 0}
-        assert (
-            rounds.assignment_round("00000000-0000-4000-8000-000000000000", a, org=CLINIC) is None
-        )
-        with pytest.raises(NoRound):
-            rounds.progress("00000000-0000-4000-8000-000000000000")
-        assert older.verify()["ok"] and older.phi_check()["by_key"].get("written") is None
+# -- the command line ---------------------------------------------------------------------------
 
 
 def run_cli(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str, str]:

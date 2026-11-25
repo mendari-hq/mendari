@@ -41,38 +41,26 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
-from mendari.core.spec import Outcome
 from mendari.standards import audit_fhir, davinci
 from mendari.standards.fhir import DECISION_ID_SYSTEM, OUTCOME_SYSTEM, PACK_TAG_SYSTEM, narrative
 
 
-def task_status(
-    outcome: str, confidence: float | None, review_status: str, flag: int | None = None
-) -> str:
-    """The Task status from `decisions` columns, and nothing else.
+def task_status(review_status: str, refused: int | bool) -> str:
+    """The Task status from two `decisions` columns, and nothing else.
 
     Search filters on status in SQL with the same predicate over the same columns, so what a
     Task renders and what `Task?status=` finds can never disagree; keep the two in step:
 
-    - `failed`: a refused input (`refused`).
+    - `failed`: a refused input (`refused`, recorded with the decision: the input was refused
+      before any provider ran).
     - `requested`: `review_status = 'pending'`, waiting in Mendari's review queue.
     - `completed`: everything else, a policy BLOCK included.
     """
-    if refused(outcome, confidence, flag):
+    if refused:
         return "failed"
     if review_status == "pending":
         return "requested"
     return "completed"
-
-
-def refused(outcome: str, confidence: float | None, flag: int | None = None) -> bool:
-    """Whether the input was refused before any provider ran: the `refused` column, recorded
-    with the decision. Rows from before that column have none; for them, a BLOCK without
-    confidence (no provider ran, so the primary question has no answer), which is exact for
-    every pack whose BLOCK rules target its primary question, as the shipped packs' do."""
-    if flag is not None:
-        return bool(flag)
-    return outcome == Outcome.BLOCK.value and confidence is None
 
 
 def task_versions(item: Mapping[str, Any], base: str | None = None) -> list[dict[str, Any]]:
@@ -100,9 +88,7 @@ def _version(
     reviewed = next((e for e in made if e["event"] == "review.resolved"), None)
     review = None if reviewed is None else reviewed["payload"]
     observed = [e["payload"] for e in made if e["event"] == "outcome.recorded"]
-    status = task_status(
-        item["outcome"], item["confidence"], _review_status(item, review), item.get("refused")
-    )
+    status = task_status(_review_status(item, review), item["refused"])
     pack = f"{item['pack_id']}@{item['pack_version']}"
     version = str(len(made))
     summary = (
@@ -134,7 +120,7 @@ def _version(
         "executionPeriod": period,
         "owner": {"display": str(review["reviewer"])} if review else audit_fhir.engine(item),
     }
-    if record["reasons"] and not refused(item["outcome"], item["confidence"], item.get("refused")):
+    if record["reasons"] and not item["refused"]:
         task["note"] = [{"text": reason} for reason in record["reasons"]]
     outputs = list(_outputs(item, review, observed[-1] if observed else None))
     if outputs:

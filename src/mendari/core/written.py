@@ -591,18 +591,11 @@ class WrittenStore:
 
     # -- reads: ids and counts ---------------------------------------------------------------------
 
-    def _has_tables(self, db: Session) -> bool:
-        """Whether this database has the rounds' tables: one from before them, read as it is,
-        has none, and reads as holding no round."""
-        return bool(db.columns("written_rounds"))
-
     def progress(self, round_id: str, *, org: str | None = None) -> dict[str, Any]:
         """A round's labelling so far: its state, its items (and how many texts are erased), its
         assignments by state, and each grader's by user id. Counts only: no grade, and never
         which items have two graders."""
         with self.store._db.session(exclusive=False) as db:
-            if not self._has_tables(db):
-                raise NoRound(NO_ROUND)
             found = self._round(db, round_id, org)
             items = db.all("SELECT id, body FROM written_items WHERE round_id = ?", (round_id,))
             rows = db.all(
@@ -646,8 +639,6 @@ class WrittenStore:
         served: `report` is null and `note` says why. A round left `closing` says so in `note`
         too, with how to finish it."""
         with self.store._db.session(exclusive=False) as db:
-            if not self._has_tables(db):
-                return []
             where, params = [], []
             if org is not None:
                 where.append("r.org = ?")
@@ -852,8 +843,6 @@ class WrittenStore:
         if not (isinstance(user_id, str) and accounts.USER_ID.fullmatch(user_id)):
             return {"sets": [], "remaining": 0}
         with self.store._db.session(exclusive=False) as db:
-            if not self._has_tables(db):
-                return {"sets": [], "remaining": 0}
             membership = labeller_membership(db, org, user_id)
             if membership is None:
                 return {"sets": [], "remaining": 0}
@@ -887,8 +876,6 @@ class WrittenStore:
         if not _is_uuid(assignment_id):
             return None
         with self.store._db.session(exclusive=False) as db:
-            if not self._has_tables(db):
-                return None
             row = db.one(
                 "SELECT round_id FROM written_assignments WHERE id = ? AND user_id = ? AND org = ?",
                 (assignment_id, user_id, org),
