@@ -26,6 +26,9 @@ import json
 import os
 import re
 import shutil
+import socket
+import threading
+import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -33,7 +36,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, urlsplit
 
+import httpx
 import pytest
+import uvicorn
 import yaml
 from fastapi.testclient import TestClient
 
@@ -46,7 +51,11 @@ from mendari.core.audit import (
     DEPLOYMENT_KINDS,
     PERSON_KINDS,
 )
+from mendari.core.pack import Pack, load_pack
 from mendari.core.registry import resolve_pack
+from mendari.hub import archive
+from mendari.hub.client import RegistryClient
+from mendari.hub.registry import RegistryStore, create_registry_app
 from mendari.providers import reach
 from mendari.server import presets, smart_check, smart_routes
 from mendari.server.api_docs import FHIR_EXAMPLE
@@ -78,8 +87,6 @@ from tests.support.platform import (
     smart_tenant,
 )
 from tests.test_backend_services import Signer, assertion, bearer
-from tests.test_hub_client import Hub, hub  # noqa: F401 - the live registry fixture
-from tests.test_hub_routes import as_published
 from tests.test_memberships import token_of
 
 APP = "https://mendari.test"
@@ -503,13 +510,84 @@ def automated(base: Path) -> Path:
     return base
 
 
+# -- a registry served over HTTP, to find agents in and add them from ---------------------------
+
+
+def free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+class Hub:
+    """A registry served on this machine (`hub`): its address and its database, where the
+    operator's commands act."""
+
+    def __init__(self, url: str, db: Path) -> None:
+        self.url = url
+        self.db = db
+        self.clients: list[RegistryClient] = []
+
+    def client(self, token: str | None = None) -> RegistryClient:
+        """A client closed when the test ends."""
+        opened = RegistryClient(self.url, token)
+        self.clients.append(opened)
+        return opened
+
+    def namespace(self, name: str) -> tuple[str, archive.Ed25519PrivateKey]:
+        """A namespace the operator made (no claim: listed), its owned token and a key."""
+        with RegistryStore(self.db) as store:
+            store.create_namespace(name, "community", "")
+            token = store.mint_token(
+                name, org=name, owner="operator", name="tests", days=90, by="operator"
+            )["token"]
+        private, public = archive.generate_key()
+        self.client(token).add_key(name, public)
+        return token, archive.load_private_key(private)
+
+
+@pytest.fixture
+def hub(tmp_path: Path) -> Iterator[Hub]:
+    port = free_port()
+    db = tmp_path / "registry.db"
+    app = create_registry_app(db)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(100):
+        try:
+            with httpx.Client() as probe:
+                probe.get(f"{url}/v1/health").raise_for_status()
+            break
+        except httpx.HTTPError:
+            time.sleep(0.05)
+    registry = Hub(url, db)
+    yield registry
+    for opened in registry.clients:
+        opened.close()
+    server.should_exit = True
+    thread.join(timeout=5)
+
+
+def as_published(base: Path, pack_id: str) -> Pack:
+    """The bundled demo agent under a publisher's own id, as a publisher puts one in a
+    registry."""
+    target = base / "published" / pack_id.replace("/", "-")
+    shutil.copytree(DEMO_AGENT_DIR, target)
+    manifest = yaml.safe_load((target / "agent.yaml").read_text())
+    manifest["id"] = pack_id
+    (target / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    return load_pack(target)
+
+
 @pytest.fixture(params=["claims", "memberships"])
 def world(
     request: pytest.FixtureRequest,
     db_target: str,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Any,
-    hub: Hub,  # noqa: F811
+    hub: Hub,
 ) -> Iterator[World]:
     accounts = request.param
     # The agent whose connection each organization sets (ADR-0021), served beside the others;
