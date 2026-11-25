@@ -3486,12 +3486,12 @@ def _agent_argument(
     about: str = "agent id (namespace/name[@version]) or directory",
     **kwargs: Any,
 ) -> None:
-    """The agent a command takes, shown as `agent`; the commands read it as `args.agent`."""
+    """The agent a command takes (`args.agent`)."""
     command.add_argument("agent", metavar="agent", help=about, **kwargs)
 
 
 def _agent_option(command: argparse.ArgumentParser, **kwargs: Any) -> None:
-    """`--agent`, the agent a command is about; the commands read it as `args.agent`."""
+    """`--agent`, the agent a command is about (`args.agent`)."""
     if "choices" not in kwargs:  # with choices, the usage lists them
         kwargs.setdefault("metavar", "AGENT")
     command.add_argument("--agent", dest="agent", **kwargs)
