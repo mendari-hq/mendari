@@ -18,12 +18,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from mendari.evals import ranking, result, stats
-from mendari.evals.result import (
-    MAX_N,
-    MIN_POSITIVES,
-    false_automation,
-    subgroup_labelled,
-)
+from mendari.evals.result import MAX_N, MIN_POSITIVES, false_automation
 
 FORMAT = "mendari.figures/1"
 OUTCOMES = ("AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK")
@@ -131,7 +126,7 @@ def report(r: Mapping[str, Any]) -> dict[str, Any]:
     for attribute, values in r["subgroups"].items():
         out["subgroups"][attribute] = {
             value: {
-                "accuracy": counted(m["accuracy"], subgroup_labelled(r, m)),
+                "accuracy": counted(m["accuracy"], m["labelled"]),
                 "automation": counted(m["auto_rate"], m["n"]),
                 "abstention": counted(m["abstention_rate"], m["n"]),
             }

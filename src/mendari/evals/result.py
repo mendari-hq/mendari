@@ -298,14 +298,3 @@ def false_automation(report: Mapping[str, Any]) -> stats.Proportion | None:
     wrong = counted(automation["false_automation_rate"], automation["n"])
     labelled = report["questions"].get(report["primary"], {}).get("n")
     return None if wrong is None or labelled is None else stats.proportion(wrong.k, labelled)
-
-
-def subgroup_labelled(report: Mapping[str, Any], members: Mapping[str, Any]) -> int | None:
-    """How many of a subgroup's members are labelled for the primary question, which its
-    accuracy is over, as the report stores it (`labelled`); else known only when every case is
-    labelled."""
-    if "labelled" in members:
-        return int(members["labelled"])
-    question = report["questions"].get(report["primary"]) or {}
-    every = question.get("n") is not None and question.get("n") == report["dataset"].get("n")
-    return int(members["n"]) if every else None

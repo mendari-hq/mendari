@@ -179,13 +179,12 @@ def test_a_subgroup_with_few_labelled_members_is_never_flagged() -> None:
     "spoil",
     [
         lambda b: b.pop("dataset"),
-        lambda b: (
-            [b.pop("primary")]  # with subgroups counted as mendari.eval/1 counts them
-            + [m.pop("labelled") for v in b["subgroups"].values() for m in v.values()]
-        ),
+        lambda b: b.pop("primary"),
+        # A subgroup holds its labelled members in every result a release writes.
+        lambda b: [m.pop("labelled") for v in b["subgroups"].values() for m in v.values()],
         lambda b: next(iter(b["subgroups"]["channel"].values())).update(labelled="many"),
     ],
-    ids=["dataset", "primary", "labelled"],
+    ids=["dataset", "primary", "labelled-missing", "labelled"],
 )
 def test_a_baseline_without_what_it_measured_cannot_be_compared(
     spoil: Callable[[dict[str, Any]], None],

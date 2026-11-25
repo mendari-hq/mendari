@@ -15,11 +15,7 @@ from mendari.core.policy import GATE_TEXT, gate_of
 from mendari.core.spec import AgentManifest, Condition, Question
 from mendari.evals import leaderboard, operating_point, ranking, stats
 from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
-from mendari.evals.result import (
-    counted,
-    false_automation,
-    subgroup_labelled,
-)
+from mendari.evals.result import counted, false_automation
 
 RISK_NAMES = {
     0: "administrative",
@@ -673,9 +669,9 @@ def _validation(report: dict[str, Any]) -> list[str]:
     ]
     for attribute, values in report["subgroups"].items():
         for value, m in values.items():
-            labelled = subgroup_labelled(report, m)
             rows.append(
-                f"| {attribute}={value} | {m['n']} | {shown(counted(m['accuracy'], labelled))} "
+                f"| {attribute}={value} | {m['n']} "
+                f"| {shown(counted(m['accuracy'], m['labelled']))} "
                 f"| {shown(counted(m['auto_rate'], m['n']))} "
                 f"| {shown(counted(m['abstention_rate'], m['n']))} |"
             )

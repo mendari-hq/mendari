@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -124,14 +124,30 @@ def test_report_figures_are_the_ones_the_card_shows(name: str, tmp_path: Path) -
         row(f"{t['threshold']:.2f}", shown(f["automated"]), shown(f["correct"]))
 
 
-def test_a_sweep_row_without_its_counts_is_not_read_from_its_coverage(tmp_path: Path) -> None:
-    """Every sweep row a release writes holds the cases it is of (`scored`, and `chosen` at or
-    above its threshold). A row without them is not one: the report's figures are not worked
-    out from its coverage, so none is served for it (n/a on the page)."""
-    report = benchmark(published(TRIAGE_DIR, tmp_path))
-    assert report is not None
+def _sweep_uncounted(report: dict[str, Any]) -> None:
     for row in report["threshold_sweep"]:
         del row["chosen"], row["scored"]
+
+
+def _subgroups_unlabelled(report: dict[str, Any]) -> None:
+    for values in report["subgroups"].values():
+        for members in values.values():
+            del members["labelled"]
+
+
+@pytest.mark.parametrize(
+    "spoil", [_sweep_uncounted, _subgroups_unlabelled], ids=["sweep", "subgroups"]
+)
+def test_a_report_without_the_counts_its_figures_are_of_serves_none(
+    spoil: Callable[[dict[str, Any]], None], tmp_path: Path
+) -> None:
+    """Every report a release writes holds the cases each figure is of: a sweep row its `scored`
+    and its `chosen` at or above the threshold, a subgroup its `labelled` members. One without
+    them is not read another way (from a row's coverage, from a subgroup's size): no figure is
+    served for it (n/a on the page)."""
+    report = benchmark(published(TRIAGE_DIR, tmp_path))
+    assert report is not None
+    spoil(report)
     with pytest.raises(KeyError):
         figures.report(report)
     assert figures.guarded(lambda: figures.report(report)) is None

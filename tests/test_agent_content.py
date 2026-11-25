@@ -576,6 +576,17 @@ def _sweep_uncounted(agent: Path) -> None:
     path.write_text(json.dumps(data))
 
 
+def _subgroups_unlabelled(agent: Path) -> None:
+    """The shipped benchmark with its subgroups without their labelled members, which each
+    subgroup's accuracy is over and every subgroup a release writes holds."""
+    path = agent / "evals" / "benchmark.json"
+    data = json.loads(path.read_text())
+    for values in data["subgroups"].values():
+        for members in values.values():
+            del members["labelled"]
+    path.write_text(json.dumps(data))
+
+
 @pytest.mark.parametrize(
     ("edit", "absent"),
     [
@@ -584,6 +595,7 @@ def _sweep_uncounted(agent: Path) -> None:
         (_agent_block(5), "benchmark"),
         (_run_lifted, "benchmark"),
         (_sweep_uncounted, "benchmark"),
+        (_subgroups_unlabelled, "benchmark"),
         (_write_eval("benchmark.json", '{"primary": NaN}'), "benchmark"),
         (_write_eval("benchmark.json", "[]"), "benchmark"),
         (_write_eval("benchmark.json", '{"primary": "specialty"}'), "benchmark"),
@@ -600,6 +612,7 @@ def _sweep_uncounted(agent: Path) -> None:
         "benchmark-agent-not-object",
         "benchmark-without-run",
         "benchmark-sweep-without-counts",
+        "benchmark-subgroups-without-labelled",
         "benchmark-nan",
         "benchmark-list",
         "benchmark-shape",
