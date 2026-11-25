@@ -5,10 +5,12 @@ does not own is refused for any problem and must name the fields its model varia
 owned one loads with the problems as warnings, and `mendari validate` refuses both. For a pack
 the deployment does not own, the deployment chooses the model and caps the answer length, the
 timeout and the effort (`core/origin.py` `deployment_config`). Generated packs hold load and
-validate together, and reach only the deployment's endpoints, with its credentials."""
+validate together, and reach only the deployment's endpoints, with its credentials. The packs
+are the synthetic visit sorter (`tests/support/engine.py`), pulled from a registry or owned."""
 
 from __future__ import annotations
 
+import copy
 import json
 import shutil
 import socket
@@ -44,72 +46,37 @@ from mendari.providers import (
 )
 from mendari.providers.base import Provider, ProviderInfo
 from mendari.providers.llm import CALIBRATION_FORMAT
-from mendari.providers.naive_bayes import FORMAT as NB_FORMAT
 from mendari.server.app import create_app
-from tests.conftest import INBOX_DIR, ROOT, fixture_agents
+from tests.conftest import DEMO_AGENT_DIR, FIXTURE_AGENTS, ROOT, fixture_agents
+from tests.support.engine import SORTER_MANIFEST, sorter
 
-PACKS = INBOX_DIR.parent
+PACKS = FIXTURE_AGENTS
 SCHEMA_FILE = ROOT / "docs" / "spec" / "provider-configs.schema.json"
-SORTER = ROOT / "tests" / "fixtures" / "community-agents" / "visit-sorter"
 PACK_ID = "someone/config-test"
 BILL = {"message": "I have a question about my last bill."}
 SENT = ["message"]
 TOPICS = ("billing", "scheduling", "other")
 
 RULES = {"type": "rules", "config": "logic/rules.yaml"}
-NB = {"type": "naive_bayes", "model_file": "models/nb.json"}
-# A valid config of every type: in the `reader` slot (one question, `topic`), and `dosing` in the
-# `dose` slot (one yes/no/unknown question, `too_much`).
+AGENT = {"type": "agent", "state_fields": SENT, "mock_file": "models/mock_agent.json"}
+# A valid config of every type the engine keeps, in the `reader` slot (one question, `topic`).
 VALID: dict[str, dict[str, Any]] = {
     "rules": RULES,
-    "criteria": {"type": "criteria", "config": "logic/criteria.yaml"},
-    "cql": {"type": "cql", "library": "logic/topic.cql", "expressions": {"topic": "Topic"}},
-    "dosing": {"type": "dosing", "config": "logic/dosing.yaml"},
-    "naive_bayes": NB,
-    "jev": {"type": "jev", "state_fields": SENT},
     "llm": {"type": "llm", "state_fields": SENT, "calibration": "models/calibration.json"},
-    "agent": {"type": "agent", "state_fields": SENT, "mock_file": "models/mock_agent.json"},
-    "any_of": {
-        "type": "any_of",
-        "escalate": {"topic": "billing"},
-        "members": {"a": RULES, "b": NB},
-    },
-    "cascade": {"type": "cascade", "accept_at": 0.9, "members": {"a": NB, "b": RULES}},
-    "vote": {"type": "vote", "weights": {"a": 1, "b": 2}, "members": {"a": RULES, "b": NB}},
-    "check": {"type": "check", "members": {"a": NB, "b": RULES}},
+    "agent": AGENT,
+    "check": {"type": "check", "members": {"a": AGENT, "b": RULES}},
 }
-DOSE_TYPES = {"dosing"}
 
 
-def slot_of(kind: str) -> str:
-    return "dose" if kind in DOSE_TYPES else "reader"
-
-
-def manifest(
-    reader: dict[str, Any] | None = None,
-    dose: dict[str, Any] | None = None,
-    *,
-    pack_id: str = PACK_ID,
-) -> dict[str, Any]:
-    """The visit sorter, with a second slot for a dosing check: its `rules` and `dosing`
-    defaults, and the variants given."""
-    data = yaml.safe_load((SORTER / "agent.yaml").read_text())
+def manifest(reader: dict[str, Any] | None = None, *, pack_id: str = PACK_ID) -> dict[str, Any]:
+    """The visit sorter: its `rules` default, and the variants given."""
+    data = copy.deepcopy(SORTER_MANIFEST)
     data["id"] = pack_id
-    data["spec_version"] = "0.4"  # the `check` composite is spec 0.4's (ADR-0024)
-    data["questions"]["too_much"] = {
-        "instructions": "Does a stated dose go above the medicine's daily maximum?",
-        "criteria": {"yes": "Above it.", "no": "Within it.", "unknown": "Cannot tell."},
-    }
     data["providers"] = {
         "reader": {
             "answers": ["topic"],
             "use": "rules",
             "variants": {"rules": RULES, **(reader or {})},
-        },
-        "dose": {
-            "answers": ["too_much"],
-            "use": "dosing",
-            "variants": {"dosing": VALID["dosing"], **(dose or {})},
         },
     }
     return data
@@ -118,39 +85,9 @@ def manifest(
 @pytest.fixture(scope="module")
 def template(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """The files every variant above reads, once: tests copy them and write their manifest."""
-    root = tmp_path_factory.mktemp("template") / "pack"
-    shutil.copytree(SORTER, root)
+    root = sorter(tmp_path_factory.mktemp("template"), pack_id="someone/pack")
     (root / "agent.yaml").unlink()
-    files = {
-        "logic/criteria.yaml": {
-            "questions": {
-                "topic": {
-                    "checks": [{"value": {"field": "message", "in": ["bill"], "then": "billing"}}],
-                    "default": "other",
-                }
-            }
-        },
-        "logic/dosing.yaml": {
-            "text_fields": ["message"],
-            "medicines": {"acetaminophen": {"names": ["acetaminophen"], "max_daily_mg": 4000}},
-        },
-    }
-    for relative, data in files.items():
-        (root / relative).write_text(yaml.safe_dump(data, sort_keys=False))
-    (root / "logic" / "topic.cql").write_text(
-        "library Topic version '1.0'\n\ndefine \"Topic\": 'other'\n"
-    )
     (root / "models").mkdir()
-    nb = {
-        "format": NB_FORMAT,
-        "question": "topic",
-        "labels": list(TOPICS),
-        "text_fields": ["message"],
-        "temperature": 1.0,
-        "log_prior": [-1.1, -1.1, -1.1],
-        "tokens": {"bill": [-1.0, -3.0, -3.0], "appointment": [-3.0, -1.0, -3.0]},
-    }
-    (root / "models" / "nb.json").write_text(json.dumps(nb))
     calibration = {
         "format": CALIBRATION_FORMAT,
         "model": "example/m",
@@ -192,7 +129,7 @@ def make(template: Path, tmp_path: Path) -> Callable[..., Path]:
 @pytest.fixture(autouse=True)
 def _no_model_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """The model settings a provider reads at build are the deployment's, never the shell's."""
-    for name in ("LLM_MODEL", "LLM_BASE_URL", "LLM_API_KEY", "AI_GATEWAY_API_KEY", "JEV_MODEL"):
+    for name in ("LLM_MODEL", "LLM_BASE_URL", "LLM_API_KEY", "AI_GATEWAY_API_KEY"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -216,7 +153,7 @@ def validates(pack: Pack) -> bool:
 def test_every_provider_type_has_a_closed_config_and_checks_it() -> None:
     """Each type's closed model forbids other keys, and each provider checks its own configs
     (`Provider.config_problems` checks nothing)."""
-    assert set(PROVIDER_CONFIG_MODELS) == set(PROVIDER_TYPES) == set(VALID)
+    assert set(PROVIDER_CONFIG_MODELS) == set(PROVIDER_TYPES) >= set(VALID)
     for kind, model in PROVIDER_CONFIG_MODELS.items():
         assert model.model_config.get("extra") == "forbid", kind
         own = [c for c in PROVIDER_TYPES[kind].__mro__ if "config_problems" in vars(c)]
@@ -224,7 +161,7 @@ def test_every_provider_type_has_a_closed_config_and_checks_it() -> None:
 
 
 def test_the_template_pack_has_no_problem_wherever_it_comes_from(make: Callable[..., Path]) -> None:
-    root = make({f"v_{kind}": config for kind, config in VALID.items() if kind not in DOSE_TYPES})
+    root = make({f"v_{kind}": config for kind, config in VALID.items()})
     for origin in ("local", "hub"):
         pack = load_pack(root, origin=origin)
         assert pack.bounded is (origin == "hub")
@@ -238,10 +175,8 @@ def test_every_variant_is_checked_at_load_against_its_closed_config(
 ) -> None:
     """A key no provider reads: a pack from a registry is refused naming the variant; an owned
     one loads, warned, and `mendari validate` refuses it."""
-    variant = {"broken": {**VALID[kind], "x": 1}}
-    slot = slot_of(kind)
-    root = make(**{slot: variant})
-    where = f"providers.{slot}.variants.broken"
+    root = make({"broken": {**VALID[kind], "x": 1}})
+    where = "providers.reader.variants.broken"
     problems = refused(root)
     assert len(problems) == 1 and problems[0].startswith(f"{where}: "), problems
     assert "x\n  Extra inputs are not permitted" in problems[0]
@@ -252,8 +187,8 @@ def test_every_variant_is_checked_at_load_against_its_closed_config(
 
 
 def test_a_member_is_checked_as_its_own_type(make: Callable[..., Path]) -> None:
-    member = {**VALID["jev"], "x": 1}
-    root = make({"screen": {**VALID["any_of"], "members": {"a": RULES, "b": member}}})
+    member = {**VALID["llm"], "x": 1}
+    root = make({"screen": {**VALID["check"], "members": {"a": RULES, "b": member}}})
     (problem,) = refused(root)
     assert problem.startswith("providers.reader.variants.screen.members.b: 1 validation error")
 
@@ -261,23 +196,22 @@ def test_a_member_is_checked_as_its_own_type(make: Callable[..., Path]) -> None:
 def test_a_broken_non_default_variant_is_refused_for_a_registry_pack_and_warned_for_an_owned_one(
     make: Callable[..., Path], template: Path, tmp_path: Path
 ) -> None:
-    """A variant that cannot run, though the pack's default never uses it: a label its criteria
+    """A variant that cannot run, though the pack's default never uses it: a label its rules
     answer that the question does not have. The owned pack loads and decides with its default
     as before; the variant still fails when chosen, as it always did."""
-    criteria = yaml.safe_load((template / "logic" / "criteria.yaml").read_text())
-    criteria["questions"]["topic"]["default"] = "maybe"
-    root = make({"criteria": VALID["criteria"]})
-    (root / "logic" / "criteria.yaml").write_text(yaml.safe_dump(criteria))
+    rules = yaml.safe_load((template / "logic" / "rules.yaml").read_text())
+    rules["questions"]["topic"]["default"] = "maybe"
+    root = make({"other": {"type": "rules", "config": "logic/other.yaml"}})
+    (root / "logic" / "other.yaml").write_text(yaml.safe_dump(rules))
     wanted = [
-        "providers.reader.variants.criteria: logic/criteria.yaml: topic answers ['maybe'], not "
-        "labels of the question"
+        "providers.reader.variants.other: logic/other.yaml: unknown labels ['maybe'] for 'topic'"
     ]
     assert refused(root) == wanted
     owned = load_pack(root)
     assert list(owned.warnings) == wanted
     assert Decision(owned).decide(BILL).recommendation == "billing"
-    with pytest.raises(PackValidationError, match="not labels of the question"):
-        build_provider(owned, "reader", "criteria")
+    with pytest.raises(PackValidationError, match=r"unknown labels \['maybe'\]"):
+        build_provider(owned, "reader", "other")
     assert not validates(owned)
 
 
@@ -329,18 +263,16 @@ def test_an_owned_packs_unread_key_warns_and_it_still_serves(
 
 
 def test_trained_files_are_read_only_when_trained(make: Callable[..., Path]) -> None:
-    """`load_pack(missing_models_ok=True)` (`mendari train`) does not read `model_file` or
-    `calibration`; a broken one is a problem otherwise. A calibration file is checked whichever
-    model it was fitted on: which model runs is the deployment's."""
-    other = {**VALID["llm"], "calibration": "models/nb.json"}
-    root = make({"nb": NB, "llm": VALID["llm"], "other": other})
-    (root / "models" / "nb.json").write_text(json.dumps({"format": "other"}))
+    """`load_pack(missing_models_ok=True)` does not read a `calibration`; a broken one is a
+    problem otherwise. A calibration file is checked whichever model it was fitted on: which
+    model runs is the deployment's."""
+    other = {**VALID["llm"], "calibration": "models/mock_agent.json"}
+    root = make({"llm": VALID["llm"], "other": other})
     (root / "models" / "calibration.json").write_text(
         json.dumps({"format": CALIBRATION_FORMAT, "model": "elsewhere/m", "temperatures": [1]})
     )
     assert load_pack(root, origin="hub", missing_models_ok=True).warnings == ()
     assert refused(root) == [
-        f"providers.reader.variants.nb: models/nb.json: expected format {NB_FORMAT}",
         "providers.reader.variants.llm: the calibration file's temperatures are not a mapping",
         "providers.reader.variants.other: not a calibration file",
     ]
@@ -350,12 +282,12 @@ def test_trained_files_are_read_only_when_trained(make: Callable[..., Path]) -> 
 
 
 def test_a_registry_packs_remote_variant_needs_state_fields(make: Callable[..., Path]) -> None:
-    llm, jev = {"type": "llm"}, {"type": "jev"}
+    llm, agent = {"type": "llm"}, {"type": "agent"}
     root = make(
         {
             "llm": llm,
-            "jev": jev,
-            "screen": {**VALID["any_of"], "members": {"rules": RULES, "llm": llm, "jev": jev}},
+            "agent": agent,
+            "screen": {**VALID["check"], "members": {"llm": llm, "agent": agent}},
             "nothing": {"type": "llm", "state_fields": []},
         }
     )
@@ -365,24 +297,20 @@ def test_a_registry_packs_remote_variant_needs_state_fields(make: Callable[..., 
     )
     assert refused(root) == [
         f"providers.reader.variants.llm: {rule.format('llm')}",
-        f"providers.reader.variants.jev: {rule.format('jev')}",
+        f"providers.reader.variants.agent: {rule.format('agent')}",
         f"providers.reader.variants.screen.members.llm: {rule.format('llm')}",
-        f"providers.reader.variants.screen.members.jev: {rule.format('jev')}",
+        f"providers.reader.variants.screen.members.agent: {rule.format('agent')}",
         f"providers.reader.variants.nothing: {rule.format('llm')}",
     ]
-    assert refused(root, "community") == refused(root)
     owned = load_pack(root)  # an owned pack may send the whole input, as before
     assert owned.warnings == ()
-    assert not {"cql"} & MODEL_TYPES  # CQL sends a fixed bundle and has no state_fields
+    assert {"llm", "agent"} <= MODEL_TYPES
 
 
 def test_a_registry_packs_pinned_model_gives_way_to_the_deployments(
     make: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pinned = {
-        "llm": {"type": "llm", "model": "example/pinned-model", "state_fields": SENT},
-        "jev": {"type": "jev", "model": "pinned-jev", "state_fields": SENT},
-    }
+    pinned = {"llm": {"type": "llm", "model": "example/pinned-model", "state_fields": SENT}}
     root = make(pinned)
     hub, owned = load_pack(root, origin="hub"), load_pack(root)
     monkeypatch.setenv("LLM_MODEL", "example/deployment-model")
@@ -392,12 +320,8 @@ def test_a_registry_packs_pinned_model_gives_way_to_the_deployments(
     # falls back to its own pinned one, so it has no model and nothing is called.
     monkeypatch.delenv("LLM_MODEL")
     assert build_provider(hub, "reader", "llm").info.model is None
-    # Jev without JEV_MODEL: a pack from a registry has no model, so nothing is called.
-    monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
-    monkeypatch.setenv("JEV_API_KEY", "k-jev")
-    assert build_provider(hub, "reader", "jev").info.model is None
-    assert build_provider(owned, "reader", "jev").info.model == "pinned-jev"
-    decided = Decision(hub, providers={"reader": "jev"}).decide(BILL)
+    assert build_provider(owned, "reader", "llm").info.model == "example/pinned-model"
+    decided = Decision(hub, providers={"reader": "llm"}).decide(BILL)
     assert decided.errors == {"topic": "not_configured"}
     assert decided.outcome.value != "AUTO"
 
@@ -413,7 +337,7 @@ def test_a_registry_packs_answer_length_timeout_and_effort_are_capped(
         "state_fields": SENT,
     }
     small = {"type": "llm", "max_tokens": 1000, "reasoning_effort": "low", "state_fields": SENT}
-    slow = {"type": "jev", "timeout_ms": 10_000, "state_fields": SENT}
+    slow = {**AGENT, "timeout_seconds": 60.0}
     root = make({"big": big, "small": small, "slow": slow})
     hub, owned = load_pack(root, origin="hub"), load_pack(root)
 
@@ -425,22 +349,19 @@ def test_a_registry_packs_answer_length_timeout_and_effort_are_capped(
     assert (capped.max_tokens, capped.timeout_ms, capped.reasoning_effort) == (4096, 30_000, None)
     kept = settings_of(hub, "small")
     assert (kept.max_tokens, kept.timeout_ms, kept.reasoning_effort) == (1000, 30_000, "low")
-    assert settings_of(hub, "slow").timeout_ms == 5_000
+    assert settings_of(hub, "slow").timeout_seconds == 15.0
     own = settings_of(owned, "big")  # an owned pack's stand
     assert (own.max_tokens, own.timeout_ms, own.reasoning_effort) == (30000, 120_000, "high")
-    assert settings_of(owned, "slow").timeout_ms == 10_000
-    assert NOT_OWNED_CAPS == {
-        "llm": {"max_tokens": 4096, "timeout_ms": 30_000},
-        "jev": {"timeout_ms": 5_000},
-        "agent": {"timeout_seconds": 15.0},
-    }
+    assert settings_of(owned, "slow").timeout_seconds == 60.0
+    assert NOT_OWNED_CAPS["llm"] == {"max_tokens": 4096, "timeout_ms": 30_000}
+    assert NOT_OWNED_CAPS["agent"] == {"timeout_seconds": 15.0}
     # An absent key stays absent, and the members are held to the same.
-    composite = {"type": "vote", "members": {"a": {**big, "model": "x/y"}, "b": {"type": "jev"}}}
+    composite = {"type": "check", "members": {"a": {**big, "model": "x/y"}, "b": {"type": "agent"}}}
     assert deployment_config(composite) == {
-        "type": "vote",
+        "type": "check",
         "members": {
             "a": {"type": "llm", "max_tokens": 4096, "timeout_ms": 30_000, "state_fields": SENT},
-            "b": {"type": "jev"},
+            "b": {"type": "agent"},
         },
     }
     for effort, kept_effort in (("none", True), ("low", True), ("medium", False), (None, False)):
@@ -462,34 +383,39 @@ def capped_however_written(make: Callable[..., Path], written: Callable[[int], A
         "timeout_ms": written(120_000),
         "state_fields": SENT,
     }
-    jev = {"type": "jev", "timeout_ms": written(10_000), "state_fields": SENT}
-    composite = {"type": "vote", "members": {"rules": RULES, "llm": llm, "jev": jev}}
-    root = make({"llm": llm, "jev": jev, "both": composite})
+    agent = {**AGENT, "timeout_seconds": written(60)}
+    composite = {"type": "check", "members": {"llm": llm, "agent": agent}}
+    root = make({"llm": llm, "agent": agent, "both": composite})
     hub, owned = load_pack(root, origin="hub"), load_pack(root)
     assert hub.bounded and hub.warnings == () and owned.warnings == ()
 
     def built(pack: Pack, variant: str) -> dict[str, Any]:
+        """Each model leaf's capped settings: an LLM's answer length and timeout, an agent's
+        timeout."""
         provider: Any = build_provider(pack, "reader", variant)
         providers = provider.members if variant == "both" else {variant: provider}
         return {
-            name: (getattr(p.settings, "max_tokens", None), p.settings.timeout_ms)
+            name: (
+                (p.settings.max_tokens, p.settings.timeout_ms)
+                if name == "llm"
+                else p.settings.timeout_seconds
+            )
             for name, p in providers.items()
-            if name != "rules"
         }
 
-    capped = {"llm": (4096, 30_000), "jev": (None, 5_000)}
+    capped = {"llm": (4096, 30_000), "agent": 15.0}
     assert built(hub, "llm") == {"llm": capped["llm"]}
-    assert built(hub, "jev") == {"jev": capped["jev"]}
+    assert built(hub, "agent") == {"agent": capped["agent"]}
     assert built(hub, "both") == capped
     assert built(owned, "llm") == {"llm": (32000, 120_000)}
-    assert built(owned, "jev") == {"jev": (None, 10_000)}
-    assert built(owned, "both") == {"llm": (32000, 120_000), "jev": (None, 10_000)}
+    assert built(owned, "agent") == {"agent": 60.0}
+    assert built(owned, "both") == {"llm": (32000, 120_000), "agent": 60.0}
     # A lower number written so is the model's number; what the model refuses is left as it is
     # (`load_pack` refused a pack with it).
     assert deployment_config({"type": "llm", "max_tokens": written(1000)})["max_tokens"] == 1000
     for refused_value in (True, "x", 1000.5, [1000]):
-        held = deployment_config({"type": "jev", "timeout_ms": refused_value})
-        assert held["timeout_ms"] == refused_value
+        held = deployment_config({"type": "llm", "max_tokens": refused_value})
+        assert held["max_tokens"] == refused_value
 
 
 def test_a_registry_packs_invalid_values_are_reported_before_the_deployment_chooses(
@@ -535,18 +461,17 @@ def test_a_pulled_reference_copy_keeps_its_config(tmp_path: Path) -> None:
 
 
 def shipped(tmp_path: Path) -> Iterator[tuple[Path, str]]:
-    """Every reference pack, the two scaffolds as `mendari new` writes them, and every test
-    fixture pack, with the origin each is served from."""
+    """The bundled demo agent and every agent the tests bundle, the scaffold as `mendari new`
+    writes it, and every test fixture's agent, with the origin each is served from."""
+    yield DEMO_AGENT_DIR, "local"
     for source in sorted(PACKS.iterdir()):
         if (source / "agent.yaml").is_file():
             yield source, "maintained"
-    plain, community = tmp_path / "plain", tmp_path / "community-agents" / "contributed"
+    plain = tmp_path / "plain"
     assert main(["new", str(plain), "--id", "someone/plain", "--publisher", "Test"]) == 0
-    assert main(["new", str(community), "--community", "--publisher", "Test"]) == 0
     yield plain, "local"
-    yield community, "community"
     for root in fixture_agents():
-        yield root, "community" if root.parent.name == "community-agents" else "local"
+        yield root, "local"
 
 
 def test_every_shipped_pack_template_and_fixture_has_no_config_warnings(
@@ -555,7 +480,7 @@ def test_every_shipped_pack_template_and_fixture_has_no_config_warnings(
     """None warns where it is served, and none would be refused as a pack the deployment does
     not own: every model variant names what it sends."""
     found = list(shipped(tmp_path))
-    assert len(found) >= 12
+    assert len(found) >= len(fixture_agents()) + 2
     for root, origin in found:
         pack = load_pack(root, origin=origin)  # type: ignore[arg-type]
         assert pack.warnings == (), root
@@ -577,16 +502,16 @@ def test_the_provider_config_schema_is_generated() -> None:
     validator = jsonschema.Draft202012Validator(schema)
     configs = [
         {"type": variant.type, **(variant.model_extra or {})}
-        for source in sorted(PACKS.iterdir())
+        for source in [DEMO_AGENT_DIR, *sorted(PACKS.iterdir())]
         if (source / "agent.yaml").is_file()
         for slot in load_pack(source).manifest.providers.values()
         for variant in slot.variants.values()
     ]
-    assert len(configs) > 20 and all(validator.is_valid(config) for config in configs)
+    assert configs and all(validator.is_valid(config) for config in configs)
     assert all(validator.is_valid(config) for config in VALID.values())
     for config in VALID.values():
         assert not validator.is_valid({**config, "x": 1}), config
-    nested = {**VALID["vote"], "members": {"a": RULES, "b": VALID["cascade"]}}
+    nested = {**VALID["check"], "members": {"a": RULES, "b": VALID["check"]}}
     assert not validator.is_valid(nested)
 
 
@@ -598,21 +523,17 @@ def test_the_provider_config_schema_is_generated() -> None:
 # every one of them is tried.
 FILES = (
     "logic/rules.yaml",
-    "logic/criteria.yaml",
-    "logic/dosing.yaml",
-    "logic/topic.cql",
-    "models/nb.json",
     "models/calibration.json",
     "models/mock_agent.json",
     "models/missing.json",
 )
 URLS = ("https://evil.test/v1", "https://llm.test.evil.test/v1", "http://127.0.0.1:9/x")
 MODELS = ("https://evil.test/v1", "example/m", "evil.test:443", "m:latest", "bad model", "")
-ENV_NAMES = ("PACK_SAFETY_URL", "PACK_SAFETY_KEY", "LLM_API_KEY", "JEV_API_KEY")
+ENV_NAMES = ("PACK_SAFETY_URL", "PACK_SAFETY_KEY", "LLM_API_KEY", "MENDARI_AGENT_TOKEN")
 ENV_KEYS = sorted({key for keys in DEPLOYMENT_ENV_KEYS.values() for key in keys})
 ODD: tuple[Any, ...] = (None, True, -1, 0.5, "x", [], {}, ["message"], {"topic": 1}, "64", 64.0)
 TYPICAL: dict[str, tuple[Any, ...]] = {
-    **dict.fromkeys(("config", "library", "model_file", "calibration", "mock_file"), FILES),
+    **dict.fromkeys(("config", "calibration", "mock_file"), FILES),
     "model": MODELS,
     "agent_id": ("my-agent", "org/agent:v1", "bad agent!", ""),
     "system_prompt": ("Classify the input.", ""),
@@ -630,14 +551,11 @@ TYPICAL: dict[str, tuple[Any, ...]] = {
             *("120000", 120000.0, "32000", 32000.0, "10000", 10000.0, "1000"),
         ),
     ),
-    **dict.fromkeys(("accept_at", "temperature"), (0, 0.5, 1, 2, 3)),
+    "temperature": (0, 0.5, 1, 2, 3),
     "reasoning_effort": ("none", "low", "medium", "high", "extreme"),
     "batch": (True, False),
+    "repeat": (1, 2, 3, 5, 6),
     "cost_per_1k_input_tokens_usd": (0, 0.5, -1),
-    "expressions": ({"topic": "Topic"}, {"x": "Topic"}, {"topic": "Other"}),
-    "escalate": ({"topic": "billing"}, {"topic": "nope"}, {"x": "billing"}),
-    "weights": ({"a": 1, "b": 2}, {"a": 1}, {"a": 0, "b": 1}),
-    "as_of": ("as_of", "when"),
 }
 
 
@@ -666,7 +584,7 @@ def config_of(
     leaf = st.sampled_from(leaves).flatmap(lambda kind: changed(VALID[kind], keys))
     members = st.dictionaries(
         st.sampled_from(["a", "b", "c"]),
-        st.one_of(leaf, st.just(VALID["vote"])),
+        st.one_of(leaf, st.just(VALID["check"])),
         min_size=1,
         max_size=3,
     )
@@ -680,7 +598,7 @@ def config_of(
     return st.one_of(leaf, st.sampled_from(composites).flatmap(composite))
 
 
-COMPOSITES = ["any_of", "cascade", "vote", "check"]
+COMPOSITES = ["check"]
 LEAVES = sorted(set(VALID) - set(COMPOSITES))
 # Every key a provider config may have, the variables a pack may not name, and a few others.
 FIELD_NAMES = sorted(
@@ -702,9 +620,8 @@ def builds(pack: Pack, config: dict[str, Any]) -> Provider | None:
     """`config` built as `build_provider` builds it in `pack` (with the deployment's keys for a
     pack it does not own), or None: any exception is a config that does not build."""
     kind = config["type"]
-    slot = slot_of(kind)
-    questions = {q: pack.manifest.questions[q] for q in pack.manifest.providers[slot].answers}
-    info = ProviderInfo(slot=slot, variant="g", type=kind)
+    questions = {q: pack.manifest.questions[q] for q in pack.manifest.providers["reader"].answers}
+    info = ProviderInfo(slot="reader", variant="g", type=kind)
     try:
         return PROVIDER_TYPES[kind](
             pack, info, questions, deployment_config(config) if pack.bounded else config
@@ -755,16 +672,15 @@ def test_every_config_a_provider_refuses_is_a_problem_at_load(
     assert [pack.bounded for pack in packs] == [False, True]
     configs = [config for kind in sorted(VALID) for config in single_changes(kind)]
     configs += [
-        {**VALID["vote"], "members": {"a": RULES, "b": member}}
+        {**VALID["check"], "members": {"a": RULES, "b": member}}
         for kind in LEAVES
         for member in single_changes(kind)
     ]
     seen = {"built": 0, "refused": 0, "warned only": 0}
     for pack in packs:
         for config in configs:
-            slot = slot_of(config["type"])
             questions = {
-                q: pack.manifest.questions[q] for q in pack.manifest.providers[slot].answers
+                q: pack.manifest.questions[q] for q in pack.manifest.providers["reader"].answers
             }
             problems = PROVIDER_TYPES[config["type"]].config_problems(
                 pack, "w", config, questions, bounded=pack.bounded, trained=True
@@ -774,15 +690,12 @@ def test_every_config_a_provider_refuses_is_a_problem_at_load(
             if provider is not None and pack.bounded:
                 assert held_to_the_deployments(provider), config
             seen["refused" if provider is None else "warned only" if problems else "built"] += 1
-    assert len(configs) > 5_000 and min(seen.values()) >= 100, seen
+    assert len(configs) > 2_000 and min(seen.values()) >= 100, seen
 
 
-def place(configs: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """The generated configs as variants `g0`, `g1`, ... of the slot their type answers."""
-    slots: dict[str, dict[str, Any]] = {"reader": {}, "dose": {}}
-    for number, config in enumerate(configs):
-        slots[slot_of(str(config.get("type")))][f"g{number}"] = config
-    return slots["reader"], slots["dose"]
+def place(configs: list[dict[str, Any]]) -> dict[str, Any]:
+    """The generated configs as variants `g0`, `g1`, ... of the reader slot."""
+    return {f"g{number}": config for number, config in enumerate(configs)}
 
 
 def test_load_and_validate_agree_on_provider_configs(
@@ -797,17 +710,14 @@ def test_load_and_validate_agree_on_provider_configs(
 
     @GENERATED
     @given(st.lists(ANY_CONFIG, min_size=1, max_size=3))
-    @example([{**VALID["llm"], "calibration": "models/nb.json"}])  # not a calibration file
-    @example([{**NB, "model_file": "models/calibration.json"}])
-    @example([{**VALID["cql"], "library": "logic/rules.yaml"}])
-    @example([{**RULES, "config": "logic/criteria.yaml"}])
-    @example([{**VALID["dosing"], "config": "logic/rules.yaml"}])
-    @example([{**VALID["vote"], "members": {"a": RULES, "b": {"type": "jev"}}}])
-    @example([{**VALID["llm"], "max_tokens": 10**8}, {**VALID["jev"], "timeout_ms": 10_000}])
-    @example([{"type": "gpt"}, {**VALID["any_of"], "escalate": {"topic": "nope"}}])
+    @example([{**VALID["llm"], "calibration": "models/mock_agent.json"}])  # not a calibration file
+    @example([{**AGENT, "mock_file": "models/calibration.json"}])  # not canned answers
+    @example([{**RULES, "config": "models/mock_agent.json"}])  # not keyword rules
+    @example([{**VALID["check"], "members": {"a": RULES, "b": {"type": "llm"}}}])
+    @example([{**VALID["llm"], "max_tokens": 10**8}, {**AGENT, "timeout_seconds": 500.0}])
+    @example([{"type": "gpt"}, {**VALID["check"], "members": {"a": RULES}}])
     def check(configs: list[dict[str, Any]]) -> None:
-        reader, dose = place(configs)
-        root = write(template, tmp_path_factory.mktemp("parity") / "pack", manifest(reader, dose))
+        root = write(template, tmp_path_factory.mktemp("parity") / "pack", manifest(place(configs)))
         try:
             try:
                 owned = load_pack(root)
@@ -834,20 +744,21 @@ def test_load_and_validate_agree_on_provider_configs(
     assert all(count >= 5 for count in outcomes.values()), outcomes
 
 
-# The deployment's endpoints and keys in the egress test, and nothing else.
-LLM_ORIGIN, JEV_ORIGIN = "https://llm.test", "https://jev.test"
-ENDPOINTS = {LLM_ORIGIN: "Bearer k-llm", JEV_ORIGIN: "Bearer k-jev"}
+# The deployment's endpoints and keys in the egress test: its LLM and its agent service.
+LLM_ORIGIN, AGENT_ORIGIN = "https://llm.test", "https://agent.test"
+ENDPOINTS = {LLM_ORIGIN: "Bearer k-llm", AGENT_ORIGIN: "Bearer k-agent"}
 # What a pack could try to choose where its model calls go, and with which key.
 REMOTE_KEYS = sorted(
     {"model", "state_fields", "max_tokens", "timeout_ms", "reasoning_effort", "batch"}
+    | {"agent_id", "timeout_seconds", "mock_file"}
     | set(ENV_KEYS)
     | {"url", "endpoint", "base_url", "api_key"}
 )
-REMOTE_CONFIG = config_of(["llm", "jev"], COMPOSITES, REMOTE_KEYS)
+REMOTE_CONFIG = config_of(["llm", "agent"], COMPOSITES, REMOTE_KEYS)
 
 
 def answered(request: httpx.Request) -> httpx.Response:
-    """A valid answer to an LLM or Jev request: every label equally likely."""
+    """A valid answer to an LLM or agent request: every label equally likely."""
     body = json.loads(request.content)
     if "messages" in body:
         asked = body["response_format"]["json_schema"]["schema"]["properties"]
@@ -863,23 +774,11 @@ def answered(request: httpx.Request) -> httpx.Response:
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1},
             },
         )
-    answers = {}
-    for key, question in body["questions"].items():
-        labels = list(question["criteria"])
-        answers[key] = {
-            "type": "choice",
-            "choice": labels[0],
-            "confidence": 1 / len(labels),
-            "probabilities": {label: 1 / len(labels) for label in labels},
-        }
-    return httpx.Response(
-        200,
-        json={
-            "model": "jev-answered",
-            "answers": answers,
-            "usage": {"input_tokens": 1, "output_tokens": 0},
-        },
-    )
+    answers = {
+        question["key"]: {"value": question["choices"][0], "confidence": 0.5}
+        for question in body["questions"]
+    }
+    return httpx.Response(200, json={"model": "agent-answered", "answers": answers})
 
 
 def test_a_generated_pack_only_reaches_the_deployments_endpoints_with_its_credentials(
@@ -887,18 +786,19 @@ def test_a_generated_pack_only_reaches_the_deployments_endpoints_with_its_creden
 ) -> None:
     """LP-16's hypothesis test: whatever a pack's model variants and members say (variables to
     read the endpoint or key from, URLs, models that look like URLs), from a registry or owned,
-    every request a decision makes goes to the deployment's LLM or Jev endpoint, with the key
-    the deployment set for that endpoint. Requests are answered by the transport every httpx
-    client uses, and no socket opens."""
+    every request a decision makes goes to the deployment's LLM or agent service with the key
+    the deployment set for that endpoint, or, for an agent the deployment owns that names its
+    own `endpoint`, to that endpoint with no key at all. Requests are answered by the transport
+    every httpx client uses, and no socket opens."""
     monkeypatch.setenv("LLM_BASE_URL", f"{LLM_ORIGIN}/v1")
     monkeypatch.setenv("LLM_API_KEY", "k-llm")
-    monkeypatch.setenv("JEV_API_URL", f"{JEV_ORIGIN}/v1/decide")
-    monkeypatch.setenv("JEV_API_KEY", "k-jev")
-    monkeypatch.setenv("JEV_MODEL", "m")
-    sent: list[httpx.Request] = []
+    monkeypatch.setenv("MENDARI_AGENT_URL", f"{AGENT_ORIGIN}/v1/decide")
+    monkeypatch.setenv("MENDARI_AGENT_TOKEN", "k-agent")
+    sent: list[tuple[httpx.Request, str]] = []
+    asking: list[str] = []  # the origin of the pack deciding now
 
     def handle(self: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
-        sent.append(request)
+        sent.append((request, asking[-1]))
         return answered(request)
 
     def no_socket(*args: Any, **kwargs: Any) -> None:
@@ -909,18 +809,19 @@ def test_a_generated_pack_only_reaches_the_deployments_endpoints_with_its_creden
     decided = {"hub": 0, "local": 0}
 
     evil = "https://evil.test/v1"
-    llm, jev = VALID["llm"], VALID["jev"]
+    llm, agent = VALID["llm"], VALID["agent"]
 
     @GENERATED
     @given(st.lists(REMOTE_CONFIG, min_size=1, max_size=3), st.sampled_from(["hub", "local"]))
-    @example([{**llm, "model": evil}, {**jev, "model": evil}], "local")
-    @example([{**llm, "model": evil}, {**jev, "model": evil}], "hub")
-    @example([{**VALID["vote"], "members": {"a": RULES, "b": {**llm, "model": evil}}}], "local")
-    @example([{**llm, "url": evil}, {**jev, "endpoint": evil, "api_key": "k-other"}], "local")
+    @example([{**llm, "model": evil}, {**agent, "agent_id": evil}], "local")
+    @example([{**llm, "model": evil}, {**agent, "agent_id": evil}], "hub")
+    @example([{**VALID["check"], "members": {"a": RULES, "b": {**llm, "model": evil}}}], "local")
+    @example([{**llm, "url": evil}, {**agent, "endpoint": evil, "api_key": "k-other"}], "local")
+    @example([{**agent, "endpoint": evil}], "local")
     @example([{**llm, "base_url_env": "PACK_SAFETY_URL", "api_key_env": "LLM_API_KEY"}], "local")
-    @example([{**jev, "endpoint_env": "PACK_SAFETY_URL", "connector_env": "x"}], "hub")
+    @example([{**agent, "endpoint_env": "PACK_SAFETY_URL", "token_env": "x"}], "hub")
     def check(configs: list[dict[str, Any]], origin: str) -> None:
-        reader, _ = place([c for c in configs if c.get("type") != "dosing"])
+        reader = place(configs)
         root = write(template, tmp_path_factory.mktemp("egress") / "pack", manifest(reader))
         try:
             try:
@@ -933,16 +834,20 @@ def test_a_generated_pack_only_reaches_the_deployments_endpoints_with_its_creden
                 except PackValidationError:
                     continue  # a variant that cannot be built calls nothing
                 before = len(sent)
+                asking.append(origin)
                 decision.decide(BILL)
                 decided[origin] += len(sent) > before
-            for request in sent:
+            for request, by in sent:
                 origin_seen = f"{request.url.scheme}://{request.url.netloc.decode()}"
-                assert origin_seen in ENDPOINTS, request.url
-                assert request.headers.get("authorization") == ENDPOINTS[origin_seen]
-                assert urlsplit(str(request.url)).path in ("/v1/chat/completions", "/v1/decide")
+                if origin_seen in ENDPOINTS:
+                    assert request.headers.get("authorization") == ENDPOINTS[origin_seen]
+                    assert urlsplit(str(request.url)).path in ("/v1/chat/completions", "/v1/decide")
+                else:  # an owned agent's own endpoint: never with a key of the deployment's
+                    assert by == "local", request.url
+                    assert "authorization" not in request.headers, request.url
         finally:
             shutil.rmtree(root.parent)
 
     check()
     assert decided["hub"] >= 5 and decided["local"] >= 5, decided
-    assert {f"{r.url.scheme}://{r.url.netloc.decode()}" for r in sent} == set(ENDPOINTS)
+    assert {f"{r.url.scheme}://{r.url.netloc.decode()}" for r, _ in sent} >= set(ENDPOINTS)
