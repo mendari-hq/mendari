@@ -338,7 +338,12 @@ def add_hub_routes(
                 shown = None  # every version is recalled: nothing to show but the recalls
             evaluations: Any = None
             if shown is not None and is_version(shown.get("version")):
-                evaluations = client.evaluations(namespace, name, str(shown["version"]))
+                try:
+                    evaluations = client.evaluations(namespace, name, str(shown["version"]))
+                except (HubError, httpx.HTTPError):
+                    # A third read that failed (a timeout, a 5xx, the registry's read limit)
+                    # leaves the agent and its version shown, with no evaluations said.
+                    evaluations = None
             return {"listed": listed, "shown": shown, "evaluations": evaluations}
 
         found = asked(read)

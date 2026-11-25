@@ -364,6 +364,33 @@ def test_a_search_and_a_listing_say_what_the_registry_checked_apart_from_what_is
         assert refused.json()["detail"] == hub_routes.NOT_LISTED
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.ReadTimeout("slow"),
+        HubError("the registry answered 503", 502),
+        HubError("too many requests", 429),
+    ],
+)
+def test_a_failed_read_of_the_evaluations_leaves_the_agent_shown(
+    lite: Adopting, monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    """The evaluations are a third read of the registry: one that times out, fails or is over the
+    registry's read limit shows the agent and its version as read, with no evaluations said,
+    never a refusal of the whole page."""
+    agent = lite.publish()
+    viewer = lite.as_(ORG_A, "viewer")
+
+    def failing(self: RegistryClient, *version: str) -> dict[str, Any]:
+        raise failure
+
+    monkeypatch.setattr(RegistryClient, "evaluations", failing)
+    shown = lite.client.get(f"/api/hub/agents/{ACME}", headers=viewer)
+    assert shown.status_code == 200, shown.text
+    assert shown.json()["agent"]["version"] == agent.version
+    assert shown.json()["agent"]["evaluations"] == {"published": 0, "listed": []}
+
+
 HOSTILE = '<img src=x onerror="alert(1)"><script>alert(2)</script>'
 
 
