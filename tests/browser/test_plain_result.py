@@ -12,8 +12,8 @@ import httpx
 import pytest
 from playwright.sync_api import Page, expect
 
-from tests.browser.test_accessibility import violations
 from tests.browser.conftest import CHART, TRIAGE
+from tests.browser.test_accessibility import violations
 from tests.browser.test_dashboard import PACKS, open_pack
 
 pytestmark = pytest.mark.browser
