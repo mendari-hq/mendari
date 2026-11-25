@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The command line speaks one vocabulary: what Mendari governs is an agent, and "pack" is never
-read or typed. No usage, help, message or error says it, and no name a command or an option had
-before is read. And `mendari --help` is short: the commands to start with, under what each is
-for, with every command behind `mendari help all`."""
+"""The command line as a person meets it. `mendari --help` is short: the commands to start with,
+under what each is for, with every command behind `mendari help all`. Every option that names an
+agent is `--agent`, a usage error names what is typed, each command of the sandbox names the demo
+agent unless told another, and `mendari new` writes an agent with no flag, so no page tells anyone
+to type one. Its words, as every file's, are held by `tests/test_vocabulary.py`."""
 
 from __future__ import annotations
 
 import argparse
-import ast
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -16,17 +16,13 @@ from types import SimpleNamespace
 import pytest
 
 from mendari import cli, load_agent
-from mendari.cli import GROUPS, build_parser, main, overview
+from mendari.cli import GROUPS, build_parser, main
 from mendari.sandbox import DEMO_AGENT
 
 # What the help shows rests on how argparse writes it, which changes between Python versions;
 # CI runs only the core tests on every version it supports.
 pytestmark = pytest.mark.core
 
-# "pack" and "packs" (so "Decision Pack" too), in any case, as a word of its own: also where a
-# dash, a dot or an underscore joins it to another (`--pack-dir`, `pack.yaml`, `PACK_DIR`), which
-# a plain word boundary would let through. `.ohpack`, the extension an archive had, is not it.
-OLD_WORD = re.compile(r"(?<![a-z])packs?(?![a-z])", re.IGNORECASE)
 AGENT = "my-clinic/an-agent"  # any agent: no option takes only some
 # Every command with an option that names an agent, and the least it takes beside it.
 AGENT_OPTIONS = {
@@ -43,9 +39,6 @@ AGENT_OPTIONS = {
     "store versions": ["--org", "clinic-a"],
     "written round list": [],
 }
-# In the command line's source, the strings that are names, not words: keys of stored and
-# signed records, and what the commands read an argument as.
-NAMES = {"pack", "packs", "pack_id", "pack_digest"}
 
 
 def parsers(
@@ -63,10 +56,6 @@ def commands(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentPars
         if isinstance(action, argparse._SubParsersAction):
             return dict(action.choices)
     return {}
-
-
-def shown(parser: argparse.ArgumentParser) -> str:
-    return parser.format_usage() + parser.format_help()
 
 
 def listed(text: str) -> list[str]:
@@ -87,60 +76,11 @@ def _a_terminal_80_wide(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COLUMNS", "80")
 
 
-# -- one vocabulary ------------------------------------------------------------------------------
+# -- what is typed ------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "text",
-    ["a pack", "Packs", "Decision Pack", "--pack-dir", "PACK_DIR", "pack.yaml", "agent-packs/"],
-)
-def test_the_old_word_is_found_however_it_is_joined(text: str) -> None:
-    assert OLD_WORD.search(text)
-
-
-@pytest.mark.parametrize("text", ["a signed .ohpack archive", "the package", "unpacked"])
-def test_another_word_is_not_taken_for_it(text: str) -> None:
-    assert not OLD_WORD.search(text)
-
-
-def test_no_usage_or_help_says_agent() -> None:
-    root = build_parser()
-    every = list(parsers(root))
-    assert len(every) > 100  # the whole tree: every command and subcommand
-    said = [
-        (command, found.group())
-        for command, parser in every
-        for found in OLD_WORD.finditer(shown(parser))
-    ]
-    assert said == []
-    for everything in (False, True):  # `mendari --help` and `mendari help all`
-        assert not OLD_WORD.search(overview(root, everything=everything))
-
-
-def test_no_message_says_agent() -> None:
-    """What a command prints or raises: every string of the source but its docstrings and the
-    names of things (`NAMES`), which stay until the records they are in change."""
-    tree = ast.parse(Path(cli.__file__).read_text(encoding="utf-8"))
-    documented = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
-    docstrings = {
-        id(node.body[0].value)
-        for node in ast.walk(tree)
-        if isinstance(node, documented) and node.body and isinstance(node.body[0], ast.Expr)
-    }
-    strings = [
-        node.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and id(node) not in docstrings
-    ]
-    assert cli.EVERY_COMMAND in strings and "no agents match" in strings  # it reads them all
-    said = [text for text in strings if OLD_WORD.search(text) and text not in NAMES]
-    assert said == []
-
-
-def test_an_error_names_what_is_typed_now(capsys: pytest.CaptureFixture[str]) -> None:
-    """A usage error, for a missing or mistyped argument, names the agent and never the pack."""
+def test_an_error_names_what_is_typed(capsys: pytest.CaptureFixture[str]) -> None:
+    """A usage error, for a missing or mistyped argument, names the argument as it is typed."""
     for argv, named in (
         (["validate"], "the following arguments are required: agent"),
         (["monitor", "--agent"], "argument --agent: expected one argument"),
@@ -154,7 +94,6 @@ def test_an_error_names_what_is_typed_now(capsys: pytest.CaptureFixture[str]) ->
         assert main(argv) == 1
         (line,) = capsys.readouterr().err.splitlines()
         assert named in line, line
-        assert not OLD_WORD.search(line), line
 
 
 def test_list_names_the_setting_that_finds_agents(
@@ -167,10 +106,7 @@ def test_list_names_the_setting_that_finds_agents(
     )
 
 
-# -- what is typed ------------------------------------------------------------------------------
-
-
-def test_every_option_that_names_an_agent_is_still_read_as_agent() -> None:
+def test_every_option_that_names_an_agent_is_read_as_agent() -> None:
     root = build_parser()
     named = {
         command
@@ -197,13 +133,6 @@ def test_a_sandbox_command_names_the_demo_agent(
         assert parse([*command.split(), *rest]).agent == DEMO_AGENT, command
         said = " ".join(helped(capsys, *command.split(), "--help").split())
         assert "(default: the bundled demo agent)" in said, command
-    # No command of the sandbox, or any other, names an agent the product does not bundle.
-    former = re.compile(
-        r"inbox-router|ai-guard|trial-prescreener|prior-auth-preflight|referral-router"
-    )
-    assert not [
-        command for command, parser in parsers(build_parser()) if former.search(shown(parser))
-    ]
 
 
 def test_new_writes_an_agent(tmp_path: Path) -> None:
