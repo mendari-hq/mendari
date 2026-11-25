@@ -1,66 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
-// The labelling screen (`#labelling`, "Labelling" in the section list; LP-11m, ADR-0011): a person
-// holding `label` (the `labeller` role, memberships mode with the evaluation-set keys) labels the
-// cases of their organization's hidden evaluation sets, blind. It shows their own counts set by
-// set (`GET /api/labelling`), then one case at a time (`GET /api/labelling/next`: the case's
-// input and the set's questions with their labels, nothing else), and sends their answer
-// (`POST /api/labelling/{assignment}`) before showing the next. It never shows anything the
-// server did not send in those answers: no one else's label, no model's output, no intended
-// label, no attribute of the case, and nothing chosen for them. A case is what its author wrote:
-// every value escaped, shown as text, never run as markup (`recordHtml`, record.js). Nothing is
-// kept in the browser's storage. A `422` names the question it refuses, shown beside that question; a
-// `404` (the case was withdrawn or is no longer open) moves on to the next.
-//
-// The same screen grades what an agent wrote (`#written`, written.js; ADR-0025): `labellingScreen`
-// takes the routes and the words. There the answer also holds the text to grade (`written`) and
-// the rubric's own words for each criterion and level (`guidance`), which are shown as sent:
-// the text above what the agent was given, each criterion's instructions under its name and
-// each level's anchor beside its choice.
+// The blind grading screen (`labellingScreen`), which grades what an agent wrote (`#written`,
+// written.js; ADR-0025): a person holding `label` (the `labeller` role, memberships mode) sees
+// their own counts round by round (`GET <base>`), then one item at a time (`GET <base>/next`:
+// the text to grade, `written`, what the agent was given, `input`, each criterion with its
+// levels, `questions`, and the rubric's own words for each criterion and level, `guidance`;
+// nothing else), and sends their answer (`POST <base>/{assignment}`) before showing the next.
+// It never shows anything the server did not send in those answers: no one else's grade, no
+// judge's, and nothing chosen for them. What the agent was given is what its author wrote:
+// every value escaped, shown as text, never run as markup (`recordHtml`, record.js); the text
+// is shown above it, each criterion's instructions under its name and each level's anchor
+// beside its choice. Nothing is kept in the browser's storage. A `422` names the criterion it
+// refuses, shown beside that criterion; a `404` (the item was withdrawn or is no longer open)
+// moves on to the next. The caller gives the routes and every word the screen says (`kind`).
 
 import { recordHtml } from "./record.js";
-import { views } from "./router.js";
-import { announce, api, emptyState, esc, focusHeading, slotText, state, toast, toastError, whileBusy } from "./ui.js";
+import { announce, api, emptyState, esc, focusHeading, slotText, toast, toastError, whileBusy } from "./ui.js";
 
 // More labels than this: a list box rather than a radio group, so the form stays short.
 const MOST_RADIOS = 8;
 
-// Labelling hidden evaluation sets: the routes, and every word the screen says.
-const HIDDEN = {
-  base: "/api/labelling",
-  title: "Labelling",
-  lede: `Read each case and answer its questions. You label blind: you never see anyone
-      else's label or what a model made of the case, and no one is told how yours compares.`,
-  setsTitle: "Your sets",
-  noSets: "No set has cases for you yet.",
-  allDone: "All your cases are labelled.",
-  caption: "Your cases in each set",
-  set: "Set",
-  done: "Labelled",
-  waiting: (n) => `${n} ${n === 1 ? "case waits" : "cases wait"} for you`,
-  nothing: "Every case assigned to you is labelled. New cases show here once an administrator assigns them.",
-  heading: "Case to label",
-  save: "Save label",
-  saved: "Label saved.",
-  choose: "Choose a label",
-  missing: "Choose a label for this question.",
-  invalid: "Choose one of this question's labels.",
-  gone: "That case is no longer yours to label. Here is your next one.",
-  prefix: /^labels\./,
-};
-
-// The screen in which `kind` (the routes and the words, as `HIDDEN`) is worked through.
-export async function labellingScreen(main, kind = HIDDEN) {
+// The screen in which `kind` (the routes and the words, written.js `GRADING`) is worked through.
+export async function labellingScreen(main, kind) {
   main.innerHTML = `<h1>${esc(kind.title)}</h1>
     <p class="muted">${esc(kind.lede)}</p>
     <section class="panel" id="label-sets" aria-labelledby="label-sets-title"></section>
     <section class="panel label-case" id="label-case"></section>`;
   await refresh(main, kind);
 }
-
-views.labelling = (main) => labellingScreen(main, HIDDEN);
-views.labelling.packless = true; // reads no pack: a labeller may hold none
-// The person holds `label` and this deployment serves the labelling routes (main.js asks).
-views.labelling.available = () => Boolean(state.labelling) && !state.launchOnly;
 
 // The counts and the next case, read again (after each label, or a case no longer open).
 async function refresh(main, kind) {
@@ -175,7 +141,7 @@ async function send(main, form, shown, questions, kind) {
       if (named.size) showErrors(form, questions, named);
       else showFormError(form, error.message);
     } else if (error.status === 404) {
-      // Withdrawn, or no longer open (its set was frozen): nothing to save; the next one.
+      // Withdrawn, or no longer open (its round was closed): nothing to save; the next one.
       toast(kind.gone);
       await again(main, kind);
     } else {
@@ -191,9 +157,8 @@ async function again(main, kind) {
   if (box?.isConnected) focusHeading(box.querySelector("h2"));
 }
 
-// The questions a 422 names (the server names questions, never a value: core/evalsets.py
-// `_label_problem`, core/written.py `_grades_problem`), each with what to do; empty when it
-// names none of them.
+// The criteria a 422 names (the server names criteria, never a value: core/written.py
+// `_grades_problem`), each with what to do; empty when it names none of them.
 function namedQuestions(detail, questions, kind) {
   const words = new Set(detail.split(/[\s,:]+/).map((w) => w.replace(kind.prefix, "")));
   const unanswered = detail.includes("unanswered") || detail.includes("ungraded");

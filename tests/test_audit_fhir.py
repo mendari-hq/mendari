@@ -299,34 +299,12 @@ NOT_ON_A_DECISION = {
     "phi.rotated",  # a PHI key rotation's batch (`KEYS_CHAIN`)
     "input_hash.epoch",  # a new input hash key (`KEYS_CHAIN`)
     "eval.recorded",  # a stored evaluation report (`eval:<report id>`, LP-10)
-    # A hidden evaluation set's (`evalset:<set id>`, LP-11e); its index key's epoch (`KEYS_CHAIN`).
-    "evalset.created",
-    "evalset.case_added",
-    "evalset.case_removed",
-    "evalset_index.epoch",
-    # The evaluation-set keys' rotation batch and the index rebuilt (`KEYS_CHAIN`, LP-11f).
-    "evalset.rotated",
-    "evalset_index.rebuilt",
-    # A hidden set's blind labelling (`evalset:<set id>`, LP-11h).
-    "evalset.sampled",
-    "evalset.assigned",
-    "evalset.case_read",
-    "evalset.labelled",
-    "evalset.measured",
-    # Its lifecycle (`evalset:<set id>`, LP-11i): frozen, activated, each grading read, retired.
-    "evalset.frozen",
-    "evalset.activated",
-    "evalset.graded",
-    "evalset.retired",
     # A pack store's versions (`pack_version:<id>`, LP-20e).
     "pack_version.created",
-    "pack_version.held",
-    "pack_version.released",
     "pack_version.withdrawn",
     "store_key.added",  # its authors' keys (`store_key:<id>`, LP-20f)
     "store_key.revoked",
     "store_dataset.created",  # its datasets and jobs (LP-20g)
-    "store_dataset.held",
     "store_job.created",
     "pack_version.promoted",  # promotion (LP-20h)
     "pack_version.retired",

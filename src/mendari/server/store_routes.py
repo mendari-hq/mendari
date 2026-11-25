@@ -13,9 +13,7 @@ A new version (an upload, a copy, an edit) passes, before any row is written, th
 checks (size, signature by one of the organization's author keys, names, expansion; an upload),
 the PHI detector over every text file (a refusal answers `422` with the report: kinds, files,
 lines and counts, never a value), the load on the bounded engine, the namespace rule (its id is
-`<organization>/<name>`), then the validation and dataset checks (kept with it) and the
-hidden-set check: a version holding a case of any organization's hidden evaluation set is stored
-`held`, and its uploader is told only that it is held for the operator's review.
+`<organization>/<name>`), then the validation and dataset checks (kept with it).
 
 No draft is served: no decide route reads the store (LP-20h adds promotion). The security log
 names ids, digests and counts only; the access line names the route's template."""
@@ -33,7 +31,7 @@ from starlette.concurrency import run_in_threadpool
 
 from mendari.core.decision import Decision
 from mendari.core.pack import MANIFEST, Pack
-from mendari.core.pack_store import DRAFT, HELD, PackStore, PhiRejected, StoreError
+from mendari.core.pack_store import DRAFT, PackStore, PhiRejected, StoreError
 from mendari.errors import HubError, MendariError
 from mendari.server import security_log
 from mendari.server.auth import Auth, org_of
@@ -42,7 +40,6 @@ TAG = "Agent store"
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 MAX_EDITED_FILES = 20
 MAX_TEST_CASES = 500
-HELD_MESSAGE = "held for the operator's review"
 _TOP_LEVEL_ID = re.compile(r"^id:[^\n]*$", re.MULTILINE)
 
 
@@ -111,16 +108,7 @@ def _refused(error: StoreError | HubError) -> HTTPException:
 
 
 def _listed(row: Mapping[str, Any]) -> dict[str, Any]:
-    """A version as a list shows it. A held one: its digest, its state and nothing else."""
-    if row["state"] == HELD:
-        return {
-            "digest": row["digest"],
-            "pack_id": row["pack_id"],
-            "version": row["version"],
-            "state": HELD,
-            "message": HELD_MESSAGE,
-            "created_at": row["created_at"],
-        }
+    """A version as a list shows it."""
     return {
         "digest": row["digest"],
         "pack_id": row["pack_id"],
@@ -141,9 +129,7 @@ def _listed(row: Mapping[str, Any]) -> dict[str, Any]:
 
 def _detail(row: Mapping[str, Any]) -> dict[str, Any]:
     """A version as its own read shows it: its files (paths, hashes, sizes), what the validation
-    and the dataset checks found. A held one shows no more than a list does."""
-    if row["state"] == HELD:
-        return _listed(row)
+    and the dataset checks found."""
     return {**_listed(row), "files": row["files"], "validation": row["validation"],
             "checks": row["checks"]}  # fmt: skip
 
@@ -162,7 +148,6 @@ def add_store_routes(
     store: PackStore,
     *,
     served: Callable[[], Mapping[str, Pack]],
-    hidden: Any = None,
     claimed: Callable[[str, str], bool] | None = None,
     deadline_s: float | None = None,
     jobs: Any = None,
@@ -170,9 +155,8 @@ def add_store_routes(
     on_promotion: Callable[[], None] = lambda: None,
 ) -> None:
     """Mount the store's routes. `served`: the packs this deployment serves from disk (what a
-    copy is made from); `hidden`: an `EvalsetStore` with the index key, or None (the hidden-set
-    check is then "not applicable"); `claimed(org, namespace)`: whether an approved registry
-    claim lets `org` use another namespace than its id (with the registry mounted)."""
+    copy is made from); `claimed(org, namespace)`: whether an approved registry claim lets
+    `org` use another namespace than its id (with the registry mounted)."""
 
     def person(request: Request) -> tuple[str, str]:
         """Who the guard let through, by id, and the organization they act for."""
@@ -201,7 +185,6 @@ def add_store_routes(
                 source=source,
                 parent=parent,
                 copied_from=copied_from,
-                hidden=hidden,
                 claimed=claimed,
                 expect_digest=expect_digest,
             )
@@ -220,10 +203,7 @@ def add_store_routes(
                 "store.version.refused", outcome="refused", reason="checks", actor=by, org=org
             )
             raise _refused(error) from None
-        if made.state == HELD:
-            security_log.event("store.version.held", actor=by, org=org, ids=[made.digest])
-        else:
-            security_log.event("store.version.created", actor=by, org=org, ids=[made.digest])
+        security_log.event("store.version.created", actor=by, org=org, ids=[made.digest])
         return JSONResponse(_detail(store.version(org, made.digest)), status_code=201)
 
     def owned(org: str, digest: str, *, states: tuple[str, ...] | None = None) -> dict[str, Any]:
@@ -232,8 +212,7 @@ def add_store_routes(
         except StoreError as error:
             raise _refused(error) from None
         if states is not None and row["state"] not in states:
-            said = HELD_MESSAGE if row["state"] == HELD else row["state"]
-            raise HTTPException(409, f"version {digest} is {said}")
+            raise HTTPException(409, f"version {digest} is {row['state']}")
         return row
 
     @app.get(
@@ -244,8 +223,7 @@ def add_store_routes(
     )
     def store_packs(request: Request) -> list[dict[str, Any]]:
         """The agents in the store of the organization you act for, each with its versions,
-        newest first: state, whether it validated, where it came from, who made it and when. A
-        held version shows its state and nothing else."""
+        newest first: state, whether it validated, where it came from, who made it and when."""
         _, org = person(request)
         lineages: dict[str, list[dict[str, Any]]] = {}
         for row in store.versions(org):
@@ -271,12 +249,9 @@ def add_store_routes(
     @app.get("/api/store/versions/{digest}", tags=[TAG], summary="One version, with its card")
     def store_version(request: Request, digest: str) -> dict[str, Any]:
         """One version of your organization's store: its files, validation, dataset checks and
-        its Decision Card, rendered here from its files (nothing uploaded about it is shown). A
-        held version shows its state and nothing else."""
+        its Decision Card, rendered here from its files (nothing uploaded about it is shown)."""
         _, org = person(request)
         row = owned(org, digest)
-        if row["state"] == HELD:
-            return _detail(row)
         try:
             card = store.card(org, digest)
         except StoreError as error:
@@ -286,8 +261,8 @@ def add_store_routes(
     @app.get("/api/store/versions/{digest}/file", tags=[TAG], summary="One text file of a version")
     def store_version_file(request: Request, digest: str, path: str) -> dict[str, Any]:
         """A text file of a version of your organization's store, for its editor (LP-20j): the
-        manifest, policy, rules, criteria, wording or tests. Not a held version's, not a trained
-        model, not a file that is not UTF-8 text, and at most 1 MiB. Nothing is recorded."""
+        manifest, policy, rules, criteria, wording or tests. Not a withdrawn version's, not a
+        trained model, not a file that is not UTF-8 text, and at most 1 MiB. Nothing is recorded."""
         _, org = person(request)
         owned(org, digest, states=(DRAFT, "promoted", "retired"))
         try:
@@ -309,8 +284,8 @@ def add_store_routes(
     async def upload_archive(request: Request) -> JSONResponse:
         """A signed agent archive (`mendari archive build`) in one request, under the body limit;
         a larger one goes in parts (`/api/store/uploads`). It must be signed by one of your
-        organization's author keys. Answers the new version (`201`), `held` (for the operator's
-        review) if it holds a hidden evaluation case, or a refusal naming the check."""
+        organization's author keys. Answers the new version (`201`), or a refusal naming the
+        check."""
         by, org = person(request)
         body = await request.body()
         return await run_in_threadpool(checked_archive, request, org, by, body)
@@ -484,11 +459,11 @@ def add_store_routes(
     @app.delete("/api/store/versions/{digest}", tags=[TAG], summary="Withdraw a draft")
     def withdraw_version(request: Request, digest: str) -> dict[str, Any]:
         """Withdraw a draft of your organization's store: its row and events stay, its files are
-        freed 30 days later. A held version is the operator's to withdraw."""
+        freed 30 days later."""
         by, org = person(request)
         owned(org, digest, states=(DRAFT,))
         try:
-            moved = store.withdraw(org, digest, by=by, allowed=(DRAFT,))
+            moved = store.withdraw(org, digest, by=by)
         except StoreError as error:
             raise _refused(error) from None
         security_log.event("store.version.withdrawn", actor=by, org=org, ids=[digest])
@@ -499,7 +474,7 @@ def add_store_routes(
     @app.get("/api/store/datasets", tags=[TAG], summary="Your organization's datasets")
     def store_datasets(request: Request) -> list[dict[str, Any]]:
         """The datasets of the organization you act for, newest first, each with its check
-        report (ids and counts). A held one shows its state and nothing else. Never a case."""
+        report (ids and counts). Never a case."""
         _, org = person(request)
         return store.datasets(org)
 
@@ -507,9 +482,8 @@ def add_store_routes(
     def add_dataset(request: Request, body: DatasetRequest) -> JSONResponse:
         """A labelled dataset (JSON Lines) for your organization's jobs, as `content` or an
         upload finished in parts (`upload`), checked against a version: the PHI detector (`422`
-        with kinds, files and lines), the dataset checks (kept and shown; a schema or label
-        problem refuses it) and the hidden-set check (held on any match, and you are told only
-        that). Kept sealed under the deployment's PHI policy."""
+        with kinds, files and lines) and the dataset checks (kept and shown; a schema or label
+        problem refuses it). Kept sealed under the deployment's PHI policy."""
         by, org = person(request)
         if (body.content is None) == (body.upload is None):
             raise HTTPException(422, "send the dataset as content or as an upload, not both")
@@ -522,9 +496,7 @@ def add_store_routes(
                 if body.content is not None
                 else store.finish_upload(org, str(body.upload))
             )
-            made = store.add_dataset(
-                org, raw, by=by, name=body.name, digest=body.version, hidden=hidden
-            )
+            made = store.add_dataset(org, raw, by=by, name=body.name, digest=body.version)
         except PhiRejected as error:
             security_log.event(
                 "store.dataset.refused", outcome="refused", reason="phi", actor=by, org=org,
@@ -758,7 +730,7 @@ def add_store_routes(
     @app.get("/api/store/promotions", tags=[TAG], summary="Promotions, and what may be promoted")
     def store_promotions(request: Request) -> dict[str, Any]:
         """For `governance` and administrators: the organization's promotions (in force and
-        retired) and the versions that may be promoted (validated, not held or withdrawn), each
+        retired) and the versions that may be promoted (validated, not withdrawn), each
         with its authors and the reports of its finished jobs."""
         principal_id, org = person(request)
         finished: dict[str, list[str]] = {}

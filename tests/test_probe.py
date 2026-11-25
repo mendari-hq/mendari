@@ -18,7 +18,7 @@ import pytest
 import yaml
 
 from mendari import Decision, load_pack
-from mendari.core import pack_store, patterns
+from mendari.core import patterns
 from mendari.core.pack import pack_digest
 from mendari.errors import MendariError, PackValidationError
 from mendari.evals import probe, probe_report, probe_tests, probe_variants
@@ -173,23 +173,6 @@ def test_the_agents_own_tests_take_no_probe_key(tmp_path: Path) -> None:
     (problem,) = refused.value.problems
     assert problem.startswith("tests/cases.yaml case 1 (typos variant of cases case symptom")
     assert problem.endswith("unknown key 'probe' (a case has `name`, `input` and `expect`)")
-
-
-def test_the_store_counts_the_probes_tests_among_the_cases_an_agent_carries(
-    tmp_path: Path,
-) -> None:
-    """An organization's store looks every case an agent carries up among the hidden evaluation
-    sets (`core/pack_store.py`): the probe's tests are cases too, run or still waiting."""
-    root = build_agent(tmp_path / "agent")
-    waiting = found_test(2, input={"message": {"body": "No chest pain at all"}})
-    write_yaml(root, PROBE_TESTS, [found_test()])
-    write_yaml(root, PROBE_UNCONFIRMED, [waiting])
-    carried = pack_store._cases_of(load_pack(root), {})
-    assert carried == [
-        *(case["input"] for case in TESTS),
-        {"message": {"body": "Bad chset pain now"}},
-        {"message": {"body": "No chest pain at all"}},
-    ]
 
 
 def test_validate_names_a_probe_test_by_its_file_and_number(tmp_path: Path) -> None:

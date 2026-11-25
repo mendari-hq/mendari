@@ -32,8 +32,7 @@ The signature is Ed25519 over `PREFIX`, the format and a zero byte, then the can
 every field but the signature (sorted keys, no spaces, ASCII). The format is in the signed
 bytes twice (after the prefix, and as a field), so a record of one format never verifies as
 another. No other Mendari signature is over bytes that start so: an archive's manifest, a yank
-and the registry's records sign bare JSON, a site and the grading key their own prefixes
-(`hub/site_signing.py`, `evals/signing.py`).
+and the registry's records sign bare JSON, a site its own prefix (`hub/site_signing.py`).
 
 The registry (`EvaluationStore.publish_evaluation`) checks, in order, and refuses naming the
 field, never echoing a value: the record's shape; its time (within `MAX_SKEW_S`); that it is this
@@ -127,7 +126,7 @@ NOT_A_KEY = "key"  # signed with a key that is not one of the namespace's
 NOT_SIGNED = "signature"  # the signature does not hold
 NOTE = (
     "The publisher's own evaluations, on its own public dataset: a configuration can be tuned "
-    "to it. Site evidence and hidden sets are stronger evidence. Not a ranking."
+    "to it. Site evidence is stronger evidence. Not a ranking."
 )
 
 SCHEMA = """

@@ -44,9 +44,6 @@ AGENT_OPTIONS = {
     "bulk dataset": ["--ndjson", "export", "--labels", "labels.jsonl", "--out", "cases.jsonl"],
     "monitor": [],
     "store versions": ["--org", "clinic-a"],
-    "evalset agreement": ["a-set"],
-    "evalset coverage": ["a-set"],
-    "evalset freeze": ["a-set", "--max-runs", "1", "--max-age-days", "1"],
 }
 # In the command line's source, the strings that are names, not words: keys of stored and
 # signed records, and what the commands read an argument as.
@@ -111,7 +108,7 @@ def test_another_word_is_not_taken_for_it(text: str) -> None:
 def test_no_usage_or_help_says_pack() -> None:
     root = build_parser()
     every = list(parsers(root))
-    assert len(every) > 150  # the whole tree: every command and subcommand
+    assert len(every) > 100  # the whole tree: every command and subcommand
     said = [
         (command, found.group())
         for command, parser in every

@@ -35,7 +35,7 @@ from mendari.core import clock, tenancy
 from mendari.core.audit import AuditStore, _canonical, _now
 from mendari.core.decision import Decision, DecisionResult
 from mendari.core.pack import Pack
-from mendari.core.pack_store import HELD, WITHDRAWN, PackStore, StoreError
+from mendari.core.pack_store import WITHDRAWN, PackStore, StoreError
 from mendari.errors import MendariError
 from mendari.evals import figures, paired
 from mendari.evals import ledger as ledgers
@@ -123,7 +123,7 @@ class JobStore:
             raise StoreError("a job names a version (its digest) or an agent served here, not both")
         if digest is not None:
             row = self.packs.version(org, digest)
-            if row["state"] in (HELD, WITHDRAWN):
+            if row["state"] == WITHDRAWN:
                 raise StoreError(f"version {digest} is {row['state']}", 409)
             return self.packs.load(org, digest), {"digest": digest}
         found = self.served().get(str(pack))

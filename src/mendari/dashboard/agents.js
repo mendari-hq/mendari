@@ -192,7 +192,7 @@ function servedHtml(ctx) {
 function waiting(ctx) {
   const found = new Map();
   for (const lineage of ctx.lineages ?? []) {
-    for (const v of lineage.versions) if (["draft", "held", "retired"].includes(v.state)) found.set(v.digest, { ...v });
+    for (const v of lineage.versions) if (["draft", "retired"].includes(v.state)) found.set(v.digest, { ...v });
   }
   for (const v of ctx.promotions?.versions ?? []) found.set(v.digest, { ...(found.get(v.digest) ?? {}), ...v, candidate: true });
   const done = (digest) => (ctx.jobs ?? []).filter((j) => !j.pack && j.digest === digest && j.state === "done").map((j) => j.report_id);
@@ -231,10 +231,6 @@ function waitingHtml(ctx) {
   }
   const cards = versions.map((v, index) => {
     const name = `${v.pack_id} ${v.version}`;
-    if (v.state === "held") {
-      return `<article class="panel agent-card" aria-labelledby="waiting-${index}"><h3 id="waiting-${index}"><code>${esc(v.pack_id)}</code> ${esc(v.version)}</h3>
-        <p class="callout neutral">Held for the operator's review. Nothing more is shown until whoever runs this deployment answers.</p></article>`;
-    }
     const evaluated = v.reports.length > 0;
     const fromHub = v.source === "hub";
     const serve = !evaluated
@@ -395,7 +391,6 @@ const recallBadge = (recall) => (recall ? `<span class="badge o-BLOCK">${recall.
 function installedWords(installed) {
   if (!installed) return "";
   if (installed.state === "served") return `Your organization uses version ${esc(installed.version)}.`;
-  if (installed.state === "held") return "Your organization added it; it is held for the operator's review.";
   return `Your organization added version ${esc(installed.version)}; it is not in use yet.`;
 }
 
@@ -592,12 +587,9 @@ async function add(packId, a, found) {
     result.innerHTML = `<p class="callout danger" role="alert">${esc(answer.body.detail ?? "It was not added.")}</p>`;
     return;
   }
-  const held = answer.body.state === "held";
   $("#hub-add-button")?.remove();
-  result.innerHTML = held
-    ? '<div class="callout neutral" role="status"><b>Kept, and held for the operator\'s review.</b> It cannot be evaluated or served until whoever runs this deployment answers.</div>'
-    : `<div class="callout ok" role="status"><p><b>Added and verified.</b> ${esc(ref)} is kept for ${esc(orgName())}, and is not in use yet.</p>
+  result.innerHTML = `<div class="callout ok" role="status"><p><b>Added and verified.</b> ${esc(ref)} is kept for ${esc(orgName())}, and is not in use yet.</p>
         <p>Next: evaluate it here, then someone other than you starts serving it. <a href="#agents">See it under Our agents.</a></p></div>`;
-  toast(held ? "Kept: held for the operator's review" : "Added: not in use yet");
+  toast("Added: not in use yet");
   found.installed = { version: a.version, digest: answer.body.digest, state: answer.body.state };
 }

@@ -49,8 +49,8 @@ WARNING = (
     "them. Read each site's figure."
 )
 NOTE = (
-    "These are sites' own data, shared as signed counts. They are not part of any hidden-set "
-    "result or rank, and a ticket binds a dataset before its run, not how its cases were chosen."
+    "These are sites' own data, shared as signed counts. They are not part of any rank, and a "
+    "ticket binds a dataset before its run, not how its cases were chosen."
 )
 LEFT_OUT = {
     "own": "the publisher's own site",

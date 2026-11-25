@@ -92,13 +92,12 @@ server is open, as before (production sits behind Vercel Authentication). When c
 | reviewer | read (inputs too, under PHI mode), decide, review, record outcomes, give feedback |
 | service (machines) | read, decide, record outcomes |
 | governance | read, approve automation |
-| admin | the rest: evaluations, exports; people only: keys, members, invitations, `curate` |
+| admin | the rest: evaluations, exports; people only: keys, members, invitations |
 | admin of the organization that operates the deployment (people only) | also `operate` |
-| labeller (people, memberships mode) | `label`: hidden evaluation sets, and written output |
+| labeller (people, memberships mode) | `label`: grading written output |
 | registry_reviewer (people, memberships mode, the review organization only) | `registry_review` |
-| a grading key (the operator's, not a role a person holds) | `grade`, and nothing else |
 
-An administrator holds neither `label` nor `grade` (hidden evaluation sets, LP-11).
+An administrator does not hold `label` (written output's graders, ADR-0025).
 
 **Operating the deployment** (`operate`: its readiness checks and its operator's actions,
 `/api/system/...`, and the deployment's own views) is an administrator's, signed in as a person,
@@ -189,18 +188,15 @@ PERMISSIONS: dict[str, frozenset[str]] = {
             "evaluate",
             "admin",
             "keys",
-            "curate",
             "promote",
             # The deployment's readiness and its operator's actions: an administrator's of the
             # organization that operates it, people only (`OPERATOR_ONLY`, `Principal.operator`).
             "operate",
         }
     ),
-    # Hidden evaluation sets (LP-11, ADR-0011). `labeller` is a reserved role a membership holds
-    # (memberships mode only, `GRANTING_RESERVED`); `grading` is held only by a grading key the
-    # operator mints (`mendari access grader-key`), never by a person or a membership.
+    # Written output's graders (ADR-0025): `labeller` is a reserved role a membership holds
+    # (memberships mode only, `GRANTING_RESERVED`).
     "labeller": frozenset({"label"}),
-    "grading": frozenset({"grade"}),
     # The pack registry's reviewers (LP-19e, ADR-0015): a reserved role that counts only in the
     # organization `MENDARI_REGISTRY_REVIEW_ORG` names (`Auth._member`), and nowhere else.
     accounts.REGISTRY_REVIEWER: frozenset({"registry_review"}),
@@ -209,22 +205,16 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "pack_author": frozenset({"author"}),
 }
 # Permissions only a person who signed in holds, whatever a key's (or a token's) role says:
-# managing keys, clients, members and invitations; managing hidden evaluation sets (`curate`)
-# and labelling their cases (`label`); reviewing the pack registry (`registry_review`).
-PEOPLE_ONLY = frozenset(
-    {"keys", "curate", "label", "registry_review", "author", "promote", "operate"}
-)
+# managing keys, clients, members and invitations; grading written output (`label`); reviewing
+# the pack registry (`registry_review`).
+PEOPLE_ONLY = frozenset({"keys", "label", "registry_review", "author", "promote", "operate"})
 # What only the deployment's operators hold: an administrator's role grants it where
 # `Principal.operator` says so (the organization `MENDARI_OPERATOR_ORG` names), and nowhere else.
 OPERATOR_ONLY = frozenset({"operate"})
-# What only a grading key holds (LP-11): reading a hidden set to grade against it. No person,
-# administrator, other key, token or EHR launch ever holds it (the mirror of EHR_ONLY).
-GRADING_ONLY = frozenset({"grade"})
-GRADING = "grading"
-# What open mode (no sign-in) never holds, though it holds everything else: hidden evaluation
-# sets need sign-in (core/evalset_keys.py refuses the keys without it), and so does reviewing
-# the pack registry (a reviewer is a person with a membership).
-NEVER_OPEN = frozenset({"grade", "label", "curate", "registry_review", "author", "promote"})
+# What open mode (no sign-in) never holds, though it holds everything else: grading written
+# output needs sign-in (a grader is a person with a membership), and so does reviewing the pack
+# registry (a reviewer is a person with a membership).
+NEVER_OPEN = frozenset({"label", "registry_review", "author", "promote"})
 # What an EHR launch may do, by its EHR's registered level; no other principal holds these (the
 # mirror of PEOPLE_ONLY), and an EHR launch holds nothing else.
 EHR_LEVELS: dict[str, frozenset[str]] = {
@@ -259,17 +249,11 @@ PERSON = "person"
 ORG_PIN = "x-mendari-org"
 auth_logger = logging.getLogger("mendari.auth")
 
-# Memberships mode's own paths: a person's own routes, an organization's people, a labeller's
-# and its curators' routes over hidden evaluation sets (LP-11j, LP-11k, mounted with the
-# evaluation-set keys too), and the grading rounds of written output (ADR-0025, mounted under
-# PHI mode `encrypt`). Not mounted in claims mode, where they read as any route no rule
-# lists, `admin` (`Auth.permission`). The grading route (LP-11l, `GRADING_PATH`) is under the
-# curators' path but mounted with the keys in both account modes: it is not one of them.
-GRADING_PATH = r"^/api/evalsets/[^/]+/runs$"
+# Memberships mode's own paths: a person's own routes, an organization's people, and the
+# grading rounds of written output (ADR-0025, mounted under PHI mode `encrypt`). Not mounted in
+# claims mode, where they read as any route no rule lists, `admin` (`Auth.permission`).
 _MEMBERSHIPS_ONLY = re.compile(
-    rf"^(?!{GRADING_PATH.removeprefix('^')})"
-    r"/api/(auth/(organization|access-requests|invitations|members)|labelling|evalsets|written)"
-    r"(/|$)"
+    r"^/api/(auth/(organization|access-requests|invitations|members)|written)(/|$)"
 )
 # The registry's paths (LP-19d): where it is mounted, and its people's routes. Without
 # `MENDARI_REGISTRY=on` nothing is mounted at either and their rules are skipped, so both read
@@ -370,24 +354,11 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("*", r"^/api/auth/(members|invitations)(/|$)", "keys"),
         ("GET", r"^/api/auth/access-requests$", "keys"),
         ("POST", r"^/api/auth/access-requests/[^/]+$", "keys"),
-        # Hidden evaluation sets (LP-11j; memberships mode with the evaluation-set keys, not
-        # mounted otherwise): a labeller's own counts, next case and label, people only. Every
-        # method and path under it, before the reads below: the next case is a hidden case.
-        ("*", r"^/api/labelling(/|$)", "label"),
         # Written output (ADR-0025; memberships mode under PHI mode `encrypt`, not mounted
-        # otherwise): a grader's own counts, next item and grades, people only, as a labeller's
-        # routes are. Every method and path under it, before the reads below: the next item is
-        # a text an agent wrote about a case. A round's report is any reader's (below).
+        # otherwise): a grader's own counts, next item and grades, people only. Every method and
+        # path under it, before the reads below: the next item is a text an agent wrote about a
+        # case. A round's report is any reader's (below).
         ("*", r"^/api/written/labelling(/|$)", "label"),
-        # A grading run over one of an organization's hidden sets (LP-11l; mounted with the
-        # evaluation-set keys in both account modes): its grading key only, which holds nothing
-        # else. Every method on its path, before the curators' rule below, which would take it.
-        ("*", GRADING_PATH, "grade"),
-        # And an organization's curators' (LP-11k, mounted likewise): its sets listed and read,
-        # their cases drawn, assigned and adjudicated, people only (an administrator). Every
-        # method and path under it, before the reads below: a set's answer names its strata,
-        # languages and labellers.
-        ("*", r"^/api/evalsets(/|$)", "curate"),
         # An organization's pack store (LP-20f; `MENDARI_AGENT_STORE=on` in memberships mode, not
         # mounted otherwise): its authors' keys, managed by its administrators, and every other
         # route of the store its authors' (`pack_author`), people only. Before the reads below:
@@ -532,29 +503,20 @@ class Principal:
 
     def role_permissions(self) -> frozenset[str]:
         """What the roles grant; for a key (or a token), never a people-only permission. An EHR
-        launch has its level's permissions only, and nobody else ever has those; a grading key
-        has `grade` only, and nobody else ever has that; a CDS client has `discover` and
-        `decide` and nothing else. Open mode never holds `NEVER_OPEN`. `operate` is an
-        administrator's only where they operate the deployment (`operator`)."""
+        launch has its level's permissions only, and nobody else ever has those; a CDS client
+        has `discover` and `decide` and nothing else. Open mode never holds `NEVER_OPEN`.
+        `operate` is an administrator's only where they operate the deployment (`operator`)."""
         if self.kind == "ehr":
             return EHR_LEVELS.get(self.level or "", frozenset())
         if self.kind == CDS:
             return CDS_PERMISSIONS
-        if self.is_grading_key:
-            return GRADING_ONLY
         granted = frozenset().union(*(PERMISSIONS.get(role, frozenset()) for role in self.roles))
-        granted -= EHR_ONLY | GRADING_ONLY
+        granted -= EHR_ONLY
         if not self.operator:
             granted -= OPERATOR_ONLY
         if self.kind == "open":
             return granted - NEVER_OPEN
         return granted if self.kind == "user" else granted - PEOPLE_ONLY
-
-    @property
-    def is_grading_key(self) -> bool:
-        """A grading key: an API key of role `grading` and no other, unscoped (only the
-        operator mints one, `AuditStore.create_grading_key`)."""
-        return self.kind == "key" and self.roles == {GRADING} and self.grant is None
 
     def permissions(self) -> frozenset[str]:
         """The effective permissions: the role's, narrowed by the scopes (never widened)."""
@@ -878,18 +840,18 @@ class OrganizationRequest(BaseModel):
 
 def _roles_field(**default: Any) -> Any:
     """The roles a membership may be given: the server's, `pack_author` (`author`: the
-    organization's pack store, LP-20f) and `labeller` (`label` only, memberships mode), never
-    `grading`. Each model checks them
+    organization's pack store, LP-20f) and `labeller` (`label` only, memberships mode). Each
+    model checks them
     (`accounts.check_roles`: sorted, each once, a 422 otherwise)."""
     return Field(
         **default,
         min_length=1,
         max_length=len(accounts.MEMBERSHIP_ROLES),
         description="Roles: viewer, reviewer, service, governance, admin, pack_author (writes "
-        "agents in the organization's agent store: author only), labeller (labels hidden "
-        "evaluation sets: label only) and "
+        "agents in the organization's agent store: author only), labeller (grades written "
+        "output: label only) and "
         "registry_reviewer (reviews the agent registry; given in its review organization only, "
-        "a 422 in any other). Never grading.",
+        "a 422 in any other).",
     )
 
 
@@ -1006,8 +968,8 @@ class Auth:
     def permission(self, method: str, path: str) -> str:
         """The permission a request needs here: the route rules' (`permission_for`), except that
         in claims mode memberships mode's own routes (a person's own, `person`, an
-        organization's people, `keys`, a labeller's, `label`, and its curators', `curate`: none
-        mounted there) read as any route no rule lists, `admin`. The guard, the notice check and
+        organization's people, `keys`, and a grader's, `label`: none mounted there) read as any
+        route no rule lists, `admin`. The guard, the notice check and
         the rate limits all ask this, so they never disagree about a request."""
         permission = permission_for(method, path, registry=self.registry)
         if not self.memberships and (permission == PERSON or _MEMBERSHIPS_ONLY.match(path)):
@@ -1198,7 +1160,7 @@ class Auth:
         cached). None for no session. Without that membership in force (none chosen, removed,
         or removed and given again: a new one is chosen anew) they act for no organization,
         with no role: never `default`, never another of their memberships. Of the reserved
-        roles, `labeller` grants `label` (LP-11); `registry_reviewer` grants `registry_review`
+        roles, `labeller` grants `label` (ADR-0025); `registry_reviewer` grants `registry_review`
         in the review organization only (LP-19e), nothing in any other; `pack_author` grants
         `author` (LP-20f)."""
         session, sent = sessions.resume(self.store, request, COOKIE, MEMBER, self.lifetime)
@@ -1380,11 +1342,6 @@ class Auth:
                     403,
                     challenge=refused,
                 )
-            if permission in GRADING_ONLY and not principal.is_grading_key:
-                _refused_permission(principal, "grading_only")
-                raise AuthError(
-                    "only the deployment's grading key may do this", 403, challenge=refused
-                )
             _refused_permission(principal, permission)
             if principal.kind == "ehr":
                 raise AuthError(
@@ -1482,7 +1439,7 @@ def _within_scope(principal: Principal, method: str, path: str) -> None:
 
 def _refused_permission(principal: Principal, reason: str) -> None:
     """A security log line for a principal refused a route: the permission it lacks, or
-    `people_only`, `ehr_only`, `grading_only`, `operators_only` (an administrator who does not
+    `people_only`, `ehr_only`, `operators_only` (an administrator who does not
     operate the deployment), `out_of_scope`, `no_organization` (memberships
     mode: a person of none), `org_changed` (a window on another organization than the one
     chosen since), `not_a_member` (choosing an organization one holds no membership of),
@@ -2079,8 +2036,8 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         """Memberships mode: an invitation to this organization with `roles`, for whoever signs
         in with `email` verified, valid for `days` (7 unless asked, 30 at most). Mendari sends no
         e-mail: pass the `link` on yourself. Its token is in this response only (in `link`, a
-        path on this site to put after its address), stored hashed. `grading` is never given,
-        `pack_author` grants `author` (the agent store) and `labeller` grants `label` only.
+        path on this site to put after its address), stored hashed. `pack_author` grants
+        `author` (the agent store) and `labeller` grants `label` only.
         Recorded in the audit chain (`invitation.created`, with a digest of the address)."""
         principal = auth.acting(request)
         made = store.create_invitation(

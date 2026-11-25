@@ -373,7 +373,7 @@ def test_a_viewer_a_reviewer_and_an_administrator_without_the_role_cannot_upload
     )
 
 
-def test_a_held_or_withdrawn_version_is_never_tested_edited_or_served(world: Store) -> None:
+def test_a_withdrawn_version_is_never_tested_edited_or_served(world: Store) -> None:
     author = world.as_(ORG_A, "pack_author")
     draft = upload(world, pack_dir(world.tmp)).json()["digest"]
     assert world.client.delete(f"/api/store/versions/{draft}", headers=author).status_code == 200

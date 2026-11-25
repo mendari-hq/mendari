@@ -105,10 +105,7 @@ def problems(text: str) -> list[str]:
 # -- what is left alone ---------------------------------------------------------------------------
 
 # Files not read at all: file -> why.
-NOT_READ = {
-    "docs/grading/method-1.0.md": "the grading method 1.0 is pinned by the SHA-256 of its bytes "
-    "(`mendari.evals.method`, which signed results name): one word changed is another method",
-}
+NOT_READ: dict[str, str] = {}
 
 # A file from the line that starts with `first` up to the one that starts with `before` (to the
 # end of the file where `before` is None): (file, first, before) -> why.

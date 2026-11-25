@@ -200,10 +200,6 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "store verify": (["--db", "{not_db}"], {}),
     "store withdraw": ([DIGEST, "--org", "a", "--reason", "x", "--db", "{missing_db}"], {}),
     "store purge": (["--db", "{not_db}"], {}),
-    "store held": (["--db", "{missing_db}"], {}),
-    "store release": ([DIGEST, "--org", "a", "--reason", "x", "--db", "{not_db}"], {}),
-    "store dismiss": ([DIGEST, "--org", "a", "--reason", "x", "--db", "{missing_db}"], {}),
-    "store recheck": (["--db", "{not_db}"], {}),
     "new": (["{file}"], {}),
     "demo": (["--no-such-option"], {}),
     "mcp": (["--db", "{not_db}"], {}),
@@ -219,13 +215,12 @@ USAGE = {"list", "demo"}
 REPORTS = {"smart check"}
 # The commands wave 6 removes, until their code goes (a name, or the first word of a group's):
 # `train`, `improve` and `agreement` (G3); Da Vinci's PAS and OMOP, with the sandbox's payer and
-# OMOP commands (G4, G8); the contribution path's check (G10); hidden evaluation sets, their
-# grading key and the scoreboard (G13). Set aside, so `BROKEN` holds every command that stays.
+# OMOP commands (G4, G8); the contribution path's check (G10). Set aside, so `BROKEN` holds every
+# command that stays.
 REMOVED = {
     *("train", "improve", "agreement"),
     *("pas", "omop", "sandbox payer", "sandbox omop", "sandbox omop-check"),
     "community-check",
-    *("evalset", "access grader-key", "scoreboard"),
 }
 
 

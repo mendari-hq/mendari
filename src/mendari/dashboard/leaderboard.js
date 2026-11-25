@@ -10,11 +10,7 @@ import { chartHtml } from "./charts.js";
 import { criticalText, providerName, remoteModels, variantText } from "./pack.js";
 import { wire } from "./router.js";
 import { tableHtml } from "./table.js";
-import { $, docsLink, esc, evidenceMark, figureHtml, icon, num, share, shown, slotText, state, storageGet, storageSet, time } from "./ui.js";
-
-// Where the scoreboard is said to be: its runbook, which links the page of results (the page's
-// own path names a word this dashboard never uses, tests/test_invite_page.py).
-const SCOREBOARD_DOC = "operations/scoreboard.md";
+import { $, esc, evidenceMark, figureHtml, num, share, shown, slotText, state, storageGet, storageSet, time } from "./ui.js";
 
 const sameProvider = (a, b) => a?.variant === b?.variant && remoteModels(a?.model, a?.type).join() === remoteModels(b?.model, b?.type).join();
 
@@ -39,15 +35,13 @@ function boardGroups(board) {
 export function leaderboardView(board) {
   const { groups, current } = boardGroups(board);
   if (!current) return `<div class="panel"><h2>Provider comparison</h2><p class="muted">No configurations compared yet.</p></div>`;
-  const scoreboard = docsLink(SCOREBOARD_DOC);
   const min = board.ranking.min_positives;
   return `<div class="panel">
     <h2>Provider comparison</h2>
     <p class="muted"><b>Public set: regression check, not a ranking.</b> Each set of records is compared on its own (updated ${esc(time(board.updated_at))}).
       Rows are a listing order: those measured on this version of the agent, where a critical label has at least ${esc(min)} positives, come first, the critical cases caught first
       (fewest automated, then the worst critical label's detection, then false automation, accuracy and cost; never accuracy alone); every other row follows, by configuration name.
-      Sorting a column reorders the rows. Nothing here is graded: the agent's own sets are public, in the repository and in the package, and grades are given only on frozen hidden sets.
-      Mendari's <a href="${esc(scoreboard)}" target="_blank" rel="noopener noreferrer">scoreboard ${icon("external")}</a> shows measured configurations on public sets, each figure with its interval and scope.</p>
+      Sorting a column reorders the rows. Nothing here is graded: the agent's own sets are public, in the repository and in the package.</p>
     <div class="choices" role="group" aria-label="Records">${groups.map((g) =>
       `<button type="button" data-board-group="${g.index}" aria-pressed="${g === current}" title="${esc(g.about.join("; "))}">${esc(g.label)}</button>`).join("")}</div>
     <div id="board" class="mt-3">${boardTables(board, current)}</div>

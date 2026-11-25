@@ -321,19 +321,17 @@ export function storageSet(key, value) {
 // memberships mode; `noAccess`: why they see the access page instead of the sections (access.js).
 // `backendServices`: `{token_endpoint}` when SMART Backend Services is on (`/api/health`, signed
 // in), else null. `checkpointKey`: the id of the key that signs the daily checkpoint (`/api/health`),
-// else null: the audit trail then asks for no checkpoint. `labelling`: the person holds `label` and
-// the deployment serves the labelling routes (labelling.js); `written`: likewise a grader's
-// routes over written output (written.js); `labelOnly`: and holds nothing else, so those screens
-// are all they see. `evalsets`: the deployment has the evaluation-set keys
-// (`/api/health` names their ids to a signed-in reader): in memberships mode, its administrators'
-// hidden sets screen is served (evalsets.js). `registry`: the pack registry is served here
+// else null: the audit trail then asks for no checkpoint. `written`: the person holds `label`, the
+// deployment serves a grader's routes over written output and a round holds work of theirs
+// (written.js); `labelOnly`: and holds nothing else, so that screen is all they see.
+// `registry`: the pack registry is served here
 // (MENDARI_REGISTRY=on; `/api/health` says so to a signed-in reader): the Access view adds its
 // namespaces and publisher tokens (registry.js). `reviewOnly`: the person holds nothing but
 // `registry_review`, so the registry's review screen is all they see.
 export const state = {
   packs: [], packId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, launchPin: null, phiMode: "off",
-  accounts: "claims", memberships: [], noAccess: null, backendServices: null, checkpointKey: null, labelling: false, written: false, labelOnly: false,
-  evalsets: false, registry: false, reviewOnly: false, replayDraft: null, packQueue: new Map(),
+  accounts: "claims", memberships: [], noAccess: null, backendServices: null, checkpointKey: null, written: false, labelOnly: false,
+  registry: false, reviewOnly: false, replayDraft: null, packQueue: new Map(),
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
 
@@ -349,9 +347,9 @@ export const MEMBERSHIP_ROLES = [
   { key: "reviewer", label: "Reviewer", text: "decides and reviews cases" },
   { key: "service", label: "Service", text: "decides and records outcomes, for a system" },
   { key: "governance", label: "Governance", text: "approves agents and holds automation" },
-  { key: "admin", label: "Administrator", text: "everything but labelling, and manages people" },
+  { key: "admin", label: "Administrator", text: "everything but grading, and manages people" },
   { key: "pack_author", label: "Agent author", text: "writes agents in the organization's agent store, where it is on" },
-  { key: "labeller", label: "Labeller", text: "labels the cases of hidden evaluation sets, blind" },
+  { key: "labeller", label: "Labeller", text: "grades what agents write, blind" },
   // Given in the pack registry's review organization only (a 422 in any other, LP-19e): offered
   // where the server says this organization is that one (`me.registry_review_org`).
   { key: "registry_reviewer", label: "Registry reviewer", text: "reviews the agent registry: namespace claims, recalls and deletions", reviewOrg: true },

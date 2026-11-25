@@ -11,8 +11,7 @@ Its rows keep their `rank` and `standing` (`mendari.rank/1`), as data. The pack'
 public, so the card, the command line and the dashboard show each table as a regression check,
 not a ranking (LP-17g): the rows in `ranking.grouped`'s listing order (those that rank as data
 first, in `mendari.rank/1`'s order, then every other row by configuration name), and no rank
-printed. Grades and rankings are given only on frozen hidden sets (the scoreboard,
-`mendari.evals.scoreboard`).
+printed.
 """
 
 from __future__ import annotations
@@ -25,13 +24,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from mendari.core.pack import Pack
-from mendari.evals import figures, grade, ranking, stats
+from mendari.evals import figures, ranking, stats
 from mendari.evals.render import INTERVALS, evidence, num, shown
 from mendari.evals.result import MIN_POSITIVES, counted, false_automation, normalize
 
 FORMAT = "mendari.leaderboard/2"
 PATH = "evals/leaderboard.json"
-PUBLIC_SET = grade.PUBLIC_SET  # what every table of a leaderboard is
+PUBLIC_SET = "public set: regression check, not a ranking"  # what every table of a leaderboard is
 _COMPOSITES = ("any_of", "cascade", "vote", "check")
 
 
@@ -182,17 +181,16 @@ def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
 
 def preface() -> str:
     """What the card and `mendari leaderboard` say above a leaderboard's tables (LP-17g): what
-    each is (`PUBLIC_SET`), that nothing on them is graded, the order their rows are listed in
-    (`ranking.grouped`'s) and where the scoreboard is. It calls only the pack's own sets public:
-    a board can hold a site's own file (`mendari leaderboard --dataset PATH`)."""
+    each is (`PUBLIC_SET`), that nothing on them is graded and the order their rows are listed
+    in (`ranking.grouped`'s). It calls only the pack's own sets public: a board can hold a
+    site's own file (`mendari leaderboard --dataset PATH`)."""
     return (
         f"{PUBLIC_SET[:1].upper()}{PUBLIC_SET[1:]}. Nothing here is graded: the agent's own sets "
         "are public, in the repository and in the package, so a configuration can be tuned to "
-        "them, and grades and rankings are given only on frozen hidden sets. The rows are a "
-        "listing order, not a ranking: those measured on this version of the agent, on records "
-        f"where a critical label has at least {MIN_POSITIVES} positives, come first, the "
-        "critical cases caught first and never accuracy alone; every other row follows, by "
-        "configuration name."
+        "them. The rows are a listing order, not a ranking: those measured on this version of "
+        f"the agent, on records where a critical label has at least {MIN_POSITIVES} positives, "
+        "come first, the critical cases caught first and never accuracy alone; every other row "
+        "follows, by configuration name."
     )
 
 

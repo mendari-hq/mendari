@@ -91,8 +91,11 @@ PINNED = {
         # origin allowed by an operator (ADR-0021), with their `agent_connection:` subject.
         # Moved in wave 5, before 0.1.0's release: the six events of a grading round of written
         # output (`written.*`, ADR-0025).
-        "CodeSystem/audit-administrative-event": "b4810c63b85e06ab",
-        "NamingSystem/audit-subject": "1c75c7fb62504dc2",
+        # Moved in wave 6, before 0.1.0's release: the hidden evaluation sets' events, their
+        # `evalset:` subject and the store's holds (`pack_version.held|released`,
+        # `store_dataset.held`) are gone (G13).
+        "CodeSystem/audit-administrative-event": "32b9316f868645fb",
+        "NamingSystem/audit-subject": "5804d858d1fb1240",
     }
 }
 

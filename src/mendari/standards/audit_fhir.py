@@ -382,41 +382,14 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "sessions.ended": ("D", "Sessions ended", {}),
     "phi.rotated": ("U", "PHI key rotation batch", _CONFIGURATION),
     "input_hash.epoch": ("C", "Input hash key epoch", _CONFIGURATION),
-    # Hidden evaluation sets (LP-11e): the set and its organization only; the case hash and
-    # commitment a case's event chains are no detail here (`_ADMINISTRATIVE_DETAILS`).
-    "evalset.created": ("C", "Hidden evaluation set created", None),
-    "evalset.case_added": ("C", "Hidden evaluation case added", None),
-    "evalset.case_removed": ("D", "Hidden evaluation case removed", None),
-    "evalset_index.epoch": ("C", "Hidden-case index key epoch", _CONFIGURATION),
-    # Their keys' lifecycle (LP-11f), the deployment's: key ids and counts only.
-    "evalset.rotated": ("U", "Evaluation-set key rotation batch", _CONFIGURATION),
-    "evalset_index.rebuilt": ("U", "Hidden-case index rebuilt", _CONFIGURATION),
-    # Their blind labelling (LP-11h): the set and its organization; a labeller's read and label
-    # name the labeller (a user id) as the agent. The case hash, the assignment, the label's
-    # commitment, the round and the counts are no detail here (`_ADMINISTRATIVE_DETAILS`).
-    "evalset.sampled": ("U", "Hidden evaluation set sampled", None),
-    "evalset.assigned": ("C", "Hidden evaluation case assigned to a labeller", None),
-    "evalset.case_read": ("R", "Hidden evaluation case read by its labeller", None),
-    "evalset.labelled": ("C", "Hidden evaluation case labelled", None),
-    "evalset.measured": ("E", "Hidden evaluation set's agreement and coverage measured", None),
-    # Their lifecycle (LP-11i): the set and its organization, and the pack's digest a grading
-    # read is for; a grading read names its grading key as the agent. The commitment, the limits,
-    # the size and the run's number are no detail here (`_ADMINISTRATIVE_DETAILS`).
-    "evalset.frozen": ("U", "Hidden evaluation set frozen", None),
-    "evalset.activated": ("U", "Hidden evaluation set activated by its first grading read", None),
-    "evalset.graded": ("R", "Hidden evaluation set read to grade an agent", None),
-    "evalset.retired": ("U", "Hidden evaluation set retired", None),
     # A pack store's versions (LP-20e): the digest and who acted, never a file.
     "pack_version.created": ("C", "Agent store version added", None),
-    "pack_version.held": ("U", "Agent store version held for the operator's review", None),
-    "pack_version.released": ("U", "Agent store version released by the operator", None),
     "pack_version.withdrawn": ("U", "Agent store version withdrawn", None),
     # Its authors' keys (LP-20f): the key's id and who acted.
     "store_key.added": ("C", "Agent store author key registered", None),
     "store_key.revoked": ("U", "Agent store author key revoked", None),
     # Its datasets and evaluation jobs (LP-20g): ids, a SHA-256 and counts, never a case.
     "store_dataset.created": ("C", "Agent store dataset added", None),
-    "store_dataset.held": ("U", "Agent store dataset held for the operator's review", None),
     "store_job.created": ("C", "Agent store evaluation job made", None),
     # Promotion (LP-20h): the digest, its authors, the approver and the reports relied on.
     "pack_version.promoted": ("U", "Agent store version promoted to be served", None),
@@ -467,14 +440,10 @@ _ACTORS = (
     "user",
 )
 # A kind whose actor is under a key that means something else elsewhere (`replaced_by` is the
-# replacement key's id on `key.rotated`; `labeller` is who was assigned on `evalset.assigned`), or
-# under a key of its own (`grader`, the grading key a grading read was for, LP-11i): its agent,
-# never one of its details.
+# replacement key's id on `key.rotated`), or under a key of its own: its agent, never one of its
+# details.
 _ACTOR_KEY = {
     "client.keys_replaced": "replaced_by",
-    "evalset.case_read": "labeller",
-    "evalset.labelled": "labeller",
-    "evalset.graded": "grader",
     # Who was shown or graded an item is its grader; `grader` on `written.assigned` is who was
     # assigned, not who acted. A round is closed `by` someone.
     "written.item_read": "grader",
@@ -524,9 +493,9 @@ _ADMINISTRATIVE_DETAILS = (
     "kinds",
     "ended",
 )
-# The kinds whose details include mappings of counts (a key rotation's `from`, by key id, and an
-# evaluation-set rotation's `counts`, by table): each written `name=count`.
-_COUNTED = ("phi.rotated", "evalset.rotated")
+# The kinds whose details include mappings of counts (a key rotation's `from`, by key id): each
+# written `name=count`.
+_COUNTED = ("phi.rotated",)
 
 
 def administrative_resources(events: Iterable[Mapping[str, Any]]) -> Iterator[dict[str, Any]]:

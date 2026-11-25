@@ -15,19 +15,18 @@ costs: no body is read, no provider is called and nothing is chained for a refus
 | `token_failures` | a refused assertion at `/auth/token` | IP and client | 10/10min |
 | `decide` | every decision entry point; a CDS draft order is one | principal | 600/min, burst 100 |
 | `guard` | `POST …/guard` (an LLM call) | principal | 60/min |
-| `evaluate` | `POST …/evals`, and a grading run (`POST …/runs`, LP-11l) | principal | 6/h |
+| `evaluate` | `POST …/evals` | principal | 6/h |
 | `export` | the audit FHIR export, the feedback export | principal | 10/h |
-| `label` | a labeller's routes (LP-11j; each case read is chained) | principal | 60/min, burst 30 |
+| `label` | a grader's routes (each item read is chained) | principal | 60/min, burst 30 |
 
 Reads are not limited here (the edge covers floods, and a read writes nothing permanent), but for
-a labeller's, which chain each case they are shown, and for the console's reads of the
+a grader's, which chain each item they are shown, and for the console's reads of the
 deployment's registry (a search, a listing: each is a request this server sends there), which
 count against `label` too, as a check of an agent's connection does. An EHR launch's decisions
 count against its `ehr` principal, like anyone's. An administrator's writes (keys, clients,
-people, and a hidden set's draws and assignments, LP-11k) have no class: a person's pace,
-chained, as every write. A registry reviewer's acts, and an operator's actions
-(`/api/system/...`: verifying the whole chain, a test alert, a check of an EHR's servers), count
-against `label` too: a person's pace.
+people) have no class: a person's pace, chained, as every write. A registry reviewer's acts,
+and an operator's actions (`/api/system/...`: verifying the whole chain, a test alert, a check
+of an EHR's servers), count against `label` too: a person's pace.
 
 **A daily cap per principal** (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set, sign-in only:
 `DailyCap`) counts the decisions each principal asks for, per local day (one per request that
@@ -350,11 +349,11 @@ class Limiter:
             return "decide"
         if permission == "decide":
             return "guard" if _GUARD.match(path) else "decide"
-        if permission in ("evaluate", "grade"):  # a grading run is an evaluation (LP-11l)
+        if permission == "evaluate":
             return "evaluate"
         if method == "GET" and _EXPORTS.match(path):
             return "export"
-        if permission == "label":  # a labeller's routes: a person's pace, each case read chained
+        if permission == "label":  # a grader's routes: a person's pace, each item read chained
             return "label"
         if permission == "author" and method != "GET":  # the pack store's writes (LP-20f)
             return "store"

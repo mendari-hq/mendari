@@ -15,9 +15,7 @@ import "./patient.js";
 import "./admin.js";
 import "./system.js";
 import "./registry.js";
-import "./labelling.js";
 import "./written.js";
-import "./evalsets.js";
 import "./store.js";
 import "./agents.js";
 import { defaultPack, packOptions } from "./pack.js";
@@ -40,7 +38,6 @@ async function boot() {
   state.phiMode = health?.phi_mode ?? "off";
   state.backendServices = health?.backend_services ?? null; // the Access view's Clients tab
   state.checkpointKey = health?.checkpoint_key ?? null; // the audit trail's signed checkpoint
-  state.evalsets = Boolean(health?.evalset_keys); // hidden evaluation sets are on (evalsets.js)
   state.registry = Boolean(health?.registry); // the pack registry is served here (registry.js)
   try {
     state.timeFormat = timeFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
@@ -68,31 +65,26 @@ async function boot() {
       if (state.store) state.storeOnly = true;
       else state.noAccess = "author";
     }
-    // A labeller (LP-11) or a reviewer of the pack registry (LP-19f), or both, and nothing
-    // else: no packs to list, no notice, no review queue; just their screens. The review screen
-    // where the server serves it (this organization is the registry's review organization), and
-    // labelling where it does (below).
+    // A labeller (a grader of written output, ADR-0025) or a reviewer of the pack registry
+    // (LP-19f), or both, and nothing else: no packs to list, no notice, no review queue; just
+    // their screens. The review screen where the server serves it (this organization is the
+    // registry's review organization), and grading where it does (below).
     else if (me.principal.permissions.every((p) => p === "label" || p === "registry_review")) {
       state.reviewOnly = me.principal.permissions.includes("registry_review") && Boolean(me.principal.registry_review_org);
       if (me.principal.permissions.includes("label")) state.noAccess = "label";
       else if (!state.reviewOnly) state.noAccess = "nothing";
     }
   }
-  // Holding `label`, they label here where the deployment serves the labelling routes
-  // (memberships mode with the evaluation-set keys, LP-11j): their counts say whether it does,
-  // read once (they open no case). A labeller and nothing else then sees the labelling screen
-  // alone (labelling.js); without the routes, the access page says labelling is not on here.
-  state.labelling = Boolean(person && me.principal.org && me.principal.permissions.includes("label"))
-    && await api("/api/labelling").then(() => true, () => false);
-  // And they grade what an agent wrote (ADR-0025, written.js) where the deployment serves a
-  // grader's routes (memberships mode under PHI mode encrypt) and a round holds work of
-  // theirs, waiting or done: their counts say both, read once. Those routes need no key of
-  // their own, so a labeller no round was ever assigned to sees what they saw before.
+  // Holding `label`, they grade what an agent wrote (ADR-0025, written.js) where the deployment
+  // serves a grader's routes (memberships mode under PHI mode encrypt) and a round holds work of
+  // theirs, waiting or done: their counts say both, read once (they open no text). A labeller
+  // and nothing else then sees the grading screen alone; one no round was ever assigned to is
+  // told by the access page that nothing waits for them yet.
   state.written = Boolean(person && me.principal.org && me.principal.permissions.includes("label"))
     && await api("/api/written/labelling").then((counts) => counts.sets.length > 0, () => false);
-  if (state.noAccess === "label" && (state.labelling || state.written)) [state.noAccess, state.labelOnly] = [null, true];
+  if (state.noAccess === "label" && state.written) [state.noAccess, state.labelOnly] = [null, true];
   if (state.noAccess === "label" && state.reviewOnly) state.noAccess = null; // no labelling here: reviewing
-  // Labelling and reviewing the registry are not notice-gated.
+  // Grading and reviewing the registry are not notice-gated.
   if (me?.signed_in && !state.noAccess && !state.labelOnly && !state.reviewOnly && !state.storeOnly) await acknowledgeNotice();
   state.smart = session?.active ? session : null;
   // An EHR launch in a browser whose person may do nothing here (no organization, roles that
@@ -105,8 +97,6 @@ async function boot() {
   showOrganization();
   showAdministration();
   showSystem();
-  showEvalsets();
-  showLabelling();
   showWritten();
   showRegistryReview();
   showStore();
@@ -120,7 +110,7 @@ async function boot() {
     $(".pack-picker").hidden = true;
     // The docs stay; a labeller or a registry reviewer and nothing else keeps their screens'
     // links.
-    const kept = [state.labelOnly && state.labelling && "labelling", state.labelOnly && state.written && "written", state.reviewOnly && "registry-review", state.storeOnly && "store"];
+    const kept = [state.labelOnly && state.written && "written", state.reviewOnly && "registry-review", state.storeOnly && "store"];
     document.querySelectorAll(".nav a[data-view]").forEach((a) => (a.hidden = !kept.includes(a.dataset.view)));
     syncNavGroups();
     window.addEventListener("hashchange", onHashChange);
@@ -242,18 +232,8 @@ function showSystem() {
   $('.nav a[data-view="system"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views.system.available();
 }
 
-// An administrator who signed in, in memberships mode where hidden evaluation sets are on (LP-11n):
-// their organization's sets (evalsets.js). Never a labeller, another role or claims mode.
-function showEvalsets() {
-  $('.nav a[data-view="evalsets"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views.evalsets.available();
-}
-
-// Someone holding `label` where the labelling routes are served (LP-11m): the labelling screen.
-function showLabelling() {
-  $('.nav a[data-view="labelling"]').hidden = Boolean(state.noAccess) || !views.labelling.available();
-}
-
-// And where a grader's routes are served (ADR-0025): the grader's screen (written.js).
+// Someone holding `label` where a grader's routes are served (ADR-0025): the grader's screen
+// (written.js).
 function showWritten() {
   $('.nav a[data-view="written"]').hidden = Boolean(state.noAccess) || !views.written.available();
 }

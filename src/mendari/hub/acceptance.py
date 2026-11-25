@@ -9,7 +9,7 @@
 The signature is Ed25519 over the canonical JSON of every other field (sorted keys, no spaces),
 by the registry's own key (`MENDARI_REGISTRY_SIGNING_KEY`, `hub/yank.py` `registry_key`), as a
 recall the registry makes is signed. The `format` is inside what is signed and is this record's
-own, so no recall, checkpoint or scoreboard signature by the same key is ever an acceptance.
+own, so no recall or checkpoint signature by the same key is ever an acceptance.
 
 The registry writes one when a version becomes listed (`hub/registry.py`): a version written
 straight into its database has none. A client that trusts the registry's key refuses a version

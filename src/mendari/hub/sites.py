@@ -235,7 +235,7 @@ def wholly_local(configuration: Mapping[str, str], names: Mapping[str, Any]) -> 
     """Whether every provider a configuration runs decides on the site's machines: a local
     type, or a composite whose members' types (`names.member_types`, recorded at publish since
     LP-22e) all are. A composite of a version published before that counts as remote, as
-    `evals.arms.remote_types` counts a composite whose members cannot be read."""
+    `core.origin.is_local` counts a composite whose members cannot be read."""
     slots: Mapping[str, Mapping[str, str]] = names.get("slots") or {}
     members: Mapping[str, Mapping[str, list[str]]] = names.get("member_types") or {}
     for slot, variant in configuration.items():

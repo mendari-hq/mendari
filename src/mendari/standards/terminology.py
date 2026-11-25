@@ -130,8 +130,8 @@ NAMING_SYSTEMS = (
         "Mendari audit subject",
         "What an administrative AuditEvent is about, by its chain id: a kind of record and "
         "its id, joined by a colon (`key:`, `client:`, `governance:`, `hold:`, `eval:`, "
-        "`org:`, `membership:`, `invitation:`, `access:` or `evalset:`, then the id), or one of "
-        "the deployment's own chain ids.",
+        "`org:`, `membership:`, `invitation:` or `access:`, then the id), or one of the "
+        "deployment's own chain ids.",
     ),
     (
         "decision-pack",
@@ -372,8 +372,8 @@ def _administrative_events() -> dict[str, Any]:
         "audit-administrative-event",
         "Mendari administrative audit event",
         "The events of Mendari's audit trail that are on no decision (an organization's keys, "
-        "clients, people, approvals, holds, reports and hidden evaluation sets, and the "
-        "deployment's own), as AuditEvent.subtype.",
+        "clients, people, approvals, holds and reports, and the deployment's own), as "
+        "AuditEvent.subtype.",
         __version__,
         concepts,
     )

@@ -41,10 +41,9 @@ HELD = "Please renew my prescription."
 TRIAGE = "mendari-test/triage"  # the agent these tests decide with (`triage_agent`)
 CLINIC = "clinic-a"
 # What the store still lists of the features wave 6 removes, which nothing kept writes: a
-# payer's answer to a prior authorization (G4) and the hidden evaluation sets' table (G13). They
-# leave the store's classes with their code, and these then remove nothing.
+# payer's answer to a prior authorization (G4). It leaves the store's classes with its code, and
+# this then removes nothing.
 REMOVED_KINDS = frozenset({"pas.submitted"})
-REMOVED_TABLES = frozenset({"evalset_sets"})
 
 
 def keeping(target: str, **options: Any) -> AuditStore:
@@ -393,7 +392,7 @@ SUBJECTS: dict[str, tuple[str, str, Make]] = {  # table, its id column, what mak
 
 
 def test_every_subject_table_is_checked() -> None:
-    tables = {table for table, _, _ in SUBJECT_TABLES.values()} - REMOVED_TABLES
+    tables = {table for table, _, _ in SUBJECT_TABLES.values()}
     assert tables | {"decisions"} == set(SUBJECTS)
 
 

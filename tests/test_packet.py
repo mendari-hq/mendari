@@ -375,7 +375,7 @@ def test_the_route_is_refused_without_sign_in_and_to_a_role_without_access(
         signed_out = client.get(f"{PACKET}{query}")
         assert signed_out.status_code == 401, signed_out.text
         assert "Committee packet" not in signed_out.text
-        # A labeller reads hidden cases to label them, and nothing of an agent's evidence.
+        # A labeller grades written output, and reads nothing of an agent's evidence.
         assert client.get(f"{PACKET}{query}", headers=people["labeller"]).status_code == 403
         # A person of no organization reads no organization's packet.
         assert client.get(f"{PACKET}{query}", headers=people["nobody"]).status_code in (401, 403)

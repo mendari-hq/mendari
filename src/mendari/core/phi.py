@@ -146,9 +146,8 @@ class PhiPolicy:
 
 def seal_with(key: bytes, aad: bytes, value: Any) -> str:
     """`value` (as canonical JSON) sealed with AES-256-GCM under `key`, bound to `aad`: a fresh
-    nonce for every seal, re-seals included; `v2:<key id>:<base64>`. Shared by the PHI policy
-    and the evaluation-set keys (`core/evalset_keys.py`), which each bind their own associated
-    data."""
+    nonce for every seal, re-seals included; `v2:<key id>:<base64>`. The PHI policy binds each
+    value to its own associated data."""
     nonce = secrets.token_bytes(12)
     plain = _canonical(value).encode()
     sealed = base64.b64encode(nonce + AESGCM(key).encrypt(nonce, plain, aad)).decode()

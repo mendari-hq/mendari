@@ -9,9 +9,8 @@ share. The records live in the audit store (`core/audit.py`); memberships mode r
 - An organization is a record with an id of lower-case letters, digits and hyphens. `default`
   is reserved for the owner's existing data: only the bootstrap creates its record.
 - A membership holds a set of roles: the server's roles, plus `pack_author` (which grants
-  nothing until LP-20 gives it permissions) and `labeller` (which grants `label`, labelling the
-  cases of hidden evaluation sets, LP-11, in memberships mode only). `grading` is reserved for
-  a machine (a grading key, LP-11) and is never held by a membership.
+  nothing until LP-20 gives it permissions) and `labeller` (which grants `label`, grading
+  written output blind, ADR-0025, in memberships mode only).
 - What the chain records of an e-mail address is a digest, keyed with the input-hash key
   (`MENDARI_INPUT_HASH_KEY`) when there is one, so the chain names nobody; without that key it
   is a plain SHA-256, which a dictionary of addresses could reverse.
@@ -32,10 +31,10 @@ USER_ID = re.compile(r"user:[0-9a-f]{16}")  # `person_id`'s form
 RESERVED_ORG = DEFAULT_ORG
 # The server's roles for people and machines (server/auth.py `ROLES`, which a test keeps equal).
 PERSON_ROLES = ("viewer", "reviewer", "service", "governance", "admin")
-RESERVED_ROLES = ("pack_author", "labeller", "registry_reviewer", "grading")
-NEVER_ON_A_MEMBERSHIP = frozenset({"grading"})
+RESERVED_ROLES = ("pack_author", "labeller", "registry_reviewer")
 # The reserved roles that grant something on a membership (server/auth.py `PERMISSIONS`):
-# `labeller` (LP-11) and, since LP-20f, `pack_author` (an organization's pack store).
+# `labeller` (ADR-0025: a grader of written output) and, since LP-20f, `pack_author` (an
+# organization's pack store).
 GRANTING_RESERVED = ("labeller", "pack_author")
 # The pack registry's reviewers (LP-19e, ADR-0015): a role that grants `registry_review` in one
 # organization only, the one `MENDARI_REGISTRY_REVIEW_ORG` names, and is refused when given in
@@ -43,11 +42,11 @@ GRANTING_RESERVED = ("labeller", "pack_author")
 # counted everywhere would let every organization approve its own namespace.
 REGISTRY_REVIEWER = "registry_reviewer"
 REVIEW_ORG_ONLY = (REGISTRY_REVIEWER,)
-MEMBERSHIP_ROLES = (*PERSON_ROLES, *(r for r in RESERVED_ROLES if r not in NEVER_ON_A_MEMBERSHIP))
+MEMBERSHIP_ROLES = (*PERSON_ROLES, *RESERVED_ROLES)
 ADMIN = "admin"
-# Who labels a hidden set's cases (`label`), and the roles that manage hidden sets (`curate`,
-# server/auth.py `PERMISSIONS`, which a test keeps equal): the store assigns a case only to a
-# labeller who holds none of them in the set's organization (separation of duties, LP-11h).
+# Who grades written output (`label`), and the roles that administer an organization: a grading
+# round assigns an item only to a labeller who holds none of them there (separation of duties,
+# `core/written.py`).
 LABELLER = "labeller"
 CURATING = (ADMIN,)
 INVITE_DAYS = 7
@@ -103,14 +102,12 @@ def is_org_id(org: str) -> bool:
 
 
 def check_roles(roles: Iterable[str]) -> list[str]:
-    """The roles a membership may hold, sorted and each once; a `ValueError` for none, an
-    unknown one, or one no membership holds (`grading`)."""
+    """The roles a membership may hold, sorted and each once; a `ValueError` for none or an
+    unknown one."""
     chosen = sorted(set(roles))
     if not chosen:
         raise ValueError("a membership holds at least one role")
     for role in chosen:
-        if role in NEVER_ON_A_MEMBERSHIP:
-            raise ValueError(f"no membership holds {role!r}: it is a machine's (LP-11)")
         if role not in MEMBERSHIP_ROLES:
             raise ValueError(f"unknown role {role!r} (one of {', '.join(MEMBERSHIP_ROLES)})")
     return chosen
