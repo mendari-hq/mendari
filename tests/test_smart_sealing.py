@@ -366,14 +366,15 @@ def test_sign_in_sessions_are_untouched(db_target: str, monkeypatch: pytest.Monk
         assert json.loads(person["data"])["name"] == "Nurse Kim"
         assert client.get("/api/auth/me").json()["signed_in"] is True
         assert sign_in(client, idp, roles=["clinicians"]).status_code == 302
-        # The CI ZAP job writes a person's row straight into the store, with the absolute limit
-        # every session row keeps (`sessions.begin`), and it still works.
+        # The CI ZAP job writes a person's row straight into the store, as `/auth/callback`
+        # makes one (with the absolute limit every session row keeps, `sessions.begin`), and it
+        # still works.
         with AuditStore(db_target) as store:
             sid = "zap-session-id"
             until = int(time.time()) + 7200
             row = {
-                "sub": "zap", "name": "zap", "claims": {"roles": ["admin"]}, "org": "default",
-                "absolute_at": until,
+                "iss": IDP, "sub": "zap", "name": "zap", "actor": f"{IDP}|zap",
+                "claims": {"roles": ["admin"]}, "org": "default", "absolute_at": until,
             }  # fmt: skip
             store.smart_put(sid, "user", row, until)
             assert store.smart_get(sid, "user") == row

@@ -1131,13 +1131,10 @@ class Auth:
             if sent:  # ended, expired or never made: a dashboard left open, or a guess
                 security_log.event("auth.credential.refused", outcome="refused", reason="session")
             return None
-        # A session that holds no issuer is of the issuer configured now.
-        issuer = str(session.get("iss") or self.settings.issuer)
+        issuer = str(session["iss"])
         person = person_id(issuer, str(session["sub"]))
-        claims = session.get("claims")
-        # The roles as the settings give them now, from the claims kept at sign-in: a session
-        # that keeps none has no role.
-        roles = roles_from(claims, self.settings) if isinstance(claims, dict) else frozenset()
+        # The roles as the settings give them now, from the claims kept at sign-in.
+        roles = roles_from(session["claims"], self.settings)
         if not roles:  # taken out of the role map since signing in: access ends at once
             security_log.event(
                 "auth.credential.refused", outcome="refused", reason="no_role", actor=person
@@ -1149,7 +1146,7 @@ class Auth:
             roles=roles,
             org=session["org"],
             id=person,
-            actor=str(session.get("actor") or f"{issuer}|{session['sub']}"),
+            actor=str(session["actor"]),
             operator=self.operates(session["org"]),
         )
 
@@ -1184,11 +1181,11 @@ class Auth:
         request.state.member_session = session  # what choosing an organization rewrites
         return Principal(
             kind="user",
-            name=str(session.get("name") or subject),
+            name=str(session["name"]),
             roles=roles,
             org=org,
             id=person,
-            actor=str(session.get("actor") or f"{issuer}|{subject}"),
+            actor=str(session["actor"]),
             operator=self.operates(org),
         )
 
