@@ -538,7 +538,7 @@ jobs:
         run: uv run python scripts/doc_blocks.py run python
       - name: A new virtual environment installs from the clone with one command, and serves
         run: python3 scripts/doc_blocks.py run install
-      - name: A REST, a FHIR and a guard decision by the documented commands, and the commands on the server's database
+      - name: A REST and a FHIR decision by the documented commands, and the commands on the server's database
         run: uv run python scripts/check_doc_snippets.py
 
   action:
