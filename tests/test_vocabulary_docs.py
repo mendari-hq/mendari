@@ -131,7 +131,8 @@ _ARCHIVE = (
 # A text left alone in the files a pattern names (`*`: any of them): (files, text) -> why.
 ALLOWED: dict[tuple[str, str], str] = {
     ("docs/spec/agent-manifest-0.2.md", "A manifest named `pack.yaml`"): "the spec's one "
-    "sentence that a manifest under the name it had before still loads",
+    "sentence on a manifest under the name it had before, which no longer loads: the page is "
+    "rewritten with the docs",
     (
         "docs/decisions/ADR-*.md",
         "Terminology updated 2026-11-23: what this record called a pack is an agent.",
