@@ -33,37 +33,38 @@ def _script() -> Any:
 
 
 check = _script()
-SUITE = "dtr_payer_server_v220"
-FOUND = f"{SUITE}-dtr_payer_server_v220_questionnaire_operations-dtr_payer_v220_error_handling-"
+# An example kit's expected results: a pass, a known gap and a test the run omits.
+SUITE = "example_suite"
+FOUND = f"{SUITE}-example_operations-example_error_handling-"
 GOLDEN: dict[str, Any] = {
-    "kit": "davinci-dtr-test-kit",
-    "version": "0.18.0",
+    "kit": "example-test-kit",
+    "version": "1.0.0",
     "commit": "1b76dd3f565433a3157808da2d6d0c08a797b2f0",
     "suite": SUITE,
     "groups": ["1", "3", "4"],
     "tests": [
         {
-            "id": f"{FOUND}dtr_server_v220_payer_questionnaire_not_found",
+            "id": f"{FOUND}an_unknown_resource_is_a_warning",
             "short_id": "3.6.01",
-            "title": "Questionnaire package response warns of an unknown Questionnaire",
+            "title": "The response warns of an unknown resource",
             "result": "pass",
-            "requirements": ["hl7.fhir.us.davinci-dtr_2.2.0@oper-9"],
+            "requirements": ["example.guide_1.0.0@oper-9"],
         },
         {
-            "id": f"{FOUND}dtr_v220_payer_invalid_questionnaire_response",
+            "id": f"{FOUND}an_invalid_request_is_a_400",
             "short_id": "3.6.03",
-            "title": "Invalid QuestionnaireResponses return 400 with an OperationOutcome",
+            "title": "Invalid requests return 400 with an OperationOutcome",
             "result": "fail",
-            "requirements": ["hl7.fhir.us.davinci-dtr_2.2.0@spec-147"],
-            "reason": "Mendari serves no $next-question",
+            "requirements": ["example.guide_1.0.0@spec-147"],
+            "reason": "the engine serves no such operation",
         },
         {
-            "id": f"{SUITE}-dtr_payer_v220_next_question_support-next_question_validation",
+            "id": f"{SUITE}-example_optional_support-optional_validation",
             "short_id": "3.3.01",
-            "title": "$next-question responses are valid",
+            "title": "Optional operation responses are valid",
             "result": "omit",
             "requirements": [],
-            "reason": "no adaptive form, so no $next-question request is made",
+            "reason": "no request of that kind is made",
         },
     ],
 }
@@ -75,7 +76,7 @@ def output(results: dict[str, str], *, log: bool = True) -> str:
     suite's and a group's included), pretty-printed."""
     entries: list[dict[str, Any]] = [
         {"id": "r0", "test_suite_id": SUITE, "result": "fail"},
-        {"id": "r1", "test_group_id": f"{SUITE}-dtr_payer_v220_error_handling", "result": "fail"},
+        {"id": "r1", "test_group_id": f"{SUITE}-example_error_handling", "result": "fail"},
     ]
     entries += [
         {"id": f"r{n}", "test_id": test, "result": result, "messages": [{"type": "info"}]}
@@ -117,13 +118,13 @@ def test_an_unexpected_pass_fails(tmp_path: Path, capsys: pytest.CaptureFixture[
     it: the list only shrinks by a decision."""
     assert run(tmp_path, {**AS_EXPECTED, INVALID: "pass"}) == 1
     err = capsys.readouterr().err
-    assert "3.6.03: passes, expected fail (Mendari serves no $next-question)" in err
+    assert "3.6.03: passes, expected fail (the engine serves no such operation)" in err
     assert run(tmp_path, {**AS_EXPECTED, NEXT: "pass"}) == 1
     assert run(tmp_path, {**AS_EXPECTED, NEXT: "skip"}) == 1  # any other change, too
 
 
 def test_an_unknown_test_id_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    unknown = f"{SUITE}-dtr_payer_v220_error_handling-a_test_added_by_a_new_kit"
+    unknown = f"{SUITE}-example_error_handling-a_test_added_by_a_new_kit"
     assert run(tmp_path, {**AS_EXPECTED, unknown: "pass"}) == 1
     assert f"{unknown}: pass, but the expected results do not list this test" in (
         capsys.readouterr().err
@@ -196,7 +197,7 @@ def test_writing_keeps_each_reason_whose_result_did_not_change(
     assert check.main([str(raw), "--expected", str(expected), "--write"]) == 1
     assert "a skip needs its reason" in capsys.readouterr().err
     written = {entry["id"]: entry for entry in json.loads(expected.read_text())["tests"]}
-    assert written[INVALID]["reason"] == "Mendari serves no $next-question"
+    assert written[INVALID]["reason"] == "the engine serves no such operation"
     assert written[NEXT]["reason"] == "" and written[NEXT]["result"] == "skip"
     assert "reason" not in written[NOT_FOUND]
     assert [e["short_id"] for e in written.values()] == ["3.3.01", "3.6.01", "3.6.03"]
