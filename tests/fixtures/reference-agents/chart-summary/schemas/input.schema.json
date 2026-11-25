@@ -43,6 +43,7 @@
         }
       }
     },
+    "problems": {"type": "string", "minLength": 1, "maxLength": 20000},
     "notes": {"type": "string", "minLength": 1, "maxLength": 20000},
     "order": {
       "type": "object",

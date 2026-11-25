@@ -315,8 +315,8 @@ class Case:
 
     def input(self) -> dict[str, Any]:
         """What the agent's FHIR mapping reads from this case's record, on `TODAY`: every list,
-        empty ones too; statements before requests, each in the record's order; the notes
-        joined by a blank line."""
+        empty ones too; statements before requests, each in the record's order; the problem
+        list as text, a condition a line (`join`); the notes joined by a blank line."""
         value: dict[str, Any] = {
             "patient": {"age": self.age, "sex": self.sex},
             "conditions": [_condition_item(c) for c in self.conditions],
@@ -327,6 +327,8 @@ class Case:
                 if m.source == source
             ],
         }
+        if self.conditions:
+            value["problems"] = "\n".join(CONDITIONS[c.code][0] for c in self.conditions)
         if self.notes:
             value["notes"] = "\n\n".join(note.text for note in self.notes)
         return value

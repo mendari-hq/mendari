@@ -75,6 +75,7 @@ MAPPING_0_2: dict[str, Any] = {
             "path": "Patient.gender",
             "map": {"female": "female", "male": "male", "other": "other", "unknown": "unknown"},
         },
+        "problems": {"path": "Condition.code.text", "transform": "join"},
         "notes": {"path": "DocumentReference.content.attachment.data", "transform": "base64_text"},
     },
     "lists": {

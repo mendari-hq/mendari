@@ -230,7 +230,7 @@ def test_a_copy_is_another_agent_with_the_mapping_a_test_gives_it(tmp_path: Path
     pack = load_pack(changed)
     mapping = FhirAdapter.for_pack(pack).mapping
     assert set(mapping.resources) == {"Patient", "DocumentReference"}
-    assert set(mapping.fields) == {"patient.sex", "notes"}
+    assert set(mapping.fields) == {"patient.sex", "problems", "notes"}
     assert set(mapping.lists["conditions"].sources()["Condition"].fields) == {"text"}
     assert set(mapping.lists) == {"conditions", "medications"}
     assert pack.manifest.providers["reader"].use == "rules"

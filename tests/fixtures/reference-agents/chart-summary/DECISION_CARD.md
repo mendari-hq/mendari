@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. |
-| Agent digest | `sha256:29eb4eea017c769291c8151c29261053d41f0e5e568d39cfd948f8895c1ec600` |
+| Agent digest | `sha256:6c968682181cabf89351dc803138bc1ed91ec422bca7c24157d38b96cf047056` |
 
 ## Intended use
 
@@ -42,6 +42,7 @@ Synthetic adult patients made by tests/support/fixture_records.py, coded in ICD-
 | `patient.sex` | `female` \| `male` \| `other` \| `unknown` | no |
 | `conditions` | array | no |
 | `medications` | array | no |
+| `problems` | string | no |
 | `notes` | string | no |
 | `order` | object | no |
 | `order.code` | string | no |
