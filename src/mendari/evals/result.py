@@ -300,27 +300,6 @@ def false_automation(report: Mapping[str, Any]) -> stats.Proportion | None:
     return None if wrong is None or labelled is None else stats.proportion(wrong.k, labelled)
 
 
-def sweep(report: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """The threshold sweep with the counts each row is of (`scored` cases, `chosen` at or above
-    the threshold), as the report stores them; for a row that does not, `scored` is the primary
-    question's calibration bins, which hold exactly the cases the sweep is over, and `chosen`
-    follows from the coverage."""
-    question = report["questions"].get(report["primary"]) or {}
-    bins = (question.get("calibration") or {}).get("bins")
-    scored = sum(b["n"] for b in bins) if bins is not None else None
-    rows = []
-    for row in report.get("threshold_sweep", []):
-        if "chosen" not in row:
-            coverage = row.get("coverage")
-            if scored == 0:  # nothing scored: nothing at or above any threshold
-                chosen: int | None = 0
-            else:
-                chosen = None if scored is None or coverage is None else round(coverage * scored)
-            row = {**row, "scored": scored, "chosen": chosen}
-        rows.append(dict(row))
-    return rows
-
-
 def subgroup_labelled(report: Mapping[str, Any], members: Mapping[str, Any]) -> int | None:
     """How many of a subgroup's members are labelled for the primary question, which its
     accuracy is over, as the report stores it (`labelled`); else known only when every case is

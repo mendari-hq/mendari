@@ -566,6 +566,16 @@ def _run_lifted(agent: Path) -> None:
     path.write_text(json.dumps(data))
 
 
+def _sweep_uncounted(agent: Path) -> None:
+    """The shipped benchmark with its threshold sweep's rows without the cases each is of
+    (`scored`, and `chosen` at or above its threshold), which every row a release writes holds."""
+    path = agent / "evals" / "benchmark.json"
+    data = json.loads(path.read_text())
+    for row in data["threshold_sweep"]:
+        del row["chosen"], row["scored"]
+    path.write_text(json.dumps(data))
+
+
 @pytest.mark.parametrize(
     ("edit", "absent"),
     [
@@ -573,6 +583,7 @@ def _run_lifted(agent: Path) -> None:
         (_agent_block(...), "benchmark"),
         (_agent_block(5), "benchmark"),
         (_run_lifted, "benchmark"),
+        (_sweep_uncounted, "benchmark"),
         (_write_eval("benchmark.json", '{"primary": NaN}'), "benchmark"),
         (_write_eval("benchmark.json", "[]"), "benchmark"),
         (_write_eval("benchmark.json", '{"primary": "specialty"}'), "benchmark"),
@@ -588,6 +599,7 @@ def _run_lifted(agent: Path) -> None:
         "benchmark-without-agent",
         "benchmark-agent-not-object",
         "benchmark-without-run",
+        "benchmark-sweep-without-counts",
         "benchmark-nan",
         "benchmark-list",
         "benchmark-shape",

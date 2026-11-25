@@ -23,7 +23,6 @@ from mendari.evals.result import (
     MIN_POSITIVES,
     false_automation,
     subgroup_labelled,
-    sweep,
 )
 
 FORMAT = "mendari.figures/1"
@@ -125,11 +124,9 @@ def report(r: Mapping[str, Any]) -> dict[str, Any]:
         out["sweep"] = [
             {
                 "automated": maybe(row["chosen"], row["scored"]),
-                "correct": None
-                if row["chosen"] is None
-                else maybe(row["chosen"] - row["errors"], row["chosen"]),
+                "correct": maybe(row["chosen"] - row["errors"], row["chosen"]),
             }
-            for row in sweep(r)
+            for row in r["threshold_sweep"]
         ]
     for attribute, values in r["subgroups"].items():
         out["subgroups"][attribute] = {

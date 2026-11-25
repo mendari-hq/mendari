@@ -19,7 +19,6 @@ from mendari.evals.result import (
     counted,
     false_automation,
     subgroup_labelled,
-    sweep,
 )
 
 RISK_NAMES = {
@@ -699,10 +698,10 @@ def _validation(report: dict[str, Any]) -> list[str]:
         "| Threshold | Would be automated | Of those, correct |",
         "|---|---|---|",
     ]
-    for row in sweep(report):
-        scored, chosen = row["scored"], row["chosen"]
-        automated = None if scored is None else stats.proportion(chosen, scored)
-        correct = None if chosen is None else stats.proportion(chosen - row["errors"], chosen)
+    for row in report["threshold_sweep"]:
+        chosen = row["chosen"]
+        automated = stats.proportion(chosen, row["scored"])
+        correct = stats.proportion(chosen - row["errors"], chosen)
         rows.append(f"| {row['threshold']:.2f} | {shown(automated)} | {shown(correct)} |")
     return rows
 

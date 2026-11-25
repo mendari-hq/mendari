@@ -124,6 +124,19 @@ def test_report_figures_are_the_ones_the_card_shows(name: str, tmp_path: Path) -
         row(f"{t['threshold']:.2f}", shown(f["automated"]), shown(f["correct"]))
 
 
+def test_a_sweep_row_without_its_counts_is_not_read_from_its_coverage(tmp_path: Path) -> None:
+    """Every sweep row a release writes holds the cases it is of (`scored`, and `chosen` at or
+    above its threshold). A row without them is not one: the report's figures are not worked
+    out from its coverage, so none is served for it (n/a on the page)."""
+    report = benchmark(published(TRIAGE_DIR, tmp_path))
+    assert report is not None
+    for row in report["threshold_sweep"]:
+        del row["chosen"], row["scored"]
+    with pytest.raises(KeyError):
+        figures.report(report)
+    assert figures.guarded(lambda: figures.report(report)) is None
+
+
 def test_a_rate_beyond_any_share_is_never_multiplied() -> None:
     """A report can be someone else's file: 1e308 x 600 is infinite, and rounding it raised,
     which made every registry read of an agent, and search, a server error."""
