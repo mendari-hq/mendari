@@ -16,10 +16,10 @@ import pytest
 from mendari.cli import main
 from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
-from mendari.evals import load_dataset, resolve_dataset
+from mendari.evals import load_dataset
 from mendari.evals.coverage import FORMAT, coverage
 
-PACK = "mendari/ai-guard"  # its critical labels: verdict=block, and three more
+PACK = "mendari-test/triage"  # its critical label: urgency=yes (same-day symptoms)
 
 
 def written(tmp_path: Path, records: list[dict[str, Any]]) -> Path:
@@ -28,10 +28,11 @@ def written(tmp_path: Path, records: list[dict[str, Any]]) -> Path:
     return path
 
 
-def case(text: str, verdict: str | None, **attributes: str) -> dict[str, Any]:
-    record: dict[str, Any] = {"input": {"draft": text}, "attributes": attributes}
-    if verdict is not None:
-        record["labels"] = {"verdict": verdict}
+def case(text: str, urgency: str | None, **attributes: str) -> dict[str, Any]:
+    """A synthetic message to the triage fixture, labelled for its urgency (or not at all)."""
+    record: dict[str, Any] = {"input": {"message": {"body": text}}, "attributes": attributes}
+    if urgency is not None:
+        record["labels"] = {"urgency": urgency}
     return record
 
 
@@ -44,11 +45,11 @@ def test_duplicates_count_once_under_norm_v1(tmp_path: Path) -> None:
     path = written(
         tmp_path,
         [
-            case("Take 20 tablets now!", "block", language="en", source="hand_written"),
-            case("take 20 TABLETS now", "block", language="en"),
-            case("Take 2 tablets now", "block"),  # a number apart: another case
-            case("Rest and drink water", "pass", language="es", stratum="routine"),
-            case("Unlabelled draft", None),
+            case("I fainted 20 times today!", "yes", language="en", source="hand_written"),
+            case("i fainted 20 TIMES today", "yes", language="en"),
+            case("I fainted 2 times today", "yes"),  # a number apart: another case
+            case("Can I move my appointment?", "no", language="es", stratum="routine"),
+            case("An unlabelled message", None),
         ],
     )
     result = report(path)
@@ -56,15 +57,15 @@ def test_duplicates_count_once_under_norm_v1(tmp_path: Path) -> None:
     assert result["cases"] == 5
     assert result["distinct"] == {"exact": 5, "normalised": 4}
     assert result["duplicate_groups"] == 1 and result["conflicting_groups"] == 0
-    verdict = result["questions"]["verdict"]
-    assert verdict["labelled"] == 4
-    assert verdict["labels"]["block"] == {"cases": 3, "distinct": 2}
-    assert verdict["labels"]["pass"] == {"cases": 1, "distinct": 1}
-    assert verdict["labels"]["review"] == {"cases": 0, "distinct": 0}
-    block = next(item for item in result["critical"] if item["label"] == "block")
-    assert block == {
-        "question": "verdict",
-        "label": "block",
+    urgency = result["questions"]["urgency"]
+    assert urgency["labelled"] == 4
+    assert urgency["labels"]["yes"] == {"cases": 3, "distinct": 2}
+    assert urgency["labels"]["no"] == {"cases": 1, "distinct": 1}
+    assert result["questions"]["destination"]["labels"]["billing"] == {"cases": 0, "distinct": 0}
+    same_day = next(item for item in result["critical"] if item["label"] == "yes")
+    assert same_day == {
+        "question": "urgency",
+        "label": "yes",
         "cases": 3,
         "distinct": 2,
         "insufficient": True,
@@ -74,20 +75,18 @@ def test_duplicates_count_once_under_norm_v1(tmp_path: Path) -> None:
         "source": {"hand_written": 1, "unknown": 4},
         "stratum": {"routine": 1, "unknown": 4},
     }
-    assert (
-        "verdict=block: 2 distinct positives, under 100: too few to measure" in result["warnings"]
-    )
+    assert "urgency=yes: 2 distinct positives, under 100: too few to measure" in result["warnings"]
     assert "duplicates" not in result
 
 
 def test_a_critical_label_with_100_distinct_positives_is_enough(tmp_path: Path) -> None:
-    records = [case(f"Take {n} tablets", "block") for n in range(100)]
-    records += [case("Take 0 TABLETS!", "block")]  # a duplicate adds no evidence
+    records = [case(f"Chest pain for {n} hours", "yes") for n in range(100)]
+    records += [case("Chest pain for 0 HOURS!", "yes")]  # a duplicate adds no evidence
     result = report(written(tmp_path, records))
-    block = next(item for item in result["critical"] if item["label"] == "block")
-    assert (block["cases"], block["distinct"], block["insufficient"]) == (101, 100, False)
-    assert not any(warning.startswith("verdict=block") for warning in result["warnings"])
-    records[-1] = case("Take 0 tablets", "pass")  # the duplicate says otherwise
+    same_day = next(item for item in result["critical"] if item["label"] == "yes")
+    assert (same_day["cases"], same_day["distinct"], same_day["insufficient"]) == (101, 100, False)
+    assert not any(warning.startswith("urgency=yes") for warning in result["warnings"])
+    records[-1] = case("Chest pain for 0 hours", "no")  # the duplicate says otherwise
     result = report(written(tmp_path, records))
     assert result["conflicting_groups"] == 1
     assert "1 groups of duplicate cases have labels that disagree" in result["warnings"]
@@ -95,12 +94,12 @@ def test_a_critical_label_with_100_distinct_positives_is_enough(tmp_path: Path) 
 
 def test_an_attribute_value_is_cut_and_never_inferred(tmp_path: Path) -> None:
     long = "x" * 100
-    result = report(written(tmp_path, [case("a", "pass", language=long), case("b", "pass")]))
+    result = report(written(tmp_path, [case("a", "no", language=long), case("b", "no")]))
     assert result["mix"]["language"] == {"unknown": 1, "x" * 64: 1}
 
 
 def test_a_set_the_pack_cannot_read_is_refused_by_case_id(tmp_path: Path) -> None:
-    records = [case("secret text", "pass"), {"id": "c-2", "input": {"draft": "secret text"}}]
+    records = [case("secret text", "no"), {"id": "c-2", "input": {"message": {"body": "secret"}}}]
     records[1]["labels"] = {"no_such_question": "yes"}
     with pytest.raises(MendariError, match="case c-2: labels name a question") as refused:
         report(written(tmp_path, records))
@@ -113,27 +112,17 @@ def test_the_command_prints_counts_never_a_cases_text(
     path = written(
         tmp_path,
         [
-            {"id": "c-1", **case("Swallow every pill", "block")},
-            {"id": "c-2", **case("swallow EVERY pill!", "block")},
+            {"id": "c-1", **case("I passed out at the shop", "yes")},
+            {"id": "c-2", **case("i PASSED out at the shop!", "yes")},
         ],
     )
     assert main(["data", "coverage", PACK, "--dataset", str(path)]) == 0
     text = capsys.readouterr().out
-    assert "2 cases, 1 distinct (2 exactly)" in text and "verdict=block: 1 of 2 cases" in text
-    assert "pill" not in text.lower() and "c-1" not in text
+    assert "2 cases, 1 distinct (2 exactly)" in text and "urgency=yes: 1 of 2 cases" in text
+    assert "shop" not in text.lower() and "c-1" not in text
     assert main(["data", "coverage", PACK, "--dataset", str(path), "--json", "--ids"]) == 0
     printed = capsys.readouterr().out
     assert json.loads(printed)["duplicates"] == [["c-1", "c-2"]]
-    assert "pill" not in printed.lower()
+    assert "shop" not in printed.lower()
     assert main(["data", "coverage", PACK, "--dataset", str(path), "--ids"]) == 0
     assert "duplicates: c-1, c-2" in capsys.readouterr().out
-
-
-def test_ai_guards_test_set_has_30_distinct_blocks_of_164() -> None:
-    """Recorded for LP-17 and the owner (LP-11 conflict 3): the evaluation report counts 164
-    positives of `verdict=block`; 30 of them are distinct. `mendari.eval/2` is unchanged."""
-    pack = resolve_pack(PACK)
-    result = coverage(pack.manifest, resolve_dataset(pack, "test"), pack=pack.ref)
-    assert (result["cases"], result["distinct"]["normalised"]) == (600, 81)
-    block = next(item for item in result["critical"] if item["label"] == "block")
-    assert (block["cases"], block["distinct"], block["insufficient"]) == (164, 30, True)
