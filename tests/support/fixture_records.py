@@ -8,23 +8,29 @@ wave 6) is a small agent that reads a patient's FHIR record: when the patient sh
 seen (`follow_up`), and whether an anticoagulant is listed (`on_anticoagulant`). This module
 makes its data, the same on every run (a fixed seed, fixed phrase lists, no clock read):
 
-- `CASES` and `cases(split)`: the synthetic patients, as facts (`Case`). Each case's labels come
-  from its facts by a stated rule (`Case.labels`), never from a provider: `soon` when a condition
-  on the synthetic watch list is coded, else `routine` for a long-term condition, else `none`;
-  `yes` when an anticoagulant is listed.
+- `cases(split)`: the synthetic patients of a dataset (`PLANS`: 120 `test`, 12 `examples`), as
+  facts (`Case`). Each case's labels come from its facts by a stated rule (`Case.labels`), never
+  from a provider: `soon` when a condition on the synthetic watch list is coded, else `routine`
+  for a long-term condition, else `none`; `yes` when an anticoagulant is listed. A test may also
+  write a `Case` of its own.
 - `Case.record()`: the dataset line, `{id, input, labels}`, whose `input` is exactly what the
   agent's FHIR mapping (`fhir/mapping.yaml`) reads from the case's record on `TODAY`.
 - `Case.bundle()`: the case's US Core 6.1.0 resources as a collection Bundle: the Patient (its
   case id as an identifier, `CASE_SYSTEM`), its Conditions (ICD-10-CM), its medications as
-  MedicationStatements (RxNorm) and MedicationRequests (RxNorm, most naming a Medication by
-  reference, with a dosage period), its clinic notes as DocumentReferences (plain text or HTML,
-  inline or in a Binary the attachment's url names), an order on file (a ServiceRequest) and
-  the Practitioner who wrote the requests. Every resource has an id and a `fullUrl` under
-  `BASE`, refers to the others by `Type/id`, and carries the sandbox's synthetic tag.
-  `site="beside"` puts a fictional site's own code first among a condition's, a drug's and the
-  order's codings (the agent still reads the standard one, by its `[system=...]` predicate);
-  `site="only"` keeps only the site's code, which the agent reads through a site code map
-  (`site_code_map`) or not at all.
+  MedicationStatements and MedicationRequests (RxNorm; a request names its drug through a
+  Medication it contains, one beside it in the record, or its own concept, with a dosage
+  period), its clinic notes as DocumentReferences (plain text or HTML, inline or in a Binary
+  beside it), an order on file (a ServiceRequest) and the Practitioner who wrote the requests.
+  Every resource has an id and a `fullUrl` under `BASE`, refers to the others by `Type/id`, and
+  carries the sandbox's synthetic tag. The datasets' cases keep everything a patient's chart
+  needs inside the resources that name the patient (contained drugs, inline notes), as a Bulk
+  export joins them; `SHOWCASE` and the vendor-shaped server (`tests/support/chart_ehr.py`)
+  have drugs and notes beside them, by reference.
+- `site="beside"` puts a fictional site's own code first among a condition's, a drug's and the
+  order's codings: the agent still reads the standard one, by its `[system=...]` predicate.
+  `site="only"` keeps the site's code alone: the agent reads a condition's (into its code set
+  `follow_up_conditions`) and the order's (into its order-sign twin's) through a site code map
+  (`site_code_map`), and a drug's not at all.
 - `site_code_map` and `ehr_declaration`: a deployment's `MENDARI_SITE_CODES` and
   `MENDARI_EHR_DECLARATIONS` for these records. The site's code systems (`SITE_*`) are fictional
   test URLs declared here, never in the product.
