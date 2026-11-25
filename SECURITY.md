@@ -59,8 +59,7 @@ Each bullet is one control; the threat model names the row and the tests behind 
   `Authorization: Bearer ohk_…` and nowhere else: an `Authorization` header decides
   alone (no fallback to the session cookie), a credential in a URL or a form is refused, and
   refusals carry `WWW-Authenticate`. Only a signed-in person manages keys, never a key. A key is
-  a `viewer` or a `service`, expires (90 days unless asked, 365 at most; keys from before this
-  rule expire 30 days after the release that brought it first starts), and can be narrowed by
+  a `viewer` or a `service`, expires (90 days unless asked, 365 at most), and can be narrowed by
   scopes (SMART v2 `system/` reads, Mendari's decide and outcome URIs): a scoped key reaches
   only the routes its scopes name. Creating and revoking keys are recorded in the audit chain.
   `/api` answers are `Cache-Control: no-store`.
@@ -109,8 +108,7 @@ Each bullet is one control; the threat model names the row and the tests behind 
   `<issuer>|<subject>` (a launched clinician too, by the EHR's issuer); a key as `key <id>`, a
   client as `client <id>`. The plain
   cookie names are read on loopback and dotless hosts only: on any other host they name
-  nothing (sessions from before Phase 4b were read under them for one release, which ended
-  2026-11-22).
+  nothing.
 - **Requests from other sites.** A browser request that another site starts (`Sec-Fetch-Site`
   `cross-site` or `same-site`; in a browser without Fetch Metadata, an `Origin` that is `null`
   or not this site) reaches only public routes and pages, and only with GET or HEAD: a link to
@@ -168,8 +166,9 @@ Each bullet is one control; the threat model names the row and the tests behind 
 - **Rate limits and quotas.** Two layers. In the app (`MENDARI_RATE_LIMITS`: `on` by default
   with sign-in, `off` in open mode, `log` to count without refusing), the costly routes are
   limited per caller (decisions 600 a minute with bursts of 100 at every entry point, each
-  draft order of a CDS Hooks order hook one decision and at most 50 a request; the guard route
-  60 a minute, evaluations 6 an hour, exports 10 an hour), sign-in per address (300 a minute,
+  draft order of a CDS Hooks order hook one decision and at most 50 a request; evaluations 6 an
+  hour, exports 10 an hour, an author's work in an organization's agent store 240 an hour, in
+  bursts of 60), sign-in per address (300 a minute,
   bursts of 120, never below the edge's limit: a hospital signs in from one address), the token
   endpoint per address (60 a minute), and failed assertions per address and client (10 in 10
   minutes),
@@ -223,9 +222,8 @@ Each bullet is one control; the threat model names the row and the tests behind 
 - **Notes.** Review and rating notes are kept apart from the audit chain, which keeps only a
   salted commitment to each: sealed with inputs under `encrypt`, refused under `hash`, and
   readable as inputs are. Retention and `mendari notes erase` erase them, and the chain still
-  verifies (`mendari audit verify --notes` checks the commitments). Notes chained by earlier
-  releases are shown only to those who may read inputs. A governance approval's `reference` (a
-  pointer to minutes) stays chained.
+  verifies (`mendari audit verify --notes` checks the commitments). A governance approval's
+  `reference` (a pointer to minutes) stays chained.
 - **Headers and the API reference.** Every response has a strict CSP, pages and the API
   reference included: each page's own inline scripts by hash only, nothing from another origin.
   Every response also gets no framing, nosniff, no referrer and cross-origin isolation, and HSTS
@@ -327,14 +325,15 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   place after the load, or while it runs, is refused naming the file (its decisions answer
   `422`), never used under a digest that does not describe it; loading the agent again picks the
   edit up under its new digest. The manifest fields naming
-  such a file (`inputs.schema`, `inputs.fhir`, `policy`, `tests`, `evaluation.datasets`, and a
-  provider's `config` and `calibration`) are checked at load, and a
+  such a file (`inputs.schema`, `inputs.fhir`, `tests`, `evaluation.datasets`,
+  `evaluation.grades`, a rubric judge's `mock_file`, and a provider's `config`, `calibration`
+  and `mock_file`) are checked at load, and a
   refusal names the field and why (through a hidden entry or `__pycache__`, in `evals/` or a
   `DECISION_CARD.md`, or not a file the digest covers). The attestations, left out of the
-  digest, are read only through a separate accessor (`Agent.attestation`) by their fixed names
-  (`evals/benchmark.json`, `evals/leaderboard.json`, `DECISION_CARD.md`) and
-  `evaluation.benchmark`, the one manifest path that names one, which must be in `evals/` (not
-  a `DECISION_CARD.md`); `mendari card --write` does not write through a link. A signed archive holds regular files only (no symbolic or hard
+  digest, are read only through a separate accessor (`Agent.attestation`): the leaderboard by
+  its fixed name (`evals/leaderboard.json`), and the benchmark by `evaluation.benchmark`, the
+  one manifest path that names one, which must be in `evals/` (not a `DECISION_CARD.md`);
+  `mendari card --write` does not write through a link. A signed archive holds regular files only (no symbolic or hard
   link, device, FIFO or sparse file), each named `agent/` and then plain path segments (none
   empty, `.`, `..` or hidden, no backslash), no two of them one file where case and Unicode
   normalization are not significant (`A` and `a/x.yaml`, `agent.yaml` and `AGENT.yaml`, NFC and
@@ -386,7 +385,7 @@ server's process: there is no isolated worker process. To trust a pulled agent, 
   not parse keeps the parser's message (what it expected, with the line around it). An agent's
   YAML and JSON hold only what a JSON response can carry: a string with a lone surrogate
   (`"\ud800"`, in YAML or JSON), `!!binary`, `!!set`, `!!omap`, `!!pairs`, and in JSON a number
-  that is not finite or an integer too large to be one, are refused when the file is read (the manifest, policy, input schema and
+  that is not finite or an integer too large to be one, are refused when the file is read (the manifest, input schema and
   rules at load; a calibration, FHIR mapping or the tests when first read), named by the
   file and, in YAML, the line and column, so no agent can make the list of agents, an agent's
   detail or a decision a `500`. A JSON file that is not JSON, holds an integer of more than
