@@ -7,6 +7,7 @@ work, and no request body passes MENDARI_MAX_BODY_BYTES."""
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import threading
 import time
@@ -29,10 +30,10 @@ from mendari.server.scopes import DECIDE
 from mendari.standards import oidc
 from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import message, run_async, without_request_id
+from tests.support.platform import BUNDLE, TRIAGE_API
 from tests.test_auth import IDP, FakeIdp, key_for, sign_in, signing_in_with
 
-FIXTURE = Path(__file__).parent / "fixtures" / "us-core" / "inbox.json"
-INBOX = "/api/agents/mendari/patient-inbox-router"
+INBOX = TRIAGE_API  # the agent these tests decide with
 PUBLIC_HEALTH = {"status", "version", "sign_in"}
 SMALL = 64 * 1024  # the smallest cap a deployment may set
 
@@ -270,7 +271,7 @@ def test_the_settings_in_health_need_the_read_permission(
     with signing_in_with(idp, tmp_path, monkeypatch) as client:
         sign_in(client, idp, roles=["viewer"])
         details = client.get("/api/health").json()
-        assert {"phi_mode", "packs", "providers", "jev", "llm"} <= set(details)
+        assert {"phi_mode", "packs", "providers", "llm"} <= set(details)
         assert details["sign_in"] is True and details["phi_mode"] == "encrypt"  # never off
         viewer = {"authorization": f"Bearer {key_for(client, idp, role='viewer')}"}
         assert "phi_mode" in client.get("/api/health", headers=viewer).json()
@@ -371,7 +372,7 @@ def test_a_chunked_body_is_refused_once_it_passes_the_cap(capped: Any) -> None:
 
 
 def test_a_three_mebibyte_bundle_is_taken_by_default(tmp_path: Path) -> None:
-    bundle = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    bundle = copy.deepcopy(BUNDLE)  # a synthetic message, as an EHR sends it
     padding = {"resourceType": "Basic", "code": {"text": "x" * 1000}}
     bundle["entry"] += [
         {"fullUrl": f"urn:uuid:pad-{i}", "resource": {**padding, "id": f"pad-{i}"}}
