@@ -46,6 +46,9 @@ CLIENT = "mendari-app"
 CHART = "mendari-test/chart-summary"  # the agent the EHR launches: a patient's chart in
 TRIAGE = "mendari-test/triage"  # an agent decided on outside a launch: a patient's message
 PATIENT = SHOWCASE.id  # the record's patient, the launch's
+# The launched agent under the name other test files import it by (tests/test_security_log.py,
+# tests/test_two_organizations.py, tests/test_evalset_leaks.py), until they import `CHART`.
+REFERRAL = CHART
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 FIXTURE = us_core_chart()
 
