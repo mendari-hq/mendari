@@ -1,14 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-"""FHIR mapping syntax 0.3 (LP-23g): a coding chosen by its code system, fallback paths, lists
-of several resource types, a MedicationRequest's start and stop by a stated rule, one reference
-hop inside the record, HTML notes read as text, code sets, the bounds on a pack the deployment
-does not own, and what each field looks for (`FhirAdapter.looked_for`, for LP-23d's
-data-coverage record). Every case is synthetic; the site systems are fictional."""
+"""Record reading in an agent's FHIR mapping (LP-23g): a coding chosen by its code system,
+fallback paths, lists of several resource types, a MedicationRequest's start and stop by a stated
+rule, one reference hop inside the record, HTML notes read as text, code sets, the bounds on an
+agent the deployment does not own, and what each field looks for (`FhirAdapter.looked_for`, for
+LP-23d's data-coverage record).
+
+On copies of the chart-summary test fixture (`adapter`, `tests/support/chart_fixture.py`
+`chart_copy`), their mapping changed as each test needs, and its order-sign twin for a focus
+chosen by a code set. Every case is synthetic; the site systems are fictional."""
 
 from __future__ import annotations
 
 import base64
-import copy
 import json
 import socket
 from pathlib import Path
@@ -18,10 +21,8 @@ import pytest
 import yaml
 
 from mendari import Decision, load_pack
-from mendari.core.decision import input_hash
 from mendari.core.origin import Origin
 from mendari.errors import PackValidationError
-from mendari.evals.harness import load_dataset
 from mendari.evals.pack_tests import validate_pack
 from mendari.standards import fhir
 from mendari.standards.fhir import (
@@ -31,23 +32,37 @@ from mendari.standards.fhir import (
     UNDECODABLE,
     UNSUPPORTED_TYPE,
     FhirAdapter,
-    FhirMapping,
     html_text,
-    mapping_problems,
     medication_period,
     read_attachment,
 )
-from tests.conftest import ROOT
-from tests.test_fhir_decisions import script
-from tests.test_spec_03 import ICD, PATIENT, SITE, mini
+from tests.conftest import CHART_DIR, DEMO_AGENT_DIR
+from tests.support.chart_fixture import chart_copy, order_sign
+from tests.support.fixture_records import (
+    ICD10CM,
+    ICD10PCS,
+    ORDER_CODE_SET,
+    ORDERS,
+    SITE_DIAGNOSES,
+    SITE_ORDERS,
+    order_site_codes,
+)
 
+ICD = ICD10CM
+SITE = SITE_DIAGNOSES  # a fictional site's own condition codes
 MED = "https://site.example/fhir/CodeSystem/medications"  # fictional
 PAYER = "https://site.example/fhir/NamingSystem/payers"  # fictional
+PATIENT = {"resourceType": "Patient", "id": "p1", "birthDate": "1970-01-01"}
+# The words the chart agent's mapping writes for a condition of its code set, which its canned
+# answers read (`flag`'s map): `flag-soon` for a code on the synthetic watch list (I50.9).
+MAPPING = yaml.safe_load((CHART_DIR / "fhir" / "mapping.yaml").read_text(encoding="utf-8"))
+FLAGS = MAPPING["lists"]["conditions"]["fields"]["flag"]["map"]
 
 
 def adapter(tmp_path: Path, changes: dict[str, Any], *, origin: Origin = "local") -> FhirAdapter:
-    """The adapter of the prescreen fixture at spec 0.3, its mapping changed by `changes`."""
-    root = mini(tmp_path, changes, spec="0.3", systems=(MED, PAYER))
+    """The adapter of a copy of the chart-summary agent (`chart_copy`), its mapping changed by
+    `changes` and the fictional systems here declared beside its own."""
+    root = chart_copy(tmp_path, changes, systems=(MED, PAYER, SITE))
     return FhirAdapter.for_pack(load_pack(root, origin=origin))
 
 
@@ -83,8 +98,9 @@ def b64(text: str) -> str:
 def test_a_coding_is_chosen_by_its_system_whatever_its_position(tmp_path: Path) -> None:
     """`code.coding[system=<ICD-10-CM>].code` finds the ICD-10-CM coding first or second, and
     nothing when there is none; `code.coding[0].code` reads whichever is first. Through a
-    decision: the prescreen reads type 2 diabetes behind a site's own coding, where the 0.2
-    mapping (`[0]`) reads it as `unknown`, as `tests/test_trial_pack.py` pins for the trial."""
+    decision: the chart agent reads a condition on its watch list (heart failure) behind a
+    site's own coding and asks for a visit soon, where a mapping that reads the first coding
+    (`[0]`) finds nothing it knows and suggests no follow-up."""
     by_system = {"code": {"path": f"code.coding[system={ICD}].code"}}
     mapped = adapter(tmp_path / "a", conditions(**by_system, first={"path": "code.coding[0].code"}))
     record = [
@@ -98,14 +114,16 @@ def test_a_coding_is_chosen_by_its_system_whatever_its_position(tmp_path: Path) 
         {"first": "HTN"},
     ]
 
-    record = [PATIENT, condition("c1", (SITE, "T2D"), (ICD, "E11.9"))]
-    adopted = Decision(load_pack(mini(tmp_path / "b", conditions(**by_system), spec="0.3")))
-    as_today = Decision(load_pack(mini(tmp_path / "c", {})))
+    record = [PATIENT, condition("c1", (SITE, "HF"), (ICD, "I50.9"))]
+    flagged = {"path": f"code.coding[system={ICD}].code", "map": FLAGS}
+    first = {"path": "code.coding[0].code", "map": FLAGS}
+    by_its_system = Decision(load_pack(chart_copy(tmp_path / "b", conditions(flag=flagged))))
+    by_position = Decision(load_pack(chart_copy(tmp_path / "c", conditions(flag=first))))
     labels = [
-        decision.decide_fhir(bundle(*record))[0].answers["t2d_diagnosis"].label
-        for decision in (adopted, as_today)
+        decision.decide_fhir(bundle(*record))[0].answers["follow_up"].label
+        for decision in (by_its_system, by_position)
     ]
-    assert labels == ["yes", "unknown"]
+    assert labels == ["soon", "none"]
 
 
 def test_a_fallback_path_is_read_only_when_the_first_finds_nothing(
@@ -146,8 +164,8 @@ def test_a_fallback_path_is_read_only_when_the_first_finds_nothing(
 
 def test_one_list_reads_two_resource_types_by_their_own_fields(tmp_path: Path) -> None:
     """`resources` puts MedicationStatements and MedicationRequests in one list, each read by
-    its own fields, in the order the mapping gives the types, then the record's. A list in the
-    0.2 form beside it reads as before."""
+    its own fields, in the order the mapping gives the types, then the record's. A list of one
+    type beside it (the agent's conditions) reads as before."""
     code = {"path": f"medicationCodeableConcept.coding[system={MED}].code"}
     medications = {
         "resources": {
@@ -193,7 +211,7 @@ def test_one_list_reads_two_resource_types_by_their_own_fields(tmp_path: Path) -
         {"code": "M1", "status": "active", "start": "2026-09-01"},
         {"code": "M3", "status": "stopped", "start": "2026-05-03"},
     ]
-    assert found["conditions"] == [{"code": "E11.9"}]  # the fixture's 0.2-form list
+    assert found["conditions"] == [{"code": "E11.9", "flag": "flag-routine"}]  # the agent's own
 
 
 BOUNDS = "2026-03-01", "2026-06-30"
@@ -479,10 +497,9 @@ def test_a_follow_is_one_lookup_a_reference_whatever_the_record_holds(
     """The bounds bound the work too: a `follow` is resolved once for its field, however many
     paths the field tries, and each reference is a lookup: `Type/id` and `fullUrl` in the
     indexed record, never a scan of each resource of its type, and `#id` among a resource's
-    contained ones, read once for the resource, not once a reference. So a pack the deployment
-    does not own maps a record in time that grows with the record, as a 0.2 mapping does, not
-    with its square. A plain mapping (not `index`'s) still resolves, the first of an id
-    winning."""
+    contained ones, read once for the resource, not once a reference. So an agent the
+    deployment does not own maps a record in time that grows with the record, not with its
+    square. A plain mapping (not `index`'s) still resolves, the first of an id winning."""
     paths = [f"Medication.code.coding[{n}].code" for n in range(MAX_PATHS)]
     source = {"fields": {"code": {"follow": "medicationReference", "paths": paths}}}
     payer = {
@@ -563,9 +580,9 @@ def note(
 
 
 HTML = (
-    "<html><head><style>p {color: red}</style><script>var note = 'pancreatitis';</script></head>"
+    "<html><head><style>p {color: red}</style><script>var note = 'warfarin';</script></head>"
     "<body><h1>Visit</h1><p>Seen for diabetes &amp; follow-up.</p><ul><li>No   new complaints</li>"
-    "</ul><script type='text/javascript'>alert('pancreatitis')</script></body></html>"
+    "</ul><script type='text/javascript'>alert('warfarin')</script></body></html>"
 )
 
 
@@ -573,8 +590,9 @@ def test_an_html_note_is_read_as_text_and_another_type_is_unreadable(tmp_path: P
     """`attachment_text`: text/plain as it is, text/html as text with its scripts and styles
     dropped, inline or from a Binary in the record. Any other content type (RTF, PDF, none) is
     `unsupported_type`, data that does not decode `undecodable`, a url to a Binary the record
-    does not hold `not_fetched`; none of them adds text. Through a decision, a word in a script
-    is not read and the same word in a paragraph is."""
+    does not hold `not_fetched`; none of them adds text. Through a decision (the chart agent's
+    rules, which read the notes), a drug named in a script is not read and the same drug in a
+    paragraph is."""
     assert html_text(HTML) == "Visit\nSeen for diabetes & follow-up.\nNo new complaints"
     plain = {"contentType": "text/plain; charset=utf-8", "data": b64("  Plain note.\n")}
     assert read_attachment(plain) == ("Plain note.", None)
@@ -607,21 +625,21 @@ def test_an_html_note_is_read_as_text_and_another_type_is_unreadable(tmp_path: P
     found = read(
         mapped,
         note("n1", "text/html", HTML),
-        note("n2", "application/rtf", "{\\rtf1 Pancreatitis.}"),
+        note("n2", "application/rtf", "{\\rtf1 Takes warfarin.}"),
         note("n3", "text/plain", "Plain note."),
         note("n4", "text/html", url="Binary/b1"),
         note("n5", "text/html", url="Binary/missing"),
         binary,
     )
     assert found["notes"] == "\n\n".join([html_text(HTML), "Plain note.", "From a Binary."])
-    rtf_only = read(mapped, note("n2", "application/rtf", "{\\rtf1 Pancreatitis.}"))
+    rtf_only = read(mapped, note("n2", "application/rtf", "{\\rtf1 Takes warfarin.}"))
     assert "notes" not in rtf_only
 
-    decision = Decision(load_pack(mini(tmp_path / "b", {"fields": {"notes": notes}}, spec="0.3")))
+    decision = Decision(load_pack(chart_copy(tmp_path / "b", use="rules")))
     labels = []
-    for markup in (HTML, "<p>History of pancreatitis in 2019.</p>"):
+    for markup in (HTML, "<p>Takes warfarin every day.</p>"):
         result, _ = decision.decide_fhir(bundle(PATIENT, note("n1", "text/html", markup)))
-        labels.append(result.answers["note_pancreatitis"].label)
+        labels.append(result.answers["on_anticoagulant"].label)
     assert labels == ["no", "yes"]
 
 
@@ -812,26 +830,19 @@ def test_a_followed_field_falls_back_to_a_path_of_its_own_type(tmp_path: Path) -
 def test_focus_where_reads_a_code_set_and_a_sites_translation_finds_its_focus(
     tmp_path: Path,
 ) -> None:
-    """`focus_where: {path, code_set}` (LP-23k): a resource of the focus type counts when the
-    codings at its path give one of the set's own codes, wherever the coding sits; another code
-    of the set's system, or the set's code in another system, does not. A site's translation
-    into the set makes its own code count too (`is_focus`, `focus_resources`, `index`), and a
-    record whose focus counted only through it says so (`read`'s `translated`), so its decision
-    is never AUTO; one with the pack's own code is read as without the map. Its data-coverage
-    record names the set's codes. `in` and `code_set` are one or the other, and an unknown code
-    set is refused at load."""
+    """`focus_where: {path, code_set}` (LP-23k), on the chart agent's order-sign twin, whose
+    focus is a ServiceRequest coded in its set `checked_orders` (ICD-10-PCS): a resource of the
+    focus type counts when the codings at its path give one of the set's own codes, wherever the
+    coding sits; another code of the set's system, or the set's code in another system, does
+    not. A site's translation into the set makes its own code count too (`is_focus`,
+    `focus_resources`, `index`), and a record whose focus counted only through it says so
+    (`read`'s `translated`), so its decision is never AUTO; one with the agent's own code is read
+    as without the map. Its data-coverage record names the set's codes. `in` and `code_set` are
+    one or the other, and an unknown code set is refused at load."""
     from mendari.standards import data_coverage
 
-    order_types = "https://site.example/fhir/CodeSystem/order-types"  # fictional
-    changes = {
-        "focus": "ServiceRequest",
-        "resources": {"ServiceRequest": {"required": True}},
-        "focus_where": {"path": "category.coding", "code_set": "referral"},
-        "code_sets": {"referral": {"system": SITE, "codes": ["R1"]}},
-    }
-    mapped = FhirAdapter.for_pack(
-        load_pack(mini(tmp_path, changes, spec="0.3", systems=(order_types,)))
-    )
+    mapped = FhirAdapter.for_pack(load_pack(order_sign(tmp_path)))
+    colonoscopy = "0DJD8ZZ"
 
     def order(id_: str, *codings: tuple[str, str]) -> dict[str, Any]:
         coding = [{"system": system, "code": code} for system, code in codings]
@@ -840,14 +851,14 @@ def test_focus_where_reads_a_code_set_and_a_sites_translation_finds_its_focus(
             "id": id_,
             "status": "active",
             "intent": "order",
-            "category": [{"text": "first"}, {"coding": coding}],
+            "code": {"coding": coding, "text": "An order"},
         }
 
-    own = order("own", (order_types, "OT20"), (SITE, "R1"))
-    other = order("other", (SITE, "R2"))
-    elsewhere = order("elsewhere", (order_types, "R1"))
-    site = order("site", (order_types, "OT20"))
-    translations = {"referral": [{"system": order_types, "code": "OT20", "as": "R1"}]}
+    own = order("own", (SITE_ORDERS, "ORD-31"), (ICD10PCS, colonoscopy))
+    other = order("other", (ICD10PCS, "0DJ07ZZ"))  # a code of the set's system it does not list
+    elsewhere = order("elsewhere", (SITE_ORDERS, colonoscopy))
+    site = order("site", (SITE_ORDERS, "ORD-31"))
+    translations = {ORDER_CODE_SET: order_site_codes()}
     everything = [own, other, elsewhere, site]
     assert [mapped.is_focus(r) for r in everything] == [True, False, False, False]
     assert [mapped.is_focus(r, site_codes=translations) for r in everything] == [
@@ -864,30 +875,27 @@ def test_focus_where_reads_a_code_set_and_a_sites_translation_finds_its_focus(
     with pytest.raises(fhir.FhirError, match="missing required FHIR resources: ServiceRequest"):
         mapped.index(bundle(PATIENT, site))
     indexed = mapped.index(bundle(PATIENT, site), site_codes=translations)
-    assert mapped.read(indexed, site_codes=translations).translated == ("referral",)
+    assert mapped.read(indexed, site_codes=translations).translated == (ORDER_CODE_SET,)
     for_own = mapped.index(bundle(PATIENT, own), site_codes=translations)
     assert mapped.read(for_own, site_codes=translations).translated == ()
     assert mapped.read(mapped.index(bundle(PATIENT, own))).translated == ()
     coverage = data_coverage.measure(mapped.mapping, for_own, unreadable={})
-    assert coverage["focus"]["codes"] == ["R1"]
-    assert coverage["focus"]["paths"] == ["ServiceRequest.category.coding"]
+    assert coverage["focus"]["codes"] == sorted(ORDERS)
+    assert coverage["focus"]["paths"] == ["ServiceRequest.code.coding"]
     assert "focus_where.code_set" in fhir.newer_keys(mapped.mapping)
 
-    both = {
-        **changes,
-        "focus_where": {"path": "category.coding", "code_set": "referral", "in": ["R1"]},
-    }
+    both = {"focus_where": {"in": [colonoscopy]}}  # beside the twin's `code_set`
     with pytest.raises(PackValidationError, match="either `in` or `code_set`, not both"):
-        FhirAdapter.for_pack(load_pack(mini(tmp_path / "both", both, spec="0.3")))
-    unknown = {**changes, "focus_where": {"path": "category.coding", "code_set": "nothing"}}
+        FhirAdapter.for_pack(load_pack(order_sign(tmp_path / "both", both)))
+    unknown = {"focus_where": {"code_set": "nothing"}}
     with pytest.raises(PackValidationError, match="focus_where names 'nothing'"):
-        FhirAdapter.for_pack(load_pack(mini(tmp_path / "unknown", unknown, spec="0.3")))
+        FhirAdapter.for_pack(load_pack(order_sign(tmp_path / "unknown", unknown)))
 
 
 def test_an_outside_packs_new_keys_are_bounded_at_load(tmp_path: Path) -> None:
-    """A pack the deployment does not own tries at most 4 paths a field and has at most 200
-    codes a code set, refused at load past either; an owned pack loads past them and `mendari
-    validate` refuses it. A `follow` is one hop for every pack (it takes one path)."""
+    """An agent the deployment does not own tries at most 4 paths a field and has at most 200
+    codes a code set, refused at load past either; an owned agent loads past them and `mendari
+    validate` refuses it. A `follow` is one hop for every agent (it takes one path)."""
     paths = [f"code.coding[{n}].code" for n in range(MAX_PATHS + 1)]
     codes = [f"FX{n:03d}" for n in range(MAX_CODE_SET_CODES + 1)]
     within = {
@@ -899,7 +907,7 @@ def test_an_outside_packs_new_keys_are_bounded_at_load(tmp_path: Path) -> None:
         "code_sets": {"big": {"system": ICD, "codes": codes}},
         **conditions(code={"paths": paths}, big={"path": "code.coding", "code_set": "big"}),
     }
-    root = mini(tmp_path / "beyond", beyond, spec="0.3")
+    root = chart_copy(tmp_path / "beyond", beyond)
     problems = [
         "fhir/mapping.yaml: lists.conditions.fields.code.paths tries 5 paths, more than 4",
         "fhir/mapping.yaml: code_sets.big has 201 codes, more than 200",
@@ -915,9 +923,9 @@ def test_an_outside_packs_new_keys_are_bounded_at_load(tmp_path: Path) -> None:
 
 
 def test_a_0_3_mappings_paths_and_systems_are_checked_at_load(tmp_path: Path) -> None:
-    """A 0.3 pack's paths are of the subset, each `[system=…]` and code set names a system its
+    """An agent's paths are of the subset, each `[system=…]` and code set names a system its
     `code_systems` declares, a list's types are resource types and `medication_period` is a
-    MedicationRequest's: for every pack, wherever it comes from."""
+    MedicationRequest's: for every agent, wherever it comes from."""
     other = "https://undeclared.example/codes"
     changes = {
         "code_sets": {"loose": {"system": other, "codes": ["A1"]}},
@@ -933,7 +941,7 @@ def test_a_0_3_mappings_paths_and_systems_are_checked_at_load(tmp_path: Path) ->
             },
         },
     }
-    root = mini(tmp_path, changes, spec="0.3")
+    root = chart_copy(tmp_path, changes)
     subset = "dotted element names, each with at most one [n], [*] or [system=<uri>])"
     origins: tuple[Origin, ...] = ("local", "hub")
     for origin in origins:
@@ -960,8 +968,9 @@ def test_a_0_3_mappings_paths_and_systems_are_checked_at_load(tmp_path: Path) ->
 def test_looked_for_says_what_each_field_and_list_looks_for(tmp_path: Path) -> None:
     """`looked_for` is what LP-23d's data-coverage record counts against: per field and list
     item key, the full paths in the order tried, the Reference followed, the declared systems
-    it selects on and the pack's own codes it looks for, from the mapping alone. The same on
-    every call, JSON, and for a 0.2 pack too (the inbox: its map's keys)."""
+    it selects on and the agent's own codes it looks for (a code set's, or a map's keys), from
+    the mapping alone. The same on every call, JSON, and for a mapping with no lists (the
+    bundled demo agent's)."""
     changes = {
         "code_sets": {"t2d": {"system": ICD, "codes": ["E11.9", "E11.65"]}},
         "fields": {
@@ -1019,6 +1028,8 @@ def test_looked_for_says_what_each_field_and_list_looks_for(tmp_path: Path) -> N
     assert mapped.looked_for() == {
         "fields": {
             "patient.age": looked(["Patient.birthDate"]),
+            "patient.sex": looked(["Patient.gender"], codes=("female", "male", "other", "unknown")),
+            "problems": looked(["Condition.code.text"]),
             "notes": looked(["DocumentReference.content.attachment"]),
             "payer": looked(
                 [f"Organization.identifier[system={PAYER}].value"],
@@ -1033,14 +1044,6 @@ def test_looked_for_says_what_each_field_and_list_looks_for(tmp_path: Path) -> N
                         ["Condition.code.coding"], systems=(ICD,), codes=("E11.65", "E11.9")
                     )
                 },
-            },
-            "observations": {
-                "Observation": {
-                    "code": looked(["Observation.code.coding[0].code"]),
-                    "value": looked(["Observation.valueQuantity.value"]),
-                    "unit": looked(["Observation.valueQuantity.unit"]),
-                    "date": looked(["Observation.effectiveDateTime"]),
-                }
             },
             "medications": {
                 "MedicationStatement": {
@@ -1065,56 +1068,11 @@ def test_looked_for_says_what_each_field_and_list_looks_for(tmp_path: Path) -> N
     }
     assert json.dumps(mapped.looked_for()) == json.dumps(mapped.looked_for())
 
-    inbox = FhirAdapter.for_pack(
-        load_pack(ROOT / "tests" / "fixtures" / "reference-agents" / "patient-inbox-router")
-    ).looked_for()
-    assert inbox["lists"] == {}
-    assert inbox["fields"]["message.channel"] == looked(
-        ["Communication.medium[0].coding[0].code"], codes=("email", "portal", "sms")
-    )
-    assert inbox["fields"]["message.body"] == looked(["Communication.payload.contentString"])
-
-
-def in_0_3_keys(raw: dict[str, Any]) -> dict[str, Any]:
-    """A 0.2 mapping written with 0.3's keys: every `path` as `paths: [path]`, every list as
-    `resources: {<type>: {fields}}`."""
-    mapping = copy.deepcopy(raw)
-    for mapped in mapping.get("fields", {}).values():
-        mapped["paths"] = [mapped.pop("path")]
-    for spec in mapping.get("lists", {}).values():
-        for mapped in spec["fields"].values():
-            mapped["paths"] = [mapped.pop("path")]
-        spec["resources"] = {spec.pop("resource"): {"fields": spec.pop("fields")}}
-    return mapping
-
-
-def test_a_0_2_mapping_written_with_0_3_keys_reads_every_golden_case_alike() -> None:
-    """Each reference pack's 0.2 mapping, rewritten with `paths` and `resources` (a valid 0.3
-    mapping, bounds included), reads every case of the 23a golden into the input the 0.2
-    mapping reads, byte for byte: the input hash the golden pins. Since LP-23k the trial,
-    prior-authorization and referral packs are on spec 0.3 themselves, and the golden pins what
-    their own 0.3 mappings read; the inbox's mapping is still 0.2."""
-    pinned = json.loads(script.GOLDEN.read_text(encoding="utf-8"))["packs"]
-    rewritten_packs = []
-    with script.on_the_day():
-        for pack_id, (directory, dataset, build) in script.CASES.items():
-            pack = load_pack(ROOT / "tests" / "fixtures" / "reference-agents" / directory)
-            if pack.manifest.spec_version == "0.3":
-                continue  # its own mapping is 0.3: the golden pins it as it is
-            rewritten_packs.append(pack_id)
-            raw = yaml.safe_load((pack.root / "fhir" / "mapping.yaml").read_text())
-            mapping = FhirMapping.model_validate(in_0_3_keys(raw))
-            manifest = pack.manifest.model_copy(update={"spec_version": "0.3"})
-            assert mapping_problems(mapping, manifest, held=True) == [], pack_id
-            rewritten = FhirAdapter(pack, mapping)
-            want = {case["id"]: case.get("input_hash") for case in pinned[pack_id]["cases"]}
-            read = 0
-            for record in load_dataset(ROOT / "tests" / "fixtures" / "datasets" / dataset).records:
-                if want[record["id"]] is None:
-                    continue  # refused through FHIR (an order with no requirement set)
-                entries = {"resourceType": "Bundle", "type": "collection", "entry": build(record)}
-                got = rewritten.to_input(rewritten.index(entries))
-                assert input_hash(got) == want[record["id"]], (pack_id, record["id"])
-                read += 1
-            assert read >= 100, pack_id
-    assert rewritten_packs == ["mendari/patient-inbox-router"]
+    demo = FhirAdapter.for_pack(load_pack(DEMO_AGENT_DIR)).looked_for()
+    assert demo == {
+        "fields": {
+            "message.subject": looked(["Communication.topic.text"]),
+            "message.body": looked(["Communication.payload.contentString"]),
+        },
+        "lists": {},
+    }

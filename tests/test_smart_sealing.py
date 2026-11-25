@@ -25,11 +25,22 @@ from mendari.core.session_seal import SealError, seal, unseal
 from mendari.server import auth as auth_module
 from mendari.server import sessions, smart_routes
 from mendari.server.app import create_app
+from mendari.server.security_log import FIELDS
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
-from tests.conftest import DASHBOARD, encrypt_mode, signed_in
+from tests.conftest import DASHBOARD, encrypt_mode, security_lines, signed_in
 from tests.test_auth import IDP, FakeIdp, sign_in
-from tests.test_security_log import logged
-from tests.test_smart import APP, CLIENT, EHR, ISS, REFERRAL, FakeEhr, full_launch, launch
+from tests.test_smart import (
+    APP,
+    CHART,
+    CLIENT,
+    DECIDE_BODY,
+    EHR,
+    ISS,
+    PATIENT,
+    FakeEhr,
+    full_launch,
+    launch,
+)
 
 SMART_COOKIE = f"__Host-{sessions.SMART}"
 LAUNCH_COOKIE = f"__Host-{sessions.LAUNCH}"
@@ -38,6 +49,16 @@ LAUNCH_COOKIE = f"__Host-{sessions.LAUNCH}"
 @pytest.fixture
 def ehr() -> FakeEhr:
     return FakeEhr()
+
+
+def logged(capsys: pytest.CaptureFixture[str]) -> list[dict[str, Any]]:
+    """The security log's lines since the last read, every stdout line checked to be one (as
+    `tests/test_security_log.py` reads them)."""
+    out = capsys.readouterr().out
+    for line in out.splitlines():
+        parsed = json.loads(line)  # nothing else is printed: every line is a whole JSON object
+        assert set(parsed) <= set(FIELDS), line
+    return security_lines(out)
 
 
 def smart_app(db_target: str, ehr: FakeEhr, monkeypatch: pytest.MonkeyPatch) -> TestClient:
@@ -91,11 +112,11 @@ def test_a_launch_session_row_holds_nothing_readable(
     assert full_launch(app, ehr).status_code == 302
     [row] = raw_rows(db_target, "session")
     assert_sealed(row["data"])
-    readables = ("access-0", "ref-p1", "enc-1", "Practitioner", "ehr.example.org", "refresh")
+    readables = ("access-0", PATIENT, "enc-1", "Practitioner", "ehr.example.org", "refresh")
     for readable in (*readables, "clinician-1"):  # who launched is sealed too (ADR-0006)
         assert readable not in row["data"], readable
     # The session works, and what it keeps opens only with the browser's cookie.
-    assert app.get("/api/smart/session").json()["patient"] == "ref-p1"
+    assert app.get("/api/smart/session").json()["patient"] == PATIENT
     assert app.get("/api/smart/patient").status_code == 200
     sid = app.cookies.get(SMART_COOKIE)
     assert sid
@@ -231,8 +252,8 @@ def test_a_launch_ends_at_its_sealed_absolute_limit(
     ("method", "path", "body"),
     [
         ("GET", "/api/smart/patient", None),
-        ("GET", f"/api/smart/focus?pack_id={REFERRAL}", None),
-        ("POST", "/api/smart/decide", {"pack_id": REFERRAL, "focus": "ServiceRequest/ref-sr1"}),
+        ("GET", f"/api/smart/focus?pack_id={CHART}", None),
+        ("POST", "/api/smart/decide", DECIDE_BODY),
     ],
 )
 def test_an_ehr_that_refuses_the_token_ends_the_launch(
@@ -258,7 +279,7 @@ def test_an_ehr_that_refuses_the_token_ends_the_launch(
 
 def test_an_ehr_error_other_than_401_leaves_the_launch(app: TestClient, ehr: FakeEhr) -> None:
     full_launch(app, ehr)
-    focus = {"pack_id": REFERRAL, "focus": "ServiceRequest/not-there"}
+    focus = {"pack_id": CHART, "focus": "Patient/not-there"}
     missing = app.post("/api/smart/decide", json=focus)  # the EHR answers 404
     assert missing.status_code == 422
     assert app.get("/api/smart/session").json()["active"] is True
@@ -311,9 +332,7 @@ def test_offline_access_is_refused_at_launch(
     with smart_app(db_target, ehr, monkeypatch) as client:
         assert client.get("/api/health").status_code == 200
         capsys.readouterr()
-        refused = client.get(
-            "/smart/launch", params={"iss": ISS, "launch": "xyz", "pack": REFERRAL}
-        )
+        refused = client.get("/smart/launch", params={"iss": ISS, "launch": "xyz", "pack": CHART})
         assert refused.status_code == 400 and "offline_access" in refused.text
         assert ehr.requests == []
         assert raw_rows(db_target, "pending") == []

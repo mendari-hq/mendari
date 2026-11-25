@@ -1,24 +1,28 @@
 # SPDX-License-Identifier: Apache-2.0
 """The scripted sandbox launch (sandbox/smart_launch.py). The launch itself runs against the real
-compose stack in the CI job `sandbox-e2e`."""
+compose stack in the CI job `sandbox-e2e`, on the bundled demo agent. Here, besides it, the test
+fixtures stand for other kinds of agent: the triage fixture another message agent, the
+chart-summary fixture one about a patient, its order-sign twin one about some orders of a type
+(`tests/support/chart_fixture.py`), and the clinical-review fixture one with no FHIR mapping."""
 
 from __future__ import annotations
 
 import base64
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 
 from mendari.cli import main
-from mendari.core.pack import load_pack
-from mendari.core.registry import resolve_pack
+from mendari.core.pack import Pack, load_pack
 from mendari.errors import MendariError
 from mendari.sandbox import DEMO_AGENT, smart_launch
-from mendari.sandbox.code_systems import REFERRAL, SANDBOX_TAG
-from tests.conftest import DEMO_AGENT_DIR
-from tests.support import sandbox as fixtures
+from mendari.sandbox.code_systems import SANDBOX_TAG
+from tests.conftest import CHART_DIR, CLINICAL_DIR, DEMO_AGENT_DIR, TRIAGE_DIR
+from tests.support.chart_fixture import CHART_ID, order_sign
+from tests.support.fixture_records import ICD10PCS, LOINC, ORDERS, cases
 from tests.test_smart import (
     DECIDE_BODY,
     REGISTERED,
@@ -28,6 +32,16 @@ from tests.test_smart import (
     signed_site,
     tenant,
 )
+
+TRIAGE_ID = "mendari-test/triage"
+# What the order-sign twin's search for its work asks for: its own order codes (ICD-10-PCS).
+CHECKED = ",".join(f"{ICD10PCS}|{code}" for code in sorted(ORDERS))
+
+
+def twin(base: Path) -> Pack:
+    """The chart-summary fixture's order-sign twin: its focus is a ServiceRequest whose code is
+    one of its code set `checked_orders`."""
+    return load_pack(order_sign(base))
 
 
 def test_the_launch_value_is_what_the_launcher_decodes() -> None:
@@ -40,7 +54,9 @@ def test_the_launch_value_is_what_the_launcher_decodes() -> None:
     assert "=" not in value
 
 
-def test_a_patient_with_a_work_item_is_found(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_patient_with_a_work_item_is_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     seen: list[dict[str, Any]] = []
 
     def get(url: str, **kwargs: Any) -> httpx.Response:
@@ -51,41 +67,43 @@ def test_a_patient_with_a_work_item_is_found(monkeypatch: pytest.MonkeyPatch) ->
         return httpx.Response(200, json={"entry": [entry]}, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(smart_launch.httpx, "get", get)
-    referrals = resolve_pack(fixtures.REFERRAL)
-    assert smart_launch.find_patient("http://fhir:8080/fhir/", referrals) == "42"
+    assert smart_launch.find_patient("http://fhir:8080/fhir/", twin(tmp_path)) == "42"
     assert seen[0]["url"] == "http://fhir:8080/fhir/ServiceRequest"
     assert seen[0]["headers"]["cache-control"] == "no-cache"  # HAPI caches searches
-    with pytest.raises(MendariError, match="mendari/ai-guard has no FHIR mapping"):
-        smart_launch.find_patient("http://fhir:8080/fhir", resolve_pack("mendari/ai-guard"))
+    with pytest.raises(MendariError, match="mendari-test/clinical-review has no FHIR mapping"):
+        smart_launch.find_patient("http://fhir:8080/fhir", load_pack(CLINICAL_DIR))
 
 
-def test_an_agents_work_is_found_by_what_its_mapping_focuses_on() -> None:
+def test_an_agents_work_is_found_by_what_its_mapping_focuses_on(tmp_path: Path) -> None:
     """The search for a patient is the agent's own FHIR focus: the bundled demo agent's and
-    another message agent's are Communications; one whose mapping says which of a type count,
-    by a code set, also asks for those codes, so it never takes another agent's orders."""
+    another message agent's are Communications, an agent about a patient's the Patient; one
+    whose mapping says which of a type count, by a code set, also asks for those codes, so it
+    never takes another agent's orders, and one that takes every order of the type asks for no
+    code."""
     assert smart_launch.focus_search(load_pack(DEMO_AGENT_DIR)) == ("Communication", {})
-    assert smart_launch.focus_search(resolve_pack(fixtures.INBOX)) == ("Communication", {})
-    assert smart_launch.focus_search(resolve_pack(fixtures.REFERRAL)) == (
-        "ServiceRequest",
-        {"category": f"{REFERRAL['system']}|{REFERRAL['code']}"},
+    assert smart_launch.focus_search(load_pack(TRIAGE_DIR)) == ("Communication", {})
+    assert smart_launch.focus_search(load_pack(CHART_DIR)) == ("Patient", {})
+    assert smart_launch.focus_search(twin(tmp_path)) == ("ServiceRequest", {"code": CHECKED})
+    every = order_sign(
+        tmp_path, {"focus_where": None}, agent_id="mendari-test/every-order", folder="every-order"
     )
-    assert smart_launch.focus_search(resolve_pack(fixtures.PRIOR_AUTH)) == ("ServiceRequest", {})
-    assert smart_launch.focus_search(resolve_pack(fixtures.TRIAL)) == ("Patient", {})
+    assert smart_launch.focus_search(load_pack(every)) == ("ServiceRequest", {})
 
 
 def test_a_referral_patient_is_found_beside_the_prior_authorization_packs_orders(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The prior-authorization pack's seeded orders are tagged ServiceRequests too, and come
-    first here: the referral router's launch still finds a patient with a referral (the search
-    names the referral category), and the inbox's search is as before."""
-    orders = [
-        e["resource"]
-        for pack in (fixtures.PRIOR_AUTH, fixtures.REFERRAL)
-        for e in fixtures.seed_bundle(pack, 2)["entry"]
-        if e["resource"]["resourceType"] == "ServiceRequest"
+    """Other synthetic orders are tagged ServiceRequests too, and come first here (lab orders,
+    coded in LOINC): the order-sign twin's launch still finds a patient with one of its orders
+    (the search names its codes), and a message agent's search is as before."""
+    labs = [_lab_order(f"lab-{n}", f"Patient/lab-patient-{n}") for n in (1, 2)]
+    checked = [
+        resource
+        for case in cases("examples")[:2]
+        for resource in case.resources()
+        if resource["resourceType"] == "ServiceRequest"
     ]
-    assert not orders[0].get("category")  # a prior-authorization order: not a referral
+    orders = [*labs, *checked]
     tag = f"{SANDBOX_TAG['system']}|{SANDBOX_TAG['code']}"
     asked: list[dict[str, str]] = []
 
@@ -96,30 +114,41 @@ def test_a_referral_patient_is_found_beside_the_prior_authorization_packs_orders
             for o in orders
             if url.endswith(f"/{o['resourceType']}")
             and params["_tag"] == tag
-            and all(
-                _coded(o.get("category"), params[name]) for name in params if name == "category"
-            )
+            and all(_coded(o.get("code"), params[name]) for name in params if name == "code")
         ]
         entries = [{"resource": o} for o in found[: int(params["_count"])]]
         return httpx.Response(200, json={"entry": entries}, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(smart_launch.httpx, "get", get)
-    found = smart_launch.find_patient("http://fhir:8080/fhir", resolve_pack(fixtures.REFERRAL))
-    referrals = [o for o in orders if o.get("category")]
-    assert found == referrals[0]["subject"]["reference"].rsplit("/", 1)[-1]
-    assert asked[0]["category"] == f"{REFERRAL['system']}|{REFERRAL['code']}"
+    found = smart_launch.find_patient("http://fhir:8080/fhir", twin(tmp_path))
+    assert found == checked[0]["subject"]["reference"].rsplit("/", 1)[-1]
+    assert asked[0]["code"] == CHECKED
     with pytest.raises(MendariError):  # no Communication here
-        smart_launch.find_patient("http://fhir:8080/fhir", resolve_pack(fixtures.INBOX))
-    assert "category" not in asked[1]
+        smart_launch.find_patient("http://fhir:8080/fhir", load_pack(TRIAGE_DIR))
+    assert "code" not in asked[1]
 
 
-def _coded(categories: Any, wanted: str) -> bool:
-    """Whether a `category` holds the `system|code` a token search asks for."""
-    system, _, code = wanted.partition("|")
+def _lab_order(order_id: str, subject: str) -> dict[str, Any]:
+    """A synthetic lab order (an INR, coded in LOINC), tagged as the sandbox tags what it seeds:
+    none of the order-sign twin's."""
+    return {
+        "resourceType": "ServiceRequest",
+        "id": order_id,
+        "meta": {"tag": [SANDBOX_TAG]},
+        "status": "active",
+        "intent": "order",
+        "code": {"coding": [{"system": LOINC, "code": "6301-6"}], "text": "INR"},
+        "subject": {"reference": subject},
+    }
+
+
+def _coded(concept: Any, wanted: str) -> bool:
+    """Whether a CodeableConcept holds one of the `system|code` pairs a token search asks for (a
+    comma is "or")."""
+    pairs = {(system, code) for system, _, code in (t.partition("|") for t in wanted.split(","))}
     return any(
-        coding.get("system") == system and coding.get("code") == code
-        for concept in categories or []
-        for coding in concept.get("coding", [])
+        (coding.get("system"), coding.get("code")) in pairs
+        for coding in (concept or {}).get("coding", [])
     )
 
 
@@ -147,7 +176,7 @@ def test_the_launch_reads_its_session_as_the_dashboard_does(
         if path == "/api/smart/session":
             return httpx.Response(200, json=session if len(sent) < 6 else {"active": False})
         if path == "/api/smart/focus":
-            return httpx.Response(200, json=[{"ref": "ServiceRequest/2"}])
+            return httpx.Response(200, json=[{"ref": "Communication/2"}])
         if path == "/api/smart/decide":
             return httpx.Response(200, json={"decision": decision})
         return httpx.Response(204)  # the logout
@@ -160,7 +189,7 @@ def test_the_launch_reads_its_session_as_the_dashboard_does(
         engine=engine,
         launcher=launcher,
         fhir="",
-        agent=resolve_pack(fixtures.REFERRAL),
+        agent=load_pack(DEMO_AGENT_DIR),
         patient="1",
     )
     assert done["session_ended"] and done["decided"][0]["decision_id"] == "d-1"
@@ -181,7 +210,7 @@ def test_the_cli_fails_unless_something_was_decided_and_the_session_ended(
         "fhir_user": None,
         "work_items": 1,
         "session_ended": True,
-        "decided": [{"focus": "ServiceRequest/2", "input_issues": 1}],
+        "decided": [{"focus": "Communication/2", "input_issues": 1}],
     }
     launched: list[str] = []
 
@@ -191,7 +220,7 @@ def test_the_cli_fails_unless_something_was_decided_and_the_session_ended(
 
     monkeypatch.setattr(smart_launch, "run", run)
     args = ["sandbox", "smart-launch", "--engine", "e", "--launcher", "l", "--fhir", "f"]
-    args += ["--agent", fixtures.REFERRAL]
+    args += ["--agent", TRIAGE_ID]
     assert main(args) == 0
     assert main([*args, "--strict"]) == 1  # a US Core issue
     assert "did not conform to US Core" in capsys.readouterr().err
@@ -200,8 +229,8 @@ def test_the_cli_fails_unless_something_was_decided_and_the_session_ended(
     # With no agent named, the launch is the bundled demo agent's; a folder names its agent.
     monkeypatch.setenv("MENDARI_AGENTS_PATH", str(DEMO_AGENT_DIR.parent))
     assert main(args[:-2]) == 1
-    assert main([*args[:-1], str(resolve_pack(fixtures.INBOX).root)]) == 1
-    assert launched[-2:] == [DEMO_AGENT, fixtures.INBOX]
+    assert main([*args[:-1], str(CHART_DIR)]) == 1
+    assert launched == [TRIAGE_ID, TRIAGE_ID, TRIAGE_ID, DEMO_AGENT, CHART_ID]
 
 
 @pytest.mark.parametrize("db_target", ["sqlite", "postgres"], indirect=True)
@@ -249,8 +278,8 @@ def test_the_cli_fails_unless_each_decision_is_the_organizations_and_names_its_u
         "work_items": 2,
         "session_ended": True,
         "decided": [
-            {"focus": "ServiceRequest/2", "decision_id": "d-1", "input_issues": 0},
-            {"focus": "ServiceRequest/3", "decision_id": "d-2", "input_issues": 0},
+            {"focus": "Communication/2", "decision_id": "d-1", "input_issues": 0},
+            {"focus": "Communication/3", "decision_id": "d-2", "input_issues": 0},
         ],
         "org": "pilot",
         "requested_by": ["http://launcher/v/r4/fhir|abc", "http://launcher/v/r4/fhir|abc"],
@@ -263,7 +292,7 @@ def test_the_cli_fails_unless_each_decision_is_the_organizations_and_names_its_u
     monkeypatch.setattr(smart_launch, "run", run)
     args = ["sandbox", "smart-launch", "--engine", "e", "--launcher", "http://launcher"]
     args += ["--fhir", "f", "--expect-org", "pilot", "--db", "/data/mendari.db"]
-    args += ["--agent", fixtures.REFERRAL]
+    args += ["--agent", TRIAGE_ID]
     assert main(args) == 0
     assert (seen["expect_org"], seen["db"]) == ("pilot", "/data/mendari.db")
     result["requested_by"] = [None, "key k-1"]
@@ -280,7 +309,7 @@ def test_expecting_an_organization_needs_the_engines_database() -> None:
             engine="http://e",
             launcher="http://l",
             fhir="http://f",
-            agent=resolve_pack(fixtures.REFERRAL),
+            agent=load_pack(DEMO_AGENT_DIR),
             expect_org="o",
         )
 
@@ -294,7 +323,7 @@ LAUNCH_URL = f"http://engine:8000/smart/launch?iss={INFERNO_FHIR}&launch=abc123"
 def _ehr_launch(sent: list[tuple[str, str, dict[str, str]]]) -> Any:
     """The engine and an EHR (Inferno's mock SMART server) that authorizes at once, as httpx
     transports see them."""
-    session = {"active": True, "patient": "ehr-ref-1", "scope": "launch patient/*.rs"}
+    session = {"active": True, "patient": "smart-patient-1", "scope": "launch patient/*.rs"}
 
     def answer(request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -314,7 +343,7 @@ def _ehr_launch(sent: list[tuple[str, str, dict[str, str]]]) -> Any:
             ended = any(p.endswith("/api/smart/logout") for _, p, _ in sent)
             return httpx.Response(200, json={"active": False} if ended else session)
         if path == "/api/smart/patient":
-            return httpx.Response(200, json={"id": "ehr-ref-1", "gender": "female"})
+            return httpx.Response(200, json={"id": "smart-patient-1", "gender": "female"})
         return httpx.Response(204)  # the logout
 
     return answer
@@ -336,7 +365,7 @@ def test_a_launch_from_the_ehrs_launch_url_reads_the_patient_with_its_token_and_
     )
     done = smart_launch.from_launch_url(LAUNCH_URL, engine="http://engine:8000/")
     assert done == {
-        "patient": "ehr-ref-1",
+        "patient": "smart-patient-1",
         "scope": "launch patient/*.rs",
         "patient_read": True,
         "session_ended": True,
