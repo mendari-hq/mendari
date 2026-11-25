@@ -158,7 +158,7 @@ class JobStore:
     ) -> dict[str, Any]:
         """A queued job of `org` evaluating a version (or a pack served here) on a dataset, with
         `variants` (default: the version's own). A remote variant needs the organization's
-        evaluation quota for its provider type (`eval_jev`, `eval_llm`) to be set, and runs on
+        evaluation quota for its provider type (`eval_llm`) to be set, and runs on
         `REMOTE_LIMIT` cases at most. Chained `store_job.created`."""
         target, named = self._target(org, digest, pack)
         data = self._dataset(org, target, dataset)
@@ -172,7 +172,7 @@ class JobStore:
         decision = self.decision_for(target, variants or {})
         total = min(len(data.records), MAX_CASES)
         if decision.is_remote:
-            types = {info.type for info in decision.provider_info.values()} & {"jev", "llm"}
+            types = {info.type for info in decision.provider_info.values()} & {"llm"}
             unset = sorted(t for t in types if f"eval_{t}" not in (limits or {}))
             if unset:
                 raise StoreError(

@@ -106,7 +106,7 @@ def refuse_if_over_quota() -> None:
 
 
 # The most one call may report (the usage ledger, LP-21g): above, a figure is not believed. A
-# provider's own parser bounds what it accepts (Jev's MAX_TOKENS, the LLM's); these keep a
+# provider's own parser bounds what it accepts (the LLM's); these keep a
 # figure that got through from ever failing a decision's record.
 MAX_CALL_TOKENS = 10_000_000
 MAX_CALL_COST_USD = 1_000.0

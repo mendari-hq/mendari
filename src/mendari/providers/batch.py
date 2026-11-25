@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Per-decision call batching: remote providers that share an endpoint answer in one call.
 
-Without it, a decision whose router and safety screen both use Jev makes two HTTP calls with
-the same message. Inside `batching(providers)`, the providers that do the calling (a
+Without it, a decision whose router and safety screen both use one LLM makes two HTTP calls
+with the same message. Inside `batching(providers)`, the providers that do the calling (a
 composite's members included) are grouped by `batch_key()`: same type and same key, no question
 asked twice, and at most the type's `max_batch_questions`. The first member of a group to
 answer makes one call for the whole group (`answer_batch`); the others read their answers, or

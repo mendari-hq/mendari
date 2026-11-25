@@ -9,14 +9,14 @@ input: two records it may decide differently are never one. A small probe takes 
 critical label and cases without in turn, in an order the seed gives (`in_turn`), so it reaches both
 the answers a miss is costly on and the cases a wrong answer would automate.
 
-**Which text.** The fields the running providers say they read text in (`read_fields`: an
-agent's, a model's or Jev's `state_fields`; the `text_fields` of rules), or, when one of them
-is sent the whole input, every string in it. Of those, a
-string the input schema holds to a list of values or a format (`enum`, `const`, `format`), or to
-a `pattern` that gives it a shape, is a code, a date or an id, not text, and is never changed
-(`text_places`). A pattern that ordinary text meets (`\\S`: not blank; one line only) gives no
-shape: the field is text, and a variant its pattern refuses is left out when it is built.
-Fields the caller names take the place of all that, and say nothing of what a case is.
+**Which text.** The fields the running providers say they read text in (`read_fields`: an agent's or
+a model's `state_fields`; the `text_fields` of rules), or, when one of them is sent the whole input,
+every string in it. Of those, a string the input schema holds to a list of values or a format
+(`enum`, `const`, `format`), or to a `pattern` that gives it a shape, is a code, a date or an id,
+not text, and is never changed (`text_places`). A pattern that ordinary text meets (`\\S`: not
+blank; one line only) gives no shape: the field is text, and a variant its pattern refuses is left
+out when it is built. Fields the caller names take the place of all that, and say nothing of what a
+case is.
 """
 
 from __future__ import annotations
@@ -38,7 +38,6 @@ from mendari.evals.probe_transforms import Stream
 from mendari.providers import Provider
 from mendari.providers.agent import AgentProvider
 from mendari.providers.base import select_fields
-from mendari.providers.jev import JevProvider
 from mendari.providers.llm import LlmProvider
 from mendari.providers.rules import RulesProvider
 
@@ -228,7 +227,7 @@ def identity_fields(decision: Decision) -> tuple[str, ...] | None:
 def _named(leaf: Provider) -> list[str] | None:
     """The input fields a provider says it reads, or None: it is sent the whole input, or does
     not say (a provider type this module does not know)."""
-    if isinstance(leaf, AgentProvider | LlmProvider | JevProvider):
+    if isinstance(leaf, AgentProvider | LlmProvider):
         fields = leaf.settings.state_fields
         return None if fields is None else list(fields)
     if isinstance(leaf, RulesProvider):

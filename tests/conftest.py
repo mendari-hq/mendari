@@ -84,7 +84,7 @@ def _worker_postgres(base_url: str, worker: str) -> tuple[str, str | None]:
 
 POSTGRES_URL, _WORKER_POSTGRES_DB = _worker_postgres(_BASE_POSTGRES_URL, _XDIST_WORKER)
 # A developer's shell may hold a deployment's own systems: its database (Neon's integration
-# exports these), the AI Gateway's key or a Vercel OIDC token (`vercel env pull`), an LLM or Jev
+# exports these), the AI Gateway's key or a Vercel OIDC token (`vercel env pull`), an LLM
 # endpoint and key (and the origins they may be at), the alert webhook, the registry, the payer,
 # the CDS clients whose tokens a server would take (LP-23b), a site's code map (LP-23i), and the
 # key holder's grading key (LP-17e), which no test may sign with.
@@ -93,8 +93,8 @@ POSTGRES_URL, _WORKER_POSTGRES_DB = _worker_postgres(_BASE_POSTGRES_URL, _XDIST_
 # test that needs one sets its own.
 LIVE_SETTINGS = (
     "DATABASE_URL", "DATABASE_URL_UNPOOLED", "AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN",
-    "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "JEV_API_URL", "JEV_API_KEY", "JEV_MODEL",
-    "JEV_CONNECTOR", "MENDARI_PROVIDERS", "MENDARI_PROVIDER_ALLOWED_ORIGINS",
+    "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL",
+    "MENDARI_PROVIDERS", "MENDARI_PROVIDER_ALLOWED_ORIGINS",
     "MENDARI_ALERT_WEBHOOK", "MENDARI_ALERT_SECRET", "MENDARI_ALERT_FORMAT",
     "MENDARI_REGISTRY_URL", "MENDARI_ACCOUNTS", "MENDARI_REGISTRY_HUB_URL",
     "MENDARI_REGISTRY_TOKEN", "MENDARI_REGISTRY_ADMIN_TOKEN", "MENDARI_PAS_PAYER_URL",
@@ -255,19 +255,11 @@ def _no_evalset_keys(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _no_jev(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Jev is never set up, and no provider is chosen, unless a test does it (with a fake): a
-    developer's own Jev settings would turn on the servers' Jev defaults and send test cases to
-    Jev, and their MENDARI_PROVIDERS would change what every pack runs."""
-    for name in (
-        "JEV_API_URL",
-        "JEV_MODEL",
-        "JEV_API_KEY",
-        "JEV_CONNECTOR",
-        "MENDARI_AGENT_URL",
-        "MENDARI_AGENT_TOKEN",
-        "MENDARI_PROVIDERS",
-    ):
+def _no_provider_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No agent service is set up, and no provider is chosen, unless a test does it (with a
+    fake): a developer's own MENDARI_AGENT_URL would send test cases to their agent, and their
+    MENDARI_PROVIDERS would change what every agent runs."""
+    for name in ("MENDARI_AGENT_URL", "MENDARI_AGENT_TOKEN", "MENDARI_PROVIDERS"):
         monkeypatch.delenv(name, raising=False)
 
 

@@ -68,10 +68,9 @@ A store version is an agent the deployment does not own (origin `store`, "From t
 store"): it runs on the bounded engine (RE2, the caps, the input limits, one second of CPU per
 decision; ADR-0009), its model calls are capped as a pulled agent's are, and its id is never a
 bundled agent's at a tying version. Beyond what a pulled agent is held to, the deployment chooses
-its Jev price (so the recorded cost is the deployment's), whether its model questions share a
-call, and an LLM's temperature: the agent's own values are dropped. Only a provider setting that
-names it chooses its variants: unscoped `MENDARI_PROVIDERS` settings and the Jev defaults do not
-reach it, as for a community agent.
+whether its model questions share a call, and an LLM's temperature: the agent's own values are
+dropped. Only a provider setting that names it chooses its variants: unscoped
+`MENDARI_PROVIDERS` settings do not reach it, as for a community agent.
 
 ## Evaluating a draft (LP-20g)
 

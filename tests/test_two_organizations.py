@@ -168,13 +168,12 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
 }
 NOT_CALLED = {route for route, why in DEPLOYMENT_WIDE.items() if "Not called" in why}
 # What the server still mounts of features wave 6 removes, until their code goes: Da Vinci's PAS
-# request and DTR package (G4), the guard (G12) and Jev's model list (G1). No call here
+# request and DTR package (G4) and the guard (G12). No call here
 # exercises them; they leave the coverage check (`covered`) with their code.
 REMOVED_ROUTES: set[Route] = {
     ("POST", "/api/agents/{namespace}/{name}/pas"),
     ("POST", "/fhir/Questionnaire/$questionnaire-package"),
     ("POST", "/api/agents/{namespace}/{name}/guard"),
-    ("GET", "/api/providers/jev/models"),
 }
 # What may appear in an organization's answers although it is not that organization's data:
 FIELDS = {

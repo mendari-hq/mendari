@@ -174,7 +174,7 @@ Then:
   request or organization.
 - What is the whole deployment's is the operator's, from the command line (owner decision 5):
   `GET /api/audit/verify` and `GET /api/deployments` answer `404`; `/api/health` leaves out
-  today's Jev and LLM calls and the last purge's counts (it keeps when and by what); and a
+  today's LLM calls and the last purge's counts (it keeps when and by what); and a
   hold set from the command line for every organization shows in `/api/holds` as what it
   covers and since when, without the operator's reason or name. The operator reads them with
   `mendari audit verify`, `mendari automation list` and `mendari usage` (today's calls against

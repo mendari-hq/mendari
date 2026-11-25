@@ -14,9 +14,9 @@ A deployment may also list the origins its remote providers may be called at
 (`MENDARI_PROVIDER_ALLOWED_ORIGINS`, comma-separated, read as `MENDARI_FHIR_ALLOWED_SERVERS` is).
 Unset, nothing more is checked than before: every endpoint comes only from the deployment's own
 variables (`core/spec.py` `DEPLOYMENT_ENV_KEYS`). Set, a request to any other origin (the AI
-Gateway's default, Jev's model list and Vercel Connect included) is refused before a connection
-is opened (`invalid_endpoint`), and a server whose `LLM_BASE_URL` or `JEV_API_URL` names one
-does not start (`providers.provider_allow_list`).
+Gateway's default included) is refused before a connection is opened (`invalid_endpoint`), and a
+server whose `LLM_BASE_URL` or `MENDARI_AGENT_URL` names one does not start
+(`providers.provider_allow_list`).
 """
 
 from __future__ import annotations

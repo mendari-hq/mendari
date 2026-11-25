@@ -29,7 +29,6 @@ from mendari.sandbox import DEMO_AGENT, example_datasets_dir
 from mendari.settings import (
     applies_to,
     daily_limits,
-    default_providers,
     fhir_validation,
     parse_providers,
     providers_for,
@@ -1410,7 +1409,6 @@ def cmd_serve(args: argparse.Namespace) -> int:
     app = create_app(
         db_path=args.db,
         providers=parse_providers(args.provider),
-        default_providers=default_providers(),
         budget_limits=daily_limits(),
         datasets_dir=Path(args.datasets_dir) if args.datasets_dir else example_datasets_dir(),
     )
@@ -1952,7 +1950,7 @@ def cmd_audit_export(args: argparse.Namespace) -> int:
 
 
 def cmd_usage(args: argparse.Namespace) -> int:
-    """The deployment's totals, read-only: today's metered calls (Jev, LLM) against this
+    """The deployment's totals, read-only: today's metered calls (LLM) against this
     environment's daily limits, the last purge with its counts, the latest deployment records,
     and the usage ledger (LP-21g) of every organization (or `--org`) over the last `--days`
     local days, with its totals by provider type and purpose (a cost only where every call was
@@ -1977,7 +1975,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
                         "calls_today": store.usage(provider),
                         "daily_limit": limits[provider],
                     }
-                    for provider in ("jev", "llm")
+                    for provider in ("llm",)
                 },
                 "last_purge": store.last_purge(),
                 "deployments": store.deployments(None, limit=args.deployments),
@@ -5090,8 +5088,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--provider",
         action="append",
         metavar="SLOT=VARIANT",
-        help="instead of $MENDARI_PROVIDERS; with Jev set up, the bundled agents run Mendari + "
-        "Jev in every slot these choose nothing for",
+        help="instead of $MENDARI_PROVIDERS",
     )
     serve.add_argument(
         "--proxy-headers",

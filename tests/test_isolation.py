@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The test suite reaches nothing outside itself (tests/conftest.py, LIVE_SETTINGS): with every
-system a developer's shell can name (a deployment's database, the AI Gateway, an LLM or Jev
-endpoint, the alert webhook, the registry) pointed at a local server that records each request,
+system a developer's shell can name (a deployment's database, the AI Gateway, an LLM endpoint,
+the alert webhook, the registry) pointed at a local server that records each request,
 the tests that once reached them run and the server hears nothing."""
 
 from __future__ import annotations
@@ -71,8 +71,6 @@ def test_the_tests_reach_nothing_the_shell_names(
         "VERCEL_OIDC_TOKEN": "shell-token",
         "LLM_BASE_URL": f"{url}/v1",
         "LLM_API_KEY": "shell-key",
-        "JEV_API_URL": url,
-        "JEV_API_KEY": "shell-key",
         "MENDARI_ALERT_WEBHOOK": f"{url}/hook",
         "MENDARI_REGISTRY_URL": url,
         "MENDARI_PAS_PAYER_URL": url,

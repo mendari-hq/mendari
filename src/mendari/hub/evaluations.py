@@ -45,7 +45,7 @@ states); the counts (whole, adding up, the agent's own policy, consent as the co
 calls). A configuration whose every provider is local is then run again in the regression
 check's isolated child (`hub/regression.py` `rerun`), and its counts must be the publisher's,
 exactly; with re-runs off (`MENDARI_REGISTRY_REGRESSION=off`) such a configuration is refused,
-never taken unchecked. One that calls a model (an agent, Jev, an LLM; an agent answered offline
+never taken unchecked. One that calls a model (an agent, an LLM; an agent answered offline
 from its `mock_file` too: the registry goes by the provider's type) is not re-run, and says so.
 
 One live evaluation per version, configuration and dataset: a later one supersedes it (both stay

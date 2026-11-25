@@ -150,7 +150,7 @@ def refuse_site_cases(files: Mapping[str, bytes]) -> None:
     site's cases: cases `mendari feedback export` wrote, found by their marks, in any file and
     however it is laid out (`core/site_cases.py`). One line that names the first
     `MAX_FILES_NAMED` files with how many times each is marked, and counts the rest; never a
-    case's id or text. A site's cases stay where the site keeps them: whether such a pack may
+    case's id or text. A site's cases stay where the site keeps them: whether such an agent may
     ever be published is not this function's to decide, so nothing turns it off."""
     found = sorted(marked_files(files).items())
     if not found:

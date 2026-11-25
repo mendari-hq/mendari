@@ -221,7 +221,7 @@ QuotaReached = Callable[[str, str, int], None]
 
 
 class CallBudget:
-    """Daily call limits per provider type (e.g. {"jev": 500}; None counts calls without a
+    """Daily call limits per provider type (e.g. {"llm": 500}; None counts calls without a
     limit), counted in the audit store, and per-organization daily quotas (`org_limits`:
     `decisions`, the remote calls they make by provider type, e.g. {"decisions": 5000}, and
     the remote calls of its evaluations, `eval_<type>`, which `for_evaluation` counts).
@@ -266,7 +266,7 @@ class CallBudget:
 
     def for_evaluation(self) -> CallBudget:
         """The budget an evaluation spends (LP-21h): its organization's evaluation quotas
-        (`eval_jev`, `eval_llm`; unset: no limit), never the quotas of its decisions, which an
+        (`eval_llm`; unset: no limit), never the quotas of its decisions, which an
         evaluation never uses up; and the deployment's daily budgets, which live decisions
         share: once those run out, every organization's live decisions go to people
         (`budget_exhausted`) until midnight, so keep the evaluation quotas below them."""

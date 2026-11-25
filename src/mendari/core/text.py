@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The plain form of a text: what the providers that decide on this machine read.
 
-A pack's patterns are written as a keyboard types them: a straight apostrophe, one space between
+An agent's patterns are written as a keyboard types them: a straight apostrophe, one space between
 words. The text they are matched against is written by phones, web forms, word processors and
 language models, which write the same words otherwise: a curly apostrophe (U+2019, a phone's
 default), a no-break space, a zero-width space carried in pasted text, an accent as a separate

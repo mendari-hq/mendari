@@ -30,16 +30,16 @@ def site(browser: Browser, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> I
 def test_the_usage_tab_shows_the_organization_s_calls_and_an_unknown_cost(site: Site) -> None:
     seed(
         site.store,
-        (days_ago(0), "clinic-a", "jev", "decision", 10, 10, 0.004),
+        (days_ago(0), "clinic-a", "agent", "decision", 10, 10, 0.004),
         (days_ago(1), "clinic-a", "llm", "evaluation", 4, 3, 0.03),  # one call unpriced
-        (days_ago(0), "clinic-b", "jev", "decision", 777, 777, 0.3),  # never shown here
+        (days_ago(0), "clinic-b", "agent", "decision", 777, 777, 0.3),  # never shown here
     )
     page = site.window(lead(site))
     access(page, "usage")
-    jev = row(page, "usage-totals", "Jev")
-    expect(jev).to_contain_text("Decisions")
-    expect(jev.locator("td").nth(2)).to_have_text("10")
-    expect(jev.locator("td").last).to_have_text("$0.004")
+    agent = row(page, "usage-totals", "Agent")
+    expect(agent).to_contain_text("Decisions")
+    expect(agent.locator("td").nth(2)).to_have_text("10")
+    expect(agent.locator("td").last).to_have_text("$0.004")
     model = row(page, "usage-totals", "Language model")
     expect(model.locator("td").last).to_have_text("unknown")
     expect(page.locator('[data-table="usage-days"] tbody tr')).to_have_count(2)

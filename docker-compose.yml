@@ -43,9 +43,6 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      JEV_API_URL: ${JEV_API_URL:-}
-      JEV_MODEL: ${JEV_MODEL:-}
-      JEV_API_KEY: ${JEV_API_KEY:-}
       MENDARI_PROVIDERS: ${MENDARI_PROVIDERS:-}
       # CDS Hooks and SMART may read from the sandbox's own FHIR server and launcher, and only there,
       # and the signed CDS client's JWK Set is fetched from `cds-client` (below). If you set your

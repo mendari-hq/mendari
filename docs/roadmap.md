@@ -5,7 +5,7 @@ _Approved 2026-09-28. Living document: update it as milestones land._
 ## Context
 
 The goal is an open infrastructure layer for healthcare AI agents: agents that are wrapped,
-evaluated, shared, versioned, governed and deployed across rules, Jev, ML, local models, LLMs,
+evaluated, shared, versioned, governed and deployed across rules, local models, LLMs,
 external HTTP agents and combinations of them, with healthcare standards, human deferral and
 local validation built in.
 
@@ -62,11 +62,11 @@ release, the live Hub and the hosted docs site. The overnight log lists what's n
 |---|---|---|
 | Agent spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ 0.2 | `choice`, `boolean` and `score` questions; derived questions (decision tables) |
 | Runtime + AUTO / HUMAN_REVIEW / ABSTAIN / BLOCK + risk levels 0–4, governance approvals in the UI | ✅ | none |
-| Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway; OpenAI-compatible local models), criteria, CQL, dosing; `any_of`, `cascade`, `vote` | ✅ | none |
+| Providers: rules, LLMs (Vercel AI Gateway; OpenAI-compatible local models), external HTTP agents; `check` | ✅ | none |
 | Bundled agents | ✅ the demo agent | A harder, clinician-reviewed benchmark |
 | Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation + provider leaderboards for every agent; monitoring over time with drift and alerts | ✅ | A harder benchmark |
 | Audit trail (hash chain), review queue, feedback (right / wrong, with the right answer, changeable), FHIR AuditEvent/Provenance export | ✅ | none |
-| FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, CQL, OMOP CDM, Da Vinci CRD/DTR/PAS, synthetic sandbox (HAPI with Clinical Reasoning, SMART launcher, mock payer) | ✅ v0.7 | none |
+| FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, OMOP CDM, Da Vinci CRD/DTR/PAS, synthetic sandbox (HAPI, SMART launcher, mock payer) | ✅ v0.7 | none |
 | Decision Cards | ✅ | Validation history, hub-hosted cards |
 | Dashboard (every agent; review, audit, evaluations, monitoring, feedback, card, Try it; roles; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check |
 | Hub: publish / pull / search, publisher types, signed archives, the site evaluation network (verified sites, tickets, signed counts, pooled site evidence apart from every rank), website | ✅ v0.5 (not public yet; the site network built, LP-22) | Going public (a public registry and site); datasets and eval suites as first-class entries |

@@ -291,7 +291,7 @@ value:
    isolated child (`hub/regression.py` `rerun`: same limits, at most two at once, `503` past
    that) and refused unless its counts are the publisher's exactly. With the check off
    (`MENDARI_REGISTRY_REGRESSION=off`) such a configuration is refused, never taken unchecked.
-   One that calls a model (`agent`, `jev`, `llm`; an `agent` variant that answers offline from
+   One that calls a model (`agent`, `llm`; an `agent` variant that answers offline from
    its `mock_file` too, as the registry goes by the provider's type) is not run again.
 
 One evaluation is live per version, configuration and dataset. A later one supersedes it:

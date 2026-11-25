@@ -147,73 +147,6 @@
       "title": "check provider config",
       "type": "object"
     },
-    "jev": {
-      "additionalProperties": false,
-      "properties": {
-        "batch": {
-          "default": true,
-          "title": "Batch",
-          "type": "boolean"
-        },
-        "cost_per_1k_input_tokens_usd": {
-          "anyOf": [
-            {
-              "maximum": 1.0,
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": 4.2e-05,
-          "title": "Cost Per 1K Input Tokens Usd"
-        },
-        "model": {
-          "anyOf": [
-            {
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Model"
-        },
-        "state_fields": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "State Fields"
-        },
-        "timeout_ms": {
-          "default": 5000,
-          "maximum": 10000,
-          "minimum": 100,
-          "title": "Timeout Ms",
-          "type": "integer"
-        },
-        "type": {
-          "const": "jev"
-        }
-      },
-      "required": [
-        "type"
-      ],
-      "title": "jev provider config",
-      "type": "object"
-    },
     "llm": {
       "additionalProperties": false,
       "properties": {
@@ -339,9 +272,6 @@
           "$ref": "#/$defs/agent"
         },
         {
-          "$ref": "#/$defs/jev"
-        },
-        {
           "$ref": "#/$defs/llm"
         },
         {
@@ -378,9 +308,6 @@
     },
     {
       "$ref": "#/$defs/check"
-    },
-    {
-      "$ref": "#/$defs/jev"
     },
     {
       "$ref": "#/$defs/llm"

@@ -8,8 +8,8 @@ Dataset format (JSON Lines), one case per line:
      "attributes": {"language": "es", "site": "..."}} # optional, for subgroup analysis
 
 One attribute means something to Mendari itself: `exported_by`, which `mendari feedback
-export` writes on every record (`core/site_cases.py`). It says the case is a site's own, and a
-pack that holds one is not published.
+export` writes on every record (`core/site_cases.py`). It says the case is a site's own, and an
+agent that holds one is not published.
 
 Reports never contain case inputs or ids: a case is named by its ledger hash
 (mendari.evals.ledger), so a report on local data can be shared without sharing the data. A

@@ -63,7 +63,7 @@ def static_files(page: str) -> list[str]:
 
 
 def _env(home: Path, venv: Path) -> dict[str, str]:
-    """A new machine's environment: no Mendari, Jev or model settings (`_clean_env`), no Python
+    """A new machine's environment: no Mendari or model settings (`_clean_env`), no Python
     path or environment of the clone's, a home nothing has written to, and the new environment's
     commands first on the path, as after activating it."""
     env = _clean_env()

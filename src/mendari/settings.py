@@ -10,7 +10,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from mendari.errors import MendariError
 
-DEFAULT_JEV_DAILY_LIMIT = 500
 DEFAULT_LLM_DAILY_LIMIT = 500
 DEFAULT_TIMEZONE = "America/New_York"
 DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024
@@ -335,31 +334,11 @@ def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
     return overrides
 
 
-# With Jev set up, a server runs these variants, by pack, in each slot its provider settings
-# choose nothing for: for a pack whose policy's `automation_requires` asks for a model in its
-# screen, Jev reading there beside the keyword rules, so the rules still answer when Jev cannot.
-# The bundled demo agent has no Jev slot, so a release names none; a deployment that serves its
-# own packs chooses their variants with MENDARI_PROVIDERS.
-JEV_DEFAULTS: dict[str, dict[str, str]] = {}
-
-
-def default_providers() -> dict[str, dict[str, str]]:
-    """The variants a server runs, by pack, in each slot its provider settings choose nothing for:
-    JEV_DEFAULTS while Jev is set up, else none (each pack's own default). Only servers use them:
-    a command that decides or evaluates (a benchmark, a pack's tests) never calls Jev unasked."""
-    from mendari.providers import jev
-
-    if not jev.deployment_configured():
-        return {}
-    return {pack: dict(slots) for pack, slots in JEV_DEFAULTS.items()}
-
-
 def daily_limits() -> dict[str, int | None]:
     """Per-provider-type daily call budgets for the remote, metered providers. `none` lifts a
     provider's limit; its calls are still counted."""
     limits: dict[str, int | None] = {}
     for provider, variable, default in (
-        ("jev", "MENDARI_JEV_DAILY_LIMIT", DEFAULT_JEV_DAILY_LIMIT),
         ("llm", "MENDARI_LLM_DAILY_LIMIT", DEFAULT_LLM_DAILY_LIMIT),
     ):
         raw = os.environ.get(variable, "").strip() or str(default)  # empty: unset, as elsewhere
@@ -373,15 +352,13 @@ def daily_limits() -> dict[str, int | None]:
 
 
 # Decisions, the remote calls they make by provider type, and the remote calls the
-# organization's evaluations make (`eval_jev`, `eval_llm`, LP-21h).
+# organization's evaluations make (`eval_llm`, LP-21h).
 # `store_uploads`: the versions an organization adds to its pack store a day (LP-20e).
 # `store_jobs`: the evaluation jobs it makes there a day (LP-20g).
 # `store_datasets`: the datasets it adds there a day, uploaded or built from its reviews.
 ORG_METRICS = (
     "decisions",
-    "jev",
     "llm",
-    "eval_jev",
     "eval_llm",
     "store_uploads",
     "store_jobs",
@@ -393,7 +370,7 @@ DEFAULT_STORE_ORG_BYTES = 256 * 1024 * 1024
 
 def org_daily_limits() -> dict[str, int]:
     """$MENDARI_ORG_DAILY_LIMITS: what each organization may use a day, e.g.
-    `decisions=5000,jev=2000,llm=200,eval_jev=100,eval_llm=20` (decisions, the remote calls
+    `decisions=5000,llm=200,eval_llm=20` (decisions, the remote calls
     they make by provider type, and the remote calls its evaluations make: an evaluation counts
     against `eval_*`, never its decisions' quotas, and still spends the deployment's daily
     budgets, which live decisions share). Unset: no per-organization quota (each one left out:
@@ -407,7 +384,7 @@ def org_daily_limits() -> dict[str, int]:
         if not sep or metric not in ORG_METRICS or not _is_whole(value) or metric in limits:
             raise MendariError(
                 "MENDARI_ORG_DAILY_LIMITS must look like "
-                "decisions=5000,jev=2000,llm=200,eval_jev=500 "
+                "decisions=5000,llm=200,eval_llm=20 "
                 f"(each of {', '.join(ORG_METRICS)} at most once, a non-negative integer)"
             )
         limits[metric] = int(value)

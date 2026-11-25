@@ -242,19 +242,17 @@ Each bullet is one control; the threat model names the row and the tests behind 
 
 ## Remote providers
 
-The Jev adapter gets its key from a Vercel Connect connector (exchanged at runtime with the
-deployment's OIDC identity, cached in memory only) or, locally, from `JEV_API_KEY`. Remote
-providers:
+Remote providers:
 - send only an agent's declared `state_fields` (an agent the deployment does not own, a community
   or registry agent, must declare them on every model variant, or it is refused at load; an owned
   agent that omits them sends the whole input);
-- read their endpoint, model and key from fixed environment variables (`JEV_API_URL`,
-  `JEV_MODEL`, `JEV_API_KEY`, `JEV_CONNECTOR`; `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`,
-  `LLM_API_KEY`), which an agent cannot change;
+- read their endpoint, model and key from fixed environment variables (`LLM_BASE_URL`,
+  `LLM_MODEL`, `AI_GATEWAY_API_KEY`, `LLM_API_KEY`; `MENDARI_AGENT_URL`, `MENDARI_AGENT_TOKEN`),
+  which an agent cannot change;
 - require HTTPS (plain HTTP only for localhost);
 - reach only the origins on `MENDARI_PROVIDER_ALLOWED_ORIGINS` when a deployment sets it (the AI
-  Gateway's default and Vercel Connect included): any other request is refused before it is
-  opened (`invalid_endpoint`), and an `LLM_BASE_URL` or `JEV_API_URL` off the list stops startup;
+  Gateway's default included): any other request is refused before it is opened
+  (`invalid_endpoint`), and an `LLM_BASE_URL` or `MENDARI_AGENT_URL` off the list stops startup;
 - refuse redirects and cap response size;
 - share one wall-clock deadline per decision
   (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set): past it a call is not made, one under way
@@ -453,7 +451,7 @@ under its own policy only once its organization approves its digest (above).
   to the deployment's.
 - **The deployment's model, caps and provider configs** (community and registry agents). The
   model is the deployment's; `max_tokens` and `timeout_ms` are held to the provider defaults
-  (LLM 4,096 tokens and 30 s, Jev 5 s; a lower value stands) and a `reasoning_effort` above
+  (LLM 4,096 tokens and 30 s, an agent's service 15 s; a lower value stands) and a `reasoning_effort` above
   `low` is dropped. Every variant and member is checked at load against its provider's closed
   config (`docs/spec/provider-configs.schema.json`): a key its provider does not read, or a value
   it refuses, refuses the agent. An owned agent loads with such problems as warnings (`mendari

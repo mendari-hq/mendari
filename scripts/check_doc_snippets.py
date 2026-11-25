@@ -25,7 +25,7 @@ mode's CDS Hooks services answer them without `MENDARI_CDS_SANDBOX` (LP-23c).
 Each file runs under `bash -euo pipefail`, and every curl in it uses `--fail-with-body`, so a
 refusal or an error fails the run with the server's answer printed. The server runs the bundled
 demo agent on its offline fixture, with every `MENDARI_*` setting cleared (so no live agent) and
-no Jev or LLM calls allowed: the check costs nothing and sends nothing anywhere. Needs curl and jq.
+no LLM calls allowed: the check costs nothing and sends nothing anywhere. Needs curl and jq.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ from mendari.server.auth import DEFAULT_ORG, PEOPLE_ONLY, PERMISSIONS, permissio
 
 # The key pass: a machine with the `service` role, as an integration would hold.
 KEY_ROLE = "service"
-NO_REMOTE_CALLS = {"jev": 0, "llm": 0}  # a provider that would call out is refused instead
+NO_REMOTE_CALLS = {"llm": 0}  # a provider that would call out is refused instead
 
 
 def runnable_with_key(step: snippets.Step) -> bool:

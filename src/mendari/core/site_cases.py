@@ -6,10 +6,10 @@ each record it writes with what it is: `mendari feedback export`, and the route 
 same (`evals/feedback.py`), writes rated and reviewed decisions as dataset records. Each carries
 `attributes.exported_by: "mendari feedback export"`.
 
-Whatever would carry a pack somewhere else looks for that mark in every file it would carry:
+Whatever would carry an agent somewhere else looks for that mark in every file it would carry:
 an archive's builder and a registry's publish (`hub/archive.py` `refuse_site_cases`), and the
 community-pack check (`community/check.py`). A file is searched as bytes, never parsed, so a
-mark is found whatever the file is called and however it is laid out: a dataset the pack tests
+mark is found whatever the file is called and however it is laid out: a dataset the agent tests
 with, the file an export wrote, a copy the manifest does not name, the same cases as one JSON
 document, a record cut short. A file that only quotes a mark is counted too.
 

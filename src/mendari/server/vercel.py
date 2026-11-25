@@ -7,13 +7,11 @@ Configuration comes from the environment:
   than none. `DATABASE_URL_UNPOOLED` (direct) is used for schema setup when present.
 - `MENDARI_PROVIDERS`: provider variants, e.g. `reader=rules`, or scoped to one pack,
   e.g. `mendari/portal-message-agent:reader=rules`. A setting that names a slot or
-  variant a pack does not have is skipped and reported in `/api/health`. With Jev set up, a
-  pack listed in `settings.JEV_DEFAULTS` (none in a release) runs Mendari + Jev in every slot
-  these settings choose nothing for.
-- `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT`: daily call budgets (`none`: no
-  limit). `MENDARI_ORG_DAILY_LIMITS`: per-organization daily quotas
-  (`decisions=5000,jev=2000,llm=200`; unset: none). `MENDARI_PRINCIPAL_DAILY_LIMIT`: a daily
-  cap on the decisions each principal asks for (unset: none).
+  variant an agent does not have is skipped and reported in `/api/health`.
+- `MENDARI_LLM_DAILY_LIMIT`: the daily call budget (`none`: no limit).
+  `MENDARI_ORG_DAILY_LIMITS`: per-organization daily quotas (`decisions=5000,llm=200`; unset:
+  none). `MENDARI_PRINCIPAL_DAILY_LIMIT`: a daily cap on the decisions each principal asks for
+  (unset: none).
 - `MENDARI_DECISION_DEADLINE_S`: how long one decision's remote calls may take together
   (whole seconds, 10 to 270; default 120), within `maxDuration` (300 s, `vercel.json`).
 - `MENDARI_RATE_LIMITS`: `on` (the default with sign-in), `log` or `off`, then overrides
@@ -73,7 +71,6 @@ Configuration comes from the environment:
 - `LLM_MODEL`: the model for `llm` variants that pin none (an AI Gateway id,
   `<vendor>/<model>`). There is no built-in default: without it they are `not_configured`, and
   their decisions go to a person.
-- `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `mendari.providers.jev`.
 """
 
 from __future__ import annotations
@@ -82,14 +79,13 @@ import os
 
 from mendari.sandbox import example_datasets_dir
 from mendari.server.app import create_app
-from mendari.settings import daily_limits, database_target, default_providers, parse_providers
+from mendari.settings import daily_limits, database_target, parse_providers
 
 # Built at import, as Vercel needs: anything that imports this module opens `database_target()`.
 app = create_app(
     db_path=database_target(),
     migrate_url=os.environ.get("DATABASE_URL_UNPOOLED", "").strip() or None,
     providers=parse_providers(None),
-    default_providers=default_providers(),
     datasets_dir=example_datasets_dir(),
     budget_limits=daily_limits(),
 )

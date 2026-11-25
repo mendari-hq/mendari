@@ -28,7 +28,6 @@ from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
 from mendari.providers.agent import TOKEN_ENV as AGENT_TOKEN_ENV
 from mendari.providers.base import Provider
 from mendari.server.app import create_app
-from mendari.settings import default_providers
 from tests.conftest import message
 
 ALLOW = "MENDARI_PROVIDER_ALLOWED_ORIGINS"
@@ -123,7 +122,7 @@ def test_no_allow_list_keeps_todays_endpoints(
         assert result.errors == {}
         assert origins(sent[before:]) == [AGENT, GATEWAY]
     monkeypatch.setenv(llm.BASE_URL_ENV, "https://models.test/v1")
-    app = create_app(db_path=tmp_path / "a.db", default_providers=default_providers())
+    app = create_app(db_path=tmp_path / "a.db")
     assert TestClient(app).get("/api/health").json()["provider_allowed_origins"] is None
 
 

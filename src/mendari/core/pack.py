@@ -112,7 +112,7 @@ class Pack:
 
     @property
     def named_settings_only(self) -> bool:
-        """A pack the deployment's unscoped provider settings and its Jev defaults never reach:
+        """An agent the deployment's unscoped provider settings and default variants never reach:
         only a setting that names it chooses its variants. A community pack, and a pack from a
         store (LP-20e), whose id is its organization's."""
         return self.community or self.origin == "store"
@@ -332,7 +332,7 @@ def manifests_under(base: Path) -> list[Path]:
 def load_pack(
     path: str | Path, *, missing_models_ok: bool = False, origin: Origin = "local"
 ) -> Pack:
-    """Load and validate a pack. `missing_models_ok` loads a pack whose calibrations
+    """Load and validate an agent. `missing_models_ok` loads an agent whose calibrations
     (`calibration`) do not exist yet; `origin` is where it was
     found (`core/registry.py` knows). A pack the deployment does not own (`Pack.bounded`: a
     community pack, or one from a registry that is not a bundled agent of this release) is
@@ -568,7 +568,7 @@ def _cached(root: Path) -> str:
 def _community_caps(manifest: PackManifest, input_schema: Any, parsed: dict[str, Any]) -> list[str]:
     """What multiplies the pattern work of a pack on the community engine (`Pack.bounded`) past
     its caps (`core/caps.py`): its rules configs, its input schema, and the patterns they run
-    together. The caps are imported only for such a pack."""
+    together. The caps are imported only for such an agent."""
     from mendari.core import caps
 
     problems = [

@@ -63,6 +63,5 @@ outcome reported later does not count).
 ## Over an organization's daily quota
 
 A decision over its organization's daily decisions quota is held the same way: its remote calls
-(Jev, language models) fail with the quota, its local providers (the keyword rules, naive Bayes,
-criteria, dosing, and a CQL engine the deployment runs) still answer, and any decision that
-would have been automated goes to a person. An emergency rule still raises its message to `stat`.
+(language models, an agent's service) fail with the quota, its local providers (the keyword
+rules) still answer, and any decision that would have been automated goes to a person. An emergency rule still raises its message to `stat`.

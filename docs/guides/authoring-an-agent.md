@@ -550,10 +550,9 @@ with your publisher token. The dataset must be one `agent.yaml` declares, so it 
 archive (a file path is refused), at least 100 cases, and the whole of it (`--limit` is
 refused). The registry checks it against the archive, then:
 
-- a configuration whose providers are all local (`rules`, `criteria`, `dosing`, `naive_bayes`)
-  is run again by the registry, and refused unless its counts are yours exactly; the Hub shows
-  "Re-run by the registry: matched";
-- one that calls a model (`agent`, `jev`, `llm`, an agent answered from its `mock_file` too) is
+- a configuration whose providers are all local (`rules`) is run again by the registry, and
+  refused unless its counts are yours exactly; the Hub shows "Re-run by the registry: matched";
+- one that calls a model (`agent`, `llm`, an agent answered from its `mock_file` too) is
   not run again; the Hub shows "Signed by the publisher; not re-run: calls a model" and the
   models your run reported.
 

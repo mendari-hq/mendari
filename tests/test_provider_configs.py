@@ -540,9 +540,7 @@ TYPICAL: dict[str, tuple[Any, ...]] = {
     "instructions": ("Be concise.", ""),
     "timeout_seconds": (0, 0.5, 15.0, 30.5, 120.0, 500.0, "30.5", True),
     **dict.fromkeys((*ENV_KEYS, "url", "endpoint", "base_url", "api_key"), URLS + ENV_NAMES),
-    **dict.fromkeys(
-        ("state_fields", "text_fields"), (["message"], [], ["x"], ["message", "x"], "message")
-    ),
+    "state_fields": (["message"], [], ["x"], ["message", "x"], "message"),
     **dict.fromkeys(
         ("timeout_ms", "max_tokens"),
         (
@@ -555,7 +553,6 @@ TYPICAL: dict[str, tuple[Any, ...]] = {
     "reasoning_effort": ("none", "low", "medium", "high", "extreme"),
     "batch": (True, False),
     "repeat": (1, 2, 3, 5, 6),
-    "cost_per_1k_input_tokens_usd": (0, 0.5, -1),
 }
 
 

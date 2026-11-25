@@ -51,11 +51,11 @@ def days_ago(n: int) -> str:
 def seeded(store: AuditStore) -> None:
     seed(
         store,
-        (days_ago(0), "clinic-a", "jev", "decision", 10, 10, 0.004),
-        (days_ago(1), "clinic-a", "jev", "decision", 5, 5, 0.002),
+        (days_ago(0), "clinic-a", "agent", "decision", 10, 10, 0.004),
+        (days_ago(1), "clinic-a", "agent", "decision", 5, 5, 0.002),
         (days_ago(1), "clinic-a", "llm", "evaluation", 4, 3, 0.03),  # one call unpriced
-        (days_ago(40), "clinic-a", "jev", "decision", 99, 99, 9.0),  # outside 30 days
-        (days_ago(0), "clinic-b", "jev", "decision", 7, 7, 0.003),
+        (days_ago(40), "clinic-a", "agent", "decision", 99, 99, 9.0),  # outside 30 days
+        (days_ago(0), "clinic-b", "agent", "decision", 7, 7, 0.003),
     )
 
 
@@ -75,8 +75,8 @@ def test_an_administrator_sees_their_organization_s_usage_and_its_totals(
     assert {row["org"] for row in usage["rows"]} == {"clinic-a"}  # never clinic-b's
     assert len(usage["rows"]) == 3  # not the day 40 days ago
     by = {(t["provider_type"], t["purpose"]): t for t in usage["totals"]}
-    assert by[("jev", "decision")]["calls"] == 15
-    assert by[("jev", "decision")]["cost_usd"] == pytest.approx(0.006)
+    assert by[("agent", "decision")]["calls"] == 15
+    assert by[("agent", "decision")]["cost_usd"] == pytest.approx(0.006)
     unpriced = by[("llm", "evaluation")]
     assert (unpriced["calls"], unpriced["priced_calls"], unpriced["cost_usd"]) == (4, 3, None)
     assert len(client.get("/api/usage", params={"days": 1}, headers=admin).json()["rows"]) == 1
@@ -95,7 +95,7 @@ def test_open_mode_shows_every_organization_each_row_naming_its_own(tmp_path: Pa
 
 
 def test_totals_show_a_cost_only_where_every_call_was_priced() -> None:
-    row = {"provider_type": "jev", "purpose": "decision", "calls": 2, "priced_calls": 2,
+    row = {"provider_type": "agent", "purpose": "decision", "calls": 2, "priced_calls": 2,
            "input_tokens": 1, "output_tokens": 1, "cost_usd": 0.5}  # fmt: skip
     assert usage_totals([row, row])[0]["cost_usd"] == 1.0
     unknown = {**row, "priced_calls": 1, "cost_usd": None}
@@ -121,7 +121,8 @@ def test_the_operator_reads_every_organization_s_ledger(
     assert len(every["rows"]) == 4  # not the day 40 days ago
     assert {row["org"] for row in every["rows"]} == {"clinic-a", "clinic-b"}
     by = {(t["provider_type"], t["purpose"]): t for t in every["totals"]}
-    assert by[("jev", "decision")]["calls"] == 22 and by[("llm", "evaluation")]["cost_usd"] is None
+    assert by[("agent", "decision")]["calls"] == 22
+    assert by[("llm", "evaluation")]["cost_usd"] is None
     assert {row["org"] for row in usage("--org", "clinic-b")["rows"]} == {"clinic-b"}
     assert len(usage("--days", "1")["rows"]) == 2
     assert len(usage("--days", "60")["rows"]) == 5

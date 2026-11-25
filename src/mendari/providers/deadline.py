@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """One wall-clock deadline across a decision's remote calls (LP-16b).
 
-A decision's remote providers (Jev, an LLM) each have a timeout of their own,
+A decision's remote providers (an LLM, an agent's service) each have a timeout of their own,
 and some retry, so a decision with several of them could hold its request past what the
 platform allows (Vercel stops a function at `maxDuration`, before the audit is written). The
 deployment sets one deadline per decision (`settings.decision_deadline_s`), which

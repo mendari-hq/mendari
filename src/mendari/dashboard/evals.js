@@ -153,7 +153,7 @@ const elapsedText = (ms) => {
   return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${String(seconds % 60).padStart(2, "0")} s`;
 };
 
-// Slots whose deployed provider calls a remote model (Jev, an LLM), in words.
+// Slots whose deployed provider calls a remote model (an LLM, an agent), in words.
 const remoteSlots = () => Object.entries(state.detail.active_providers)
   .filter(([, p]) => remoteModels(p.model, p.type).length)
   .map(([slot, p]) => `${esc(slotText(slot))}: ${providerWords(p)}`);

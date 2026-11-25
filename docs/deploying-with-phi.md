@@ -756,15 +756,14 @@ the agent is about, each one a decision against the decide limit, all counted be
 made. One request decides at most 50 (or the decide burst, if you set it lower); more is a
 `400`, and the EHR sends them in several requests.
 
-**Daily quotas per organization.** `MENDARI_ORG_DAILY_LIMITS=decisions=5000,jev=2000,llm=200`
-caps what each organization uses a day: decisions, and the remote model calls they make. Unset,
-there is none, and each one left out has no limit. An organization's evaluations (run on the
-server) count against their own quotas, `eval_jev` and `eval_llm`
-(`...,eval_jev=100,eval_llm=20`), never the decisions' ones. They still spend the deployment's
-daily budgets (`MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT`), which live decisions share:
-once those run out, every organization's live decisions go to people (`budget_exhausted`) until
-midnight. So set each evaluation quota well below them (the server warns at startup when one is
-not), and the quotas of all organizations together below them too. Over an evaluation quota the
+**Daily quotas per organization.** `MENDARI_ORG_DAILY_LIMITS=decisions=5000,llm=200` caps what
+each organization uses a day: decisions, and the remote model calls they make. Unset, there is
+none, and each one left out has no limit. An organization's evaluations (run on the server)
+count against their own quota, `eval_llm` (`...,eval_llm=20`), never the decisions' ones. They
+still spend the deployment's daily budget (`MENDARI_LLM_DAILY_LIMIT`), which live decisions
+share: once it runs out, every organization's live decisions go to people (`budget_exhausted`)
+until midnight. So set the evaluation quota well below it (the server warns at startup when it
+is not), and the quotas of all organizations together below it too. Over an evaluation quota the
 evaluation's remote calls fail (`quota_exhausted`) and its report shows it. Over a quota a decision is still
 made and recorded, but no provider runs and it goes to the review queue (`ABSTAIN` or
 `HUMAN_REVIEW`, with `quota_exhausted` in its errors), as over a daily budget: a quota never
@@ -785,14 +784,13 @@ principals). `/api/health` shows a principal that may read its own cap and what 
 and each instance logs the first refusal of the day per principal (`quota.reached`, reason
 `principal_decisions`).
 
-**What was used: the usage ledger.** Each decision's remote model calls (Jev, an LLM) are counted
+**What was used: the usage ledger.** Each decision's remote model calls (an LLM, an agent) are counted
 in the database in the decision's own transaction, by local day, organization, provider type and
 purpose: `decision`, or `evaluation` for an evaluation run on the server (or `mendari eval
 --db`), counted for the organization that ran it. Each row holds the calls sent, how many of
 them answered with a price, the tokens the answered ones reported, and the cost of the priced
-ones. A cost is shown only when every call was priced (Jev's published price, unless a variant
-sets another, at most $1 per 1,000 tokens; an LLM's when its gateway reports one, believed up to
-$1,000 a call); otherwise it is unknown, never a partial sum and never zero. A call that a
+ones. A cost is shown only when every call was priced (an LLM's when its gateway reports one,
+believed up to $1,000 a call); otherwise it is unknown, never a partial sum and never zero. A call that a
 budget, a quota, the deadline or the request's size stops is never sent, so it is not counted; a
 call sent that then failed, or whose answer was refused, is counted, without a price and without
 tokens. The ledger holds no case data. Providers never write to the database. An
@@ -800,7 +798,7 @@ organization's administrators see theirs in the dashboard's Access view (**Usage
 `GET /api/usage?days=30` (1 to 366 local days, with totals by provider and purpose); the operator
 sees every organization's with `mendari usage --db "$DATABASE_URL" --days 30` (`--org` for one).
 
-**A deadline per decision.** A decision's remote calls (Jev, an LLM, the CQL engine) share one
+**A deadline per decision.** A decision's remote calls (an LLM, an agent's service) share one
 wall-clock deadline, `MENDARI_DECISION_DEADLINE_S` (whole seconds, 10 to 270; 120 unless set):
 a call that would start after it is not made (no key fetched, no budget used), and one under
 way, its retry included, waits only for what remains. Either is recorded as `timeout`, so the
@@ -825,8 +823,7 @@ By default, nothing. Each of these is off until you configure it:
 
 | What | Setting | Leaves with it |
 |---|---|---|
-| Jev | Jev's settings (`JEV_API_URL`, `JEV_MODEL` and `JEV_API_KEY`; `JEV_CONNECTOR` works on Vercel only): an agent listed in the Jev defaults (none in a release) then runs Mendari + Jev in every slot `MENDARI_PROVIDERS` chooses nothing for | The agent's declared `state_fields` only (an agent you own that declares none sends the whole input; a community or registry agent must declare them) |
-| Other remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The agent's declared `state_fields` only (as for Jev) |
+| Remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The agent's declared `state_fields` only (an agent you own that declares none sends the whole input; a community or registry agent must declare them) |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Agent ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
 | Shared evaluation reports | `mendari eval --share` (manual) | Whole counts only (`mendari.site-report/2`, checked by the registry): no cases, ids, dataset name, approver, subgroups or rates; cells of 1 to 9 suppressed with their complements, critical counts exact, nothing under 100 cases; `--share-out FILE` writes it to read first |
@@ -859,11 +856,10 @@ no prior-authorization agent, so a request there is for one you serve beside the
 To hold remote models to the places your agreements cover, set
 `MENDARI_PROVIDER_ALLOWED_ORIGINS` to the origins they may be called at, comma-separated as for
 `MENDARI_FHIR_ALLOWED_SERVERS` (for example `https://models.internal.example.org` for a model
-server on your network; add `https://ai-gateway.vercel.sh` for the AI Gateway, and
-`https://api.vercel.com` for `JEV_CONNECTOR`). A Jev, LLM or Vercel Connect request to any other
-origin is then refused before it is sent (`invalid_endpoint`: the question fails and the decision
-goes to a person), and an `LLM_BASE_URL` or `JEV_API_URL` off the list stops the server at
-start-up. Unset, there is no such list. Signed in, `/api/health` shows it
+server on your network; add `https://ai-gateway.vercel.sh` for the AI Gateway). An LLM or agent
+request to any other origin is then refused before it is sent (`invalid_endpoint`: the question
+fails and the decision goes to a person), and an `LLM_BASE_URL` or `MENDARI_AGENT_URL` off the
+list stops the server at start-up. Unset, there is no such list. Signed in, `/api/health` shows it
 (`provider_allowed_origins`).
 
 **An agent's own connection** is the one call the list can be widened for without editing it.
@@ -879,21 +875,16 @@ and when, and is chained (`agent_connection.origin_allowed`). Nothing set in the
 reaches this machine or your own network: only an origin on the list does. To hold every
 agent to the deployment's own endpoint, set `MENDARI_AGENT_CONNECTIONS=off`.
 
-For PHI, prefer local providers (rules, naive Bayes, criteria, dosing), or a local model server
-(an OpenAI-compatible `base_url` on your network). Use a remote model only under an agreement
-that covers PHI. A release names no agent in the Jev defaults, so setting up Jev turns on no
-slot by itself: a slot calls Jev only where its agent's default variant, or `MENDARI_PROVIDERS`,
-chooses a Jev variant (README, "Jev"). To keep a slot on site, set it there (for example
-`reader=rules`).
+For PHI, prefer local providers (rules), or a local model server (an OpenAI-compatible
+`base_url` on your network). Use a remote model only under an agreement that covers PHI. To
+keep a slot on site, set it in `MENDARI_PROVIDERS` (for example `reader=rules`).
 
 An agent whose policy's `automation_requires` names the variants a slot must run (a model beside
 the keyword rules, say) automates nothing while that slot runs another: every case goes to a
 person, and each decision's reasons say what is missing.
-Signed in, `/api/health` shows which variant each slot runs (`providers`), whether the Jev
-defaults are on (`jev.defaults`) and the slots that run no model at all (`without_model`); that
-Jev actually answers shows in `jev.calls_today` (in memberships mode, `mendari usage`) and in
-the decisions' errors. The server also
-logs, at startup, each slot the Jev defaults turn on.
+Signed in, `/api/health` shows which variant each slot runs (`providers`) and the slots that run
+no model at all (`without_model`); that a model actually answers shows in `llm.calls_today` (in
+memberships mode, `mendari usage`) and in the decisions' errors.
 
 ## 6. Monitoring and governance
 
@@ -906,7 +897,7 @@ logs, at startup, each slot the Jev defaults turn on.
   `other_providers`, `providers_unknown` or `other_policy`), and only the checks that need no
   benchmark run: automated decisions rated wrong, overrides that doubled against the week
   before, and operational health. A deployment that runs other providers than the benchmark
-  did (Jev where it measured `naive_bayes`, say), or automates a risk level 2 or 3 agent under an
+  did (an LLM where it measured `rules`, say), or automates a risk level 2 or 3 agent under an
   approval the benchmark was measured without, gets only those: the benchmark says nothing about
   how that configuration should do. An agent pulled from a registry gets only those too, whatever
   benchmark it carries (`from_registry`): that is its publisher's upload, never a reference
@@ -1117,11 +1108,10 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |
-| `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…`, and its evaluations' calls `eval_jev=…,eval_llm=…` | 4 |
+| `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,llm=…`, and its evaluations' calls `eval_llm=…` | 4 |
 | `MENDARI_PRINCIPAL_DAILY_LIMIT` | unset: none | Decisions each principal may ask for a day (an order hook's draft orders each); past it `429` until midnight (sign-in only) | 4 |
-| `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY` | unset: no Jev | All three set: an agent listed in the Jev defaults (none in a release) sends its `state_fields` to Jev in every slot `MENDARI_PROVIDERS` chooses nothing for; a model id or an endpoint Jev cannot be called with stops startup | 5 |
-| `MENDARI_PROVIDERS` | unset: each agent's default, or the Jev defaults | The provider variant of each slot it applies to: `slot=variant`, or `<agent id>:slot=variant` for one agent | 5 |
-| `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT` | 500 each; `none`: no limit, still counted | The deployment's daily remote calls, evaluations included; every agent's Jev calls share one budget | 4 |
+| `MENDARI_PROVIDERS` | unset: each agent's default | The provider variant of each slot it applies to: `slot=variant`, or `<agent id>:slot=variant` for one agent | 5 |
+| `MENDARI_LLM_DAILY_LIMIT` | 500; `none`: no limit, still counted | The deployment's daily remote calls, evaluations included; every agent's LLM calls share one budget | 4 |
 | `mendari serve --proxy-headers` | on | Read the client address from `X-Forwarded-For` | 1 |
 | `--forwarded-allow-ips`, `FORWARDED_ALLOW_IPS` | `127.0.0.1` (the compose template: its gateway, `172.30.0.1`) | The proxies trusted for `X-Forwarded-For`, as the engine sees them | 1 |
 | `MENDARI_ALERT_WEBHOOK` | unset: no alerts posted | Where the monitor's and the quota alerts go (https; keep it as a secret) | 6 |
@@ -1139,18 +1129,17 @@ In this order: the build, the settings as the server reports them, the browser, 
 reads of PHI, then operations. Keep the answers with your go-live record.
 
 - [ ] Validate the agent on your own data, with the providers your server runs:
-      `mendari eval <agent> --dataset local.jsonl --provider <slot>=<variant> ...` (with Jev set
-      up, name its Jev variants, e.g. `--provider <slot>=<jev variant>`; the command alone runs
-      the agent's offline defaults, and `--provider reader=rules` runs the demo agent's rules),
-      or run it from the dashboard's Evaluations view, which uses the deployed providers. With Jev, the dataset goes to Jev.
+      `mendari eval <agent> --dataset local.jsonl --provider <slot>=<variant> ...` (the command
+      alone runs the agent's offline defaults, and `--provider reader=rules` runs the demo
+      agent's rules), or run it from the dashboard's Evaluations view, which uses the deployed
+      providers. With a remote model, the dataset goes to it.
       Bulk FHIR: `mendari bulk export` then `bulk dataset`. Compare with the benchmark.
 - [ ] The engine image is deployed by digest (`<image>:<tag>@sha256:…`), not by tag alone.
 - [ ] `MENDARI_PHI_KEY` and `MENDARI_INPUT_HASH_KEY` come from your secret manager, and they
       differ.
 - [ ] Without signing in, `/api/health` shows only `status`, `version` and `sign_in: true`.
 - [ ] Signed in, `/api/health` `providers` names, for every agent, only remote readers your
-      agreements cover (`jev.defaults: true` means Jev's settings are set), and
-      `without_model` lists the slots you meant to keep without a model.
+      agreements cover, and `without_model` lists the slots you meant to keep without a model.
 - [ ] Signed in as an admin, `/api/health` shows:
       `phi_mode: encrypt`; `input_hash: hmac-sha256:<key id>` (keyed, not `sha256`);
       `rate_limits.mode: on`; `rate_limits.client_ip` equal to your browser's own public
@@ -1159,8 +1148,7 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       address); the `sessions` policy you chose; `smart_launch: false` unless you
       need it, and then `smart_ehrs` listing exactly the EHRs you registered (§2); and only the
       providers and FHIR servers you expect.
-- [ ] Daily budgets and quotas are set and visible there (`jev.daily_limit`,
-      `llm.daily_limit`, `org_quotas`). Choose them from a week of your traffic.
+- [ ] Daily budgets and quotas are set and visible there (`llm.daily_limit`, `org_quotas`). Choose them from a week of your traffic.
 - [ ] Only if you turn on EHR launches: each EHR is registered in `MENDARI_SMART_EHRS` (§2),
       to the organization your people's sign-in gives them (`default` without
       `MENDARI_OIDC_ORG_CLAIM`), and `mendari smart check <base>`, run with the server's
@@ -1249,10 +1237,9 @@ For the project's own public deployment (synthetic data, Vercel), the owner's la
 order:
 
 - [ ] All of Phase 4b, then the external security review and its fixes.
-- [x] `MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
-      `MENDARI_ORG_DAILY_LIMITS=decisions=5000`, set for Production (2026-11-22; until then
-      they were stored under the project's old `OPENHEALTH_*` names, which nothing reads);
-      still to confirm in `/api/health` signed in.
+- [x] `MENDARI_LLM_DAILY_LIMIT=200` and `MENDARI_ORG_DAILY_LIMITS=decisions=5000`, set for
+      Production (2026-11-22; until then they were stored under the project's old
+      `OPENHEALTH_*` names, which nothing reads); still to confirm in `/api/health` signed in.
 - [ ] The firewall rule in [`deploy/vercel/`](https://github.com/mendari-hq/mendari/tree/main/deploy/vercel)
       added in log mode (2026-11-22), its findings read for 7 days, then enforced (from
       2026-11-29).

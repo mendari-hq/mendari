@@ -229,13 +229,13 @@ export const criticalText = (question, label) => `${slotText(question)}: ${label
 
 // Plain words for variant names ("rules_and_llm" -> "Rules + LLM"); the raw configuration stays in
 // the row's tooltip.
-const VARIANT_WORDS = { rules: "Rules", llm: "LLM", jev: "Jev" };
+const VARIANT_WORDS = { rules: "Rules", llm: "LLM" };
 
 export const variantText = (variant) => variant.split("_and_").map((part) => VARIANT_WORDS[part] ?? part.replaceAll("_", " ")).join(" + ");
 
-const REMOTE_VARIANTS = new Set(["jev", "llm"]);
+const REMOTE_VARIANTS = new Set(["llm"]);
 
-// A provider in words, with the model where one runs: "Rules + model-2", "Jev 1.13.0",
+// A provider in words, with the model where one runs: "Rules + model-2", "model-2",
 // "Rules". A remote part is named by its model, so nothing is said twice; models of other
 // variants (a check's members) follow in brackets.
 export function providerName(p) {
@@ -259,11 +259,9 @@ export const remoteModels = (model, type) => (COMPOSITES.has(type)
   .filter((m) => m && !m.includes("@"));
 
 // A model as its id says it, without the gateway's vendor prefix ("vendor/model-2" -> "model-2"),
-// whoever makes it; Jev's own versions read as the variant does ("jev-1.13.0" -> "Jev 1.13.0").
+// whoever makes it.
 function modelText(id) {
-  const name = id.split("/").pop();
-  const jev = name.match(/^jev-(\d[\w.-]*)$/);
-  return jev ? `Jev ${jev[1]}` : name;
+  return id.split("/").pop();
 }
 
 // `any` / `all` hold a label or a list of labels.
