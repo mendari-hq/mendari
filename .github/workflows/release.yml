@@ -7,8 +7,8 @@ name: release
 #   2. runs this workflow (Actions → release → Run workflow) with **the tag** chosen under "Use
 #      workflow from" and publish off: the run, its workflow file and every job are then the
 #      tagged commit (`github.sha`), which the `v*` rule on the environments allows. It checks the
-#      tag and the version, runs the tests, builds the sdist, the wheel and the six images, and
-#      tests each. Run from a branch, it refuses at the first step;
+#      tag and the version, runs the tests, builds the sdist, the wheel and the image (amd64 and
+#      arm64), and tests each. Run from a branch, it refuses at the first step;
 #   3. rehearses on TestPyPI first: from a pre-release tag (`v0.1.0rc1`), publish on, target
 #      `testpypi` (the default); TestPyPI's copy is checked byte for byte against the tested
 #      wheel, installed on a clean runner and run (`mendari test`);
