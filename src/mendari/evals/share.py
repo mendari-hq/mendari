@@ -10,10 +10,9 @@ data (a clinic, a clinician, a date), and nothing can tell a category from a nam
 declares each subgroup's values. Every string is a name the pack or Mendari defines (a
 question, label, slot, variant, composite member, provider type or model), short and ASCII, or
 one of Mendari's error codes (a closed set, `FAILURE_CODES`); every number is bounded and
-rounded. A composite provider (`any_of`, `cascade`, `vote`) is shared as it is recorded: its
-model lists each member's as `member:model`, joined as the composite joins them (" + ", or a
-cascade's " → ", the one character that is not ASCII), and a failed member's error is
-`member:code`. Calibration bins with fewer than `MIN_GROUP` cases are dropped.
+rounded. A composite provider (`check`) is shared as it is recorded: its model lists each
+member's as `member:model`, joined as the composite joins them (" + "), and a failed member's
+error is `member:code`. Calibration bins with fewer than `MIN_GROUP` cases are dropped.
 
 Its parts are kept for what is built from them (a hidden set's result, `evals/hidden.py`);
 a registry takes none, and nothing here builds one. A site shares `mendari.site-report/2`

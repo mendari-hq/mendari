@@ -18,7 +18,6 @@ printed. Grades and rankings are given only on frozen hidden sets (the scoreboar
 from __future__ import annotations
 
 import json
-import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
@@ -32,7 +31,7 @@ from mendari.evals.result import MIN_POSITIVES, counted, false_automation, norma
 FORMAT = "mendari.leaderboard/2"
 PATH = "evals/leaderboard.json"
 PUBLIC_SET = grade.PUBLIC_SET  # what every table of a leaderboard is
-_COMPOSITES = ("any_of", "cascade", "vote", "check")
+_COMPOSITES = ("check",)
 
 
 _DETERMINISTIC_PREFIXES = ("rules@", "naive_bayes@", "criteria@", "dosing@", "cql:")
@@ -45,8 +44,8 @@ def config_label(providers: Mapping[str, Mapping[str, Any]]) -> str:
     parts = []
     for slot, info in providers.items():
         model = str(info.get("model") or "")
-        if info.get("type") in _COMPOSITES:  # "name:model + name:model" (or " → ")
-            models = [m.split(":", 1)[1] for m in re.split(r" \+ | → ", model) if ":" in m]
+        if info.get("type") in _COMPOSITES:  # "name:model + name:model"
+            models = [m.split(":", 1)[1] for m in model.split(" + ") if ":" in m]
         else:
             models = [model] if model else []
         remote = [

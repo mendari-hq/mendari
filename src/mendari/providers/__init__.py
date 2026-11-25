@@ -14,7 +14,6 @@ from mendari.core.spec import ProviderVariant
 from mendari.errors import PackValidationError
 from mendari.providers.agent import ENDPOINT_ENV as AGENT_ENDPOINT_ENV
 from mendari.providers.agent import AgentConfig, AgentProvider
-from mendari.providers.any_of import AnyOfConfig, AnyOfProvider
 from mendari.providers.base import (
     Answer,
     FileConfig,
@@ -24,7 +23,6 @@ from mendari.providers.base import (
     checking_once,
     prefixed,
 )
-from mendari.providers.cascade import CascadeConfig, CascadeProvider
 from mendari.providers.check import CheckConfig, CheckProvider
 from mendari.providers.cql import CqlConfig, CqlProvider
 from mendari.providers.criteria import CriteriaProvider
@@ -36,7 +34,6 @@ from mendari.providers.llm import BASE_URL_ENV as LLM_BASE_URL_ENV
 from mendari.providers.llm import LlmConfig, LlmProvider
 from mendari.providers.naive_bayes import NaiveBayesConfig, NaiveBayesProvider
 from mendari.providers.rules import RulesProvider
-from mendari.providers.vote import VoteConfig, VoteProvider
 
 PROVIDER_TYPES: dict[str, type[Provider]] = {
     provider.type: provider
@@ -49,9 +46,6 @@ PROVIDER_TYPES: dict[str, type[Provider]] = {
         JevProvider,
         LlmProvider,
         AgentProvider,
-        AnyOfProvider,
-        CascadeProvider,
-        VoteProvider,
         CheckProvider,
     )
 }
@@ -71,9 +65,6 @@ PROVIDER_CONFIG_MODELS: Mapping[str, type[BaseModel]] = {
     JevProvider.type: JevConfig,
     LlmProvider.type: LlmConfig,
     AgentProvider.type: AgentConfig,
-    AnyOfProvider.type: AnyOfConfig,
-    CascadeProvider.type: CascadeConfig,
-    VoteProvider.type: VoteConfig,
     CheckProvider.type: CheckConfig,
 }
 # Where the generated JSON Schema of those configs is published (`config_json_schema`).
@@ -150,12 +141,7 @@ def config_json_schema() -> dict[str, Any]:
     Published as `docs/spec/provider-configs.schema.json` (`scripts/provider_config_schema.py`,
     which `--check`s it)."""
     definitions: dict[str, Any] = {}
-    composites = {
-        AnyOfProvider.type,
-        CascadeProvider.type,
-        VoteProvider.type,
-        CheckProvider.type,
-    }
+    composites = {CheckProvider.type}
     for kind, model in sorted(PROVIDER_CONFIG_MODELS.items()):
         schema = model.model_json_schema(ref_template="#/$defs/{model}")
         for name, nested in schema.pop("$defs", {}).items():

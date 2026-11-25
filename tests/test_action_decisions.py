@@ -256,36 +256,6 @@ def test_no_reason_record_or_problem_holds_an_argument_or_an_undeclared_name(
             assert reason.split("'")[1] in declared
 
 
-def test_a_composites_member_may_not_propose(tmp_path: Path) -> None:
-    def composite(raw: dict[str, Any]) -> None:
-        member = {
-            "type": "agent",
-            "agent_id": "actions-mini-agent",
-            "state_fields": ["message.body"],
-            "mock_file": "fixtures/mock_agent.json",
-        }
-        raw["providers"]["reader"]["variants"]["both"] = {
-            "type": "any_of",
-            "escalate": {"request": "other", "abusive": "yes"},
-            "members": {"first": member, "second": dict(member)},
-        }
-        raw["providers"]["reader"]["use"] = "both"
-
-    decision = Decision.from_path(copy_of(tmp_path, manifest=composite))
-    result = decision(message("Could you refill my lisinopril?"))
-    assert (result.outcome, result.recommendation) == (Outcome.HUMAN_REVIEW, "refill")
-    assert shown(result) == [  # declared, and still not taken: named with their effects
-        ("draft_reply", "draft", "blocked", "composite_member"),
-        ("send_reply", "contact", "blocked", "composite_member"),
-    ]
-    assert result.reasons[-1] == (
-        "a composite's member proposed an action, which this version does not take; "
-        "a person decides"
-    )
-    # A composite whose members propose nothing decides as it did.
-    assert decision(message("Hello there.")).outcome is Outcome.AUTO
-
-
 def test_a_provider_failure_proposes_nothing_and_nothing_automates(tmp_path: Path) -> None:
     def no_default(mock: dict[str, Any]) -> None:
         del mock["default"]

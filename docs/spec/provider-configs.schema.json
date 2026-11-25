@@ -124,66 +124,6 @@
       "title": "agent provider config",
       "type": "object"
     },
-    "any_of": {
-      "additionalProperties": false,
-      "properties": {
-        "escalate": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "minProperties": 1,
-          "title": "Escalate",
-          "type": "object"
-        },
-        "members": {
-          "additionalProperties": {
-            "$ref": "#/$defs/member"
-          },
-          "minProperties": 2,
-          "title": "Members",
-          "type": "object"
-        },
-        "type": {
-          "const": "any_of"
-        }
-      },
-      "required": [
-        "escalate",
-        "members",
-        "type"
-      ],
-      "title": "any_of provider config",
-      "type": "object"
-    },
-    "cascade": {
-      "additionalProperties": false,
-      "properties": {
-        "accept_at": {
-          "exclusiveMinimum": 0.0,
-          "maximum": 1.0,
-          "title": "Accept At",
-          "type": "number"
-        },
-        "members": {
-          "additionalProperties": {
-            "$ref": "#/$defs/member"
-          },
-          "minProperties": 2,
-          "title": "Members",
-          "type": "object"
-        },
-        "type": {
-          "const": "cascade"
-        }
-      },
-      "required": [
-        "accept_at",
-        "members",
-        "type"
-      ],
-      "title": "cascade provider config",
-      "type": "object"
-    },
     "check": {
       "additionalProperties": false,
       "properties": {
@@ -543,43 +483,6 @@
       ],
       "title": "rules provider config",
       "type": "object"
-    },
-    "vote": {
-      "additionalProperties": false,
-      "properties": {
-        "members": {
-          "additionalProperties": {
-            "$ref": "#/$defs/member"
-          },
-          "minProperties": 2,
-          "title": "Members",
-          "type": "object"
-        },
-        "type": {
-          "const": "vote"
-        },
-        "weights": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "type": "number"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Weights"
-        }
-      },
-      "required": [
-        "members",
-        "type"
-      ],
-      "title": "vote provider config",
-      "type": "object"
     }
   },
   "$id": "https://mendari.co/spec/provider-configs.schema.json",
@@ -588,12 +491,6 @@
   "oneOf": [
     {
       "$ref": "#/$defs/agent"
-    },
-    {
-      "$ref": "#/$defs/any_of"
-    },
-    {
-      "$ref": "#/$defs/cascade"
     },
     {
       "$ref": "#/$defs/check"
@@ -618,9 +515,6 @@
     },
     {
       "$ref": "#/$defs/rules"
-    },
-    {
-      "$ref": "#/$defs/vote"
     }
   ],
   "title": "Mendari provider configs"

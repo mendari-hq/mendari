@@ -192,9 +192,6 @@ takes beside `type`:
 | `jev` | At Jev, the deployment's endpoint | `model`, `timeout_ms`, `state_fields`, `cost_per_1k_input_tokens_usd`, `batch` |
 | `llm` | At a chat model, through the AI Gateway or at `LLM_BASE_URL` | `model`, `timeout_ms`, `max_tokens`, `temperature`, `reasoning_effort`, `state_fields`, `calibration`, `batch`, `repeat` |
 | `agent` | At an external HTTP AI agent (`MENDARI_AGENT_URL`, or `endpoint` on an owned agent) or offline via `mock_file` | `endpoint`, `agent_id`, `system_prompt`, `instructions`, `timeout_seconds`, `state_fields`, `mock_file`, `calibration`, `repeat` |
-| `any_of` | By its members, each of a type above that is not a composite: the most alarming answer wins | `members`, `escalate` |
-| `cascade` | By its members in order: the first confident answer stands | `members`, `accept_at` |
-| `vote` | By its members' weighted average | `members`, `weights` |
 | `check` | By its first member; its second member is asked the same and can only send the decision to a person (spec 0.4) | `members` |
 
 ### Trust boundary

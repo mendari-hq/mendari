@@ -1,9 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Composite providers: several member providers answer the same slot, combined by a rule.
-
-- `any_of`: the most alarming answer wins (safety screens).
-- `cascade`: members in order; the first confident answer is accepted (cost control).
-- `vote`: a weighted average of the members' distributions (ensembles).
+The one composite is `check` (`providers/check.py`): its first member answers, its second
+checks, and a disagreement holds the decision for a person.
 
 Members are ordinary provider variants declared inline under `members`; they cannot be
 composites themselves. Budgets and batching reach every member. A member that fails is

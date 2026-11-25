@@ -308,8 +308,6 @@ This is the first phase. Planned for the second:
   for releasing orders;
 - `expect.actions` in behaviour tests, and action figures in evaluation reports (how often a
   proposal is refused or held);
-- proposals from a member of a `vote`, `cascade` or `any_of` composite, which are blocked
-  today (a `check` takes its first member's);
 - actions in CDS Hooks answers, in `$decide`, and on the FHIR Task;
 - the full input-schema keyword set for arguments, and schemas in files;
 - a deployment's own tightening per effect.

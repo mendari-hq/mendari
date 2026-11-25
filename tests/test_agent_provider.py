@@ -575,35 +575,7 @@ def test_agent_pack_may_not_choose_deployment_env_vars(agent_pack_dir: Path, fie
         load_pack(agent_pack_dir)
 
 
-# -- composites & end-to-end `mendari new` --------------------------------------------------------
-
-
-def test_agent_works_inside_composite_safety_screen(
-    agent_pack_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Wrap an external agent with deterministic keyword rules via `any_of`: if the agent fails,
-    the deterministic safety screen still escalates urgent symptoms and never automates."""
-    manifest = yaml.safe_load((agent_pack_dir / "agent.yaml").read_text())
-    manifest["providers"]["reader"]["variants"]["guarded"] = {
-        "type": "any_of",
-        "escalate": {"request": "other", "urgent_symptoms": "yes"},
-        "members": {
-            "rules": {"type": "rules", "config": "logic/rules.yaml"},
-            "agent": {
-                "type": "agent",
-                "agent_id": "triage-agent",
-                "state_fields": ["message.body"],
-                "mock_file": "fixtures/mock_agent.json",
-            },
-        },
-    }
-    (agent_pack_dir / "agent.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    pack = load_pack(agent_pack_dir)
-    decision = Decision(pack, providers={"reader": "guarded"})
-    urgent = decision.decide(message("I have crushing chest pain right now."))
-    assert urgent.outcome is Outcome.HUMAN_REVIEW
-    assert urgent.priority.value == "urgent"
-    assert urgent.answers["urgent_symptoms"].label == "yes"
+# -- end-to-end `mendari new` ---------------------------------------------------------------------
 
 
 def test_mendari_new_agent_end_to_end_offline_and_live_switch(

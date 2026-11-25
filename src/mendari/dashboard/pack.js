@@ -229,7 +229,7 @@ export const criticalText = (question, label) => `${slotText(question)}: ${label
 
 // Plain words for variant names ("rules_and_llm" -> "Rules + LLM"); the raw configuration stays in
 // the row's tooltip.
-const VARIANT_WORDS = { rules: "Rules", llm: "LLM", jev: "Jev", naive_bayes: "Naive Bayes", cascade: "Cascade", vote: "Vote", criteria: "Criteria", dosing: "Dosing" };
+const VARIANT_WORDS = { rules: "Rules", llm: "LLM", jev: "Jev", naive_bayes: "Naive Bayes", criteria: "Criteria", dosing: "Dosing" };
 
 export const variantText = (variant) => variant.split("_and_").map((part) => VARIANT_WORDS[part] ?? part.replaceAll("_", " ")).join(" + ");
 
@@ -237,7 +237,7 @@ const REMOTE_VARIANTS = new Set(["jev", "llm"]);
 
 // A provider in words, with the model where one runs: "Rules + model-2", "Jev 1.13.0",
 // "Naive Bayes". A remote part is named by its model, so nothing is said twice; models of other
-// variants (a cascade, a vote) follow in brackets.
+// variants (a check's members) follow in brackets.
 export function providerName(p) {
   if (!p) return "–";
   const models = remoteModels(p.model, p.type).map(modelText);
@@ -247,15 +247,14 @@ export function providerName(p) {
   return used < models.length ? `${words} (${models.slice(used).join(", ")})` : words;
 }
 
-const COMPOSITES = new Set(["any_of", "cascade", "vote", "check"]);
+const COMPOSITES = new Set(["check"]);
 
 // The remote models behind a provider ("rules:rules@1a2b + llm:vendor/model-2" ->
 // ["vendor/model-2"]); local fingerprints ("rules@1a2b") are not a deployment choice. Only a
-// composite's model is "member:model" parts (" + ", or " → " for a cascade), as
-// leaderboard.config_label reads it; any other model is one id, colons and all
-// ("vendor.model-v1:0", "model:8b").
+// composite's model is "member:model" parts (joined by " + "), as leaderboard.config_label
+// reads it; any other model is one id, colons and all ("vendor.model-v1:0", "model:8b").
 export const remoteModels = (model, type) => (COMPOSITES.has(type)
-  ? (model ?? "").split(/ \+ | → /).map((part) => (part.includes(":") ? part.slice(part.indexOf(":") + 1) : part))
+  ? (model ?? "").split(" + ").map((part) => (part.includes(":") ? part.slice(part.indexOf(":") + 1) : part))
   : [model ?? ""])
   .filter((m) => m && !m.includes("@"));
 

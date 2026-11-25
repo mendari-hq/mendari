@@ -745,27 +745,6 @@ def test_a_second_member_that_cannot_propose_checks_the_answers_only(
     ]
 
 
-def test_another_composites_members_still_may_not_propose(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def vote(manifest: dict[str, Any]) -> None:
-        manifest["actions"] = DECLARED
-        reader = manifest["providers"]["reader"]
-        reader["variants"]["voted"] = {
-            "type": "vote",
-            "members": {
-                "agent": live_member(manifest, agent_id="first-agent"),
-                "second": live_member(manifest, agent_id="second-agent"),
-            },
-        }
-        reader["use"] = "voted"
-
-    serve(monkeypatch, two(proposing(LOOK_UP), proposing(LOOK_UP)))
-    result = decide(scaffold(tmp_path, "voted", edit=vote))
-    assert result.outcome is Outcome.HUMAN_REVIEW
-    assert shown(result) == [("look_up_medications", "blocked", "composite_member")]
-
-
 # -- whatever the runs answer and propose ----------------------------------------------------------
 
 RUN = st.one_of(
