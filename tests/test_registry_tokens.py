@@ -16,14 +16,17 @@ from fastapi.testclient import TestClient
 
 from mendari.cli import main
 from mendari.core import clock
-from mendari.core.registry import resolve_pack
+from mendari.core.pack import load_pack
 from mendari.errors import HubError
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore, create_registry_app, token_id
-from tests.conftest import Registry
+from tests.conftest import FIXTURE_NAMESPACE, TRIAGE_DIR, Registry
 
 OWNER = "user:3f9a"  # a person as a chain names one: an id, never an address
+# The agent `Registry.publish()` publishes, in the test fixtures' namespace (`FIXTURE_NAMESPACE`):
+# a token minted for that namespace publishes it.
+TRIAGE = load_pack(TRIAGE_DIR)
 
 
 def _mint(db_target: str, namespace: str = "mendari", **more: Any) -> dict[str, Any]:
@@ -67,13 +70,14 @@ def _register_key(registry: Registry, token: str, namespace: str = "mendari") ->
 def test_a_token_names_its_owner_organization_and_expiry_and_never_its_secret(
     registry: Registry, db_target: str
 ) -> None:
-    minted = _mint(db_target)
+    registry.fixture_publisher()  # the namespace the token is minted for, with its key
+    minted = _mint(db_target, FIXTURE_NAMESPACE)
     token = minted.pop("token")
     assert token.startswith("ohr_") and token != registry.token
     created = datetime.fromisoformat(minted["created_at"])
     assert minted == {
         "id": token_id(token),
-        "namespace": "mendari",
+        "namespace": FIXTURE_NAMESPACE,
         "org": "acme",
         "owner": OWNER,
         "name": "ci",
@@ -87,7 +91,7 @@ def test_a_token_names_its_owner_organization_and_expiry_and_never_its_secret(
     with RegistryStore(db_target) as store:
         assert store.publisher(token) == {
             "id": token_id(token),
-            "namespace": "mendari",
+            "namespace": FIXTURE_NAMESPACE,
             "org": "acme",
             "owner": OWNER,
         }
@@ -98,7 +102,7 @@ def test_a_token_names_its_owner_organization_and_expiry_and_never_its_secret(
     assert events[-1]["event"] == "token.issued"
     assert issued.pop("row")["kind"] == "publisher_tokens"
     assert issued == {
-        "namespace": "mendari",
+        "namespace": FIXTURE_NAMESPACE,
         "token_id": token_id(token),
         "org": "acme",
         "owner": OWNER,
@@ -113,8 +117,9 @@ def test_a_token_names_its_owner_organization_and_expiry_and_never_its_secret(
 def test_an_expired_token_is_refused(
     registry: Registry, db_target: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    token = _mint(db_target, days=1)["token"]
-    assert _register_key(registry, token) == 201
+    registry.fixture_publisher()  # the namespace the token is minted for, with its key
+    token = _mint(db_target, FIXTURE_NAMESPACE, days=1)["token"]
+    assert _register_key(registry, token, FIXTURE_NAMESPACE) == 201
     real = registry_module._now
 
     def later(hours: int) -> None:
@@ -122,9 +127,9 @@ def test_an_expired_token_is_refused(
         monkeypatch.setattr(registry_module, "_now", lambda: moved.isoformat(timespec="seconds"))
 
     later(23)  # the clock moved, not a sleep
-    assert _register_key(registry, token) == 201
+    assert _register_key(registry, token, FIXTURE_NAMESPACE) == 201
     later(25)
-    assert _register_key(registry, token) == 403
+    assert _register_key(registry, token, FIXTURE_NAMESPACE) == 403
     assert registry.publish(token=token).status_code == 403
     with RegistryStore(db_target) as store:
         assert store.publisher(token) is None
@@ -134,13 +139,15 @@ def test_an_expired_token_is_refused(
 def test_a_revoked_token_is_refused_at_once_and_revoking_is_chained(
     registry: Registry, db_target: str
 ) -> None:
-    minted = _mint(db_target)
+    registry.fixture_publisher()  # the namespace the token is minted for, with its key
+    minted = _mint(db_target, FIXTURE_NAMESPACE)
     token = minted["token"]
-    assert _register_key(registry, token) == 201
+    assert _register_key(registry, token, FIXTURE_NAMESPACE) == 201
     with RegistryStore(db_target) as store:
         revoked = store.revoke_token(minted["id"], org="acme", by="user:77aa")
     assert revoked["revoked_at"] is not None and revoked["revoked_by"] == "user:77aa"
-    assert _register_key(registry, token) == 403  # the running registry, at its next request
+    # the running registry, at its next request
+    assert _register_key(registry, token, FIXTURE_NAMESPACE) == 403
     assert registry.publish(token=token).status_code == 403
     events = _events(db_target)
     last = json.loads(events[-1]["payload"])
@@ -151,7 +158,7 @@ def test_a_revoked_token_is_refused_at_once_and_revoking_is_chained(
         "sha256": last_row_sha(db_target, minted["id"]),
     }
     assert last == {
-        "namespace": "mendari",
+        "namespace": FIXTURE_NAMESPACE,
         "token_id": minted["id"],
         "org": "acme",
         "by": "user:77aa",
@@ -326,8 +333,8 @@ RETIRED = [
     ("POST", "/v1/namespaces", {"name": "x"}),
     ("PATCH", "/v1/namespaces/mendari", {"publisher_type": "verified"}),
     ("POST", "/v1/namespaces/mendari/tokens", None),
-    ("POST", "/v1/agents/mendari/referral-router/{version}/review", {"risk_level": 0}),
-    ("POST", "/v1/agents/mendari/referral-router/{version}/delete", {"reason": "x"}),
+    ("POST", f"/v1/agents/{TRIAGE.id}/{{version}}/review", {"risk_level": 0}),
+    ("POST", f"/v1/agents/{TRIAGE.id}/{{version}}/delete", {"reason": "x"}),
 ]
 
 
@@ -340,7 +347,6 @@ def test_no_shared_secret_publishes_creates_reviews_or_deletes(
     and it reads only what the public reads."""
     old = "an-old-shared-admin-token"
     monkeypatch.setenv(registry_module.RETIRED_ADMIN_TOKEN, old)
-    referral = resolve_pack("mendari/referral-router")
     with caplog.at_level(logging.WARNING, logger="mendari.registry"):
         app = create_registry_app(db_target)
     said = [r.getMessage() for r in caplog.records if r.name == "mendari.registry"]
@@ -366,13 +372,13 @@ def test_no_shared_secret_publishes_creates_reviews_or_deletes(
         for method, path, body in RETIRED:
             for headers in ({}, bearer, {"authorization": f"Bearer {token}"}):
                 answer = client.request(
-                    method, path.format(version=referral.version), json=body, headers=headers
+                    method, path.format(version=TRIAGE.version), json=body, headers=headers
                 )
                 assert answer.status_code in (404, 405), (method, path, answer.status_code)
         assert _register_key(registry, old) == 403
         assert registry.publish(token=old, version="9.9.9").status_code == 403
         recall = {"reason": "a safety notice", "severity": "critical"}
-        yank_path = f"/v1/agents/mendari/referral-router/{referral.version}/yank"
+        yank_path = f"/v1/agents/{TRIAGE.id}/{TRIAGE.version}/yank"
         assert client.post(yank_path, json=recall, headers=bearer).status_code == 403
         store.claim("acme", org="acme", by="user:3f9a")
         assert client.get("/v1/namespaces/acme", headers=bearer).status_code == 404
