@@ -10,9 +10,8 @@ PHI key in mode `encrypt`, bound to their own row; kept in the clear in `off`, n
 protected database; refused in `hash`, which keeps no patient text.
 
 Each sampled item goes to one grader, and a seeded share of them (one in four unless said) also
-to a second, different grader. Graders hold the `labeller` role, and whoever manages the
-organization's sets is never assigned (`accounts.CURATING`), as for blind labelling
-(`core/evalsets.py`), whose rules, refusals and answers these are.
+to a second, different grader. Graders hold the `labeller` role, and whoever administers the
+organization is never assigned (`accounts.CURATING`: separation of duties).
 
 Blindness:
 
@@ -53,7 +52,6 @@ from typing import TYPE_CHECKING, Any
 
 from mendari.core import accounts
 from mendari.core.audit import AuditStore, _add_usage, _canonical, _now
-from mendari.core.evalsets import NO_ASSIGNMENT, labeller_in, labeller_membership, user_ids
 from mendari.errors import LabelError, MendariError, NoAssignment
 from mendari.evals import stats, written
 
@@ -79,6 +77,62 @@ CLOSING_NOTE = (
     "round close` on it again to finish; until then it takes no assignment and no grade"
 )
 REPORT_MISMATCH = "its stored report does not match the audit trail, so it is not shown"
+# One refusal for an assignment that is unknown, another grader's, another organization's or no
+# longer open (`NoAssignment`, a `404` on a grader's route, as an id that names nothing is).
+NO_ASSIGNMENT = "no open assignment of this labeller has that id"
+
+
+def check_user_id(user: Any) -> str:
+    """`user` when it is a person's user id (`accounts.person_id`); a `MendariError` that never
+    repeats what was given otherwise."""
+    if not (isinstance(user, str) and accounts.USER_ID.fullmatch(user)):
+        raise MendariError(
+            "a labeller is named by their user id (user: and 16 hex digits), as the members "
+            "list shows it"
+        )
+    return user
+
+
+def user_ids(labellers: Sequence[str], *, at_least: int) -> list[str]:
+    """The labellers given, each a user id, sorted and each once; at least `at_least` of them."""
+    if isinstance(labellers, str):
+        labellers = [labellers]
+    users = sorted({check_user_id(user) for user in labellers})
+    if len(users) < at_least:
+        raise MendariError(f"give at least {at_least} different labellers (their user ids)")
+    return users
+
+
+def labeller_membership(db: Session, org: str, user_id: str) -> Mapping[str, Any] | None:
+    """`user_id`'s membership of `org` in force when it holds the `labeller` role and no role
+    that administers the organization (`accounts.CURATING`); None otherwise."""
+    row = db.one(
+        "SELECT id, roles FROM memberships WHERE org = ? AND user_id = ? AND removed_at IS NULL",
+        (org, user_id),
+    )
+    if row is None:
+        return None
+    roles = set(json.loads(row["roles"]))
+    if accounts.LABELLER not in roles or roles & set(accounts.CURATING):
+        return None
+    return row
+
+
+def labeller_in(db: Session, org: str, user: str) -> str:
+    """The id of the membership `user` grades `org`'s rounds on; a `MendariError` saying why not:
+    they administer `org` (separation of duties), or hold no labeller role there."""
+    row = db.one(
+        "SELECT id, roles FROM memberships WHERE org = ? AND user_id = ? AND removed_at IS NULL",
+        (org, user),
+    )
+    roles = set(json.loads(row["roles"])) if row is not None else set()
+    if roles & set(accounts.CURATING):
+        raise MendariError(
+            f"{user} administers {org}: who manages the organization is never assigned its items"
+        )
+    if row is None or accounts.LABELLER not in roles:
+        raise MendariError(f"{user} holds no labeller role on a membership in force in {org}")
+    return str(row["id"])
 
 
 def report_hash(report: Any) -> str | None:
@@ -194,9 +248,8 @@ def rubric_header(pack: Pack, rubric_name: str) -> dict[str, Any]:
 
 def _grades_problem(values: Any, criteria: Mapping[str, Sequence[str]]) -> str | None:
     """Why `values` are not grades of a rubric with `criteria` (each with its levels): a
-    criterion it does not have, one ungraded, or a grade not among a criterion's levels. As
-    `evalsets.label_problem`, in a rubric's words: it names criteria (the manifest's own), never
-    a value given."""
+    criterion it does not have, one ungraded, or a grade not among a criterion's levels. It
+    names criteria (the manifest's own), never a value given."""
     if not isinstance(values, Mapping):
         return "grades are a mapping of each criterion to one of its levels"
     if any(key not in criteria for key in values):
@@ -368,7 +421,7 @@ class WrittenStore:
         `ceil(double x items)` seeded items a second, different one. Loads are balanced, ties by
         a seeded rank; the seed is the round's own (`create_round`). Each grader holds the
         `labeller` role on a membership in force in the round's organization and no role that
-        manages its sets; a second grader needs two graders. Open assignments whose membership
+        administers it; a second grader needs two graders. Open assignments whose membership
         no longer holds are withdrawn first, and their items given again. An item that already
         has its graders gets none. Returns ids and counts, never which items are graded twice."""
         if isinstance(double, bool) or not isinstance(double, int | float):
@@ -467,7 +520,8 @@ class WrittenStore:
 
     def _withdraw(self, db: Session, round_id: str, org: str) -> int:
         """End a round's open assignments whose membership no longer holds (ended, replaced, or
-        no longer a labeller's without a curating role): their items are then given to others."""
+        no longer a labeller's without an administrator's role): their items are then given to
+        others."""
         stale = [
             str(row["id"])
             for row in db.all(

@@ -372,13 +372,13 @@ def test_only_a_person_holding_label_reaches_a_graders_routes(
     assert keyed.status_code == 200 and len(keyed.json()) == 1
 
 
-def test_whoever_manages_the_sets_grades_nothing_and_is_never_assigned(world: World) -> None:
+def test_an_administrator_grades_nothing_and_is_never_assigned(world: World) -> None:
     (first, _), (second, _) = world.person("grader-a"), world.person("grader-b")
     curator, headers = world.person("lead", "admin", "labeller")
     made = world.rounds.create_round(
         CLINIC, world.pack, RUBRIC, world.run, sample=2, created_by="o"
     )
-    with pytest.raises(Exception, match="manages hidden sets"):
+    with pytest.raises(Exception, match="administers clinic-a"):
         world.rounds.assign(str(made["round"]), [first, curator])
     world.rounds.assign(str(made["round"]), [first, second])
     assert world.next(headers).status_code == 204

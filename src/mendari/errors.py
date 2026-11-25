@@ -85,15 +85,15 @@ class NoteError(MendariError):
 
 
 class NoAssignment(MendariError):
-    """A label for an assignment that is unknown, another labeller's, another organization's or
-    closed (answered, withdrawn, in a set no longer a draft, or on a membership no longer a
-    labeller's): one refusal for them all (`core/evalsets.py` `NO_ASSIGNMENT`), a `404` on the
-    labelling route, as an id that names nothing is (LP-11j)."""
+    """Grades for an assignment that is unknown, another grader's, another organization's or
+    closed (graded, withdrawn, in a round no longer open, or on a membership no longer a
+    labeller's): one refusal for them all (`core/written.py` `NO_ASSIGNMENT`), a `404` on a
+    grader's route, as an id that names nothing is."""
 
 
 class LabelError(MendariError):
-    """A label that does not answer its set's questions, each with one of its labels: names the
-    question, never a value given (a `422` on the labelling route, LP-11j)."""
+    """Grades that do not answer a rubric's criteria, each with one of its levels: names the
+    criterion, never a value given (a `422` on a grader's route)."""
 
 
 class NoEvalset(MendariError):
