@@ -13,6 +13,7 @@ visit sorter with one keyword question, which its tests edit; `pulled` loads a f
 from __future__ import annotations
 
 import copy
+import functools
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -20,7 +21,9 @@ from typing import Any
 
 import yaml
 
-from mendari import Pack, load_pack
+from mendari import Decision, Pack, load_pack
+from mendari.evals.harness import evaluate, resolve_dataset
+from tests.conftest import TRIAGE_DIR
 
 SORTER_ID = "mendari-test/visit-sorter"
 RULES = "logic/rules.yaml"
@@ -156,6 +159,20 @@ def pulled(root: Path) -> Pack:
     """The agent at `root` loaded as one pulled from a registry (origin `hub`), as `mendari pull`
     leaves it: with a digest no bundled agent has, it runs on the bounded engine."""
     return load_pack(root, origin="hub")
+
+
+def benchmark(agent: Path = TRIAGE_DIR, dataset: str = "test") -> dict[str, Any]:
+    """The evaluation report (`mendari eval`) of the agent in folder `agent` on its dataset
+    `dataset`, on its default providers: a copy of its own to change, of a run made once a
+    session (a test fixture's agent commits no benchmark). The triage fixture's automates nothing,
+    as its screen is the keyword rules alone."""
+    return copy.deepcopy(_evaluated(str(agent), dataset))
+
+
+@functools.cache
+def _evaluated(agent: str, dataset: str) -> dict[str, Any]:
+    pack = load_pack(agent)
+    return evaluate(Decision(pack), resolve_dataset(pack, dataset))
 
 
 def _yaml(data: Any) -> str:
