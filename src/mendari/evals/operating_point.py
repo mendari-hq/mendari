@@ -310,14 +310,11 @@ def tally(cases: Sequence[Case], outcomes: Sequence[Decided], labels: int) -> Ta
     return Tally(len(cases), automated, labelled, wrong, tuple((k, n) for k, n in critical))
 
 
-def tally_of(report: Mapping[str, Any]) -> Tally | None:
-    """The counts a report states at the threshold it ran with, or None when it does not hold
-    them all (`result.false_automation` finds no count)."""
+def tally_of(report: Mapping[str, Any]) -> Tally:
+    """The counts a report states at the threshold it ran with."""
     decisions = report["decisions"]
     counts = decisions["outcome_counts"]
     wrong = false_automation(report)
-    if wrong is None:
-        return None
     return Tally(
         cases=sum(counts.values()),
         automated=counts.get(_AUTO, 0),
@@ -931,13 +928,11 @@ def markdown(block: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def of_report(report: Mapping[str, Any], confidence: float = CONFIDENCE) -> dict[str, Any] | None:
+def of_report(report: Mapping[str, Any], confidence: float = CONFIDENCE) -> dict[str, Any]:
     """The point at the threshold a report ran with, from the counts its result states alone (so
     a card shows nothing it did not work out from them): each risk as k of n with its bound at
-    `confidence`. None for a report that does not hold the counts."""
+    `confidence`."""
     found = tally_of(report)
-    if found is None:
-        return None
     names = [(str(c["question"]), str(c["label"])) for c in report["decisions"]["critical"]]
     return _point(float(report["policy"]["thresholds"]["auto"]), found, names, confidence)
 

@@ -587,6 +587,15 @@ def _subgroups_unlabelled(agent: Path) -> None:
     path.write_text(json.dumps(data))
 
 
+def _false_automation_uncounted(agent: Path) -> None:
+    """The shipped benchmark without its count of false automation (`proportions`), which
+    every result a release writes stores beside the rate."""
+    path = agent / "evals" / "benchmark.json"
+    data = json.loads(path.read_text())
+    del data["proportions"]["false_automation"]
+    path.write_text(json.dumps(data))
+
+
 @pytest.mark.parametrize(
     ("edit", "absent"),
     [
@@ -596,6 +605,7 @@ def _subgroups_unlabelled(agent: Path) -> None:
         (_run_lifted, "benchmark"),
         (_sweep_uncounted, "benchmark"),
         (_subgroups_unlabelled, "benchmark"),
+        (_false_automation_uncounted, "benchmark"),
         (_write_eval("benchmark.json", '{"primary": NaN}'), "benchmark"),
         (_write_eval("benchmark.json", "[]"), "benchmark"),
         (_write_eval("benchmark.json", '{"primary": "specialty"}'), "benchmark"),
@@ -613,6 +623,7 @@ def _subgroups_unlabelled(agent: Path) -> None:
         "benchmark-without-run",
         "benchmark-sweep-without-counts",
         "benchmark-subgroups-without-labelled",
+        "benchmark-without-false-automation-count",
         "benchmark-nan",
         "benchmark-list",
         "benchmark-shape",

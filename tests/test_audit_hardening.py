@@ -13,7 +13,7 @@ import pytest
 from mendari import alerts, settings
 from mendari.core import origin, phi_detect
 from mendari.errors import MendariError
-from mendari.evals import pooling, result
+from mendari.evals import pooling, result, stats
 from mendari.standards import fhir_structure
 
 ROOT = Path(__file__).parents[1]
@@ -123,8 +123,9 @@ def test_settings_rejects_non_ascii_digits(monkeypatch: pytest.MonkeyPatch) -> N
         settings.max_body_bytes()
 
 
-def test_false_automation_returns_none_when_wrong_count_missing() -> None:
-    """Missing `wrong` count must return None instead of fabricating `0 of N`."""
+def test_false_automation_without_its_stored_count_is_refused() -> None:
+    """A result without the count every result stores (`proportions`) is not one: never
+    `0 of N` made up from a missing rate, never worked out from the rate at all."""
     report: dict[str, Any] = {
         "primary": "q",
         "questions": {"q": {"n": 10}},
@@ -133,4 +134,7 @@ def test_false_automation_returns_none_when_wrong_count_missing() -> None:
         },
         "dataset": {"n": 10},
     }
-    assert result.false_automation(report) is None
+    with pytest.raises(KeyError):
+        result.false_automation(report)
+    stored = {**report, "proportions": {"false_automation": {"k": 2, "n": 10}}}
+    assert result.false_automation(stored) == stats.proportion(2, 10)

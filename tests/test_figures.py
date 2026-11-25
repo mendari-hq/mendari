@@ -135,16 +135,23 @@ def _subgroups_unlabelled(report: dict[str, Any]) -> None:
             del members["labelled"]
 
 
+def _false_automation_uncounted(report: dict[str, Any]) -> None:
+    del report["proportions"]["false_automation"]
+
+
 @pytest.mark.parametrize(
-    "spoil", [_sweep_uncounted, _subgroups_unlabelled], ids=["sweep", "subgroups"]
+    "spoil",
+    [_sweep_uncounted, _subgroups_unlabelled, _false_automation_uncounted],
+    ids=["sweep", "subgroups", "false-automation"],
 )
 def test_a_report_without_the_counts_its_figures_are_of_serves_none(
     spoil: Callable[[dict[str, Any]], None], tmp_path: Path
 ) -> None:
     """Every report a release writes holds the cases each figure is of: a sweep row its `scored`
-    and its `chosen` at or above the threshold, a subgroup its `labelled` members. One without
-    them is not read another way (from a row's coverage, from a subgroup's size): no figure is
-    served for it (n/a on the page)."""
+    and its `chosen` at or above the threshold, a subgroup its `labelled` members, false
+    automation its count (`proportions`). One without them is not read another way (from a
+    row's coverage, a subgroup's size, the rate over the automated cases): no figure is served
+    for it (n/a on the page)."""
     report = benchmark(published(TRIAGE_DIR, tmp_path))
     assert report is not None
     spoil(report)

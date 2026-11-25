@@ -92,9 +92,7 @@ def report(r: Mapping[str, Any]) -> dict[str, Any]:
         "accuracy": counted(q["accuracy"], q["n"]) if q else None,
         "outcomes": {o: of(counts.get(o, 0), total) for o in OUTCOMES},
         "automated_correct": counted(automation["accuracy"], automation["n"]),
-        "false_automation": None
-        if labelled_wrong is None
-        else of(labelled_wrong.k, labelled_wrong.n),
+        "false_automation": of(labelled_wrong.k, labelled_wrong.n),
         "expected_override": counted(d["review"]["expected_override_rate"], d["review"].get("n")),
         "critical": [critical(item) for item in d["critical"]],
         "per_label": {},

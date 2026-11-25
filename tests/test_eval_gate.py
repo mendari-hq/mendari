@@ -49,7 +49,8 @@ def result(
 ) -> dict[str, Any]:
     """The parts of an evaluation result the gate reads; `critical` is one label's detected,
     cases and automated. `false_automation` is the share of the `automated` cases that are
-    wrong, as a result states it; a limit holds those wrong cases to the `labelled` ones."""
+    wrong, as a result states it; a limit holds those wrong cases to the `labelled` ones, the
+    count a result stores beside it (`proportions`: none labelled when there is no accuracy)."""
     found = []
     if critical is not None:
         detected, cases, auto = critical
@@ -66,11 +67,14 @@ def result(
     questions = {}
     if accuracy is not None:
         questions["request"] = {"accuracy": accuracy, "n": labelled}
+    wrong = 0 if false_automation is None else round(false_automation * automated)
+    stored = {"k": wrong, "n": labelled if questions else 0}
     return {
         "agent": {"id": AGENT, "version": "0.1.0"},
         "dataset": {"name": "examples", "sha256": "a" * 64, "n": labelled, "limit": None},
         "primary": "request",
         "questions": questions,
+        "proportions": {"false_automation": stored},
         "decisions": {
             "automation": {"false_automation_rate": false_automation, "n": automated},
             "critical": found,
@@ -120,7 +124,7 @@ def test_false_automation_is_a_share_of_the_labelled_cases_as_the_report_counts_
     one_in_ten_automated = result(false_automation=0.1, automated=10, labelled=100)
     (row,), failures = limits(one_in_ten_automated, Limits(max_false_automation=0.02))
     assert (row["measured"], row["met"], failures) == ("1 of 100 [0.03-5.4%]", True, [])
-    # A report that states the proportion is read from it, not worked out.
+    # The count is the one the report stores, never worked out from its rate.
     stated = {**one_in_ten_automated, "proportions": {"false_automation": {"k": 3, "n": 100}}}
     (row,), _ = limits(stated, Limits(max_false_automation=0.02))
     assert (row["measured"], row["met"]) == ("3 of 100 [0.6-8.5%]", False)
@@ -144,13 +148,13 @@ def test_a_share_of_no_case_meets_no_limit_and_a_count_of_none_is_within_any() -
     rows, failures = limits(empty, every)
     assert [(row["measured"], row["met"]) for row in rows] == [
         ("not measured", False),
-        ("not measured", False),
+        ("no cases", False),
         ("no cases", False),
         ("no cases", True),
     ]
     assert failures == [
         "request accuracy: not measured, and the limit is at least 50%",
-        f"{FALSE_AUTOMATION}: not measured, and the limit is at most 0%",
+        f"{FALSE_AUTOMATION}: no cases, and the limit is at most 0%",
         f"{CRITICAL} detected: no cases, and the limit is at least 50%",
     ]
     # Labelled cases and none automated: nothing went wrong, and that is measured.

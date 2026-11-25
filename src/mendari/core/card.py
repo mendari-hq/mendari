@@ -713,8 +713,6 @@ def _operating_point(report: Mapping[str, Any]) -> list[str]:
         if not isinstance(report["run"].get("operating_point"), Mapping):
             return []
         point = operating_point.of_report(report)
-        if point is None:
-            return []
         automated = point["automated"]
         rows = [
             "",

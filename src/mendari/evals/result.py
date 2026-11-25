@@ -288,13 +288,8 @@ def counted(rate: Any, n: Any) -> stats.Proportion | None:
     return stats.proportion(k, n)
 
 
-def false_automation(report: Mapping[str, Any]) -> stats.Proportion | None:
+def false_automation(report: Mapping[str, Any]) -> stats.Proportion:
     """Automated with a wrong recommendation, over every case labelled for the primary question:
-    the count the report stores (`proportions`), else worked out from its rate."""
-    stored = (report.get("proportions") or {}).get("false_automation")
-    if stored is not None:
-        return stats.proportion(stored["k"], stored["n"])
-    automation = report["decisions"]["automation"]
-    wrong = counted(automation["false_automation_rate"], automation["n"])
-    labelled = report["questions"].get(report["primary"], {}).get("n")
-    return None if wrong is None or labelled is None else stats.proportion(wrong.k, labelled)
+    the count the report stores (`proportions`)."""
+    stored = report["proportions"]["false_automation"]
+    return stats.proportion(stored["k"], stored["n"])
