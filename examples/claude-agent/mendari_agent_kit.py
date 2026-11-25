@@ -138,7 +138,7 @@ class Case:
 
     agent_id: str | None  # the agent's id in Mendari (`agent_id`)
     slot: str | None
-    service_id: str | None  # the name the manifest gives this agent
+    service_id: str | None  # the name the manifest gives this service
     questions: tuple[Question, ...]
     input: dict[str, Any]  # only the fields the manifest's `state_fields` send
     instructions: str | None  # the manifest's `system_prompt` and `instructions`, joined
