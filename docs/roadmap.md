@@ -37,13 +37,7 @@ first** (the Hub only matters once it has strong agents), **LLMs through Vercel 
   Authentication.
 
 - **v0.7 Later standards ✅** ([plan][plan-v0.7], #90–#95):
-  - a CQL provider, with eligibility criteria in CQL agreeing with `criteria` on every case;
-  - OMOP CDM inputs with population reports;
-  - Da Vinci CRD, DTR and PAS around a prior-authorization agent, each profile-validated against
-    its guide in CI (HL7 validator, offline): CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1. That checks what Mendari
-    produces. How DTR's `$questionnaire-package` behaves is checked weekly by the Inferno DTR
-    payer suite v0.18.0, with the gaps it lists (`sandbox/inferno/`). Neither shows whether a
-    payer accepts what Mendari sends.
+  - a CQL provider, with eligibility criteria in CQL agreeing with `criteria` on every case.
 
 - **v1.0 Public open-source launch, built** ([plan][plan-v1.0], #96–#101):
   - a security review (threat model; dependency audit and an OWASP ZAP scan in CI; headers);
@@ -66,7 +60,7 @@ release, the live Hub and the hosted docs site. The overnight log lists what's n
 | Bundled agents | ✅ the demo agent | A harder, clinician-reviewed benchmark |
 | Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation + provider leaderboards for every agent; monitoring over time with drift and alerts | ✅ | A harder benchmark |
 | Audit trail (hash chain), review queue, feedback (right / wrong, with the right answer, changeable), FHIR AuditEvent/Provenance export | ✅ | none |
-| FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, CQL, OMOP CDM, Da Vinci CRD/DTR/PAS, synthetic sandbox (HAPI with Clinical Reasoning, SMART launcher, mock payer) | ✅ v0.7 | none |
+| FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, CQL, synthetic sandbox (HAPI with Clinical Reasoning, SMART launcher) | ✅ v0.7 | none |
 | Decision Cards | ✅ | Validation history, hub-hosted cards |
 | Dashboard (every agent; review, audit, evaluations, monitoring, feedback, card, Try it; roles; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check |
 | Hub: publish / pull / search, publisher types, signed archives, the site evaluation network (verified sites, tickets, signed counts, pooled site evidence apart from every rank), website | ✅ v0.5 (not public yet; the site network built, LP-22) | Going public (a public registry and site); datasets and eval suites as first-class entries |
@@ -115,8 +109,7 @@ benchmark, a Decision Card, a FHIR mapping and a CDS Hook.
   Hook: `order-sign`.
 - **A prior-authorization agent** (L1): order + Coverage + attached documents, checked against
   synthetic payer requirement sets. Each element is present / missing / unclear. Complete →
-  submit-ready; otherwise review with the gaps listed. Hook: `order-sign`. This is the bridge to
-  Da Vinci later.
+  submit-ready; otherwise review with the gaps listed. Hook: `order-sign`.
 - **A clinical-trial prescreening agent** (L2, so human review by default): synthetic ResearchStudy
   criteria plus the patient record (Condition, Observation, MedicationStatement). Each
   criterion is yes / no / unknown; uncertain cases go to review with the criteria listed. Hook:
@@ -182,18 +175,8 @@ committee approves a level 2 agent, and monitoring and the chain check out._
 
 ### v0.7 Later standards ✅
 _Built and verified 2026-09-30 (#90–#95). The CQL port agrees with `criteria` on 750 cases in
-CI (job `cql`); OMOP round-trips identically; the seven Da Vinci samples are profile-validated
-against CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1 (HL7 validator, offline)._
+CI (job `cql`)._
 - A **CQL** provider (a CQL engine as an agent provider type).
-- **OMOP** CDM → agent inputs, for population-level evaluation.
-- **Da Vinci CRD / DTR / PAS** wired into the prior-authorization agent. Since 2026-10-17, DTR's
-  `$questionnaire-package` answers as DTR 2.2.0 asks: the union of the orders' packages and the
-  questionnaires asked for, a warning for a questionnaire not found (oper-9) or an order that
-  names no decision, and a `422` OperationOutcome for orders or a context that name no
-  decision, with nothing to return (spec-130). Since 2026-10-18 the Inferno DTR payer suite
-  v0.18.0 runs against the engine weekly and by hand (CI workflow `conformance`), with Inferno
-  as the DTR client: every test must give its expected result, and each known gap has its
-  requirement id and reason (`sandbox/inferno/`).
 
 ### v1.0 Public open-source launch (built; the launch is yours)
 _Built 2026-09-30 (#96–#101). The security scans, docs build, the eval gate on agent pull
