@@ -1203,8 +1203,7 @@ def create_app(
     missing = only - {pack.id for pack in found.packs}
     if missing:
         raise MendariError(f"MENDARI_AGENTS: agents not installed here: {sorted(missing)}")
-    # The newest version of every pack found, served or not. `discover` refuses any second
-    # claim to an id a community pack takes part in, so a community pack never competes here.
+    # The newest version of every pack found, served or not.
     installed: dict[str, Pack] = {}
     for pack in found.packs:
         current = installed.get(pack.id)
@@ -1296,7 +1295,7 @@ def create_app(
         f"{key}={variant}"
         for key, variant in overrides.items()
         if not any(
-            applies_to(key, pack.id, pack.manifest.providers, community=pack.named_settings_only)
+            applies_to(key, pack.id, pack.manifest.providers, named_only=pack.named_settings_only)
             for pack in packs.values()
         )
     )
@@ -1309,25 +1308,25 @@ def create_app(
     taken: set[str] = set()
     for pack in packs.values():
         pack_slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-        chosen = providers_for(pack.id, pack_slots, overrides, community=pack.named_settings_only)[
+        chosen = providers_for(pack.id, pack_slots, overrides, named_only=pack.named_settings_only)[
             0
         ]
         for key, variant in overrides.items():
             slot = key.rpartition(":")[2]
             if chosen.get(slot) == variant and applies_to(
-                key, pack.id, pack_slots, community=pack.named_settings_only
+                key, pack.id, pack_slots, named_only=pack.named_settings_only
             ):
                 taken.add(key)
     not_taken = sorted(f"{key}={variant}" for key, variant in overrides.items() if key not in taken)
 
     def variants_for(pack: Pack) -> tuple[dict[str, str], list[str]]:
         """The variants the deployment chose for this pack's slots (the rest run the pack's
-        default), and the settings that name the pack but cannot apply. A community pack takes
-        only settings that name it, never the defaults (it spends only where the owner said), and
-        so does a pack from a store (`Pack.named_settings_only`)."""
+        default), and the settings that name the pack but cannot apply. An agent from a store
+        takes only settings that name it, never the defaults (it spends only where the owner
+        said: `Pack.named_settings_only`)."""
         slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
         only_named = pack.named_settings_only
-        chosen, skipped = providers_for(pack.id, slots, overrides, community=only_named)
+        chosen, skipped = providers_for(pack.id, slots, overrides, named_only=only_named)
         if only_named:
             return chosen, skipped
         for slot, variant in fallbacks.get(pack.id, {}).items():
@@ -1343,7 +1342,7 @@ def create_app(
             pack.id,
             {s: set(v.variants) for s, v in pack.manifest.providers.items()},
             overrides,
-            community=pack.named_settings_only,
+            named_only=pack.named_settings_only,
         )[0]
         filled += [f"{pack.id} {slot}={chosen[slot]}" for slot in sorted(set(chosen) - set(named))]
     if filled:
@@ -1754,8 +1753,8 @@ def create_app(
                 else {}
             ),
             "packs": len(packs),
-            # How many of them come from where: maintained, community, hub, local.
-            "packs_by_origin": dict(Counter(pack.shown_origin for pack in packs.values())),
+            # How many of them come from where: maintained, hub, local, store.
+            "packs_by_origin": dict(Counter(pack.origin for pack in packs.values())),
             "invalid": health_invalid,
             # Served packs that load with problems in their provider configs, prefetch or wording
             # templates (`mendari validate` refuses them; a pack the deployment does not own is
@@ -1953,9 +1952,8 @@ def create_app(
     )
     def list_packs() -> list[dict[str, Any]]:
         """Every agent this deployment serves: id, version, risk level, the labels of its
-        main question, and where it comes from (`origin`: `maintained`, `community`, `hub` or
-        `local`, with `origin_label` to show; a community agent is not clinically reviewed and
-        never automates)."""
+        main question, and where it comes from (`origin`: `maintained`, `hub`, `local` or
+        `store`, with `origin_label` to show)."""
         return [_summary(pack) for pack in sorted(served_here().values(), key=lambda p: p.id)]
 
     @app.get(
@@ -2597,20 +2595,6 @@ def create_app(
         active = decision_for(pack_id)
         chosen = {slot: info.variant for slot, info in active.provider_info.items()}
         asked = request.providers or {}
-        if pack.community:
-            # A community pack runs a remote variant only where the deployment named the pack
-            # for it (`community/<name>:slot=variant`), which `chosen` already holds.
-            refused = sorted(
-                f"{slot}={variant}"
-                for slot, variant in asked.items()
-                if variant != chosen.get(slot) and not _local_variant(pack, slot, variant)
-            )
-            if refused:
-                raise MendariError(
-                    f"{pack.id} is a community agent: it runs a remote variant only where the "
-                    f"deployment names it in its settings ({pack.id}:slot=variant), not "
-                    f"{', '.join(refused)}"
-                )
         # Provider calls count against the daily budgets and the organization's evaluation
         # quotas (`eval_jev`, `eval_llm`), never its decisions' quotas.
         decision = Decision(
@@ -4110,7 +4094,7 @@ def create_app(
             registry=registry_probe.state(),
             agent_store=kept_store is not None,
             served=len(served),
-            served_from_registry=sum(pack.shown_origin == "hub" for pack in served.values()),
+            served_from_registry=sum(pack.origin == "hub" for pack in served.values()),
             any_decision=store.any_decision(),
             demo_only=set(served) == {DEMO_AGENT},
             recalls=[
@@ -4249,9 +4233,7 @@ def create_app(
         permission_for=auth.permission,
         cards=None
         if auth.enabled
-        else {
-            pack_id: landing.CardLink(p.manifest.name, p.community) for pack_id, p in packs.items()
-        },
+        else {pack_id: landing.CardLink(p.manifest.name) for pack_id, p in packs.items()},
     )
     # No style attribute anywhere, so no inline style; its inline scripts (the theme script and
     # the import map) by hash.
@@ -5368,7 +5350,7 @@ def _summary(pack: Pack) -> dict[str, Any]:
         # `publisher.type` is what the manifest says of itself; `origin` is where this
         # deployment found the pack (`core/origin.py`), and `origin_label` what to show for it.
         "publisher": m.publisher.model_dump(mode="json"),
-        "origin": pack.shown_origin,
+        "origin": pack.origin,
         "origin_label": pack.origin_label,
         # Derived from `card.provenance` (`core/status.py`), never written by the pack.
         "status_label": pack.status_label,

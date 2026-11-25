@@ -21,7 +21,7 @@ from mendari.core import actions, input_schema, tenancy
 from mendari.core.actions import ActionResult, Asked, Checked, Proposed
 from mendari.core.derive import complete_answers, explain
 from mendari.core.origin import (
-    MAX_COMMUNITY_TEXT_CHARS,
+    MAX_BOUNDED_TEXT_CHARS,
     UNAPPROVED,
     bounded_reader,
     long_text,
@@ -369,8 +369,8 @@ class Decision:
                 leaf.use_connection(connection_source)
         # What checks the arguments of each declared action that has a schema (spec 0.4).
         self._action_checkers = actions.validators(pack.manifest)
-        # A pack the deployment does not own runs on the community engine (`Pack.bounded`).
-        self._validator = input_schema.validator(pack.input_schema, community=pack.bounded)
+        # An agent the deployment does not own runs on the bounded engine (`Pack.bounded`).
+        self._validator = input_schema.validator(pack.input_schema, bounded=pack.bounded)
         # Its input keys count toward its text only where its schema runs patterns on them;
         # otherwise each is held to the length alone (`origin.long_text`).
         self._count_keys = False
@@ -400,19 +400,17 @@ class Decision:
         return held
 
     def vouched(self) -> bool:
-        """Whether the deployment vouches for this agent now: it is no community agent, and no
-        agent from a registry that its organization has not approved for its digest, or that is
-        recalled. For one it does not vouch for, nothing proposed is released without a person
-        (`policy.gate_of`): its declared effects are claims nobody here checked."""
-        return not self.pack.community and not self._origin_holds()
+        """Whether the deployment vouches for this agent now: it is no agent from a registry that
+        its organization has not approved for its digest, or that is recalled. For one it does
+        not vouch for, nothing proposed is released without a person (`policy.gate_of`): its
+        declared effects are claims nobody here checked."""
+        return not self._origin_holds()
 
     def automation_stopped(self) -> str | None:
         """Why this agent may not automate now, or None: it is not vouched for, automation is
         on hold, or its risk level needs an approval that is not in force. What an action asked
         for after an AUTO decision is held to (`authorize_action`): a hold or a revoked approval
         stops new releases, though the decision itself was automated."""
-        if self.pack.community:
-            return "a community agent never automates"
         held = self._origin_holds()
         if held:
             return "; ".join(held)
@@ -603,19 +601,19 @@ class Decision:
         and which rule of the schema, never the value: jsonschema's own messages quote the
         input, and reasons are stored in the audit trail and copied into the FHIR Task.
 
-        The check of a pack on the community engine (`Pack.bounded`: a community pack, or one
-        from a registry) holds to its input limits (`origin.shape_problem`) and to a time
+        The check of an agent on the bounded engine (`Pack.bounded`: one from a registry or a
+        store) holds to its input limits (`origin.shape_problem`) and to a time
         budget: the decision's, or one of its own when called alone (`mendari omop`). It checks
         the budget after each error and stops at `MAX_SCHEMA_ERRORS`. Inside a decision, a
         budget spent before any error is found raises `OutOfTime` (the decision abstains);
         alone, it is a reason."""
         bounded = self.pack.bounded
-        reader = bounded_reader(self.pack.id, self.pack.origin)
+        reader = bounded_reader(self.pack.origin)
         if bounded and (shape := shape_problem(inputs, reader)) is not None:
             return [f"(root): {shape}"]
         if bounded and (too_long := long_text(inputs, count_keys=self._count_keys)):
             return [
-                f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most "
+                f"{too_long}: longer than {MAX_BOUNDED_TEXT_CHARS:,} characters, the most "
                 f"{reader} reads"
             ]
         alone = bounded and not budget_active()
@@ -719,12 +717,12 @@ class Decision:
                 self.budget.admit_decision()
             except ProviderError as error:
                 over_quota = error  # every provider fails with it, so nothing automates
-        # The patterns of a pack on the community engine (`Pack.bounded`: a community pack, or
-        # one from a registry) share one time budget in this decision (`core/patterns.py`): past
+        # The patterns of an agent on the bounded engine (`Pack.bounded`: one from a registry or
+        # a store) share one time budget in this decision (`core/patterns.py`): past
         # it its schema check or its rules stop, and the decision abstains, for a person.
         bounded = self.pack.bounded
         with time_budget() if bounded else nullcontext():
-            reader = bounded_reader(self.pack.id, self.pack.origin)
+            reader = bounded_reader(self.pack.origin)
             shape = shape_problem(inputs, reader) if bounded else None
             too_long = (
                 long_text(inputs, count_keys=self._count_keys)
@@ -737,7 +735,7 @@ class Decision:
                 # Before the schema's patterns run too: its patterns run on texts this long, no
                 # longer (`core/origin.py`; its caps are measured on it).
                 schema_problems = [
-                    f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most "
+                    f"{too_long}: longer than {MAX_BOUNDED_TEXT_CHARS:,} characters, the most "
                     f"{reader} reads"
                 ]
             else:
@@ -836,13 +834,12 @@ class Decision:
                         actions.check(manifest, self._action_checkers, proposal)
                         for proposal in actions.distinct(proposed)
                     ]
-                    vouched = not self.pack.community and not origin_holds
+                    vouched = not origin_holds
                 policy_inputs = PolicyInputs(
                     answers,
                     failures,
                     governance,
                     variants,
-                    community=self.pack.community,
                     hold=hold,
                     blocks_to_person="; ".join(origin_holds) or None,
                     site_code=tuple(translated),
@@ -1125,7 +1122,7 @@ def _short(name: str, limit: int = 40) -> str:
 
 def _schema_rule(error: ValidationError, bounded: bool = False) -> str:
     """What the schema requires, in words built from the schema alone (`validator_value` is the
-    pack's own schema), never from the instance. The patterns of a pack on the community engine
+    pack's own schema), never from the instance. The patterns of an agent on the bounded engine
     (`bounded`) run on RE2 (`core/patterns.py`)."""
     keyword, expected = error.validator, error.validator_value
     present = error.instance if isinstance(error.instance, Mapping) else {}
@@ -1167,7 +1164,7 @@ def _schema_rule(error: ValidationError, bounded: bool = False) -> str:
             str(key)
             for key in present
             if key not in allowed
-            and not any(search(p, str(key), community=bounded) for p in patterns)
+            and not any(search(p, str(key), bounded=bounded) for p in patterns)
         ]
         named = [key for key in extra if _KEY.match(key)]
         shown = named[:5]

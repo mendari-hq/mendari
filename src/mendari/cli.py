@@ -53,17 +53,17 @@ def _decision(args: argparse.Namespace, **kwargs: Any) -> Decision:
 def _providers(pack: Pack, settings: dict[str, str], *, typed: bool = True) -> dict[str, str]:
     """The settings that apply to this agent. A setting that names it but cannot apply (a slot's
     unknown variant) is an error here, where the server only reports it. So is a typed setting
-    (`--provider`, `--run`) that applies to nothing in the agent: an unknown slot, another
-    agent's setting, or an unscoped one for a community agent. From $MENDARI_PROVIDERS, a
+    (`--provider`, `--run`) that applies to nothing in the agent: an unknown slot, or another
+    agent's setting. From $MENDARI_PROVIDERS, a
     deployment-wide list naming other agents' slots too, such a setting is only a warning."""
     slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-    chosen, skipped = providers_for(pack.id, slots, settings, community=pack.named_settings_only)
+    chosen, skipped = providers_for(pack.id, slots, settings, named_only=pack.named_settings_only)
     if skipped:
         raise MendariError(f"provider settings that do not apply to {pack.id}: {skipped}")
     unused = [
         _unused(pack, key, variant, slots)
         for key, variant in settings.items()
-        if not applies_to(key, pack.id, slots, community=pack.named_settings_only)
+        if not applies_to(key, pack.id, slots, named_only=pack.named_settings_only)
     ]
     if unused and typed:
         raise PackValidationError(pack.id, unused)
@@ -76,11 +76,6 @@ def _unused(pack: Pack, key: str, variant: str, slots: dict[str, set[str]]) -> s
     target, sep, slot = key.rpartition(":")
     if sep and target != pack.id:
         return f"provider setting {key}={variant} names {target}, not this agent"
-    if not sep and pack.community and slot in slots:
-        return (
-            f"provider setting {key}={variant}: a community agent takes only settings that name "
-            f"it ({pack.id}:{slot}={variant})"
-        )
     return (
         f"provider setting {key}={variant}: the agent has no slot {slot!r} "
         f"(its slots: {', '.join(sorted(slots))})"
@@ -4259,18 +4254,13 @@ def cmd_evalset_show(args: argparse.Namespace) -> int:
 
 
 # What every new agent starts with (examples, rules, the input schema, tests); its manifest
-# comes from one of the two laid over it.
+# comes from the one laid over it.
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "base"
-# Laid over TEMPLATE by `mendari new --community`: the community defaults.
-COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community"
-# Laid over TEMPLATE by `mendari new` otherwise: an AI agent with an offline mock fixture.
+# Laid over TEMPLATE by `mendari new`: an AI agent with an offline mock fixture.
 AGENT_TEMPLATE = Path(__file__).resolve().parent / "templates" / "agent"
 # A URL, not a path: `mendari new` runs anywhere, mostly outside a checkout of the repository.
 AUTHORING_GUIDE = (
     "https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-an-agent.md"
-)
-COMMUNITY_GUIDE = (
-    "https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-an-agent.md"
 )
 # The workflow `mendari new` writes into the agent's own `.github/workflows/`: Mendari's action
 # (action.yml) at this release's tag, which checks the agent on every change. Its template is
@@ -4285,27 +4275,13 @@ def cmd_new(args: argparse.Namespace) -> int:
     """A new agent from the template: YAML only, and it validates, tests and evaluates as it is,
     on an offline mock fixture that switches to a live agent endpoint when `MENDARI_AGENT_URL`
     is set, with the workflow that checks the agent on every change in its own repository
-    (`CI_WORKFLOW`), which is no part of the agent: a hidden folder is in no digest or archive.
-    With `--community`, a community agent (`community-agents/<name>`, id `community/<name>`)
-    that also passes `mendari community-check`, its benchmark and card written."""
-    from mendari.core.origin import COMMUNITY_NAME, COMMUNITY_NAMESPACE
+    (`CI_WORKFLOW`), which is no part of the agent: a hidden folder is in no digest or archive."""
     from mendari.core.spec import _PACK_ID
 
     target = Path(args.dir)
     if target.exists() and any(target.iterdir()):
         raise MendariError(f"{target} exists and is not empty")
     pack_id = args.id
-    if args.community:
-        folder = target.resolve().name
-        if not COMMUNITY_NAME.match(folder):
-            raise MendariError(
-                f"a community agent's folder name is lowercase letters, digits and dashes, "
-                f"not {folder!r}"
-            )
-        expected = f"{COMMUNITY_NAMESPACE}/{folder}"
-        if pack_id not in (None, expected):
-            raise MendariError(f"a community agent in {folder}/ has the id {expected}")
-        pack_id = expected
     if pack_id is None:
         raise MendariError("--id is required: namespace/name, e.g. my-clinic/refill-router")
     if not _PACK_ID.match(pack_id):
@@ -4322,7 +4298,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     def fill(text: str, values: dict[str, str]) -> str:
         return placeholder_re.sub(lambda match: values[match.group(0)], text)
 
-    templates = [TEMPLATE, COMMUNITY_TEMPLATE if args.community else AGENT_TEMPLATE]
+    templates = [TEMPLATE, AGENT_TEMPLATE]
     for template in templates:
         for source in sorted(template.rglob("*")):
             if not source.is_file():
@@ -4332,68 +4308,26 @@ def cmd_new(args: argparse.Namespace) -> int:
             destination = target / source.relative_to(template)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(text, encoding="utf-8")
-    if args.community:
-        _publish_benchmark(target)
-    else:  # an agent with a repository of its own: checked there on every change
-        workflow = target / CI_WORKFLOW
-        workflow.parent.mkdir(parents=True, exist_ok=True)
-        text = CI_TEMPLATE.read_text(encoding="utf-8").replace("{{version}}", __version__)
-        workflow.write_text(fill(text, yaml_values), encoding="utf-8")
+    # An agent with a repository of its own: checked there on every change.
+    workflow = target / CI_WORKFLOW
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    text = CI_TEMPLATE.read_text(encoding="utf-8").replace("{{version}}", __version__)
+    workflow.write_text(fill(text, yaml_values), encoding="utf-8")
     print(f"{pack_id} created in {target}. Next:")
-    steps = [f"mendari validate {target}", f"mendari test {target}"]
-    if args.community:
-        benchmark = f"{target}/evals/benchmark.json"
-        steps += [
-            f"mendari eval {target} --dataset examples --baseline none --out {benchmark}",
-            f"mendari card {target} --write",
-            f"add {{id: {pack_id}, maintainers: [your-github-name]}} to "
-            "community-agents/MAINTAINERS.yaml",
-            f"mendari community-check {target} --base origin/main",
-        ]
-    else:
-        steps += [
-            f"mendari eval {target} --dataset examples",
-            f"MENDARI_AGENT_URL=https://your-agent.example/decide mendari eval {target} "
-            "--dataset examples",
-            f"mendari eval {target} --dataset examples --provider reader=rules",
-            f"mendari probe {target}",
-        ]
+    steps = [
+        f"mendari validate {target}",
+        f"mendari test {target}",
+        f"mendari eval {target} --dataset examples",
+        f"MENDARI_AGENT_URL=https://your-agent.example/decide mendari eval {target} "
+        "--dataset examples",
+        f"mendari eval {target} --dataset examples --provider reader=rules",
+        f"mendari probe {target}",
+    ]
     for step in steps:
         print(f"  {step}")
     print(f"The guide: {AUTHORING_GUIDE}")
-    if args.community:
-        print(f"Contributing it: {COMMUNITY_GUIDE}")
-    else:
-        print(f"On every change: {target / CI_WORKFLOW} runs these checks on GitHub ({CI_GUIDE})")
+    print(f"On every change: {target / CI_WORKFLOW} runs these checks on GitHub ({CI_GUIDE})")
     return 0
-
-
-def _publish_benchmark(target: Path) -> None:
-    """Write a new agent's benchmark (`evaluation.benchmark`) and Decision Card, as `mendari
-    eval --baseline none --out` and `mendari card --write` would."""
-    from mendari.core.card import render_card
-    from mendari.core.pack import load_pack
-    from mendari.evals import resolve_dataset
-    from mendari.evals.harness import evaluation as evaluate_with_ledger
-
-    pack = load_pack(target, origin="community")
-    evaluation = pack.manifest.evaluation
-    assert evaluation.benchmark and evaluation.benchmark_dataset
-    run = evaluate_with_ledger(Decision(pack), resolve_dataset(pack, evaluation.benchmark_dataset))
-    destination = target / evaluation.benchmark
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    _write_ledger(destination, run.ledger.dumps(), run.ledger.file_name)
-    destination.write_text(json.dumps(run.report, indent=2) + "\n", encoding="utf-8")
-    pack = load_pack(target, origin="community")
-    (target / "DECISION_CARD.md").write_text(render_card(pack), encoding="utf-8")
-
-
-def cmd_community_check(args: argparse.Namespace) -> int:
-    from mendari.community.check import check
-
-    report = check(args.dir, base=args.base)
-    print(report.markdown() if args.markdown else report.text())
-    return 0 if report.passed else 1
 
 
 def cmd_demo(args: argparse.Namespace) -> int:
@@ -4597,7 +4531,7 @@ GROUPS = (
     Group(
         "Build and check",
         ("validate", "test", "eval", "probe", "compare"),
-        ("card", "schema", "community-check"),
+        ("card", "schema"),
     ),
     Group("Run", ("decide", "serve"), ("list", "mcp")),
     Group("Share", ("login", "search", "pull", "push"), ("keys", "archive", "yank", "site")),
@@ -6575,34 +6509,14 @@ def build_parser() -> argparse.ArgumentParser:
     new = sub.add_parser(
         "new",
         help="start a new agent from a template (YAML only)",
-        description="A new agent in YAML that validates, tests and evaluates as written. Unless "
-        "it is a community agent, it answers from an offline mock fixture until "
-        "MENDARI_AGENT_URL names your agent.",
+        description="A new agent in YAML that validates, tests and evaluates as written. It "
+        "answers from an offline mock fixture until MENDARI_AGENT_URL names your agent.",
     )
     new.add_argument("dir", help="an empty or new directory")
     new.add_argument("--id", help="namespace/name, e.g. my-clinic/refill-router")
     new.add_argument("--name", help="a display name (default: from the id)")
     new.add_argument("--publisher", default="Your organization", help="who publishes it")
-    new.add_argument(
-        "--community",
-        action="store_true",
-        help="a community agent for community-agents/<name> (id community/<name>), with the "
-        "defaults community-check asks for",
-    )
     new.set_defaults(handler=cmd_new)
-
-    community = sub.add_parser(
-        "community-check",
-        help="the checks CI runs on a community agent (community-agents/<name>), with what to fix",
-    )
-    community.add_argument("dir", help="the agent's folder, community-agents/<name>")
-    community.add_argument(
-        "--base",
-        help="a git commit to compare with (e.g. origin/main): also checks the change's scope, "
-        "the version bump and regressions",
-    )
-    community.add_argument("--markdown", action="store_true", help="print Markdown (CI summary)")
-    community.set_defaults(handler=cmd_community_check)
 
     sub.add_parser("demo", help="offline end-to-end demo on synthetic data").set_defaults(
         handler=cmd_demo

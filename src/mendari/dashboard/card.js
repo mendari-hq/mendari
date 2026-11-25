@@ -2,7 +2,7 @@
 // Decision Card: the pack as a document, sections linked as routes ("#card/policy").
 
 import { cardConnection } from "./connection.js";
-import { communityNotice, effectBadge, holdsFor, isCommunity, originBadge, providerWords, rowLabels, statusNotice } from "./pack.js";
+import { effectBadge, holdsFor, originBadge, providerWords, rowLabels, statusNotice } from "./pack.js";
 import { render, views } from "./router.js";
 import { $, actionDialog, api, copyText, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError, whileBusy } from "./ui.js";
 
@@ -51,7 +51,6 @@ function automationText(d, governance, registry) {
   const p = d.manifest.policy;
   const code = (v) => `<code>${esc(v)}</code>`;
   const review = `A person reviews from confidence ${p.thresholds.review.toFixed(2)}; below that it abstains.`;
-  if (isCommunity(d)) return `Never: a community agent recommends, and a person confirms every decision. ${review}`;
   if (d.risk.level >= 4) return `Never: at risk level 4 a person reviews every decision. ${review}`;
   if (registry?.recalled) return `Not while its registry's recall stands: a person reviews every decision. ${review}`;
   if (registry && !registry.active) {
@@ -127,7 +126,6 @@ views.card = async (main, params) => {
   main.innerHTML = `
     <h1>${esc(m.name)}</h1>
     <p class="prose lead">${esc(m.summary)}</p>
-    ${communityNotice(d)}
     ${statusNotice(d)}
     <nav class="toc" aria-label="On this page">${CARD_SECTIONS.filter(([key]) => key !== "actions" || d.actions?.length).map(([key, title]) => `<a href="#card/${key}">${esc(title)}</a>`).join("")}</nav>
 
@@ -165,7 +163,7 @@ views.card = async (main, params) => {
       <h2 id="card-policy-title">Policy</h2>
       <p class="prose muted">Rules are checked in order and the first that matches decides; otherwise the confidence thresholds do.
         An automated outcome is then held for a person if its label is never automated, a provider failed, a required provider
-        isn't deployed, the risk level forbids it, or the agent is a community agent.</p>
+        isn't deployed, or the risk level forbids it.</p>
       <ol class="rules">${p.rules.map((r) => `<li>
         <div class="row"><b>${esc(r.name)}</b> ${outcomeBadge(r.outcome)} ${r.priority ? priorityBadge(r.priority) : ""}
           ${r.recommendation ? `<span>→ <code>${esc(r.recommendation)}</code></span>` : ""}</div>
@@ -238,7 +236,6 @@ views.card = async (main, params) => {
 // What the pack's risk level allows, the approval in force, and (for people who may approve)
 // approving or revoking. An approval is for this exact pack: a new version needs a new one.
 function approvalSection(g, d, registry) {
-  if (isCommunity(d)) return `<p class="prose">A community agent is never automated, and no approval can change that: a person confirms every decision.</p>`;
   if (g.risk_level >= 4) return `<p class="prose">Risk level 4: never automated. No approval can change that.</p>`;
   if (!g.approvable) {
     return registry
@@ -302,8 +299,7 @@ function wireApproval(main) {
 // (GET/POST /api/registry-approvals, DELETE /api/registry-approvals/{id}). The approval is keyed
 // on the pack and its digest, so it lives on the pack's card: what is approved, by whom, when and
 // why; approving (a reference, then a dialog saying what it allows and what it never lifts) and
-// revoking for people with `approve`. A pack shown as community never automates whatever is
-// approved, so it never shows this.
+// revoking for people with `approve`.
 const fromRegistry = (d) => d.origin === "hub";
 
 const shortDigest = (digest) => String(digest ?? "").replace(/^sha256:/, "").slice(0, 12);

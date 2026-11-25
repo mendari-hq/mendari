@@ -55,7 +55,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from mendari.core import accounts, clock
 from mendari.core.audit import STORE_STATES, _canonical, _now, store_version_sha256
-from mendari.core.origin import COMMUNITY_NAMESPACE, Origin
+from mendari.core.origin import Origin
 from mendari.core.pack import MANIFEST, Pack, load_pack, pack_digest
 from mendari.errors import HubError, MendariError
 
@@ -87,7 +87,7 @@ MAX_KEYS = 20  # an organization's authors' keys that are not revoked
 MAX_PENDING_UPLOADS = 3  # an organization's archives under way in parts at once
 MAX_PARTS = 64
 # Namespaces no store pack takes, whatever an organization is called.
-STORE_RESERVED = ("mendari", "openhealth", "community")
+STORE_RESERVED = ("mendari", "openhealth")
 
 
 class StoreError(MendariError):
@@ -466,8 +466,7 @@ class PackStore:
 
         A version from a registry (`source` `hub`, with `pulled`: where it came from, which
         `admit_pulled` gives) passes the same checks with two differences: it loads as an agent
-        from a registry, and it keeps its publisher's id, whatever the organization is called
-        (never the community namespace, whose agents come with the deployment).
+        from a registry, and it keeps its publisher's id, whatever the organization is called.
         `expect_version` is the id and version it must have (the ones its signed manifest and
         its registry name)."""
         from mendari.core import phi_detect
@@ -484,13 +483,9 @@ class PackStore:
         ready = _prepare(files, HUB if source == HUB else "store")
         pack = ready.pack
         namespace = pack.id.partition("/")[0]
-        if source == HUB:
-            if namespace == COMMUNITY_NAMESPACE:
-                raise StoreError(
-                    "a community agent comes with the deployment, never from a registry"
-                )
-        elif _reserved(namespace) or (
-            namespace != org and not (claimed is not None and claimed(org, namespace))
+        if source != HUB and (
+            _reserved(namespace)
+            or (namespace != org and not (claimed is not None and claimed(org, namespace)))
         ):
             raise StoreError(
                 f"an agent in this organization's store is named {org}/<name>: {pack.id!r} is "

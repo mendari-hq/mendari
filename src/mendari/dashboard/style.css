@@ -51,10 +51,7 @@
   --outcome-abstain-soft: var(--color-neutral-soft);
   --outcome-block: var(--color-danger);
   --outcome-block-soft: var(--color-danger-soft);
-  /* Where a pack comes from: a community pack (not clinically reviewed) is marked like something
-     to check, never like a stop; every other origin is neutral. */
-  --origin-community: var(--color-warning);
-  --origin-community-soft: var(--color-warning-soft);
+  /* Where a pack comes from: every origin is neutral. */
   --origin-other: var(--color-neutral);
   --origin-other-soft: var(--color-neutral-soft);
 
@@ -458,9 +455,8 @@ button.open-record { white-space: nowrap; display: inline-flex; align-items: cen
   color: var(--color-text); margin-right: var(--space-0-5);
 }
 .badge.risk { color: var(--color-text); background: var(--color-surface-sunken); border: 1px solid var(--color-border-strong); }
-/* Where the pack comes from (pack.js originBadge; the docs landing labels community packs too). */
+/* Where the pack comes from (pack.js originBadge). */
 .badge.origin { color: var(--origin-other); background: var(--origin-other-soft); }
-.badge.origin-community { color: var(--origin-community); background: var(--origin-community-soft); }
 /* Empty views: an icon in a soft circle, one line on what goes here, one action. Grouped by a dashed
    outline rather than a card: there is no object here yet. */
 .empty-state {
@@ -829,7 +825,6 @@ input[readonly] { background: var(--color-surface-sunken); border-style: dashed;
 .callout.danger { background: var(--outcome-block-soft); border-color: var(--color-danger); }
 .callout.neutral { background: var(--color-surface-sunken); border-color: var(--color-border-strong); }
 .callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
-.callout.community-notice { background: var(--origin-community-soft); border-color: var(--origin-community); }
 /* The notice every page carries (mendari.notices), stamped by the server under the top bar. */
 .preview-notice {
   margin: 0; padding: var(--space-2) var(--space-5); background: var(--color-warning-soft); color: var(--color-text);

@@ -6,7 +6,6 @@
 // took). Computed by the server (evals/monitoring.py) for this organization.
 
 import { chartHtml } from "./charts.js";
-import { communityNotice } from "./pack.js";
 import { render, views, wire } from "./router.js";
 import { tableHtml } from "./table.js";
 import { $, api, emptyState, esc, figureHtml, icon, money, share, shown, stat, state, storageGet, storageSet } from "./ui.js";
@@ -53,7 +52,6 @@ views.monitoring = async (main) => {
   main.innerHTML = `
     <h1>Monitoring</h1>
     <p class="muted">${esc(state.detail.manifest.name)} in use${bench.comparable ? ", against its benchmark" : ""}. Alerts need enough evidence to fire.</p>
-    ${communityNotice(state.detail)}
     <div class="row toolbar">
       <label for="monitoring-days">Period</label>
       <select id="monitoring-days">${PERIODS.map((d) => `<option value="${d}" ${d === days ? "selected" : ""}>${d} days</option>`).join("")}</select>

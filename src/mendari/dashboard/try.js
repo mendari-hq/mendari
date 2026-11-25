@@ -5,7 +5,7 @@
 
 import { feedbackControls } from "./feedback.js";
 import { schemaForm, wireSchemaForm } from "./form.js";
-import { codesToggle, communityNotice, criteriaTable, derivedPrimary, isMessagePack, labelName, named, plainReasons, questionName, statusNotice, wireCodes } from "./pack.js";
+import { codesToggle, criteriaTable, derivedPrimary, isMessagePack, labelName, named, plainReasons, questionName, statusNotice, wireCodes } from "./pack.js";
 import { refreshReviewCount, views, wire } from "./router.js";
 import { guardrailTrace } from "./trace.js";
 import { $, api, copyText, emptyState, esc, focusHeading, icon, may, packPath, pct, PRIORITY_TEXT, saveFile, state, storageGet, storageSet, toast, toastError, whileBusy } from "./ui.js";
@@ -143,7 +143,6 @@ async function tryRecord(main) {
   main.innerHTML = `
     <h1>Try it</h1>
     <p class="muted">Synthetic records only; decisions here are recorded. Start from one of the agent's tests and change any field.${guard ? " Check the AI reply says whether the draft may be sent to the patient as written." : ""}</p>
-    ${communityNotice(state.detail)}
     ${statusNotice(state.detail)}
     <div class="panel">
       <div class="row mb-3" id="example-row">
@@ -257,7 +256,7 @@ async function tryRecord(main) {
 const takes = (schema, key) => !schema || Boolean(schema.properties?.[key]) || schema.additionalProperties !== false;
 
 // The message form's fields the pack's input schema takes: a closed schema refuses anything else
-// (the community scaffold's takes a message body and subject only), so the form shows and sends
+// (one may take a message body and subject only), so the form shows and sends
 // only these.
 function messageFields() {
   const root = state.detail.input_schema ?? {};
@@ -278,7 +277,6 @@ async function tryMessage(main) {
   main.innerHTML = `
     <h1>Try it</h1>
     <p class="muted">Synthetic messages only; decisions here are recorded.</p>
-    ${communityNotice(state.detail)}
     ${statusNotice(state.detail)}
     <div class="panel">
       ${modes.length > 1 ? modeSwitch(modes) : ""}

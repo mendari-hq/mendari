@@ -26,7 +26,7 @@ a safety screen's keyword rules still fire after the deadline has passed.
 
 The deadline lives in a context variable per decision, measured on `time.monotonic`, never on
 the shared `Decision` object (one serves every request's thread). It is not the CPU time budget
-of a community pack's patterns (`core/patterns.py`), which counts the decision thread's own
+of a bounded agent's patterns (`core/patterns.py`), which counts the decision thread's own
 work and nothing it waits for.
 """
 

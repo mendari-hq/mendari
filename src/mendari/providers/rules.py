@@ -19,7 +19,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS
+from mendari.core.origin import MAX_BOUNDED_TEXT_CHARS
 from mendari.core.pack import Pack
 from mendari.core.patterns import RULES_FLAGS, Matcher, OutOfTime, check_time
 from mendari.core.patterns import compile as compile_pattern
@@ -97,8 +97,7 @@ class RulesProvider(Provider):
         self._compiled = {
             question: {
                 label: [
-                    (p, compile_pattern(p.pattern, RULES_FLAGS, community=bounded))
-                    for p in patterns
+                    (p, compile_pattern(p.pattern, RULES_FLAGS, bounded=bounded)) for p in patterns
                 ]
                 for label, patterns in self.rules.questions[question].labels.items()
             }
@@ -150,7 +149,7 @@ class RulesProvider(Provider):
     def _rules_problems(
         relative: str, rules: RulesConfig, questions: Mapping[str, Question], *, bounded: bool
     ) -> list[str]:
-        """The caps of a pack on the community engine (`bounded`; `core/caps.py`, imported only
+        """The caps of an agent on the bounded engine (`bounded`; `core/caps.py`, imported only
         for one; `load_pack` checks them too, as written), and a rule for each question of the
         slot, with its labels."""
         problems: list[str] = []
@@ -215,11 +214,11 @@ class RulesProvider(Provider):
         if not self._keywords:
             return text, []
         corrections: list[str] = []
-        # The patterns of a pack on the community engine (`Pack.bounded`) run on texts of at
+        # The patterns of an agent on the bounded engine (`Pack.bounded`) run on texts of at
         # most this length (`core/origin.py`; the caps on their work are measured on it): a
         # correction that would make the text longer is not made.
         bounded = self.pack.bounded
-        room = [MAX_COMMUNITY_TEXT_CHARS - len(text)] if bounded else None
+        room = [MAX_BOUNDED_TEXT_CHARS - len(text)] if bounded else None
         timed = bounded  # each word is compared with many keywords
 
         def fix(match: re.Match[str]) -> str:

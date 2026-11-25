@@ -78,9 +78,8 @@ class _JudgeLlm(LlmProvider):
 
 
 class Judge:
-    """The judge of one rubric of one agent. `mode`: `auto` asks a model when one is set and the
-    agent is not a community agent, and reads the canned grades otherwise; `canned` and `live`
-    force either."""
+    """The judge of one rubric of one agent. `mode`: `auto` asks a model when one is set, and
+    reads the canned grades otherwise; `canned` and `live` force either."""
 
     def __init__(
         self,
@@ -123,7 +122,7 @@ class Judge:
             raise ProviderError(
                 "not_configured", f"set {MODEL_ENV} or the rubric's judge.model: no judge model"
             )
-        self.canned = mode == "canned" or (mode == "auto" and (not configured or pack.community))
+        self.canned = mode == "canned" or (mode == "auto" and not configured)
         self._fixture: dict[str, Any] | None = None
         if self.canned:
             if rubric.judge.mock_file is None:

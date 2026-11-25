@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """A deterministic detector of text that looks like a real person's details (LP-20d).
 
-The pack store (LP-20f) refuses an upload whose files hold such text, `mendari data check --phi`
-reports it, and the community check's warnings (`community/phi_scan.py`) are five of its kinds.
+The pack store (LP-20f) refuses an upload whose files hold such text, and `mendari data check
+--phi` reports it.
 It finds shapes and listed names, not people: a filter, never a guarantee, so the store's terms
 still forbid real data.
 
@@ -37,7 +37,7 @@ finding is enough (`tests/test_phi_detect.py` keeps the measurement).
 
 Every pattern is compiled with RE2 (`core/patterns.py`'s engine), because the detector reads
 hostile uploads: a long line costs one pass, never a backtracking search. The patterns hold no
-lookaround, which RE2 cannot run: what the community heuristics checked with one is checked on
+lookaround, which RE2 cannot run: what earlier heuristics checked with one is checked on
 the captured digits in Python, and the edges of a number are matched characters."""
 
 from __future__ import annotations

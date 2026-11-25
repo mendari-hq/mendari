@@ -53,7 +53,6 @@ from mendari import __version__, notices
 from mendari.core import validation_brief
 from mendari.core.audit import AuditStore
 from mendari.core.card import RISK_AUTOMATION, RISK_NAMES, read_benchmark
-from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
 from mendari.core.policy import GATE_TEXT, gate_of
 from mendari.core.spec import variant_configs
@@ -408,7 +407,7 @@ def _identity(pack: Pack) -> dict[str, Any]:
         "status": pack.status_label,
         "publisher": {"name": m.publisher.name, "type": m.publisher.type, "url": m.publisher.url},
         "license": m.license,
-        "source": {"origin": pack.shown_origin, "label": pack.origin_label},
+        "source": {"origin": pack.origin, "label": pack.origin_label},
         "questions": [
             {
                 "key": key,
@@ -442,12 +441,7 @@ def _risk(pack: Pack, deployment: Deployment | None) -> dict[str, Any]:
     deployment = deployment or _NO_DEPLOYMENT
     level = int(m.risk.level)
     enforced = []
-    if pack.community:
-        enforced.append(
-            "A community agent never decides alone, at any risk level: it recommends, and a "
-            "person confirms every decision."
-        )
-    elif level <= 1:
+    if level <= 1:
         enforced.append(
             f"At risk level {level} a decision may be automated when the agent's confidence "
             "reaches its threshold. The runtime asks nothing else of the organization first."
@@ -485,7 +479,7 @@ def _risk(pack: Pack, deployment: Deployment | None) -> dict[str, Any]:
         "category": m.risk.category,
         "rationale": m.risk.rationale,
         "declared_by": "publisher",
-        "automation": COMMUNITY_AUTOMATION if pack.community else RISK_AUTOMATION[level],
+        "automation": RISK_AUTOMATION[level],
         "enforced": enforced,
     }
 
@@ -495,7 +489,7 @@ def _actions(pack: Pack) -> list[dict[str, Any]]:
     gates it (`policy.gate_of`, in `policy.GATE_TEXT`'s words). Empty: it declares none."""
     declared = []
     for name, spec in pack.manifest.actions.items():
-        gate = gate_of(spec.effect, allow_auto=spec.allow_auto, vouched=not pack.community)
+        gate = gate_of(spec.effect, allow_auto=spec.allow_auto)
         schema = spec.json_schema
         declared.append(
             {
@@ -1262,9 +1256,7 @@ def _approvals_required(pack: Pack, *, deployed: bool = True) -> list[str]:
     runtime's rules, the same with or without a deployment to read."""
     level = int(pack.manifest.risk.level)
     required = []
-    if pack.community:
-        required.append("A community agent never automates. No approval changes that.")
-    elif level >= 4:
+    if level >= 4:
         required.append("At risk level 4 nothing is automated. No approval is possible.")
     elif level in (2, 3):
         required.append(

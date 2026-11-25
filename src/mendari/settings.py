@@ -299,16 +299,6 @@ def enabled_packs() -> frozenset[str]:
     return frozenset(item.strip() for item in raw.split(",") if item.strip())
 
 
-def community_packs_enabled() -> bool:
-    """$MENDARI_COMMUNITY_AGENTS: `on` serves the agents in `community-agents/` (contributed by
-    pull request; they never automate); `off` or unset (the default) serves none of them, even
-    where `MENDARI_AGENTS_PATH` names that folder."""
-    raw = os.environ.get("MENDARI_COMMUNITY_AGENTS", "").strip().lower()
-    if raw not in ("", "on", "off"):
-        raise MendariError("MENDARI_COMMUNITY_AGENTS must be on or off")
-    return raw == "on"
-
-
 def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
     """`slot=variant` pairs from flags, falling back to $MENDARI_PROVIDERS (comma-separated).
 
@@ -469,13 +459,14 @@ def principal_daily_limit() -> int | None:
     return int(raw)
 
 
-def applies_to(key: str, pack_id: str, slots: Collection[str], *, community: bool) -> bool:
+def applies_to(key: str, pack_id: str, slots: Collection[str], *, named_only: bool) -> bool:
     """Whether a provider setting (`slot` or `namespace/name:slot`) names a slot of this pack: an
-    unscoped one any non-community pack with that slot, a scoped one only its own pack."""
+    unscoped one any agent with that slot that takes unscoped settings (not `named_only`), a
+    scoped one only its own agent."""
     target, sep, slot = key.rpartition(":")
     if sep:
         return target == pack_id and slot in slots
-    return not community and slot in slots
+    return not named_only and slot in slots
 
 
 def providers_for(
@@ -483,19 +474,19 @@ def providers_for(
     slots: Mapping[str, Collection[str]],
     settings: Mapping[str, str],
     *,
-    community: bool = False,
+    named_only: bool = False,
 ) -> tuple[dict[str, str], list[str]]:
     """(the variants to use for this pack, settings that name this pack but cannot apply).
 
     `slots` maps the pack's slot names to their variants. An unscoped `slot=variant` applies
     only where the pack has that slot *and* variant, so one deployment-wide setting never
     breaks another pack; a pack-scoped setting wins over an unscoped one for the same slot.
-    A `community` pack takes pack-scoped settings only: an unscoped one does not name it, so a
-    deployment pays for a community pack's remote calls only where it chose them by name.
+    A `named_only` agent takes only the settings scoped to it: an unscoped one does not name it,
+    so a deployment pays for such an agent's remote calls only where it chose them by name.
     """
     chosen: dict[str, str] = {}
     skipped: list[str] = []
-    for scoped in (False, True) if not community else (True,):
+    for scoped in (False, True) if not named_only else (True,):
         for key, variant in settings.items():
             target, sep, slot = key.rpartition(":")
             if bool(sep) != scoped or (scoped and target != pack_id):

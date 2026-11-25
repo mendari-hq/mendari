@@ -10,7 +10,7 @@ from typing import Any
 from mendari.core.decision import Decision
 from mendari.core.origin import bounded_reader
 from mendari.core.pack import Pack, not_json
-from mendari.core.patterns import COMMUNITY_TIME_BUDGET_S
+from mendari.core.patterns import BOUNDED_TIME_BUDGET_S
 from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.errors import PackValidationError
 
@@ -236,9 +236,9 @@ def _run(decision: Decision, case: dict[str, Any]) -> CaseOutcome:
     if failures and result.errors:  # why a provider gave no answer, e.g. `time_budget`
         failures.append(f"provider errors: {dict(sorted(result.errors.items()))}")
         if "time_budget" in result.errors.values():
-            reader = bounded_reader(decision.pack.id, decision.pack.origin)
+            reader = bounded_reader(decision.pack.origin)
             failures.append(
-                f"its patterns or schema checks ran out of the {COMMUNITY_TIME_BUDGET_S:g} s time "
+                f"its patterns or schema checks ran out of the {BOUNDED_TIME_BUDGET_S:g} s time "
                 f"budget {reader} has in each decision: shorten long counts and classes repeated "
                 "many times"
             )

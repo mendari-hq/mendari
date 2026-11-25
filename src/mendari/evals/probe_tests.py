@@ -19,7 +19,7 @@ edit or delete any case, and what they left is what stays.
 
 The text of a variant is in these files and nowhere else: never in a report. Only an agent of
 the author's own is written into (`improve.not_writable`): never one this release bundles, a
-community agent of the repository, or one pulled from a registry.
+version in an agent store, or one pulled from a registry.
 """
 
 from __future__ import annotations

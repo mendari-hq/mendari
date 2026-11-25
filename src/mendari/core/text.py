@@ -43,8 +43,8 @@ each as the same words typed on a keyboard already decide:
   now, so the cue is as near as it reads;
 - a pattern or a negation reaching across an ellipsis character: it ends there, as at "...".
 
-The plain form is never longer than the text, so the length a pack on the community engine's
-patterns run on (`core/origin.py`) holds for it too, and it is its own plain form. A decision's
+The plain form is never longer than the text, so the length the patterns of a bounded agent
+run on (`core/origin.py`) holds for it too, and it is its own plain form. A decision's
 record, its input hash, and what a remote model is sent keep the text as it was received.
 """
 

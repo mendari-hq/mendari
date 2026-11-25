@@ -180,7 +180,7 @@ def distinct_cases(
             schema,
             read,
             named=fields is not None,
-            community=decision.pack.bounded,
+            bounded=decision.pack.bounded,
         )
         if key not in by_key and places:
             by_key[key] = Case(
@@ -310,11 +310,11 @@ _ORDINARY = (
 
 
 def text_places(
-    value: Any, schema: Any, fields: Sequence[str] | None, *, named: bool, community: bool = False
+    value: Any, schema: Any, fields: Sequence[str] | None, *, named: bool, bounded: bool = False
 ) -> list[Place]:
     """Where the text of an input is: each string in it (through mappings and lists) that holds
     something, is at or under one of `fields` when there are any, and, unless the fields were
-    `named` by the caller, is one the schema leaves free (`_free`). `community`: the schema's
+    `named` by the caller, is one the schema leaves free (`_free`). `bounded`: the schema's
     patterns are searched as the agent's own validator searches them (`Pack.bounded`)."""
     found: list[Place] = []
     stack: list[tuple[Any, Place, list[Any]]] = [(value, (), [schema])]
@@ -322,7 +322,7 @@ def text_places(
         node, place, schemas = stack.pop()
         if isinstance(node, str):
             read = fields is None or _under(place, fields)
-            if node.strip() and read and (named or _free(schemas, schema, community)):
+            if node.strip() and read and (named or _free(schemas, schema, bounded)):
                 found.append(place)
         elif isinstance(node, Mapping):
             children: list[tuple[str | int, Any]] = list(node.items())
@@ -344,7 +344,7 @@ def _under(place: Place, fields: Sequence[str]) -> bool:
     return any(names[: len(parts)] == parts for parts in (name.split(".") for name in fields))
 
 
-def _free(schemas: Sequence[Any], root: Any, community: bool) -> bool:
+def _free(schemas: Sequence[Any], root: Any, bounded: bool) -> bool:
     """Whether the schemas of a string leave it free text: none holds it to a list of values
     or a format (`_NOT_TEXT`), nor to a pattern that ordinary text does not meet."""
     for schema in schemas:
@@ -353,7 +353,7 @@ def _free(schemas: Sequence[Any], root: Any, community: bool) -> bool:
                 return False
             pattern = node.get("pattern")
             if isinstance(pattern, str) and not any(
-                patterns.search(pattern, text, community=community) for text in _ORDINARY
+                patterns.search(pattern, text, bounded=bounded) for text in _ORDINARY
             ):
                 return False
     return True
