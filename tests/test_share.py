@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 import yaml
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from mendari import Agent, Decision, load_agent
 from mendari.core.policy import GovernanceOverride
@@ -32,8 +32,6 @@ from mendari.evals.share import (
     MAX_MEMBERS,
     MIN_DATASET,
     SUPPRESSION_RULES,
-    Count,
-    ErrorKey,
     SharedProvider,
     SiteReportV1,
     composite_members,
@@ -518,47 +516,6 @@ def test_anything_else_in_a_model_is_refused(type_: str, model: str) -> None:
     with pytest.raises(ValidationError) as error:
         SharedProvider.model_validate(_provider(type_, model))
     assert "Jane" not in str(error.value.errors(include_input=False))
-
-
-ERRORS = TypeAdapter(dict[ErrorKey, Count])  # errors counted by their key
-
-
-@pytest.mark.parametrize(
-    ("key", "valid"),
-    [
-        ("not_configured", True),
-        ("agent:not_configured", True),
-        ("agent:not_configured, llm:timeout", True),  # two members failed on the same cases
-        (", ".join(f"m{i}:timeout" for i in range(MAX_MEMBERS)), True),
-        (", ".join(f"m{i}:timeout" for i in range(MAX_MEMBERS + 1)), False),
-        ("agent:not_configured,llm:timeout", False),
-        ("agent:not_configured, timeout", False),
-        ("agent:not_configured, ", False),
-        ("agent:not:configured", False),
-        ("Jane Doe:chest_pain", False),
-        ("agent:not_configured\n", False),
-        ("not_configured\n", False),
-        # Mendari's codes only (a closed set), however much a name looks like one.
-        ("credential_unavailable", True),
-        ("Jane_Doe", False),
-        ("agent:Jane_Doe", False),
-        ("agent:timeout, llm:Jane_Doe", False),
-        ("server_error", False),
-        ("Timeout", False),
-    ],
-)
-def test_an_error_is_a_code_or_the_members_that_failed(key: str, valid: bool) -> None:
-    if valid:
-        assert ERRORS.validate_python({key: 1}) == {key: 1}
-    else:
-        with pytest.raises(ValidationError):
-            ERRORS.validate_python({key: 1})
-
-
-@pytest.mark.parametrize("code", sorted(FAILURE_CODES))
-def test_every_error_code_mendari_records_can_be_counted(code: str) -> None:
-    errors = {code: 1, f"agent:{code}": 2, f"rules:{code}, agent:{code}": 3}
-    assert ERRORS.validate_python(errors) == errors
 
 
 def test_the_spec_lists_every_error_code() -> None:

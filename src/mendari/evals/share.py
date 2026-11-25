@@ -36,7 +36,7 @@ from pydantic import (
     model_validator,
 )
 
-from mendari.errors import FAILURE_CODES, MendariError
+from mendari.errors import MendariError
 from mendari.evals.ledger import Ledger
 from mendari.evals.result import CONFIDENCE, OUTCOMES, PREDICTED, TRUTH
 from mendari.providers import PROVIDER_TYPES
@@ -48,14 +48,8 @@ MAX_MEMBERS = 16  # the most members a shared composite may list
 _NAME_PART = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}"
 _MODEL_PART = r"[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,127}"
 _NAME = rf"^{_NAME_PART}$"
-# An error code (Mendari's closed set), or a composite's failed members as `member:code` (", "
-# between several, as `CompositeProvider.output` records them).
-_CODE = f"(?:{'|'.join(map(re.escape, sorted(FAILURE_CODES)))})"
-_MEMBER_CODE = rf"{_NAME_PART}:{_CODE}"
-_ERROR_KEY = rf"^(?:{_CODE}|{_MEMBER_CODE}(?:, {_MEMBER_CODE}){{0,{MAX_MEMBERS - 1}}})$"
 
 Name = Annotated[str, Field(pattern=_NAME)]
-ErrorKey = Annotated[str, Field(pattern=_ERROR_KEY)]
 Count = Annotated[int, Field(ge=0, le=10**9)]
 
 
