@@ -5,9 +5,9 @@ database, keyed by content digest.
 - **A version never changes.** Its row's files, id, version and digest are written once
   (`audit.STORE_VERSION_COLUMNS`, hashed into its `pack_version.created` event), and only its
   `state` moves, each move one chained event naming its organization: `draft`, `withdrawn`;
-  LP-20h adds `promoted` and `retired`. An edit is a new
-  version whose parent is the one it was made from. `AuditStore.verify` fails on a row changed
-  past the store, a state no event moved it to, or a version with no event.
+  LP-20h adds `promoted` and `retired`. An edit is a new version whose parent is the one it was
+  made from. `AuditStore.verify` fails on a row changed past the store, a state no event moved it
+  to, or a version with no event.
 - **The engine follows the bytes** (ADR-0009). `put` writes the files to a scratch directory,
   loads them as origin `store` (on the bounded engine: RE2, the caps, the CPU budget) and keys
   the version by the digest `load_pack` hashed, never one it is told. Files the digest leaves out

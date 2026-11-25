@@ -814,8 +814,8 @@ CREATE INDEX IF NOT EXISTS written_assignments_round
 # write one chained event; and `store_usage` an organization's uploads and bytes a day, outside
 # the chain, as `rate_limits` is. LP-20f adds `store_keys` (authors' public keys, by
 # organization, chained `store_key.*`) and `store_uploads` with `store_upload_parts` (an
-# archive sent in parts, kept until it is
-# joined or a day old, outside the chain). Empty unless the store is on. A version pulled from
+# archive sent in parts, kept until it is joined or a day old, outside the chain). Empty unless
+# the store is on. A version pulled from
 # a registry in the console (`source` `hub`) keeps where it came from in `pulled` (the registry,
 # the namespace, the signing key, the archive's SHA-256 and what was checked), hashed into its
 # `pack_version.created` event with the rest of its row; `store_pins` keeps the registry keys an
