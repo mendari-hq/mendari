@@ -178,8 +178,11 @@ TRIAGE_COUNTS: Mapping[str, Mapping[str, int]] = {
     "critical": {"urgent_plain": 16, "urgent_paraphrased": 24},
 }  # fmt: skip
 TRIAGE_IDS = {
-    "examples": "triage-ex", "test": "triage", "calibration": "triage-cal", "critical": "triage-crit",
-}  # fmt: skip
+    "examples": "triage-ex",
+    "test": "triage",
+    "calibration": "triage-cal",
+    "critical": "triage-crit",
+}
 
 
 def _request(rng: random.Random, team: str) -> str:

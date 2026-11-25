@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. |
-| Agent digest | `sha256:1bf56e2e765a6abc4dcdabe61e5fe5f239c7d8e1a998064af66d7650679a59a4` |
+| Agent digest | `sha256:9fd9f9f0b1631195eeec6f62334ae789a6633e14a21fdb78d3caddeab5ab2799` |
 
 ## Intended use
 
@@ -93,7 +93,8 @@ No published benchmark.
 
 ## Version history
 
-A synthetic test fixture of Mendari's engine tests. Not clinically reviewed. Not for patient care.
+Synthetic test fixture. Not clinically reviewed. Not for patient care. An agent Mendari's engine
+tests decide with.
 
 #### 1.0.0
 

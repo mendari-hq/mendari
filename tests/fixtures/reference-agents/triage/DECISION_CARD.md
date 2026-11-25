@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `screen` is `agent` or `checked`; otherwise a person reviews. |
-| Agent digest | `sha256:03c271b9caec81c1e863727b8691ffc944ccec0100710a45702a16b1fb6da26c` |
+| Agent digest | `sha256:adf293958eec1e00418c2850d215173903dc0f940ef60dc643c56ef0474d1c05` |
 
 ## Intended use
 
@@ -112,7 +112,8 @@ No published benchmark.
 
 ## Version history
 
-A synthetic test fixture of Mendari's engine tests. Not clinically reviewed. Not for patient care.
+Synthetic test fixture. Not clinically reviewed. Not for patient care. An agent Mendari's engine
+tests decide with.
 
 #### 1.0.0
 

@@ -195,7 +195,7 @@ cds_hooks:
   # for a nurse shows none, but for a possible emergency, which shows the rule's own card.
   card:
     summaries:
-      front_desk: "Message for the {recommendation} ({priority})"
+      front_desk: "{recommendation}: a message to read ({priority})"
       pharmacy: "Message for the pharmacy: a refill to check ({priority})"
       billing: "Message for billing ({priority})"
       refused: "Message not checked: Mendari refused it as invalid input"

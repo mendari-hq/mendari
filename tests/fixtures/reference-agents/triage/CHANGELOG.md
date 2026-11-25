@@ -1,6 +1,7 @@
 # Changelog
 
-A synthetic test fixture of Mendari's engine tests. Not clinically reviewed. Not for patient care.
+Synthetic test fixture. Not clinically reviewed. Not for patient care. An agent Mendari's engine
+tests decide with.
 
 ## 1.0.0
 

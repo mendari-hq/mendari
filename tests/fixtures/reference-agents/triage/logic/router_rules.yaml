@@ -1,7 +1,8 @@
 # Keyword rules for the router (synthetic test fixture). Each pattern that matches adds its weight
 # to its label's score, the front desk starts at `default_score`, and a softmax over the scores
-# is the answer: one strong keyword gives about 0.97, a scheduling word 0.98 (the front desk's
-# own threshold is 0.95), a records or form word 0.95 and nothing at all 0.48 (no suggestion).
+# is the answer: one strong keyword gives 0.97 (a refill with "prescription" or "pharmacy" too,
+# 1.00), a scheduling word 0.98, a records or form word 0.92 (above the policy's 0.90, below the
+# front desk's own 0.95) and nothing at all 0.48 (no suggestion).
 # Every pattern means the same on RE2 as on Python's `re`: no lookaround, no back reference.
 text_fields: [message.subject, message.body]
 negation_cues: ["no", "not", "never", "without"]
@@ -25,4 +26,4 @@ questions:
         - {name: health-question, pattern: "\\b(rash|fever|tired|cough|cold|headache|dizzy)\\b|upset stomach|feel off", weight: 5}
       front_desk:
         - {name: scheduling, pattern: "appointment|checkup|clinic open", weight: 4}
-        - {name: paperwork, pattern: "records|work form", weight: 3}
+        - {name: paperwork, pattern: "records|work form", weight: 2.5}
