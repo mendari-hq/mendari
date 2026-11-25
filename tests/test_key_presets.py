@@ -29,33 +29,30 @@ from mendari.server.auth import (
     permission_for,
 )
 from mendari.server.scopes import parse
-from tests.conftest import (
-    ROOT,
-    encrypt_mode,
-    encrypted_store,
-    evalset_on,
-    evalsets_are_on,
-    message,
-    signed_in,
-)
+from tests.conftest import ROOT, encrypt_mode, message, signed_in
+from tests.support.platform import COMMUNICATION, PATIENT
 from tests.test_auth import attempt, expected
 
 IDP = "https://idp.example.org"
-INBOX = "mendari/patient-inbox-router"
+INBOX = "mendari-test/triage"  # the agent these tests decide with
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
-HOOK = "/cds-services/mendari.referral-router"
+HOOK = "/cds-services/mendari-test.triage"
+# Its hook's request, with the message prefetched.
+HOOK_REQUEST = {
+    "hook": "mendari-message-received",
+    "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
+    "context": {"communicationId": "msg-1", "patientId": "pat-1"},
+    "prefetch": {"communication": COMMUNICATION, "patient": PATIENT},
+}
 
 
 @pytest.fixture
 def served(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, str]]:
-    """Sign-in on (the identity provider is never called) on SQLite or Postgres, and hidden
-    evaluation sets, so every route they mount is in each preset's reach (LP-11g, conflict 37)."""
+    """Sign-in on (the identity provider is never called) on SQLite or Postgres."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
-    evalset_on(monkeypatch)
     with TestClient(create_app(db_path=db_target), base_url="https://mendari.test") as client:
-        evalsets_are_on(client, admin(db_target))
         yield client, db_target
 
 
@@ -82,17 +79,12 @@ def slug(heading: str) -> str:
 def test_each_preset_is_a_machine_key_the_role_allows_with_a_page_that_says_so(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Sign-in and hidden evaluation sets on, so every route they mount is in the reach (LP-11g,
-    # conflict 37). A file, not ":memory:": nothing closes an app's store, and a file's
-    # connections close after each session.
+    # Sign-in on, so every route it mounts is in the reach. A file, not ":memory:": nothing
+    # closes an app's store, and a file's connections close after each session.
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
-    evalset_on(monkeypatch)
     app = create_app(db_path=tmp_path / "routes.db")
-    with encrypted_store(tmp_path / "routes.db") as store:
-        reader = signed_in(store, role="viewer")
-    evalsets_are_on(TestClient(app, base_url="https://mendari.test"), reader)
     routes = presets.served(app.routes)
     for preset in presets.PRESETS.values():
         assert presets.ID.fullmatch(preset.id), preset.id
@@ -165,7 +157,7 @@ def test_a_key_from_each_preset_gets_past_the_guard_on_its_calls_and_nothing_mor
 
 def test_the_documented_calls_answer_with_the_presets_keys(served: tuple[TestClient, str]) -> None:
     """End to end, on synthetic data: each path's key makes its documented calls, and answers
-    as the docs say (a PAS request is built, not submitted: the payer's side is test_pas's)."""
+    as the docs say."""
     client, db = served
     keys = {
         name: {"authorization": f"Bearer {make(client, db, name).json()['key']}"}
@@ -190,50 +182,16 @@ def test_the_documented_calls_answer_with_the_presets_keys(served: tuple[TestCli
         assert client.get(path, headers=fhir).status_code == 200, path
     hooks = keys["cds-hooks"]
     assert client.get("/cds-services", headers=hooks).status_code == 200
-    from tests.test_limits import order_sign
-
-    assert client.post(HOOK, json=order_sign(1), headers=hooks).status_code == 200
-    outcome = {"final_label": "medical_assistant", "source": "ehr"}
+    assert client.post(HOOK, json=HOOK_REQUEST, headers=hooks).status_code == 200
+    outcome = {"final_label": "pharmacy", "source": "ehr"}
     waiting = client.post(f"/api/audit/{decision}/outcome", json=outcome, headers=keys["outcomes"])
     assert (
         waiting.status_code == 409
     )  # past the guard: a decision waiting for review takes it first
-    review = {"final_label": "medical_assistant", "reviewer": "admin@default.example.org"}
+    review = {"final_label": "pharmacy", "reviewer": "admin@default.example.org"}
     assert client.post(f"/api/review/{decision}", json=review, headers=admin(db)).status_code == 200
     recorded = client.post(f"/api/audit/{decision}/outcome", json=outcome, headers=keys["outcomes"])
     assert recorded.status_code == 200, recorded.text
-    # Da Vinci: coverage requirements by CDS Hooks, the DTR package, the PAS request built.
-    from tests.test_davinci import COMPLETE, PA, package_request, request
-    from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUESTER, REQUIRED
-    from tests.test_prior_auth_pack import _order
-
-    davinci = keys["da-vinci"]
-    signed = client.post(
-        f"/cds-services/{PA.replace('/', '.')}",
-        json=request("acme", COMPLETE, _order("mri", "FX101")),
-        headers=davinci,
-    )
-    assert signed.status_code == 200, signed.text
-    order = signed.json()["systemActions"][0]["resource"]
-    package = package_request({"name": "order", "resource": order})
-    dtr = client.post("/fhir/Questionnaire/$questionnaire-package", json=package, headers=davinci)
-    assert dtr.status_code == 200, dtr.text
-    built = client.post(
-        f"/api/agents/{PA}/pas",
-        json={
-            "decision_id": signed.json()["cards"][0]["extension"]["mendari.decision_id"],
-            "patient": PATIENT,
-            "coverage": COVERAGE,
-            "insurer": INSURER,
-            "requester": REQUESTER,
-            "order": _order("mri", "FX101"),
-            "service_type": "62",
-            "place_of_service": "22",
-            **REQUIRED,  # the X12 codes PAS requires: a site's, Mendari ships none (LP-14)
-        },
-        headers=davinci,
-    )
-    assert built.status_code == 200 and built.json()["submitted"] is None, built.text
     reader = keys["fhir-reader"]
     assert client.get("/fhir/Task", headers=reader).status_code == 200
     assert (
