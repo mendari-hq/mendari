@@ -17,20 +17,23 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari.cli import _site_configuration, main
-from mendari.core.registry import resolve_pack
+from mendari.core.pack import load_pack
 from mendari.errors import MendariError
-from mendari.evals import arms
-from mendari.evals import signing as scoreboard_signing
 from mendari.hub import site_signing, sites
 from mendari.hub.registry import create_registry_app
 from mendari.hub.site_signing import Site, init_site
-from tests.conftest import ROOT, Registry
+from tests.conftest import FIXTURE_NAMESPACE, TRIAGE_DIR, Registry
 
-REFERRAL = resolve_pack("mendari/referral-router")
-DATASET = ROOT / "tests" / "fixtures" / "datasets" / "referral-local-site-example.jsonl"
-CONFIGURATIONS = arms.configurations(REFERRAL)
-LOCAL = dict(next(c for c in CONFIGURATIONS if c.local).providers)
-REMOTE = next((dict(c.providers) for c in CONFIGURATIONS if not c.local), None)
+# The agent `Registry.publish()` publishes; a site's own labelled cases for it (here its test
+# set's file), and how many.
+TRIAGE = load_pack(TRIAGE_DIR)
+NAMESPACE, NAME = TRIAGE.id.split("/")
+DATASET = TRIAGE_DIR / "data" / "test.jsonl"
+N = len(DATASET.read_text().splitlines())
+# A configuration that decides on the site's machines (its keyword rules, the default), and one
+# that asks a service (its screen's agent).
+LOCAL = {"router": "rules", "screen": "rules"}
+REMOTE = {"router": "rules", "screen": "agent"}
 
 
 def _site(registry: Registry, tmp_path: Path, *, org: str = "north-health") -> Site:
@@ -46,11 +49,11 @@ def _site(registry: Registry, tmp_path: Path, *, org: str = "north-health") -> S
 
 def _request(site: Site, **changes: Any) -> dict[str, Any]:
     fields: dict[str, Any] = {
-        "pack": {"id": REFERRAL.id, "version": REFERRAL.version, "digest": REFERRAL.digest},
+        "pack": {"id": TRIAGE.id, "version": TRIAGE.version, "digest": TRIAGE.digest},
         "configuration": LOCAL,
         "remote_consent": False,
         "commitment": site.commitment(DATASET.read_bytes()),
-        "n": 300,
+        "n": N,
     }
     fields.update(changes)
     return site.sign(site_signing.TICKET_REQUEST, fields)
@@ -66,6 +69,17 @@ def published(registry: Registry) -> Registry:
     return registry
 
 
+def _plant_a_pending_claim(registry: Registry) -> None:
+    """A pending claim on the published agent's namespace, written past the registry: what it
+    publishes is then unlisted."""
+    with registry.operator._db.session(exclusive=True) as db:
+        db.all(
+            "INSERT INTO hub_claims (namespace, org, claimed_by, created_at, status) "
+            "VALUES (?, 'mendari', 'u', '2026-01-01T00:00:00+00:00', 'pending')",
+            (FIXTURE_NAMESPACE,),
+        )
+
+
 def test_a_ticket_binds_site_digest_configuration_size_and_commitment(
     published: Registry, tmp_path: Path
 ) -> None:
@@ -74,8 +88,8 @@ def test_a_ticket_binds_site_digest_configuration_size_and_commitment(
     assert answer.status_code == 201, answer.text
     ticket, secret = answer.json()["ticket"], answer.json()["submit_secret"]
     assert (ticket["site"], ticket["key_id"]) == (site.id, site.key_id)
-    assert (ticket["version"], ticket["digest"]) == (REFERRAL.version, REFERRAL.digest)
-    assert ticket["configuration"] == LOCAL and ticket["n"] == 300
+    assert (ticket["version"], ticket["digest"]) == (TRIAGE.version, TRIAGE.digest)
+    assert ticket["configuration"] == LOCAL and ticket["n"] == N
     assert ticket["commitment"] == site.commitment(DATASET.read_bytes())
     assert (ticket["status"], ticket["remote_consent"]) == ("open", False)
     assert ticket["expires_at"] > ticket["created_at"]
@@ -90,7 +104,7 @@ def test_a_ticket_request_with_a_forged_signature_or_an_unregistered_key_is_refu
     published: Registry, tmp_path: Path
 ) -> None:
     site = _site(published, tmp_path)
-    forged = {**_request(site), "n": 301}  # signed over n = 300
+    forged = {**_request(site), "n": N + 1}  # signed over n = N
     answer = _post(published, forged)
     assert answer.status_code == 403 and "signature" in answer.text
     stranger = tmp_path / "stranger"
@@ -141,10 +155,10 @@ def test_a_digest_that_is_not_the_published_versions_is_refused(
     published: Registry, tmp_path: Path
 ) -> None:
     site = _site(published, tmp_path)
-    other = {"id": REFERRAL.id, "version": REFERRAL.version, "digest": "sha256:" + "0" * 64}
+    other = {"id": TRIAGE.id, "version": TRIAGE.version, "digest": "sha256:" + "0" * 64}
     answer = _post(published, _request(site, pack=other))
     assert answer.status_code == 409 and "digest" in answer.text
-    unknown = {**other, "version": "9.9.9", "digest": REFERRAL.digest}
+    unknown = {**other, "version": "9.9.9", "digest": TRIAGE.digest}
     assert _post(published, _request(site, pack=unknown)).status_code == 404
 
 
@@ -152,40 +166,30 @@ def test_a_recalled_deleted_or_unlisted_version_gets_no_ticket(
     published: Registry, tmp_path: Path
 ) -> None:
     site = _site(published, tmp_path)
-    with published.operator._db.session(exclusive=True) as db:  # its claim pending, planted
-        db.all(
-            "INSERT INTO hub_claims (namespace, org, claimed_by, created_at, status) "
-            "VALUES ('mendari', 'mendari', 'u', '2026-01-01T00:00:00+00:00', 'pending')"
-        )
+    _plant_a_pending_claim(published)
     unlisted = _post(published, _request(site))
     assert unlisted.status_code == 404
     with published.operator._db.session(exclusive=True) as db:
         db.all("DELETE FROM hub_claims")
-    published.operator.delete(
-        "mendari", "referral-router", REFERRAL.version, reason="test", by="operator"
-    )
+    published.operator.delete(NAMESPACE, NAME, TRIAGE.version, reason="test", by="operator")
     deleted = _post(published, _request(site))
     assert deleted.status_code in (404, 409)
 
 
-@pytest.mark.skipif(REMOTE is None, reason="the referral pack has no remote configuration")
 def test_a_remote_configuration_needs_recorded_consent_and_the_default_is_deterministic(
     published: Registry, tmp_path: Path
 ) -> None:
-    assert REMOTE is not None
     site = _site(published, tmp_path)
     refused = _post(published, _request(site, configuration=REMOTE))
     assert refused.status_code == 409 and "consent" in refused.text
     given = _post(published, _request(site, configuration=REMOTE, remote_consent=True))
     assert given.status_code == 201 and given.json()["ticket"]["remote_consent"] is True
     # The command line: with nothing named, the deterministic arm; a remote one needs consent.
-    assert _site_configuration(REFERRAL, None, consent=False) in [
-        dict(c.providers) for c in CONFIGURATIONS if c.local
-    ]
+    assert _site_configuration(TRIAGE, None, consent=False) == LOCAL
     named = [f"{slot}={variant}" for slot, variant in REMOTE.items()]
     with pytest.raises(MendariError, match="--consent-remote"):
-        _site_configuration(REFERRAL, named, consent=False)
-    assert _site_configuration(REFERRAL, named, consent=True) == REMOTE
+        _site_configuration(TRIAGE, named, consent=False)
+    assert _site_configuration(TRIAGE, named, consent=True) == REMOTE
     unknown = _post(published, _request(site, configuration={**LOCAL, "checklist": "nope"}))
     assert unknown.status_code == 422
     partial = _post(published, _request(site, configuration=dict(list(LOCAL.items())[:1])))
@@ -226,7 +230,7 @@ def test_a_ticket_with_no_result_is_listed_as_unreported_and_an_expired_one_stay
     assert published.operator.ticket(expired["id"])["status"] == "expired"
     monkeypatch.setattr(sites, "TICKET_DAYS", 30)
     assert _post(published, _request(site)).status_code == 201  # an expired one is not live
-    listed = published.client.get(f"/v1/agents/{REFERRAL.id}/tickets").json()["tickets"]
+    listed = published.client.get(f"/v1/agents/{TRIAGE.id}/tickets").json()["tickets"]
     (group,) = listed
     assert group["site"] == site.id and group["site_name"] == "north-health (synthetic)"
     assert (group["reported"], group["unreported"], group["withdrawn"]) == (0, 2, 0)
@@ -294,17 +298,15 @@ def test_site_key_new_says_where_the_old_key_is_kept(
 def test_a_recall_or_a_scoreboard_signature_is_not_a_sites(
     published: Registry, tmp_path: Path
 ) -> None:
-    """A site key signing the same fields as a recall would (bare canonical JSON) or as the
-    grading key would (its own prefix) makes no site signature: the prefix and the format are
-    a site's own."""
+    """A site key signing the same fields as a recall would (bare canonical JSON) makes no site
+    signature: the prefix and the format are a site's own."""
     site = _site(published, tmp_path)
     record = _request(site)
     fields = {k: v for k, v in record.items() if k != "signature"}
     bare = json.dumps(fields, sort_keys=True, separators=(",", ":")).encode()
-    for message in (bare, scoreboard_signing.PREFIX + bare):
-        signed = {**record, "signature": base64.b64encode(site.key.sign(message)).decode()}
-        answer = _post(published, signed)
-        assert answer.status_code == 403 and "signature" in answer.text
+    signed = {**record, "signature": base64.b64encode(site.key.sign(bare)).decode()}
+    answer = _post(published, signed)
+    assert answer.status_code == 403 and "signature" in answer.text
     # And a ticket request is never a withdrawal: the format is signed.
     as_withdrawal = {**record, "format": site_signing.TICKET_WITHDRAWAL}
     assert not site_signing.signature_holds(as_withdrawal, site.key.public_key())
@@ -320,7 +322,7 @@ def test_a_ticket_request_is_read_to_8_kb_and_limited_per_address_and_key(
         "MENDARI_REGISTRY_RATE_LIMITS", "on,registry_ticket=4/h:4,registry_ticket_key=2/h:2"
     )
     with TestClient(create_registry_app(db_target)) as limited:
-        codes = [_post(published, _request(site, n=300 + i), limited).status_code for i in range(3)]
+        codes = [_post(published, _request(site, n=N + i), limited).status_code for i in range(3)]
         assert codes[:2] == [201, 409] and codes[2] == 429  # the key's own bucket
         unsigned = [_post(published, {"x": i}, limited).status_code for i in range(3)]
         assert unsigned[-1] == 429  # the address's, before any signature is read
@@ -335,11 +337,11 @@ def test_an_old_or_replayed_record_never_counts_against_the_sites_key(
     old = site.sign(
         site_signing.TICKET_REQUEST,
         {
-            "pack": {"id": REFERRAL.id, "version": REFERRAL.version, "digest": REFERRAL.digest},
+            "pack": {"id": TRIAGE.id, "version": TRIAGE.version, "digest": TRIAGE.digest},
             "configuration": LOCAL,
             "remote_consent": False,
             "commitment": site.commitment(b"x"),
-            "n": 300,
+            "n": N,
         },
         at="2026-01-01T00:00:00Z",
     )
@@ -358,7 +360,7 @@ def test_a_closed_sites_unreported_tickets_stay_listed(published: Registry, tmp_
     site = _site(published, tmp_path)
     assert _post(published, _request(site)).status_code == 201
     published.operator.close_site(site.id, org=None, by="o", reason="merged")
-    (group,) = published.client.get(f"/v1/agents/{REFERRAL.id}/tickets").json()["tickets"]
+    (group,) = published.client.get(f"/v1/agents/{TRIAGE.id}/tickets").json()["tickets"]
     assert (group["site"], group["site_status"], group["unreported"]) == (site.id, "closed", 1)
 
 
@@ -368,12 +370,8 @@ def test_the_tickets_of_a_pack_nobody_may_read_are_a_404(
     site = _site(published, tmp_path)
     assert _post(published, _request(site)).status_code == 201
     assert published.client.get("/v1/agents/mendari/no-such-pack/tickets").status_code == 404
-    with published.operator._db.session(exclusive=True) as db:  # its claim pending, planted
-        db.all(
-            "INSERT INTO hub_claims (namespace, org, claimed_by, created_at, status) "
-            "VALUES ('mendari', 'mendari', 'u', '2026-01-01T00:00:00+00:00', 'pending')"
-        )
-    hidden = published.client.get(f"/v1/agents/{REFERRAL.id}/tickets")
+    _plant_a_pending_claim(published)
+    hidden = published.client.get(f"/v1/agents/{TRIAGE.id}/tickets")
     assert hidden.status_code == 404 and site.id not in hidden.text
 
 
