@@ -205,7 +205,6 @@ def test_writing_keeps_each_reason_whose_result_did_not_change(
 # -- the scripted suites (LP-23l): run through Inferno's web app by scripts/inferno_session.py --
 
 SCRIPTED_JOBS = {
-    "crd-server": ("crd_server_v221", "davinci-crd-test-kit", "hl7.fhir.us.davinci-crd_2.2.1@"),
     "smart-client": ("smart_client_stu2_2", "smart-app-launch-test-kit", "hl7.fhir.uv."),
     "bulk-client": ("bulk_data_v200_client", "bulk-data-test-kit", "hl7.fhir.uv."),
 }

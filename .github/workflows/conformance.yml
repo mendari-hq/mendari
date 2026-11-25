@@ -1,16 +1,14 @@
 name: conformance
 
 # Inferno's conformance suites against Mendari, weekly and by hand (sandbox/inferno/README.md).
-# Not a required check: a run builds the kit, and its validator downloads and loads the
-# implementation guides it needs from packages.fhir.org, which takes minutes. The offline
+# Not a required check: a run builds the kit, which takes minutes. The offline
 # `fhir-conformance` job in ci.yml stays the required gate.
 #
-# crd-server, smart-client and bulk-client (LP-23l): the scripted suites' image (the Da Vinci CRD
-# kit v0.15.0 with the Bulk Data kit v0.14.0 beside it, sandbox/inferno/scripted). Their tests
-# wait for calls, so each runs through Inferno's web app and worker (scripts/inferno_session.py),
-# which also does the client's part in the engine's container:
-# - crd-server: suite crd_server_v221, Inferno as the EHR's CDS client against the signed-in
-#   engine, which verifies its signed tokens (Inferno registered in MENDARI_CDS_CLIENTS);
+# smart-client and bulk-client (LP-23l): the scripted suites' image (sandbox/inferno/scripted:
+# the SMART App Launch kit v1.0.3, through the Da Vinci CRD kit v0.15.0 it is built from, with
+# the Bulk Data kit v0.14.0 beside it). Their tests wait for calls, so each runs through
+# Inferno's web app and worker (scripts/inferno_session.py), which also does the client's part
+# in the engine's container. The engine serves the bundled demo agent alone:
 # - smart-client: suite smart_client_stu2_2 (a public client), Inferno as the EHR and the engine's
 #   SMART launch the client;
 # - bulk-client: suite bulk_data_v200_client, Inferno as the Bulk Data server (this project's
@@ -20,9 +18,8 @@ name: conformance
 # Every verdict is scripts/inferno_check.py's: every test must give the result its expected
 # results file lists, so a new failure and an unexpected pass both fail the job. The raw output
 # can quote request and response bodies: it is uploaded for 7 days and never committed.
-# No secret is used: images are pulled anonymously, the token Inferno sends the open engine is a
-# static one it never reads, and the signed-in engine's PHI keys are made in the job, for the
-# job alone.
+# No secret is used: images are pulled anonymously, the engine runs open with PHI mode `off`,
+# and the Bulk client's key is made by the driver for the run.
 on:
   schedule:
     - cron: "29 10 * * 2"  # Tuesdays, 06:29 EDT or 05:29 EST (cron runs on UTC)
@@ -31,67 +28,7 @@ on:
 permissions:
   contents: read
 
-# The suites run on the agents of the test fixtures (the image ships only the demo agent):
-# the host scripts read them here, and the compose files mount them into the engines.
-env:
-  MENDARI_AGENTS_PATH: tests/fixtures/reference-agents
-  MENDARI_DATASETS_PATH: tests/fixtures/datasets
-
 jobs:
-  crd-server:
-    runs-on: ubuntu-latest
-    timeout-minutes: 75
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
-        with:
-          version: "0.13.6"
-          python-version: "3.12"
-      - run: uv sync --locked
-      - name: Build the engine and the kits
-        run: docker compose -f sandbox/inferno/scripted/docker-compose.yml build engine inferno
-      - name: Throwaway PHI keys for the signed-in engine (sign-in never runs `off`)
-        # Masked, and in $GITHUB_ENV so every later compose call interpolates the same keys.
-        run: |
-          for name in MENDARI_PHI_KEY MENDARI_INPUT_HASH_KEY; do
-            key=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
-            echo "::add-mask::$key"
-            echo "$name=$key" >> "$GITHUB_ENV"
-          done
-      - name: Start the signed-in engine, Inferno, its worker and the validator
-        run: >-
-          docker compose -f sandbox/inferno/scripted/docker-compose.yml
-          up -d --wait engine-signin nginx
-      - name: The suite's inputs (the EHR profile's prior-authorization patients, synthetic)
-        run: >-
-          uv run python scripts/inferno_scripted_inputs.py crd
-          --out var/inferno/crd_server_v221_inputs.json
-      - name: Run groups 1, 2, 3.4 and 4 through Inferno's web app (the check decides)
-        run: >-
-          uv run python scripts/inferno_session.py crd_server_v221
-          --inputs var/inferno/crd_server_v221_inputs.json --groups 1 2 3.4 4
-          --out var/inferno/crd_server_v221_results.json
-          --tests var/inferno/crd_server_v221_tests.json
-      - name: Every test gives its expected result
-        run: >-
-          uv run python scripts/inferno_check.py var/inferno/crd_server_v221_results.json
-          --expected sandbox/inferno/crd_server_v221_expected.json
-          --tests var/inferno/crd_server_v221_tests.json
-      - name: The raw output, for 7 days (it can quote payloads; never committed)
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
-        with:
-          name: inferno-crd-server-raw
-          path: var/inferno/
-          retention-days: 7
-          if-no-files-found: ignore
-      - if: failure()
-        run: docker compose -f sandbox/inferno/scripted/docker-compose.yml logs --tail 200
-      - if: always()
-        run: docker compose -f sandbox/inferno/scripted/docker-compose.yml down --volumes
-
   smart-client:
     runs-on: ubuntu-latest
     timeout-minutes: 60

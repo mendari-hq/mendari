@@ -399,7 +399,6 @@ def test_every_ref_is_scanned_weekly_with_a_positive_control() -> None:
 # scripted suites' driver (scripts/inferno_session.py).
 SCRIPTED_COMPOSE = "sandbox/inferno/scripted/docker-compose.yml"
 CONFORMANCE_JOBS = {
-    "crd-server": (SCRIPTED_COMPOSE, "inferno_session.py", "crd_server_v221"),
     "smart-client": (SCRIPTED_COMPOSE, "inferno_session.py", "smart_client_stu2_2"),
     "bulk-client": (SCRIPTED_COMPOSE, "inferno_session.py", "bulk_data_v200_client"),
 }
@@ -442,27 +441,11 @@ def test_conformance_runs_weekly_or_by_hand_with_no_secret_and_commits_nothing()
             command = step.get("run", "")
             if "docker compose" in command:
                 assert f"docker compose -f {compose}" in command, (name, command)
-    for name in ("crd-server", "smart-client", "bulk-client"):  # the driver's status counts
+    for name in CONFORMANCE_JOBS:  # the driver's status counts
         (execute,) = [
             s for s in workflow["jobs"][name]["steps"] if "inferno_session.py" in s.get("run", "")
         ]
         assert "||" not in execute["run"], name
-
-
-def test_the_signed_in_engines_keys_are_made_in_the_job_for_the_job_alone() -> None:
-    """crd-server's engine signs in, which never runs PHI mode `off`: its two keys are made in
-    the job (os.urandom), masked, and handed to the later compose calls through $GITHUB_ENV, as
-    ci.yml's sandbox-e2e does; never a secret, never in the repository."""
-    steps = _workflow(ROOT / ".github" / "workflows" / "conformance.yml")["jobs"]["crd-server"][
-        "steps"
-    ]
-    (keys,) = [s for s in steps if "MENDARI_PHI_KEY" in s.get("run", "")]
-    assert "os.urandom(32)" in keys["run"] and 'echo "::add-mask::$key"' in keys["run"]
-    assert '>> "$GITHUB_ENV"' in keys["run"]
-    started = next(
-        i for i, s in enumerate(steps) if "up -d --wait engine-signin" in s.get("run", "")
-    )
-    assert steps.index(keys) < started
 
 
 # -- the FHIR packages the HL7 validator loads (DV-b) ---------------------------------------------

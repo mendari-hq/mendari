@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # The Inferno Da Vinci CRD test kit (Apache-2.0, inferno-framework/davinci-crd-test-kit) with the
 # Bulk Data test kit beside it, built by Mendari for its scripted conformance runs (LP-23l):
-# suites crd_server_v221, smart_client_stu2_2 (SMART 1.0.3, a CRD dependency) and
-# bulk_data_v200_client, on inferno_core 1.6.0. The DTR image (sandbox/inferno/Dockerfile) is
-# separate and unchanged. The kits publish no image and their own Dockerfiles pin nothing, so
-# this one pins everything it takes:
+# suites smart_client_stu2_2 (SMART 1.0.3, a CRD dependency) and bulk_data_v200_client, on
+# inferno_core 1.6.0. The CRD kit's own suite, crd_server_v221, is in the image too; no job
+# runs it. The kits publish no image and their own Dockerfiles pin nothing, so this one pins
+# everything it takes:
 # - the Ruby base image, by digest (the kits' Ruby, 3.3.6);
 # - the CRD kit's source, fetched by its commit SHA and checked against it;
 # - Bundler, downloaded and checked against its sha256 before it is installed;
