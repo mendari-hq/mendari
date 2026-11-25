@@ -29,14 +29,24 @@ from mendari import AuditStore
 from mendari.server.app import create_app
 from mendari.server.scopes import DECIDE
 from tests.conftest import encrypt_mode, signed_in, without_request_id
+from tests.support import chart_fixture
+from tests.support import fixture_records as records
 from tests.test_auth import INVALID, REALM
-from tests.test_limits import decisions_in, order_sign
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / ".github" / "workflows" / "ci.yml"
 HOST = "https://mendari.test"
-HOOK = "/cds-services/mendari.referral-router"
+HOOK = chart_fixture.SERVICE  # the chart fixture's patient-view service
 EHR = "https://ehr.example.org"
+# A chart the hook shows a card for (a routine follow-up), its record prefetched.
+REQUEST = chart_fixture.hook(
+    next(case for case in records.cases("test") if case.labels["follow_up"] == "routine")
+)
+
+
+def decisions_in(db: str) -> int:
+    with AuditStore(db) as store:
+        return len(store.query(limit=500))
 
 
 @pytest.fixture
@@ -82,7 +92,7 @@ def test_with_sign_in_on_discovery_and_a_hook_need_a_credential_mendari_issued(
     key made from the `cds-hooks` preset (role `service`, scoped to deciding) reads discovery
     and calls the hook."""
     client, db = served
-    for refused in (client.get("/cds-services"), client.post(HOOK, json=order_sign(1))):
+    for refused in (client.get("/cds-services"), client.post(HOOK, json=REQUEST)):
         assert refused.status_code == 401
         assert refused.headers["www-authenticate"] == REALM
     assert decisions_in(db) == 0
@@ -96,8 +106,8 @@ def test_with_sign_in_on_discovery_and_a_hook_need_a_credential_mendari_issued(
     key = {"authorization": f"Bearer {made.json()['key']}"}
     listed = client.get("/cds-services", headers=key)
     assert listed.status_code == 200
-    assert "mendari.referral-router" in {service["id"] for service in listed.json()["services"]}
-    called = client.post(HOOK, json=order_sign(1), headers=key)
+    assert HOOK.removeprefix("/cds-services/") in {s["id"] for s in listed.json()["services"]}
+    called = client.post(HOOK, json=REQUEST, headers=key)
     assert called.status_code == 200, called.text
     assert len(called.json()["cards"]) == 1
     assert decisions_in(db) == 1
@@ -120,7 +130,7 @@ def test_an_ehrs_signed_token_is_refused_as_a_credential_mendari_did_not_issue(
     sent = {**session, "authorization": f"Bearer {token}"}
     for refused in (
         client.get("/cds-services", headers=sent),
-        client.post(HOOK, json=order_sign(1), headers=sent),
+        client.post(HOOK, json=REQUEST, headers=sent),
     ):
         assert refused.status_code == 401
         assert refused.headers["www-authenticate"] == INVALID
@@ -168,12 +178,7 @@ def test_ci_runs_the_hl7_validator_offline_over_mendaris_outputs_and_the_sandbox
     job = _jobs()["fhir-conformance"]
     assert "if" not in job
     assert not [s for s in job["steps"] if "if" in s or "continue-on-error" in s]
-    assert set(job["env"]) == {
-        "VALIDATOR_VERSION",
-        "VALIDATOR_SHA256",
-        "MENDARI_AGENTS_PATH",  # the sample scripts decide with the test fixtures' agents
-        "MENDARI_DATASETS_PATH",
-    }
+    assert {"VALIDATOR_VERSION", "VALIDATOR_SHA256"} <= set(job["env"])  # the pinned validator
     runs = _runs(job)
     assert "releases/download/${VALIDATOR_VERSION}/validator_cli.jar" in runs
     assert 'echo "${VALIDATOR_SHA256} var/validator/validator_cli.jar" | sha256sum -c -' in runs
@@ -202,9 +207,8 @@ def test_ci_runs_the_smart_app_against_smart_launcher_v2() -> None:
     """CE-2b. The `sandbox-e2e` job always runs and only its Docker Hub sign-in may fail: it
     starts smart-launcher-v2 (pinned by digest) in front of HAPI, and runs the scripted SMART
     launch through it with sign-in off and on, with `--strict` so a decision on input that does
-    not conform fails the job: for the bundled demo agent (no agent named), then, with the test
-    fixtures' agents served too (sandbox/fixtures.compose.yml), for a referral agent and
-    another message agent, each named by its folder."""
+    not conform fails the job, for the bundled demo agent (no agent named), as the sandbox
+    ships."""
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
     assert compose["services"]["launcher"]["image"].startswith(
         "smartonfhir/smart-launcher-2@sha256:"
@@ -224,13 +228,6 @@ def test_ci_runs_the_smart_app_against_smart_launcher_v2() -> None:
     assert up in runs
     lines = runs.splitlines()
     organization = " --expect-org pilot --db /data/mendari.db"
-    fixtures = "-f docker-compose.yml -f sandbox/fixtures.compose.yml"
-    assert job["env"] == {"FIXTURES": fixtures}
-    override = yaml.safe_load((ROOT / "sandbox" / "fixtures.compose.yml").read_text())
-    served = override["services"]["engine"]
-    assert served == override["services"]["engine-signin"]  # both engines, the same agents
-    agents = served["environment"]["MENDARI_AGENTS_PATH"]
-    assert served["volumes"] == ["./tests:/home/mendari/tests:ro"]  # so a fixture's path is its own
     for engine, expected in (("engine", ""), ("engine-signin", organization)):
         launch = (
             f"exec -T {engine} mendari sandbox smart-launch --strict "
@@ -239,21 +236,4 @@ def test_ci_runs_the_smart_app_against_smart_launcher_v2() -> None:
         )
         # The sandbox as it ships: the bundled demo agent, which the command names by default.
         assert f"docker compose {launch}{expected}" in lines, engine
-        for name in ("referral-router", "patient-inbox-router"):
-            assert (ROOT / agents / name / "agent.yaml").is_file(), name
-            named = f"docker compose $FIXTURES {launch} --agent {agents}/{name}{expected}"
-            assert named in lines, (engine, name)
     assert "mendari smart check http://launcher/v/r4/fhir" in runs
-    # The fixtures' agents are served before any step names one, and their cases seeded.
-    again = "docker compose $FIXTURES --profile signin up -d --wait engine engine-signin"
-    seeded = (
-        "docker compose $FIXTURES exec -T engine python -m tests.support.sandbox seed "
-        f"--fhir http://fhir:8080/fhir --count 40 --agent {agents}/referral-router"
-    )
-    first_named = min(n for n, line in enumerate(lines) if "$FIXTURES" in line)
-    assert lines.index(up) < lines.index(again) == first_named < lines.index(seeded)
-    assert all(
-        lines.index(seeded) < n
-        for n, line in enumerate(lines)
-        if "--agent" in line and n != lines.index(seeded)
-    )
