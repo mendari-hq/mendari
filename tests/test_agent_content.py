@@ -556,12 +556,56 @@ def _agent_block(value: Any) -> Callable[[Path], None]:
     return edit
 
 
+def _run_lifted(agent: Path) -> None:
+    """The shipped benchmark with its run's id, time and latency at its top level and no `run`
+    block: a shape no release writes, so not a report the card reads."""
+    path = agent / "evals" / "benchmark.json"
+    data = json.loads(path.read_text())
+    run = data.pop("run")
+    data |= {key: run[key] for key in ("id", "created_at", "latency_ms")}
+    path.write_text(json.dumps(data))
+
+
+def _sweep_uncounted(agent: Path) -> None:
+    """The shipped benchmark with its threshold sweep's rows without the cases each is of
+    (`scored`, and `chosen` at or above its threshold), which every row a release writes holds."""
+    path = agent / "evals" / "benchmark.json"
+    data = json.loads(path.read_text())
+    for row in data["threshold_sweep"]:
+        del row["chosen"], row["scored"]
+    path.write_text(json.dumps(data))
+
+
+def _subgroups_unlabelled(agent: Path) -> None:
+    """The shipped benchmark with its subgroups without their labelled members, which each
+    subgroup's accuracy is over and every subgroup a release writes holds."""
+    path = agent / "evals" / "benchmark.json"
+    data = json.loads(path.read_text())
+    for values in data["subgroups"].values():
+        for members in values.values():
+            del members["labelled"]
+    path.write_text(json.dumps(data))
+
+
+def _false_automation_uncounted(agent: Path) -> None:
+    """The shipped benchmark without its count of false automation (`proportions`), which
+    every result a release writes stores beside the rate."""
+    path = agent / "evals" / "benchmark.json"
+    data = json.loads(path.read_text())
+    del data["proportions"]["false_automation"]
+    path.write_text(json.dumps(data))
+
+
 @pytest.mark.parametrize(
     ("edit", "absent"),
     [
         (_write_eval("benchmark.json", "{"), "benchmark"),
         (_agent_block(...), "benchmark"),
         (_agent_block(5), "benchmark"),
+        (_run_lifted, "benchmark"),
+        (_sweep_uncounted, "benchmark"),
+        (_subgroups_unlabelled, "benchmark"),
+        (_false_automation_uncounted, "benchmark"),
         (_write_eval("benchmark.json", '{"primary": NaN}'), "benchmark"),
         (_write_eval("benchmark.json", "[]"), "benchmark"),
         (_write_eval("benchmark.json", '{"primary": "specialty"}'), "benchmark"),
@@ -576,6 +620,10 @@ def _agent_block(value: Any) -> Callable[[Path], None]:
         "benchmark-not-json",
         "benchmark-without-agent",
         "benchmark-agent-not-object",
+        "benchmark-without-run",
+        "benchmark-sweep-without-counts",
+        "benchmark-subgroups-without-labelled",
+        "benchmark-without-false-automation-count",
         "benchmark-nan",
         "benchmark-list",
         "benchmark-shape",

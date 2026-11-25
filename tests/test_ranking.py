@@ -46,6 +46,7 @@ def row(config: str, **changes: Any) -> dict[str, Any]:
         "ece": 0.02,
         "latency_p50_ms": 1.0,
         "errors": 0,
+        "questions": {},
     }
     return {**base, **changes}
 

@@ -25,7 +25,7 @@ from typing import Any
 from mendari.core.agent import Agent
 from mendari.evals import figures, ranking, stats
 from mendari.evals.render import INTERVALS, evidence, num, shown
-from mendari.evals.result import MIN_POSITIVES, counted, false_automation, normalize
+from mendari.evals.result import MIN_POSITIVES, counted, false_automation
 
 FORMAT = "mendari.leaderboard/1"
 PATH = "evals/leaderboard.json"
@@ -57,7 +57,6 @@ def config_label(providers: Mapping[str, Mapping[str, Any]]) -> str:
 
 
 def row(report: Mapping[str, Any]) -> dict[str, Any]:
-    report = normalize(report)
     run = report["run"]
     primary = report["primary"]
     question = report["questions"].get(primary, {})
@@ -114,7 +113,7 @@ def build(
     rows = {_row_key(r): r for r in (existing or {}).get("rows", []) if "config" in r}
     for report in reports:
         if report["agent"]["id"] != agent.id:
-            named = normalize(report)["run"].get("id")
+            named = report["run"].get("id")
             raise ValueError(f"report {named} is for {report['agent']['id']}, not {agent.id}")
         new = row(report)
         rows[_row_key(new)] = new
@@ -268,24 +267,21 @@ def _question_table(
     rows: list[dict[str, Any]], config: Callable[[Mapping[str, Any]], str]
 ) -> list[str]:
     """Accuracy and ECE of the other questions, for those whose results differ between the
-    configurations (the ones the providers being compared actually answer). A row without
-    them is left out."""
-    rows = [item for item in rows if "questions" in item]
-    keys = sorted({key for item in rows for key in item.get("questions", {})})
+    configurations (the ones the providers being compared actually answer)."""
+    keys = sorted({key for item in rows for key in item["questions"]})
     varying = [
         key
         for key in keys
-        if len({json.dumps(item.get("questions", {}).get(key), sort_keys=True) for item in rows})
-        > 1
+        if len({json.dumps(item["questions"].get(key), sort_keys=True) for item in rows}) > 1
     ]
     if not varying:
         return []
 
     def cell(item: Mapping[str, Any], key: str) -> str:
-        metrics = item.get("questions", {}).get(key)
+        metrics = item["questions"].get(key)
         if metrics is None:
             return "n/a"
-        return f"{shown(counted(metrics['accuracy'], metrics.get('n')))} / {num(metrics['ece'])}"
+        return f"{shown(counted(metrics['accuracy'], metrics['n']))} / {num(metrics['ece'])}"
 
     return [
         "Other questions (accuracy / ECE):",

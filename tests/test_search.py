@@ -413,6 +413,10 @@ def test_a_cursor_round_trips_and_is_revalidated() -> None:
         (TASK, {"t": "2026-10-01T14:00:00.004+00:00"}),  # a field missing
         (TASK, {"t": "2026-10-01T14:00:00.004+00:00", "id": "x", "org": "b"}),  # one more
         (TASK, {"t": "yesterday", "id": "x"}),
+        # Not the stored format: every decision's time is to the millisecond, in UTC.
+        (TASK, {"t": "2026-10-01T14:00:00+00:00", "id": "x"}),
+        (TASK, {"t": "2026-10-01T14:00:00.004Z", "id": "x"}),
+        (TASK, {"t": "2026-10-01T14:00:00.004123+00:00", "id": "x"}),
         (TASK, {"t": "2026-10-01T14:00:00.004+00:00", "id": "x' OR 1=1 --"}),
         (EVENTS, {"seq": -1}),
         (EVENTS, {"seq": True}),

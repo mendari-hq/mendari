@@ -67,11 +67,13 @@ def test_the_preflight_names_each_organization_in_use_without_a_record(
     store.hold_automation(
         org="default", agent_id=None, agent_digest=None, reason="test", set_by="Ada"
     )
-    with store._db.session(exclusive=True) as db:  # an evaluation report from before tenancy
-        db.all(
-            "INSERT INTO eval_reports (id, created_at, agent_id, dataset, report) "
-            "VALUES ('r1', '2026-10-07T00:00:00+00:00', 'p', 'd', '{}')"
-        )
+    store.save_report(  # saved in open mode: the default organization's
+        {
+            "run": {"id": "r1", "created_at": "2026-10-07T00:00:00+00:00"},
+            "agent": {"id": "p"},
+            "dataset": {"name": "d"},
+        }
+    )
     events = store.verify()["events"]
     code, out, err = run(capsys, "access", "check", "--db", db_target)
     report = json.loads(out)

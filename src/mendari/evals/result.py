@@ -288,55 +288,8 @@ def counted(rate: Any, n: Any) -> stats.Proportion | None:
     return stats.proportion(k, n)
 
 
-def false_automation(report: Mapping[str, Any]) -> stats.Proportion | None:
+def false_automation(report: Mapping[str, Any]) -> stats.Proportion:
     """Automated with a wrong recommendation, over every case labelled for the primary question:
-    the count the report stores (`proportions`), else worked out from its rate."""
-    stored = (report.get("proportions") or {}).get("false_automation")
-    if stored is not None:
-        return stats.proportion(stored["k"], stored["n"])
-    automation = report["decisions"]["automation"]
-    wrong = counted(automation["false_automation_rate"], automation["n"])
-    labelled = report["questions"].get(report["primary"], {}).get("n")
-    return None if wrong is None or labelled is None else stats.proportion(wrong.k, labelled)
-
-
-def sweep(report: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """The threshold sweep with the counts each row is of (`scored` cases, `chosen` at or above
-    the threshold), as the report stores them; for a row that does not, `scored` is the primary
-    question's calibration bins, which hold exactly the cases the sweep is over, and `chosen`
-    follows from the coverage."""
-    question = report["questions"].get(report["primary"]) or {}
-    bins = (question.get("calibration") or {}).get("bins")
-    scored = sum(b["n"] for b in bins) if bins is not None else None
-    rows = []
-    for row in report.get("threshold_sweep", []):
-        if "chosen" not in row:
-            coverage = row.get("coverage")
-            if scored == 0:  # nothing scored: nothing at or above any threshold
-                chosen: int | None = 0
-            else:
-                chosen = None if scored is None or coverage is None else round(coverage * scored)
-            row = {**row, "scored": scored, "chosen": chosen}
-        rows.append(dict(row))
-    return rows
-
-
-def subgroup_labelled(report: Mapping[str, Any], members: Mapping[str, Any]) -> int | None:
-    """How many of a subgroup's members are labelled for the primary question, which its
-    accuracy is over, as the report stores it (`labelled`); else known only when every case is
-    labelled."""
-    if "labelled" in members:
-        return int(members["labelled"])
-    question = report["questions"].get(report["primary"]) or {}
-    every = question.get("n") is not None and question.get("n") == report["dataset"].get("n")
-    return int(members["n"]) if every else None
-
-
-def normalize(report: Mapping[str, Any]) -> dict[str, Any]:
-    """A report with its id, created_at and latency_ms in a `run` block, where `mendari.eval/1`
-    keeps them; a report that has its `run` block is returned as it is."""
-    data = dict(report)
-    if "run" in data:
-        return data
-    run = {key: data.pop(key) for key in ("id", "created_at", "latency_ms") if key in data}
-    return {**data, "run": run}
+    the count the report stores (`proportions`)."""
+    stored = report["proportions"]["false_automation"]
+    return stats.proportion(stored["k"], stored["n"])

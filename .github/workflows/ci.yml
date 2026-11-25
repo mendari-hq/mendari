@@ -436,7 +436,7 @@ jobs:
           mkdir -p /tmp/zap && chmod 777 /tmp/zap
           export MENDARI_PHI_KEY=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
           export MENDARI_INPUT_HASH_KEY=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
-          sid=$(uv run python -c "import secrets, time; from mendari.core.audit import AuditStore; sid = secrets.token_urlsafe(32); until = int(time.time()) + 7200; AuditStore('/tmp/zap/scan.db').smart_put(sid, 'user', {'sub': 'zap', 'name': 'zap', 'claims': {'roles': ['admin']}, 'org': 'default', 'absolute_at': until}, until); print(sid)")
+          sid=$(uv run python -c "import os, secrets, time; from mendari.core.audit import AuditStore; iss = os.environ['MENDARI_OIDC_ISSUER']; sid = secrets.token_urlsafe(32); until = int(time.time()) + 7200; AuditStore('/tmp/zap/scan.db').smart_put(sid, 'user', {'iss': iss, 'sub': 'zap', 'name': 'zap', 'actor': f'{iss}|zap', 'claims': {'roles': ['admin']}, 'org': 'default', 'absolute_at': until}, until); print(sid)")
           echo "::add-mask::$sid"
           echo "ZAP_SESSION=$sid" >> "$GITHUB_ENV"
           .venv/bin/mendari serve --port 8000 --db /tmp/zap/scan.db > /tmp/zap/engine.log 2>&1 &

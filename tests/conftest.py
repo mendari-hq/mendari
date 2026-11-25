@@ -633,15 +633,16 @@ def signed_in(
     store: AuditStore, *, role: str, org: str = "default", host: str = "mendari.test"
 ) -> dict[str, str]:
     """Request headers for a person signed in with `role` in `org` on `host`: a session row as
-    `/auth/callback` makes one (the chain names them `<role>@<org>.example.org`, a verified
-    email), under the cookie name that host uses. Review is a person's (keys are viewer or
-    service)."""
+    `/auth/callback` makes one (of the issuer the server is given, `MENDARI_OIDC_ISSUER`; the
+    chain names them `<role>@<org>.example.org`, a verified email), under the cookie name that
+    host uses. Review is a person's (keys are viewer or service)."""
     sid = secrets.token_urlsafe(32)
     email = f"{role}@{org}.example.org"
     claims = {"roles": [role], "email": email, "email_verified": True}
-    row = {"sub": f"{org}-{role}", "name": f"{org} {role}", "actor": email, "claims": claims}
+    issuer = os.environ.get("MENDARI_OIDC_ISSUER", "").strip().rstrip("/")
+    row = {"iss": issuer, "sub": f"{org}-{role}", "name": f"{org} {role}", "actor": email}
     session, expires_at = sessions.begin(
-        {**row, "roles": [role], "org": org}, int(time.time()), sessions.Lifetime()
+        {**row, "claims": claims, "org": org}, int(time.time()), sessions.Lifetime()
     )
     store.smart_put(sid, "user", session, expires_at)
     return {"cookie": f"{sessions.cookie_name(sessions.SESSION, host)}={sid}", **DASHBOARD}

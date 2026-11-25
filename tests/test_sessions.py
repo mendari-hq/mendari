@@ -184,6 +184,31 @@ def test_a_row_without_an_absolute_limit_has_ended(server: TestClient, db_target
     assert expiry(db_target, "no-limit") == now + 7 * HOUR  # not moved, never resumed
 
 
+@pytest.mark.parametrize("field", ["iss", "claims", "actor"])
+def test_a_session_without_what_sign_in_keeps_is_not_read_another_way(
+    db_target: str, monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    """A person's session keeps their issuer, the claims their roles come from and the name the
+    chain gives them, as `/auth/callback` writes them. A row without one, written past the
+    store, is not read as of the issuer configured now, as a person with no role or under a
+    name made up here: the server answers its error, and it signs nobody in."""
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
+    claims = {"roles": ["reviewer"], "email": "kim@example.org", "email_verified": True}
+    row: dict[str, Any] = {"iss": IDP, "sub": "u1", "name": "Nurse Kim", "actor": "kim@example.org"}
+    row |= {"claims": claims, "org": "default"}
+    del row[field]
+    session, expires_at = sessions.begin(row, int(time.time()), sessions.Lifetime())
+    with AuditStore(db_target) as store:
+        store.smart_put("partial", "user", session, expires_at)
+    cookie = {"cookie": "__Host-mendari_session=partial", **DASHBOARD}
+    app = create_app(db_path=db_target)
+    with TestClient(app, base_url=HTTPS, raise_server_exceptions=False) as client:
+        answer = client.get("/api/audit", headers=cookie)
+    assert (answer.status_code, answer.json()["error"]) == (500, "InternalError")
+
+
 def test_the_limits_are_settings_bounded_at_startup(
     tmp_path: Path,
     idp: FakeIdp,

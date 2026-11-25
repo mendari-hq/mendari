@@ -315,7 +315,7 @@ def build(
     if dataset.get("limit") is not None:
         raise MendariError("a published evaluation covers the whole dataset: drop --limit")
     report = run.report
-    ran = report.get("run") or {}
+    ran = report["run"]
     latency = ran.get("latency_ms") or {}
     cost = (report.get("cost") or {}).get("per_decision_usd")
     fields = {
@@ -434,8 +434,6 @@ class EvaluationStore:
     def revoked_keys(self, namespace: str | None = None) -> set[str]:
         """The namespace keys revoked (`RegistryStore.revoke_key`), of one namespace or all."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_key_revocations"):
-                return set()
             if namespace is None:
                 rows = db.all("SELECT key_id FROM hub_key_revocations")
             else:
@@ -635,8 +633,6 @@ class EvaluationStore:
 
     def _evaluation_row(self, evaluation_key: str) -> dict[str, Any] | None:
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_evaluations"):
-                return None
             return db.one("SELECT * FROM hub_evaluations WHERE id = ?", (evaluation_key,))
 
     def _archived(self, namespace: str, found: Mapping[str, Any], dest: Path) -> None:
@@ -700,8 +696,6 @@ class EvaluationStore:
     ) -> tuple[list[dict[str, Any]], int]:
         """A version's live rows, by configuration and dataset, and how many it superseded."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_evaluations"):
-                return [], 0
             rows = db.all(
                 "SELECT * FROM hub_evaluations WHERE namespace = ? AND name = ? AND "
                 "version = ? AND status = 'live' ORDER BY configuration, dataset, id",
@@ -747,8 +741,6 @@ class EvaluationStore:
     def evaluated_versions(self, namespace: str, name: str) -> set[str]:
         """The versions of an agent that hold a live evaluation."""
         with self._db.session(exclusive=False) as db:
-            if not db.columns("hub_evaluations"):
-                return set()
             rows = db.all(
                 "SELECT DISTINCT version FROM hub_evaluations WHERE namespace = ? AND name = ? "
                 "AND status = 'live'",

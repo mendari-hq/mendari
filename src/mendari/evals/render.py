@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mendari.evals import figures, stats
-from mendari.evals.result import MIN_POSITIVES, counted, false_automation, normalize
+from mendari.evals.result import MIN_POSITIVES, counted, false_automation
 
 
 def pct(value: float | None, digits: int = 1) -> str:
@@ -98,8 +98,7 @@ def confidence_rows(report: Mapping[str, Any]) -> list[tuple[str, str]]:
     """Each model variant of a run and whether its confidence is calibrated, in one clause
     (`evals/confidence.py`: "not calibrated", or what it was calibrated on); none for a run
     without a model variant or without the block."""
-    run = report.get("run")
-    block = run.get("calibration") if isinstance(run, Mapping) else None
+    block = report["run"].get("calibration")
     summary = block.get("summary") if isinstance(block, Mapping) else None
     if not isinstance(summary, list):
         return []
@@ -155,7 +154,7 @@ def report_text(report: dict[str, Any]) -> str:
             + f" {shown(stats.proportion(item['detected'], item['n']))} detected, "
             f"{item['auto_missed']} automated{evidence(item['n'])}"
         )
-    latency = normalize(report)["run"].get("latency_ms") or {"p50": None, "p95": None}
+    latency = report["run"].get("latency_ms") or {"p50": None, "p95": None}
     cost = report["cost"]
     lines += [
         "Latency".ljust(26) + f"p50 {num(latency['p50'], 2)} ms   p95 {num(latency['p95'], 2)} ms",

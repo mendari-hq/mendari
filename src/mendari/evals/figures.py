@@ -18,14 +18,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from mendari.evals import ranking, result, stats
-from mendari.evals.result import (
-    MAX_N,
-    MIN_POSITIVES,
-    false_automation,
-    normalize,
-    subgroup_labelled,
-    sweep,
-)
+from mendari.evals.result import MAX_N, MIN_POSITIVES, false_automation
 
 FORMAT = "mendari.figures/1"
 OUTCOMES = ("AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK")
@@ -83,10 +76,9 @@ def critical(item: Mapping[str, Any]) -> dict[str, Any]:
 # -- an evaluation report -----------------------------------------------------------------------
 
 
-def report(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Every share of cases in a report (either format), each over the cases the card and the
-    command line show it over. Raises on a report that is not one."""
-    r = normalize(data)
+def report(r: Mapping[str, Any]) -> dict[str, Any]:
+    """Every share of cases in a report, each over the cases the card and the command line show
+    it over. Raises on a report that is not one."""
     primary = r["primary"]
     q = r["questions"].get(primary)
     d = r["decisions"]
@@ -100,9 +92,7 @@ def report(data: Mapping[str, Any]) -> dict[str, Any]:
         "accuracy": counted(q["accuracy"], q["n"]) if q else None,
         "outcomes": {o: of(counts.get(o, 0), total) for o in OUTCOMES},
         "automated_correct": counted(automation["accuracy"], automation["n"]),
-        "false_automation": None
-        if labelled_wrong is None
-        else of(labelled_wrong.k, labelled_wrong.n),
+        "false_automation": of(labelled_wrong.k, labelled_wrong.n),
         "expected_override": counted(d["review"]["expected_override_rate"], d["review"].get("n")),
         "critical": [critical(item) for item in d["critical"]],
         "per_label": {},
@@ -127,16 +117,14 @@ def report(data: Mapping[str, Any]) -> dict[str, Any]:
         out["sweep"] = [
             {
                 "automated": maybe(row["chosen"], row["scored"]),
-                "correct": None
-                if row["chosen"] is None
-                else maybe(row["chosen"] - row["errors"], row["chosen"]),
+                "correct": maybe(row["chosen"] - row["errors"], row["chosen"]),
             }
-            for row in sweep(r)
+            for row in r["threshold_sweep"]
         ]
     for attribute, values in r["subgroups"].items():
         out["subgroups"][attribute] = {
             value: {
-                "accuracy": counted(m["accuracy"], subgroup_labelled(r, m)),
+                "accuracy": counted(m["accuracy"], m["labelled"]),
                 "automation": counted(m["auto_rate"], m["n"]),
                 "abstention": counted(m["abstention_rate"], m["n"]),
             }
@@ -222,9 +210,9 @@ def site(data: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def comparison(c: Mapping[str, Any]) -> dict[str, Any] | None:
-    """A local validation's figures: each side's accuracy and each finding's two figures. A
-    finding stored before its counts were (LP-10b) shows its benchmark side as n/a; its local
-    side is over the cases the finding is about where that is exact."""
+    """A local validation's figures: each side's accuracy and each finding's two figures, over
+    the cases the comparison states they are of (`baseline_n`, `local_n`): the benchmark's side
+    is n/a where the benchmark does not say."""
     if c.get("status") == "unknown":
         return None
     base, local = c["baseline"], c["local"]
@@ -241,18 +229,16 @@ def comparison(c: Mapping[str, Any]) -> dict[str, Any] | None:
         elif kind == "calibration":
             findings.append(None)  # an ECE, not a share of cases
         else:
-            exact = kind in ("label_recall", "false_automation")  # `n` is their local count
-            local_n = f.get("local_n", f["n"] if exact else None)
             findings.append(
                 {
-                    "baseline": counted(f["baseline"], f.get("baseline_n")),
-                    "local": counted(f["local"], local_n),
+                    "baseline": counted(f["baseline"], f["baseline_n"]),
+                    "local": counted(f["local"], f["local_n"]),
                     "overall": f.get("baseline_scope") == "overall",
                 }
             )
     return {
-        "baseline": counted(base["accuracy"], base.get("n")),
-        "local": counted(local["accuracy"], local.get("n")),
+        "baseline": counted(base["accuracy"], base["n"]),
+        "local": counted(local["accuracy"], local["n"]),
         "findings": findings,
     }
 
@@ -317,10 +303,7 @@ def _row(row: Mapping[str, Any]) -> dict[str, Any]:
         # Each critical figure says its label when the agent has several, as the card does
         # (`leaderboard.critical_text`), whether or not they all have positives here.
         "critical_named": len(row["critical"]) > 1,
-        "questions": {
-            key: counted(m.get("accuracy"), m.get("n"))
-            for key, m in (row.get("questions") or {}).items()
-        },
+        "questions": {key: counted(m["accuracy"], m["n"]) for key, m in row["questions"].items()},
     }
 
 
@@ -354,7 +337,7 @@ def _check(row: Any) -> None:
     if cost is not None and (isinstance(cost, bool) or not isinstance(cost, int | float)):
         raise TypeError("a row's cost is a number")
     questions = row.get("questions")
-    if questions is not None and not (
+    if not (
         isinstance(questions, Mapping) and all(isinstance(m, Mapping) for m in questions.values())
     ):
         raise TypeError("a row's questions are objects")

@@ -15,13 +15,7 @@ from mendari.core.policy import GATE_TEXT, gate_of
 from mendari.core.spec import AgentManifest, Condition, Question
 from mendari.evals import leaderboard, operating_point, ranking, stats
 from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
-from mendari.evals.result import (
-    counted,
-    false_automation,
-    normalize,
-    subgroup_labelled,
-    sweep,
-)
+from mendari.evals.result import counted, false_automation
 
 RISK_NAMES = {
     0: "administrative",
@@ -59,8 +53,6 @@ def read_benchmark(agent: Agent) -> tuple[dict[str, Any] | None, str | None]:
     report, problem = agent.attestation_json(relative)
     if report is None:
         return None, problem
-    if isinstance(report, dict):
-        report = normalize(report)  # either format; v1's time and latency in its run block
     return _shown(report)
 
 
@@ -536,7 +528,7 @@ def _attested_benchmark(agent: Agent, given: Attested) -> tuple[dict[str, Any] |
         return read_benchmark(agent)
     if given is None:
         return None, None
-    return _shown(normalize(dict(given)))
+    return _shown(dict(given))
 
 
 def _attested_leaderboard(
@@ -677,9 +669,9 @@ def _validation(report: dict[str, Any]) -> list[str]:
     ]
     for attribute, values in report["subgroups"].items():
         for value, m in values.items():
-            labelled = subgroup_labelled(report, m)
             rows.append(
-                f"| {attribute}={value} | {m['n']} | {shown(counted(m['accuracy'], labelled))} "
+                f"| {attribute}={value} | {m['n']} "
+                f"| {shown(counted(m['accuracy'], m['labelled']))} "
                 f"| {shown(counted(m['auto_rate'], m['n']))} "
                 f"| {shown(counted(m['abstention_rate'], m['n']))} |"
             )
@@ -702,10 +694,10 @@ def _validation(report: dict[str, Any]) -> list[str]:
         "| Threshold | Would be automated | Of those, correct |",
         "|---|---|---|",
     ]
-    for row in sweep(report):
-        scored, chosen = row["scored"], row["chosen"]
-        automated = None if scored is None else stats.proportion(chosen, scored)
-        correct = None if chosen is None else stats.proportion(chosen - row["errors"], chosen)
+    for row in report["threshold_sweep"]:
+        chosen = row["chosen"]
+        automated = stats.proportion(chosen, row["scored"])
+        correct = stats.proportion(chosen - row["errors"], chosen)
         rows.append(f"| {row['threshold']:.2f} | {shown(automated)} | {shown(correct)} |")
     return rows
 
@@ -721,8 +713,6 @@ def _operating_point(report: Mapping[str, Any]) -> list[str]:
         if not isinstance(report["run"].get("operating_point"), Mapping):
             return []
         point = operating_point.of_report(report)
-        if point is None:
-            return []
         automated = point["automated"]
         rows = [
             "",

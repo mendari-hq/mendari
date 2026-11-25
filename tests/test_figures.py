@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -124,6 +124,42 @@ def test_report_figures_are_the_ones_the_card_shows(name: str, tmp_path: Path) -
         row(f"{t['threshold']:.2f}", shown(f["automated"]), shown(f["correct"]))
 
 
+def _sweep_uncounted(report: dict[str, Any]) -> None:
+    for row in report["threshold_sweep"]:
+        del row["chosen"], row["scored"]
+
+
+def _subgroups_unlabelled(report: dict[str, Any]) -> None:
+    for values in report["subgroups"].values():
+        for members in values.values():
+            del members["labelled"]
+
+
+def _false_automation_uncounted(report: dict[str, Any]) -> None:
+    del report["proportions"]["false_automation"]
+
+
+@pytest.mark.parametrize(
+    "spoil",
+    [_sweep_uncounted, _subgroups_unlabelled, _false_automation_uncounted],
+    ids=["sweep", "subgroups", "false-automation"],
+)
+def test_a_report_without_the_counts_its_figures_are_of_serves_none(
+    spoil: Callable[[dict[str, Any]], None], tmp_path: Path
+) -> None:
+    """Every report a release writes holds the cases each figure is of: a sweep row its `scored`
+    and its `chosen` at or above the threshold, a subgroup its `labelled` members, false
+    automation its count (`proportions`). One without them is not read another way (from a
+    row's coverage, a subgroup's size, the rate over the automated cases): no figure is served
+    for it (n/a on the page)."""
+    report = benchmark(published(TRIAGE_DIR, tmp_path))
+    assert report is not None
+    spoil(report)
+    with pytest.raises(KeyError):
+        figures.report(report)
+    assert figures.guarded(lambda: figures.report(report)) is None
+
+
 def test_a_rate_beyond_any_share_is_never_multiplied() -> None:
     """A report can be someone else's file: 1e308 x 600 is infinite, and rounding it raised,
     which made every registry read of an agent, and search, a server error."""
@@ -141,7 +177,8 @@ def test_a_rate_beyond_any_share_is_never_multiplied() -> None:
 
 
 def test_a_registry_leaderboard_too_large_to_work_out_on_every_read_is_none() -> None:
-    rows = [{"config": "a", "dataset": "d", "n": i + 1, "critical": []} for i in range(16500)]
+    row = {"config": "a", "dataset": "d", "critical": [], "questions": {}}
+    rows = [{**row, "n": i + 1} for i in range(16500)]
     started = time.monotonic()
     served = figures.registry({"leaderboard": {"rows": rows}, "digest": None, "version": "1"})
     assert served["leaderboard"] is None and time.monotonic() - started < 0.2
@@ -159,22 +196,25 @@ def test_comparison_figures_say_what_they_are_of() -> None:
             {"kind": "calibration", "local": 0.2, "baseline": 0.02, "n": 300},
             {"kind": "subgroup", "baseline": 0.99, "local": 0.5, "n": 40, "local_n": 40,
              "baseline_n": 600, "baseline_scope": "overall"},
-            # Stored before LP-10b: no counts. Recall's `n` is its local support, a subgroup's
-            # `n` its members (not its labelled ones), so that local side stays n/a.
-            {"kind": "label_recall", "baseline": 1.0, "local": 0.5, "n": 20},
-            {"kind": "subgroup", "baseline": 1.0, "local": 0.5, "n": 20},
+            # A benchmark that does not say how many cases its recall is of: n/a on its side.
+            {"kind": "label_recall", "baseline": 1.0, "local": 0.5, "n": 20, "local_n": 20,
+             "baseline_n": None},
         ],
     }  # fmt: skip
     worked = figures.comparison(comparison)
     assert worked is not None
     assert shown(worked["baseline"]) == shown(figures.of(594, 600))
-    critical, calibration, overall, recall, subgroup = worked["findings"]
+    critical, calibration, overall, recall = worked["findings"]
     assert critical == {"automated": figures.of(2, 20), "insufficient_evidence": True}
     assert calibration is None
     assert overall["overall"] is True and overall["local"] == figures.of(20, 40)
     assert recall["baseline"] is None and recall["local"] == figures.of(10, 20)
-    assert subgroup["local"] is None
     assert figures.comparison({"status": "unknown", "reason": "x", "findings": []}) is None
+    # A finding holds the counts its figures are of: one without them is not read from its `n`.
+    for kind in ("label_recall", "subgroup", "false_automation"):
+        uncounted = {"kind": kind, "baseline": 1.0, "local": 0.5, "n": 20}
+        with pytest.raises(KeyError):
+            figures.comparison({**comparison, "findings": [uncounted]})
 
 
 def rows_on(digest: str, sha: str = "d" * 64) -> list[dict[str, Any]]:
@@ -182,7 +222,7 @@ def rows_on(digest: str, sha: str = "d" * 64) -> list[dict[str, Any]]:
         "dataset": "test", "dataset_sha256": sha, "n": 600, "agent_digest": digest,
         "agent_version": "1.0.0", "auto_rate": 0.0, "cost_per_decision_usd": 0.0, "errors": 0,
         "macro_f1": 0.9, "ece": 0.02, "latency_p50_ms": 1.0,
-        "false_automation": stats.proportion(0, 600).to_dict(),
+        "false_automation": stats.proportion(0, 600).to_dict(), "questions": {},
     }  # fmt: skip
     return [
         {**base, "config": config, "accuracy_proportion": stats.proportion(k, 600).to_dict(),
@@ -249,9 +289,11 @@ def test_a_stored_bound_is_never_trusted_for_the_ranking() -> None:
             {"question": "q", "label": "y", "n": 5, "auto_missed": 0}]}],
         [{"config": "a", "dataset": "t", "n": 5, "critical": [],
           "accuracy_proportion": {"k": 9, "n": 5}}],
+        # Every row a leaderboard is built of holds its other questions, if none.
+        [{"config": "a", "dataset": "t", "n": 5, "critical": []}],
     ],
     ids=["number", "no-dataset", "n-text", "n-huge", "detected-over-n", "bool", "no-detected",
-         "accuracy-over-n"],
+         "accuracy-over-n", "no-questions"],
 )  # fmt: skip
 def test_a_malformed_board_is_refused_and_the_registry_shows_none(rows: list[Any]) -> None:
     started = time.monotonic()
