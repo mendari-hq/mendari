@@ -616,6 +616,7 @@ BARE_PERCENT = r"""() => {
   return texts.join("\n")
     .replace(/\[[^\]]*%\]/g, "[interval]")
     .replace(/\(at most [\d.]+%\)/g, "(bound)")
+    .replace(/\d+% confidence/g, "confidence")
     .replace(/The vertical axis starts at [\d.]+%/g, "")
     .match(/[^\n]{0,40}\d\s?%[^\n]{0,20}/g) ?? [];
 }"""
@@ -920,6 +921,14 @@ def test_charts_switch_with_the_theme_without_a_reload(page: Page) -> None:
     assert column.evaluate("el => getComputedStyle(el).fill") != light
 
 
+def chart_name(cell: str) -> str:
+    """A configuration as the cost chart names it, from its cell in the leaderboard's table: the
+    slots that differ between rows, a line each there ("Router: Rules"), joined, without the
+    row's standing or the "Deployed" mark."""
+    slots = [line.removesuffix(" Deployed") for line in cell.split("\n") if ": " in line]
+    return ", ".join(slots)
+
+
 def test_the_cost_chart_rings_the_deployed_configuration(page: Page, served_agents: Path) -> None:
     serve_board(page, TRIAGE, counted_board(served(served_agents, TRIAGE), priced=True))
     open_pack(page, TRIAGE, "evals")
@@ -930,7 +939,7 @@ def test_the_cost_chart_rings_the_deployed_configuration(page: Page, served_agen
     # Every leaderboard row is on the chart (rows at the same point share one named mark); under
     # each name, its standing (too few positives here to rank).
     assert all(c.endswith("\ninsufficient evidence") for c in configs)
-    assert all(c.split("\n")[0].removesuffix(" Deployed") in names for c in configs)
+    assert all(chart_name(c) in names for c in configs)
     expect(chart.locator("svg .ring")).to_have_count(1)  # locally the keyword rules are deployed
     expect(chart.locator("svg text", has_text="$0").first).to_be_visible()  # rules cost nothing
     expect(chart.locator(".mark").first).to_have_attribute(
@@ -976,8 +985,7 @@ def test_the_cost_chart_names_the_deployed_and_the_unbeaten_never_the_first(
     table = page.locator("#board table.data").first
 
     def plain(config: str) -> str:  # the configuration in the words the chart uses
-        cell = table.locator(f'tbody .config[title="{config}"]').inner_text()
-        return cell.split("\n")[0].removesuffix(" Deployed")
+        return chart_name(table.locator(f'tbody .config[title="{config}"]').inner_text())
 
     chart = page.locator(f'figure.chart[data-chart="cost-{group}"]')
     expect(chart.locator(".mark").first).to_be_visible()
