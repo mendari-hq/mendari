@@ -177,7 +177,7 @@ def test_a_row_without_an_absolute_limit_keeps_its_own(
     roles hold, its expiry is its absolute limit, and the idle limit starts at its first
     request."""
     now = int(time.time())
-    old = {"iss": IDP, "sub": "u1", "name": "Nurse Kim", "org": "default"}
+    old: dict[str, Any] = {"iss": IDP, "sub": "u1", "name": "Nurse Kim", "org": "default"}
     old["claims"] = {"roles": ["reviewer"]}
     with AuditStore(db_target) as store:
         store.smart_put("old-sid", "user", old, now + 7 * HOUR)
