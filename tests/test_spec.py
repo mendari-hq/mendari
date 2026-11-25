@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from mendari import Pack, load_pack
 from mendari.core.pack import pack_digest
@@ -76,6 +77,22 @@ def test_thresholds_must_be_ordered(agent_copy: Callable[..., Path]) -> None:
 
     with pytest.raises(PackValidationError, match="review must be <="):
         load_pack(agent_copy(policy=edit))
+
+
+def test_the_policy_is_a_section_of_the_manifest_never_a_file(
+    agent_copy: Callable[..., Path],
+) -> None:
+    """A manifest whose `policy` names a file is refused, and the file is not read: the policy
+    is the manifest's own section."""
+
+    def to_a_file(m: dict) -> None:
+        m["policy"] = "policy.yaml"
+
+    root = agent_copy(manifest=to_a_file)
+    section = yaml.safe_load((TRIAGE_DIR / "agent.yaml").read_text(encoding="utf-8"))["policy"]
+    (root / "policy.yaml").write_text(yaml.safe_dump(section), encoding="utf-8")
+    with pytest.raises(PackValidationError, match="policy: Input should be a valid dictionary"):
+        load_pack(root)
 
 
 def test_clinical_support_pack_cannot_declare_auto_rules(agent_copy: Callable[..., Path]) -> None:
