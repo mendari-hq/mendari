@@ -8,13 +8,13 @@
       "tag": [
         {
           "system": "https://mendari.co/fhir/CodeSystem/decision-pack",
-          "code": "mendari/patient-inbox-router@0.3.0"
+          "code": "mendari-test/triage@1.0.0"
         }
       ]
     },
     "text": {
       "status": "generated",
-      "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\"><p>Decision 2b3f6c1e-8d4a-4f0b-9c71-5e2d8a6b4c90 by mendari/patient-inbox-router@0.3.0: HUMAN_REVIEW, status requested, version 1 (decision.created), recorded 2026-10-01T14:00:00.004+00:00.</p></div>"
+      "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\"><p>Decision 2b3f6c1e-8d4a-4f0b-9c71-5e2d8a6b4c90 by mendari-test/triage@1.0.0: HUMAN_REVIEW, status requested, version 1 (decision.created), recorded 2026-10-01T14:00:00.004+00:00.</p></div>"
     },
     "identifier": [
       {
@@ -35,7 +35,7 @@
     "intent": "order",
     "priority": "routine",
     "code": {
-      "text": "Decide with mendari/patient-inbox-router@0.3.0"
+      "text": "Decide with mendari-test/triage@1.0.0"
     },
     "authoredOn": "2026-10-01T14:00:00.000+00:00",
     "executionPeriod": {
@@ -44,13 +44,13 @@
     "owner": {
       "identifier": {
         "system": "https://mendari.co/fhir/NamingSystem/decision-pack",
-        "value": "mendari/patient-inbox-router@0.3.0"
+        "value": "mendari-test/triage@1.0.0"
       },
-      "display": "Mendari engine · mendari/patient-inbox-router@0.3.0"
+      "display": "Mendari engine · mendari-test/triage@1.0.0"
     },
     "note": [
       {
-        "text": "confidence 0.58 is below the auto threshold 0.90 for 'medical_assistant'"
+        "text": "confidence 0.92 is below the auto threshold 0.95 for 'front_desk'"
       }
     ],
     "output": [
@@ -59,8 +59,8 @@
           "text": "recommendation"
         },
         "valueCoding": {
-          "system": "https://mendari.co/packs/mendari/patient-inbox-router/CodeSystem/destination",
-          "code": "medical_assistant"
+          "system": "https://mendari.co/packs/mendari-test/triage/CodeSystem/destination",
+          "code": "front_desk"
         }
       }
     ],
@@ -79,13 +79,13 @@
       "tag": [
         {
           "system": "https://mendari.co/fhir/CodeSystem/decision-pack",
-          "code": "mendari/patient-inbox-router@0.3.0"
+          "code": "mendari-test/triage@1.0.0"
         }
       ]
     },
     "text": {
       "status": "generated",
-      "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\"><p>Decision 2b3f6c1e-8d4a-4f0b-9c71-5e2d8a6b4c90 by mendari/patient-inbox-router@0.3.0: HUMAN_REVIEW, status completed, version 2 (review.resolved), recorded 2026-10-01T14:20:00.000+00:00.</p></div>"
+      "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\"><p>Decision 2b3f6c1e-8d4a-4f0b-9c71-5e2d8a6b4c90 by mendari-test/triage@1.0.0: HUMAN_REVIEW, status completed, version 2 (review.resolved), recorded 2026-10-01T14:20:00.000+00:00.</p></div>"
     },
     "identifier": [
       {
@@ -106,7 +106,7 @@
     "intent": "order",
     "priority": "routine",
     "code": {
-      "text": "Decide with mendari/patient-inbox-router@0.3.0"
+      "text": "Decide with mendari-test/triage@1.0.0"
     },
     "authoredOn": "2026-10-01T14:00:00.000+00:00",
     "executionPeriod": {
@@ -118,7 +118,7 @@
     },
     "note": [
       {
-        "text": "confidence 0.58 is below the auto threshold 0.90 for 'medical_assistant'"
+        "text": "confidence 0.92 is below the auto threshold 0.95 for 'front_desk'"
       }
     ],
     "output": [
@@ -127,8 +127,8 @@
           "text": "recommendation"
         },
         "valueCoding": {
-          "system": "https://mendari.co/packs/mendari/patient-inbox-router/CodeSystem/destination",
-          "code": "medical_assistant"
+          "system": "https://mendari.co/packs/mendari-test/triage/CodeSystem/destination",
+          "code": "front_desk"
         }
       },
       {
@@ -136,7 +136,7 @@
           "text": "final-label"
         },
         "valueCoding": {
-          "system": "https://mendari.co/packs/mendari/patient-inbox-router/CodeSystem/destination",
+          "system": "https://mendari.co/packs/mendari-test/triage/CodeSystem/destination",
           "code": "billing"
         }
       },
@@ -165,13 +165,13 @@
       "tag": [
         {
           "system": "https://mendari.co/fhir/CodeSystem/decision-pack",
-          "code": "mendari/patient-inbox-router@0.3.0"
+          "code": "mendari-test/triage@1.0.0"
         }
       ]
     },
     "text": {
       "status": "generated",
-      "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\"><p>Decision 2b3f6c1e-8d4a-4f0b-9c71-5e2d8a6b4c90 by mendari/patient-inbox-router@0.3.0: HUMAN_REVIEW, status completed, version 3 (outcome.recorded), recorded 2026-10-01T15:00:00.000+00:00.</p></div>"
+      "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\"><p>Decision 2b3f6c1e-8d4a-4f0b-9c71-5e2d8a6b4c90 by mendari-test/triage@1.0.0: HUMAN_REVIEW, status completed, version 3 (outcome.recorded), recorded 2026-10-01T15:00:00.000+00:00.</p></div>"
     },
     "identifier": [
       {
@@ -192,7 +192,7 @@
     "intent": "order",
     "priority": "routine",
     "code": {
-      "text": "Decide with mendari/patient-inbox-router@0.3.0"
+      "text": "Decide with mendari-test/triage@1.0.0"
     },
     "authoredOn": "2026-10-01T14:00:00.000+00:00",
     "executionPeriod": {
@@ -204,7 +204,7 @@
     },
     "note": [
       {
-        "text": "confidence 0.58 is below the auto threshold 0.90 for 'medical_assistant'"
+        "text": "confidence 0.92 is below the auto threshold 0.95 for 'front_desk'"
       }
     ],
     "output": [
@@ -213,8 +213,8 @@
           "text": "recommendation"
         },
         "valueCoding": {
-          "system": "https://mendari.co/packs/mendari/patient-inbox-router/CodeSystem/destination",
-          "code": "medical_assistant"
+          "system": "https://mendari.co/packs/mendari-test/triage/CodeSystem/destination",
+          "code": "front_desk"
         }
       },
       {
@@ -222,7 +222,7 @@
           "text": "final-label"
         },
         "valueCoding": {
-          "system": "https://mendari.co/packs/mendari/patient-inbox-router/CodeSystem/destination",
+          "system": "https://mendari.co/packs/mendari-test/triage/CodeSystem/destination",
           "code": "billing"
         }
       },
@@ -237,8 +237,8 @@
           "text": "observed-label"
         },
         "valueCoding": {
-          "system": "https://mendari.co/packs/mendari/patient-inbox-router/CodeSystem/destination",
-          "code": "front_desk"
+          "system": "https://mendari.co/packs/mendari-test/triage/CodeSystem/destination",
+          "code": "pharmacy"
         }
       }
     ],
