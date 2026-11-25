@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """One canonical form of a case's input (LP-11, `evals/canonical.py`): the strict form and the
-`norm/v1` form are pinned byte for byte, since the coverage report, the hidden-case index and the
-pack store's upload check (LP-20) must agree on what the same case is. A change here changes what
-an index built before matches. Every character outside ASCII is made with `chr`, so the source
-shows which one it is."""
+`norm/v1` form are pinned byte for byte, since the coverage report, the dataset checks (LP-20)
+and the probe must agree on what the same case is. A change here changes what was compared
+before. Every character outside ASCII is made with `chr`, so the source shows which one it is."""
 
 from __future__ import annotations
 
