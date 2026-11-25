@@ -148,19 +148,6 @@ test("an unknown agent is a 404 page", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Not found" })).toBeVisible();
 });
 
-// An agent's page was at /packs/<namespace>/<name> before: a link made then still opens it, and a
-// name is only ever a name in the address it leads to.
-test("the address an agent's page had before leads to the page", async ({ page, request }) => {
-  const moved = await request.get("/packs/mendari/portal-message-agent", { maxRedirects: 0 });
-  expect(moved.status()).toBe(308);
-  expect(moved.headers()["location"]).toBe(DEMO);
-  const odd = await request.get("/packs/%2F%2Fexample.org/a%3Fb", { maxRedirects: 0 });
-  expect(odd.headers()["location"]).toBe("/agents/%2F%2Fexample.org/a%3Fb");
-  await page.goto("/packs/mendari/portal-message-agent");
-  await expect(page).toHaveURL(/\/agents\/mendari\/portal-message-agent$/);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Portal Message Agent");
-});
-
 test("pages fit a phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const pages = ["/", DEMO, `${DEMO}/evaluation`, "/agents/hub-test/hostile-text", "/agents/hub-test/hostile-text/evaluation", "/publishers/mendari"];

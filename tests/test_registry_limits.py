@@ -230,7 +230,7 @@ def test_the_hub_site_job_runs_the_hubs_tests_and_the_pinned_scanner() -> None:
     assert seed < tests < started < scan < check
     headers = (HUB_TESTS / "headers.spec.ts").read_text()
     assert 'test("every page and asset carries the headers, each nonce fresh"' in headers
-    assert '"/packs/hub-test/hostile-text"' in headers
+    assert '"/agents/hub-test/hostile-text"' in headers
     smoke = (HUB_TESTS / "smoke.spec.ts").read_text()
     title = "publisher text is shown as text: no script runs and no unsafe link is made"
     assert f'test("{title}"' in smoke
